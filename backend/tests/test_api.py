@@ -398,19 +398,36 @@ class TestIaCGeneration:
 # ====================================================================
 
 class TestCostEstimate:
-    def test_cost_estimate_returns_data(self, client):
-        resp = client.get("/api/diagrams/diag-001/cost-estimate")
+    def test_cost_estimate_returns_data(self, client, analyzed_diagram):
+        resp = client.get(f"/api/diagrams/{analyzed_diagram}/cost-estimate")
         assert resp.status_code == 200
         data = resp.json()
         assert "total_monthly_estimate" in data
         assert data["currency"] == "USD"
         assert "services" in data
+        # With real mappings, we should get priced services
+        assert data["service_count"] > 0
 
-    def test_cost_estimate_has_ranges(self, client):
-        est = client.get("/api/diagrams/diag-001/cost-estimate").json()["total_monthly_estimate"]
+    def test_cost_estimate_has_ranges(self, client, analyzed_diagram):
+        est = client.get(f"/api/diagrams/{analyzed_diagram}/cost-estimate").json()["total_monthly_estimate"]
         assert "low" in est
         assert "high" in est
         assert est["low"] <= est["high"]
+
+    def test_cost_estimate_nonzero(self, client, analyzed_diagram):
+        """Verify analyzed diagram produces non-zero cost estimates."""
+        data = client.get(f"/api/diagrams/{analyzed_diagram}/cost-estimate").json()
+        # At least some services should have a non-zero price
+        priced = [s for s in data["services"] if s["monthly_estimate"] > 0]
+        assert len(priced) >= 1, "Expected at least one service with non-zero cost"
+
+    def test_cost_estimate_fallback(self, client):
+        """No analysis → returns empty / zero estimate."""
+        resp = client.get("/api/diagrams/nonexistent-id/cost-estimate")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["service_count"] == 0
+        assert data["total_monthly_estimate"]["low"] == 0
 
 
 # ====================================================================

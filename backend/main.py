@@ -1062,9 +1062,9 @@ async def estimate_cost(diagram_id: str):
     record_event("cost_estimates", {"diagram_id": diagram_id})
 
     session = SESSION_STORE.get(diagram_id, {})
-    analysis = session.get("analysis", {})
-    mappings = analysis.get("mappings", [])
-    iac_params = analysis.get("iac_parameters", {})
+    # The analysis result is stored directly in SESSION_STORE (not nested under "analysis")
+    mappings = session.get("mappings", [])
+    iac_params = session.get("iac_parameters", {})
 
     # Get region from guided-question answers or iac_parameters
     region = iac_params.get("deploy_region", "westeurope")
