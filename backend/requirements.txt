@@ -6,7 +6,7 @@ httpx==0.28.1
 azure-storage-blob==12.24.1
 azure-identity==1.19.0
 openai==1.58.1
-psycopg2-binary==2.9.10
+psycopg2-binary==2.9.11
 sqlalchemy==2.0.36
 alembic==1.14.1
 python-dotenv==1.0.1
