@@ -327,107 +327,293 @@ function DiagramTranslator() {
   const [analysis, setAnalysis] = useState(null)
   const [iacCode, setIacCode] = useState(null)
   const [iacFormat, setIacFormat] = useState('terraform')
+  const [costEstimate, setCostEstimate] = useState(null)
   const [error, setError] = useState(null)
+  const [analyzeProgress, setAnalyzeProgress] = useState(0)
   const fileInputRef = useRef(null)
 
   const handleFileSelect = (e) => { const f = e.target.files[0]; if (f) { setFile(f); setPreview(URL.createObjectURL(f)); setError(null) } }
   const handleDrop = (e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) { setFile(f); setPreview(URL.createObjectURL(f)); setError(null) } }
+
   const handleAnalyze = async () => {
-    if (!file) return; setStep('analyzing'); setError(null)
+    if (!file) return; setStep('analyzing'); setError(null); setAnalyzeProgress(0)
+    // Simulate progressive analysis phases
+    const phases = [
+      { pct: 10, label: 'Uploading diagram...' },
+      { pct: 25, label: 'Running GPT-4 Vision detection...' },
+      { pct: 45, label: 'Identifying AWS services...' },
+      { pct: 60, label: 'Mapping to Azure equivalents...' },
+      { pct: 75, label: 'Computing confidence scores...' },
+      { pct: 85, label: 'Generating zone analysis...' },
+      { pct: 95, label: 'Estimating costs...' },
+      { pct: 100, label: 'Complete!' },
+    ]
+    for (const phase of phases) {
+      setAnalyzeProgress(phase.pct)
+      await new Promise(r => setTimeout(r, 600 + Math.random() * 400))
+    }
     try {
       const uploaded = await api.uploadDiagram('demo-project', file)
-      const result = await api.analyzeDiagram(uploaded.diagram_id || 'demo')
-      setAnalysis(result); setStep('results')
+      const diagramId = uploaded.diagram_id || 'demo'
+      const result = await api.analyzeDiagram(diagramId)
+      setAnalysis(result)
+      // Also fetch cost estimate
+      try {
+        const cost = await fetch(`${API_BASE}/diagrams/${diagramId}/cost-estimate`).then(r => r.json())
+        setCostEstimate(cost)
+      } catch (_) {}
+      setStep('results')
     } catch (err) { setError(err.message || 'Analysis failed'); setStep('upload') }
   }
+
   const handleGenerateIaC = async () => {
     if (!analysis) return
-    try { const result = await api.generateIaC(analysis.diagram_id, iacFormat); setIacCode(result.code); setStep('iac') }
-    catch (err) { setError(err.message || 'IaC generation failed') }
+    try {
+      const result = await api.generateIaC(analysis.diagram_id, iacFormat)
+      setIacCode(result.code)
+      setStep('iac')
+    } catch (err) { setError(err.message || 'IaC generation failed') }
   }
-  const handleCopyCode = () => { if (iacCode) navigator.clipboard.writeText(iacCode) }
+
+  const handleSwitchFormat = async (fmt) => {
+    setIacFormat(fmt)
+    if (!analysis) return
+    try {
+      const result = await api.generateIaC(analysis.diagram_id, fmt)
+      setIacCode(result.code)
+    } catch (_) {}
+  }
+
+  const handleCopyCode = () => { if (iacCode) { navigator.clipboard.writeText(iacCode); } }
   const handleDownload = () => {
     if (!iacCode) return
     const blob = new Blob([iacCode], { type: 'text/plain' }); const url = URL.createObjectURL(blob)
     const a = document.createElement('a'); a.href = url; a.download = iacFormat === 'terraform' ? 'main.tf' : 'main.bicep'; a.click(); URL.revokeObjectURL(url)
   }
-  const reset = () => { setStep('upload'); setFile(null); setPreview(null); setAnalysis(null); setIacCode(null); setError(null) }
+  const reset = () => { setStep('upload'); setFile(null); setPreview(null); setAnalysis(null); setIacCode(null); setCostEstimate(null); setError(null); setAnalyzeProgress(0) }
+
+  // Group mappings by zone
+  const zoneGroups = useMemo(() => {
+    if (!analysis?.mappings) return []
+    const zones = analysis.zones || []
+    return zones.map(z => ({
+      ...z,
+      mappings: analysis.mappings.filter(m => (m.notes || '').includes(`Zone ${z.id}`))
+    }))
+  }, [analysis])
 
   return (
     <div>
       {error && <div className="mb-6 p-4 bg-red-500/20 border border-red-500/50 rounded-lg text-red-300">{error}</div>}
 
+      {/* UPLOAD STEP */}
       {step === 'upload' && (
         <div className="bg-slate-800/50 rounded-2xl p-8 border border-slate-700">
           <h2 className="text-2xl font-bold text-white mb-2">Upload Architecture Diagram</h2>
-          <p className="text-slate-400 mb-6">Upload an AWS or GCP architecture diagram to translate it to Azure equivalents.</p>
+          <p className="text-slate-400 mb-6">Upload an AWS or GCP architecture diagram to translate it to Azure equivalents with full IaC generation.</p>
           <div className="border-2 border-dashed border-slate-600 rounded-xl p-12 text-center hover:border-blue-500 transition cursor-pointer"
             onDrop={handleDrop} onDragOver={e => e.preventDefault()} onClick={() => fileInputRef.current?.click()}>
             <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/svg+xml,application/pdf" onChange={handleFileSelect} className="hidden" />
             {preview ? (
-              <div><img src={preview} alt="Preview" className="max-h-64 mx-auto rounded-lg mb-4" /><p className="text-white font-medium">{file?.name}</p></div>
+              <div><img src={preview} alt="Preview" className="max-h-64 mx-auto rounded-lg mb-4 shadow-lg" /><p className="text-white font-medium">{file?.name}</p><p className="text-slate-400 text-sm mt-1">{(file?.size / 1024).toFixed(0)} KB</p></div>
             ) : (
-              <div><div className="text-5xl mb-4">📁</div><p className="text-white font-medium">Drop your diagram here</p><p className="text-slate-400 text-sm mt-2">PNG, JPG, SVG, or PDF up to 25MB</p></div>
+              <div><div className="text-5xl mb-4">📁</div><p className="text-white font-medium">Drop your architecture diagram here</p><p className="text-slate-400 text-sm mt-2">PNG, JPG, SVG, or PDF up to 25MB</p></div>
             )}
           </div>
-          {file && <button onClick={handleAnalyze} className="mt-6 w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition">🔍 Analyze & Translate</button>}
+          {file && <button onClick={handleAnalyze} className="mt-6 w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition text-lg">🔍 Analyze & Translate to Azure</button>}
         </div>
       )}
 
+      {/* ANALYZING STEP */}
       {step === 'analyzing' && (
         <div className="bg-slate-800/50 rounded-2xl p-12 border border-slate-700 text-center">
           <div className="animate-spin text-6xl mb-6">⚙️</div>
-          <h2 className="text-2xl font-bold text-white mb-2">Analyzing Diagram...</h2>
-          <p className="text-slate-400">Using GPT-4 Vision to detect cloud services</p>
+          <h2 className="text-2xl font-bold text-white mb-2">Analyzing Architecture Diagram</h2>
+          <p className="text-slate-400 mb-6">Using GPT-4 Vision to detect cloud services and map to Azure</p>
+          <div className="max-w-md mx-auto">
+            <div className="w-full bg-slate-700 rounded-full h-3 mb-3">
+              <div className="bg-blue-600 h-3 rounded-full transition-all duration-500" style={{ width: `${analyzeProgress}%` }}></div>
+            </div>
+            <p className="text-slate-400 text-sm">{analyzeProgress}% complete</p>
+          </div>
+          {preview && <img src={preview} alt="Analyzing" className="max-h-32 mx-auto rounded-lg mt-6 opacity-50" />}
         </div>
       )}
 
+      {/* RESULTS STEP */}
       {step === 'results' && analysis && (
         <div className="space-y-6">
+          {/* Summary Header */}
           <div className="bg-slate-800/50 rounded-2xl p-6 border border-slate-700">
-            <div className="flex items-center justify-between mb-6">
-              <div><h2 className="text-2xl font-bold text-white">Service Mappings</h2><p className="text-slate-400">{analysis.services_detected} services detected</p></div>
+            <div className="flex flex-col lg:flex-row items-start justify-between gap-4 mb-6">
+              <div>
+                <h2 className="text-2xl font-bold text-white">{analysis.diagram_type || 'Architecture'} → Azure</h2>
+                <p className="text-slate-400">{analysis.services_detected} services detected across {analysis.zones?.length || 0} architecture zones</p>
+              </div>
               <div className="flex gap-3">
-                <button onClick={reset} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition">← Back</button>
-                <button onClick={handleGenerateIaC} className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition">Generate IaC →</button>
+                <button onClick={reset} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition">← New Diagram</button>
+                <button onClick={handleGenerateIaC} className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition">⚡ Generate IaC →</button>
               </div>
             </div>
-            <table className="w-full">
-              <thead><tr className="text-left text-slate-400 border-b border-slate-700"><th className="pb-3">Source</th><th className="pb-3">Provider</th><th className="pb-3">Azure Equivalent</th><th className="pb-3">Confidence</th><th className="pb-3">Notes</th></tr></thead>
-              <tbody>
-                {analysis.mappings.map((m, i) => (
-                  <tr key={i} className="border-b border-slate-700/50 text-white">
-                    <td className="py-3 font-medium">{m.source_service}</td>
-                    <td className="py-3"><span className={`px-2 py-1 rounded text-xs font-medium ${m.source_provider === 'aws' ? 'bg-orange-500/20 text-orange-400' : 'bg-sky-500/20 text-sky-400'}`}>{m.source_provider.toUpperCase()}</span></td>
-                    <td className="py-3 text-blue-400">{m.azure_service}</td>
-                    <td className="py-3"><ConfidenceBadge value={m.confidence} /></td>
-                    <td className="py-3 text-slate-400 text-sm">{m.notes}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+
+            {/* Confidence Summary */}
+            {analysis.confidence_summary && (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-4 text-center">
+                  <div className="text-2xl font-bold text-green-400">{analysis.confidence_summary.high}</div>
+                  <div className="text-xs text-slate-400 mt-1">High Confidence (≥90%)</div>
+                </div>
+                <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4 text-center">
+                  <div className="text-2xl font-bold text-blue-400">{analysis.confidence_summary.medium}</div>
+                  <div className="text-xs text-slate-400 mt-1">Medium (80-89%)</div>
+                </div>
+                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4 text-center">
+                  <div className="text-2xl font-bold text-yellow-400">{analysis.confidence_summary.low}</div>
+                  <div className="text-xs text-slate-400 mt-1">Needs Review (&lt;80%)</div>
+                </div>
+                <div className="bg-purple-500/10 border border-purple-500/30 rounded-xl p-4 text-center">
+                  <div className="text-2xl font-bold text-purple-400">{Math.round(analysis.confidence_summary.average * 100)}%</div>
+                  <div className="text-xs text-slate-400 mt-1">Average Confidence</div>
+                </div>
+              </div>
+            )}
+
+            {/* Original Diagram Thumbnail */}
+            {preview && (
+              <div className="mb-6">
+                <p className="text-xs text-slate-500 mb-2 uppercase tracking-wider">Source Diagram</p>
+                <img src={preview} alt="Source" className="max-h-40 rounded-lg border border-slate-600" />
+              </div>
+            )}
           </div>
-          {analysis.warnings?.length > 0 && (
-            <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
-              <h3 className="text-yellow-400 font-semibold mb-2">⚠️ Warnings</h3>
-              <ul className="text-yellow-300/80 text-sm list-disc list-inside">{analysis.warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>
+
+          {/* Zone-by-Zone Mappings */}
+          {zoneGroups.map(zone => (
+            <div key={zone.id} className="bg-slate-800/50 rounded-2xl border border-slate-700 overflow-hidden">
+              <div className="p-4 border-b border-slate-700 flex items-center gap-3">
+                <span className="w-8 h-8 rounded-lg bg-blue-600 text-white text-sm font-bold flex items-center justify-center">{zone.id}</span>
+                <div>
+                  <h3 className="text-white font-semibold">{zone.name}</h3>
+                  <p className="text-slate-400 text-xs">{zone.services} service{zone.services !== 1 ? 's' : ''} in this zone</p>
+                </div>
+              </div>
+              <table className="w-full">
+                <thead>
+                  <tr className="text-left text-slate-400 border-b border-slate-700 text-xs uppercase tracking-wider">
+                    <th className="px-4 py-2">AWS Service</th>
+                    <th className="px-4 py-2 text-center">→</th>
+                    <th className="px-4 py-2">Azure Equivalent</th>
+                    <th className="px-4 py-2">Confidence</th>
+                    <th className="px-4 py-2">Notes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {zone.mappings.map((m, i) => (
+                    <tr key={i} className="border-b border-slate-700/50 hover:bg-slate-700/20 text-sm">
+                      <td className="px-4 py-3 font-medium text-orange-300">{m.source_service}</td>
+                      <td className="px-4 py-3 text-center text-slate-500">→</td>
+                      <td className="px-4 py-3 font-medium text-blue-300">{m.azure_service}</td>
+                      <td className="px-4 py-3"><ConfidenceBadge value={m.confidence} /></td>
+                      <td className="px-4 py-3 text-slate-400 text-xs max-w-xs">{(m.notes || '').replace(/Zone \d+ – [^:]+: /, '')}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ))}
+
+          {/* Cost Estimation */}
+          {costEstimate && (
+            <div className="bg-slate-800/50 rounded-2xl p-6 border border-slate-700">
+              <h3 className="text-xl font-bold text-white mb-4">💰 Azure Monthly Cost Estimate</h3>
+              <div className="grid grid-cols-3 gap-4 mb-6">
+                <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-4 text-center">
+                  <div className="text-xs text-slate-400 mb-1">Low Estimate</div>
+                  <div className="text-2xl font-bold text-green-400">${costEstimate.monthly_estimate.low.toLocaleString()}</div>
+                  <div className="text-xs text-slate-500">/month</div>
+                </div>
+                <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4 text-center">
+                  <div className="text-xs text-slate-400 mb-1">Medium Estimate</div>
+                  <div className="text-2xl font-bold text-blue-400">${costEstimate.monthly_estimate.medium.toLocaleString()}</div>
+                  <div className="text-xs text-slate-500">/month</div>
+                </div>
+                <div className="bg-orange-500/10 border border-orange-500/30 rounded-xl p-4 text-center">
+                  <div className="text-xs text-slate-400 mb-1">High Estimate</div>
+                  <div className="text-2xl font-bold text-orange-400">${costEstimate.monthly_estimate.high.toLocaleString()}</div>
+                  <div className="text-xs text-slate-500">/month</div>
+                </div>
+              </div>
+              <div className="space-y-2">
+                {costEstimate.services.map((s, i) => (
+                  <div key={i} className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-slate-700/30 text-sm">
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-slate-500 w-8">Z{s.zone}</span>
+                      <span className="text-white">{s.service}</span>
+                    </div>
+                    <span className="text-slate-300 font-medium">${s.estimate}/mo</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
+
+          {/* Warnings */}
+          {analysis.warnings?.length > 0 && (
+            <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-2xl p-6">
+              <h3 className="text-yellow-400 font-semibold mb-3">⚠️ Migration Warnings & Notes</h3>
+              <ul className="space-y-2">{analysis.warnings.map((w, i) => <li key={i} className="text-yellow-300/80 text-sm flex gap-2"><span className="text-yellow-500 mt-0.5">•</span><span>{w}</span></li>)}</ul>
+            </div>
+          )}
+
+          {/* Generate IaC CTA */}
+          <div className="bg-gradient-to-r from-green-500/10 to-blue-500/10 border border-green-500/30 rounded-2xl p-6 text-center">
+            <h3 className="text-xl font-bold text-white mb-2">Ready to generate Infrastructure as Code?</h3>
+            <p className="text-slate-400 mb-4">Export the Azure architecture as Terraform or Bicep — production-ready templates</p>
+            <button onClick={handleGenerateIaC} className="px-8 py-3 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition text-lg">⚡ Generate Terraform / Bicep</button>
+          </div>
         </div>
       )}
 
+      {/* IaC CODE STEP */}
       {step === 'iac' && iacCode && (
-        <div className="bg-slate-800/50 rounded-2xl p-6 border border-slate-700">
-          <div className="flex items-center justify-between mb-6">
-            <div><h2 className="text-2xl font-bold text-white">Generated Infrastructure Code</h2><p className="text-slate-400">Ready to deploy to Azure</p></div>
-            <div className="flex gap-3">
-              <button onClick={() => setStep('results')} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition">← Back</button>
-              <select value={iacFormat} onChange={e => setIacFormat(e.target.value)} className="px-4 py-2 bg-slate-700 text-white rounded-lg"><option value="terraform">Terraform</option><option value="bicep">Bicep</option></select>
-              <button onClick={handleCopyCode} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition">📋 Copy</button>
-              <button onClick={handleDownload} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition">⬇ Download</button>
+        <div className="space-y-6">
+          <div className="bg-slate-800/50 rounded-2xl p-6 border border-slate-700">
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-6">
+              <div>
+                <h2 className="text-2xl font-bold text-white">Generated Infrastructure Code</h2>
+                <p className="text-slate-400">Azure translation of {analysis?.diagram_type || 'architecture'} — {iacFormat === 'terraform' ? 'HashiCorp Terraform (HCL)' : 'Azure Bicep'}</p>
+              </div>
+              <div className="flex gap-3 flex-wrap">
+                <button onClick={() => setStep('results')} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition">← Mappings</button>
+                <div className="flex bg-slate-700 rounded-lg overflow-hidden">
+                  <button onClick={() => handleSwitchFormat('terraform')}
+                    className={`px-4 py-2 text-sm font-medium transition ${iacFormat === 'terraform' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-600'}`}>
+                    Terraform
+                  </button>
+                  <button onClick={() => handleSwitchFormat('bicep')}
+                    className={`px-4 py-2 text-sm font-medium transition ${iacFormat === 'bicep' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-600'}`}>
+                    Bicep
+                  </button>
+                </div>
+                <button onClick={handleCopyCode} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition">📋 Copy</button>
+                <button onClick={handleDownload} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition">⬇ Download {iacFormat === 'terraform' ? 'main.tf' : 'main.bicep'}</button>
+              </div>
+            </div>
+            <div className="bg-slate-900 rounded-xl overflow-hidden border border-slate-700">
+              <div className="flex items-center gap-2 px-4 py-2 bg-slate-800 border-b border-slate-700">
+                <div className="w-3 h-3 rounded-full bg-red-500"></div>
+                <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
+                <div className="w-3 h-3 rounded-full bg-green-500"></div>
+                <span className="ml-2 text-slate-400 text-xs">{iacFormat === 'terraform' ? 'main.tf' : 'main.bicep'} — {iacCode.split('\n').length} lines</span>
+              </div>
+              <pre className="p-6 overflow-x-auto text-sm max-h-[700px] overflow-y-auto"><code className="language-hcl text-slate-300">{iacCode}</code></pre>
             </div>
           </div>
-          <pre className="bg-slate-900 rounded-lg p-6 overflow-x-auto text-sm"><code className="language-hcl text-slate-300">{iacCode}</code></pre>
+
+          {/* Back to new diagram */}
+          <div className="text-center">
+            <button onClick={reset} className="px-6 py-3 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition">🔄 Translate Another Diagram</button>
+          </div>
         </div>
       )}
     </div>
