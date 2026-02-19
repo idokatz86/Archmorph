@@ -9,44 +9,14 @@ explain the generated infrastructure.
 
 import json
 import logging
-import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from openai import AzureOpenAI
-from azure.identity import DefaultAzureCredential, get_bearer_token_provider
+from cachetools import TTLCache
+
+from openai_client import get_openai_client, AZURE_OPENAI_DEPLOYMENT
 
 logger = logging.getLogger(__name__)
-
-# ─────────────────────────────────────────────────────────────
-# Azure OpenAI config (shared with vision_analyzer)
-# ─────────────────────────────────────────────────────────────
-AZURE_OPENAI_ENDPOINT = os.getenv(
-    "AZURE_OPENAI_ENDPOINT",
-    "https://archmorph-openai-acm7pd.openai.azure.com/",
-)
-AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
-AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-06-01")
-AZURE_OPENAI_KEY = os.getenv("AZURE_OPENAI_KEY", "")
-
-
-def _get_openai_client() -> AzureOpenAI:
-    """Create an Azure OpenAI client (API-key or Entra ID)."""
-    if AZURE_OPENAI_KEY:
-        return AzureOpenAI(
-            azure_endpoint=AZURE_OPENAI_ENDPOINT,
-            api_key=AZURE_OPENAI_KEY,
-            api_version=AZURE_OPENAI_API_VERSION,
-        )
-    credential = DefaultAzureCredential()
-    token_provider = get_bearer_token_provider(
-        credential, "https://cognitiveservices.azure.com/.default"
-    )
-    return AzureOpenAI(
-        azure_endpoint=AZURE_OPENAI_ENDPOINT,
-        azure_ad_token_provider=token_provider,
-        api_version=AZURE_OPENAI_API_VERSION,
-    )
 
 
 # ─────────────────────────────────────────────────────────────
@@ -94,9 +64,9 @@ ALWAYS respond with a JSON object containing exactly these fields:
 
 
 # ─────────────────────────────────────────────────────────────
-# In-memory conversation sessions  (keyed by diagram_id)
+# In-memory conversation sessions  (keyed by diagram_id, TTL: 2 hours, max 200)
 # ─────────────────────────────────────────────────────────────
-IAC_CHAT_SESSIONS: Dict[str, List[Dict[str, str]]] = {}
+IAC_CHAT_SESSIONS: TTLCache = TTLCache(maxsize=200, ttl=7200)
 
 
 def process_iac_chat(
@@ -172,7 +142,7 @@ def process_iac_chat(
     messages.append({"role": "user", "content": user_content})
 
     # Call GPT-4o
-    client = _get_openai_client()
+    client = get_openai_client()
 
     logger.info(
         "IaC chat request for diagram %s: %s (%d history msgs)",
@@ -223,12 +193,12 @@ def process_iac_chat(
     history.append({
         "role": "user",
         "content": message,  # Store just the message, not the full code
-        "ts": datetime.utcnow().isoformat(),
+        "ts": datetime.now(timezone.utc).isoformat(),
     })
     history.append({
         "role": "assistant",
         "content": reply,
-        "ts": datetime.utcnow().isoformat(),
+        "ts": datetime.now(timezone.utc).isoformat(),
     })
     IAC_CHAT_SESSIONS[session_key] = history
 

@@ -8,42 +8,11 @@ compliance, Azure CAF alignment, FinOps, limitations, and more.
 
 import json
 import logging
-import os
 from typing import Any, Dict, List, Optional
 
-from openai import AzureOpenAI
-from azure.identity import DefaultAzureCredential, get_bearer_token_provider
+from openai_client import get_openai_client, AZURE_OPENAI_DEPLOYMENT
 
 logger = logging.getLogger(__name__)
-
-# ─────────────────────────────────────────────────────────────
-# Azure OpenAI config
-# ─────────────────────────────────────────────────────────────
-AZURE_OPENAI_ENDPOINT = os.getenv(
-    "AZURE_OPENAI_ENDPOINT",
-    "https://archmorph-openai-acm7pd.openai.azure.com/",
-)
-AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
-AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-06-01")
-AZURE_OPENAI_KEY = os.getenv("AZURE_OPENAI_KEY", "")
-
-
-def _get_openai_client() -> AzureOpenAI:
-    if AZURE_OPENAI_KEY:
-        return AzureOpenAI(
-            azure_endpoint=AZURE_OPENAI_ENDPOINT,
-            api_key=AZURE_OPENAI_KEY,
-            api_version=AZURE_OPENAI_API_VERSION,
-        )
-    credential = DefaultAzureCredential()
-    token_provider = get_bearer_token_provider(
-        credential, "https://cognitiveservices.azure.com/.default"
-    )
-    return AzureOpenAI(
-        azure_endpoint=AZURE_OPENAI_ENDPOINT,
-        azure_ad_token_provider=token_provider,
-        api_version=AZURE_OPENAI_API_VERSION,
-    )
 
 
 # ─────────────────────────────────────────────────────────────
@@ -339,7 +308,7 @@ def generate_hld(
             context += f"- {w}\n"
 
     # Call GPT-4o
-    client = _get_openai_client()
+    client = get_openai_client()
     logger.info("Generating HLD for %s (%d services)", diagram_type, len(unique_mappings))
 
     try:

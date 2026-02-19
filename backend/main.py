@@ -3,15 +3,25 @@ Archmorph Backend API
 Cloud Architecture Translator to Azure — Full Services Catalog
 """
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Response
+from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Response, Request, Depends, Security
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from contextlib import asynccontextmanager
+from starlette.middleware.base import BaseHTTPMiddleware
+import asyncio
 import os
 import logging
+import secrets
 import uuid
+
+from cachetools import TTLCache
+
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from services import AWS_SERVICES, AZURE_SERVICES, GCP_SERVICES, CROSS_CLOUD_MAPPINGS
 from service_updater import start_scheduler, stop_scheduler, run_update_now, get_update_status, get_last_update
@@ -19,21 +29,68 @@ from guided_questions import generate_questions, apply_answers
 from diagram_export import generate_diagram
 from chatbot import process_chat_message, get_chat_history, clear_chat_session
 from iac_chat import process_iac_chat, get_iac_chat_history, clear_iac_chat
+from iac_generator import generate_iac_code
 from hld_generator import generate_hld, generate_hld_markdown
+from image_classifier import classify_image
 from vision_analyzer import analyze_image
 from usage_metrics import (
     record_event, get_metrics_summary, get_daily_metrics, get_recent_events,
     get_funnel_metrics, record_funnel_step, flush_metrics, ADMIN_SECRET,
 )
+from icons.routes import router as icon_router
 
 logger = logging.getLogger(__name__)
+
+# ─────────────────────────────────────────────────────────────
+# Rate Limiting
+# ─────────────────────────────────────────────────────────────
+limiter = Limiter(
+    key_func=get_remote_address,
+    enabled=os.getenv("RATE_LIMIT_ENABLED", "true").lower() != "false",
+)
+
+# ─────────────────────────────────────────────────────────────
+# API Key Authentication
+# ─────────────────────────────────────────────────────────────
+API_KEY = os.getenv("ARCHMORPH_API_KEY", "")  # Empty = auth disabled (dev mode)
+API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+# Allowed frontend origins (production)
+ALLOWED_ORIGINS = os.getenv(
+    "ALLOWED_ORIGINS",
+    "https://agreeable-ground-01012c003.2.azurestaticapps.net,http://localhost:5173,http://localhost:3000"
+).split(",")
+
+# Max upload file size (10 MB)
+MAX_UPLOAD_SIZE = int(os.getenv("MAX_UPLOAD_SIZE", str(10 * 1024 * 1024)))
+
+
+async def verify_api_key(api_key: Optional[str] = Security(API_KEY_HEADER)):
+    """Verify API key if authentication is enabled."""
+    if not API_KEY:
+        return  # Auth disabled — dev mode
+    if not secrets.compare_digest(api_key or "", API_KEY):
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup/shutdown lifecycle manager."""
-    logger.info("Starting Archmorph API v2.1.0 — production mode")
+    logger.info("Starting Archmorph API v2.5.0 — production mode")
     start_scheduler()
+
+    # Auto-load built-in icon packs from samples/
+    try:
+        from icons.registry import load_builtin_packs, _load_from_disk
+
+        if not _load_from_disk():
+            loaded = load_builtin_packs()
+            logger.info("Auto-loaded %d built-in icon packs", loaded)
+        else:
+            logger.info("Icon registry restored from disk")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Icon auto-load skipped: %s", exc)
+
     yield
     logger.info("Shutting down Archmorph API")
     stop_scheduler()
@@ -43,27 +100,51 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Archmorph API",
     description="AI-powered Cloud Architecture Translator to Azure",
-    version="2.1.0",
+    version="2.5.0",
     lifespan=lifespan,
 )
 
-# CORS
+# Rate limiter
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# CORS — use explicit origins in production
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "X-API-Key", "X-Admin-Key", "Authorization"],
 )
+
+
+# Security headers middleware
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["X-XSS-Protection"] = "0"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        if request.url.scheme == "https":
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        return response
+
+
+app.add_middleware(SecurityHeadersMiddleware)
+
+# Icon Registry routes
+app.include_router(icon_router)
 
 # Environment
 ENVIRONMENT = os.getenv("ENVIRONMENT", "production")
 
-# In-memory session store for analysis results (production would use Redis/DB)
-SESSION_STORE: Dict[str, Any] = {}
+# In-memory session store for analysis results (TTL: 2 hours, max 500 sessions)
+SESSION_STORE: TTLCache = TTLCache(maxsize=500, ttl=7200)
 
-# In-memory image store keyed by diagram_id → (image_bytes, content_type)
-IMAGE_STORE: Dict[str, tuple] = {}
+# In-memory image store keyed by diagram_id → (image_bytes, content_type) (TTL: 1 hour, max 200)
+IMAGE_STORE: TTLCache = TTLCache(maxsize=200, ttl=3600)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -98,7 +179,7 @@ async def health():
     update_status = get_update_status()
     return {
         "status": "healthy",
-        "version": "2.1.0",
+        "version": "2.5.0",
         "environment": ENVIRONMENT,
         "mode": "production",
         "service_catalog": {
@@ -117,21 +198,20 @@ async def health():
 # ─────────────────────────────────────────────────────────────
 @app.post("/api/projects")
 async def create_project(project: Project):
-    # TODO: Implement with database
-    return {"id": "proj-001", "name": project.name, "status": "created"}
+    raise HTTPException(501, "Project management is not yet implemented.")
 
 
 @app.get("/api/projects/{project_id}")
 async def get_project(project_id: str):
-    # TODO: Implement with database
-    return {"id": project_id, "name": "Demo Project", "diagrams": []}
+    raise HTTPException(501, "Project management is not yet implemented.")
 
 
 # ─────────────────────────────────────────────────────────────
 # Diagrams
 # ─────────────────────────────────────────────────────────────
 @app.post("/api/projects/{project_id}/diagrams")
-async def upload_diagram(project_id: str, file: UploadFile = File(...)):
+@limiter.limit("10/minute")
+async def upload_diagram(request: Request, project_id: str, file: UploadFile = File(...), _auth=Depends(verify_api_key)):
     # Validate file type
     allowed_types = ["image/png", "image/jpeg", "image/svg+xml", "application/pdf"]
     if file.content_type not in allowed_types:
@@ -139,7 +219,22 @@ async def upload_diagram(project_id: str, file: UploadFile = File(...)):
 
     # Generate unique diagram ID and store image bytes
     diagram_id = f"diag-{uuid.uuid4().hex[:8]}"
-    image_bytes = await file.read()
+    # Read file in chunks with early size limit enforcement
+    chunks = []
+    total_size = 0
+    while True:
+        chunk = await file.read(1024 * 1024)  # 1 MB chunks
+        if not chunk:
+            break
+        total_size += len(chunk)
+        if total_size > MAX_UPLOAD_SIZE:
+            raise HTTPException(
+                413,
+                f"File too large. Maximum allowed: {MAX_UPLOAD_SIZE // (1024*1024)} MB."
+            )
+        chunks.append(chunk)
+    image_bytes = b"".join(chunks)
+
     IMAGE_STORE[diagram_id] = (image_bytes, file.content_type)
     logger.info("Stored image for %s (%d bytes, %s)", diagram_id, len(image_bytes), file.content_type)
 
@@ -154,10 +249,12 @@ async def upload_diagram(project_id: str, file: UploadFile = File(...)):
 
 
 @app.post("/api/diagrams/{diagram_id}/analyze")
-async def analyze_diagram(diagram_id: str):
+@limiter.limit("5/minute")
+async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
     """
     Analyze an uploaded architecture diagram using GPT-4o vision.
     Detects cloud services and maps them to Azure equivalents using the catalog.
+    Includes an image classification pre-check to reject non-architecture images.
     """
     # Retrieve stored image
     if diagram_id not in IMAGE_STORE:
@@ -166,14 +263,36 @@ async def analyze_diagram(diagram_id: str):
     image_bytes, content_type = IMAGE_STORE[diagram_id]
     logger.info("Analyzing diagram %s (%d bytes)", diagram_id, len(image_bytes))
 
+    # ── Image classification pre-check (async) ──
     try:
-        result = analyze_image(image_bytes, content_type)
+        classification = await asyncio.to_thread(classify_image, image_bytes, content_type)
+    except Exception as exc:
+        logger.warning("Image classification failed for %s: %s — proceeding with analysis", diagram_id, exc)
+        classification = {"is_architecture_diagram": True, "confidence": 0.5, "image_type": "unknown", "reason": "Classification unavailable"}
+
+    if not classification["is_architecture_diagram"]:
+        logger.info("Image rejected for %s: %s (confidence: %.2f)", diagram_id, classification["reason"], classification["confidence"])
+        record_event("images_rejected", {"diagram_id": diagram_id, "image_type": classification["image_type"], "reason": classification["reason"]})
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "not_architecture_diagram",
+                "message": f"The uploaded image does not appear to be a cloud architecture diagram. Detected: {classification['image_type']}.",
+                "classification": classification,
+            },
+        )
+
+    logger.info("Image classified as architecture diagram for %s (confidence: %.2f)", diagram_id, classification["confidence"])
+
+    try:
+        result = await asyncio.to_thread(analyze_image, image_bytes, content_type)
     except Exception as exc:
         logger.error("Vision analysis failed for %s: %s", diagram_id, exc)
-        raise HTTPException(500, f"Vision analysis failed: {exc}")
+        raise HTTPException(500, "Vision analysis failed. Please try again.")
 
-    # Inject diagram_id into result
+    # Inject diagram_id and classification metadata into result
     result["diagram_id"] = diagram_id
+    result["image_classification"] = classification
 
     # Store analysis result for guided questions and diagram export
     SESSION_STORE[diagram_id] = result
@@ -184,14 +303,12 @@ async def analyze_diagram(diagram_id: str):
 
 @app.get("/api/diagrams/{diagram_id}/mappings")
 async def get_mappings(diagram_id: str):
-    # TODO: Implement with database
-    return {"diagram_id": diagram_id, "mappings": []}
+    raise HTTPException(501, "Mapping retrieval is not yet implemented.")
 
 
 @app.patch("/api/diagrams/{diagram_id}/mappings/{service}")
 async def update_mapping(diagram_id: str, service: str, azure_service: str):
-    # TODO: Implement override
-    return {"status": "updated", "service": service, "new_mapping": azure_service}
+    raise HTTPException(501, "Mapping override is not yet implemented.")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -268,8 +385,8 @@ async def service_update_last():
 
 
 @app.post("/api/service-updates/run-now")
-async def trigger_service_update():
-    """Trigger an immediate service catalog update."""
+async def trigger_service_update(_auth=Depends(verify_api_key)):
+    """Trigger an immediate service catalog update (requires API key)."""
     result = run_update_now()
     return result
 
@@ -278,773 +395,27 @@ async def trigger_service_update():
 # IaC Generation
 # ─────────────────────────────────────────────────────────────
 @app.post("/api/diagrams/{diagram_id}/generate")
-async def generate_iac(diagram_id: str, format: str = "terraform"):
+@limiter.limit("5/minute")
+async def generate_iac(request: Request, diagram_id: str, format: str = "terraform", _auth=Depends(verify_api_key)):
     if format not in ["terraform", "bicep"]:
         raise HTTPException(400, "Format must be 'terraform' or 'bicep'")
-    
-    if format == "terraform":
-        code = '''# ============================================================
-# Archmorph – Azure Translation of AWS Automotive / IoT Pipeline
-# Generated from diagram analysis (33 service mappings, 10 zones)
-# ============================================================
 
-terraform {
-  required_version = ">= 1.5"
-  required_providers {
-    azurerm = {
-      source  = "hashicorp/azurerm"
-      version = "~> 3.85"
-    }
-    random = {
-      source  = "hashicorp/random"
-      version = "~> 3.6"
-    }
-  }
-  backend "azurerm" {
-    resource_group_name  = "archmorph-tfstate-rg"
-    storage_account_name = "archmorphtfstate"
-    container_name       = "tfstate"
-    key                  = "automotive-pipeline.tfstate"
-  }
-}
+    # Get analysis from session (may be None for base template)
+    session = SESSION_STORE.get(diagram_id, {})
+    iac_params = session.get("iac_parameters", {})
+
+    # Generate IaC dynamically using GPT-4o
+    try:
+        code = await asyncio.to_thread(
+            generate_iac_code,
+            analysis=session if session else None,
+            iac_format=format,
+            params=iac_params,
+        )
+    except Exception as exc:
+        logger.error("IaC generation failed for %s: %s", diagram_id, exc)
+        raise HTTPException(500, "IaC generation failed. Please try again.")
 
-provider "azurerm" {
-  features {}
-}
-
-# Generate a strong random password for SQL admin
-resource "random_password" "sql_admin" {
-  length           = 24
-  special          = true
-  override_special = "!@#$%&*"
-  min_upper        = 2
-  min_lower        = 2
-  min_numeric      = 2
-  min_special      = 2
-}
-
-locals {
-  project  = "automotive-iot"
-  env      = "dev"
-  location = "westeurope"
-  tags = {
-    Project     = "Automotive-IoT-Pipeline"
-    ManagedBy   = "Archmorph"
-    Environment = local.env
-    Source      = "AWS-Migration"
-  }
-}
-
-# ── Resource Group ──────────────────────────────────────────
-resource "azurerm_resource_group" "main" {
-  name     = "rg-${local.project}-${local.env}"
-  location = local.location
-  tags     = local.tags
-}
-
-# ════════════════════════════════════════════════════════════
-# ZONE 1 & 2: INGEST (Direct Connect → ExpressRoute,
-#   Outposts → Stack Edge, IoT Greengrass → IoT Edge,
-#   IoT Core → IoT Hub, Kinesis Firehose → Event Hubs)
-# ════════════════════════════════════════════════════════════
-
-# ExpressRoute Circuit (replaces AWS Direct Connect)
-resource "azurerm_express_route_circuit" "ingest" {
-  name                  = "erc-${local.project}-ingest"
-  resource_group_name   = azurerm_resource_group.main.name
-  location              = azurerm_resource_group.main.location
-  service_provider_name = "Equinix"
-  peering_location      = "Amsterdam"
-  bandwidth_in_mbps     = 1000
-  sku {
-    tier   = "Standard"
-    family = "MeteredData"
-  }
-  tags = local.tags
-}
-
-# IoT Hub (replaces AWS IoT Core – Zone 2 OTA Ingest)
-resource "azurerm_iothub" "main" {
-  name                = "iot-${local.project}-${local.env}"
-  resource_group_name = azurerm_resource_group.main.name
-  location            = azurerm_resource_group.main.location
-  sku {
-    name     = "S1"
-    capacity = 2
-  }
-  tags = local.tags
-}
-
-# Event Hubs Namespace (replaces Amazon Kinesis Data Firehose)
-resource "azurerm_eventhub_namespace" "ingest" {
-  name                = "evhns-${local.project}-${local.env}"
-  resource_group_name = azurerm_resource_group.main.name
-  location            = azurerm_resource_group.main.location
-  sku                 = "Standard"
-  capacity            = 2
-  tags                = local.tags
-}
-
-resource "azurerm_eventhub" "raw_telemetry" {
-  name              = "raw-vehicle-telemetry"
-  namespace_id      = azurerm_eventhub_namespace.ingest.id
-  partition_count   = 8
-  message_retention = 7
-}
-
-# ════════════════════════════════════════════════════════════
-# ZONE 3: DATA STORAGE (S3 × 10 → Blob + ADLS Gen2)
-# ════════════════════════════════════════════════════════════
-
-# Storage Account – Raw / Images / Labeled data (Blob)
-resource "azurerm_storage_account" "raw" {
-  name                     = "st${local.project}raw${local.env}"
-  resource_group_name      = azurerm_resource_group.main.name
-  location                 = azurerm_resource_group.main.location
-  account_tier             = "Standard"
-  account_replication_type = "ZRS"
-  min_tls_version          = "TLS1_2"
-  tags                     = local.tags
-}
-
-resource "azurerm_storage_container" "raw_drive" {
-  name                 = "raw-drive-data"
-  storage_account_id   = azurerm_storage_account.raw.id
-  container_access_type = "private"
-}
-
-resource "azurerm_storage_container" "high_quality" {
-  name                 = "high-quality-data"
-  storage_account_id   = azurerm_storage_account.raw.id
-  container_access_type = "private"
-}
-
-resource "azurerm_storage_container" "low_quality" {
-  name                 = "low-quality-quarantine"
-  storage_account_id   = azurerm_storage_account.raw.id
-  container_access_type = "private"
-}
-
-resource "azurerm_storage_container" "raw_images" {
-  name                 = "raw-images"
-  storage_account_id   = azurerm_storage_account.raw.id
-  container_access_type = "private"
-}
-
-resource "azurerm_storage_container" "anonymized_images" {
-  name                 = "anonymized-images"
-  storage_account_id   = azurerm_storage_account.raw.id
-  container_access_type = "private"
-}
-
-resource "azurerm_storage_container" "labeled_data" {
-  name                 = "labeled-annotated"
-  storage_account_id   = azurerm_storage_account.raw.id
-  container_access_type = "private"
-}
-
-# ADLS Gen2 – Parquet / Analytics data (replaces S3 Parquet stores)
-resource "azurerm_storage_account" "datalake" {
-  name                     = "st${local.project}lake${local.env}"
-  resource_group_name      = azurerm_resource_group.main.name
-  location                 = azurerm_resource_group.main.location
-  account_tier             = "Standard"
-  account_replication_type = "ZRS"
-  is_hns_enabled           = true  # Hierarchical namespace for ADLS Gen2
-  min_tls_version          = "TLS1_2"
-  tags                     = local.tags
-}
-
-resource "azurerm_storage_data_lake_gen2_filesystem" "parsed" {
-  name               = "parsed-parquet"
-  storage_account_id = azurerm_storage_account.datalake.id
-}
-
-resource "azurerm_storage_data_lake_gen2_filesystem" "enriched" {
-  name               = "enriched-parquet"
-  storage_account_id = azurerm_storage_account.datalake.id
-}
-
-resource "azurerm_storage_data_lake_gen2_filesystem" "synced" {
-  name               = "synchronized-parquet"
-  storage_account_id = azurerm_storage_account.datalake.id
-}
-
-resource "azurerm_storage_data_lake_gen2_filesystem" "scene_labels" {
-  name               = "scene-labels-parquet"
-  storage_account_id = azurerm_storage_account.datalake.id
-}
-
-# ════════════════════════════════════════════════════════════
-# ZONE 4: ORCHESTRATION (MWAA → Azure Data Factory)
-# ════════════════════════════════════════════════════════════
-
-resource "azurerm_data_factory" "main" {
-  name                = "adf-${local.project}-${local.env}"
-  resource_group_name = azurerm_resource_group.main.name
-  location            = azurerm_resource_group.main.location
-  identity {
-    type = "SystemAssigned"
-  }
-  tags = local.tags
-}
-
-# ════════════════════════════════════════════════════════════
-# ZONE 5 & 6: PROCESSING (EMR × 4 → Synapse Spark,
-#   Fargate → ACI / Container Apps)
-# ════════════════════════════════════════════════════════════
-
-# Synapse Workspace (replaces Amazon EMR × 4 instances)
-resource "azurerm_synapse_workspace" "main" {
-  name                                 = "syn-${local.project}-${local.env}"
-  resource_group_name                  = azurerm_resource_group.main.name
-  location                             = azurerm_resource_group.main.location
-  storage_data_lake_gen2_filesystem_id = azurerm_storage_data_lake_gen2_filesystem.parsed.id
-  sql_administrator_login              = "sqladmin"
-  sql_administrator_login_password     = random_password.sql_admin.result
-  identity {
-    type = "SystemAssigned"
-  }
-  tags = local.tags
-}
-
-resource "azurerm_synapse_spark_pool" "processing" {
-  name                 = "sparkpool"
-  synapse_workspace_id = azurerm_synapse_workspace.main.id
-  node_size_family     = "MemoryOptimized"
-  node_size            = "Small"
-  node_count           = 3
-  auto_pause {
-    delay_in_minutes = 15
-  }
-  auto_scale {
-    min_node_count = 3
-    max_node_count = 10
-  }
-}
-
-# Container App Environment (replaces Fargate for containers)
-resource "azurerm_container_app_environment" "main" {
-  name                = "cae-${local.project}-${local.env}"
-  resource_group_name = azurerm_resource_group.main.name
-  location            = azurerm_resource_group.main.location
-  tags                = local.tags
-}
-
-# ACI – Topic Extraction (Fargate zone 5)
-resource "azurerm_container_group" "topic_extract" {
-  name                = "aci-topic-extract"
-  resource_group_name = azurerm_resource_group.main.name
-  location            = azurerm_resource_group.main.location
-  os_type             = "Linux"
-  restart_policy      = "OnFailure"
-  container {
-    name   = "topic-extractor"
-    image  = "automotive-pipeline/topic-extractor:latest"
-    cpu    = 2
-    memory = 4
-    ports { port = 8080; protocol = "TCP" }
-  }
-  tags = local.tags
-}
-
-# ACI – Image Extraction (Fargate zone 8)
-resource "azurerm_container_group" "image_extract" {
-  name                = "aci-image-extract"
-  resource_group_name = azurerm_resource_group.main.name
-  location            = azurerm_resource_group.main.location
-  os_type             = "Linux"
-  restart_policy      = "OnFailure"
-  container {
-    name   = "image-extractor"
-    image  = "automotive-pipeline/image-extractor:latest"
-    cpu    = 4
-    memory = 8
-    ports { port = 8080; protocol = "TCP" }
-  }
-  tags = local.tags
-}
-
-# ════════════════════════════════════════════════════════════
-# ZONE 7: DATA CATALOG (Glue → Purview, Neptune → Cosmos
-#   Gremlin, DynamoDB → Cosmos NoSQL, ES → AI Search)
-# ════════════════════════════════════════════════════════════
-
-# Microsoft Purview (replaces AWS Glue Data Catalog)
-resource "azurerm_purview_account" "main" {
-  name                = "pv-${local.project}-${local.env}"
-  resource_group_name = azurerm_resource_group.main.name
-  location            = azurerm_resource_group.main.location
-  identity {
-    type = "SystemAssigned"
-  }
-  tags = local.tags
-}
-
-# Cosmos DB – Gremlin API (replaces Amazon Neptune for lineage)
-resource "azurerm_cosmosdb_account" "graph" {
-  name                = "cosmos-graph-${local.project}-${local.env}"
-  resource_group_name = azurerm_resource_group.main.name
-  location            = azurerm_resource_group.main.location
-  offer_type          = "Standard"
-  kind                = "GlobalDocumentDB"
-  capabilities {
-    name = "EnableGremlin"
-  }
-  consistency_policy {
-    consistency_level = "Session"
-  }
-  geo_location {
-    location          = azurerm_resource_group.main.location
-    failover_priority = 0
-  }
-  tags = local.tags
-}
-
-# Cosmos DB – NoSQL API (replaces Amazon DynamoDB for metadata)
-resource "azurerm_cosmosdb_account" "metadata" {
-  name                = "cosmos-meta-${local.project}-${local.env}"
-  resource_group_name = azurerm_resource_group.main.name
-  location            = azurerm_resource_group.main.location
-  offer_type          = "Standard"
-  kind                = "GlobalDocumentDB"
-  consistency_policy {
-    consistency_level = "Session"
-  }
-  geo_location {
-    location          = azurerm_resource_group.main.location
-    failover_priority = 0
-  }
-  tags = local.tags
-}
-
-resource "azurerm_cosmosdb_sql_database" "drive_metadata" {
-  name                = "drive-metadata"
-  resource_group_name = azurerm_cosmosdb_account.metadata.resource_group_name
-  account_name        = azurerm_cosmosdb_account.metadata.name
-  throughput          = 400
-}
-
-# Azure AI Search (replaces Amazon Elasticsearch / OpenSearch)
-resource "azurerm_search_service" "main" {
-  name                = "srch-${local.project}-${local.env}"
-  resource_group_name = azurerm_resource_group.main.name
-  location            = azurerm_resource_group.main.location
-  sku                 = "standard"
-  replica_count       = 1
-  partition_count     = 1
-  tags                = local.tags
-}
-
-# ════════════════════════════════════════════════════════════
-# ZONE 8: ANONYMIZATION (Lambda → Functions, Rekognition →
-#   AI Vision)
-# ════════════════════════════════════════════════════════════
-
-# Azure Functions (replaces AWS Lambda – blur faces/text)
-resource "azurerm_service_plan" "functions" {
-  name                = "asp-fn-${local.project}-${local.env}"
-  resource_group_name = azurerm_resource_group.main.name
-  location            = azurerm_resource_group.main.location
-  os_type             = "Linux"
-  sku_name            = "Y1"
-  tags                = local.tags
-}
-
-resource "azurerm_linux_function_app" "anonymizer" {
-  name                       = "fn-anonymizer-${local.project}-${local.env}"
-  resource_group_name        = azurerm_resource_group.main.name
-  location                   = azurerm_resource_group.main.location
-  service_plan_id            = azurerm_service_plan.functions.id
-  storage_account_name       = azurerm_storage_account.raw.name
-  storage_account_access_key = azurerm_storage_account.raw.primary_access_key
-  site_config {
-    application_stack {
-      python_version = "3.11"
-    }
-  }
-  tags = local.tags
-}
-
-# Store SQL admin password in Key Vault
-resource "azurerm_key_vault_secret" "sql_password" {
-  name         = "synapse-sql-admin-password"
-  value        = random_password.sql_admin.result
-  key_vault_id = azurerm_key_vault.main.id
-}
-
-# Azure AI Services (replaces Amazon Rekognition)
-resource "azurerm_cognitive_account" "vision" {
-  name                = "cog-vision-${local.project}-${local.env}"
-  resource_group_name = azurerm_resource_group.main.name
-  location            = azurerm_resource_group.main.location
-  kind                = "ComputerVision"
-  sku_name            = "S1"
-  tags                = local.tags
-}
-
-# ════════════════════════════════════════════════════════════
-# ZONE 9: LABELING (SageMaker Ground Truth → AML Data Labeling)
-# ════════════════════════════════════════════════════════════
-
-resource "azurerm_machine_learning_workspace" "main" {
-  name                    = "mlw-${local.project}-${local.env}"
-  resource_group_name     = azurerm_resource_group.main.name
-  location                = azurerm_resource_group.main.location
-  application_insights_id = azurerm_application_insights.main.id
-  key_vault_id            = azurerm_key_vault.main.id
-  storage_account_id      = azurerm_storage_account.raw.id
-  identity {
-    type = "SystemAssigned"
-  }
-  tags = local.tags
-}
-
-resource "azurerm_key_vault" "main" {
-  name                = "kv-${local.project}-${local.env}"
-  resource_group_name = azurerm_resource_group.main.name
-  location            = azurerm_resource_group.main.location
-  tenant_id           = data.azurerm_client_config.current.tenant_id
-  sku_name            = "standard"
-  tags                = local.tags
-}
-
-resource "azurerm_application_insights" "main" {
-  name                = "appi-${local.project}-${local.env}"
-  resource_group_name = azurerm_resource_group.main.name
-  location            = azurerm_resource_group.main.location
-  application_type    = "web"
-  tags                = local.tags
-}
-
-data "azurerm_client_config" "current" {}
-
-# ════════════════════════════════════════════════════════════
-# ZONE 10: ANALYTICS & VISUALIZATION (QuickSight → Power BI
-#   Embedded, AppSync → APIM, Fargate Webviz → Container Apps)
-# ════════════════════════════════════════════════════════════
-
-# API Management (replaces AWS AppSync)
-resource "azurerm_api_management" "main" {
-  name                = "apim-${local.project}-${local.env}"
-  resource_group_name = azurerm_resource_group.main.name
-  location            = azurerm_resource_group.main.location
-  publisher_name      = "Automotive IoT Team"
-  publisher_email     = "team@automotive-iot.dev"
-  sku_name            = "Consumption_0"
-  tags                = local.tags
-}
-
-# Container App – Webviz / RVIZ Visualization
-resource "azurerm_container_app" "webviz" {
-  name                         = "ca-webviz"
-  container_app_environment_id = azurerm_container_app_environment.main.id
-  resource_group_name          = azurerm_resource_group.main.name
-  revision_mode                = "Single"
-  template {
-    container {
-      name   = "webviz"
-      image  = "automotive-pipeline/webviz:latest"
-      cpu    = 1
-      memory = "2Gi"
-    }
-  }
-  ingress {
-    external_enabled = true
-    target_port      = 8080
-    traffic_weight {
-      percentage      = 100
-      latest_revision = true
-    }
-  }
-}
-
-# ════════════════════════════════════════════════════════════
-# OUTPUTS
-# ════════════════════════════════════════════════════════════
-
-output "iot_hub_hostname" {
-  value = azurerm_iothub.main.hostname
-}
-
-output "synapse_workspace_url" {
-  value = "https://web.azuresynapse.net?workspace=/subscriptions/${data.azurerm_client_config.current.subscription_id}/resourceGroups/${azurerm_resource_group.main.name}/providers/Microsoft.Synapse/workspaces/${azurerm_synapse_workspace.main.name}"
-}
-
-output "datalake_endpoint" {
-  value = azurerm_storage_account.datalake.primary_dfs_endpoint
-}
-
-output "purview_endpoint" {
-  value = "https://${azurerm_purview_account.main.name}.purview.azure.com"
-}
-
-output "ai_search_endpoint" {
-  value = "https://${azurerm_search_service.main.name}.search.windows.net"
-}
-
-output "webviz_url" {
-  value = "https://${azurerm_container_app.webviz.ingress[0].fqdn}"
-}
-'''
-    else:
-        code = '''// ============================================================
-// Archmorph – Azure Translation of AWS Automotive / IoT Pipeline
-// Generated from diagram analysis (33 service mappings, 10 zones)
-// ============================================================
-
-targetScope = 'subscription'
-
-@description('Environment name')
-param env string = 'dev'
-
-@description('Primary Azure region')
-param location string = 'westeurope'
-
-@secure()
-@description('SQL Administrator password for Synapse workspace')
-param sqlAdminPassword string
-
-var project = 'automotive-iot'
-var tags = {
-  Project: 'Automotive-IoT-Pipeline'
-  ManagedBy: 'Archmorph'
-  Environment: env
-  Source: 'AWS-Migration'
-}
-
-// ── Resource Group ─────────────────────────────────────────
-resource rg 'Microsoft.Resources/resourceGroups@2023-07-01' = {
-  name: 'rg-${project}-${env}'
-  location: location
-  tags: tags
-}
-
-// ══════════════════════════════════════════════════════════
-// ZONE 1 & 2: INGEST
-// ══════════════════════════════════════════════════════════
-
-module ingest 'modules/ingest.bicep' = {
-  name: 'ingest-deploy'
-  scope: rg
-  params: {
-    location: location
-    project: project
-    env: env
-    tags: tags
-  }
-}
-
-// ── IoT Hub (replaces AWS IoT Core) ──
-resource iotHub 'Microsoft.Devices/IotHubs@2023-06-30' = {
-  name: 'iot-${project}-${env}'
-  scope: rg
-  location: location
-  sku: {  name: 'S1'; capacity: 2 }
-  tags: tags
-}
-
-// ── Event Hubs (replaces Kinesis Data Firehose) ──
-resource evhns 'Microsoft.EventHub/namespaces@2024-01-01' = {
-  name: 'evhns-${project}-${env}'
-  scope: rg
-  location: location
-  sku: { name: 'Standard'; tier: 'Standard'; capacity: 2 }
-  tags: tags
-}
-
-resource evhRawTelemetry 'Microsoft.EventHub/namespaces/eventhubs@2024-01-01' = {
-  parent: evhns
-  name: 'raw-vehicle-telemetry'
-  properties: { partitionCount: 8; messageRetentionInDays: 7 }
-}
-
-// ══════════════════════════════════════════════════════════
-// ZONE 3: STORAGE – Blob + ADLS Gen2
-// ══════════════════════════════════════════════════════════
-
-// Raw / Images / Labeled Data (Blob Storage)
-resource stRaw 'Microsoft.Storage/storageAccounts@2023-01-01' = {
-  name: 'st${project}raw${env}'
-  scope: rg
-  location: location
-  kind: 'StorageV2'
-  sku: { name: 'Standard_ZRS' }
-  properties: { minimumTlsVersion: 'TLS1_2' }
-  tags: tags
-}
-
-// ADLS Gen2 for Parquet / Analytics workloads
-resource stLake 'Microsoft.Storage/storageAccounts@2023-01-01' = {
-  name: 'st${project}lake${env}'
-  scope: rg
-  location: location
-  kind: 'StorageV2'
-  sku: { name: 'Standard_ZRS' }
-  properties: {
-    isHnsEnabled: true   // Hierarchical namespace
-    minimumTlsVersion: 'TLS1_2'
-  }
-  tags: tags
-}
-
-// ══════════════════════════════════════════════════════════
-// ZONE 4: ORCHESTRATION – Azure Data Factory (replaces MWAA)
-// ══════════════════════════════════════════════════════════
-
-resource adf 'Microsoft.DataFactory/factories@2018-06-01' = {
-  name: 'adf-${project}-${env}'
-  scope: rg
-  location: location
-  identity: { type: 'SystemAssigned' }
-  tags: tags
-}
-
-// ══════════════════════════════════════════════════════════
-// ZONE 5 & 6: PROCESSING – Synapse Spark (replaces EMR × 4)
-// ══════════════════════════════════════════════════════════
-
-resource synapse 'Microsoft.Synapse/workspaces@2021-06-01' = {
-  name: 'syn-${project}-${env}'
-  scope: rg
-  location: location
-  identity: { type: 'SystemAssigned' }
-  properties: {
-    defaultDataLakeStorage: {
-      accountUrl: stLake.properties.primaryEndpoints.dfs
-      filesystem: 'parsed-parquet'
-    }
-    sqlAdministratorLogin: 'sqladmin'
-    sqlAdministratorLoginPassword: sqlAdminPassword
-  }
-  tags: tags
-}
-
-// ══════════════════════════════════════════════════════════
-// ZONE 7: DATA CATALOG – Purview, Cosmos DB, AI Search
-// ══════════════════════════════════════════════════════════
-
-// Purview (replaces Glue Data Catalog)
-resource purview 'Microsoft.Purview/accounts@2021-12-01' = {
-  name: 'pv-${project}-${env}'
-  scope: rg
-  location: location
-  identity: { type: 'SystemAssigned' }
-  tags: tags
-}
-
-// Cosmos DB Gremlin (replaces Neptune – data lineage)
-resource cosmosGraph 'Microsoft.DocumentDB/databaseAccounts@2023-11-15' = {
-  name: 'cosmos-graph-${project}-${env}'
-  scope: rg
-  location: location
-  properties: {
-    databaseAccountOfferType: 'Standard'
-    capabilities: [{ name: 'EnableGremlin' }]
-    consistencyPolicy: { defaultConsistencyLevel: 'Session' }
-    locations: [{ locationName: location; failoverPriority: 0 }]
-  }
-  tags: tags
-}
-
-// Cosmos DB NoSQL (replaces DynamoDB – drive metadata)
-resource cosmosMeta 'Microsoft.DocumentDB/databaseAccounts@2023-11-15' = {
-  name: 'cosmos-meta-${project}-${env}'
-  scope: rg
-  location: location
-  properties: {
-    databaseAccountOfferType: 'Standard'
-    consistencyPolicy: { defaultConsistencyLevel: 'Session' }
-    locations: [{ locationName: location; failoverPriority: 0 }]
-  }
-  tags: tags
-}
-
-// Azure AI Search (replaces Elasticsearch / OpenSearch)
-resource search 'Microsoft.Search/searchServices@2023-11-01' = {
-  name: 'srch-${project}-${env}'
-  scope: rg
-  location: location
-  sku: { name: 'standard' }
-  properties: { replicaCount: 1; partitionCount: 1 }
-  tags: tags
-}
-
-// ══════════════════════════════════════════════════════════
-// ZONE 8: ANONYMIZATION – Functions + AI Vision
-// ══════════════════════════════════════════════════════════
-
-resource cogVision 'Microsoft.CognitiveServices/accounts@2023-10-01-preview' = {
-  name: 'cog-vision-${project}-${env}'
-  scope: rg
-  location: location
-  kind: 'ComputerVision'
-  sku: { name: 'S1' }
-  properties: {}
-  tags: tags
-}
-
-// ══════════════════════════════════════════════════════════
-// ZONE 9: LABELING – Azure ML Workspace
-// ══════════════════════════════════════════════════════════
-
-resource mlw 'Microsoft.MachineLearningServices/workspaces@2023-10-01' = {
-  name: 'mlw-${project}-${env}'
-  scope: rg
-  location: location
-  identity: { type: 'SystemAssigned' }
-  properties: {
-    storageAccount: stRaw.id
-    keyVault: kv.id
-    applicationInsights: appInsights.id
-  }
-  tags: tags
-}
-
-resource kv 'Microsoft.KeyVault/vaults@2023-07-01' = {
-  name: 'kv-${project}-${env}'
-  scope: rg
-  location: location
-  properties: {
-    tenantId: subscription().tenantId
-    sku: { family: 'A'; name: 'standard' }
-    accessPolicies: []
-  }
-  tags: tags
-}
-
-resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
-  name: 'appi-${project}-${env}'
-  scope: rg
-  location: location
-  kind: 'web'
-  properties: { Application_Type: 'web' }
-  tags: tags
-}
-
-// ══════════════════════════════════════════════════════════
-// ZONE 10: ANALYTICS & VISUALIZATION
-// ══════════════════════════════════════════════════════════
-
-resource apim 'Microsoft.ApiManagement/service@2023-05-01-preview' = {
-  name: 'apim-${project}-${env}'
-  scope: rg
-  location: location
-  sku: { name: 'Consumption'; capacity: 0 }
-  properties: {
-    publisherEmail: 'team@automotive-iot.dev'
-    publisherName: 'Automotive IoT Team'
-  }
-  tags: tags
-}
-
-// ── Outputs ────────────────────────────────────────────────
-output iotHubHostname string = iotHub.properties.hostName
-output datalakeEndpoint string = stLake.properties.primaryEndpoints.dfs
-output purviewEndpoint string = 'https://${purview.name}.purview.azure.com'
-output searchEndpoint string = 'https://${search.name}.search.windows.net'
-'''
-    
     record_event(f"iac_generated_{format}", {"diagram_id": diagram_id})
     record_funnel_step(diagram_id, "iac_generate")
     return {"diagram_id": diagram_id, "format": format, "code": code}
@@ -1052,8 +423,7 @@ output searchEndpoint string = 'https://${search.name}.search.windows.net'
 
 @app.get("/api/diagrams/{diagram_id}/export")
 async def export_iac(diagram_id: str, format: str = "terraform"):
-    # TODO: Return file download
-    return {"diagram_id": diagram_id, "download_url": f"/downloads/{diagram_id}.tf"}
+    raise HTTPException(501, "File download export is not yet implemented.")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1073,8 +443,9 @@ async def estimate_cost(diagram_id: str):
     sku_strategy = iac_params.get("sku_strategy", "Balanced")
 
     # If we have real mappings, compute dynamic pricing
+    from services.azure_pricing import estimate_services_cost
+
     if mappings:
-        from services.azure_pricing import estimate_services_cost
         result = estimate_services_cost(mappings, region=region, sku_strategy=sku_strategy)
         result["diagram_id"] = diagram_id
         return result
@@ -1271,7 +642,8 @@ class IaCChatMessage(BaseModel):
 
 
 @app.post("/api/diagrams/{diagram_id}/iac-chat")
-async def iac_chat_endpoint(diagram_id: str, msg: IaCChatMessage):
+@limiter.limit("10/minute")
+async def iac_chat_endpoint(request: Request, diagram_id: str, msg: IaCChatMessage, _auth=Depends(verify_api_key)):
     """Chat with AI to modify generated Terraform/Bicep code."""
     record_event("iac_chat_messages", {"diagram_id": diagram_id})
 
@@ -1279,7 +651,8 @@ async def iac_chat_endpoint(diagram_id: str, msg: IaCChatMessage):
     session = SESSION_STORE.get(diagram_id, {})
     analysis_context = session.get("analysis") if session else None
 
-    result = process_iac_chat(
+    result = await asyncio.to_thread(
+        process_iac_chat,
         diagram_id=diagram_id,
         message=msg.message,
         current_code=msg.code,
@@ -1317,7 +690,8 @@ async def iac_chat_clear(diagram_id: str):
 # ─────────────────────────────────────────────────────────────
 
 @app.post("/api/diagrams/{diagram_id}/generate-hld")
-async def generate_hld_endpoint(diagram_id: str):
+@limiter.limit("3/minute")
+async def generate_hld_endpoint(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
     """Generate a comprehensive High-Level Design document."""
     record_event("hld_generated", {"diagram_id": diagram_id})
 
@@ -1330,16 +704,17 @@ async def generate_hld_endpoint(diagram_id: str):
     # Get cost estimate if available
     cost_estimate = None
     try:
-        from services.azure_pricing import estimate_costs
+        from services.azure_pricing import estimate_services_cost
         iac_params = session.get("iac_parameters", {})
         region = iac_params.get("region", "westeurope")
         strategy = iac_params.get("sku_strategy", "balanced")
-        cost_estimate = estimate_costs(analysis.get("mappings", []), region=region, sku_strategy=strategy)
+        cost_estimate = estimate_services_cost(analysis.get("mappings", []), region=region, sku_strategy=strategy)
     except Exception:
         pass
 
     try:
-        hld = generate_hld(
+        hld = await asyncio.to_thread(
+            generate_hld,
             analysis=analysis,
             cost_estimate=cost_estimate,
             iac_params=session.get("iac_parameters"),
@@ -1381,10 +756,11 @@ class ChatMessage(BaseModel):
 
 
 @app.post("/api/chat")
-async def chat(msg: ChatMessage):
+@limiter.limit("15/minute")
+async def chat(request: Request, msg: ChatMessage, _auth=Depends(verify_api_key)):
     """Process a chat message and return bot response. Can create GitHub issues."""
     record_event("chat_messages", {"session_id": msg.session_id})
-    result = process_chat_message(msg.session_id, msg.message)
+    result = await asyncio.to_thread(process_chat_message, msg.session_id, msg.message)
     if result.get("action") == "issue_created":
         record_event("github_issues_created", result.get("data", {}))
     return result
@@ -1406,36 +782,38 @@ async def chat_clear(session_id: str):
 # ─────────────────────────────────────────────────────────────
 # Admin Metrics (protected by secret key)
 # ─────────────────────────────────────────────────────────────
-def _check_admin(key: str):
-    if key != ADMIN_SECRET:
-        raise HTTPException(403, "Invalid admin key")
+ADMIN_KEY_HEADER = APIKeyHeader(name="X-Admin-Key", auto_error=False)
+
+
+async def verify_admin_key(admin_key: Optional[str] = Security(ADMIN_KEY_HEADER)):
+    """Verify admin key via X-Admin-Key header."""
+    if not ADMIN_SECRET:
+        raise HTTPException(503, "Admin API not configured")
+    if not admin_key or not secrets.compare_digest(admin_key, ADMIN_SECRET):
+        raise HTTPException(403, "Invalid or missing admin key")
 
 
 @app.get("/api/admin/metrics")
-async def admin_metrics_summary(key: str = Query(...)):
+async def admin_metrics_summary(_admin=Depends(verify_admin_key)):
     """Return aggregate usage metrics (admin only)."""
-    _check_admin(key)
     return get_metrics_summary()
 
 
 @app.get("/api/admin/metrics/funnel")
-async def admin_funnel(key: str = Query(...)):
+async def admin_funnel(_admin=Depends(verify_admin_key)):
     """Return conversion funnel data (admin only)."""
-    _check_admin(key)
     return get_funnel_metrics()
 
 
 @app.get("/api/admin/metrics/daily")
-async def admin_metrics_daily(key: str = Query(...), days: int = Query(30, ge=1, le=365)):
+async def admin_metrics_daily(days: int = Query(30, ge=1, le=365), _admin=Depends(verify_admin_key)):
     """Return daily metrics for the last N days (admin only)."""
-    _check_admin(key)
     return {"days": days, "data": get_daily_metrics(days)}
 
 
 @app.get("/api/admin/metrics/recent")
-async def admin_metrics_recent(key: str = Query(...), limit: int = Query(50, ge=1, le=200)):
+async def admin_metrics_recent(limit: int = Query(50, ge=1, le=200), _admin=Depends(verify_admin_key)):
     """Return the most recent usage events (admin only)."""
-    _check_admin(key)
     return {"events": get_recent_events(limit)}
 
 
