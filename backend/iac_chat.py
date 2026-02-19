@@ -155,7 +155,7 @@ def process_iac_chat(
         response = client.chat.completions.create(
             model=AZURE_OPENAI_DEPLOYMENT,
             messages=messages,
-            max_tokens=40000,
+            max_completion_tokens=16384,
             temperature=0.2,
             response_format={"type": "json_object"},
         )

@@ -177,7 +177,7 @@ def generate_iac_code(analysis: Optional[dict], iac_format: str = "terraform", p
                 {"role": "user", "content": prompt},
             ],
             temperature=0.2,
-            max_tokens=40000,
+            max_completion_tokens=16384,
         )
 
         code = response.choices[0].message.content.strip()
