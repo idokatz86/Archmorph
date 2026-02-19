@@ -45,12 +45,26 @@ export default function DiagramTranslator() {
     setStep('analyzing');
     setAnalyzeProgress([]);
 
-    const addStep = async (msg) => {
-      await new Promise(r => setTimeout(r, 200 + Math.random() * 150));
+    const addStep = async (msg, delay = 200 + Math.random() * 150) => {
+      await new Promise(r => setTimeout(r, delay));
       setAnalyzeProgress(prev => [...prev, msg]);
     };
 
     await addStep('Connecting to analysis engine...');
+
+    // Simulated progress messages shown while waiting for AI
+    const waitingMessages = [
+      'Scanning diagram components...',
+      'Identifying cloud services and icons...',
+      'Detecting networking topology...',
+      'Analyzing compute and storage layers...',
+      'Evaluating security boundaries...',
+      'Mapping data flow connections...',
+      'Reviewing architecture patterns...',
+      'Cross-referencing service catalog...',
+      'Validating service dependencies...',
+      'Finalizing architecture analysis...',
+    ];
 
     try {
       const formData = new FormData();
@@ -62,7 +76,18 @@ export default function DiagramTranslator() {
       setDiagramId(diagram_id);
 
       await addStep('Analyzing architecture with GPT-4o Vision...');
+
+      // Start simulated progress while waiting for the AI response
+      let msgIndex = 0;
+      const progressInterval = setInterval(() => {
+        if (msgIndex < waitingMessages.length) {
+          setAnalyzeProgress(prev => [...prev, waitingMessages[msgIndex]]);
+          msgIndex++;
+        }
+      }, 2500 + Math.random() * 1500);
+
       const analyzeRes = await fetch(`${API_BASE}/diagrams/${diagram_id}/analyze`, { method: 'POST' });
+      clearInterval(progressInterval);
       const result = await analyzeRes.json();
 
       if (analyzeRes.status === 422 && result?.detail?.error === 'not_architecture_diagram') {
@@ -90,7 +115,10 @@ export default function DiagramTranslator() {
 
       await addStep(`Mapping ${provider} services to Azure equivalents...`);
       await addStep('Calculating confidence scores...');
-      await addStep('Analysis complete.');
+      await addStep('Analysis complete. ✓', 600);
+
+      // Brief pause so user sees "Analysis complete" before transitioning
+      await new Promise(r => setTimeout(r, 800));
 
       setAnalysis(result);
 
@@ -238,18 +266,29 @@ export default function DiagramTranslator() {
           const clickable = s.canNav && !isActive && step !== 'analyzing';
           return (
           <React.Fragment key={s.id}>
-            <div
-              role={clickable ? 'button' : undefined}
-              tabIndex={clickable ? 0 : undefined}
-              onClick={clickable ? () => setStep(s.id) : undefined}
-              onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setStep(s.id); } } : undefined}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-colors ${
-              isActive ? 'bg-cta/15 text-cta' :
-              isPast ? 'text-cta' : 'text-text-muted'
-            } ${clickable ? 'cursor-pointer hover:bg-cta/10' : ''}`}>
-              {isPast ? <CheckCircle className="w-3.5 h-3.5" /> : <span className="w-5 h-5 rounded-full border border-current flex items-center justify-center text-[10px]">{i + 1}</span>}
-              <span className="hidden sm:inline">{s.label}</span>
-            </div>
+            {clickable ? (
+              <button
+                type="button"
+                onClick={() => setStep(s.id)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all duration-150 cursor-pointer border-none bg-transparent select-none ${
+                  isPast ? 'text-cta hover:bg-cta/15 hover:scale-105' : 'text-text-muted hover:bg-cta/10 hover:text-cta'
+                }`}
+                title={`Go to ${s.label}`}
+              >
+                {isPast ? <CheckCircle className="w-3.5 h-3.5" /> : <span className="w-5 h-5 rounded-full border border-current flex items-center justify-center text-[10px]">{i + 1}</span>}
+                <span className="hidden sm:inline underline decoration-dotted underline-offset-2">{s.label}</span>
+              </button>
+            ) : (
+              <div
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-colors ${
+                  isActive ? 'bg-cta/15 text-cta' :
+                  isPast ? 'text-cta' : 'text-text-muted'
+                }`}
+              >
+                {isPast ? <CheckCircle className="w-3.5 h-3.5" /> : <span className="w-5 h-5 rounded-full border border-current flex items-center justify-center text-[10px]">{i + 1}</span>}
+                <span className="hidden sm:inline">{s.label}</span>
+              </div>
+            )}
             {i < arr.length - 1 && <ChevronRight className="w-4 h-4 text-text-muted" />}
           </React.Fragment>
         );})}
@@ -314,7 +353,7 @@ export default function DiagramTranslator() {
               <h2 className="text-xl font-bold text-text-primary">Customize Your Azure Architecture</h2>
             </div>
             <p className="text-sm text-text-secondary">
-              We detected {analysis?.services_detected || 0} AWS services across {analysis?.zones?.length || 0} zones.
+              We detected {analysis?.services_detected || 0} {(analysis?.source_provider || 'aws').toUpperCase()} services across {analysis?.zones?.length || 0} zones.
               Answer these questions to tailor the Azure translation to your needs.
             </p>
           </Card>
