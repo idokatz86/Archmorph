@@ -1,13 +1,15 @@
 """
 Archmorph Backend API
-Cloud Architecture Translator to Azure
+Cloud Architecture Translator to Azure — Full Services Catalog
 """
 
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List
 import os
+
+from services import AWS_SERVICES, AZURE_SERVICES, GCP_SERVICES, CROSS_CLOUD_MAPPINGS
 
 app = FastAPI(
     title="Archmorph API",
@@ -233,6 +235,167 @@ async def estimate_cost(diagram_id: str):
             {"service": "PostgreSQL Flexible", "estimate": 100},
             {"service": "API Management", "estimate": 55},
         ]
+    }
+
+
+# ─────────────────────────────────────────────────────────────
+# Cloud Services Catalog
+# ─────────────────────────────────────────────────────────────
+@app.get("/api/services")
+async def list_all_services(
+    provider: Optional[str] = Query(None, description="Filter by provider: aws, azure, gcp"),
+    category: Optional[str] = Query(None, description="Filter by category"),
+    search: Optional[str] = Query(None, description="Search services by name/description"),
+):
+    """List cloud services from all providers, with optional filters."""
+    results = []
+    
+    if provider is None or provider == "aws":
+        for s in AWS_SERVICES:
+            results.append({**s, "provider": "aws"})
+    if provider is None or provider == "azure":
+        for s in AZURE_SERVICES:
+            results.append({**s, "provider": "azure"})
+    if provider is None or provider == "gcp":
+        for s in GCP_SERVICES:
+            results.append({**s, "provider": "gcp"})
+
+    if category:
+        cat_lower = category.lower()
+        results = [s for s in results if s["category"].lower() == cat_lower]
+
+    if search:
+        q = search.lower()
+        results = [
+            s for s in results
+            if q in s["name"].lower()
+            or q in s.get("fullName", "").lower()
+            or q in s.get("description", "").lower()
+        ]
+
+    return {
+        "total": len(results),
+        "services": results,
+    }
+
+
+@app.get("/api/services/providers")
+async def list_providers():
+    """List available cloud providers and their service counts."""
+    return {
+        "providers": [
+            {"id": "aws", "name": "Amazon Web Services", "serviceCount": len(AWS_SERVICES), "color": "#FF9900"},
+            {"id": "azure", "name": "Microsoft Azure", "serviceCount": len(AZURE_SERVICES), "color": "#0078D4"},
+            {"id": "gcp", "name": "Google Cloud Platform", "serviceCount": len(GCP_SERVICES), "color": "#4285F4"},
+        ]
+    }
+
+
+@app.get("/api/services/categories")
+async def list_categories():
+    """List all service categories with counts per provider."""
+    cats = {}
+    for s in AWS_SERVICES:
+        cats.setdefault(s["category"], {"aws": 0, "azure": 0, "gcp": 0})
+        cats[s["category"]]["aws"] += 1
+    for s in AZURE_SERVICES:
+        cats.setdefault(s["category"], {"aws": 0, "azure": 0, "gcp": 0})
+        cats[s["category"]]["azure"] += 1
+    for s in GCP_SERVICES:
+        cats.setdefault(s["category"], {"aws": 0, "azure": 0, "gcp": 0})
+        cats[s["category"]]["gcp"] += 1
+
+    return {
+        "categories": [
+            {"name": cat, "counts": counts}
+            for cat, counts in sorted(cats.items())
+        ]
+    }
+
+
+@app.get("/api/services/mappings")
+async def list_mappings(
+    category: Optional[str] = Query(None, description="Filter by category"),
+    search: Optional[str] = Query(None, description="Search mappings"),
+    min_confidence: Optional[float] = Query(None, description="Minimum confidence (0-1)"),
+):
+    """List cross-cloud service mappings (AWS ↔ Azure ↔ GCP)."""
+    results = CROSS_CLOUD_MAPPINGS
+
+    if category:
+        cat_lower = category.lower()
+        results = [m for m in results if m["category"].lower() == cat_lower]
+
+    if min_confidence is not None:
+        results = [m for m in results if m["confidence"] >= min_confidence]
+
+    if search:
+        q = search.lower()
+        results = [
+            m for m in results
+            if q in m["aws"].lower()
+            or q in m["azure"].lower()
+            or q in m["gcp"].lower()
+            or q in m.get("notes", "").lower()
+        ]
+
+    return {
+        "total": len(results),
+        "mappings": results,
+    }
+
+
+@app.get("/api/services/{provider}/{service_id}")
+async def get_service(provider: str, service_id: str):
+    """Get a specific service by provider and ID."""
+    catalog = {"aws": AWS_SERVICES, "azure": AZURE_SERVICES, "gcp": GCP_SERVICES}
+    if provider not in catalog:
+        raise HTTPException(400, f"Invalid provider: {provider}. Use aws, azure, or gcp.")
+
+    service = next((s for s in catalog[provider] if s["id"] == service_id), None)
+    if not service:
+        raise HTTPException(404, f"Service '{service_id}' not found for provider '{provider}'")
+
+    # Find cross-cloud equivalents
+    equivalents = []
+    name = service["name"]
+    for m in CROSS_CLOUD_MAPPINGS:
+        matched = False
+        if provider == "aws" and m["aws"] == name:
+            matched = True
+        elif provider == "azure" and m["azure"] == name:
+            matched = True
+        elif provider == "gcp" and m["gcp"] == name:
+            matched = True
+        if matched:
+            equivalents.append(m)
+
+    return {
+        **service,
+        "provider": provider,
+        "equivalents": equivalents,
+    }
+
+
+@app.get("/api/services/stats")
+async def get_stats():
+    """Get service catalog statistics."""
+    all_cats = set()
+    for s in AWS_SERVICES + AZURE_SERVICES + GCP_SERVICES:
+        all_cats.add(s["category"])
+
+    return {
+        "totalServices": len(AWS_SERVICES) + len(AZURE_SERVICES) + len(GCP_SERVICES),
+        "totalMappings": len(CROSS_CLOUD_MAPPINGS),
+        "providers": {
+            "aws": len(AWS_SERVICES),
+            "azure": len(AZURE_SERVICES),
+            "gcp": len(GCP_SERVICES),
+        },
+        "categories": len(all_cats),
+        "avgConfidence": round(
+            sum(m["confidence"] for m in CROSS_CLOUD_MAPPINGS) / len(CROSS_CLOUD_MAPPINGS), 2
+        ) if CROSS_CLOUD_MAPPINGS else 0,
     }
 
 
