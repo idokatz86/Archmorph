@@ -1,6 +1,6 @@
 # Archmorph — Cloud Architecture Translator to Azure
 ## Product Requirements Document (PRD)
-**Version:** 2.2.0
+**Version:** 2.3.0
 **Date:** February 19, 2026
 **Author:** Ido Katz
 
@@ -8,11 +8,11 @@
 
 ## 1. Executive Summary
 
-Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams into Azure equivalents. It analyzes uploaded diagrams, identifies cloud services, asks guided migration questions to refine the translation, maps services to Azure counterparts with confidence scores, exports translated architecture diagrams in multiple formats, generates ready-to-deploy Terraform/Bicep infrastructure code, provides dynamic cost estimates based on the Azure Retail Prices API, and automatically discovers and integrates new cloud services into its catalog.
+Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams into Azure equivalents. It analyzes uploaded diagrams using GPT-4o vision, identifies cloud services, asks guided migration questions to refine the translation, maps services to Azure counterparts with confidence scores, exports translated architecture diagrams in multiple formats, generates ready-to-deploy Terraform/Bicep infrastructure code, provides dynamic cost estimates based on the Azure Retail Prices API with 134 service pricing entries, and automatically discovers and integrates new cloud services into its catalog.
 
 **Problem:** Organizations migrating to Azure spend weeks manually mapping source architecture to Azure services. This process is error-prone, requires deep multi-cloud expertise, and lacks tooling for interactive refinement.
 
-**Solution:** Automated diagram analysis and service translation with guided migration questions, confidence-scored mappings, multi-format diagram export, self-updating service catalog with auto-integration, generated IaC with secure credential handling, region-aware pricing, and an integrated chatbot assistant.
+**Solution:** Automated diagram analysis and service translation with guided migration questions, confidence-scored mappings, multi-format diagram export, self-updating service catalog with auto-integration, generated IaC with secure credential handling, region-aware pricing with optimized targeted queries, and an integrated chatbot assistant.
 
 ---
 
@@ -36,7 +36,7 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 - **Analysis time:** ≤30 seconds for diagrams ≤50 services
 
 ### 3.2 Service Detection
-- AI-powered identification using Azure OpenAI GPT-4 Vision
+- AI-powered identification using Azure OpenAI GPT-4o Vision
 - Detects: Services, connections/data flows, annotations
 - **Multi-pass analysis:** Diagrams with >30 services trigger 2-pass analysis (quadrant split + merge)
 - **405+ service catalog:** 145 AWS, 143 Azure, 117 GCP services with 122 cross-cloud mappings (grows automatically via auto-discovery)
@@ -63,14 +63,18 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 - Read-only code preview with syntax highlighting (Prism.js)
 - Secure credential handling — no hardcoded passwords
 
-### 3.6 Cost Estimation (v2.1)
+### 3.6 Cost Estimation (v2.3)
 - **Dynamic pricing** via Azure Retail Prices API (`https://prices.azure.com/api/retail/prices`)
 - **Region-aware:** Prices fetched per the user's selected deployment region (default: West Europe)
 - **SKU strategy multipliers:** Cost-optimized (0.65x), Balanced (1.0x), Performance-first (1.6x), Enterprise (2.2x)
 - **Monthly cache:** Prices cached to disk for 30 days, refreshed on next request
-- **46 service mappings** to Azure Retail Prices API product names with fallback estimates
+- **134 service pricing entries** to Azure Retail Prices API product names with fallback estimates
+- **56 service aliases** mapping cross-cloud naming variants to canonical pricing keys
+- **6-step price resolution:** exact match → alias → prefix match → word overlap → alias fallback → substring fallback
+- **Optimized targeted queries:** Only fetches prices for services actually detected in the diagram (not the full catalog)
 - Provides per-service low/high range and total monthly estimate
 - Displays region, service count, and pricing source in the UI
+- **E2E validated:** Real pricing confirmed across 5 diagrams (3 AWS + 2 GCP), ranges $120–$2,100/mo
 
 ### 3.7 Diagram Export (v2.0)
 - **Excalidraw (.excalidraw):** Interactive JSON format with Azure service stencils
@@ -249,7 +253,7 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 |-------|------------|
 | Frontend | React 18, Vite, TailwindCSS, Lucide React (icons), Prism.js (syntax highlighting) |
 | Backend | Python 3.11, FastAPI |
-| AI | Azure OpenAI GPT-4 Vision |
+| AI | Azure OpenAI GPT-4o (deployment `gpt-4o`, model 2024-05-13) |
 | Database | PostgreSQL (Azure Flexible Server) |
 | Storage | Azure Blob Storage |
 | Hosting | Azure Container Apps (API), Static Web Apps (frontend) |
@@ -257,9 +261,9 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | Scheduler | APScheduler 3.10 (CronTrigger, daily service sync + auto-add) |
 | Guided Questions | In-process engine (32 questions, 8 categories) |
 | Diagram Export | In-process engine (Excalidraw, Draw.io, Visio with 36 Azure stencils) |
-| Pricing | Azure Retail Prices API with 30-day disk cache (46 service queries) |
+| Pricing | Azure Retail Prices API with 30-day disk cache (134 service entries, 56 aliases, targeted queries) |
 | IaC | Terraform (infra), Bicep support in-app |
-| Testing | pytest (backend, 75 tests), Playwright (E2E, 27 tests) |
+| Testing | pytest (backend, 184 tests), E2E flow test (50 steps across 5 diagrams) |
 
 ### 8.2 API Endpoints (30 total)
 
@@ -318,8 +322,9 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 |-------|--------|----------|
 | **v1.0 — MVP** | Done | Diagram upload, AWS/GCP → Azure mapping, Terraform/Bicep output, basic cost estimation |
 | **v2.0 — Production** | Done | Guided questions (32 across 8 categories), diagram export (Excalidraw/Draw.io/Visio with stencils), daily auto-updating service catalog (APScheduler), 405-service catalog, secure IaC credentials, design system UI with Lucide icons, chatbot assistant, admin dashboard |
-| **v2.1 — Pricing & Polish** | Done | Dynamic Azure pricing via Retail Prices API, deployment region question, region-aware cost estimates, monthly pricing cache, SKU strategy multipliers, 46 service price mappings, comprehensive test suites (181 unit + 34 E2E) |
+| **v2.1 — Pricing & Polish** | Done | Dynamic Azure pricing via Retail Prices API, deployment region question, region-aware cost estimates, monthly pricing cache, SKU strategy multipliers |
 | **v2.2 — Self-Updating Catalog** | Done | Auto-integration of new services into catalog files, fuzzy name matching, category auto-classification (55 keyword hints), dry-run CLI mode, cumulative auto-added tracking |
+| **v2.3 — Real Pricing & GCP Validation** | Done | Real Azure pricing (134 entries + 56 aliases), 6-step price resolution, optimized targeted API queries, session key fix, full GCP → Azure E2E validation (5 diagrams, 50/50 steps pass), 184 unit tests |
 | **v3.0 — Enterprise** | Planned | Visio import, API keys, import blocks for existing resources, SSO, RBAC |
 | **v4.0 — Advanced** | Planned | Pulumi output, Azure Migrate integration, multi-diagram projects |
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Archmorph E2E Flow Test — 3 AWS Architecture Diagrams
-=====================================================
+Archmorph E2E Flow Test — 5 Architecture Diagrams (3 AWS + 2 GCP)
+=================================================================
 
 Tests the full 7-step translation flow for each diagram:
   1. Upload → 2. Analyze → 3. Guided Questions → 4. Apply Answers →
@@ -18,19 +18,34 @@ TIMEOUT = httpx.Timeout(connect=15, read=180, write=30, pool=15)
 
 DIAGRAMS = [
     {
-        "label": "Diagram 1 — AWS Connect Call Center",
-        "file": "/Users/idokatz/Desktop/1.png",
-        "project_id": "e2e-callcenter",
+        "label": "D1 — AWS Web Application Architecture",
+        "file": "/Users/idokatz/Desktop/AWS1.png",
+        "project_id": "e2e-aws-webapp",
+        "source": "aws",
     },
     {
-        "label": "Diagram 2 — ArteraAI Medical / HIPAA",
-        "file": "/Users/idokatz/Desktop/2.png",
-        "project_id": "e2e-arteraai",
+        "label": "D2 — AWS Data Lake (Kinesis/Athena/Glue)",
+        "file": "/Users/idokatz/Desktop/Samples/AWS2.PNG",
+        "project_id": "e2e-aws-datalake",
+        "source": "aws",
     },
     {
-        "label": "Diagram 3 — Bitbucket Data Center VPC",
-        "file": "/Users/idokatz/Desktop/3.png",
-        "project_id": "e2e-bitbucket",
+        "label": "D3 — AWS Multi-Component (AppSync/Fargate/Neptune)",
+        "file": "/Users/idokatz/Desktop/AWS3.png",
+        "project_id": "e2e-aws-multicomp",
+        "source": "aws",
+    },
+    {
+        "label": "D4 — GCP Opta Architecture (GKE/Cloud SQL)",
+        "file": "/Users/idokatz/Desktop/GCP1.png",
+        "project_id": "e2e-gcp-opta",
+        "source": "gcp",
+    },
+    {
+        "label": "D5 — GCP Digital Marketing (BigQuery/Dataflow)",
+        "file": "/Users/idokatz/Desktop/GCP2.png",
+        "project_id": "e2e-gcp-digimark",
+        "source": "gcp",
     },
 ]
 
@@ -78,10 +93,11 @@ def run_flow(d: dict):
     analysis = resp.json() if ok else {}
     mappings = analysis.get("mappings", [])
     n_mappings = len(mappings)
+    source = d.get("source", "aws").upper()
     detected = [m.get("source_service", "?") for m in mappings[:8]]
     step(f"[{pid}] 2. Analyze", ok, f"{n_mappings} mappings detected")
     if ok:
-        print(f"     Detected AWS services: {', '.join(detected)}")
+        print(f"     Detected {source} services: {', '.join(detected)}")
         if n_mappings > 8:
             print(f"     ... and {n_mappings - 8} more")
         # Show zones
@@ -229,7 +245,7 @@ def run_flow(d: dict):
 
 if __name__ == "__main__":
     print("\n" + "=" * 70)
-    print("  ARCHMORPH E2E FLOW TEST — 3 AWS Architecture Diagrams")
+    print("  ARCHMORPH E2E FLOW TEST — 5 Architecture Diagrams (3 AWS + 2 GCP)")
     print("=" * 70)
 
     for d in DIAGRAMS:

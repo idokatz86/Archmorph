@@ -119,7 +119,7 @@ function Nav({ activeTab, setActiveTab, updateStatus }) {
                 <span>Catalog {updateStatus.scheduler_running ? 'Live' : 'Idle'}</span>
               </div>
             )}
-            <Badge variant="azure">v2.0.0</Badge>
+            <Badge variant="azure">v2.3.0-beta</Badge>
           </div>
         </div>
       </div>
@@ -776,6 +776,12 @@ function DiagramTranslator() {
                   ))}
                 </div>
               )}
+              <div className="mt-4 pt-3 border-t border-border flex items-start gap-2">
+                <Info className="w-3.5 h-3.5 text-text-muted shrink-0 mt-0.5" />
+                <p className="text-[11px] text-text-muted leading-relaxed">
+                  These figures are approximate estimates based on Azure Retail Prices and may not reflect your final costs. Actual charges will vary depending on usage, configuration, reserved capacity, and applicable discounts. For an accurate cost projection, please use the <a href="https://azure.microsoft.com/en-us/pricing/calculator/" target="_blank" rel="noopener noreferrer" className="text-cta hover:underline">Azure Pricing Calculator</a>.
+                </p>
+              </div>
             </Card>
           )}
 
@@ -1219,6 +1225,14 @@ export default function App() {
   return (
     <div className="min-h-screen bg-surface text-text-primary font-sans">
       <Nav activeTab={activeTab} setActiveTab={setActiveTab} updateStatus={updateStatus} />
+      <div className="bg-amber-500/10 border-b border-amber-500/20">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2 flex items-center justify-center gap-2">
+          <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+          <p className="text-xs text-amber-300">
+            <span className="font-semibold">Beta Preview</span> — This application is currently in beta. Features and outputs may change. Please review all results before using in production environments.
+          </p>
+        </div>
+      </div>
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {activeTab === 'translator' && <DiagramTranslator />}
         {activeTab === 'services' && <ServicesBrowser />}
@@ -1230,7 +1244,7 @@ export default function App() {
               className="text-xs text-text-muted select-none cursor-default"
               onClick={handleVersionClick}
             >
-              Archmorph v2.1.0 — AI-powered Cloud Architecture Translator to Azure
+              Archmorph v2.3.0-beta — AI-powered Cloud Architecture Translator to Azure
             </p>
             <div className="flex items-center gap-4">
               <a href="mailto:send2katz@gmail.com" className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-cta transition-colors cursor-pointer">
