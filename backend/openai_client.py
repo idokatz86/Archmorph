@@ -21,7 +21,7 @@ AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "")
 if not AZURE_OPENAI_ENDPOINT:
     logger.warning("AZURE_OPENAI_ENDPOINT not set — OpenAI features will be unavailable")
 AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
-AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-06-01")
+AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-10-21")
 AZURE_OPENAI_KEY = os.getenv("AZURE_OPENAI_KEY", "")
 
 # Singleton client (reused across requests for connection pooling)
