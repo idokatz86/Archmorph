@@ -294,7 +294,7 @@ resource "azurerm_container_app" "backend" {
   }
 
   template {
-    min_replicas = var.environment == "prod" ? 1 : 0
+    min_replicas = 1
     max_replicas = var.environment == "prod" ? 10 : 3
 
     container {
