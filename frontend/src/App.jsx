@@ -148,7 +148,7 @@ function ServicesBrowser() {
     ]).then(([svc, st, cats]) => {
       setServices(svc.services || []);
       setStats(st);
-      setCategories(cats.categories || []);
+      setCategories((cats.categories || []).map(c => typeof c === 'string' ? c : c.name));
       setLoading(false);
     }).catch(() => setLoading(false));
   }, []);
@@ -624,7 +624,7 @@ function DiagramTranslator() {
                       <span className="w-6 h-6 rounded bg-cta/15 text-cta text-xs font-bold flex items-center justify-center">{zone.id}</span>
                       <h3 className="text-sm font-semibold text-text-primary">{zone.name}</h3>
                     </div>
-                    <span className="text-xs text-text-muted">{zone.services} services</span>
+                    <span className="text-xs text-text-muted">{Array.isArray(zone.services) ? zone.services.length : zone.services} services</span>
                   </div>
                   {zoneMappings.length > 0 && (
                     <div className="divide-y divide-border">
