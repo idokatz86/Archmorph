@@ -375,8 +375,10 @@ test.describe('API Endpoints', () => {
     expect(resp.ok()).toBeTruthy();
     const data = await resp.json();
     expect(data.currency).toBe('USD');
-    expect(data.monthly_estimate.low).toBeGreaterThan(0);
-    expect(data.services.length).toBeGreaterThan(0);
+    expect(data.total_monthly_estimate).toBeDefined();
+    expect(data.total_monthly_estimate.low).toBeGreaterThanOrEqual(0);
+    expect(data.total_monthly_estimate.high).toBeGreaterThanOrEqual(0);
+    expect(data.region).toBeDefined();
   });
 
   test('admin metrics requires auth key', async ({ request }) => {

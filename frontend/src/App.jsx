@@ -746,6 +746,14 @@ function DiagramTranslator() {
                 <BarChart3 className="w-5 h-5 text-cta" />
                 Estimated Monthly Cost
               </h3>
+              {costEstimate.region && (
+                <p className="text-xs text-text-muted mb-3">
+                  Region: <span className="font-medium text-text-secondary">{costEstimate.region}</span>
+                  {costEstimate.service_count > 0 && (
+                    <span className="ml-2">({costEstimate.service_count} services)</span>
+                  )}
+                </p>
+              )}
               <div className="grid grid-cols-2 gap-3 mb-4">
                 <div className="bg-surface rounded-lg p-3 text-center">
                   <p className="text-lg font-bold text-cta">${costEstimate.total_monthly_estimate?.low?.toLocaleString() || '---'}</p>
