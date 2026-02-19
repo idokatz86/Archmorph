@@ -12,7 +12,7 @@ variable "location" {
 variable "openai_location" {
   description = "Azure region for OpenAI (limited availability)"
   type        = string
-  default     = "swedencentral" # OpenAI with GPT-4 Vision available
+  default     = "eastus" # GPT-4 Vision available, Sweden blocked by policy
 }
 
 variable "environment" {

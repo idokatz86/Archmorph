@@ -74,12 +74,14 @@ resource "azurerm_log_analytics_workspace" "main" {
 # Storage Account (Blob Storage for diagrams & IaC files)
 # ─────────────────────────────────────────────────────────────
 resource "azurerm_storage_account" "main" {
-  name                     = "archmorph${local.name_suffix}"
-  resource_group_name      = azurerm_resource_group.main.name
-  location                 = azurerm_resource_group.main.location
-  account_tier             = "Standard"
-  account_replication_type = "LRS"
-  min_tls_version          = "TLS1_2"
+  name                            = "archmorph${local.name_suffix}"
+  resource_group_name             = azurerm_resource_group.main.name
+  location                        = azurerm_resource_group.main.location
+  account_tier                    = "Standard"
+  account_replication_type        = "LRS"
+  min_tls_version                 = "TLS1_2"
+  shared_access_key_enabled       = true
+  allow_nested_items_to_be_public = false
 
   blob_properties {
     cors_rule {
@@ -206,13 +208,13 @@ resource "azurerm_cognitive_account" "openai" {
 }
 
 resource "azurerm_cognitive_deployment" "gpt4_vision" {
-  name                 = "gpt-4-vision"
+  name                 = "gpt-4o"
   cognitive_account_id = azurerm_cognitive_account.openai.id
 
   model {
     format  = "OpenAI"
-    name    = "gpt-4"
-    version = "vision-preview"
+    name    = "gpt-4o"
+    version = "2024-05-13"
   }
 
   scale {
@@ -233,9 +235,15 @@ resource "azurerm_key_vault_secret" "openai_key" {
 resource "azurerm_container_app_environment" "main" {
   name                       = "archmorph-cae-${var.environment}"
   resource_group_name        = azurerm_resource_group.main.name
-  location                   = azurerm_resource_group.main.location
+  location                   = "westeurope"  # Already exists in westeurope
   log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
-  tags                       = local.tags
+
+  workload_profile {
+    name                  = "Consumption"
+    workload_profile_type = "Consumption"
+  }
+
+  tags = local.tags
 }
 
 # ─────────────────────────────────────────────────────────────
@@ -282,12 +290,6 @@ resource "azurerm_container_app" "backend" {
     traffic_weight {
       percentage      = 100
       latest_revision = true
-    }
-
-    cors_policy {
-      allowed_origins = ["*"]
-      allowed_methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
-      allowed_headers = ["*"]
     }
   }
 
