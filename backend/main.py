@@ -272,24 +272,49 @@ async def analyze_diagram(diagram_id: str):
         "AWS AppSync → APIM + SignalR: No direct Azure GraphQL managed service; consider Hot Chocolate on Container Apps",
     ]
 
+    # ── Build zone data with actual services ──
+    zone_defs = [
+        {"id": 1, "name": "Ingest", "number": 1},
+        {"id": 2, "name": "Over-the-Air Ingest", "number": 2},
+        {"id": 3, "name": "Initial Data Quality Check", "number": 3},
+        {"id": 4, "name": "Workflow & Orchestration", "number": 4},
+        {"id": 5, "name": "Data Enrichment & Synchronization", "number": 5},
+        {"id": 6, "name": "Scene Detection", "number": 6},
+        {"id": 7, "name": "Data Catalog", "number": 7},
+        {"id": 8, "name": "Image Extraction & Anonymization", "number": 8},
+        {"id": 9, "name": "Labeling & Annotation", "number": 9},
+        {"id": 10, "name": "Analytics & Visualization", "number": 10},
+    ]
+    # Assign mappings to zones by parsing the "Zone N" prefix in notes
+    zone_services: dict = {z["id"]: [] for z in zone_defs}
+    for m in mappings:
+        note = m.notes or ""
+        for z in zone_defs:
+            if f"Zone {z['id']}" in note or f"Zone {z['number']}" in note:
+                zone_services[z["id"]].append({
+                    "aws": m.source_service,
+                    "azure": m.azure_service,
+                    "confidence": m.confidence,
+                })
+                break
+
+    zones_with_services = []
+    for z in zone_defs:
+        svcs = zone_services[z["id"]]
+        zones_with_services.append({
+            "id": z["id"],
+            "name": z["name"],
+            "number": z["number"],
+            "services": svcs,
+        })
+
     result = {
         "diagram_id": diagram_id,
         "diagram_type": "AWS Automotive / IoT Data Pipeline",
         "source_provider": "aws",
         "target_provider": "azure",
         "services_detected": len(mappings),
-        "zones": [
-            {"id": 1, "name": "Ingest", "services": 5},
-            {"id": 2, "name": "Over-the-Air Ingest", "services": 1},
-            {"id": 3, "name": "Initial Data Quality Check", "services": 4},
-            {"id": 4, "name": "Workflow & Orchestration", "services": 1},
-            {"id": 5, "name": "Data Enrichment & Synchronization", "services": 6},
-            {"id": 6, "name": "Scene Detection", "services": 2},
-            {"id": 7, "name": "Data Catalog", "services": 4},
-            {"id": 8, "name": "Image Extraction & Anonymization", "services": 5},
-            {"id": 9, "name": "Labeling & Annotation", "services": 2},
-            {"id": 10, "name": "Analytics & Visualization", "services": 3},
-        ],
+        "zones": zones_with_services,
         "mappings": [m.dict() for m in mappings],
         "warnings": warnings,
         "confidence_summary": {

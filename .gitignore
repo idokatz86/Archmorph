@@ -43,3 +43,5 @@ yarn-error.log
 # Build outputs
 /frontend/dist/
 /backend/dist/
+test-results/
+playwright-report/

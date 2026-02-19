@@ -5,6 +5,8 @@ Generates architecture diagrams in Excalidraw, Draw.io, and Visio (VDX) formats
 from cloud migration analysis results.
 """
 
+from __future__ import annotations
+
 import json
 import uuid
 import xml.etree.ElementTree as ET
@@ -428,7 +430,7 @@ def _generate_excalidraw(analysis: dict) -> dict:
     # Build a mapping from service aws name → azure name + confidence
     svc_map: dict[str, dict] = {}
     for m in mappings:
-        aws = m.get("aws_service") or m.get("source", "")
+        aws = m.get("source_service") or m.get("aws_service") or m.get("source", "")
         azure = m.get("azure_service") or m.get("target", "")
         confidence = m.get("confidence", "medium")
         svc_map[aws] = {"azure": azure, "confidence": confidence}
@@ -493,10 +495,20 @@ def _generate_excalidraw(analysis: dict) -> dict:
 
         # Services inside zone
         for si, svc in enumerate(zp["services"]):
-            aws_name = svc if isinstance(svc, str) else svc.get("aws", svc.get("name", ""))
-            info = svc_map.get(aws_name, {})
-            azure_name = info.get("azure", aws_name)
-            confidence = info.get("confidence", "medium")
+            if isinstance(svc, str):
+                aws_name = svc
+                info = svc_map.get(aws_name, {})
+                azure_name = info.get("azure", aws_name)
+                raw_conf = info.get("confidence", "medium")
+            else:
+                aws_name = svc.get("aws", svc.get("source_service", svc.get("name", "")))
+                azure_name = svc.get("azure", svc.get("azure_service", aws_name))
+                raw_conf = svc.get("confidence", "medium")
+
+            if isinstance(raw_conf, (int, float)):
+                confidence = "high" if raw_conf >= 0.85 else "medium" if raw_conf >= 0.7 else "low"
+            else:
+                confidence = str(raw_conf)
             conf_color = _CONFIDENCE_COLORS.get(confidence, _CONFIDENCE_COLORS["medium"])
 
             sx = zx + 16
@@ -585,7 +597,7 @@ def _generate_drawio(analysis: dict) -> dict:
     # Build mapping lookup
     svc_map: dict[str, dict] = {}
     for m in mappings:
-        aws = m.get("aws_service") or m.get("source", "")
+        aws = m.get("source_service") or m.get("aws_service") or m.get("source", "")
         azure = m.get("azure_service") or m.get("target", "")
         confidence = m.get("confidence", "medium")
         svc_map[aws] = {"azure": azure, "confidence": confidence}
@@ -676,10 +688,21 @@ def _generate_drawio(analysis: dict) -> dict:
 
         # Services
         for si, svc in enumerate(services):
-            aws_name = svc if isinstance(svc, str) else svc.get("aws", svc.get("name", ""))
-            info = svc_map.get(aws_name, {})
-            azure_name = info.get("azure", aws_name)
-            confidence = info.get("confidence", "medium")
+            if isinstance(svc, str):
+                aws_name = svc
+                info = svc_map.get(aws_name, {})
+                azure_name = info.get("azure", aws_name)
+                raw_conf = info.get("confidence", "medium")
+            else:
+                aws_name = svc.get("aws", svc.get("source_service", svc.get("name", "")))
+                azure_name = svc.get("azure", svc.get("azure_service", aws_name))
+                raw_conf = svc.get("confidence", "medium")
+
+            # Normalise confidence to string key
+            if isinstance(raw_conf, (int, float)):
+                confidence = "high" if raw_conf >= 0.85 else "medium" if raw_conf >= 0.7 else "low"
+            else:
+                confidence = str(raw_conf)
             conf_color = _CONFIDENCE_COLORS.get(confidence, _CONFIDENCE_COLORS["medium"])
 
             stencil = get_azure_stencil_id(azure_name, "drawio")
@@ -769,7 +792,7 @@ def _generate_vsdx(analysis: dict) -> dict:
 
     svc_map: dict[str, dict] = {}
     for m in mappings:
-        aws = m.get("aws_service") or m.get("source", "")
+        aws = m.get("source_service") or m.get("aws_service") or m.get("source", "")
         azure = m.get("azure_service") or m.get("target", "")
         confidence = m.get("confidence", "medium")
         svc_map[aws] = {"azure": azure, "confidence": confidence}
@@ -865,10 +888,14 @@ def _generate_vsdx(analysis: dict) -> dict:
         sub_shapes = ET.SubElement(zone_shape, f"{{{_VDX_NS}}}Shapes")
 
         for si, svc in enumerate(services):
-            aws_name = svc if isinstance(svc, str) else svc.get("aws", svc.get("name", ""))
+            aws_name = svc if isinstance(svc, str) else svc.get("aws", svc.get("source_service", svc.get("name", "")))
             info = svc_map.get(aws_name, {})
-            azure_name = info.get("azure", aws_name)
-            confidence = info.get("confidence", "medium")
+            azure_name = info.get("azure", svc.get("azure", aws_name) if isinstance(svc, dict) else aws_name)
+            raw_conf = info.get("confidence", svc.get("confidence", "medium") if isinstance(svc, dict) else "medium")
+            if isinstance(raw_conf, (int, float)):
+                confidence = "high" if raw_conf >= 0.85 else ("medium" if raw_conf >= 0.7 else "low")
+            else:
+                confidence = str(raw_conf) if raw_conf else "medium"
 
             stencil_name = get_azure_stencil_id(azure_name, "visio")
             label = f"{aws_name} → {azure_name}" if aws_name != azure_name else azure_name
