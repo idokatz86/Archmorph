@@ -1212,33 +1212,36 @@ async def export_iac(diagram_id: str, format: str = "terraform"):
 @app.get("/api/diagrams/{diagram_id}/cost-estimate")
 async def estimate_cost(diagram_id: str):
     record_event("cost_estimates", {"diagram_id": diagram_id})
+
+    session = SESSION_STORE.get(diagram_id, {})
+    analysis = session.get("analysis", {})
+    mappings = analysis.get("mappings", [])
+    iac_params = analysis.get("iac_parameters", {})
+
+    # Get region from guided-question answers or iac_parameters
+    region = iac_params.get("deploy_region", "westeurope")
+    sku_strategy = iac_params.get("sku_strategy", "Balanced")
+
+    # If we have real mappings, compute dynamic pricing
+    if mappings:
+        from services.azure_pricing import estimate_services_cost
+        result = estimate_services_cost(mappings, region=region, sku_strategy=sku_strategy)
+        result["diagram_id"] = diagram_id
+        return result
+
+    # Fallback: return structure-compatible empty estimate
     return {
         "diagram_id": diagram_id,
-        "monthly_estimate": {
-            "low": 2800,
-            "medium": 5200,
-            "high": 9500
+        "total_monthly_estimate": {
+            "low": 0,
+            "high": 0,
         },
         "currency": "USD",
-        "services": [
-            {"service": "Azure ExpressRoute (1 Gbps)", "estimate": 290, "zone": 1},
-            {"service": "Azure IoT Hub (S1 × 2)", "estimate": 50, "zone": 2},
-            {"service": "Azure Event Hubs (Standard)", "estimate": 85, "zone": 1},
-            {"service": "Azure Blob Storage (ZRS, ~10 TB)", "estimate": 200, "zone": 3},
-            {"service": "Azure Data Lake Storage Gen2 (~5 TB)", "estimate": 115, "zone": 5},
-            {"service": "Azure Data Factory", "estimate": 180, "zone": 4},
-            {"service": "Azure Synapse Spark Pool (3-10 nodes)", "estimate": 1200, "zone": "5/6"},
-            {"service": "Azure Container Instances (2 groups)", "estimate": 220, "zone": "5/8"},
-            {"service": "Microsoft Purview", "estimate": 450, "zone": 7},
-            {"service": "Azure Cosmos DB Gremlin (lineage)", "estimate": 250, "zone": 7},
-            {"service": "Azure Cosmos DB NoSQL (metadata)", "estimate": 200, "zone": 7},
-            {"service": "Azure AI Search (Standard)", "estimate": 250, "zone": 7},
-            {"service": "Azure Functions (Consumption)", "estimate": 25, "zone": 8},
-            {"service": "Azure AI Vision (S1)", "estimate": 120, "zone": 8},
-            {"service": "Azure ML Workspace + Labeling", "estimate": 350, "zone": 9},
-            {"service": "Azure API Management (Consumption)", "estimate": 50, "zone": 10},
-            {"service": "Azure Container Apps (Webviz)", "estimate": 165, "zone": 10},
-        ]
+        "region": "West Europe",
+        "arm_region": region,
+        "services": [],
+        "service_count": 0,
+        "pricing_source": "no analysis available",
     }
 
 

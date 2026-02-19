@@ -205,6 +205,36 @@ QUESTION_BANK: QuestionBank = {
             "impact": "Sets the IaC language used in generated templates",
             "default": "Terraform (HCL)",
         },
+        {
+            "id": "arch_deploy_region",
+            "question": "Target Azure deployment region?",
+            "type": "single_choice",
+            "options": [
+                "West Europe",
+                "North Europe",
+                "East US",
+                "East US 2",
+                "West US 2",
+                "UK South",
+                "Southeast Asia",
+                "Australia East",
+                "Central US",
+                "Canada Central",
+                "Japan East",
+                "France Central",
+                "Germany West Central",
+                "Switzerland North",
+                "Brazil South",
+                "Central India",
+                "Korea Central",
+                "South Africa North",
+                "UAE North",
+                "Sweden Central",
+            ],
+            "condition": [],
+            "impact": "Determines the Azure region for deployment and cost estimation; affects pricing, latency, and compliance",
+            "default": "West Europe",
+        },
     ],
 
     # ─────────────────────────────────────────────────────────
@@ -709,6 +739,7 @@ def apply_answers(analysis_result: dict, answers: dict) -> dict:
     _apply_containers(effective, mappings, iac_params)
     _apply_ml(effective, mappings, iac_params)
     _apply_iac_style(effective, iac_params)
+    _apply_deploy_region(effective, iac_params)
     _apply_encryption(effective, mappings, warnings, iac_params)
 
     result["mappings"] = mappings
@@ -1347,6 +1378,14 @@ def _apply_iac_style(answers: Answers, iac: dict) -> None:
         "Pulumi": "pulumi",
     }
     iac["iac_format"] = style_map.get(style, "terraform")
+
+
+def _apply_deploy_region(answers: Answers, iac: dict) -> None:
+    """Store the user's chosen deployment region for cost calculations."""
+    from services.azure_pricing import display_to_arm
+    region_display = answers.get("arch_deploy_region", "West Europe")
+    iac["deploy_region"] = display_to_arm(region_display)
+    iac["deploy_region_display"] = region_display
 
 
 def _apply_encryption(

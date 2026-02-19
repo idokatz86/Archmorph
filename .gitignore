@@ -45,3 +45,4 @@ yarn-error.log
 /backend/dist/
 test-results/
 playwright-report/
+backend/data/
