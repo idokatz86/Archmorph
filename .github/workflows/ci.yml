@@ -122,7 +122,7 @@ jobs:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Deploy to Container Apps
-        uses: azure/container-apps-deploy-action@v1
+        uses: azure/container-apps-deploy-action@v2
         with:
           resourceGroup: ${{ secrets.AZURE_RESOURCE_GROUP }}
           containerAppName: archmorph-api
