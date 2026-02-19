@@ -196,7 +196,10 @@ SYSTEM_PROMPT = """You are a cloud architecture diagram analyzer. Your job is to
 
 RULES:
 1. Identify all cloud services visible in the diagram (AWS, GCP, or on-premises components).
-2. Detect the source cloud provider (aws or gcp). If mixed or unclear, use "aws" as default.
+2. Detect the source cloud provider (aws or gcp). Look for provider-specific clues:
+   - GCP indicators: Google Cloud logo, "GCP" text, services like Pub/Sub, BigQuery, Cloud Storage, Cloud Run, GKE, Compute Engine, Cloud Functions, Dataflow, Cloud SQL, Firestore, Spanner, Cloud CDN, Cloud Armor, Cloud DNS, Vertex AI, Anthos, Cloud Interconnect, App Engine, Firebase, Memorystore, Filestore, Cloud IoT Core, Dataproc, Cloud Logging, Cloud Monitoring, etc.
+   - AWS indicators: AWS logo, services like S3, EC2, Lambda, RDS, DynamoDB, SQS, SNS, ECS, EKS, CloudFront, Route 53, Kinesis, API Gateway, CloudWatch, etc.
+   IMPORTANT: If you see ANY GCP service names or the Google Cloud logo, set source_provider to "gcp". Do NOT default to "aws" when the diagram is clearly GCP.
 3. Group services into logical architecture zones (e.g., "Networking", "Compute", "Database", "Security", "Storage", "Frontend", "Backend", etc.).
 4. For each service, provide:
    - The exact service name as shown in the diagram (e.g., "Amazon RDS", "Lambda", "S3")
@@ -344,7 +347,7 @@ def analyze_image(image_bytes: bytes, content_type: str = "image/png") -> Dict[s
                 ],
             },
         ],
-        max_tokens=4096,
+        max_tokens=40000,
         temperature=0.1,
     )
 
@@ -430,7 +433,8 @@ def _build_analysis_result(vision_result: Dict[str, Any]) -> Dict[str, Any]:
             mappings.append(mapping_entry)
 
             zone_services.append({
-                "aws" if source_provider == "aws" else "gcp": full_name,
+                "source": full_name,
+                "source_provider": source_provider,
                 "azure": azure_service,
                 "confidence": confidence,
             })
