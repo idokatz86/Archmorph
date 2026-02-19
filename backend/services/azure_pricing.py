@@ -350,6 +350,458 @@ SERVICE_PRICE_QUERIES: dict[str, dict[str, Any]] = {
         "serviceName": "Azure Databricks",
         "fallback_monthly": 400,
     },
+    # ── Networking ──────────────────────────────────────────
+    "Azure Virtual Network": {
+        "serviceName": "Virtual Network",
+        "fallback_monthly": 0,  # VNet itself is free; peering/gateway has cost
+    },
+    "Azure NAT Gateway": {
+        "serviceName": "NAT Gateway",
+        "skuName": "Standard",
+        "fallback_monthly": 35,  # ~$0.045/hr + data processing
+    },
+    "Azure Application Gateway": {
+        "serviceName": "Application Gateway",
+        "skuName": "Standard v2",
+        "meterName": "Fixed Cost",
+        "fallback_monthly": 180,  # v2 base + capacity units
+    },
+    "Azure Load Balancer": {
+        "serviceName": "Load Balancer",
+        "skuName": "Standard",
+        "fallback_monthly": 18,  # ~$0.025/hr
+    },
+    "Azure Bastion": {
+        "serviceName": "Azure Bastion",
+        "skuName": "Standard",
+        "fallback_monthly": 140,  # ~$0.19/hr
+    },
+    "Azure DDoS Protection": {
+        "serviceName": "Azure DDoS Protection",
+        "skuName": "Standard",
+        "fallback_monthly": 2944,  # $2944/mo flat rate
+    },
+    "Azure VPN Gateway": {
+        "serviceName": "VPN Gateway",
+        "skuName": "VpnGw1",
+        "fallback_monthly": 140,
+    },
+    "Azure DNS": {
+        "serviceName": "Azure DNS",
+        "fallback_monthly": 1,  # $0.50/zone/mo + queries
+    },
+    "Azure Virtual WAN": {
+        "serviceName": "Virtual WAN",
+        "fallback_monthly": 160,
+    },
+    "Azure Firewall": {
+        "serviceName": "Azure Firewall",
+        "skuName": "Standard",
+        "fallback_monthly": 912,  # ~$1.25/hr
+    },
+    "Web Application Firewall": {
+        "serviceName": "Application Gateway",
+        "skuName": "WAF v2",
+        "fallback_monthly": 260,
+    },
+    # ── Compute extras ──────────────────────────────────────
+    "VM Scale Sets": {
+        "serviceName": "Virtual Machines",
+        "skuName": "D2s v3",
+        "fallback_monthly": 196,  # 2× D2s v3 instances minimum
+    },
+    "Azure Static Web Apps": {
+        "serviceName": "Static Web Apps",
+        "fallback_monthly": 9,  # Standard plan
+    },
+    # ── Storage extras ──────────────────────────────────────
+    "Azure Files": {
+        "serviceName": "Storage",
+        "skuName": "Hot LRS",
+        "meterName": "File",
+        "fallback_monthly": 60,  # transaction-heavy file storage
+    },
+    "Azure Files (NFS)": {
+        "serviceName": "Storage",
+        "skuName": "Premium LRS",
+        "meterName": "File",
+        "fallback_monthly": 100,  # Premium NFS tier
+    },
+    "Managed Disks": {
+        "serviceName": "Storage",
+        "skuName": "Premium SSD",
+        "meterName": "P10",
+        "fallback_monthly": 20,  # 128 GiB P10
+    },
+    "Azure NetApp Files": {
+        "serviceName": "Azure NetApp Files",
+        "skuName": "Standard",
+        "fallback_monthly": 300,  # 4 TiB minimum pool
+    },
+    "Azure Backup": {
+        "serviceName": "Backup",
+        "fallback_monthly": 10,  # per instance
+    },
+    "Archive Storage": {
+        "serviceName": "Storage",
+        "skuName": "Archive LRS",
+        "meterName": "Data Stored",
+        "fallback_monthly": 2,  # per TB
+    },
+    "Data Box": {
+        "serviceName": "Data Box",
+        "fallback_monthly": 0,  # Per-use device rental
+    },
+    # ── Database extras ──────────────────────────────────────
+    "Azure Database for MariaDB": {
+        "serviceName": "Azure Database for MariaDB",
+        "skuName": "General Purpose",
+        "fallback_monthly": 170,
+    },
+    "Confidential Ledger": {
+        "serviceName": "Azure Confidential Ledger",
+        "fallback_monthly": 750,
+    },
+    "Database Migration Service": {
+        "serviceName": "Database Migration Service",
+        "fallback_monthly": 0,  # Free tier available
+    },
+    # ── Security / Identity ──────────────────────────────────
+    "Azure Key Vault (Secrets)": {
+        "serviceName": "Key Vault",
+        "skuName": "Standard",
+        "fallback_monthly": 3,
+    },
+    "Azure Key Vault (Certificates)": {
+        "serviceName": "Key Vault",
+        "skuName": "Standard",
+        "fallback_monthly": 3,
+    },
+    "Entra ID / RBAC": {
+        "serviceName": "Microsoft Entra ID",
+        "fallback_monthly": 0,  # Free tier; P1/P2 is per-user
+    },
+    "Entra External ID (B2C)": {
+        "serviceName": "Azure Active Directory B2C",
+        "fallback_monthly": 0,  # first 50k MAU free
+    },
+    "Defender for Cloud": {
+        "serviceName": "Microsoft Defender for Cloud",
+        "fallback_monthly": 15,  # per server/month
+    },
+    "Microsoft Sentinel": {
+        "serviceName": "Microsoft Sentinel",
+        "fallback_monthly": 100,  # depends on data ingestion
+    },
+    "Dedicated HSM": {
+        "serviceName": "Dedicated HSM",
+        "fallback_monthly": 4600,
+    },
+    "Information Protection": {
+        "serviceName": "Azure Information Protection",
+        "fallback_monthly": 2,  # per user/month
+    },
+    "Private Link": {
+        "serviceName": "Private Link",
+        "fallback_monthly": 7,  # per endpoint/month
+    },
+    # ── AI / ML extras ────────────────────────────────────────
+    "Bot Service": {
+        "serviceName": "Bot Service",
+        "fallback_monthly": 0,  # Free for standard channels; Premium $500
+    },
+    "Azure OpenAI Service": {
+        "serviceName": "Azure OpenAI",
+        "fallback_monthly": 100,  # token-based, highly variable
+    },
+    "AI Vision": {
+        "serviceName": "Cognitive Services",
+        "skuName": "S1",
+        "fallback_monthly": 100,
+    },
+    "AI Language": {
+        "serviceName": "Cognitive Services",
+        "fallback_monthly": 75,
+    },
+    "AI Speech (TTS)": {
+        "serviceName": "Cognitive Services",
+        "fallback_monthly": 50,
+    },
+    "AI Speech (STT)": {
+        "serviceName": "Cognitive Services",
+        "fallback_monthly": 50,
+    },
+    "AI Translator": {
+        "serviceName": "Cognitive Services",
+        "fallback_monthly": 10,  # per million chars
+    },
+    "AI Document Intelligence": {
+        "serviceName": "Cognitive Services",
+        "fallback_monthly": 50,
+    },
+    "AI Search": {
+        "serviceName": "Azure AI Search",
+        "skuName": "Standard",
+        "fallback_monthly": 250,
+    },
+    "Health Insights": {
+        "serviceName": "Azure Health Insights",
+        "fallback_monthly": 100,
+    },
+    "Personalizer": {
+        "serviceName": "Cognitive Services",
+        "fallback_monthly": 50,
+    },
+    # ── Integration extras ────────────────────────────────────
+    "Event Grid": {
+        "serviceName": "Event Grid",
+        "fallback_monthly": 0.60,  # per million operations
+    },
+    "Event Grid / Notification Hubs": {
+        "serviceName": "Event Grid",
+        "fallback_monthly": 10,
+    },
+    # ── Business / Contact Center ─────────────────────────────
+    "Dynamics 365 Contact Center": {
+        "serviceName": "Dynamics 365",
+        "fallback_monthly": 110,  # per agent digital messaging
+    },
+    "Azure Communication Services": {
+        "serviceName": "Communication Services",
+        "fallback_monthly": 0,  # pay-as-you-go
+    },
+    "Azure Virtual Desktop": {
+        "serviceName": "Azure Virtual Desktop",
+        "fallback_monthly": 0,  # licensing only; compute is VMs
+    },
+    # ── Analytics extras ──────────────────────────────────────
+    "Data Explorer / AI Search": {
+        "serviceName": "Azure Data Explorer",
+        "fallback_monthly": 400,
+    },
+    "Data Factory": {
+        "serviceName": "Azure Data Factory v2",
+        "fallback_monthly": 180,
+    },
+    "HDInsight / Databricks": {
+        "serviceName": "Azure Databricks",
+        "fallback_monthly": 400,
+    },
+    "Event Hubs / Stream Analytics": {
+        "serviceName": "Event Hubs",
+        "skuName": "Standard",
+        "fallback_monthly": 107,  # EH + SA combined estimate
+    },
+    "Event Hubs (Kafka)": {
+        "serviceName": "Event Hubs",
+        "skuName": "Standard",
+        "fallback_monthly": 85,
+    },
+    "Microsoft Purview": {
+        "serviceName": "Microsoft Purview",
+        "fallback_monthly": 450,
+    },
+    "Power BI": {
+        "serviceName": "Power BI",
+        "fallback_monthly": 10,
+    },
+    "Data Share": {
+        "serviceName": "Azure Data Share",
+        "fallback_monthly": 0,  # per snapshot
+    },
+    "Synapse Analytics (Serverless SQL)": {
+        "serviceName": "Azure Synapse Analytics",
+        "fallback_monthly": 5,  # per TB scanned
+    },
+    # ── DevOps / DevTools extras ──────────────────────────────
+    "Container Registry": {
+        "serviceName": "Container Registry",
+        "skuName": "Standard",
+        "fallback_monthly": 20,
+    },
+    "Azure DevOps Repos": {
+        "serviceName": "Azure DevOps",
+        "fallback_monthly": 0,  # free for 5 users
+    },
+    "Azure Pipelines": {
+        "serviceName": "Azure DevOps",
+        "fallback_monthly": 40,  # per parallel job
+    },
+    "Azure Pipelines (Build)": {
+        "serviceName": "Azure DevOps",
+        "fallback_monthly": 40,
+    },
+    "Azure Pipelines (Deploy)": {
+        "serviceName": "Azure DevOps",
+        "fallback_monthly": 0,
+    },
+    "Azure Artifacts": {
+        "serviceName": "Azure DevOps",
+        "fallback_monthly": 0,  # 2 GiB free per organization
+    },
+    "Image Builder": {
+        "serviceName": "Image Builder",
+        "fallback_monthly": 0,  # Free; underlying VM usage only
+    },
+    "Azure Chaos Studio": {
+        "serviceName": "Chaos Studio",
+        "fallback_monthly": 0,  # per action
+    },
+    "Application Insights": {
+        "serviceName": "Application Insights",
+        "fallback_monthly": 0,  # 5 GB free ingestion
+    },
+    # ── Management extras ──────────────────────────────────
+    "Azure Monitor / Log Analytics": {
+        "serviceName": "Azure Monitor",
+        "fallback_monthly": 0,
+    },
+    "Azure Monitor (Activity Logs)": {
+        "serviceName": "Azure Monitor",
+        "fallback_monthly": 0,
+    },
+    "Azure Policy": {
+        "serviceName": "Azure Policy",
+        "fallback_monthly": 0,  # Free
+    },
+    "Azure Automation": {
+        "serviceName": "Azure Automation",
+        "fallback_monthly": 0,  # 500 min/mo free
+    },
+    "Management Groups": {
+        "serviceName": "Management Groups",
+        "fallback_monthly": 0,
+    },
+    "Azure Advisor": {
+        "serviceName": "Azure Advisor",
+        "fallback_monthly": 0,
+    },
+    "Cost Management": {
+        "serviceName": "Cost Management",
+        "fallback_monthly": 0,
+    },
+    "Service Health": {
+        "serviceName": "Service Health",
+        "fallback_monthly": 0,
+    },
+    # ── Migration ──────────────────────────────────────────
+    "Azure Migrate": {
+        "serviceName": "Azure Migrate",
+        "fallback_monthly": 0,  # Free
+    },
+    "Site Recovery": {
+        "serviceName": "Azure Site Recovery",
+        "fallback_monthly": 25,  # per instance
+    },
+    # ── Infrastructure (free/minimal cost) ────────────────
+    "Internet (via VNet)": {
+        "serviceName": "Virtual Network",
+        "fallback_monthly": 0,
+    },
+    "Azure Subnet (public)": {
+        "serviceName": "Virtual Network",
+        "fallback_monthly": 0,
+    },
+    "Azure Subnet (private)": {
+        "serviceName": "Virtual Network",
+        "fallback_monthly": 0,
+    },
+    "Azure Availability Zone": {
+        "serviceName": "Virtual Machines",
+        "fallback_monthly": 0,  # No extra cost for AZ placement
+    },
+    "Network Security Group (NSG)": {
+        "serviceName": "Virtual Network",
+        "fallback_monthly": 0,
+    },
+    "Azure Route Table (UDR)": {
+        "serviceName": "Virtual Network",
+        "fallback_monthly": 0,
+    },
+    "Azure Bot Service (Workflows)": {
+        "serviceName": "Bot Service",
+        "fallback_monthly": 0,
+    },
+    # ── Notification/Messaging extras ──────────────────────
+    "Notification Hubs": {
+        "serviceName": "Notification Hubs",
+        "skuName": "Standard",
+        "fallback_monthly": 10,
+    },
+}
+
+# ─────────────────────────────────────────────────────────────
+# Service name aliasing – maps Azure names that appear in
+# cross-cloud mappings to canonical SERVICE_PRICE_QUERIES keys
+# ─────────────────────────────────────────────────────────────
+_SERVICE_ALIASES: dict[str, str] = {
+    # Compute
+    "Virtual Machines": "Azure Virtual Machines",
+    "Container Instances": "Azure Container Instances",
+    "Container Apps": "Azure Container Apps",
+    "App Service": "Azure App Service",
+    "AKS": "Azure Kubernetes Service (AKS)",
+    "Azure Batch": "Azure Batch",
+    # Storage
+    "Blob Storage": "Azure Blob Storage",
+    "Azure Files": "Azure Files",
+    "NetApp Files": "Azure NetApp Files",
+    # Database
+    "SQL Database": "Azure SQL Database",
+    "SQL Database (Hyperscale)": "Azure SQL Database",
+    "Cosmos DB": "Azure Cosmos DB",
+    "Cosmos DB (Gremlin)": "Azure Cosmos DB Gremlin",
+    "Cosmos DB (MongoDB API)": "Azure Cosmos DB NoSQL",
+    "Cosmos DB (Cassandra)": "Azure Cosmos DB NoSQL",
+    "Cache for Redis": "Azure Cache for Redis",
+    "Cache for Redis (Enterprise)": "Azure Cache for Redis",
+    "Synapse Analytics": "Azure Synapse Analytics",
+    "Time Series Insights / Data Explorer": "Data Explorer / AI Search",
+    "Time Series Insights / Stream Analytics": "Azure Stream Analytics",
+    # Networking
+    "Virtual Network": "Azure Virtual Network",
+    "CDN / Front Door": "Azure Front Door",
+    "Front Door": "Azure Front Door",
+    "Azure DNS / Traffic Manager": "Azure DNS",
+    "API Management": "Azure API Management",
+    "Load Balancer / Application Gateway": "Azure Application Gateway",
+    "ExpressRoute": "Azure ExpressRoute",
+    "VPN Gateway": "Azure VPN Gateway",
+    "Azure Firewall": "Azure Firewall",
+    "Open Service Mesh": "Azure Kubernetes Service (AKS)",
+    "Azure DNS (private zones)": "Azure DNS",
+    "Private Link": "Private Link",
+    # Security
+    "Key Vault": "Azure Key Vault",
+    "Key Vault (Secrets)": "Azure Key Vault (Secrets)",
+    "Key Vault (Certificates)": "Azure Key Vault (Certificates)",
+    "Entra ID (SSO)": "Entra ID / RBAC",
+    "Entra Domain Services": "Entra ID / RBAC",
+    "DDoS Protection": "Azure DDoS Protection",
+    # AI / ML
+    "Azure Machine Learning": "Azure Machine Learning",
+    "Copilot Studio": "Azure OpenAI Service",
+    # Analytics
+    "Data Factory (orchestration)": "Data Factory",
+    "Data Factory": "Azure Data Factory",
+    # Integration
+    "Service Bus (Queues)": "Azure Service Bus",
+    "Service Bus (Premium)": "Azure Service Bus",
+    "Logic Apps": "Azure Logic Apps",
+    # DevTools
+    "ARM Templates / Bicep": "Azure DevOps Repos",
+    "Azure Blueprints / Landing Zones": "Management Groups",
+    # Media
+    "Media Services (encoding)": "Azure Cognitive Services",
+    "Media Services (live)": "Azure Cognitive Services",
+    "Communication Services": "Azure Communication Services",
+    # Business
+    "Email Communication": "Azure Communication Services",
+    "Virtual Desktop": "Azure Virtual Desktop",
+    # Management
+    "Log Analytics": "Azure Monitor / Log Analytics",
+    # Migration
+    "Site Recovery": "Site Recovery",
 }
 
 
@@ -451,9 +903,18 @@ def _fetch_price_from_api(
     return None
 
 
-def fetch_prices_for_region(arm_region: str) -> dict[str, float]:
+def fetch_prices_for_region(
+    arm_region: str,
+    needed_services: set[str] | None = None,
+) -> dict[str, float]:
     """
-    Fetch pricing for all known services in a given region.
+    Fetch pricing for services in a given region.
+
+    Args:
+        arm_region: ARM region name (e.g. "westeurope")
+        needed_services: If provided, only fetch prices for these
+            SERVICE_PRICE_QUERIES keys.  Otherwise fetch all.
+
     Returns dict of { azure_service_name: monthly_estimate_usd }.
     Uses cache when available.
     """
@@ -466,9 +927,15 @@ def fetch_prices_for_region(arm_region: str) -> dict[str, float]:
 
     prices: dict[str, float] = {}
 
-    for service_name, query in SERVICE_PRICE_QUERIES.items():
+    queries_to_fetch = SERVICE_PRICE_QUERIES.items()
+    if needed_services:
+        queries_to_fetch = [
+            (k, v) for k, v in SERVICE_PRICE_QUERIES.items()
+            if k in needed_services
+        ]
+
+    for service_name, query in queries_to_fetch:
         fallback = query.get("fallback_monthly", 0)
-        multiplier = query.get("unit_multiplier", 730)  # Default: hourly → monthly (730 hrs)
 
         api_price = _fetch_price_from_api(
             service_name=query.get("serviceName", service_name),
@@ -487,29 +954,46 @@ def fetch_prices_for_region(arm_region: str) -> dict[str, float]:
         else:
             prices[service_name] = fallback
 
-    # Cache results
-    if not cache:
-        cache = {"cached_at": time.time()}
-    cache[cache_key] = prices
-    _save_cache(cache)
+    # Also populate fallback prices for any remaining needed services
+    # that didn't need an API call (ensures comprehensive coverage)
+    if needed_services:
+        for svc in needed_services:
+            if svc not in prices and svc in SERVICE_PRICE_QUERIES:
+                prices[svc] = SERVICE_PRICE_QUERIES[svc].get("fallback_monthly", 0)
+
+    # Only cache a full fetch (all services) to avoid partial caches
+    if not needed_services:
+        if not cache:
+            cache = {"cached_at": time.time()}
+        cache[cache_key] = prices
+        _save_cache(cache)
 
     return prices
 
 
 def _find_best_price_match(azure_service: str, prices: dict[str, float]) -> float:
     """Find the best matching price for an Azure service name."""
-    # Exact match
+    # 0. Strip "[Manual mapping needed]" prefix
+    if azure_service.startswith("[Manual mapping needed]"):
+        return 0
+
+    # 1. Exact match in prices dict
     if azure_service in prices:
         return prices[azure_service]
 
-    # Try prefix match (e.g. "Azure Blob Storage (Raw)" → "Azure Blob Storage")
+    # 2. Check alias map → canonical key → prices
+    canonical = _SERVICE_ALIASES.get(azure_service)
+    if canonical and canonical in prices:
+        return prices[canonical]
+
+    # 3. Try prefix match (e.g. "Azure Blob Storage (Raw)" → "Azure Blob Storage")
     service_lower = azure_service.lower()
     for key, price in prices.items():
         if key.lower() in service_lower or service_lower.startswith(key.lower()):
             return price
 
-    # Try partial word match
-    words = set(azure_service.lower().replace("(", "").replace(")", "").split())
+    # 4. Try partial word match (need ≥ 2 overlapping words)
+    words = set(service_lower.replace("(", "").replace(")", "").split())
     best_match = None
     best_score = 0
     for key, price in prices.items():
@@ -522,7 +1006,11 @@ def _find_best_price_match(azure_service: str, prices: dict[str, float]) -> floa
     if best_match is not None:
         return best_match
 
-    # Check SERVICE_PRICE_QUERIES fallback
+    # 5. Check SERVICE_PRICE_QUERIES fallback via alias → query
+    if canonical and canonical in SERVICE_PRICE_QUERIES:
+        return SERVICE_PRICE_QUERIES[canonical].get("fallback_monthly", 0)
+
+    # 6. Check SERVICE_PRICE_QUERIES fallback via substring
     for key, query in SERVICE_PRICE_QUERIES.items():
         if key.lower() in service_lower or service_lower.startswith(key.lower()):
             return query.get("fallback_monthly", 0)
@@ -546,7 +1034,21 @@ def estimate_services_cost(
     Returns:
         Dict with total_monthly_estimate, services, region, currency
     """
-    prices = fetch_prices_for_region(region)
+    # Determine which pricing entries are actually needed for this set of mappings
+    needed_keys: set[str] = set()
+    for m in mappings:
+        azure_svc = m.get("azure_service", "")
+        if not azure_svc:
+            continue
+        # Direct match
+        if azure_svc in SERVICE_PRICE_QUERIES:
+            needed_keys.add(azure_svc)
+        # Alias match
+        canonical = _SERVICE_ALIASES.get(azure_svc)
+        if canonical and canonical in SERVICE_PRICE_QUERIES:
+            needed_keys.add(canonical)
+
+    prices = fetch_prices_for_region(region, needed_services=needed_keys or None)
 
     # SKU strategy multipliers
     strategy_multipliers = {
