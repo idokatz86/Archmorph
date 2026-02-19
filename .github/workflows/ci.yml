@@ -100,7 +100,7 @@ jobs:
           password: ${{ secrets.ACR_PASSWORD }}
 
       - name: Build and push
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: ./backend
           push: true
