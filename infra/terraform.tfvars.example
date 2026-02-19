@@ -1,0 +1,10 @@
+# Copy this file to terraform.tfvars and fill in real values.
+# NEVER commit terraform.tfvars to version control.
+
+subscription_id = "00000000-0000-0000-0000-000000000000"
+location        = "northeurope"
+project_name    = "archmorph"
+environment     = "dev"
+acr_sku         = "Basic"
+postgres_sku    = "B_Standard_B1ms"
+allowed_ip      = "0.0.0.0"

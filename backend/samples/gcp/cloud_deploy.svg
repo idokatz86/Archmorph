@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <circle cx="32" cy="30" r="22" fill="#4285F4" stroke="#3367D6" stroke-width="2"/>
+  <circle cx="32" cy="30" r="10" fill="white" opacity="0.3"/>
+  <circle cx="32" cy="30" r="5" fill="white" opacity="0.6"/>
+  <rect x="30" y="6" width="4" height="10" fill="#3367D6" rx="1"/>
+  <rect x="30" y="44" width="4" height="10" fill="#3367D6" rx="1"/>
+  <rect x="8" y="28" width="10" height="4" fill="#3367D6" rx="1"/>
+  <rect x="46" y="28" width="10" height="4" fill="#3367D6" rx="1"/>
+  <text x="32" y="60" text-anchor="middle" fill="#4285F4" font-size="7" font-family="Segoe UI,sans-serif" font-weight="600">Deploy</text>
+</svg>

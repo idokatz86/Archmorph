@@ -11,7 +11,9 @@ import re
 import json
 import logging
 from typing import Dict, Any, Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
+
+from cachetools import TTLCache
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +21,8 @@ logger = logging.getLogger(__name__)
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
 GITHUB_REPO = os.getenv("GITHUB_REPO", "idokatz86/Archmorph")
 
-# Conversation history per session (in-memory, production would use Redis)
-CHAT_SESSIONS: Dict[str, List[Dict[str, str]]] = {}
+# Conversation history per session (TTL: 2 hours, max 500 sessions)
+CHAT_SESSIONS: TTLCache = TTLCache(maxsize=500, ttl=7200)
 
 # ─────────────────────────────────────────────────────────────
 # Label mapping for auto-categorization
@@ -193,7 +195,7 @@ def process_chat_message(
         CHAT_SESSIONS[session_id] = []
 
     history = CHAT_SESSIONS[session_id]
-    history.append({"role": "user", "content": message, "ts": datetime.utcnow().isoformat()})
+    history.append({"role": "user", "content": message, "ts": datetime.now(timezone.utc).isoformat()})
 
     intent = _detect_intent(message)
 
@@ -215,7 +217,7 @@ def process_chat_message(
                 f"**Labels:** {', '.join(draft['labels'])}\n\n"
                 f"Would you like me to create this issue? Reply **yes** to confirm, or tell me what to change."
             )
-            history.append({"role": "assistant", "content": reply, "ts": datetime.utcnow().isoformat()})
+            history.append({"role": "assistant", "content": reply, "ts": datetime.now(timezone.utc).isoformat()})
             CHAT_SESSIONS[session_id] = history
 
             return {
@@ -230,7 +232,7 @@ def process_chat_message(
                 "2. **Description** — Details about what happened or what you'd like\n\n"
                 "For example: *Create an issue: Add dark mode toggle — The app should have a button to switch between light and dark themes.*"
             )
-            history.append({"role": "assistant", "content": reply, "ts": datetime.utcnow().isoformat()})
+            history.append({"role": "assistant", "content": reply, "ts": datetime.now(timezone.utc).isoformat()})
             return {"reply": reply, "action": None, "data": None}
 
     # ── Confirm issue creation ──
@@ -272,15 +274,15 @@ def process_chat_message(
                     f"**#{result['issue_number']}** — {result['title']}\n"
                     f"[View on GitHub]({result['issue_url']})"
                 )
-                history.append({"role": "assistant", "content": reply, "ts": datetime.utcnow().isoformat()})
+                history.append({"role": "assistant", "content": reply, "ts": datetime.now(timezone.utc).isoformat()})
                 return {"reply": reply, "action": "issue_created", "data": result}
             else:
                 reply = f"Sorry, I couldn't create the issue: {result['error']}"
-                history.append({"role": "assistant", "content": reply, "ts": datetime.utcnow().isoformat()})
+                history.append({"role": "assistant", "content": reply, "ts": datetime.now(timezone.utc).isoformat()})
                 return {"reply": reply, "action": None, "data": result}
         else:
             reply = "I don't have a pending issue draft. Tell me what issue you'd like to create."
-            history.append({"role": "assistant", "content": reply, "ts": datetime.utcnow().isoformat()})
+            history.append({"role": "assistant", "content": reply, "ts": datetime.now(timezone.utc).isoformat()})
             return {"reply": reply, "action": None, "data": None}
 
     # ── General Q&A ──
@@ -296,7 +298,7 @@ def process_chat_message(
             "What would you like to know?"
         )
 
-    history.append({"role": "assistant", "content": reply, "ts": datetime.utcnow().isoformat()})
+    history.append({"role": "assistant", "content": reply, "ts": datetime.now(timezone.utc).isoformat()})
     return {"reply": reply, "action": None, "data": None}
 
 

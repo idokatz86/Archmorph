@@ -10,7 +10,7 @@ import json
 import os
 import logging
 from typing import Dict, Any, List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 from threading import Lock
 
@@ -19,8 +19,8 @@ logger = logging.getLogger(__name__)
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 METRICS_FILE = os.path.join(DATA_DIR, "usage_metrics.json")
 
-# Admin secret – set via env var or fall back to a default
-ADMIN_SECRET = os.getenv("ARCHMORPH_ADMIN_KEY", "archmorph-admin-2025")
+# Admin secret – MUST be set via env var in production
+ADMIN_SECRET = os.getenv("ARCHMORPH_ADMIN_KEY", "")
 
 _lock = Lock()
 
@@ -120,7 +120,7 @@ def record_event(event_type: str, details: Optional[Dict] = None):
     details: Optional metadata (diagram_id, format, etc.)
     """
     with _lock:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         today = now.strftime("%Y-%m-%d")
 
         # Increment counter
@@ -168,7 +168,7 @@ def record_funnel_step(diagram_id: str, step: str):
         return
 
     with _lock:
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         sessions = _metrics["sessions"]
 
         if diagram_id not in sessions:
@@ -199,7 +199,7 @@ def record_funnel_step(diagram_id: str, step: str):
 def get_metrics_summary() -> Dict[str, Any]:
     """Return aggregate usage metrics."""
     with _lock:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         today = now.strftime("%Y-%m-%d")
         total_events = sum(_metrics["counters"].values())
 
@@ -301,7 +301,7 @@ def get_funnel_metrics() -> Dict[str, Any]:
 def get_daily_metrics(days: int = 30) -> List[Dict[str, Any]]:
     """Return daily metrics for the last N days."""
     with _lock:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         result = []
         for i in range(days):
             date = (now - timedelta(days=i)).strftime("%Y-%m-%d")

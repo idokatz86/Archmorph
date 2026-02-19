@@ -12,6 +12,7 @@ override.tf.json
 
 # Secrets
 *.tfvars.secret
+terraform.tfvars
 .env
 .env.*
 

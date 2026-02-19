@@ -211,6 +211,18 @@ def get_azure_stencil_id(service_name: str, target: str = "drawio") -> str:
     for name, ids in AZURE_STENCILS.items():
         if lower in name.lower() or name.lower() in lower:
             return ids.get(target, "mxgraph.azure.general")
+
+    # Fallback to Icon Registry (405 icons vs 36 hardcoded)
+    try:
+        from icons.registry import resolve_icon
+
+        icon_entry = resolve_icon(service_name, provider="azure")
+        if icon_entry:
+            # Return the canonical ID as a reference; callers can embed the SVG
+            return icon_entry.meta.id
+    except Exception:  # noqa: BLE001
+        pass
+
     return "mxgraph.azure.general" if target == "drawio" else "Azure General"
 
 

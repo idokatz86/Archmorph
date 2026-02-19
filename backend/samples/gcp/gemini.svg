@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <circle cx="28" cy="24" r="12" fill="#4285F4" stroke="#3367D6" stroke-width="2"/>
+  <circle cx="38" cy="24" r="12" fill="#4285F4" stroke="#3367D6" stroke-width="2"/>
+  <circle cx="28" cy="36" r="12" fill="#4285F4" stroke="#3367D6" stroke-width="2"/>
+  <circle cx="38" cy="36" r="12" fill="#4285F4" stroke="#3367D6" stroke-width="2"/>
+  <text x="32" y="34" text-anchor="middle" fill="white" font-size="10" font-family="Segoe UI,sans-serif" font-weight="600">Gemini</text>
+</svg>

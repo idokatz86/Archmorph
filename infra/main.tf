@@ -87,7 +87,7 @@ resource "azurerm_storage_account" "main" {
     cors_rule {
       allowed_headers    = ["*"]
       allowed_methods    = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
-      allowed_origins    = ["*"]
+      allowed_origins    = ["https://agreeable-ground-01012c003.2.azurestaticapps.net"]
       exposed_headers    = ["*"]
       max_age_in_seconds = 3600
     }
