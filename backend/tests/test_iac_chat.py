@@ -90,7 +90,7 @@ class TestIacChatProcessing:
     def setup_method(self):
         IAC_CHAT_SESSIONS.clear()
 
-    @patch("iac_chat._get_openai_client")
+    @patch("iac_chat.get_openai_client")
     def test_process_iac_chat_returns_result(self, mock_client):
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
@@ -110,7 +110,7 @@ class TestIacChatProcessing:
         assert "services_added" in result
         assert result["error"] is False
 
-    @patch("iac_chat._get_openai_client")
+    @patch("iac_chat.get_openai_client")
     def test_process_iac_chat_stores_history(self, mock_client):
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
@@ -125,7 +125,7 @@ class TestIacChatProcessing:
         assert history[0]["content"] == "Add VNet"
         assert history[1]["role"] == "assistant"
 
-    @patch("iac_chat._get_openai_client")
+    @patch("iac_chat.get_openai_client")
     def test_process_iac_chat_sends_code_in_prompt(self, mock_client):
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
@@ -141,7 +141,7 @@ class TestIacChatProcessing:
         assert "Add storage" in user_msg
         assert "Terraform" in user_msg
 
-    @patch("iac_chat._get_openai_client")
+    @patch("iac_chat.get_openai_client")
     def test_process_iac_chat_with_analysis_context(self, mock_client):
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
@@ -162,7 +162,7 @@ class TestIacChatProcessing:
         assert "AWS" in system_msg
         assert "event-driven" in system_msg
 
-    @patch("iac_chat._get_openai_client")
+    @patch("iac_chat.get_openai_client")
     def test_process_iac_chat_api_error(self, mock_client):
         mock_client.return_value.chat.completions.create.side_effect = Exception("API timeout")
 
@@ -172,7 +172,7 @@ class TestIacChatProcessing:
         assert result["code"] == SAMPLE_TF_CODE  # Returns original code on error
         assert "API timeout" in result["reply"]
 
-    @patch("iac_chat._get_openai_client")
+    @patch("iac_chat.get_openai_client")
     def test_process_iac_chat_json_error(self, mock_client):
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
@@ -184,7 +184,7 @@ class TestIacChatProcessing:
         assert result["error"] is True
         assert result["code"] == SAMPLE_TF_CODE
 
-    @patch("iac_chat._get_openai_client")
+    @patch("iac_chat.get_openai_client")
     def test_process_iac_chat_bicep_format(self, mock_client):
         bicep_response = {
             "message": "Added VNet.",
@@ -204,7 +204,7 @@ class TestIacChatProcessing:
         user_msg = messages[-1]["content"]
         assert "Bicep" in user_msg
 
-    @patch("iac_chat._get_openai_client")
+    @patch("iac_chat.get_openai_client")
     def test_process_iac_chat_conversation_flow(self, mock_client):
         """Test multi-turn conversation preserves history."""
         mock_response = MagicMock()
@@ -276,7 +276,7 @@ class TestIacChatEndpoints:
         IMAGE_STORE.clear()
         IAC_CHAT_SESSIONS.clear()
 
-    @patch("iac_chat._get_openai_client")
+    @patch("iac_chat.get_openai_client")
     def test_iac_chat_endpoint(self, mock_client, client, analyzed_diagram):
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]

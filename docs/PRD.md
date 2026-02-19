@@ -1,7 +1,7 @@
 # Archmorph — Cloud Architecture Translator to Azure
 ## Product Requirements Document (PRD)
-**Version:** 2.4.0
-**Date:** February 20, 2026
+**Version:** 2.6.0
+**Date:** February 19, 2026
 **Author:** Ido Katz
 
 ---
@@ -87,6 +87,7 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 - **Visio (.vsdx):** VDX XML format for Microsoft Visio
 - 36 Azure service stencils with color-coded categories
 - Architecture zones with automatic layout
+- **Icon Registry fallback** (v2.6): Services not in the 36 hardcoded stencils now fall back to the 405-icon registry for richer diagrams
 
 ### 3.8 Self-Updating Service Catalog (v2.2)
 - **APScheduler** CronTrigger runs daily at 2:00 AM UTC
@@ -140,6 +141,33 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 - **Code updates** — assistant returns both explanation and updated code that auto-replaces the editor content
 - **Format-aware** — supports both Terraform and Bicep syntax based on current generation format
 - **Chat UI** — collapsible panel with message history, auto-scroll, and clear session button
+
+### 3.14 Icon Registry & Library Builder (v2.6)
+- **Central icon catalog** — 405 normalized cloud service icons (143 Azure, 145 AWS, 117 GCP) as sanitized SVGs with deterministic canonical IDs
+- **Multi-format library export:**
+  - **Draw.io** custom libraries (`.xml`) with reference and full-embed modes
+  - **Excalidraw** library bundles (`.excalidrawlib`) with materialized SVG images
+  - **Visio** sidecar stencil packs (`.zip`) with SVG master shapes and manifest
+- **SVG sanitization** — strips scripts, event handlers, external references, foreignObject, `javascript:` URIs, dangerous CSS patterns; minification removes comments and collapses whitespace
+- **Thread-safe** — `RLock`-protected mutable state for concurrent request safety
+- **Persistent storage** — registry state serialized to JSON sidecar file, auto-restored on startup
+- **Auto-load** — built-in sample packs loaded from `samples/` directory on application boot
+- **ZIP/folder ingestion** — upload icon packs via API (ZIP with metadata.json or folder scan)
+- **Search & resolve** — search by provider, category, query; resolve best icon for a service via `service_id` or fuzzy name match
+- **Diagram bridge** — `diagram_export.py` falls back to the 405-icon registry when services aren't in the 36 hardcoded stencils
+- **DELETE endpoint** — remove icon packs and their icons via `DELETE /api/icon-packs/{pack_id}`
+- **Cache** — TTL-based asset cache (1-hour, 200 entries) for transformed library outputs
+
+### 3.15 Security Hardening (v2.6)
+- **Security headers middleware** — X-Content-Type-Options, X-Frame-Options, Referrer-Policy, HSTS, Permissions-Policy
+- **Timing-safe key comparison** — `secrets.compare_digest()` for API key and admin key verification
+- **No default admin secret** — `ARCHMORPH_ADMIN_KEY` must be set via environment variable (503 if unset)
+- **Restricted CORS** — explicit method and header allowlists instead of wildcards
+- **ZIP slip prevention** — path traversal entries (`../`, absolute paths) rejected during icon pack ingestion
+- **XSS protection** — SVG sanitizer blocks `javascript:`, `vbscript:` URIs and dangerous CSS (`expression()`, `-moz-binding`, `url()`)
+- **Error sanitization** — internal exception details no longer leaked to API responses
+- **Dependabot** — automated dependency updates for pip, npm, Docker, GitHub Actions, and Terraform
+- **CI hardening** — `npm audit` failures no longer silently ignored
 
 ---
 
@@ -286,14 +314,16 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | Container Registry | Azure Container Registry (Basic) |
 | Scheduler | APScheduler 3.10 (CronTrigger, daily service sync + auto-add) |
 | Guided Questions | In-process engine (32 questions, 8 categories) |
-| Diagram Export | In-process engine (Excalidraw, Draw.io, Visio with 36 Azure stencils) |
+| Diagram Export | In-process engine (Excalidraw, Draw.io, Visio with 36 Azure stencils + 405-icon registry fallback) |
 | Pricing | Azure Retail Prices API with 30-day disk cache (134 service entries, 56 aliases, targeted queries) |
 | IaC | Terraform (infra), Bicep support in-app |
-| Testing | pytest (backend, 257 tests), E2E flow test (65 steps across 5 diagrams), Playwright (35 browser tests) |
+| Testing | pytest (backend, 348 tests), E2E flow test (65 steps across 5 diagrams), Playwright (35 browser tests) |
 | HLD Generator | In-process GPT-4o engine (60+ Azure doc links, 13-section HLD, markdown converter) |
 | IaC Chat | In-process GPT-4o assistant (session management, code modification, context-aware) |
+| Icon Registry | In-process engine (405 icons, Draw.io/Excalidraw/Visio library builders, SVG sanitization, thread-safe, persistent) |
+| Security | Security headers, timing-safe auth, Dependabot, defusedxml, ZIP slip protection |
 
-### 8.2 API Endpoints (35 total)
+### 8.2 API Endpoints (44 total)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
@@ -332,6 +362,15 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | `/api/diagrams/{id}/iac-chat` | GET | Get IaC chat session history |
 | `/api/diagrams/{id}/iac-chat` | DELETE | Clear IaC chat session |
 | `/api/contact` | GET | Contact information |
+| `/api/icon-packs` | POST | Upload ZIP/JSON icon pack |
+| `/api/icon-packs/{pack_id}` | DELETE | Remove icon pack and its icons |
+| `/api/icons` | GET | Search icons (provider, query, category, packId) |
+| `/api/icons/packs` | GET | List registered icon packs |
+| `/api/icons/metrics` | GET | Icon registry observability counters |
+| `/api/icons/{icon_id}/svg` | GET | Get raw SVG for a single icon |
+| `/api/libraries/drawio` | GET | Download Draw.io custom library |
+| `/api/libraries/excalidraw` | GET | Download Excalidraw library bundle |
+| `/api/libraries/visio` | GET | Download Visio sidecar stencil pack |
 
 ### 8.3 Design System (v2.0)
 
@@ -359,6 +398,8 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | **v2.2 — Self-Updating Catalog** | Done | Auto-integration of new services into catalog files, fuzzy name matching, category auto-classification (55 keyword hints), dry-run CLI mode, cumulative auto-added tracking |
 | **v2.3 — Real Pricing & GCP Validation** | Done | Real Azure pricing (134 entries + 56 aliases), 6-step price resolution, optimized targeted API queries, session key fix, full GCP → Azure E2E validation (5 diagrams, 50/50 steps pass), 184 unit tests |
 | **v2.4 — HLD, IaC Chat & Confidence** | Done | AI-powered HLD generation (13 sections, 60+ doc links, WAF assessment, migration phases), IaC Chat assistant (GPT-4o, session-based, quick actions), confidence engine (70+ GCP synonyms, fuzzy matching ≥65%, confidence blending 70/30, recalculation), service connections extraction, 257 unit tests, 65 E2E steps |
+| **v2.5 — Audit & Quality** | Done | 34 audit improvements, comprehensive test coverage (290 → 348 tests) |
+| **v2.6 — Icon Registry & Security** | Done | Icon Registry (405 icons, 3 library formats, SVG sanitization, thread-safe, persistent, auto-load), security hardening (timing-safe auth, security headers, ZIP slip protection, XSS prevention, Dependabot), diagram export bridge to registry |
 | **v3.0 — Enterprise** | Planned | Visio import, API keys, import blocks for existing resources, SSO, RBAC |
 | **v4.0 — Advanced** | Planned | Pulumi output, Azure Migrate integration, multi-diagram projects |
 
