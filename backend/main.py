@@ -11,12 +11,14 @@ from typing import Optional, List, Dict, Any
 from contextlib import asynccontextmanager
 import os
 import logging
+import uuid
 
 from services import AWS_SERVICES, AZURE_SERVICES, GCP_SERVICES, CROSS_CLOUD_MAPPINGS
 from service_updater import start_scheduler, stop_scheduler, run_update_now, get_update_status, get_last_update
 from guided_questions import generate_questions, apply_answers
 from diagram_export import generate_diagram
 from chatbot import process_chat_message, get_chat_history, clear_chat_session
+from vision_analyzer import analyze_image
 from usage_metrics import (
     record_event, get_metrics_summary, get_daily_metrics, get_recent_events,
     get_funnel_metrics, record_funnel_step, flush_metrics, ADMIN_SECRET,
@@ -57,6 +59,9 @@ ENVIRONMENT = os.getenv("ENVIRONMENT", "production")
 
 # In-memory session store for analysis results (production would use Redis/DB)
 SESSION_STORE: Dict[str, Any] = {}
+
+# In-memory image store keyed by diagram_id → (image_bytes, content_type)
+IMAGE_STORE: Dict[str, tuple] = {}
 
 
 # ─────────────────────────────────────────────────────────────
@@ -129,15 +134,19 @@ async def upload_diagram(project_id: str, file: UploadFile = File(...)):
     allowed_types = ["image/png", "image/jpeg", "image/svg+xml", "application/pdf"]
     if file.content_type not in allowed_types:
         raise HTTPException(400, f"File type {file.content_type} not supported")
-    
-    # TODO: Save to Azure Blob Storage
-    diagram_id = "diag-001"
+
+    # Generate unique diagram ID and store image bytes
+    diagram_id = f"diag-{uuid.uuid4().hex[:8]}"
+    image_bytes = await file.read()
+    IMAGE_STORE[diagram_id] = (image_bytes, file.content_type)
+    logger.info("Stored image for %s (%d bytes, %s)", diagram_id, len(image_bytes), file.content_type)
+
     record_event("diagrams_uploaded", {"filename": file.filename})
     record_funnel_step(diagram_id, "upload")
     return {
         "diagram_id": diagram_id,
         "filename": file.filename,
-        "size": 0,
+        "size": len(image_bytes),
         "status": "uploaded"
     }
 
@@ -145,189 +154,28 @@ async def upload_diagram(project_id: str, file: UploadFile = File(...)):
 @app.post("/api/diagrams/{diagram_id}/analyze")
 async def analyze_diagram(diagram_id: str):
     """
-    Simulated GPT-4 Vision analysis of an AWS Automotive / IoT Data Pipeline diagram.
-    Returns full service-by-service Azure translation across all 10 architecture zones.
+    Analyze an uploaded architecture diagram using GPT-4o vision.
+    Detects cloud services and maps them to Azure equivalents using the catalog.
     """
-    mappings = [
-        # ── Zone 1: Ingest ──
-        ServiceMapping(source_service="AWS Direct Connect", source_provider="aws",
-            azure_service="Azure ExpressRoute", confidence=0.95,
-            notes="Zone 1 – Ingest: Dedicated network connection from customer facility to cloud"),
-        ServiceMapping(source_service="AWS Outposts", source_provider="aws",
-            azure_service="Azure Stack Edge", confidence=0.85,
-            notes="Zone 1 – Ingest: On-premises cloud extension for local processing & tools"),
-        ServiceMapping(source_service="AWS IoT Greengrass", source_provider="aws",
-            azure_service="Azure IoT Edge", confidence=0.92,
-            notes="Zone 1 – Ingest: Edge runtime for data loggers & removable media at customer facility"),
-        ServiceMapping(source_service="AWS IoT Core", source_provider="aws",
-            azure_service="Azure IoT Hub", confidence=0.95,
-            notes="Zone 2 – OTA Ingest: Near real-time data collection, MQTT/HTTP device connectivity"),
-        ServiceMapping(source_service="Amazon Kinesis Data Firehose", source_provider="aws",
-            azure_service="Azure Event Hubs + Capture", confidence=0.88,
-            notes="Zone 1 – Ingest: Streaming delivery of raw drive data (MDF4/Rosbag) to storage"),
+    # Retrieve stored image
+    if diagram_id not in IMAGE_STORE:
+        raise HTTPException(404, f"No uploaded image found for diagram {diagram_id}. Upload first.")
 
-        # ── Zone 3: Initial Data Quality Check ──
-        ServiceMapping(source_service="Amazon S3 (Raw drive data)", source_provider="aws",
-            azure_service="Azure Blob Storage (Raw)", confidence=0.95,
-            notes="Zone 3 – Raw drive data store for MDF4/Rosbag files"),
-        ServiceMapping(source_service="Amazon EMR (Data quality check)", source_provider="aws",
-            azure_service="Azure HDInsight / Synapse Spark", confidence=0.82,
-            notes="Zone 3 – Spark-based data quality validation; HDInsight or Synapse Spark pool"),
-        ServiceMapping(source_service="Amazon S3 (High quality data)", source_provider="aws",
-            azure_service="Azure Blob Storage (Curated)", confidence=0.95,
-            notes="Zone 3 – Stores data that passes quality checks"),
-        ServiceMapping(source_service="Amazon S3 (Low quality data)", source_provider="aws",
-            azure_service="Azure Blob Storage (Rejected)", confidence=0.95,
-            notes="Zone 3 – Quarantine store for data that fails quality checks"),
+    image_bytes, content_type = IMAGE_STORE[diagram_id]
+    logger.info("Analyzing diagram %s (%d bytes)", diagram_id, len(image_bytes))
 
-        # ── Zone 4: Workflow & Orchestration ──
-        ServiceMapping(source_service="Amazon MWAA", source_provider="aws",
-            azure_service="Azure Data Factory", confidence=0.85,
-            notes="Zone 4 – Managed Airflow → ADF pipelines for end-to-end orchestration"),
+    try:
+        result = analyze_image(image_bytes, content_type)
+    except Exception as exc:
+        logger.error("Vision analysis failed for %s: %s", diagram_id, exc)
+        raise HTTPException(500, f"Vision analysis failed: {exc}")
 
-        # ── Zone 5: Data Enrichment and Synchronization ──
-        ServiceMapping(source_service="AWS Fargate (Extract topics)", source_provider="aws",
-            azure_service="Azure Container Instances", confidence=0.90,
-            notes="Zone 5 – Serverless containers for topic extraction from parsed data"),
-        ServiceMapping(source_service="Amazon S3 (Parsed Data – Parquet)", source_provider="aws",
-            azure_service="Azure Data Lake Storage Gen2", confidence=0.93,
-            notes="Zone 5 – Parsed Parquet data store in ADLS Gen2 hierarchical namespace"),
-        ServiceMapping(source_service="Amazon EMR (Third-party enrichment)", source_provider="aws",
-            azure_service="Azure Synapse Spark Pool", confidence=0.82,
-            notes="Zone 5 – Weather & map data enrichment via Spark-based processing"),
-        ServiceMapping(source_service="Amazon S3 (Enriched drive – Parquet)", source_provider="aws",
-            azure_service="Azure Data Lake Storage Gen2 (Enriched)", confidence=0.93,
-            notes="Zone 5 – Enriched data after third-party augmentation"),
-        ServiceMapping(source_service="Amazon EMR (Synchronization)", source_provider="aws",
-            azure_service="Azure Synapse Spark Pool", confidence=0.82,
-            notes="Zone 5 – Cross-sensor data synchronization via Spark"),
-        ServiceMapping(source_service="Amazon S3 (Synchronized drive – Parquet)", source_provider="aws",
-            azure_service="Azure Data Lake Storage Gen2 (Synced)", confidence=0.93,
-            notes="Zone 5 – Synchronized multi-sensor data store"),
-
-        # ── Zone 6: Scene Detection ──
-        ServiceMapping(source_service="Amazon EMR (Scene detection)", source_provider="aws",
-            azure_service="Azure Synapse Spark Pool + Azure AI", confidence=0.80,
-            notes="Zone 6 – ML-based scene detection and classification on drive data"),
-        ServiceMapping(source_service="Amazon S3 (Scene labels – Parquet)", source_provider="aws",
-            azure_service="Azure Data Lake Storage Gen2 (Scene Labels)", confidence=0.93,
-            notes="Zone 6 – Labeled scene data output store"),
-
-        # ── Zone 7: Data Catalog ──
-        ServiceMapping(source_service="AWS Glue Data Catalog", source_provider="aws",
-            azure_service="Microsoft Purview Data Catalog", confidence=0.88,
-            notes="Zone 7 – Central metadata catalog for drive data discovery"),
-        ServiceMapping(source_service="Amazon Neptune", source_provider="aws",
-            azure_service="Azure Cosmos DB (Gremlin API)", confidence=0.80,
-            notes="Zone 7 – Graph DB for file and data lineage tracking"),
-        ServiceMapping(source_service="Amazon DynamoDB (Drive metadata)", source_provider="aws",
-            azure_service="Azure Cosmos DB (NoSQL API)", confidence=0.90,
-            notes="Zone 7 – Key-value store for drive metadata (vehicle, timestamp, sensor info)"),
-        ServiceMapping(source_service="Amazon Elasticsearch Service", source_provider="aws",
-            azure_service="Azure AI Search (Cognitive Search)", confidence=0.85,
-            notes="Zone 7 – Full-text search for OpenScenario data exploration"),
-
-        # ── Zone 8: Image Extraction and Anonymization ──
-        ServiceMapping(source_service="AWS Fargate (Extract images)", source_provider="aws",
-            azure_service="Azure Container Instances", confidence=0.90,
-            notes="Zone 8 – Serverless containers extracting image frames from video"),
-        ServiceMapping(source_service="Amazon S3 (Raw images per drive)", source_provider="aws",
-            azure_service="Azure Blob Storage (Raw Images)", confidence=0.95,
-            notes="Zone 8 – Store for extracted raw image frames"),
-        ServiceMapping(source_service="AWS Lambda (Blur faces/text)", source_provider="aws",
-            azure_service="Azure Functions", confidence=0.92,
-            notes="Zone 8 – Serverless anonymization: blur faces and license plates"),
-        ServiceMapping(source_service="Amazon Rekognition", source_provider="aws",
-            azure_service="Azure AI Vision (Face API)", confidence=0.88,
-            notes="Zone 8 – Detect faces/text in images for anonymization pipeline"),
-        ServiceMapping(source_service="Amazon S3 (Anonymized images)", source_provider="aws",
-            azure_service="Azure Blob Storage (Anonymized)", confidence=0.95,
-            notes="Zone 8 – Privacy-safe anonymized image store"),
-
-        # ── Zone 9: Labeling and Annotation ──
-        ServiceMapping(source_service="Amazon SageMaker Ground Truth", source_provider="aws",
-            azure_service="Azure Machine Learning Data Labeling", confidence=0.85,
-            notes="Zone 9 – Human-in-the-loop annotation for ML training data"),
-        ServiceMapping(source_service="Amazon S3 (Labeled & annotated data)", source_provider="aws",
-            azure_service="Azure Blob Storage (Labeled)", confidence=0.95,
-            notes="Zone 9 – Annotated dataset store for model training"),
-
-        # ── Zone 10: Analytics and Visualization ──
-        ServiceMapping(source_service="Amazon QuickSight", source_provider="aws",
-            azure_service="Microsoft Power BI", confidence=0.90,
-            notes="Zone 10 – KPI reporting and monitoring dashboards"),
-        ServiceMapping(source_service="AWS AppSync", source_provider="aws",
-            azure_service="Azure API Management + SignalR", confidence=0.78,
-            notes="Zone 10 – GraphQL scene search interface → REST/GraphQL via APIM + real-time with SignalR"),
-        ServiceMapping(source_service="AWS Fargate (Webviz/RVIZ)", source_provider="aws",
-            azure_service="Azure Container Apps", confidence=0.90,
-            notes="Zone 10 – Containerized 3D scene visualization with Webviz or RVIZ"),
-    ]
-
-    warnings = [
-        "Amazon EMR appears 4× in different zones — each maps to Azure Synapse Spark Pool (consider consolidating)",
-        "Amazon S3 appears 10× with different roles — mapped to ADLS Gen2 for Parquet/analytics, Blob Storage for images/raw data",
-        "AWS Fargate appears 3× — mapped to ACI (extract) and Container Apps (long-running visualization)",
-        "Amazon Neptune → Cosmos DB Gremlin API: Verify graph query compatibility for data lineage",
-        "AWS AppSync → APIM + SignalR: No direct Azure GraphQL managed service; consider Hot Chocolate on Container Apps",
-    ]
-
-    # ── Build zone data with actual services ──
-    zone_defs = [
-        {"id": 1, "name": "Ingest", "number": 1},
-        {"id": 2, "name": "Over-the-Air Ingest", "number": 2},
-        {"id": 3, "name": "Initial Data Quality Check", "number": 3},
-        {"id": 4, "name": "Workflow & Orchestration", "number": 4},
-        {"id": 5, "name": "Data Enrichment & Synchronization", "number": 5},
-        {"id": 6, "name": "Scene Detection", "number": 6},
-        {"id": 7, "name": "Data Catalog", "number": 7},
-        {"id": 8, "name": "Image Extraction & Anonymization", "number": 8},
-        {"id": 9, "name": "Labeling & Annotation", "number": 9},
-        {"id": 10, "name": "Analytics & Visualization", "number": 10},
-    ]
-    # Assign mappings to zones by parsing the "Zone N" prefix in notes
-    zone_services: dict = {z["id"]: [] for z in zone_defs}
-    for m in mappings:
-        note = m.notes or ""
-        for z in zone_defs:
-            if f"Zone {z['id']}" in note or f"Zone {z['number']}" in note:
-                zone_services[z["id"]].append({
-                    "aws": m.source_service,
-                    "azure": m.azure_service,
-                    "confidence": m.confidence,
-                })
-                break
-
-    zones_with_services = []
-    for z in zone_defs:
-        svcs = zone_services[z["id"]]
-        zones_with_services.append({
-            "id": z["id"],
-            "name": z["name"],
-            "number": z["number"],
-            "services": svcs,
-        })
-
-    result = {
-        "diagram_id": diagram_id,
-        "diagram_type": "AWS Automotive / IoT Data Pipeline",
-        "source_provider": "aws",
-        "target_provider": "azure",
-        "services_detected": len(mappings),
-        "zones": zones_with_services,
-        "mappings": [m.dict() for m in mappings],
-        "warnings": warnings,
-        "confidence_summary": {
-            "high": len([m for m in mappings if m.confidence >= 0.90]),
-            "medium": len([m for m in mappings if 0.80 <= m.confidence < 0.90]),
-            "low": len([m for m in mappings if m.confidence < 0.80]),
-            "average": round(sum(m.confidence for m in mappings) / len(mappings), 2),
-        },
-    }
+    # Inject diagram_id into result
+    result["diagram_id"] = diagram_id
 
     # Store analysis result for guided questions and diagram export
     SESSION_STORE[diagram_id] = result
-    record_event("analyses_run", {"diagram_id": diagram_id, "services": len(mappings)})
+    record_event("analyses_run", {"diagram_id": diagram_id, "services": result["services_detected"]})
     record_funnel_step(diagram_id, "analyze")
     return result
 

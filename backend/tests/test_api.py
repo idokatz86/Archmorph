@@ -15,7 +15,7 @@ from fastapi.testclient import TestClient
 # Ensure backend is on the path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from main import app, SESSION_STORE
+from main import app, SESSION_STORE, IMAGE_STORE
 from chatbot import process_chat_message, get_chat_history, clear_chat_session, _detect_intent, _detect_labels, _find_faq_answer
 from usage_metrics import record_event, record_funnel_step, get_metrics_summary, get_funnel_metrics, get_daily_metrics, get_recent_events
 from guided_questions import generate_questions, apply_answers
@@ -36,10 +36,44 @@ def client():
 
 @pytest.fixture
 def clean_session():
-    """Clear SESSION_STORE before/after each test that needs it."""
+    """Clear SESSION_STORE and IMAGE_STORE before/after each test that needs it."""
     SESSION_STORE.clear()
+    IMAGE_STORE.clear()
     yield SESSION_STORE
     SESSION_STORE.clear()
+    IMAGE_STORE.clear()
+
+
+# Mock analysis result used when we don't want to call Azure OpenAI
+MOCK_ANALYSIS = {
+    "diagram_type": "Test Architecture",
+    "source_provider": "aws",
+    "target_provider": "azure",
+    "architecture_patterns": ["multi-AZ"],
+    "services_detected": 3,
+    "zones": [
+        {
+            "id": 1, "name": "Compute", "number": 1,
+            "services": [
+                {"aws": "Lambda", "azure": "Azure Functions", "confidence": 0.95},
+                {"aws": "Amazon S3", "azure": "Azure Blob Storage", "confidence": 0.95},
+            ],
+        },
+        {
+            "id": 2, "name": "Database", "number": 2,
+            "services": [
+                {"aws": "DynamoDB", "azure": "Cosmos DB", "confidence": 0.85},
+            ],
+        },
+    ],
+    "mappings": [
+        {"source_service": "Lambda", "source_provider": "aws", "azure_service": "Azure Functions", "confidence": 0.95, "notes": "Zone 1 – Compute"},
+        {"source_service": "Amazon S3", "source_provider": "aws", "azure_service": "Azure Blob Storage", "confidence": 0.95, "notes": "Zone 1 – Compute"},
+        {"source_service": "DynamoDB", "source_provider": "aws", "azure_service": "Cosmos DB", "confidence": 0.85, "notes": "Zone 2 – Database"},
+    ],
+    "warnings": [],
+    "confidence_summary": {"high": 2, "medium": 1, "low": 0, "average": 0.92},
+}
 
 
 @pytest.fixture
@@ -54,8 +88,9 @@ def analyzed_diagram(client, clean_session):
     assert resp.status_code == 200
     diagram_id = resp.json()["diagram_id"]
 
-    # Analyze
-    resp = client.post(f"/api/diagrams/{diagram_id}/analyze")
+    # Analyze (mock the vision analyzer)
+    with patch("main.analyze_image", return_value=copy.deepcopy(MOCK_ANALYSIS)):
+        resp = client.post(f"/api/diagrams/{diagram_id}/analyze")
     assert resp.status_code == 200
     return diagram_id
 
@@ -116,6 +151,8 @@ class TestDiagramUpload:
         d = resp.json()
         assert d["status"] == "uploaded"
         assert d["filename"] == "test.png"
+        assert d["diagram_id"].startswith("diag-")
+        assert d["size"] > 0
 
     def test_upload_svg(self, client):
         svg = b"<svg></svg>"
@@ -138,34 +175,56 @@ class TestDiagramUpload:
 # ====================================================================
 
 class TestAnalyze:
+    def _upload(self, client):
+        """Helper to upload a diagram and return the diagram_id."""
+        content = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+        resp = client.post(
+            "/api/projects/proj-001/diagrams",
+            files={"file": ("test.png", io.BytesIO(content), "image/png")},
+        )
+        assert resp.status_code == 200
+        return resp.json()["diagram_id"]
+
     def test_analyze_returns_mappings(self, client, clean_session):
-        resp = client.post("/api/diagrams/diag-001/analyze")
+        did = self._upload(client)
+        with patch("main.analyze_image", return_value=copy.deepcopy(MOCK_ANALYSIS)):
+            resp = client.post(f"/api/diagrams/{did}/analyze")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["diagram_id"] == "diag-001"
+        assert data["diagram_id"] == did
         assert data["source_provider"] == "aws"
         assert data["target_provider"] == "azure"
         assert len(data["mappings"]) > 0
 
     def test_analyze_has_zones(self, client, clean_session):
-        data = client.post("/api/diagrams/diag-001/analyze").json()
+        did = self._upload(client)
+        with patch("main.analyze_image", return_value=copy.deepcopy(MOCK_ANALYSIS)):
+            data = client.post(f"/api/diagrams/{did}/analyze").json()
         assert "zones" in data
         assert len(data["zones"]) > 0
-        # Each zone should have a services list
         for zone in data["zones"]:
             assert "services" in zone
             assert isinstance(zone["services"], list)
 
     def test_analyze_populates_session_store(self, client, clean_session):
-        client.post("/api/diagrams/diag-001/analyze")
-        assert "diag-001" in SESSION_STORE
+        did = self._upload(client)
+        with patch("main.analyze_image", return_value=copy.deepcopy(MOCK_ANALYSIS)):
+            client.post(f"/api/diagrams/{did}/analyze")
+        assert did in SESSION_STORE
 
     def test_analyze_confidence_summary(self, client, clean_session):
-        data = client.post("/api/diagrams/diag-001/analyze").json()
+        did = self._upload(client)
+        with patch("main.analyze_image", return_value=copy.deepcopy(MOCK_ANALYSIS)):
+            data = client.post(f"/api/diagrams/{did}/analyze").json()
         cs = data["confidence_summary"]
         assert "high" in cs
         assert "medium" in cs
         assert cs["high"] + cs["medium"] + cs.get("low", 0) == len(data["mappings"])
+
+    def test_analyze_requires_upload(self, client, clean_session):
+        """Analyze without prior upload should return 404."""
+        resp = client.post("/api/diagrams/nonexistent-diag/analyze")
+        assert resp.status_code == 404
 
 
 # ====================================================================
