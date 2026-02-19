@@ -745,6 +745,21 @@ def apply_answers(analysis_result: dict, answers: dict) -> dict:
     result["mappings"] = mappings
     result["warnings"] = warnings
     result["iac_parameters"] = iac_params
+
+    # ── Recalculate confidence_summary after all rule adjustments ──
+    high = len([m for m in mappings if m.get("confidence", 0) >= 0.90])
+    medium = len([m for m in mappings if 0.80 <= m.get("confidence", 0) < 0.90])
+    low = len([m for m in mappings if m.get("confidence", 0) < 0.80])
+    avg = round(
+        sum(m.get("confidence", 0) for m in mappings) / max(len(mappings), 1), 2
+    )
+    result["confidence_summary"] = {
+        "high": high,
+        "medium": medium,
+        "low": low,
+        "average": avg,
+    }
+
     return result
 
 

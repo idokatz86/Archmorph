@@ -1,18 +1,18 @@
 # Archmorph — Cloud Architecture Translator to Azure
 ## Product Requirements Document (PRD)
-**Version:** 2.3.0
-**Date:** February 19, 2026
+**Version:** 2.4.0
+**Date:** February 20, 2026
 **Author:** Ido Katz
 
 ---
 
 ## 1. Executive Summary
 
-Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams into Azure equivalents. It analyzes uploaded diagrams using GPT-4o vision, identifies cloud services, asks guided migration questions to refine the translation, maps services to Azure counterparts with confidence scores, exports translated architecture diagrams in multiple formats, generates ready-to-deploy Terraform/Bicep infrastructure code, provides dynamic cost estimates based on the Azure Retail Prices API with 134 service pricing entries, and automatically discovers and integrates new cloud services into its catalog.
+Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams into Azure equivalents. It analyzes uploaded diagrams using GPT-4o vision, identifies cloud services, asks guided migration questions to refine the translation, maps services to Azure counterparts with confidence scores, exports translated architecture diagrams in multiple formats, generates ready-to-deploy Terraform/Bicep infrastructure code, provides dynamic cost estimates based on the Azure Retail Prices API with 134 service pricing entries, automatically discovers and integrates new cloud services into its catalog, generates comprehensive AI-powered High-Level Design (HLD) documents, and provides an interactive IaC chat assistant for code modifications.
 
 **Problem:** Organizations migrating to Azure spend weeks manually mapping source architecture to Azure services. This process is error-prone, requires deep multi-cloud expertise, and lacks tooling for interactive refinement.
 
-**Solution:** Automated diagram analysis and service translation with guided migration questions, confidence-scored mappings, multi-format diagram export, self-updating service catalog with auto-integration, generated IaC with secure credential handling, region-aware pricing with optimized targeted queries, and an integrated chatbot assistant.
+**Solution:** Automated diagram analysis and service translation with guided migration questions, confidence-scored mappings, multi-format diagram export, self-updating service catalog with auto-integration, generated IaC with secure credential handling, region-aware pricing with optimized targeted queries, AI-powered HLD generation, interactive IaC chat assistant, and an integrated chatbot assistant.
 
 ---
 
@@ -41,11 +41,16 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 - **Multi-pass analysis:** Diagrams with >30 services trigger 2-pass analysis (quadrant split + merge)
 - **405+ service catalog:** 145 AWS, 143 Azure, 117 GCP services with 122 cross-cloud mappings (grows automatically via auto-discovery)
 
-### 3.3 Service Mapping
+### 3.3 Service Mapping & Confidence Engine
 - Maps detected services to Azure equivalents
 - Confidence scores: Critical (≥90%), High (70-89%), Medium (50-69%), Low (<50%)
 - **Manual intervention flags** for services with <60% confidence or no direct equivalent
 - Zone-based grouping (Networking, Compute, Data, Security, Integration, Monitoring)
+- **70+ GCP synonyms** (v2.4): Maps alternate GCP service names to canonical names (e.g., "Google Kubernetes Engine" → "GKE", "Cloud Load Balancing" → mapping key)
+- **Fuzzy matching fallback** (v2.4): Uses `difflib.SequenceMatcher` with ≥65% threshold to match services that don't have exact catalog entries
+- **GPT-4o confidence blending** (v2.4): Combines mapping confidence (70%) with GPT-4o detection confidence (30%) for more accurate scores
+- **Confidence recalculation** (v2.4): Summary statistics (high/medium/low/average) are recalculated after guided question answers are applied
+- **Service connections** (v2.4): GPT-4o extracts inter-service data flows and protocols from diagrams
 
 ### 3.4 Guided Migration Questions (v2.0)
 - **32 contextual questions** across 8 categories
@@ -114,6 +119,27 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 - Export translated architecture diagram (Excalidraw, Draw.io, Visio)
 - Export mapping report (JSON)
 - Copy to clipboard
+
+### 3.12 HLD Generation (v2.4)
+- **AI-powered High-Level Design** document generated via GPT-4o
+- **13 HLD sections:** Title, Executive Summary, Architecture Overview, Services (detailed), Networking, Security, Data Architecture, CAF Alignment, FinOps, Region Strategy, WAF Assessment, Migration Approach, Risks & Mitigations, Next Steps
+- **60+ Azure documentation links** automatically enriched into service entries (fuzzy matching against doc link catalog)
+- **Service deduplication** — duplicate Azure service entries are merged before HLD generation
+- **Cost context integration** — if cost estimate is available, it's included in the GPT-4o prompt for FinOps recommendations
+- **WAF assessment** — scores across 5 pillars: Reliability, Security, Cost Optimization, Operational Excellence, Performance Efficiency (1-5 scale with color coding)
+- **Migration phases** — phased migration approach with timelines and dependencies
+- **Markdown export** — 14-section markdown document downloadable as `.md` file
+- **JSON export** — raw HLD data downloadable as `.json` file
+- **Frontend UI** — 7-tab interface (Overview, Services, Networking, Security, FinOps, Migration, WAF) with service cards, doc links, alternatives, limitations, and SLA info
+
+### 3.13 IaC Chat Assistant (v2.4)
+- **Interactive GPT-4o assistant** for modifying generated Terraform/Bicep code
+- **Context-aware** — receives current IaC code, analysis results, and IaC parameters as context
+- **Session management** — in-memory conversation history (last 10 turns) per diagram
+- **Quick actions** — pre-built prompts: "Add monitoring", "Add security", "Add backup", "Optimize costs"
+- **Code updates** — assistant returns both explanation and updated code that auto-replaces the editor content
+- **Format-aware** — supports both Terraform and Bicep syntax based on current generation format
+- **Chat UI** — collapsible panel with message history, auto-scroll, and clear session button
 
 ---
 
@@ -263,9 +289,11 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | Diagram Export | In-process engine (Excalidraw, Draw.io, Visio with 36 Azure stencils) |
 | Pricing | Azure Retail Prices API with 30-day disk cache (134 service entries, 56 aliases, targeted queries) |
 | IaC | Terraform (infra), Bicep support in-app |
-| Testing | pytest (backend, 184 tests), E2E flow test (50 steps across 5 diagrams) |
+| Testing | pytest (backend, 257 tests), E2E flow test (65 steps across 5 diagrams), Playwright (35 browser tests) |
+| HLD Generator | In-process GPT-4o engine (60+ Azure doc links, 13-section HLD, markdown converter) |
+| IaC Chat | In-process GPT-4o assistant (session management, code modification, context-aware) |
 
-### 8.2 API Endpoints (30 total)
+### 8.2 API Endpoints (35 total)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
@@ -298,6 +326,11 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | `/api/admin/metrics/funnel` | GET | Admin conversion funnel data |
 | `/api/admin/metrics/daily` | GET | Admin daily metrics |
 | `/api/admin/metrics/recent` | GET | Admin recent events |
+| `/api/diagrams/{id}/generate-hld` | POST | Generate AI-powered High-Level Design document |
+| `/api/diagrams/{id}/hld` | GET | Retrieve cached HLD document |
+| `/api/diagrams/{id}/iac-chat` | POST | Send message to IaC chat assistant |
+| `/api/diagrams/{id}/iac-chat` | GET | Get IaC chat session history |
+| `/api/diagrams/{id}/iac-chat` | DELETE | Clear IaC chat session |
 | `/api/contact` | GET | Contact information |
 
 ### 8.3 Design System (v2.0)
@@ -325,6 +358,7 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | **v2.1 — Pricing & Polish** | Done | Dynamic Azure pricing via Retail Prices API, deployment region question, region-aware cost estimates, monthly pricing cache, SKU strategy multipliers |
 | **v2.2 — Self-Updating Catalog** | Done | Auto-integration of new services into catalog files, fuzzy name matching, category auto-classification (55 keyword hints), dry-run CLI mode, cumulative auto-added tracking |
 | **v2.3 — Real Pricing & GCP Validation** | Done | Real Azure pricing (134 entries + 56 aliases), 6-step price resolution, optimized targeted API queries, session key fix, full GCP → Azure E2E validation (5 diagrams, 50/50 steps pass), 184 unit tests |
+| **v2.4 — HLD, IaC Chat & Confidence** | Done | AI-powered HLD generation (13 sections, 60+ doc links, WAF assessment, migration phases), IaC Chat assistant (GPT-4o, session-based, quick actions), confidence engine (70+ GCP synonyms, fuzzy matching ≥65%, confidence blending 70/30, recalculation), service connections extraction, 257 unit tests, 65 E2E steps |
 | **v3.0 — Enterprise** | Planned | Visio import, API keys, import blocks for existing resources, SSO, RBAC |
 | **v4.0 — Advanced** | Planned | Pulumi output, Azure Migrate integration, multi-diagram projects |
 
