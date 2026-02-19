@@ -3,7 +3,7 @@ import Prism from 'prismjs'
 import 'prismjs/components/prism-hcl'
 import 'prismjs/themes/prism-tomorrow.css'
 
-const API_BASE = '/api'
+const API_BASE = 'https://archmorph-api.icyisland-c0dee6ba.northeurope.azurecontainerapps.io/api'
 
 // ─────────────────────────────────────────────────────────────
 // API Client
