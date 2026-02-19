@@ -405,3 +405,64 @@ test.describe('Footer & Branding', () => {
     await expect(page.getByText('Archmorph v2.1.0')).toBeVisible();
   });
 });
+
+// ====================================================================
+// 11. Additional API Coverage
+// ====================================================================
+
+test.describe('Additional API Coverage', () => {
+  test('service-updates status returns scheduler info', async ({ request }) => {
+    const resp = await request.get(`${API_BASE}/api/service-updates/status`);
+    expect(resp.ok()).toBeTruthy();
+    const data = await resp.json();
+    expect(data).toHaveProperty('scheduler_running');
+    expect(data).toHaveProperty('catalog_sizes');
+  });
+
+  test('service-updates last returns update details', async ({ request }) => {
+    const resp = await request.get(`${API_BASE}/api/service-updates/last`);
+    expect(resp.ok()).toBeTruthy();
+    const data = await resp.json();
+    expect(data).toHaveProperty('last_check');
+  });
+
+  test('mappings endpoint returns cross-cloud mappings', async ({ request }) => {
+    const resp = await request.get(`${API_BASE}/api/services/mappings`);
+    expect(resp.ok()).toBeTruthy();
+    const data = await resp.json();
+    expect(data.mappings.length).toBeGreaterThan(50);
+    expect(data.mappings[0]).toHaveProperty('aws');
+    expect(data.mappings[0]).toHaveProperty('azure');
+  });
+
+  test('categories endpoint returns grouped counts', async ({ request }) => {
+    const resp = await request.get(`${API_BASE}/api/services/categories`);
+    expect(resp.ok()).toBeTruthy();
+    const data = await resp.json();
+    expect(data.categories.length).toBeGreaterThan(5);
+  });
+
+  test('specific service lookup returns details', async ({ request }) => {
+    const resp = await request.get(`${API_BASE}/api/services/aws/aws-ec2`);
+    expect(resp.ok()).toBeTruthy();
+    const data = await resp.json();
+    expect(data.service).toHaveProperty('name');
+    expect(data.service).toHaveProperty('category');
+  });
+
+  test('specific service not found returns 404', async ({ request }) => {
+    const resp = await request.get(`${API_BASE}/api/services/aws/nonexistent-xyz`);
+    expect(resp.status()).toBe(404);
+  });
+
+  test('cost estimate returns region and strategy', async ({ request }) => {
+    // Analyze first to populate session
+    await request.post(`${API_BASE}/api/diagrams/e2e-cost/analyze`, { timeout: API_TIMEOUT });
+    const resp = await request.get(`${API_BASE}/api/diagrams/e2e-cost/cost-estimate`);
+    expect(resp.ok()).toBeTruthy();
+    const data = await resp.json();
+    expect(data).toHaveProperty('sku_strategy');
+    expect(data).toHaveProperty('pricing_source');
+    expect(data.service_count).toBeGreaterThanOrEqual(0);
+  });
+});
