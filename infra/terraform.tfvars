@@ -1,7 +1,7 @@
 # Archmorph Infrastructure Configuration
 # Region: West Europe
 
-subscription_id   = "152f2bd5-8f6b-48ba-a702-21a23172a224"
+# subscription_id = Set via TF_VAR_subscription_id environment variable
 location          = "westeurope"
 openai_location   = "eastus"  # Sweden blocked by policy, use East US
 environment       = "dev"

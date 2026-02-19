@@ -1,0 +1,1506 @@
+{
+  "name": "AWS Services",
+  "provider": "aws",
+  "version": "1.0.0",
+  "description": "Complete AWS service icon pack (145 icons)",
+  "icons": [
+    {
+      "file": "api_gateway.svg",
+      "name": "API Gateway",
+      "category": "networking",
+      "tags": [
+        "api",
+        "gateway",
+        "networking"
+      ],
+      "service_id": "aws-api-gateway"
+    },
+    {
+      "file": "app_mesh.svg",
+      "name": "App Mesh",
+      "category": "networking",
+      "tags": [
+        "app",
+        "mesh",
+        "networking"
+      ],
+      "service_id": "aws-app-mesh"
+    },
+    {
+      "file": "app_runner.svg",
+      "name": "App Runner",
+      "category": "compute",
+      "tags": [
+        "app",
+        "runner",
+        "compute"
+      ],
+      "service_id": "aws-app-runner"
+    },
+    {
+      "file": "application_migration_service.svg",
+      "name": "Application Migration Service",
+      "category": "migration",
+      "tags": [
+        "application",
+        "migration",
+        "service"
+      ],
+      "service_id": "aws-application-migration"
+    },
+    {
+      "file": "appstream_2_0.svg",
+      "name": "AppStream 2.0",
+      "category": "business",
+      "tags": [
+        "appstream",
+        "2.0",
+        "business"
+      ],
+      "service_id": "aws-appstream"
+    },
+    {
+      "file": "appsync.svg",
+      "name": "AppSync",
+      "category": "integration",
+      "tags": [
+        "appsync",
+        "integration"
+      ],
+      "service_id": "aws-appsync"
+    },
+    {
+      "file": "athena.svg",
+      "name": "Athena",
+      "category": "analytics",
+      "tags": [
+        "athena",
+        "analytics"
+      ],
+      "service_id": "aws-athena"
+    },
+    {
+      "file": "audit_manager.svg",
+      "name": "Audit Manager",
+      "category": "security",
+      "tags": [
+        "audit",
+        "manager",
+        "security"
+      ],
+      "service_id": "aws-audit-manager"
+    },
+    {
+      "file": "aurora.svg",
+      "name": "Aurora",
+      "category": "database",
+      "tags": [
+        "aurora",
+        "database"
+      ],
+      "service_id": "aws-aurora"
+    },
+    {
+      "file": "backup.svg",
+      "name": "Backup",
+      "category": "storage",
+      "tags": [
+        "backup",
+        "storage"
+      ],
+      "service_id": "aws-backup"
+    },
+    {
+      "file": "batch.svg",
+      "name": "Batch",
+      "category": "compute",
+      "tags": [
+        "batch",
+        "compute"
+      ],
+      "service_id": "aws-batch"
+    },
+    {
+      "file": "bedrock.svg",
+      "name": "Bedrock",
+      "category": "ai/ml",
+      "tags": [
+        "bedrock",
+        "ai/ml"
+      ],
+      "service_id": "aws-bedrock"
+    },
+    {
+      "file": "cdk.svg",
+      "name": "CDK",
+      "category": "devtools",
+      "tags": [
+        "cdk",
+        "devtools"
+      ],
+      "service_id": "aws-cdk"
+    },
+    {
+      "file": "certificate_manager.svg",
+      "name": "Certificate Manager",
+      "category": "security",
+      "tags": [
+        "certificate",
+        "manager",
+        "security"
+      ],
+      "service_id": "aws-certificate-manager"
+    },
+    {
+      "file": "chime.svg",
+      "name": "Chime",
+      "category": "business",
+      "tags": [
+        "chime",
+        "business"
+      ],
+      "service_id": "aws-chime"
+    },
+    {
+      "file": "clean_rooms.svg",
+      "name": "Clean Rooms",
+      "category": "analytics",
+      "tags": [
+        "clean",
+        "rooms",
+        "analytics"
+      ],
+      "service_id": "aws-clean-rooms"
+    },
+    {
+      "file": "cloud_map.svg",
+      "name": "Cloud Map",
+      "category": "networking",
+      "tags": [
+        "cloud",
+        "map",
+        "networking"
+      ],
+      "service_id": "aws-cloud-map"
+    },
+    {
+      "file": "cloud9.svg",
+      "name": "Cloud9",
+      "category": "devtools",
+      "tags": [
+        "cloud9",
+        "devtools"
+      ],
+      "service_id": "aws-cloud9"
+    },
+    {
+      "file": "cloudformation.svg",
+      "name": "CloudFormation",
+      "category": "devtools",
+      "tags": [
+        "cloudformation",
+        "devtools"
+      ],
+      "service_id": "aws-cloudformation"
+    },
+    {
+      "file": "cloudfront.svg",
+      "name": "CloudFront",
+      "category": "networking",
+      "tags": [
+        "cloudfront",
+        "networking"
+      ],
+      "service_id": "aws-cloudfront"
+    },
+    {
+      "file": "cloudhsm.svg",
+      "name": "CloudHSM",
+      "category": "security",
+      "tags": [
+        "cloudhsm",
+        "security"
+      ],
+      "service_id": "aws-cloudhsm"
+    },
+    {
+      "file": "cloudtrail.svg",
+      "name": "CloudTrail",
+      "category": "management",
+      "tags": [
+        "cloudtrail",
+        "management"
+      ],
+      "service_id": "aws-cloudtrail"
+    },
+    {
+      "file": "cloudwatch.svg",
+      "name": "CloudWatch",
+      "category": "management",
+      "tags": [
+        "cloudwatch",
+        "management"
+      ],
+      "service_id": "aws-cloudwatch"
+    },
+    {
+      "file": "codeartifact.svg",
+      "name": "CodeArtifact",
+      "category": "devtools",
+      "tags": [
+        "codeartifact",
+        "devtools"
+      ],
+      "service_id": "aws-codeartifact"
+    },
+    {
+      "file": "codebuild.svg",
+      "name": "CodeBuild",
+      "category": "devtools",
+      "tags": [
+        "codebuild",
+        "devtools"
+      ],
+      "service_id": "aws-codebuild"
+    },
+    {
+      "file": "codecommit.svg",
+      "name": "CodeCommit",
+      "category": "devtools",
+      "tags": [
+        "codecommit",
+        "devtools"
+      ],
+      "service_id": "aws-codecommit"
+    },
+    {
+      "file": "codedeploy.svg",
+      "name": "CodeDeploy",
+      "category": "devtools",
+      "tags": [
+        "codedeploy",
+        "devtools"
+      ],
+      "service_id": "aws-codedeploy"
+    },
+    {
+      "file": "codepipeline.svg",
+      "name": "CodePipeline",
+      "category": "devtools",
+      "tags": [
+        "codepipeline",
+        "devtools"
+      ],
+      "service_id": "aws-codepipeline"
+    },
+    {
+      "file": "codewhisperer.svg",
+      "name": "CodeWhisperer",
+      "category": "ai/ml",
+      "tags": [
+        "codewhisperer",
+        "ai/ml"
+      ],
+      "service_id": "aws-codewhisperer"
+    },
+    {
+      "file": "cognito.svg",
+      "name": "Cognito",
+      "category": "security",
+      "tags": [
+        "cognito",
+        "security"
+      ],
+      "service_id": "aws-cognito"
+    },
+    {
+      "file": "comprehend.svg",
+      "name": "Comprehend",
+      "category": "ai/ml",
+      "tags": [
+        "comprehend",
+        "ai/ml"
+      ],
+      "service_id": "aws-comprehend"
+    },
+    {
+      "file": "config.svg",
+      "name": "Config",
+      "category": "management",
+      "tags": [
+        "config",
+        "management"
+      ],
+      "service_id": "aws-config"
+    },
+    {
+      "file": "connect.svg",
+      "name": "Connect",
+      "category": "business",
+      "tags": [
+        "connect",
+        "business"
+      ],
+      "service_id": "aws-connect"
+    },
+    {
+      "file": "control_tower.svg",
+      "name": "Control Tower",
+      "category": "management",
+      "tags": [
+        "control",
+        "tower",
+        "management"
+      ],
+      "service_id": "aws-control-tower"
+    },
+    {
+      "file": "cost_explorer.svg",
+      "name": "Cost Explorer",
+      "category": "management",
+      "tags": [
+        "cost",
+        "explorer",
+        "management"
+      ],
+      "service_id": "aws-cost-explorer"
+    },
+    {
+      "file": "data_exchange.svg",
+      "name": "Data Exchange",
+      "category": "analytics",
+      "tags": [
+        "data",
+        "exchange",
+        "analytics"
+      ],
+      "service_id": "aws-data-exchange"
+    },
+    {
+      "file": "data_pipeline.svg",
+      "name": "Data Pipeline",
+      "category": "analytics",
+      "tags": [
+        "data",
+        "pipeline",
+        "analytics"
+      ],
+      "service_id": "aws-data-pipeline"
+    },
+    {
+      "file": "datasync.svg",
+      "name": "DataSync",
+      "category": "storage",
+      "tags": [
+        "datasync",
+        "storage"
+      ],
+      "service_id": "aws-datasync"
+    },
+    {
+      "file": "detective.svg",
+      "name": "Detective",
+      "category": "security",
+      "tags": [
+        "detective",
+        "security"
+      ],
+      "service_id": "aws-detective"
+    },
+    {
+      "file": "direct_connect.svg",
+      "name": "Direct Connect",
+      "category": "networking",
+      "tags": [
+        "direct",
+        "connect",
+        "networking"
+      ],
+      "service_id": "aws-direct-connect"
+    },
+    {
+      "file": "directory_service.svg",
+      "name": "Directory Service",
+      "category": "security",
+      "tags": [
+        "directory",
+        "service",
+        "security"
+      ],
+      "service_id": "aws-directory-service"
+    },
+    {
+      "file": "dms.svg",
+      "name": "DMS",
+      "category": "database",
+      "tags": [
+        "dms",
+        "database"
+      ],
+      "service_id": "aws-dms"
+    },
+    {
+      "file": "documentdb.svg",
+      "name": "DocumentDB",
+      "category": "database",
+      "tags": [
+        "documentdb",
+        "database"
+      ],
+      "service_id": "aws-documentdb"
+    },
+    {
+      "file": "dynamodb.svg",
+      "name": "DynamoDB",
+      "category": "database",
+      "tags": [
+        "dynamodb",
+        "database"
+      ],
+      "service_id": "aws-dynamodb"
+    },
+    {
+      "file": "ebs.svg",
+      "name": "EBS",
+      "category": "storage",
+      "tags": [
+        "ebs",
+        "storage"
+      ],
+      "service_id": "aws-ebs"
+    },
+    {
+      "file": "ec2.svg",
+      "name": "EC2",
+      "category": "compute",
+      "tags": [
+        "ec2",
+        "compute"
+      ],
+      "service_id": "aws-ec2"
+    },
+    {
+      "file": "ec2_auto_scaling.svg",
+      "name": "EC2 Auto Scaling",
+      "category": "compute",
+      "tags": [
+        "ec2",
+        "auto",
+        "scaling",
+        "compute"
+      ],
+      "service_id": "aws-ec2-auto-scaling"
+    },
+    {
+      "file": "ec2_image_builder.svg",
+      "name": "EC2 Image Builder",
+      "category": "compute",
+      "tags": [
+        "ec2",
+        "image",
+        "builder",
+        "compute"
+      ],
+      "service_id": "aws-ec2-image-builder"
+    },
+    {
+      "file": "ecr.svg",
+      "name": "ECR",
+      "category": "containers",
+      "tags": [
+        "ecr",
+        "containers"
+      ],
+      "service_id": "aws-ecr"
+    },
+    {
+      "file": "ecs.svg",
+      "name": "ECS",
+      "category": "compute",
+      "tags": [
+        "ecs",
+        "compute"
+      ],
+      "service_id": "aws-ecs"
+    },
+    {
+      "file": "ecs_anywhere.svg",
+      "name": "ECS Anywhere",
+      "category": "containers",
+      "tags": [
+        "ecs",
+        "anywhere",
+        "containers"
+      ],
+      "service_id": "aws-ecs-anywhere"
+    },
+    {
+      "file": "efs.svg",
+      "name": "EFS",
+      "category": "storage",
+      "tags": [
+        "efs",
+        "storage"
+      ],
+      "service_id": "aws-efs"
+    },
+    {
+      "file": "eks.svg",
+      "name": "EKS",
+      "category": "compute",
+      "tags": [
+        "eks",
+        "compute"
+      ],
+      "service_id": "aws-eks"
+    },
+    {
+      "file": "elastic_beanstalk.svg",
+      "name": "Elastic Beanstalk",
+      "category": "compute",
+      "tags": [
+        "elastic",
+        "beanstalk",
+        "compute"
+      ],
+      "service_id": "aws-elastic-beanstalk"
+    },
+    {
+      "file": "elasticache.svg",
+      "name": "ElastiCache",
+      "category": "database",
+      "tags": [
+        "elasticache",
+        "database"
+      ],
+      "service_id": "aws-elasticache"
+    },
+    {
+      "file": "elb.svg",
+      "name": "ELB",
+      "category": "networking",
+      "tags": [
+        "elb",
+        "networking"
+      ],
+      "service_id": "aws-elb"
+    },
+    {
+      "file": "emr.svg",
+      "name": "EMR",
+      "category": "analytics",
+      "tags": [
+        "emr",
+        "analytics"
+      ],
+      "service_id": "aws-emr"
+    },
+    {
+      "file": "eventbridge.svg",
+      "name": "EventBridge",
+      "category": "integration",
+      "tags": [
+        "eventbridge",
+        "integration"
+      ],
+      "service_id": "aws-eventbridge"
+    },
+    {
+      "file": "fargate.svg",
+      "name": "Fargate",
+      "category": "compute",
+      "tags": [
+        "fargate",
+        "compute"
+      ],
+      "service_id": "aws-fargate"
+    },
+    {
+      "file": "fis.svg",
+      "name": "FIS",
+      "category": "devtools",
+      "tags": [
+        "fis",
+        "devtools"
+      ],
+      "service_id": "aws-fault-injection"
+    },
+    {
+      "file": "firewall_manager.svg",
+      "name": "Firewall Manager",
+      "category": "security",
+      "tags": [
+        "firewall",
+        "manager",
+        "security"
+      ],
+      "service_id": "aws-firewall-manager"
+    },
+    {
+      "file": "forecast.svg",
+      "name": "Forecast",
+      "category": "ai/ml",
+      "tags": [
+        "forecast",
+        "ai/ml"
+      ],
+      "service_id": "aws-forecast"
+    },
+    {
+      "file": "fsx.svg",
+      "name": "FSx",
+      "category": "storage",
+      "tags": [
+        "fsx",
+        "storage"
+      ],
+      "service_id": "aws-fsx"
+    },
+    {
+      "file": "global_accelerator.svg",
+      "name": "Global Accelerator",
+      "category": "networking",
+      "tags": [
+        "global",
+        "accelerator",
+        "networking"
+      ],
+      "service_id": "aws-global-accelerator"
+    },
+    {
+      "file": "glue.svg",
+      "name": "Glue",
+      "category": "analytics",
+      "tags": [
+        "glue",
+        "analytics"
+      ],
+      "service_id": "aws-glue"
+    },
+    {
+      "file": "guardduty.svg",
+      "name": "GuardDuty",
+      "category": "security",
+      "tags": [
+        "guardduty",
+        "security"
+      ],
+      "service_id": "aws-guardduty"
+    },
+    {
+      "file": "health_dashboard.svg",
+      "name": "Health Dashboard",
+      "category": "management",
+      "tags": [
+        "health",
+        "dashboard",
+        "management"
+      ],
+      "service_id": "aws-health"
+    },
+    {
+      "file": "healthlake.svg",
+      "name": "HealthLake",
+      "category": "ai/ml",
+      "tags": [
+        "healthlake",
+        "ai/ml"
+      ],
+      "service_id": "aws-healthlake"
+    },
+    {
+      "file": "iam.svg",
+      "name": "IAM",
+      "category": "security",
+      "tags": [
+        "iam",
+        "security"
+      ],
+      "service_id": "aws-iam"
+    },
+    {
+      "file": "inspector.svg",
+      "name": "Inspector",
+      "category": "security",
+      "tags": [
+        "inspector",
+        "security"
+      ],
+      "service_id": "aws-inspector"
+    },
+    {
+      "file": "iot_analytics.svg",
+      "name": "IoT Analytics",
+      "category": "iot",
+      "tags": [
+        "iot",
+        "analytics"
+      ],
+      "service_id": "aws-iot-analytics"
+    },
+    {
+      "file": "iot_core.svg",
+      "name": "IoT Core",
+      "category": "iot",
+      "tags": [
+        "iot",
+        "core"
+      ],
+      "service_id": "aws-iot-core"
+    },
+    {
+      "file": "iot_events.svg",
+      "name": "IoT Events",
+      "category": "iot",
+      "tags": [
+        "iot",
+        "events"
+      ],
+      "service_id": "aws-iot-events"
+    },
+    {
+      "file": "iot_fleetwise.svg",
+      "name": "IoT FleetWise",
+      "category": "iot",
+      "tags": [
+        "iot",
+        "fleetwise"
+      ],
+      "service_id": "aws-iot-fleetwise"
+    },
+    {
+      "file": "iot_greengrass.svg",
+      "name": "IoT Greengrass",
+      "category": "iot",
+      "tags": [
+        "iot",
+        "greengrass"
+      ],
+      "service_id": "aws-iot-greengrass"
+    },
+    {
+      "file": "iot_sitewise.svg",
+      "name": "IoT SiteWise",
+      "category": "iot",
+      "tags": [
+        "iot",
+        "sitewise"
+      ],
+      "service_id": "aws-iot-sitewise"
+    },
+    {
+      "file": "iot_twinmaker.svg",
+      "name": "IoT TwinMaker",
+      "category": "iot",
+      "tags": [
+        "iot",
+        "twinmaker"
+      ],
+      "service_id": "aws-iot-twinmaker"
+    },
+    {
+      "file": "ivs.svg",
+      "name": "IVS",
+      "category": "media",
+      "tags": [
+        "ivs",
+        "media"
+      ],
+      "service_id": "aws-ivs"
+    },
+    {
+      "file": "kendra.svg",
+      "name": "Kendra",
+      "category": "ai/ml",
+      "tags": [
+        "kendra",
+        "ai/ml"
+      ],
+      "service_id": "aws-kendra"
+    },
+    {
+      "file": "keyspaces.svg",
+      "name": "Keyspaces",
+      "category": "database",
+      "tags": [
+        "keyspaces",
+        "database"
+      ],
+      "service_id": "aws-keyspaces"
+    },
+    {
+      "file": "kinesis.svg",
+      "name": "Kinesis",
+      "category": "analytics",
+      "tags": [
+        "kinesis",
+        "analytics"
+      ],
+      "service_id": "aws-kinesis"
+    },
+    {
+      "file": "kms.svg",
+      "name": "KMS",
+      "category": "security",
+      "tags": [
+        "kms",
+        "security"
+      ],
+      "service_id": "aws-kms"
+    },
+    {
+      "file": "lake_formation.svg",
+      "name": "Lake Formation",
+      "category": "analytics",
+      "tags": [
+        "lake",
+        "formation",
+        "analytics"
+      ],
+      "service_id": "aws-lake-formation"
+    },
+    {
+      "file": "lambda.svg",
+      "name": "Lambda",
+      "category": "compute",
+      "tags": [
+        "lambda",
+        "compute"
+      ],
+      "service_id": "aws-lambda"
+    },
+    {
+      "file": "lex.svg",
+      "name": "Lex",
+      "category": "ai/ml",
+      "tags": [
+        "lex",
+        "ai/ml"
+      ],
+      "service_id": "aws-lex"
+    },
+    {
+      "file": "license_manager.svg",
+      "name": "License Manager",
+      "category": "management",
+      "tags": [
+        "license",
+        "manager",
+        "management"
+      ],
+      "service_id": "aws-license-manager"
+    },
+    {
+      "file": "lightsail.svg",
+      "name": "Lightsail",
+      "category": "compute",
+      "tags": [
+        "lightsail",
+        "compute"
+      ],
+      "service_id": "aws-lightsail"
+    },
+    {
+      "file": "lookout_for_vision.svg",
+      "name": "Lookout for Vision",
+      "category": "ai/ml",
+      "tags": [
+        "lookout",
+        "for",
+        "vision",
+        "ai/ml"
+      ],
+      "service_id": "aws-lookout-vision"
+    },
+    {
+      "file": "macie.svg",
+      "name": "Macie",
+      "category": "security",
+      "tags": [
+        "macie",
+        "security"
+      ],
+      "service_id": "aws-macie"
+    },
+    {
+      "file": "mainframe_modernization.svg",
+      "name": "Mainframe Modernization",
+      "category": "migration",
+      "tags": [
+        "mainframe",
+        "modernization",
+        "migration"
+      ],
+      "service_id": "aws-mainframe-modernization"
+    },
+    {
+      "file": "mwaa.svg",
+      "name": "MWAA",
+      "category": "analytics",
+      "tags": [
+        "mwaa",
+        "analytics"
+      ],
+      "service_id": "aws-managed-airflow"
+    },
+    {
+      "file": "mediaconvert.svg",
+      "name": "MediaConvert",
+      "category": "media",
+      "tags": [
+        "mediaconvert",
+        "media"
+      ],
+      "service_id": "aws-mediaconvert"
+    },
+    {
+      "file": "medialive.svg",
+      "name": "MediaLive",
+      "category": "media",
+      "tags": [
+        "medialive",
+        "media"
+      ],
+      "service_id": "aws-medialive"
+    },
+    {
+      "file": "mediapackage.svg",
+      "name": "MediaPackage",
+      "category": "media",
+      "tags": [
+        "mediapackage",
+        "media"
+      ],
+      "service_id": "aws-mediapackage"
+    },
+    {
+      "file": "memorydb.svg",
+      "name": "MemoryDB",
+      "category": "database",
+      "tags": [
+        "memorydb",
+        "database"
+      ],
+      "service_id": "aws-memorydb"
+    },
+    {
+      "file": "migration_hub.svg",
+      "name": "Migration Hub",
+      "category": "migration",
+      "tags": [
+        "migration",
+        "hub"
+      ],
+      "service_id": "aws-migration-hub"
+    },
+    {
+      "file": "amazon_mq.svg",
+      "name": "Amazon MQ",
+      "category": "integration",
+      "tags": [
+        "amazon",
+        "mq",
+        "integration"
+      ],
+      "service_id": "aws-mq"
+    },
+    {
+      "file": "msk.svg",
+      "name": "MSK",
+      "category": "analytics",
+      "tags": [
+        "msk",
+        "analytics"
+      ],
+      "service_id": "aws-msk"
+    },
+    {
+      "file": "neptune.svg",
+      "name": "Neptune",
+      "category": "database",
+      "tags": [
+        "neptune",
+        "database"
+      ],
+      "service_id": "aws-neptune"
+    },
+    {
+      "file": "network_firewall.svg",
+      "name": "Network Firewall",
+      "category": "networking",
+      "tags": [
+        "network",
+        "firewall",
+        "networking"
+      ],
+      "service_id": "aws-network-firewall"
+    },
+    {
+      "file": "opensearch.svg",
+      "name": "OpenSearch",
+      "category": "analytics",
+      "tags": [
+        "opensearch",
+        "analytics"
+      ],
+      "service_id": "aws-opensearch"
+    },
+    {
+      "file": "organizations.svg",
+      "name": "Organizations",
+      "category": "management",
+      "tags": [
+        "organizations",
+        "management"
+      ],
+      "service_id": "aws-organizations"
+    },
+    {
+      "file": "outposts.svg",
+      "name": "Outposts",
+      "category": "compute",
+      "tags": [
+        "outposts",
+        "compute"
+      ],
+      "service_id": "aws-outposts"
+    },
+    {
+      "file": "personalize.svg",
+      "name": "Personalize",
+      "category": "ai/ml",
+      "tags": [
+        "personalize",
+        "ai/ml"
+      ],
+      "service_id": "aws-personalize"
+    },
+    {
+      "file": "pinpoint.svg",
+      "name": "Pinpoint",
+      "category": "business",
+      "tags": [
+        "pinpoint",
+        "business"
+      ],
+      "service_id": "aws-pinpoint"
+    },
+    {
+      "file": "polly.svg",
+      "name": "Polly",
+      "category": "ai/ml",
+      "tags": [
+        "polly",
+        "ai/ml"
+      ],
+      "service_id": "aws-polly"
+    },
+    {
+      "file": "privatelink.svg",
+      "name": "PrivateLink",
+      "category": "networking",
+      "tags": [
+        "privatelink",
+        "networking"
+      ],
+      "service_id": "aws-privatelink"
+    },
+    {
+      "file": "qldb.svg",
+      "name": "QLDB",
+      "category": "database",
+      "tags": [
+        "qldb",
+        "database"
+      ],
+      "service_id": "aws-qldb"
+    },
+    {
+      "file": "quicksight.svg",
+      "name": "QuickSight",
+      "category": "analytics",
+      "tags": [
+        "quicksight",
+        "analytics"
+      ],
+      "service_id": "aws-quicksight"
+    },
+    {
+      "file": "rds.svg",
+      "name": "RDS",
+      "category": "database",
+      "tags": [
+        "rds",
+        "database"
+      ],
+      "service_id": "aws-rds"
+    },
+    {
+      "file": "redshift.svg",
+      "name": "Redshift",
+      "category": "database",
+      "tags": [
+        "redshift",
+        "database"
+      ],
+      "service_id": "aws-redshift"
+    },
+    {
+      "file": "rekognition.svg",
+      "name": "Rekognition",
+      "category": "ai/ml",
+      "tags": [
+        "rekognition",
+        "ai/ml"
+      ],
+      "service_id": "aws-rekognition"
+    },
+    {
+      "file": "resource_groups.svg",
+      "name": "Resource Groups",
+      "category": "management",
+      "tags": [
+        "resource",
+        "groups",
+        "management"
+      ],
+      "service_id": "aws-resource-groups"
+    },
+    {
+      "file": "route_53.svg",
+      "name": "Route 53",
+      "category": "networking",
+      "tags": [
+        "route",
+        "53",
+        "networking"
+      ],
+      "service_id": "aws-route53"
+    },
+    {
+      "file": "s3.svg",
+      "name": "S3",
+      "category": "storage",
+      "tags": [
+        "s3",
+        "storage"
+      ],
+      "service_id": "aws-s3"
+    },
+    {
+      "file": "s3_glacier.svg",
+      "name": "S3 Glacier",
+      "category": "storage",
+      "tags": [
+        "s3",
+        "glacier",
+        "storage"
+      ],
+      "service_id": "aws-s3-glacier"
+    },
+    {
+      "file": "sagemaker.svg",
+      "name": "SageMaker",
+      "category": "ai/ml",
+      "tags": [
+        "sagemaker",
+        "ai/ml"
+      ],
+      "service_id": "aws-sagemaker"
+    },
+    {
+      "file": "secrets_manager.svg",
+      "name": "Secrets Manager",
+      "category": "security",
+      "tags": [
+        "secrets",
+        "manager",
+        "security"
+      ],
+      "service_id": "aws-secrets-manager"
+    },
+    {
+      "file": "security_hub.svg",
+      "name": "Security Hub",
+      "category": "security",
+      "tags": [
+        "security",
+        "hub"
+      ],
+      "service_id": "aws-security-hub"
+    },
+    {
+      "file": "serverless_application_repository.svg",
+      "name": "Serverless Application Repository",
+      "category": "compute",
+      "tags": [
+        "serverless",
+        "application",
+        "repository",
+        "compute"
+      ],
+      "service_id": "aws-serverless-repo"
+    },
+    {
+      "file": "service_catalog.svg",
+      "name": "Service Catalog",
+      "category": "management",
+      "tags": [
+        "service",
+        "catalog",
+        "management"
+      ],
+      "service_id": "aws-service-catalog"
+    },
+    {
+      "file": "ses.svg",
+      "name": "SES",
+      "category": "business",
+      "tags": [
+        "ses",
+        "business"
+      ],
+      "service_id": "aws-ses"
+    },
+    {
+      "file": "shield.svg",
+      "name": "Shield",
+      "category": "security",
+      "tags": [
+        "shield",
+        "security"
+      ],
+      "service_id": "aws-shield"
+    },
+    {
+      "file": "snow_family.svg",
+      "name": "Snow Family",
+      "category": "storage",
+      "tags": [
+        "snow",
+        "family",
+        "storage"
+      ],
+      "service_id": "aws-snow-family"
+    },
+    {
+      "file": "sns.svg",
+      "name": "SNS",
+      "category": "integration",
+      "tags": [
+        "sns",
+        "integration"
+      ],
+      "service_id": "aws-sns"
+    },
+    {
+      "file": "sqs.svg",
+      "name": "SQS",
+      "category": "integration",
+      "tags": [
+        "sqs",
+        "integration"
+      ],
+      "service_id": "aws-sqs"
+    },
+    {
+      "file": "iam_identity_center.svg",
+      "name": "IAM Identity Center",
+      "category": "security",
+      "tags": [
+        "iam",
+        "identity",
+        "center",
+        "security"
+      ],
+      "service_id": "aws-sso"
+    },
+    {
+      "file": "step_functions.svg",
+      "name": "Step Functions",
+      "category": "integration",
+      "tags": [
+        "step",
+        "functions",
+        "integration"
+      ],
+      "service_id": "aws-step-functions"
+    },
+    {
+      "file": "storage_gateway.svg",
+      "name": "Storage Gateway",
+      "category": "storage",
+      "tags": [
+        "storage",
+        "gateway"
+      ],
+      "service_id": "aws-storage-gateway"
+    },
+    {
+      "file": "swf.svg",
+      "name": "SWF",
+      "category": "integration",
+      "tags": [
+        "swf",
+        "integration"
+      ],
+      "service_id": "aws-swf"
+    },
+    {
+      "file": "systems_manager.svg",
+      "name": "Systems Manager",
+      "category": "management",
+      "tags": [
+        "systems",
+        "manager",
+        "management"
+      ],
+      "service_id": "aws-systems-manager"
+    },
+    {
+      "file": "textract.svg",
+      "name": "Textract",
+      "category": "ai/ml",
+      "tags": [
+        "textract",
+        "ai/ml"
+      ],
+      "service_id": "aws-textract"
+    },
+    {
+      "file": "timestream.svg",
+      "name": "Timestream",
+      "category": "database",
+      "tags": [
+        "timestream",
+        "database"
+      ],
+      "service_id": "aws-timestream"
+    },
+    {
+      "file": "transcribe.svg",
+      "name": "Transcribe",
+      "category": "ai/ml",
+      "tags": [
+        "transcribe",
+        "ai/ml"
+      ],
+      "service_id": "aws-transcribe"
+    },
+    {
+      "file": "transfer_family.svg",
+      "name": "Transfer Family",
+      "category": "storage",
+      "tags": [
+        "transfer",
+        "family",
+        "storage"
+      ],
+      "service_id": "aws-transfer-family"
+    },
+    {
+      "file": "transit_gateway.svg",
+      "name": "Transit Gateway",
+      "category": "networking",
+      "tags": [
+        "transit",
+        "gateway",
+        "networking"
+      ],
+      "service_id": "aws-transit-gateway"
+    },
+    {
+      "file": "translate.svg",
+      "name": "Translate",
+      "category": "ai/ml",
+      "tags": [
+        "translate",
+        "ai/ml"
+      ],
+      "service_id": "aws-translate"
+    },
+    {
+      "file": "trusted_advisor.svg",
+      "name": "Trusted Advisor",
+      "category": "management",
+      "tags": [
+        "trusted",
+        "advisor",
+        "management"
+      ],
+      "service_id": "aws-trusted-advisor"
+    },
+    {
+      "file": "vpc.svg",
+      "name": "VPC",
+      "category": "networking",
+      "tags": [
+        "vpc",
+        "networking"
+      ],
+      "service_id": "aws-vpc"
+    },
+    {
+      "file": "vpn.svg",
+      "name": "VPN",
+      "category": "networking",
+      "tags": [
+        "vpn",
+        "networking"
+      ],
+      "service_id": "aws-vpn"
+    },
+    {
+      "file": "waf.svg",
+      "name": "WAF",
+      "category": "security",
+      "tags": [
+        "waf",
+        "security"
+      ],
+      "service_id": "aws-waf"
+    },
+    {
+      "file": "wavelength.svg",
+      "name": "Wavelength",
+      "category": "compute",
+      "tags": [
+        "wavelength",
+        "compute"
+      ],
+      "service_id": "aws-wavelength"
+    },
+    {
+      "file": "well_architected_tool.svg",
+      "name": "Well-Architected Tool",
+      "category": "management",
+      "tags": [
+        "well",
+        "architected",
+        "tool",
+        "management"
+      ],
+      "service_id": "aws-well-architected"
+    },
+    {
+      "file": "workspaces.svg",
+      "name": "WorkSpaces",
+      "category": "business",
+      "tags": [
+        "workspaces",
+        "business"
+      ],
+      "service_id": "aws-workspaces"
+    },
+    {
+      "file": "x_ray.svg",
+      "name": "X-Ray",
+      "category": "devtools",
+      "tags": [
+        "ray",
+        "devtools"
+      ],
+      "service_id": "aws-xray"
+    }
+  ]
+}

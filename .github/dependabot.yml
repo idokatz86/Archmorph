@@ -1,0 +1,50 @@
+version: 2
+updates:
+  # Python backend dependencies
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - security
+
+  # Node.js frontend dependencies
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - security
+
+  # Docker base images
+  - package-ecosystem: docker
+    directory: /backend
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+      - docker
+
+  # GitHub Actions versions
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+      - ci
+
+  # Terraform providers
+  - package-ecosystem: terraform
+    directory: /infra
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+      - infrastructure

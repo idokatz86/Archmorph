@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <ellipse cx="32" cy="16" rx="22" ry="8" fill="#232F3E" opacity="0.3"/>
+  <rect x="10" y="16" width="44" height="32" fill="#3F8624"/>
+  <ellipse cx="32" cy="16" rx="22" ry="8" fill="#3F8624" stroke="#2E6B1A" stroke-width="2"/>
+  <ellipse cx="32" cy="48" rx="22" ry="8" fill="#3F8624" stroke="#2E6B1A" stroke-width="2"/>
+  <line x1="10" y1="16" x2="10" y2="48" stroke="#2E6B1A" stroke-width="2"/>
+  <line x1="54" y1="16" x2="54" y2="48" stroke="#2E6B1A" stroke-width="2"/>
+  <text x="32" y="36" text-anchor="middle" fill="white" font-size="10" font-family="Segoe UI,sans-serif" font-weight="600">TF</text>
+</svg>

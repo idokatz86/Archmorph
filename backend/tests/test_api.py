@@ -15,6 +15,9 @@ from fastapi.testclient import TestClient
 # Ensure backend is on the path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+# Disable rate limiting for tests
+os.environ["RATE_LIMIT_ENABLED"] = "false"
+
 from main import app, SESSION_STORE, IMAGE_STORE
 from chatbot import process_chat_message, get_chat_history, clear_chat_session, _detect_intent, _detect_labels, _find_faq_answer
 from usage_metrics import record_event, record_funnel_step, get_metrics_summary, get_funnel_metrics, get_daily_metrics, get_recent_events
@@ -89,7 +92,8 @@ def analyzed_diagram(client, clean_session):
     diagram_id = resp.json()["diagram_id"]
 
     # Analyze (mock the vision analyzer)
-    with patch("main.analyze_image", return_value=copy.deepcopy(MOCK_ANALYSIS)):
+    with patch("main.analyze_image", return_value=copy.deepcopy(MOCK_ANALYSIS)), \
+         patch("main.classify_image", return_value={"is_architecture_diagram": True, "confidence": 0.95, "image_type": "architecture_diagram", "reason": "Mock"}):
         resp = client.post(f"/api/diagrams/{diagram_id}/analyze")
     assert resp.status_code == 200
     return diagram_id
@@ -105,7 +109,7 @@ class TestHealth:
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "healthy"
-        assert data["version"] == "2.1.0"
+        assert data["version"] == "2.5.0"
 
     def test_health_has_catalog_counts(self, client):
         data = client.get("/api/health").json()
@@ -127,13 +131,11 @@ class TestHealth:
 class TestProjects:
     def test_create_project(self, client):
         resp = client.post("/api/projects", json={"name": "Test"})
-        assert resp.status_code == 200
-        assert resp.json()["status"] == "created"
+        assert resp.status_code == 501
 
     def test_get_project(self, client):
         resp = client.get("/api/projects/proj-001")
-        assert resp.status_code == 200
-        assert "diagrams" in resp.json()
+        assert resp.status_code == 501
 
 
 # ====================================================================
@@ -511,27 +513,43 @@ class TestMetrics:
         events = get_recent_events(10)
         assert isinstance(events, list)
 
-    def test_admin_metrics_endpoint_403(self, client):
-        resp = client.get("/api/admin/metrics?key=wrong-key")
+    def test_admin_metrics_endpoint_403(self, client, monkeypatch):
+        monkeypatch.setattr("usage_metrics.ADMIN_SECRET", "test-admin-key")
+        monkeypatch.setattr("main.ADMIN_SECRET", "test-admin-key")
+        resp = client.get("/api/admin/metrics", headers={"X-Admin-Key": "wrong-key"})
         assert resp.status_code == 403
 
-    def test_admin_metrics_endpoint_ok(self, client):
-        resp = client.get("/api/admin/metrics?key=archmorph-admin-2025")
+    def test_admin_metrics_endpoint_no_key(self, client, monkeypatch):
+        monkeypatch.setattr("usage_metrics.ADMIN_SECRET", "test-admin-key")
+        monkeypatch.setattr("main.ADMIN_SECRET", "test-admin-key")
+        resp = client.get("/api/admin/metrics")
+        assert resp.status_code == 403
+
+    def test_admin_metrics_endpoint_ok(self, client, monkeypatch):
+        monkeypatch.setattr("usage_metrics.ADMIN_SECRET", "test-admin-key")
+        monkeypatch.setattr("main.ADMIN_SECRET", "test-admin-key")
+        resp = client.get("/api/admin/metrics", headers={"X-Admin-Key": "test-admin-key"})
         assert resp.status_code == 200
         assert "totals" in resp.json()
 
-    def test_admin_funnel_endpoint(self, client):
-        resp = client.get("/api/admin/metrics/funnel?key=archmorph-admin-2025")
+    def test_admin_funnel_endpoint(self, client, monkeypatch):
+        monkeypatch.setattr("usage_metrics.ADMIN_SECRET", "test-admin-key")
+        monkeypatch.setattr("main.ADMIN_SECRET", "test-admin-key")
+        resp = client.get("/api/admin/metrics/funnel", headers={"X-Admin-Key": "test-admin-key"})
         assert resp.status_code == 200
         assert "total_sessions" in resp.json()
 
-    def test_admin_daily_endpoint(self, client):
-        resp = client.get("/api/admin/metrics/daily?key=archmorph-admin-2025&days=7")
+    def test_admin_daily_endpoint(self, client, monkeypatch):
+        monkeypatch.setattr("usage_metrics.ADMIN_SECRET", "test-admin-key")
+        monkeypatch.setattr("main.ADMIN_SECRET", "test-admin-key")
+        resp = client.get("/api/admin/metrics/daily?days=7", headers={"X-Admin-Key": "test-admin-key"})
         assert resp.status_code == 200
         assert "data" in resp.json()
 
-    def test_admin_recent_endpoint(self, client):
-        resp = client.get("/api/admin/metrics/recent?key=archmorph-admin-2025&limit=5")
+    def test_admin_recent_endpoint(self, client, monkeypatch):
+        monkeypatch.setattr("usage_metrics.ADMIN_SECRET", "test-admin-key")
+        monkeypatch.setattr("main.ADMIN_SECRET", "test-admin-key")
+        resp = client.get("/api/admin/metrics/recent?limit=5", headers={"X-Admin-Key": "test-admin-key"})
         assert resp.status_code == 200
         assert "events" in resp.json()
 

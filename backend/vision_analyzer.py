@@ -13,24 +13,10 @@ import os
 from difflib import SequenceMatcher
 from typing import Any, Dict, List, Optional, Tuple
 
-from openai import AzureOpenAI
-from azure.identity import DefaultAzureCredential, get_bearer_token_provider
-
 from services import AWS_SERVICES, GCP_SERVICES, CROSS_CLOUD_MAPPINGS
+from openai_client import get_openai_client, AZURE_OPENAI_DEPLOYMENT
 
 logger = logging.getLogger(__name__)
-
-# ─────────────────────────────────────────────────────────────
-# Azure OpenAI Configuration
-# ─────────────────────────────────────────────────────────────
-AZURE_OPENAI_ENDPOINT = os.getenv(
-    "AZURE_OPENAI_ENDPOINT",
-    "https://archmorph-openai-acm7pd.openai.azure.com/",
-)
-AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
-AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-06-01")
-# Optional: API key fallback (if local auth is enabled)
-AZURE_OPENAI_KEY = os.getenv("AZURE_OPENAI_KEY", "")
 
 # ─────────────────────────────────────────────────────────────
 # Build service name lookup indexes
@@ -256,28 +242,6 @@ Respond ONLY with valid JSON in this exact format:
 }"""
 
 
-def _get_openai_client() -> AzureOpenAI:
-    """Create an Azure OpenAI client with Entra ID or API key auth."""
-    if AZURE_OPENAI_KEY:
-        logger.info("Using API key authentication for Azure OpenAI")
-        return AzureOpenAI(
-            azure_endpoint=AZURE_OPENAI_ENDPOINT,
-            api_key=AZURE_OPENAI_KEY,
-            api_version=AZURE_OPENAI_API_VERSION,
-        )
-
-    logger.info("Using DefaultAzureCredential for Azure OpenAI")
-    credential = DefaultAzureCredential()
-    token_provider = get_bearer_token_provider(
-        credential, "https://cognitiveservices.azure.com/.default"
-    )
-    return AzureOpenAI(
-        azure_endpoint=AZURE_OPENAI_ENDPOINT,
-        azure_ad_token_provider=token_provider,
-        api_version=AZURE_OPENAI_API_VERSION,
-    )
-
-
 def _find_azure_mapping(
     short_name: str, source_provider: str
 ) -> Optional[Dict]:
@@ -351,7 +315,7 @@ def analyze_image(image_bytes: bytes, content_type: str = "image/png") -> Dict[s
     media_type = content_type if content_type else "image/png"
 
     # Call GPT-4o with vision
-    client = _get_openai_client()
+    client = get_openai_client()
 
     logger.info(
         "Sending image to GPT-4o for analysis (%d bytes, %s)",

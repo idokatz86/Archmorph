@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <rect x="6" y="6" width="52" height="52" rx="8" fill="#0078D4" stroke="#005A9E" stroke-width="2"/>
+  <line x1="18" y1="18" x2="18" y2="46" stroke="white" stroke-width="2"/>
+  <circle cx="18" cy="26" r="4" fill="white"/>
+  <line x1="32" y1="18" x2="32" y2="46" stroke="white" stroke-width="2"/>
+  <circle cx="32" cy="38" r="4" fill="white"/>
+  <line x1="46" y1="18" x2="46" y2="46" stroke="white" stroke-width="2"/>
+  <circle cx="46" cy="30" r="4" fill="white"/>
+  <text x="32" y="60" text-anchor="middle" fill="#0078D4" font-size="7" font-family="Segoe UI,sans-serif" font-weight="600">Cost</text>
+</svg>

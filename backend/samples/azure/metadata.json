@@ -1,0 +1,1580 @@
+{
+  "name": "AZURE Services",
+  "provider": "azure",
+  "version": "1.0.0",
+  "description": "Complete AZURE service icon pack (143 icons)",
+  "icons": [
+    {
+      "file": "adls_gen2.svg",
+      "name": "ADLS Gen2",
+      "category": "storage",
+      "tags": [
+        "adls",
+        "gen2",
+        "storage"
+      ],
+      "service_id": "az-adls"
+    },
+    {
+      "file": "azure_advisor.svg",
+      "name": "Azure Advisor",
+      "category": "management",
+      "tags": [
+        "azure",
+        "advisor",
+        "management"
+      ],
+      "service_id": "az-advisor"
+    },
+    {
+      "file": "anomaly_detector.svg",
+      "name": "Anomaly Detector",
+      "category": "ai/ml",
+      "tags": [
+        "anomaly",
+        "detector",
+        "ai/ml"
+      ],
+      "service_id": "az-ai-anomaly"
+    },
+    {
+      "file": "ai_content_safety.svg",
+      "name": "AI Content Safety",
+      "category": "ai/ml",
+      "tags": [
+        "ai",
+        "content",
+        "safety",
+        "ai/ml"
+      ],
+      "service_id": "az-ai-content-safety"
+    },
+    {
+      "file": "ai_document_intelligence.svg",
+      "name": "AI Document Intelligence",
+      "category": "ai/ml",
+      "tags": [
+        "ai",
+        "document",
+        "intelligence",
+        "ai/ml"
+      ],
+      "service_id": "az-ai-document"
+    },
+    {
+      "file": "health_insights.svg",
+      "name": "Health Insights",
+      "category": "ai/ml",
+      "tags": [
+        "health",
+        "insights",
+        "ai/ml"
+      ],
+      "service_id": "az-ai-health-insights"
+    },
+    {
+      "file": "ai_language.svg",
+      "name": "AI Language",
+      "category": "ai/ml",
+      "tags": [
+        "ai",
+        "language",
+        "ai/ml"
+      ],
+      "service_id": "az-ai-language"
+    },
+    {
+      "file": "ai_search.svg",
+      "name": "AI Search",
+      "category": "ai/ml",
+      "tags": [
+        "ai",
+        "search",
+        "ai/ml"
+      ],
+      "service_id": "az-ai-search"
+    },
+    {
+      "file": "ai_speech.svg",
+      "name": "AI Speech",
+      "category": "ai/ml",
+      "tags": [
+        "ai",
+        "speech",
+        "ai/ml"
+      ],
+      "service_id": "az-ai-speech"
+    },
+    {
+      "file": "ai_translator.svg",
+      "name": "AI Translator",
+      "category": "ai/ml",
+      "tags": [
+        "ai",
+        "translator",
+        "ai/ml"
+      ],
+      "service_id": "az-ai-translator"
+    },
+    {
+      "file": "ai_vision.svg",
+      "name": "AI Vision",
+      "category": "ai/ml",
+      "tags": [
+        "ai",
+        "vision",
+        "ai/ml"
+      ],
+      "service_id": "az-ai-vision"
+    },
+    {
+      "file": "aks.svg",
+      "name": "AKS",
+      "category": "compute",
+      "tags": [
+        "aks",
+        "compute"
+      ],
+      "service_id": "az-aks"
+    },
+    {
+      "file": "analysis_services.svg",
+      "name": "Analysis Services",
+      "category": "analytics",
+      "tags": [
+        "analysis",
+        "services",
+        "analytics"
+      ],
+      "service_id": "az-analysis-services"
+    },
+    {
+      "file": "api_apps.svg",
+      "name": "API Apps",
+      "category": "integration",
+      "tags": [
+        "api",
+        "apps",
+        "integration"
+      ],
+      "service_id": "az-api-apps"
+    },
+    {
+      "file": "api_management.svg",
+      "name": "API Management",
+      "category": "networking",
+      "tags": [
+        "api",
+        "management",
+        "networking"
+      ],
+      "service_id": "az-apim"
+    },
+    {
+      "file": "application_gateway.svg",
+      "name": "Application Gateway",
+      "category": "networking",
+      "tags": [
+        "application",
+        "gateway",
+        "networking"
+      ],
+      "service_id": "az-app-gateway"
+    },
+    {
+      "file": "application_insights.svg",
+      "name": "Application Insights",
+      "category": "devtools",
+      "tags": [
+        "application",
+        "insights",
+        "devtools"
+      ],
+      "service_id": "az-app-insights"
+    },
+    {
+      "file": "app_service.svg",
+      "name": "App Service",
+      "category": "compute",
+      "tags": [
+        "app",
+        "service",
+        "compute"
+      ],
+      "service_id": "az-app-service"
+    },
+    {
+      "file": "archive_storage.svg",
+      "name": "Archive Storage",
+      "category": "storage",
+      "tags": [
+        "archive",
+        "storage"
+      ],
+      "service_id": "az-archive-storage"
+    },
+    {
+      "file": "arm_templates.svg",
+      "name": "ARM Templates",
+      "category": "devtools",
+      "tags": [
+        "arm",
+        "templates",
+        "devtools"
+      ],
+      "service_id": "az-arm-templates"
+    },
+    {
+      "file": "azure_artifacts.svg",
+      "name": "Azure Artifacts",
+      "category": "devtools",
+      "tags": [
+        "azure",
+        "artifacts",
+        "devtools"
+      ],
+      "service_id": "az-artifacts"
+    },
+    {
+      "file": "azure_automation.svg",
+      "name": "Azure Automation",
+      "category": "management",
+      "tags": [
+        "azure",
+        "automation",
+        "management"
+      ],
+      "service_id": "az-automation"
+    },
+    {
+      "file": "azure_arc.svg",
+      "name": "Azure Arc",
+      "category": "compute",
+      "tags": [
+        "azure",
+        "arc",
+        "compute"
+      ],
+      "service_id": "az-azure-arc"
+    },
+    {
+      "file": "azure_stack.svg",
+      "name": "Azure Stack",
+      "category": "compute",
+      "tags": [
+        "azure",
+        "stack",
+        "compute"
+      ],
+      "service_id": "az-azure-stack"
+    },
+    {
+      "file": "azure_stack_hci.svg",
+      "name": "Azure Stack HCI",
+      "category": "compute",
+      "tags": [
+        "azure",
+        "stack",
+        "hci",
+        "compute"
+      ],
+      "service_id": "az-azure-stack-hci"
+    },
+    {
+      "file": "azure_backup.svg",
+      "name": "Azure Backup",
+      "category": "storage",
+      "tags": [
+        "azure",
+        "backup",
+        "storage"
+      ],
+      "service_id": "az-backup"
+    },
+    {
+      "file": "azure_bastion.svg",
+      "name": "Azure Bastion",
+      "category": "networking",
+      "tags": [
+        "azure",
+        "bastion",
+        "networking"
+      ],
+      "service_id": "az-bastion"
+    },
+    {
+      "file": "azure_batch.svg",
+      "name": "Azure Batch",
+      "category": "compute",
+      "tags": [
+        "azure",
+        "batch",
+        "compute"
+      ],
+      "service_id": "az-batch"
+    },
+    {
+      "file": "bicep.svg",
+      "name": "Bicep",
+      "category": "devtools",
+      "tags": [
+        "bicep",
+        "devtools"
+      ],
+      "service_id": "az-bicep"
+    },
+    {
+      "file": "blob_storage.svg",
+      "name": "Blob Storage",
+      "category": "storage",
+      "tags": [
+        "blob",
+        "storage"
+      ],
+      "service_id": "az-blob-storage"
+    },
+    {
+      "file": "azure_blueprints.svg",
+      "name": "Azure Blueprints",
+      "category": "management",
+      "tags": [
+        "azure",
+        "blueprints",
+        "management"
+      ],
+      "service_id": "az-blueprints"
+    },
+    {
+      "file": "bot_service.svg",
+      "name": "Bot Service",
+      "category": "ai/ml",
+      "tags": [
+        "bot",
+        "service",
+        "ai/ml"
+      ],
+      "service_id": "az-bot-service"
+    },
+    {
+      "file": "cache_for_redis.svg",
+      "name": "Cache for Redis",
+      "category": "database",
+      "tags": [
+        "cache",
+        "for",
+        "redis",
+        "database"
+      ],
+      "service_id": "az-cache-redis"
+    },
+    {
+      "file": "cdn.svg",
+      "name": "CDN",
+      "category": "networking",
+      "tags": [
+        "cdn",
+        "networking"
+      ],
+      "service_id": "az-cdn"
+    },
+    {
+      "file": "chaos_studio.svg",
+      "name": "Chaos Studio",
+      "category": "devtools",
+      "tags": [
+        "chaos",
+        "studio",
+        "devtools"
+      ],
+      "service_id": "az-chaos-studio"
+    },
+    {
+      "file": "email_communication.svg",
+      "name": "Email Communication",
+      "category": "business",
+      "tags": [
+        "email",
+        "communication",
+        "business"
+      ],
+      "service_id": "az-communication-email"
+    },
+    {
+      "file": "communication_services.svg",
+      "name": "Communication Services",
+      "category": "media",
+      "tags": [
+        "communication",
+        "services",
+        "media"
+      ],
+      "service_id": "az-communication-services"
+    },
+    {
+      "file": "confidential_computing.svg",
+      "name": "Confidential Computing",
+      "category": "security",
+      "tags": [
+        "confidential",
+        "computing",
+        "security"
+      ],
+      "service_id": "az-confidential-computing"
+    },
+    {
+      "file": "container_apps.svg",
+      "name": "Container Apps",
+      "category": "compute",
+      "tags": [
+        "container",
+        "apps",
+        "compute"
+      ],
+      "service_id": "az-container-apps"
+    },
+    {
+      "file": "container_instances.svg",
+      "name": "Container Instances",
+      "category": "compute",
+      "tags": [
+        "container",
+        "instances",
+        "compute"
+      ],
+      "service_id": "az-container-instances"
+    },
+    {
+      "file": "container_registry.svg",
+      "name": "Container Registry",
+      "category": "devtools",
+      "tags": [
+        "container",
+        "registry",
+        "devtools"
+      ],
+      "service_id": "az-container-registry"
+    },
+    {
+      "file": "copilot_studio.svg",
+      "name": "Copilot Studio",
+      "category": "ai/ml",
+      "tags": [
+        "copilot",
+        "studio",
+        "ai/ml"
+      ],
+      "service_id": "az-copilot-studio"
+    },
+    {
+      "file": "cosmos_db.svg",
+      "name": "Cosmos DB",
+      "category": "database",
+      "tags": [
+        "cosmos",
+        "db",
+        "database"
+      ],
+      "service_id": "az-cosmos-db"
+    },
+    {
+      "file": "cosmos_db_cassandra.svg",
+      "name": "Cosmos DB (Cassandra)",
+      "category": "database",
+      "tags": [
+        "cosmos",
+        "db",
+        "cassandra",
+        "database"
+      ],
+      "service_id": "az-cosmos-db-cassandra"
+    },
+    {
+      "file": "cosmos_db_gremlin.svg",
+      "name": "Cosmos DB (Gremlin)",
+      "category": "database",
+      "tags": [
+        "cosmos",
+        "db",
+        "gremlin",
+        "database"
+      ],
+      "service_id": "az-cosmos-db-gremlin"
+    },
+    {
+      "file": "cost_management.svg",
+      "name": "Cost Management",
+      "category": "management",
+      "tags": [
+        "cost",
+        "management"
+      ],
+      "service_id": "az-cost-management"
+    },
+    {
+      "file": "data_box.svg",
+      "name": "Data Box",
+      "category": "storage",
+      "tags": [
+        "data",
+        "box",
+        "storage"
+      ],
+      "service_id": "az-data-box"
+    },
+    {
+      "file": "data_catalog.svg",
+      "name": "Data Catalog",
+      "category": "analytics",
+      "tags": [
+        "data",
+        "catalog",
+        "analytics"
+      ],
+      "service_id": "az-data-catalog"
+    },
+    {
+      "file": "data_explorer.svg",
+      "name": "Data Explorer",
+      "category": "analytics",
+      "tags": [
+        "data",
+        "explorer",
+        "analytics"
+      ],
+      "service_id": "az-data-explorer"
+    },
+    {
+      "file": "data_factory.svg",
+      "name": "Data Factory",
+      "category": "analytics",
+      "tags": [
+        "data",
+        "factory",
+        "analytics"
+      ],
+      "service_id": "az-data-factory"
+    },
+    {
+      "file": "data_share.svg",
+      "name": "Data Share",
+      "category": "analytics",
+      "tags": [
+        "data",
+        "share",
+        "analytics"
+      ],
+      "service_id": "az-data-share"
+    },
+    {
+      "file": "azure_databricks.svg",
+      "name": "Azure Databricks",
+      "category": "analytics",
+      "tags": [
+        "azure",
+        "databricks",
+        "analytics"
+      ],
+      "service_id": "az-databricks"
+    },
+    {
+      "file": "database_for_mariadb.svg",
+      "name": "Database for MariaDB",
+      "category": "database",
+      "tags": [
+        "database",
+        "for",
+        "mariadb"
+      ],
+      "service_id": "az-db-mariadb"
+    },
+    {
+      "file": "database_for_mysql.svg",
+      "name": "Database for MySQL",
+      "category": "database",
+      "tags": [
+        "database",
+        "for",
+        "mysql"
+      ],
+      "service_id": "az-db-mysql"
+    },
+    {
+      "file": "database_for_postgresql.svg",
+      "name": "Database for PostgreSQL",
+      "category": "database",
+      "tags": [
+        "database",
+        "for",
+        "postgresql"
+      ],
+      "service_id": "az-db-postgresql"
+    },
+    {
+      "file": "ddos_protection.svg",
+      "name": "DDoS Protection",
+      "category": "networking",
+      "tags": [
+        "ddos",
+        "protection",
+        "networking"
+      ],
+      "service_id": "az-ddos-protection"
+    },
+    {
+      "file": "dedicated_host.svg",
+      "name": "Dedicated Host",
+      "category": "compute",
+      "tags": [
+        "dedicated",
+        "host",
+        "compute"
+      ],
+      "service_id": "az-dedicated-host"
+    },
+    {
+      "file": "dedicated_hsm.svg",
+      "name": "Dedicated HSM",
+      "category": "security",
+      "tags": [
+        "dedicated",
+        "hsm",
+        "security"
+      ],
+      "service_id": "az-dedicated-hsm"
+    },
+    {
+      "file": "defender_for_cloud.svg",
+      "name": "Defender for Cloud",
+      "category": "security",
+      "tags": [
+        "defender",
+        "for",
+        "cloud",
+        "security"
+      ],
+      "service_id": "az-defender-cloud"
+    },
+    {
+      "file": "defender_for_iot.svg",
+      "name": "Defender for IoT",
+      "category": "iot",
+      "tags": [
+        "defender",
+        "for",
+        "iot"
+      ],
+      "service_id": "az-defender-iot"
+    },
+    {
+      "file": "azure_devops.svg",
+      "name": "Azure DevOps",
+      "category": "devtools",
+      "tags": [
+        "azure",
+        "devops",
+        "devtools"
+      ],
+      "service_id": "az-devops"
+    },
+    {
+      "file": "devtest_labs.svg",
+      "name": "DevTest Labs",
+      "category": "devtools",
+      "tags": [
+        "devtest",
+        "labs",
+        "devtools"
+      ],
+      "service_id": "az-devtest-labs"
+    },
+    {
+      "file": "digital_twins.svg",
+      "name": "Digital Twins",
+      "category": "iot",
+      "tags": [
+        "digital",
+        "twins",
+        "iot"
+      ],
+      "service_id": "az-digital-twins"
+    },
+    {
+      "file": "database_migration_service.svg",
+      "name": "Database Migration Service",
+      "category": "database",
+      "tags": [
+        "database",
+        "migration",
+        "service"
+      ],
+      "service_id": "az-dms"
+    },
+    {
+      "file": "azure_dns.svg",
+      "name": "Azure DNS",
+      "category": "networking",
+      "tags": [
+        "azure",
+        "dns",
+        "networking"
+      ],
+      "service_id": "az-dns"
+    },
+    {
+      "file": "dynamics_365.svg",
+      "name": "Dynamics 365",
+      "category": "business",
+      "tags": [
+        "dynamics",
+        "365",
+        "business"
+      ],
+      "service_id": "az-dynamics-365"
+    },
+    {
+      "file": "elastic_san.svg",
+      "name": "Elastic SAN",
+      "category": "storage",
+      "tags": [
+        "elastic",
+        "san",
+        "storage"
+      ],
+      "service_id": "az-elastic-san"
+    },
+    {
+      "file": "entra_external_id.svg",
+      "name": "Entra External ID",
+      "category": "security",
+      "tags": [
+        "entra",
+        "external",
+        "id",
+        "security"
+      ],
+      "service_id": "az-entra-b2c"
+    },
+    {
+      "file": "entra_id.svg",
+      "name": "Entra ID",
+      "category": "security",
+      "tags": [
+        "entra",
+        "id",
+        "security"
+      ],
+      "service_id": "az-entra-id"
+    },
+    {
+      "file": "event_grid.svg",
+      "name": "Event Grid",
+      "category": "integration",
+      "tags": [
+        "event",
+        "grid",
+        "integration"
+      ],
+      "service_id": "az-event-grid"
+    },
+    {
+      "file": "event_hubs.svg",
+      "name": "Event Hubs",
+      "category": "analytics",
+      "tags": [
+        "event",
+        "hubs",
+        "analytics"
+      ],
+      "service_id": "az-event-hubs"
+    },
+    {
+      "file": "expressroute.svg",
+      "name": "ExpressRoute",
+      "category": "networking",
+      "tags": [
+        "expressroute",
+        "networking"
+      ],
+      "service_id": "az-expressroute"
+    },
+    {
+      "file": "file_sync.svg",
+      "name": "File Sync",
+      "category": "storage",
+      "tags": [
+        "file",
+        "sync",
+        "storage"
+      ],
+      "service_id": "az-file-sync"
+    },
+    {
+      "file": "azure_files.svg",
+      "name": "Azure Files",
+      "category": "storage",
+      "tags": [
+        "azure",
+        "files",
+        "storage"
+      ],
+      "service_id": "az-files"
+    },
+    {
+      "file": "azure_firewall.svg",
+      "name": "Azure Firewall",
+      "category": "networking",
+      "tags": [
+        "azure",
+        "firewall",
+        "networking"
+      ],
+      "service_id": "az-firewall"
+    },
+    {
+      "file": "front_door.svg",
+      "name": "Front Door",
+      "category": "networking",
+      "tags": [
+        "front",
+        "door",
+        "networking"
+      ],
+      "service_id": "az-front-door"
+    },
+    {
+      "file": "azure_functions.svg",
+      "name": "Azure Functions",
+      "category": "compute",
+      "tags": [
+        "azure",
+        "functions",
+        "compute"
+      ],
+      "service_id": "az-functions"
+    },
+    {
+      "file": "github_actions.svg",
+      "name": "GitHub Actions",
+      "category": "devtools",
+      "tags": [
+        "github",
+        "actions",
+        "devtools"
+      ],
+      "service_id": "az-github-actions"
+    },
+    {
+      "file": "hdinsight.svg",
+      "name": "HDInsight",
+      "category": "analytics",
+      "tags": [
+        "hdinsight",
+        "analytics"
+      ],
+      "service_id": "az-hdinsight"
+    },
+    {
+      "file": "hpc_cache.svg",
+      "name": "HPC Cache",
+      "category": "storage",
+      "tags": [
+        "hpc",
+        "cache",
+        "storage"
+      ],
+      "service_id": "az-hpc-cache"
+    },
+    {
+      "file": "image_builder.svg",
+      "name": "Image Builder",
+      "category": "compute",
+      "tags": [
+        "image",
+        "builder",
+        "compute"
+      ],
+      "service_id": "az-image-builder"
+    },
+    {
+      "file": "information_protection.svg",
+      "name": "Information Protection",
+      "category": "security",
+      "tags": [
+        "information",
+        "protection",
+        "security"
+      ],
+      "service_id": "az-information-protection"
+    },
+    {
+      "file": "iot_central.svg",
+      "name": "IoT Central",
+      "category": "iot",
+      "tags": [
+        "iot",
+        "central"
+      ],
+      "service_id": "az-iot-central"
+    },
+    {
+      "file": "iot_edge.svg",
+      "name": "IoT Edge",
+      "category": "iot",
+      "tags": [
+        "iot",
+        "edge"
+      ],
+      "service_id": "az-iot-edge"
+    },
+    {
+      "file": "iot_hub.svg",
+      "name": "IoT Hub",
+      "category": "iot",
+      "tags": [
+        "iot",
+        "hub"
+      ],
+      "service_id": "az-iot-hub"
+    },
+    {
+      "file": "key_vault.svg",
+      "name": "Key Vault",
+      "category": "security",
+      "tags": [
+        "key",
+        "vault",
+        "security"
+      ],
+      "service_id": "az-key-vault"
+    },
+    {
+      "file": "azure_lighthouse.svg",
+      "name": "Azure Lighthouse",
+      "category": "management",
+      "tags": [
+        "azure",
+        "lighthouse",
+        "management"
+      ],
+      "service_id": "az-lighthouse"
+    },
+    {
+      "file": "load_balancer.svg",
+      "name": "Load Balancer",
+      "category": "networking",
+      "tags": [
+        "load",
+        "balancer",
+        "networking"
+      ],
+      "service_id": "az-load-balancer"
+    },
+    {
+      "file": "load_testing.svg",
+      "name": "Load Testing",
+      "category": "devtools",
+      "tags": [
+        "load",
+        "testing",
+        "devtools"
+      ],
+      "service_id": "az-load-testing"
+    },
+    {
+      "file": "log_analytics.svg",
+      "name": "Log Analytics",
+      "category": "management",
+      "tags": [
+        "log",
+        "analytics",
+        "management"
+      ],
+      "service_id": "az-log-analytics"
+    },
+    {
+      "file": "logic_apps.svg",
+      "name": "Logic Apps",
+      "category": "integration",
+      "tags": [
+        "logic",
+        "apps",
+        "integration"
+      ],
+      "service_id": "az-logic-apps"
+    },
+    {
+      "file": "azure_machine_learning.svg",
+      "name": "Azure Machine Learning",
+      "category": "ai/ml",
+      "tags": [
+        "azure",
+        "machine",
+        "learning",
+        "ai/ml"
+      ],
+      "service_id": "az-machine-learning"
+    },
+    {
+      "file": "managed_disks.svg",
+      "name": "Managed Disks",
+      "category": "storage",
+      "tags": [
+        "managed",
+        "disks",
+        "storage"
+      ],
+      "service_id": "az-managed-disks"
+    },
+    {
+      "file": "managed_identity.svg",
+      "name": "Managed Identity",
+      "category": "security",
+      "tags": [
+        "managed",
+        "identity",
+        "security"
+      ],
+      "service_id": "az-managed-identity"
+    },
+    {
+      "file": "managed_instance_for_cassandra.svg",
+      "name": "Managed Instance for Cassandra",
+      "category": "database",
+      "tags": [
+        "managed",
+        "instance",
+        "for",
+        "cassandra",
+        "database"
+      ],
+      "service_id": "az-managed-instance-apache-cassandra"
+    },
+    {
+      "file": "confidential_ledger.svg",
+      "name": "Confidential Ledger",
+      "category": "database",
+      "tags": [
+        "confidential",
+        "ledger",
+        "database"
+      ],
+      "service_id": "az-managed-ledger"
+    },
+    {
+      "file": "management_groups.svg",
+      "name": "Management Groups",
+      "category": "management",
+      "tags": [
+        "management",
+        "groups"
+      ],
+      "service_id": "az-management-groups"
+    },
+    {
+      "file": "media_services.svg",
+      "name": "Media Services",
+      "category": "media",
+      "tags": [
+        "media",
+        "services"
+      ],
+      "service_id": "az-media-services"
+    },
+    {
+      "file": "azure_migrate.svg",
+      "name": "Azure Migrate",
+      "category": "migration",
+      "tags": [
+        "azure",
+        "migrate",
+        "migration"
+      ],
+      "service_id": "az-migrate"
+    },
+    {
+      "file": "azure_monitor.svg",
+      "name": "Azure Monitor",
+      "category": "devtools",
+      "tags": [
+        "azure",
+        "monitor",
+        "devtools"
+      ],
+      "service_id": "az-monitor"
+    },
+    {
+      "file": "netapp_files.svg",
+      "name": "NetApp Files",
+      "category": "storage",
+      "tags": [
+        "netapp",
+        "files",
+        "storage"
+      ],
+      "service_id": "az-netapp-files"
+    },
+    {
+      "file": "network_watcher.svg",
+      "name": "Network Watcher",
+      "category": "networking",
+      "tags": [
+        "network",
+        "watcher",
+        "networking"
+      ],
+      "service_id": "az-network-watcher"
+    },
+    {
+      "file": "notification_hubs.svg",
+      "name": "Notification Hubs",
+      "category": "integration",
+      "tags": [
+        "notification",
+        "hubs",
+        "integration"
+      ],
+      "service_id": "az-notification-hubs"
+    },
+    {
+      "file": "azure_openai_service.svg",
+      "name": "Azure OpenAI Service",
+      "category": "ai/ml",
+      "tags": [
+        "azure",
+        "openai",
+        "service",
+        "ai/ml"
+      ],
+      "service_id": "az-openai"
+    },
+    {
+      "file": "personalizer.svg",
+      "name": "Personalizer",
+      "category": "ai/ml",
+      "tags": [
+        "personalizer",
+        "ai/ml"
+      ],
+      "service_id": "az-personalizer"
+    },
+    {
+      "file": "azure_pipelines.svg",
+      "name": "Azure Pipelines",
+      "category": "devtools",
+      "tags": [
+        "azure",
+        "pipelines",
+        "devtools"
+      ],
+      "service_id": "az-pipelines"
+    },
+    {
+      "file": "azure_policy.svg",
+      "name": "Azure Policy",
+      "category": "security",
+      "tags": [
+        "azure",
+        "policy",
+        "security"
+      ],
+      "service_id": "az-policy"
+    },
+    {
+      "file": "power_apps.svg",
+      "name": "Power Apps",
+      "category": "business",
+      "tags": [
+        "power",
+        "apps",
+        "business"
+      ],
+      "service_id": "az-power-apps"
+    },
+    {
+      "file": "power_automate.svg",
+      "name": "Power Automate",
+      "category": "business",
+      "tags": [
+        "power",
+        "automate",
+        "business"
+      ],
+      "service_id": "az-power-automate"
+    },
+    {
+      "file": "power_bi.svg",
+      "name": "Power BI",
+      "category": "analytics",
+      "tags": [
+        "power",
+        "bi",
+        "analytics"
+      ],
+      "service_id": "az-power-bi"
+    },
+    {
+      "file": "private_link.svg",
+      "name": "Private Link",
+      "category": "networking",
+      "tags": [
+        "private",
+        "link",
+        "networking"
+      ],
+      "service_id": "az-private-link"
+    },
+    {
+      "file": "microsoft_purview.svg",
+      "name": "Microsoft Purview",
+      "category": "analytics",
+      "tags": [
+        "microsoft",
+        "purview",
+        "analytics"
+      ],
+      "service_id": "az-purview"
+    },
+    {
+      "file": "purview_compliance.svg",
+      "name": "Purview Compliance",
+      "category": "security",
+      "tags": [
+        "purview",
+        "compliance",
+        "security"
+      ],
+      "service_id": "az-purview-compliance"
+    },
+    {
+      "file": "azure_rbac.svg",
+      "name": "Azure RBAC",
+      "category": "security",
+      "tags": [
+        "azure",
+        "rbac",
+        "security"
+      ],
+      "service_id": "az-rbac"
+    },
+    {
+      "file": "resource_graph.svg",
+      "name": "Resource Graph",
+      "category": "management",
+      "tags": [
+        "resource",
+        "graph",
+        "management"
+      ],
+      "service_id": "az-resource-graph"
+    },
+    {
+      "file": "resource_manager.svg",
+      "name": "Resource Manager",
+      "category": "management",
+      "tags": [
+        "resource",
+        "manager",
+        "management"
+      ],
+      "service_id": "az-resource-manager"
+    },
+    {
+      "file": "azure_rtos.svg",
+      "name": "Azure RTOS",
+      "category": "iot",
+      "tags": [
+        "azure",
+        "rtos",
+        "iot"
+      ],
+      "service_id": "az-rtos"
+    },
+    {
+      "file": "microsoft_sentinel.svg",
+      "name": "Microsoft Sentinel",
+      "category": "security",
+      "tags": [
+        "microsoft",
+        "sentinel",
+        "security"
+      ],
+      "service_id": "az-sentinel"
+    },
+    {
+      "file": "service_bus.svg",
+      "name": "Service Bus",
+      "category": "integration",
+      "tags": [
+        "service",
+        "bus",
+        "integration"
+      ],
+      "service_id": "az-service-bus"
+    },
+    {
+      "file": "service_health.svg",
+      "name": "Service Health",
+      "category": "management",
+      "tags": [
+        "service",
+        "health",
+        "management"
+      ],
+      "service_id": "az-service-health"
+    },
+    {
+      "file": "open_service_mesh.svg",
+      "name": "Open Service Mesh",
+      "category": "networking",
+      "tags": [
+        "open",
+        "service",
+        "mesh",
+        "networking"
+      ],
+      "service_id": "az-service-mesh"
+    },
+    {
+      "file": "signalr_service.svg",
+      "name": "SignalR Service",
+      "category": "integration",
+      "tags": [
+        "signalr",
+        "service",
+        "integration"
+      ],
+      "service_id": "az-signalr"
+    },
+    {
+      "file": "site_recovery.svg",
+      "name": "Site Recovery",
+      "category": "migration",
+      "tags": [
+        "site",
+        "recovery",
+        "migration"
+      ],
+      "service_id": "az-site-recovery"
+    },
+    {
+      "file": "azure_sphere.svg",
+      "name": "Azure Sphere",
+      "category": "iot",
+      "tags": [
+        "azure",
+        "sphere",
+        "iot"
+      ],
+      "service_id": "az-sphere"
+    },
+    {
+      "file": "spot_vms.svg",
+      "name": "Spot VMs",
+      "category": "compute",
+      "tags": [
+        "spot",
+        "vms",
+        "compute"
+      ],
+      "service_id": "az-spot-vms"
+    },
+    {
+      "file": "spring_apps.svg",
+      "name": "Spring Apps",
+      "category": "compute",
+      "tags": [
+        "spring",
+        "apps",
+        "compute"
+      ],
+      "service_id": "az-spring-apps"
+    },
+    {
+      "file": "sql_database.svg",
+      "name": "SQL Database",
+      "category": "database",
+      "tags": [
+        "sql",
+        "database"
+      ],
+      "service_id": "az-sql-database"
+    },
+    {
+      "file": "sql_managed_instance.svg",
+      "name": "SQL Managed Instance",
+      "category": "database",
+      "tags": [
+        "sql",
+        "managed",
+        "instance",
+        "database"
+      ],
+      "service_id": "az-sql-managed"
+    },
+    {
+      "file": "storsimple.svg",
+      "name": "StorSimple",
+      "category": "storage",
+      "tags": [
+        "storsimple",
+        "storage"
+      ],
+      "service_id": "az-storage-gateway"
+    },
+    {
+      "file": "stream_analytics.svg",
+      "name": "Stream Analytics",
+      "category": "analytics",
+      "tags": [
+        "stream",
+        "analytics"
+      ],
+      "service_id": "az-stream-analytics"
+    },
+    {
+      "file": "synapse_analytics.svg",
+      "name": "Synapse Analytics",
+      "category": "database",
+      "tags": [
+        "synapse",
+        "analytics",
+        "database"
+      ],
+      "service_id": "az-synapse"
+    },
+    {
+      "file": "synapse_analytics.svg",
+      "name": "Synapse Analytics",
+      "category": "analytics",
+      "tags": [
+        "synapse",
+        "analytics"
+      ],
+      "service_id": "az-synapse-analytics"
+    },
+    {
+      "file": "time_series_insights.svg",
+      "name": "Time Series Insights",
+      "category": "database",
+      "tags": [
+        "time",
+        "series",
+        "insights",
+        "database"
+      ],
+      "service_id": "az-time-series"
+    },
+    {
+      "file": "traffic_manager.svg",
+      "name": "Traffic Manager",
+      "category": "networking",
+      "tags": [
+        "traffic",
+        "manager",
+        "networking"
+      ],
+      "service_id": "az-traffic-manager"
+    },
+    {
+      "file": "video_indexer.svg",
+      "name": "Video Indexer",
+      "category": "media",
+      "tags": [
+        "video",
+        "indexer",
+        "media"
+      ],
+      "service_id": "az-video-indexer"
+    },
+    {
+      "file": "virtual_desktop.svg",
+      "name": "Virtual Desktop",
+      "category": "business",
+      "tags": [
+        "virtual",
+        "desktop",
+        "business"
+      ],
+      "service_id": "az-virtual-desktop"
+    },
+    {
+      "file": "virtual_machines.svg",
+      "name": "Virtual Machines",
+      "category": "compute",
+      "tags": [
+        "virtual",
+        "machines",
+        "compute"
+      ],
+      "service_id": "az-virtual-machines"
+    },
+    {
+      "file": "virtual_wan.svg",
+      "name": "Virtual WAN",
+      "category": "networking",
+      "tags": [
+        "virtual",
+        "wan",
+        "networking"
+      ],
+      "service_id": "az-virtual-wan"
+    },
+    {
+      "file": "vm_scale_sets.svg",
+      "name": "VM Scale Sets",
+      "category": "compute",
+      "tags": [
+        "vm",
+        "scale",
+        "sets",
+        "compute"
+      ],
+      "service_id": "az-vmss"
+    },
+    {
+      "file": "virtual_network.svg",
+      "name": "Virtual Network",
+      "category": "networking",
+      "tags": [
+        "virtual",
+        "network",
+        "networking"
+      ],
+      "service_id": "az-vnet"
+    },
+    {
+      "file": "vpn_gateway.svg",
+      "name": "VPN Gateway",
+      "category": "networking",
+      "tags": [
+        "vpn",
+        "gateway",
+        "networking"
+      ],
+      "service_id": "az-vpn-gateway"
+    },
+    {
+      "file": "web_application_firewall.svg",
+      "name": "Web Application Firewall",
+      "category": "security",
+      "tags": [
+        "web",
+        "application",
+        "firewall",
+        "security"
+      ],
+      "service_id": "az-waf"
+    },
+    {
+      "file": "web_pubsub.svg",
+      "name": "Web PubSub",
+      "category": "integration",
+      "tags": [
+        "web",
+        "pubsub",
+        "integration"
+      ],
+      "service_id": "az-web-pubsub"
+    }
+  ]
+}

@@ -1,0 +1,1286 @@
+{
+  "name": "GCP Services",
+  "provider": "gcp",
+  "version": "1.0.0",
+  "description": "Complete GCP service icon pack (117 icons)",
+  "icons": [
+    {
+      "file": "access_context_manager.svg",
+      "name": "Access Context Manager",
+      "category": "security",
+      "tags": [
+        "access",
+        "context",
+        "manager",
+        "security"
+      ],
+      "service_id": "gcp-access-context-manager"
+    },
+    {
+      "file": "active_assist.svg",
+      "name": "Active Assist",
+      "category": "management",
+      "tags": [
+        "active",
+        "assist",
+        "management"
+      ],
+      "service_id": "gcp-active-assist"
+    },
+    {
+      "file": "alloydb.svg",
+      "name": "AlloyDB",
+      "category": "database",
+      "tags": [
+        "alloydb",
+        "database"
+      ],
+      "service_id": "gcp-alloydb"
+    },
+    {
+      "file": "analytics_hub.svg",
+      "name": "Analytics Hub",
+      "category": "analytics",
+      "tags": [
+        "analytics",
+        "hub"
+      ],
+      "service_id": "gcp-analytics-hub"
+    },
+    {
+      "file": "anthos.svg",
+      "name": "Anthos",
+      "category": "compute",
+      "tags": [
+        "anthos",
+        "compute"
+      ],
+      "service_id": "gcp-anthos"
+    },
+    {
+      "file": "apigee.svg",
+      "name": "Apigee",
+      "category": "networking",
+      "tags": [
+        "apigee",
+        "networking"
+      ],
+      "service_id": "gcp-apigee"
+    },
+    {
+      "file": "application_integration.svg",
+      "name": "Application Integration",
+      "category": "integration",
+      "tags": [
+        "application",
+        "integration"
+      ],
+      "service_id": "gcp-apigee-integration"
+    },
+    {
+      "file": "app_engine.svg",
+      "name": "App Engine",
+      "category": "compute",
+      "tags": [
+        "app",
+        "engine",
+        "compute"
+      ],
+      "service_id": "gcp-app-engine"
+    },
+    {
+      "file": "archive_storage.svg",
+      "name": "Archive Storage",
+      "category": "storage",
+      "tags": [
+        "archive",
+        "storage"
+      ],
+      "service_id": "gcp-archive-storage"
+    },
+    {
+      "file": "artifact_registry.svg",
+      "name": "Artifact Registry",
+      "category": "devtools",
+      "tags": [
+        "artifact",
+        "registry",
+        "devtools"
+      ],
+      "service_id": "gcp-artifact-registry"
+    },
+    {
+      "file": "assured_workloads.svg",
+      "name": "Assured Workloads",
+      "category": "security",
+      "tags": [
+        "assured",
+        "workloads",
+        "security"
+      ],
+      "service_id": "gcp-assured-workloads"
+    },
+    {
+      "file": "automl.svg",
+      "name": "AutoML",
+      "category": "ai/ml",
+      "tags": [
+        "automl",
+        "ai/ml"
+      ],
+      "service_id": "gcp-automl"
+    },
+    {
+      "file": "backup_and_dr.svg",
+      "name": "Backup and DR",
+      "category": "storage",
+      "tags": [
+        "backup",
+        "and",
+        "dr",
+        "storage"
+      ],
+      "service_id": "gcp-backup-dr"
+    },
+    {
+      "file": "bare_metal_solution.svg",
+      "name": "Bare Metal Solution",
+      "category": "compute",
+      "tags": [
+        "bare",
+        "metal",
+        "solution",
+        "compute"
+      ],
+      "service_id": "gcp-bare-metal"
+    },
+    {
+      "file": "batch.svg",
+      "name": "Batch",
+      "category": "compute",
+      "tags": [
+        "batch",
+        "compute"
+      ],
+      "service_id": "gcp-batch"
+    },
+    {
+      "file": "beyondcorp_enterprise.svg",
+      "name": "BeyondCorp Enterprise",
+      "category": "security",
+      "tags": [
+        "beyondcorp",
+        "enterprise",
+        "security"
+      ],
+      "service_id": "gcp-beyondcorp"
+    },
+    {
+      "file": "bigquery.svg",
+      "name": "BigQuery",
+      "category": "database",
+      "tags": [
+        "bigquery",
+        "database"
+      ],
+      "service_id": "gcp-bigquery"
+    },
+    {
+      "file": "bigtable.svg",
+      "name": "Bigtable",
+      "category": "database",
+      "tags": [
+        "bigtable",
+        "database"
+      ],
+      "service_id": "gcp-bigtable"
+    },
+    {
+      "file": "cloud_billing.svg",
+      "name": "Cloud Billing",
+      "category": "management",
+      "tags": [
+        "cloud",
+        "billing",
+        "management"
+      ],
+      "service_id": "gcp-billing"
+    },
+    {
+      "file": "binary_authorization.svg",
+      "name": "Binary Authorization",
+      "category": "security",
+      "tags": [
+        "binary",
+        "authorization",
+        "security"
+      ],
+      "service_id": "gcp-binary-authorization"
+    },
+    {
+      "file": "certificate_manager.svg",
+      "name": "Certificate Manager",
+      "category": "security",
+      "tags": [
+        "certificate",
+        "manager",
+        "security"
+      ],
+      "service_id": "gcp-certificate-manager"
+    },
+    {
+      "file": "chronicle.svg",
+      "name": "Chronicle",
+      "category": "security",
+      "tags": [
+        "chronicle",
+        "security"
+      ],
+      "service_id": "gcp-chronicle"
+    },
+    {
+      "file": "cloud_armor.svg",
+      "name": "Cloud Armor",
+      "category": "networking",
+      "tags": [
+        "cloud",
+        "armor",
+        "networking"
+      ],
+      "service_id": "gcp-cloud-armor"
+    },
+    {
+      "file": "cloud_audit_logs.svg",
+      "name": "Cloud Audit Logs",
+      "category": "management",
+      "tags": [
+        "cloud",
+        "audit",
+        "logs",
+        "management"
+      ],
+      "service_id": "gcp-cloud-audit-logs"
+    },
+    {
+      "file": "cloud_build.svg",
+      "name": "Cloud Build",
+      "category": "devtools",
+      "tags": [
+        "cloud",
+        "build",
+        "devtools"
+      ],
+      "service_id": "gcp-cloud-build"
+    },
+    {
+      "file": "cloud_cdn.svg",
+      "name": "Cloud CDN",
+      "category": "networking",
+      "tags": [
+        "cloud",
+        "cdn",
+        "networking"
+      ],
+      "service_id": "gcp-cloud-cdn"
+    },
+    {
+      "file": "cloud_deploy.svg",
+      "name": "Cloud Deploy",
+      "category": "devtools",
+      "tags": [
+        "cloud",
+        "deploy",
+        "devtools"
+      ],
+      "service_id": "gcp-cloud-deploy"
+    },
+    {
+      "file": "cloud_dns.svg",
+      "name": "Cloud DNS",
+      "category": "networking",
+      "tags": [
+        "cloud",
+        "dns",
+        "networking"
+      ],
+      "service_id": "gcp-cloud-dns"
+    },
+    {
+      "file": "cloud_firewall.svg",
+      "name": "Cloud Firewall",
+      "category": "networking",
+      "tags": [
+        "cloud",
+        "firewall",
+        "networking"
+      ],
+      "service_id": "gcp-cloud-firewall"
+    },
+    {
+      "file": "cloud_functions.svg",
+      "name": "Cloud Functions",
+      "category": "compute",
+      "tags": [
+        "cloud",
+        "functions",
+        "compute"
+      ],
+      "service_id": "gcp-cloud-functions"
+    },
+    {
+      "file": "cloud_hsm.svg",
+      "name": "Cloud HSM",
+      "category": "security",
+      "tags": [
+        "cloud",
+        "hsm",
+        "security"
+      ],
+      "service_id": "gcp-cloud-hsm"
+    },
+    {
+      "file": "cloud_interconnect.svg",
+      "name": "Cloud Interconnect",
+      "category": "networking",
+      "tags": [
+        "cloud",
+        "interconnect",
+        "networking"
+      ],
+      "service_id": "gcp-cloud-interconnect"
+    },
+    {
+      "file": "cloud_kms.svg",
+      "name": "Cloud KMS",
+      "category": "security",
+      "tags": [
+        "cloud",
+        "kms",
+        "security"
+      ],
+      "service_id": "gcp-cloud-kms"
+    },
+    {
+      "file": "cloud_load_balancing.svg",
+      "name": "Cloud Load Balancing",
+      "category": "networking",
+      "tags": [
+        "cloud",
+        "load",
+        "balancing",
+        "networking"
+      ],
+      "service_id": "gcp-cloud-load-balancing"
+    },
+    {
+      "file": "cloud_logging.svg",
+      "name": "Cloud Logging",
+      "category": "management",
+      "tags": [
+        "cloud",
+        "logging",
+        "management"
+      ],
+      "service_id": "gcp-cloud-logging"
+    },
+    {
+      "file": "cloud_monitoring.svg",
+      "name": "Cloud Monitoring",
+      "category": "management",
+      "tags": [
+        "cloud",
+        "monitoring",
+        "management"
+      ],
+      "service_id": "gcp-cloud-monitoring"
+    },
+    {
+      "file": "cloud_nat.svg",
+      "name": "Cloud NAT",
+      "category": "networking",
+      "tags": [
+        "cloud",
+        "nat",
+        "networking"
+      ],
+      "service_id": "gcp-cloud-nat"
+    },
+    {
+      "file": "cloud_profiler.svg",
+      "name": "Cloud Profiler",
+      "category": "devtools",
+      "tags": [
+        "cloud",
+        "profiler",
+        "devtools"
+      ],
+      "service_id": "gcp-cloud-profiler"
+    },
+    {
+      "file": "cloud_run.svg",
+      "name": "Cloud Run",
+      "category": "compute",
+      "tags": [
+        "cloud",
+        "run",
+        "compute"
+      ],
+      "service_id": "gcp-cloud-run"
+    },
+    {
+      "file": "cloud_scheduler.svg",
+      "name": "Cloud Scheduler",
+      "category": "integration",
+      "tags": [
+        "cloud",
+        "scheduler",
+        "integration"
+      ],
+      "service_id": "gcp-cloud-scheduler"
+    },
+    {
+      "file": "cloud_shell.svg",
+      "name": "Cloud Shell",
+      "category": "devtools",
+      "tags": [
+        "cloud",
+        "shell",
+        "devtools"
+      ],
+      "service_id": "gcp-cloud-shell"
+    },
+    {
+      "file": "cloud_source_repositories.svg",
+      "name": "Cloud Source Repositories",
+      "category": "devtools",
+      "tags": [
+        "cloud",
+        "source",
+        "repositories",
+        "devtools"
+      ],
+      "service_id": "gcp-cloud-source-repos"
+    },
+    {
+      "file": "cloud_spanner.svg",
+      "name": "Cloud Spanner",
+      "category": "database",
+      "tags": [
+        "cloud",
+        "spanner",
+        "database"
+      ],
+      "service_id": "gcp-cloud-spanner"
+    },
+    {
+      "file": "cloud_sql.svg",
+      "name": "Cloud SQL",
+      "category": "database",
+      "tags": [
+        "cloud",
+        "sql",
+        "database"
+      ],
+      "service_id": "gcp-cloud-sql"
+    },
+    {
+      "file": "cloud_storage.svg",
+      "name": "Cloud Storage",
+      "category": "storage",
+      "tags": [
+        "cloud",
+        "storage"
+      ],
+      "service_id": "gcp-cloud-storage"
+    },
+    {
+      "file": "cloud_tasks.svg",
+      "name": "Cloud Tasks",
+      "category": "integration",
+      "tags": [
+        "cloud",
+        "tasks",
+        "integration"
+      ],
+      "service_id": "gcp-cloud-tasks"
+    },
+    {
+      "file": "cloud_trace.svg",
+      "name": "Cloud Trace",
+      "category": "devtools",
+      "tags": [
+        "cloud",
+        "trace",
+        "devtools"
+      ],
+      "service_id": "gcp-cloud-trace"
+    },
+    {
+      "file": "cloud_vpn.svg",
+      "name": "Cloud VPN",
+      "category": "networking",
+      "tags": [
+        "cloud",
+        "vpn",
+        "networking"
+      ],
+      "service_id": "gcp-cloud-vpn"
+    },
+    {
+      "file": "cloud_composer.svg",
+      "name": "Cloud Composer",
+      "category": "analytics",
+      "tags": [
+        "cloud",
+        "composer",
+        "analytics"
+      ],
+      "service_id": "gcp-composer"
+    },
+    {
+      "file": "compute_engine.svg",
+      "name": "Compute Engine",
+      "category": "compute",
+      "tags": [
+        "compute",
+        "engine"
+      ],
+      "service_id": "gcp-compute-engine"
+    },
+    {
+      "file": "contact_center_ai.svg",
+      "name": "Contact Center AI",
+      "category": "ai/ml",
+      "tags": [
+        "contact",
+        "center",
+        "ai",
+        "ai/ml"
+      ],
+      "service_id": "gcp-contact-center-ai"
+    },
+    {
+      "file": "container_registry.svg",
+      "name": "Container Registry",
+      "category": "devtools",
+      "tags": [
+        "container",
+        "registry",
+        "devtools"
+      ],
+      "service_id": "gcp-container-registry"
+    },
+    {
+      "file": "data_catalog.svg",
+      "name": "Data Catalog",
+      "category": "analytics",
+      "tags": [
+        "data",
+        "catalog",
+        "analytics"
+      ],
+      "service_id": "gcp-data-catalog"
+    },
+    {
+      "file": "data_fusion.svg",
+      "name": "Data Fusion",
+      "category": "analytics",
+      "tags": [
+        "data",
+        "fusion",
+        "analytics"
+      ],
+      "service_id": "gcp-data-fusion"
+    },
+    {
+      "file": "database_migration_service.svg",
+      "name": "Database Migration Service",
+      "category": "database",
+      "tags": [
+        "database",
+        "migration",
+        "service"
+      ],
+      "service_id": "gcp-database-migration"
+    },
+    {
+      "file": "dataflow.svg",
+      "name": "Dataflow",
+      "category": "analytics",
+      "tags": [
+        "dataflow",
+        "analytics"
+      ],
+      "service_id": "gcp-dataflow"
+    },
+    {
+      "file": "dataplex.svg",
+      "name": "Dataplex",
+      "category": "analytics",
+      "tags": [
+        "dataplex",
+        "analytics"
+      ],
+      "service_id": "gcp-dataplex"
+    },
+    {
+      "file": "dataproc.svg",
+      "name": "Dataproc",
+      "category": "analytics",
+      "tags": [
+        "dataproc",
+        "analytics"
+      ],
+      "service_id": "gcp-dataproc"
+    },
+    {
+      "file": "datastore.svg",
+      "name": "Datastore",
+      "category": "database",
+      "tags": [
+        "datastore",
+        "database"
+      ],
+      "service_id": "gcp-datastore"
+    },
+    {
+      "file": "deployment_manager.svg",
+      "name": "Deployment Manager",
+      "category": "devtools",
+      "tags": [
+        "deployment",
+        "manager",
+        "devtools"
+      ],
+      "service_id": "gcp-deployment-manager"
+    },
+    {
+      "file": "dialogflow.svg",
+      "name": "Dialogflow",
+      "category": "ai/ml",
+      "tags": [
+        "dialogflow",
+        "ai/ml"
+      ],
+      "service_id": "gcp-dialogflow"
+    },
+    {
+      "file": "cloud_dlp.svg",
+      "name": "Cloud DLP",
+      "category": "security",
+      "tags": [
+        "cloud",
+        "dlp",
+        "security"
+      ],
+      "service_id": "gcp-dlp"
+    },
+    {
+      "file": "document_ai.svg",
+      "name": "Document AI",
+      "category": "ai/ml",
+      "tags": [
+        "document",
+        "ai",
+        "ai/ml"
+      ],
+      "service_id": "gcp-document-ai"
+    },
+    {
+      "file": "gemini_code_assist.svg",
+      "name": "Gemini Code Assist",
+      "category": "ai/ml",
+      "tags": [
+        "gemini",
+        "code",
+        "assist",
+        "ai/ml"
+      ],
+      "service_id": "gcp-duet-ai"
+    },
+    {
+      "file": "error_reporting.svg",
+      "name": "Error Reporting",
+      "category": "devtools",
+      "tags": [
+        "error",
+        "reporting",
+        "devtools"
+      ],
+      "service_id": "gcp-error-reporting"
+    },
+    {
+      "file": "eventarc.svg",
+      "name": "Eventarc",
+      "category": "integration",
+      "tags": [
+        "eventarc",
+        "integration"
+      ],
+      "service_id": "gcp-eventarc"
+    },
+    {
+      "file": "filestore.svg",
+      "name": "Filestore",
+      "category": "storage",
+      "tags": [
+        "filestore",
+        "storage"
+      ],
+      "service_id": "gcp-filestore"
+    },
+    {
+      "file": "firebase.svg",
+      "name": "Firebase",
+      "category": "business",
+      "tags": [
+        "firebase",
+        "business"
+      ],
+      "service_id": "gcp-firebase"
+    },
+    {
+      "file": "firebase_cloud_messaging.svg",
+      "name": "Firebase Cloud Messaging",
+      "category": "integration",
+      "tags": [
+        "firebase",
+        "cloud",
+        "messaging",
+        "integration"
+      ],
+      "service_id": "gcp-firebase-cloud-messaging"
+    },
+    {
+      "file": "firebase_realtime_db.svg",
+      "name": "Firebase Realtime DB",
+      "category": "database",
+      "tags": [
+        "firebase",
+        "realtime",
+        "db",
+        "database"
+      ],
+      "service_id": "gcp-firebase-realtime"
+    },
+    {
+      "file": "firestore.svg",
+      "name": "Firestore",
+      "category": "database",
+      "tags": [
+        "firestore",
+        "database"
+      ],
+      "service_id": "gcp-firestore"
+    },
+    {
+      "file": "gemini.svg",
+      "name": "Gemini",
+      "category": "ai/ml",
+      "tags": [
+        "gemini",
+        "ai/ml"
+      ],
+      "service_id": "gcp-gemini"
+    },
+    {
+      "file": "gke.svg",
+      "name": "GKE",
+      "category": "compute",
+      "tags": [
+        "gke",
+        "compute"
+      ],
+      "service_id": "gcp-gke"
+    },
+    {
+      "file": "healthcare_api.svg",
+      "name": "Healthcare API",
+      "category": "ai/ml",
+      "tags": [
+        "healthcare",
+        "api",
+        "ai/ml"
+      ],
+      "service_id": "gcp-healthcare-api"
+    },
+    {
+      "file": "cloud_iam.svg",
+      "name": "Cloud IAM",
+      "category": "security",
+      "tags": [
+        "cloud",
+        "iam",
+        "security"
+      ],
+      "service_id": "gcp-iam"
+    },
+    {
+      "file": "identity_platform.svg",
+      "name": "Identity Platform",
+      "category": "security",
+      "tags": [
+        "identity",
+        "platform",
+        "security"
+      ],
+      "service_id": "gcp-identity-platform"
+    },
+    {
+      "file": "cloud_iot_core.svg",
+      "name": "Cloud IoT Core",
+      "category": "iot",
+      "tags": [
+        "cloud",
+        "iot",
+        "core"
+      ],
+      "service_id": "gcp-iot-core"
+    },
+    {
+      "file": "live_stream_api.svg",
+      "name": "Live Stream API",
+      "category": "media",
+      "tags": [
+        "live",
+        "stream",
+        "api",
+        "media"
+      ],
+      "service_id": "gcp-live-stream"
+    },
+    {
+      "file": "looker.svg",
+      "name": "Looker",
+      "category": "analytics",
+      "tags": [
+        "looker",
+        "analytics"
+      ],
+      "service_id": "gcp-looker"
+    },
+    {
+      "file": "looker_studio.svg",
+      "name": "Looker Studio",
+      "category": "analytics",
+      "tags": [
+        "looker",
+        "studio",
+        "analytics"
+      ],
+      "service_id": "gcp-looker-studio"
+    },
+    {
+      "file": "managed_instance_groups.svg",
+      "name": "Managed Instance Groups",
+      "category": "compute",
+      "tags": [
+        "managed",
+        "instance",
+        "groups",
+        "compute"
+      ],
+      "service_id": "gcp-managed-instance-groups"
+    },
+    {
+      "file": "maps_platform.svg",
+      "name": "Maps Platform",
+      "category": "business",
+      "tags": [
+        "maps",
+        "platform",
+        "business"
+      ],
+      "service_id": "gcp-maps-platform"
+    },
+    {
+      "file": "memorystore.svg",
+      "name": "Memorystore",
+      "category": "database",
+      "tags": [
+        "memorystore",
+        "database"
+      ],
+      "service_id": "gcp-memorystore"
+    },
+    {
+      "file": "migrate_to_containers.svg",
+      "name": "Migrate to Containers",
+      "category": "migration",
+      "tags": [
+        "migrate",
+        "to",
+        "containers",
+        "migration"
+      ],
+      "service_id": "gcp-migrate-containers"
+    },
+    {
+      "file": "migrate_to_vms.svg",
+      "name": "Migrate to VMs",
+      "category": "migration",
+      "tags": [
+        "migrate",
+        "to",
+        "vms",
+        "migration"
+      ],
+      "service_id": "gcp-migrate-vms"
+    },
+    {
+      "file": "natural_language_ai.svg",
+      "name": "Natural Language AI",
+      "category": "ai/ml",
+      "tags": [
+        "natural",
+        "language",
+        "ai",
+        "ai/ml"
+      ],
+      "service_id": "gcp-natural-language-ai"
+    },
+    {
+      "file": "netapp_volumes.svg",
+      "name": "NetApp Volumes",
+      "category": "storage",
+      "tags": [
+        "netapp",
+        "volumes",
+        "storage"
+      ],
+      "service_id": "gcp-netapp-volumes"
+    },
+    {
+      "file": "network_connectivity_center.svg",
+      "name": "Network Connectivity Center",
+      "category": "networking",
+      "tags": [
+        "network",
+        "connectivity",
+        "center",
+        "networking"
+      ],
+      "service_id": "gcp-network-connectivity-center"
+    },
+    {
+      "file": "organization_policy.svg",
+      "name": "Organization Policy",
+      "category": "management",
+      "tags": [
+        "organization",
+        "policy",
+        "management"
+      ],
+      "service_id": "gcp-org-policy"
+    },
+    {
+      "file": "parallelstore.svg",
+      "name": "Parallelstore",
+      "category": "storage",
+      "tags": [
+        "parallelstore",
+        "storage"
+      ],
+      "service_id": "gcp-parallelstore"
+    },
+    {
+      "file": "persistent_disk.svg",
+      "name": "Persistent Disk",
+      "category": "storage",
+      "tags": [
+        "persistent",
+        "disk",
+        "storage"
+      ],
+      "service_id": "gcp-persistent-disk"
+    },
+    {
+      "file": "spot_vms.svg",
+      "name": "Spot VMs",
+      "category": "compute",
+      "tags": [
+        "spot",
+        "vms",
+        "compute"
+      ],
+      "service_id": "gcp-preemptible-vms"
+    },
+    {
+      "file": "private_service_connect.svg",
+      "name": "Private Service Connect",
+      "category": "networking",
+      "tags": [
+        "private",
+        "service",
+        "connect",
+        "networking"
+      ],
+      "service_id": "gcp-private-service-connect"
+    },
+    {
+      "file": "pub_sub.svg",
+      "name": "Pub/Sub",
+      "category": "analytics",
+      "tags": [
+        "pub",
+        "sub",
+        "analytics"
+      ],
+      "service_id": "gcp-pub-sub"
+    },
+    {
+      "file": "recommendations_ai.svg",
+      "name": "Recommendations AI",
+      "category": "ai/ml",
+      "tags": [
+        "recommendations",
+        "ai",
+        "ai/ml"
+      ],
+      "service_id": "gcp-recommendations-ai"
+    },
+    {
+      "file": "recommender.svg",
+      "name": "Recommender",
+      "category": "management",
+      "tags": [
+        "recommender",
+        "management"
+      ],
+      "service_id": "gcp-recommender"
+    },
+    {
+      "file": "resource_manager.svg",
+      "name": "Resource Manager",
+      "category": "management",
+      "tags": [
+        "resource",
+        "manager",
+        "management"
+      ],
+      "service_id": "gcp-resource-manager"
+    },
+    {
+      "file": "secret_manager.svg",
+      "name": "Secret Manager",
+      "category": "security",
+      "tags": [
+        "secret",
+        "manager",
+        "security"
+      ],
+      "service_id": "gcp-secret-manager"
+    },
+    {
+      "file": "security_command_center.svg",
+      "name": "Security Command Center",
+      "category": "security",
+      "tags": [
+        "security",
+        "command",
+        "center"
+      ],
+      "service_id": "gcp-security-command-center"
+    },
+    {
+      "file": "service_directory.svg",
+      "name": "Service Directory",
+      "category": "networking",
+      "tags": [
+        "service",
+        "directory",
+        "networking"
+      ],
+      "service_id": "gcp-service-directory"
+    },
+    {
+      "file": "service_health.svg",
+      "name": "Service Health",
+      "category": "management",
+      "tags": [
+        "service",
+        "health",
+        "management"
+      ],
+      "service_id": "gcp-service-health"
+    },
+    {
+      "file": "sole_tenant_nodes.svg",
+      "name": "Sole-Tenant Nodes",
+      "category": "compute",
+      "tags": [
+        "sole",
+        "tenant",
+        "nodes",
+        "compute"
+      ],
+      "service_id": "gcp-sole-tenant"
+    },
+    {
+      "file": "speech_to_text.svg",
+      "name": "Speech-to-Text",
+      "category": "ai/ml",
+      "tags": [
+        "speech",
+        "to",
+        "text",
+        "ai/ml"
+      ],
+      "service_id": "gcp-speech-to-text"
+    },
+    {
+      "file": "storage_transfer_service.svg",
+      "name": "Storage Transfer Service",
+      "category": "storage",
+      "tags": [
+        "storage",
+        "transfer",
+        "service"
+      ],
+      "service_id": "gcp-storage-transfer"
+    },
+    {
+      "file": "text_to_speech.svg",
+      "name": "Text-to-Speech",
+      "category": "ai/ml",
+      "tags": [
+        "text",
+        "to",
+        "speech",
+        "ai/ml"
+      ],
+      "service_id": "gcp-text-to-speech"
+    },
+    {
+      "file": "traffic_director.svg",
+      "name": "Traffic Director",
+      "category": "networking",
+      "tags": [
+        "traffic",
+        "director",
+        "networking"
+      ],
+      "service_id": "gcp-traffic-director"
+    },
+    {
+      "file": "transcoder_api.svg",
+      "name": "Transcoder API",
+      "category": "media",
+      "tags": [
+        "transcoder",
+        "api",
+        "media"
+      ],
+      "service_id": "gcp-transcoder"
+    },
+    {
+      "file": "transfer_appliance.svg",
+      "name": "Transfer Appliance",
+      "category": "storage",
+      "tags": [
+        "transfer",
+        "appliance",
+        "storage"
+      ],
+      "service_id": "gcp-transfer-appliance"
+    },
+    {
+      "file": "translation_ai.svg",
+      "name": "Translation AI",
+      "category": "ai/ml",
+      "tags": [
+        "translation",
+        "ai",
+        "ai/ml"
+      ],
+      "service_id": "gcp-translation"
+    },
+    {
+      "file": "vertex_ai.svg",
+      "name": "Vertex AI",
+      "category": "ai/ml",
+      "tags": [
+        "vertex",
+        "ai",
+        "ai/ml"
+      ],
+      "service_id": "gcp-vertex-ai"
+    },
+    {
+      "file": "video_stitcher_api.svg",
+      "name": "Video Stitcher API",
+      "category": "media",
+      "tags": [
+        "video",
+        "stitcher",
+        "api",
+        "media"
+      ],
+      "service_id": "gcp-video-stitcher"
+    },
+    {
+      "file": "vision_ai.svg",
+      "name": "Vision AI",
+      "category": "ai/ml",
+      "tags": [
+        "vision",
+        "ai",
+        "ai/ml"
+      ],
+      "service_id": "gcp-vision-ai"
+    },
+    {
+      "file": "vmware_engine.svg",
+      "name": "VMware Engine",
+      "category": "compute",
+      "tags": [
+        "vmware",
+        "engine",
+        "compute"
+      ],
+      "service_id": "gcp-vmware-engine"
+    },
+    {
+      "file": "vpc.svg",
+      "name": "VPC",
+      "category": "networking",
+      "tags": [
+        "vpc",
+        "networking"
+      ],
+      "service_id": "gcp-vpc"
+    },
+    {
+      "file": "web_security_scanner.svg",
+      "name": "Web Security Scanner",
+      "category": "security",
+      "tags": [
+        "web",
+        "security",
+        "scanner"
+      ],
+      "service_id": "gcp-web-security-scanner"
+    },
+    {
+      "file": "workflows.svg",
+      "name": "Workflows",
+      "category": "integration",
+      "tags": [
+        "workflows",
+        "integration"
+      ],
+      "service_id": "gcp-workflows"
+    },
+    {
+      "file": "google_workspace.svg",
+      "name": "Google Workspace",
+      "category": "business",
+      "tags": [
+        "google",
+        "workspace",
+        "business"
+      ],
+      "service_id": "gcp-workspace"
+    }
+  ]
+}
