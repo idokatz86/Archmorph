@@ -2,28 +2,31 @@
 
 **AI-Powered Cloud Architecture Translator to Azure**
 
-Convert AWS and GCP architecture diagrams into Azure equivalents with guided migration questions, interactive diagram exports, and ready-to-deploy Terraform/Bicep infrastructure code.
+Convert AWS and GCP architecture diagrams into Azure equivalents with guided migration questions, interactive diagram exports, ready-to-deploy Terraform/Bicep infrastructure code, dynamic cost estimates, and a self-updating service catalog.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Azure](https://img.shields.io/badge/cloud-Azure-0078D4.svg)
-![Version](https://img.shields.io/badge/version-2.0.0-22C55E.svg)
+![Version](https://img.shields.io/badge/version-2.2.0-22C55E.svg)
 ![Status](https://img.shields.io/badge/status-Production-22C55E.svg)
+![Tests](https://img.shields.io/badge/tests-215%20passing-22C55E.svg)
 
 ---
 
 ## Overview
 
-Archmorph uses Azure OpenAI GPT-4 Vision to analyze cloud architecture diagrams, identify services, ask guided migration questions, map services to Azure equivalents with confidence scores, export architecture diagrams in multiple formats, and generate deployable infrastructure as code with cost estimates.
+Archmorph uses Azure OpenAI GPT-4 Vision to analyze cloud architecture diagrams, identify services, ask guided migration questions, map services to Azure equivalents with confidence scores, export architecture diagrams in multiple formats, generate deployable infrastructure as code, estimate costs using the Azure Retail Prices API, and automatically discover and integrate new cloud services into its catalog.
 
 **Key Capabilities:**
 - Upload architecture diagrams (PNG, JPG, SVG, PDF, Draw.io)
-- Auto-detect AWS/GCP services with AI vision across a **405-service catalog** (145 AWS, 143 Azure, 117 GCP)
-- **Guided migration questions** — 31 contextual questions across 8 categories that refine SKU selection, compliance, networking, and more
+- Auto-detect AWS/GCP services with AI vision across a **405+ service catalog** (145 AWS, 143 Azure, 117 GCP — grows automatically)
+- **Guided migration questions** — 32 contextual questions across 8 categories that refine SKU selection, compliance, networking, deployment region, and more
 - Map to Azure equivalents with confidence scores and zone grouping
 - **Export architecture diagrams** as Excalidraw, Draw.io, or Visio with Azure stencils
 - Generate Terraform HCL or Bicep code with secure credential handling
-- Estimate Azure deployment costs via Azure Retail Prices API
-- **Auto-updating service catalog** — daily background sync at 2:00 AM UTC
+- **Dynamic cost estimates** — region-aware pricing via Azure Retail Prices API with 46 service mappings and monthly cache
+- **Self-updating service catalog** — daily auto-discovery and auto-integration of new cloud services with fuzzy matching and category classification
+- **Chatbot assistant** — FAQ support and GitHub issue creation with intent detection
+- **Admin dashboard** — conversion funnel, daily metrics, session tracking
 
 ---
 
@@ -71,13 +74,17 @@ npm run dev
 | Frontend | React 18, Vite, TailwindCSS, Lucide React | Static Web Apps |
 | Backend API | Python 3.11, FastAPI | Container Apps |
 | AI Engine | GPT-4 Vision | Azure OpenAI |
+| Container Registry | Docker | Azure Container Registry |
 | Database | PostgreSQL | Flexible Server |
 | Storage | Blob | Storage Account |
 | Scheduler | APScheduler (CronTrigger) | In-process |
-| Guided Questions | 31 questions, 8 categories | In-process engine |
+| Service Auto-Discovery | Daily sync + auto-integration | In-process |
+| Guided Questions | 32 questions, 8 categories | In-process engine |
 | Diagram Export | Excalidraw / Draw.io / Visio | In-process engine |
+| Pricing | Azure Retail Prices API (46 queries) | 30-day disk cache |
+| Testing | pytest + Playwright | 181 unit + 34 E2E tests |
 
-See [architecture.excalidraw](architecture.excalidraw) for the full architecture diagram and [application-flow.excalidraw](application-flow.excalidraw) for the user flow.
+See [docs/architecture.excalidraw](docs/architecture.excalidraw) for the full architecture diagram and [docs/application-flow.excalidraw](docs/application-flow.excalidraw) for the user flow.
 
 ---
 
@@ -89,17 +96,38 @@ Upload Diagram → AI Analysis → Guided Questions → Results & Export → Gen
 
 1. **Upload** — User uploads an AWS or GCP architecture diagram
 2. **AI Analysis** — GPT-4 Vision detects services, connections, and annotations
-3. **Guided Questions** — 8–18 contextual questions refine migration choices (SKU, compliance, networking, DR, security)
+3. **Guided Questions** — 8–18 contextual questions refine migration choices (SKU, compliance, networking, DR, security, deployment region)
 4. **Results** — Azure service mappings grouped by zone with confidence scores
 5. **Diagram Export** — Download translated architecture as Excalidraw, Draw.io, or Visio
 6. **IaC Generation** — Generate Terraform HCL or Bicep with syntax highlighting
-7. **Cost Estimation** — Monthly cost breakdown via Azure Retail Prices API
+7. **Cost Estimation** — Region-aware monthly cost breakdown via Azure Retail Prices API
+
+---
+
+## Self-Updating Service Catalog
+
+The service catalog automatically discovers and integrates new cloud services:
+
+- **Daily sync** — APScheduler runs at 2:00 AM UTC, fetching from AWS Pricing Index, Azure Retail Prices API, and GCP Pricing Calculator
+- **Auto-integration** — newly discovered services are written directly into the Python catalog files under an `AUTO-DISCOVERED` section
+- **Fuzzy matching** — normalised comparison (name, fullName, id) prevents false-positive detections
+- **Category classification** — 55 keyword hints auto-assign categories (Compute, Storage, Database, AI/ML, etc.) and matching icons
+- **Dry-run mode** — CLI `--dry-run` flag detects without writing
+- **Tracking** — cumulative `auto_added` counts per provider in `service_updates.json`
+
+### CLI Usage
+
+```bash
+cd backend
+python service_updater.py --run-now     # Discover + auto-add
+python service_updater.py --dry-run     # Discover only (no file writes)
+```
 
 ---
 
 ## Service Catalog
 
-**405 total services** across three providers, with 122 verified cross-cloud mappings.
+**405+ total services** across three providers, with 122 verified cross-cloud mappings.
 
 ### AWS → Azure (Sample)
 
@@ -122,43 +150,85 @@ Upload Diagram → AI Analysis → Guided Questions → Results & Export → Gen
 | GKE | AKS | 90% |
 | BigQuery | Synapse Analytics | 80% |
 
-Full mapping database: 405 services across AWS, Azure, and GCP with 122 mappings.
+Full mapping database: 405+ services across AWS, Azure, and GCP with 122 mappings.
+
+---
+
+## Cost Estimation
+
+Dynamic pricing powered by the [Azure Retail Prices API](https://prices.azure.com/api/retail/prices):
+
+- **Region-aware** — prices fetched per the user's selected deployment region (20 regions, default: West Europe)
+- **SKU strategy multipliers** — Cost-optimized (0.65x), Balanced (1.0x), Performance-first (1.6x), Enterprise (2.2x)
+- **46 service mappings** with built-in fallback estimates
+- **Monthly cache** — prices cached to disk for 30 days
+- **Per-service breakdown** — low/high range for each Azure service plus total monthly estimate
 
 ---
 
 ## API Reference
 
-### Core Endpoints
+### Core Endpoints (30 total)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/health` | GET | Health check (version, mode, catalog stats) |
 | `/api/services` | GET | List all services with optional filters |
-| `/api/services/search` | GET | Search services by name/provider/category |
-| `/api/analyze` | POST | Upload and analyze a diagram |
-| `/api/mappings` | GET | Get all service mappings |
-| `/api/mappings` | POST | Update/add a service mapping |
+| `/api/services/providers` | GET | List cloud providers with counts |
+| `/api/services/categories` | GET | List categories with per-provider counts |
+| `/api/services/mappings` | GET | List cross-cloud mappings |
+| `/api/services/{provider}/{id}` | GET | Get specific service details |
+| `/api/services/stats` | GET | Catalog statistics |
 
-### Guided Questions
+### Translation Flow
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
+| `/api/projects/{id}/diagrams` | POST | Upload diagram file |
+| `/api/diagrams/{id}/analyze` | POST | Analyze diagram |
 | `/api/diagrams/{id}/questions` | POST | Generate guided migration questions |
 | `/api/diagrams/{id}/apply-answers` | POST | Apply answers to refine mappings |
+| `/api/diagrams/{id}/export-diagram` | POST | Export as Excalidraw, Draw.io, or Visio |
+| `/api/diagrams/{id}/generate` | POST | Generate Terraform or Bicep code |
+| `/api/diagrams/{id}/cost-estimate` | GET | Dynamic cost estimate |
 
-### Diagram Export
+### Chatbot & Admin
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/diagrams/{id}/export-diagram` | POST | Export as Excalidraw, Draw.io, or Visio |
+| `/api/chat` | POST | Send message to chatbot assistant |
+| `/api/chat/history/{session_id}` | GET | Get chat session history |
+| `/api/chat/{session_id}` | DELETE | Clear chat session |
+| `/api/admin/metrics` | GET | Usage metrics (key-protected) |
+| `/api/admin/metrics/funnel` | GET | Conversion funnel data |
+| `/api/admin/metrics/daily` | GET | Daily activity metrics |
+| `/api/admin/metrics/recent` | GET | Recent events feed |
 
 ### Service Updates
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/service-updates/status` | GET | Scheduler and update status |
+| `/api/service-updates/status` | GET | Scheduler status + auto-added totals |
 | `/api/service-updates/last` | GET | Last update details |
-| `/api/service-updates/run-now` | POST | Trigger immediate catalog refresh |
+| `/api/service-updates/run-now` | POST | Trigger immediate catalog refresh + auto-add |
+
+Full API documentation: [Swagger UI](https://archmorph-api.icyisland-c0dee6ba.northeurope.azurecontainerapps.io/docs)
+
+---
+
+## Testing
+
+| Suite | Framework | Tests | Command |
+|-------|-----------|-------|---------|
+| Backend unit | pytest | 181 | `cd backend && python -m pytest tests/ -v` |
+| E2E | Playwright | 34 | `npx playwright test` |
+| **Total** | | **215** | |
+
+### Coverage
+
+- **14 test classes** covering all major API endpoints
+- **10 E2E test groups** covering full translation flow, diagram export, IaC generation, chat widget, services browser, admin dashboard, API validation, and additional API coverage
+- All tests run against the live deployed backend
 
 ---
 
@@ -166,43 +236,84 @@ Full mapping database: 405 services across AWS, Azure, and GCP with 122 mappings
 
 ```
 Archmorph/
-├── frontend/                   # React SPA
+├── frontend/                        # React SPA
 │   ├── src/
-│   │   ├── App.jsx             # Main application (components, views, flow)
-│   │   ├── index.css           # Global styles, fonts, scrollbar
-│   │   └── main.jsx            # Entry point
-│   ├── tailwind.config.js      # Design system (colors, fonts, animations)
+│   │   ├── App.jsx                  # Main application (components, views, flow)
+│   │   ├── index.css                # Global styles, fonts, scrollbar
+│   │   └── main.jsx                 # Entry point
+│   ├── tailwind.config.js           # Design system (colors, fonts, animations)
 │   └── package.json
-├── backend/                    # FastAPI service
-│   ├── main.py                 # API endpoints, analysis engine, IaC generation
-│   ├── guided_questions.py     # 31 questions across 8 categories
-│   ├── diagram_export.py       # Excalidraw/Draw.io/Visio export with stencils
-│   ├── service_updater.py      # APScheduler daily catalog sync
-│   ├── services/               # Service catalog data
-│   ├── data/                   # Runtime data (service_updates.json)
+├── backend/                         # FastAPI service
+│   ├── main.py                      # 30 API endpoints, analysis engine, IaC generation
+│   ├── guided_questions.py          # 32 questions across 8 categories
+│   ├── diagram_export.py            # Excalidraw/Draw.io/Visio export with 36 stencils
+│   ├── service_updater.py           # APScheduler daily catalog sync + auto-integration
+│   ├── services/                    # Service catalog data
+│   │   ├── aws_services.py          # 145 AWS services
+│   │   ├── azure_services.py        # 143 Azure services
+│   │   ├── gcp_services.py          # 117 GCP services
+│   │   ├── mappings.py              # 122 cross-cloud mappings
+│   │   └── azure_pricing.py         # Azure Retail Prices API + cache (46 queries)
+│   ├── tests/
+│   │   ├── test_api.py              # 75 core API tests (14 classes)
+│   │   ├── test_service_updater.py  # 42 service updater tests
+│   │   ├── test_azure_pricing.py    # 30 pricing service tests
+│   │   └── test_guided_questions_rules.py  # 34 rule function tests
+│   ├── data/                        # Runtime data (pricing cache, metrics, auto-added)
 │   ├── Dockerfile
 │   └── requirements.txt
-├── infra/                      # Terraform IaC
+├── e2e/
+│   └── archmorph.spec.ts            # 27 Playwright E2E tests
+├── infra/                           # Terraform IaC
 │   ├── main.tf
 │   ├── terraform.tfvars
 │   └── outputs.tf
-├── docs/                       # Documentation
-│   ├── PRD.md
-│   ├── DEPLOYMENT_COSTS.md
-│   └── AWS_AUTOMOTIVE_MAPPING.md
-├── architecture.excalidraw     # Architecture diagram
-├── application-flow.excalidraw # Application flow diagram
+├── docs/                            # Documentation
+│   ├── PRD.md                       # Product Requirements Document
+│   ├── DEPLOYMENT_COSTS.md          # Azure cost breakdown
+│   ├── AWS_AUTOMOTIVE_MAPPING.md    # Automotive industry mapping reference
+│   ├── architecture.excalidraw      # Architecture diagram
+│   └── application-flow.excalidraw  # Application flow diagram
+├── playwright.config.ts             # E2E test configuration
 └── README.md
 ```
 
 ---
 
-## Deployment Costs
+## Deployment
 
-See [docs/DEPLOYMENT_COSTS.md](docs/DEPLOYMENT_COSTS.md) for detailed Azure cost breakdown.
+### Azure Resources
 
-**Estimated Monthly (Dev/Test):** ~$180–250  
-**Estimated Monthly (Production):** ~$500–800
+| Resource | SKU | Region |
+|----------|-----|--------|
+| Container Apps | Consumption | North Europe |
+| Static Web Apps | Free | West Europe |
+| Container Registry | Basic | North Europe |
+
+### Deploy Backend
+
+```bash
+cd backend
+az acr build --registry <acr-name> --image archmorph-api:v8 .
+az containerapp update --name archmorph-api --resource-group <rg> --image <acr>.azurecr.io/archmorph-api:v8
+```
+
+### Deploy Frontend
+
+```bash
+cd frontend
+npm run build
+npx swa deploy dist --deployment-token <token> --env production
+```
+
+### Estimated Costs
+
+See [docs/DEPLOYMENT_COSTS.md](docs/DEPLOYMENT_COSTS.md) for full breakdown.
+
+| Tier | Monthly |
+|------|---------|
+| Dev/Test | ~$180–250 |
+| Production | ~$500–800 |
 
 ---
 
@@ -210,8 +321,10 @@ See [docs/DEPLOYMENT_COSTS.md](docs/DEPLOYMENT_COSTS.md) for detailed Azure cost
 
 | Phase | Status | Features |
 |-------|--------|----------|
-| v1.0 — MVP | Done | AWS/GCP → Azure mapping, Terraform/Bicep output, cost estimation |
-| v2.0 — Production | Done | Guided questions, diagram export (Excalidraw/Draw.io/Visio), daily service sync, 405-service catalog, secure IaC, design system UI |
+| v1.0 — MVP | Done | AWS/GCP → Azure mapping, Terraform/Bicep output, basic cost estimation |
+| v2.0 — Production | Done | Guided questions, diagram export, daily service sync, 405-service catalog, secure IaC, chatbot, admin dashboard |
+| v2.1 — Pricing | Done | Dynamic Azure pricing, deployment region question, monthly cache, SKU multipliers, 102 tests |
+| v2.2 — Self-Updating | Done | Auto-integration of new services, fuzzy name matching, category auto-classification, dry-run CLI, auto-added tracking |
 | v3.0 — Enterprise | Planned | Visio import, API keys, import blocks, SSO, RBAC |
 | v4.0 — Advanced | Planned | Pulumi output, Azure Migrate integration, multi-diagram projects |
 
@@ -238,4 +351,4 @@ MIT License — see [LICENSE](LICENSE) for details.
 - **Live App:** https://agreeable-ground-01012c003.2.azurestaticapps.net
 - **API:** https://archmorph-api.icyisland-c0dee6ba.northeurope.azurecontainerapps.io
 - **API Docs (Swagger):** https://archmorph-api.icyisland-c0dee6ba.northeurope.azurecontainerapps.io/docs
-- **Docs:** [docs/PRD.md](docs/PRD.md)
+- **PRD:** [docs/PRD.md](docs/PRD.md)
