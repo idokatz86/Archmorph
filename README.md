@@ -174,6 +174,6 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ## Links
 
-- **Live App:** https://archmorph-frontend.westeurope.azurecontainerapps.io
-- **API:** https://archmorph-api.westeurope.azurecontainerapps.io
+- **Live App:** https://agreeable-ground-01012c003.2.azurestaticapps.net
+- **API:** https://archmorph-api.icyisland-c0dee6ba.northeurope.azurecontainerapps.io
 - **Docs:** [docs/PRD.md](docs/PRD.md)
