@@ -1,6 +1,6 @@
 # Archmorph – Cloud Architecture Translator to Azure
 ## Product Requirements Document (PRD)
-**Version:** 1.1  
+**Version:** 2.0  
 **Date:** February 19, 2026  
 **Author:** Ido Katz  
 
@@ -8,11 +8,11 @@
 
 ## 1. Executive Summary
 
-Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams into Azure equivalents. It analyzes uploaded diagrams, identifies cloud services, maps them to Azure counterparts, and generates ready-to-deploy Terraform/Bicep infrastructure code.
+Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams into Azure equivalents. It analyzes uploaded diagrams, identifies cloud services, asks guided migration questions to refine the translation, maps services to Azure counterparts with confidence scores, exports translated architecture diagrams in multiple formats, and generates ready-to-deploy Terraform/Bicep infrastructure code with cost estimates.
 
-**Problem:** Organizations migrating to Azure spend weeks manually mapping source architecture to Azure services. This process is error-prone and requires deep multi-cloud expertise.
+**Problem:** Organizations migrating to Azure spend weeks manually mapping source architecture to Azure services. This process is error-prone, requires deep multi-cloud expertise, and lacks tooling for interactive refinement.
 
-**Solution:** Automated diagram analysis and service translation with confidence-scored mappings and generated IaC.
+**Solution:** Automated diagram analysis and service translation with guided migration questions, confidence-scored mappings, multi-format diagram export, auto-updating service catalog, and generated IaC with secure credential handling.
 
 ---
 
@@ -22,8 +22,8 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 |---------|------|--------------|
 | **Cloud Architect** | Solution design | Validate migration feasibility quickly |
 | **DevOps Engineer** | Infrastructure automation | Generate deployable IaC from diagrams |
-| **Technical Manager** | Migration planning | Estimate effort and identify gaps |
-| **Consultant** | Multi-cloud advisory | Rapid proposal generation for clients |
+| **Technical Manager** | Migration planning | Estimate effort, costs, and identify gaps |
+| **Consultant** | Multi-cloud advisory | Rapid proposal generation with exportable diagrams |
 
 ---
 
@@ -31,7 +31,7 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 
 ### 3.1 Diagram Upload & Analysis
 - **Supported formats:** PNG, JPG, SVG, PDF, Draw.io (.drawio), Lucidchart export
-- **Visio (.vsdx):** Phase 3 (complex parsing)
+- **Visio (.vsdx) import:** Phase 3 (complex parsing)
 - **Max file size:** 25 MB
 - **Analysis time:** ≤30 seconds for diagrams ≤50 services
 
@@ -39,27 +39,53 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 - AI-powered identification using Azure OpenAI GPT-4 Vision
 - Detects: Services, connections/data flows, annotations
 - **Multi-pass analysis:** Diagrams with >30 services trigger 2-pass analysis (quadrant split + merge)
+- **405-service catalog:** 145 AWS, 143 Azure, 117 GCP services with 122 cross-cloud mappings
 
 ### 3.3 Service Mapping
 - Maps detected services to Azure equivalents
 - Confidence scores: Critical (≥90%), High (70-89%), Medium (50-69%), Low (<50%)
 - **Manual intervention flags** for services with <60% confidence or no direct equivalent
+- Zone-based grouping (Networking, Compute, Data, Security, Integration, Monitoring)
 
-### 3.4 IaC Generation
-- **Terraform (HCL):** Primary output
-- **Bicep:** Secondary output
+### 3.4 Guided Migration Questions (v2.0)
+- **31 contextual questions** across 8 categories
+- Categories: Compute, Database, Networking, Security, Compliance, Disaster Recovery, Cost Optimization, Integration
+- Questions are dynamically selected based on detected services (8–18 questions per analysis)
+- Answers refine Azure SKU selection, compliance settings, networking topology, DR strategy, and security posture
+- Question types: Radio (single-select), Checkbox (multi-select), Boolean (yes/no)
+
+### 3.5 IaC Generation
+- **Terraform (HCL):** Primary output with `random_password` for credentials, Key Vault secret storage
+- **Bicep:** Secondary output with `@secure()` parameter for sensitive values
 - **Scope:** Greenfield deployments only
 - **Import blocks:** Phase 3 feature for existing resource adoption
 - Read-only code preview with syntax highlighting (Prism.js)
+- Secure credential handling — no hardcoded passwords
 
-### 3.5 Cost Estimation
+### 3.6 Cost Estimation
 - Uses Azure Retail Prices API (`https://prices.azure.com/api/retail/prices`)
 - Provides monthly cost estimate range (low/medium/high usage)
 - Displays cost per service with total
+- Cost panel integrated in IaC generation view
 
-### 3.6 Export Options
+### 3.7 Diagram Export (v2.0)
+- **Excalidraw (.excalidraw):** Interactive JSON format with Azure service stencils
+- **Draw.io (.drawio):** mxGraphModel XML with Azure stencils, compatible with diagrams.net
+- **Visio (.vsdx):** VDX XML format for Microsoft Visio
+- 36 Azure service stencils with color-coded categories
+- Architecture zones with automatic layout
+
+### 3.8 Auto-Updating Service Catalog (v2.0)
+- **APScheduler** CronTrigger runs daily at 2:00 AM UTC
+- Fetches latest service/pricing data from AWS, Azure, and GCP APIs
+- Persists updates to `data/service_updates.json`
+- Manual trigger available via API (`POST /api/service-updates/run-now`)
+- Status and last update queryable via API
+
+### 3.9 Export Options
 - Download generated IaC (.tf, .bicep)
-- Export mapping report (PDF, JSON)
+- Export translated architecture diagram (Excalidraw, Draw.io, Visio)
+- Export mapping report (JSON)
 - Copy to clipboard
 
 ---
@@ -106,12 +132,13 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 
 | Activity | Frequency | Owner |
 |----------|-----------|-------|
+| Automated service sync | Daily (2:00 AM UTC) | APScheduler |
 | New service additions | Monthly | Product team |
 | Confidence score recalibration | Quarterly | Engineering |
 | Deprecation review | Quarterly | Product team |
 | Community contribution review | Bi-weekly | Maintainers |
 
-**Versioning:** Mappings stored in `mappings/v{MAJOR}.{MINOR}.json` with changelog.
+**Versioning:** Mappings stored in `mappings/v{MAJOR}.{MINOR}.json` with changelog. Auto-updates tracked in `data/service_updates.json`.
 
 ---
 
@@ -130,8 +157,8 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | Role | Permissions |
 |------|-------------|
 | Viewer | View projects, download exports |
-| Editor | Upload diagrams, run analysis |
-| Admin | Manage team, API keys, billing |
+| Editor | Upload diagrams, run analysis, answer guided questions |
+| Admin | Manage team, API keys, billing, trigger service updates |
 
 ### 5.3 API Key Management (Phase 3)
 - Keys scoped per project
@@ -166,6 +193,7 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 |----------|----------|
 | Service missing required config | Generate placeholder with `# TODO: Configure X` |
 | Circular dependencies detected | Warning banner, manual reordering suggested |
+| Hardcoded credentials | Auto-replaced with `random_password` + Key Vault (Terraform) or `@secure()` param (Bicep) |
 
 ---
 
@@ -173,14 +201,17 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 
 | Requirement | Target | Phase |
 |-------------|--------|-------|
-| Analysis latency | ≤30s for ≤50 services | MVP |
-| Availability | 99.5% uptime | MVP |
-| Max diagram size | 25 MB | MVP |
-| Max services per diagram | 50 | MVP |
-| Max services per project | 200 (across multiple diagrams) | MVP |
-| Concurrent analyses | 10 per user | MVP |
-| Data retention | 90 days (free), unlimited (paid) | MVP |
-| **Accessibility** | WCAG 2.1 AA | MVP |
+| Analysis latency | ≤30s for ≤50 services | v1.0 |
+| Availability | 99.5% uptime | v1.0 |
+| Max diagram size | 25 MB | v1.0 |
+| Max services per diagram | 50 | v1.0 |
+| Max services per project | 200 (across multiple diagrams) | v1.0 |
+| Concurrent analyses | 10 per user | v1.0 |
+| Data retention | 90 days (free), unlimited (paid) | v1.0 |
+| **Accessibility** | WCAG 2.1 AA | v1.0 |
+| Guided question response | ≤2s per question set generation | v2.0 |
+| Diagram export | ≤5s for all formats | v2.0 |
+| Service catalog freshness | ≤24 hours | v2.0 |
 
 ---
 
@@ -190,48 +221,70 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 
 | Layer | Technology |
 |-------|------------|
-| Frontend | React 18, Vite, TailwindCSS, Prism.js (syntax highlighting) |
+| Frontend | React 18, Vite, TailwindCSS, Lucide React (icons), Prism.js (syntax highlighting) |
 | Backend | Python 3.11, FastAPI |
 | AI | Azure OpenAI GPT-4 Vision |
 | Database | PostgreSQL (Azure Flexible Server) |
 | Storage | Azure Blob Storage |
 | Hosting | Azure Container Apps (API), Static Web Apps (frontend) |
+| Scheduler | APScheduler 3.10 (CronTrigger, daily service sync) |
+| Guided Questions | In-process engine (31 questions, 8 categories) |
+| Diagram Export | In-process engine (Excalidraw, Draw.io, Visio with 36 Azure stencils) |
 | IaC | Terraform (infra), Bicep support in-app |
 
 ### 8.2 API Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/projects` | POST | Create project |
-| `/api/projects/{id}/diagrams` | POST | Upload diagram |
-| `/api/diagrams/{id}/analyze` | POST | Trigger analysis |
-| `/api/diagrams/{id}/mappings` | GET | Get service mappings |
-| `/api/diagrams/{id}/mappings/{svc}` | PATCH | Override mapping |
-| `/api/diagrams/{id}/generate` | POST | Generate IaC |
-| `/api/diagrams/{id}/export` | GET | Download IaC/report |
-| `/api/health` | GET | Health check |
+| `/api/health` | GET | Health check (version, mode, catalog stats, scheduler) |
+| `/api/services` | GET | List services with optional filters |
+| `/api/services/search` | GET | Search services by name/provider/category |
+| `/api/analyze` | POST | Upload and analyze diagram |
+| `/api/mappings` | GET | Get all service mappings |
+| `/api/mappings` | POST | Update/add a service mapping |
+| `/api/diagrams/{id}/questions` | POST | Generate guided migration questions |
+| `/api/diagrams/{id}/apply-answers` | POST | Apply answers to refine mappings |
+| `/api/diagrams/{id}/export-diagram` | POST | Export diagram (Excalidraw/Draw.io/Visio) |
+| `/api/service-updates/status` | GET | Scheduler and update status |
+| `/api/service-updates/last` | GET | Last update details |
+| `/api/service-updates/run-now` | POST | Trigger immediate catalog refresh |
+
+### 8.3 Design System (v2.0)
+
+| Token | Value | Usage |
+|-------|-------|-------|
+| Primary | #0F172A | Headers, navigation |
+| Secondary | #1E293B | Cards, surfaces |
+| CTA | #22C55E | Buttons, active states |
+| Background | #020617 | Page background |
+| Text Primary | #F8FAFC | Body text |
+| Text Muted | #64748B | Secondary text |
+| Font | Plus Jakarta Sans | All typography |
+| Icons | Lucide React (SVG) | All icons, no emojis |
+| Style | Flat Design | Clean, minimal aesthetic |
 
 ---
 
 ## 9. Roadmap
 
-| Phase | Milestone | Features |
-|-------|-----------|----------|
-| **MVP (Q2 2026)** | Public Beta | Diagram upload, AWS→Azure mapping, Terraform output |
-| **Phase 2 (Q3 2026)** | GCP Support | GCP→Azure mapping, Bicep output, cost estimation |
-| **Phase 3 (Q4 2026)** | Enterprise | Visio support, API keys, import blocks, SSO |
-| **Phase 4 (2027)** | Advanced | Pulumi output, Azure Migrate integration, multi-diagram projects |
+| Phase | Status | Features |
+|-------|--------|----------|
+| **v1.0 — MVP** | Done | Diagram upload, AWS/GCP → Azure mapping, Terraform/Bicep output, cost estimation |
+| **v2.0 — Production** | Done | Guided questions (31 across 8 categories), diagram export (Excalidraw/Draw.io/Visio with stencils), daily auto-updating service catalog (APScheduler), 405-service catalog, secure IaC credentials, design system UI with Lucide icons |
+| **v3.0 — Enterprise** | Planned | Visio import, API keys, import blocks, SSO, RBAC |
+| **v4.0 — Advanced** | Planned | Pulumi output, Azure Migrate integration, multi-diagram projects |
 
 ---
 
 ## 10. Success Metrics
 
-| Metric | Target (MVP) | Target (GA) |
-|--------|--------------|-------------|
-| Analysis accuracy | ≥85% services correctly identified | ≥92% |
-| Mapping accuracy | ≥90% correct Azure equivalent | ≥95% |
-| Time to first IaC export | ≤5 minutes | ≤3 minutes |
-| User retention (30-day) | ≥40% | ≥60% |
+| Metric | Target (v1.0) | Target (v2.0) | Target (GA) |
+|--------|---------------|---------------|-------------|
+| Analysis accuracy | ≥85% | ≥88% | ≥92% |
+| Mapping accuracy | ≥90% | ≥93% | ≥95% |
+| Time to first IaC export | ≤5 min | ≤3 min | ≤2 min |
+| User retention (30-day) | ≥40% | ≥50% | ≥60% |
+| Guided question completion rate | — | ≥70% | ≥80% |
 
 ---
 
@@ -242,6 +295,8 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | Pricing model | Usage-based (per diagram) with 5 free/month | PM |
 | Pulumi support | Phase 4 | Engineering |
 | Azure Migrate partnership | Phase 4, requires BD | PM |
+| Visio import support | Phase 3, complex parsing | Engineering |
+| Multi-diagram project support | Phase 4 | Engineering |
 
 ---
 
