@@ -3,7 +3,7 @@ Archmorph Backend API
 Cloud Architecture Translator to Azure — Full Services Catalog
 """
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Query
+from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -1098,11 +1098,13 @@ async def estimate_cost(diagram_id: str):
 # ─────────────────────────────────────────────────────────────
 @app.get("/api/services")
 async def list_all_services(
+    response: Response,
     provider: Optional[str] = Query(None, description="Filter by provider: aws, azure, gcp"),
     category: Optional[str] = Query(None, description="Filter by category"),
     search: Optional[str] = Query(None, description="Search services by name/description"),
 ):
     """List cloud services from all providers, with optional filters."""
+    response.headers["Cache-Control"] = "public, max-age=300"
     results = []
     
     if provider is None or provider == "aws":
@@ -1135,8 +1137,9 @@ async def list_all_services(
 
 
 @app.get("/api/services/providers")
-async def list_providers():
+async def list_providers(response: Response):
     """List available cloud providers and their service counts."""
+    response.headers["Cache-Control"] = "public, max-age=300"
     return {
         "providers": [
             {"id": "aws", "name": "Amazon Web Services", "serviceCount": len(AWS_SERVICES), "color": "#FF9900"},
@@ -1147,8 +1150,9 @@ async def list_providers():
 
 
 @app.get("/api/services/categories")
-async def list_categories():
+async def list_categories(response: Response):
     """List all service categories with counts per provider."""
+    response.headers["Cache-Control"] = "public, max-age=300"
     cats = {}
     for s in AWS_SERVICES:
         cats.setdefault(s["category"], {"aws": 0, "azure": 0, "gcp": 0})
@@ -1233,8 +1237,9 @@ async def get_service(provider: str, service_id: str):
 
 
 @app.get("/api/services/stats")
-async def get_stats():
+async def get_stats(response: Response):
     """Get service catalog statistics."""
+    response.headers["Cache-Control"] = "public, max-age=300"
     all_cats = set()
     for s in AWS_SERVICES + AZURE_SERVICES + GCP_SERVICES:
         all_cats.add(s["category"])
