@@ -7,6 +7,8 @@ from cloud migration analysis results.
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import uuid
 import xml.etree.ElementTree as ET
@@ -224,6 +226,23 @@ def get_azure_stencil_id(service_name: str, target: str = "drawio") -> str:
         pass
 
     return "mxgraph.azure.general" if target == "drawio" else "Azure General"
+
+
+def _resolve_icon_svg(azure_name: str) -> str | None:
+    """Try to resolve an Azure icon SVG from the icon registry.
+
+    Returns a base64 data URI ``data:image/svg+xml;base64,...`` or None.
+    """
+    try:
+        from icons.registry import resolve_icon
+
+        entry = resolve_icon(azure_name, provider="azure")
+        if entry and entry.svg:
+            b64 = base64.b64encode(entry.svg.encode("utf-8")).decode("ascii")
+            return f"data:image/svg+xml;base64,{b64}"
+    except Exception:
+        pass
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -447,6 +466,9 @@ def _generate_excalidraw(analysis: dict) -> dict:
         confidence = m.get("confidence", "medium")
         svc_map[aws] = {"azure": azure, "confidence": confidence}
 
+    # Excalidraw file attachments for embedded icons
+    exc_files: dict[str, dict] = {}
+
     # ── Compute zone sizes ──
     zone_positions: list[dict] = []
     for idx, zone in enumerate(zones):
@@ -513,7 +535,7 @@ def _generate_excalidraw(analysis: dict) -> dict:
                 azure_name = info.get("azure", aws_name)
                 raw_conf = info.get("confidence", "medium")
             else:
-                aws_name = svc.get("aws", svc.get("source_service", svc.get("name", "")))
+                aws_name = svc.get("source", svc.get("aws", svc.get("gcp", svc.get("source_service", svc.get("name", "")))))
                 azure_name = svc.get("azure", svc.get("azure_service", aws_name))
                 raw_conf = svc.get("confidence", "medium")
 
@@ -528,17 +550,66 @@ def _generate_excalidraw(analysis: dict) -> dict:
             sw = zw - 32
             sh = svc_h
 
+            icon_uri = _resolve_icon_svg(azure_name)
+
             elements.append(
                 _exc_rect(sx, sy, sw, sh, stroke=conf_color, bg="#FFFFFF", fill="solid", radius=8, group=gid)
             )
-            label = f"{aws_name} → {azure_name}" if aws_name != azure_name else azure_name
-            elements.append(
-                _exc_text(sx + 8, sy + 6, label, size=13, color="#1a1a1a", group=gid)
-            )
-            # small confidence indicator text
-            elements.append(
-                _exc_text(sx + 8, sy + 26, f"[{confidence}]", size=10, color=conf_color, group=gid)
-            )
+
+            if icon_uri:
+                # Embed icon as an image element inside the service box
+                file_id = hashlib.md5(azure_name.encode()).hexdigest()[:20]
+                exc_files[file_id] = {
+                    "mimeType": "image/svg+xml",
+                    "id": file_id,
+                    "dataURL": icon_uri,
+                    "created": 1,
+                }
+                img_el: dict[str, Any] = {
+                    "id": _uid(),
+                    "type": "image",
+                    "x": sx + 4,
+                    "y": sy + 4,
+                    "width": 36,
+                    "height": 36,
+                    "angle": 0,
+                    "strokeColor": "transparent",
+                    "backgroundColor": "transparent",
+                    "fillStyle": "solid",
+                    "strokeWidth": 0,
+                    "roughness": 0,
+                    "opacity": 100,
+                    "roundness": None,
+                    "seed": abs(hash(_uid())) % 2_000_000_000,
+                    "version": 1,
+                    "versionNonce": abs(hash(_uid())) % 2_000_000_000,
+                    "isDeleted": False,
+                    "boundElements": [],
+                    "link": None,
+                    "locked": False,
+                    "fileId": file_id,
+                    "status": "saved",
+                    "scale": [1, 1],
+                    "groupIds": [gid],
+                }
+                elements.append(img_el)
+                # Label beside icon
+                label = f"{aws_name} → {azure_name}" if aws_name != azure_name else azure_name
+                elements.append(
+                    _exc_text(sx + 44, sy + 6, label, size=13, color="#1a1a1a", group=gid)
+                )
+                elements.append(
+                    _exc_text(sx + 44, sy + 26, f"[{confidence}]", size=10, color=conf_color, group=gid)
+                )
+            else:
+                label = f"{aws_name} → {azure_name}" if aws_name != azure_name else azure_name
+                elements.append(
+                    _exc_text(sx + 8, sy + 6, label, size=13, color="#1a1a1a", group=gid)
+                )
+                # small confidence indicator text
+                elements.append(
+                    _exc_text(sx + 8, sy + 26, f"[{confidence}]", size=10, color=conf_color, group=gid)
+                )
 
         zone_center_map[idx] = (zx + zw / 2, zy + zh / 2)
 
@@ -580,7 +651,7 @@ def _generate_excalidraw(analysis: dict) -> dict:
         "source": "archmorph",
         "elements": elements,
         "appState": {"viewBackgroundColor": "#FFFFFF"},
-        "files": {},
+        "files": exc_files,
     }
 
     return {
@@ -706,7 +777,7 @@ def _generate_drawio(analysis: dict) -> dict:
                 azure_name = info.get("azure", aws_name)
                 raw_conf = info.get("confidence", "medium")
             else:
-                aws_name = svc.get("aws", svc.get("source_service", svc.get("name", "")))
+                aws_name = svc.get("source", svc.get("aws", svc.get("gcp", svc.get("source_service", svc.get("name", "")))))
                 azure_name = svc.get("azure", svc.get("azure_service", aws_name))
                 raw_conf = svc.get("confidence", "medium")
 
@@ -718,6 +789,7 @@ def _generate_drawio(analysis: dict) -> dict:
             conf_color = _CONFIDENCE_COLORS.get(confidence, _CONFIDENCE_COLORS["medium"])
 
             stencil = get_azure_stencil_id(azure_name, "drawio")
+            icon_uri = _resolve_icon_svg(azure_name)
             label = f"{aws_name} → {azure_name}" if aws_name != azure_name else azure_name
 
             sx = 16
@@ -725,20 +797,51 @@ def _generate_drawio(analysis: dict) -> dict:
             sw = zone_w - 32
             sh = svc_h
 
-            svc_style = (
-                f"shape={stencil};whiteSpace=wrap;html=1;rounded=1;"
-                f"strokeColor={conf_color};fillColor=#FFFFFF;fontSize=12;"
-                f"fontColor=#1a1a1a;align=left;spacingLeft=8;"
-            )
-            sid = next_id()
-            svc_cell = ET.SubElement(
-                root_cell, "mxCell",
-                id=sid,
-                value=label,
-                style=svc_style,
-                vertex="1", parent=zid,
-            )
-            svc_cell.append(_mx_geom(sx, sy, sw, sh))
+            # Use embedded icon image when available, fall back to stencil shape
+            if icon_uri:
+                # Icon cell (left side)
+                icon_id = next_id()
+                icon_style = (
+                    f"shape=image;image={icon_uri};"
+                    f"verticalLabelPosition=bottom;verticalAlign=top;"
+                    f"aspect=fixed;imageAspect=0;"
+                )
+                icon_cell = ET.SubElement(
+                    root_cell, "mxCell",
+                    id=icon_id, value="",
+                    style=icon_style,
+                    vertex="1", parent=zid,
+                )
+                icon_cell.append(_mx_geom(sx + 4, sy + 5, 40, 40))
+                # Label cell (right of icon)
+                lbl_id = next_id()
+                lbl_style = (
+                    f"text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;"
+                    f"rounded=1;strokeColor={conf_color};fillColor=#FFFFFF;"
+                    f"fontSize=12;fontColor=#1a1a1a;spacingLeft=4;"
+                )
+                lbl_cell = ET.SubElement(
+                    root_cell, "mxCell",
+                    id=lbl_id, value=label,
+                    style=lbl_style,
+                    vertex="1", parent=zid,
+                )
+                lbl_cell.append(_mx_geom(sx + 48, sy, sw - 48, sh))
+            else:
+                svc_style = (
+                    f"shape={stencil};whiteSpace=wrap;html=1;rounded=1;"
+                    f"strokeColor={conf_color};fillColor=#FFFFFF;fontSize=12;"
+                    f"fontColor=#1a1a1a;align=left;spacingLeft=8;"
+                )
+                sid = next_id()
+                svc_cell = ET.SubElement(
+                    root_cell, "mxCell",
+                    id=sid,
+                    value=label,
+                    style=svc_style,
+                    vertex="1", parent=zid,
+                )
+                svc_cell.append(_mx_geom(sx, sy, sw, sh))
 
     # ── Cloud boundary geometry ──
     if zone_rects:
@@ -900,7 +1003,7 @@ def _generate_vsdx(analysis: dict) -> dict:
         sub_shapes = ET.SubElement(zone_shape, f"{{{_VDX_NS}}}Shapes")
 
         for si, svc in enumerate(services):
-            aws_name = svc if isinstance(svc, str) else svc.get("aws", svc.get("source_service", svc.get("name", "")))
+            aws_name = svc if isinstance(svc, str) else svc.get("source", svc.get("aws", svc.get("gcp", svc.get("source_service", svc.get("name", "")))))
             info = svc_map.get(aws_name, {})
             azure_name = info.get("azure", svc.get("azure", aws_name) if isinstance(svc, dict) else aws_name)
             raw_conf = info.get("confidence", svc.get("confidence", "medium") if isinstance(svc, dict) else "medium")

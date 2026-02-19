@@ -45,30 +45,23 @@ export default function DiagramTranslator() {
     setStep('analyzing');
     setAnalyzeProgress([]);
 
-    const zones = [
-      'Connecting to analysis engine...',
-      'Preprocessing uploaded diagram...',
-      'Classifying image type...',
-      'Detecting cloud services and architecture patterns...',
-      'Identifying service zones and data flows...',
-      'Mapping source services to Azure equivalents...',
-      'Calculating confidence scores...',
-      'Generating migration recommendations...',
-      'Analysis complete.',
-    ];
-
-    for (const msg of zones) {
-      await new Promise(r => setTimeout(r, 250 + Math.random() * 200));
+    const addStep = async (msg) => {
+      await new Promise(r => setTimeout(r, 200 + Math.random() * 150));
       setAnalyzeProgress(prev => [...prev, msg]);
-    }
+    };
+
+    await addStep('Connecting to analysis engine...');
 
     try {
       const formData = new FormData();
       formData.append('file', file);
+
+      await addStep('Uploading diagram...');
       const uploadRes = await fetch(`${API_BASE}/projects/demo-project/diagrams`, { method: 'POST', body: formData });
       const { diagram_id } = await uploadRes.json();
       setDiagramId(diagram_id);
 
+      await addStep('Analyzing architecture with GPT-4o Vision...');
       const analyzeRes = await fetch(`${API_BASE}/diagrams/${diagram_id}/analyze`, { method: 'POST' });
       const result = await analyzeRes.json();
 
@@ -83,6 +76,21 @@ export default function DiagramTranslator() {
       if (!analyzeRes.ok) {
         throw new Error(result?.detail || 'Analysis failed');
       }
+
+      // Show dynamic zone-by-zone progress from the real analysis result
+      const provider = (result.source_provider || 'aws').toUpperCase();
+      for (const zone of (result.zones || [])) {
+        const svcNames = (zone.services || []).map(s => {
+          if (typeof s === 'string') return s;
+          return s.source || s.aws || s.gcp || s.source_service || s.name || '';
+        }).filter(Boolean).slice(0, 3);
+        const svcLabel = svcNames.length > 0 ? ` (${svcNames.join(', ')})` : '';
+        await addStep(`Zone ${zone.number || zone.id}: ${zone.name}${svcLabel}...`);
+      }
+
+      await addStep(`Mapping ${provider} services to Azure equivalents...`);
+      await addStep('Calculating confidence scores...');
+      await addStep('Analysis complete.');
 
       setAnalysis(result);
 
@@ -189,9 +197,11 @@ export default function DiagramTranslator() {
 
   const handleGenerateHld = async () => {
     setHldLoading(true);
+    setError(null);
     try {
       const res = await fetch(`${API_BASE}/diagrams/${diagramId}/generate-hld`, { method: 'POST' });
       const data = await res.json();
+      if (!res.ok) throw new Error(data?.detail || `HLD generation failed (${res.status})`);
       if (data.hld) setHldData(data);
     } catch (err) {
       setError('HLD generation failed: ' + err.message);
@@ -373,7 +383,7 @@ export default function DiagramTranslator() {
                 </p>
               </div>
               <div className="flex items-center gap-2">
-                <Badge variant="aws">AWS</Badge>
+                <Badge variant={analysis.source_provider || 'aws'}>{(analysis.source_provider || 'aws').toUpperCase()}</Badge>
                 <ArrowRight className="w-4 h-4 text-text-muted" />
                 <Badge variant="azure">Azure</Badge>
               </div>
@@ -415,7 +425,7 @@ export default function DiagramTranslator() {
                         <div key={i} className="px-4 py-3 flex items-center gap-3">
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-sm text-[#FF9900] font-medium">{m.source_service}</span>
+                              <span className={`text-sm font-medium ${analysis.source_provider === 'gcp' ? 'text-[#EA4335]' : 'text-[#FF9900]'}`}>{m.source_service}</span>
                               <ArrowRight className="w-3.5 h-3.5 text-text-muted shrink-0" />
                               <span className="text-sm text-info font-medium">{m.azure_service}</span>
                             </div>
@@ -644,36 +654,8 @@ export default function DiagramTranslator() {
       {/* Step: IaC Code */}
       {step === 'iac' && iacCode && (
         <div className="space-y-6">
-          <Card className="p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-3">
-                <FileCode className="w-6 h-6 text-cta" />
-                <div>
-                  <h2 className="text-xl font-bold text-text-primary">
-                    {iacFormat === 'terraform' ? 'Terraform' : 'Bicep'} Code
-                  </h2>
-                  <p className="text-xs text-text-muted">{iacCode.split('\n').length} lines generated</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button onClick={() => { navigator.clipboard.writeText(iacCode); }} variant="ghost" size="sm" icon={FileText}>Copy</Button>
-                <Button onClick={() => {
-                  const blob = new Blob([iacCode], { type: 'text/plain' });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.href = url; a.download = iacFormat === 'terraform' ? 'main.tf' : 'main.bicep'; a.click();
-                  URL.revokeObjectURL(url);
-                }} variant="secondary" size="sm" icon={Download}>Download</Button>
-              </div>
-            </div>
-            <div className="bg-surface rounded-lg border border-border overflow-auto max-h-[600px]">
-              <pre className="p-4 text-xs leading-relaxed">
-                <code className={`language-${iacFormat === 'terraform' ? 'hcl' : 'json'}`}>{iacCode}</code>
-              </pre>
-            </div>
-          </Card>
 
-          {/* Cost Estimate */}
+          {/* Cost Estimate — shown first */}
           {costEstimate && (
             <Card className="p-6">
               <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2 mb-4">
@@ -714,6 +696,36 @@ export default function DiagramTranslator() {
               </div>
             </Card>
           )}
+
+          {/* IaC Code */}
+          <Card className="p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <FileCode className="w-6 h-6 text-cta" />
+                <div>
+                  <h2 className="text-xl font-bold text-text-primary">
+                    {iacFormat === 'terraform' ? 'Terraform' : 'Bicep'} Code
+                  </h2>
+                  <p className="text-xs text-text-muted">{iacCode.split('\n').length} lines generated</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button onClick={() => { navigator.clipboard.writeText(iacCode); }} variant="ghost" size="sm" icon={FileText}>Copy</Button>
+                <Button onClick={() => {
+                  const blob = new Blob([iacCode], { type: 'text/plain' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url; a.download = iacFormat === 'terraform' ? 'main.tf' : 'main.bicep'; a.click();
+                  URL.revokeObjectURL(url);
+                }} variant="secondary" size="sm" icon={Download}>Download</Button>
+              </div>
+            </div>
+            <div className="bg-surface rounded-lg border border-border overflow-auto max-h-[600px]">
+              <pre className="p-4 text-xs leading-relaxed">
+                <code className={`language-${iacFormat === 'terraform' ? 'hcl' : 'json'}`}>{iacCode}</code>
+              </pre>
+            </div>
+          </Card>
 
           {/* IaC Chat Panel */}
           <Card className="p-6">
