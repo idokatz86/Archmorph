@@ -227,23 +227,32 @@ export default function DiagramTranslator() {
       {/* Progress Steps */}
       <div className="flex items-center justify-center gap-2 text-xs font-medium">
         {[
-          { id: 'upload', label: 'Upload' },
-          { id: 'analyzing', label: 'Analyzing' },
-          { id: 'questions', label: 'Customize' },
-          { id: 'results', label: 'Results' },
-          { id: 'iac', label: 'IaC Code' },
-        ].map((s, i, arr) => (
+          { id: 'upload', label: 'Upload', canNav: true },
+          { id: 'analyzing', label: 'Analyzing', canNav: false },
+          { id: 'questions', label: 'Customize', canNav: !!analysis },
+          { id: 'results', label: 'Results', canNav: !!analysis },
+          { id: 'iac', label: 'IaC Code', canNav: !!iacCode },
+        ].map((s, i, arr) => {
+          const isActive = step === s.id;
+          const isPast = arr.findIndex(x => x.id === step) > i;
+          const clickable = s.canNav && !isActive && step !== 'analyzing';
+          return (
           <React.Fragment key={s.id}>
-            <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-colors ${
-              step === s.id ? 'bg-cta/15 text-cta' :
-              arr.findIndex(x => x.id === step) > i ? 'text-cta' : 'text-text-muted'
-            }`}>
-              {arr.findIndex(x => x.id === step) > i ? <CheckCircle className="w-3.5 h-3.5" /> : <span className="w-5 h-5 rounded-full border border-current flex items-center justify-center text-[10px]">{i + 1}</span>}
+            <div
+              role={clickable ? 'button' : undefined}
+              tabIndex={clickable ? 0 : undefined}
+              onClick={clickable ? () => setStep(s.id) : undefined}
+              onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setStep(s.id); } } : undefined}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-colors ${
+              isActive ? 'bg-cta/15 text-cta' :
+              isPast ? 'text-cta' : 'text-text-muted'
+            } ${clickable ? 'cursor-pointer hover:bg-cta/10' : ''}`}>
+              {isPast ? <CheckCircle className="w-3.5 h-3.5" /> : <span className="w-5 h-5 rounded-full border border-current flex items-center justify-center text-[10px]">{i + 1}</span>}
               <span className="hidden sm:inline">{s.label}</span>
             </div>
             {i < arr.length - 1 && <ChevronRight className="w-4 h-4 text-text-muted" />}
           </React.Fragment>
-        ))}
+        );})}
       </div>
 
       {error && (
