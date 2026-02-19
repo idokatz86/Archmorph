@@ -10,7 +10,7 @@ psycopg2-binary==2.9.11
 sqlalchemy==2.0.36
 alembic==1.16.5
 python-dotenv==1.0.1
-pillow==11.3.0
+pillow==12.1.1
 apscheduler==3.10.4
 PyGithub==2.8.1
 slowapi==0.1.9
