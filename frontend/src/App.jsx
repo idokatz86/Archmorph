@@ -7,6 +7,7 @@ import {
   AlertTriangle, CheckCircle, XCircle, ArrowRight,
   HelpCircle, Eye, Code, Activity, Box, Settings, Loader2, X,
   Check, Info, FileText, MessageSquare, Mail, TrendingUp, Send,
+  Sparkles, Bot, RotateCcw, Plus,
 } from 'lucide-react';
 
 const API_BASE = 'https://archmorph-api.icyisland-c0dee6ba.northeurope.azurecontainerapps.io/api';
@@ -284,6 +285,16 @@ function DiagramTranslator() {
   const [analyzeProgress, setAnalyzeProgress] = useState([]);
   const fileInputRef = useRef(null);
 
+  // IaC Chat state
+  const [iacChatOpen, setIacChatOpen] = useState(false);
+  const [iacChatMessages, setIacChatMessages] = useState([
+    { role: 'assistant', content: 'Hi! I\'m your **IaC Assistant**. I can help you modify your Terraform/Bicep code. Try asking me to:\n\n- Add VNet with subnets and NSGs\n- Configure public/private IPs\n- Add storage accounts\n- Apply naming conventions\n- Set up monitoring & diagnostics\n- Add Key Vault access policies\n\nWhat would you like to change?' },
+  ]);
+  const [iacChatInput, setIacChatInput] = useState('');
+  const [iacChatLoading, setIacChatLoading] = useState(false);
+  const iacChatEndRef = useRef(null);
+  const iacChatInputRef = useRef(null);
+
   // ── Upload & Analyze ──
   const handleUpload = async (file) => {
     setError(null);
@@ -399,6 +410,54 @@ function DiagramTranslator() {
     setExportLoading(prev => ({ ...prev, [format]: false }));
   };
 
+  // ── IaC Chat ──
+  const handleIacChat = async () => {
+    const text = iacChatInput.trim();
+    if (!text || iacChatLoading) return;
+    setIacChatInput('');
+    setIacChatMessages(prev => [...prev, { role: 'user', content: text }]);
+    setIacChatLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/diagrams/${diagramId}/iac-chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text, code: iacCode || '', format: iacFormat }),
+      });
+      const data = await res.json();
+      setIacChatMessages(prev => [...prev, {
+        role: 'assistant',
+        content: data.reply || data.message || 'Done.',
+        changes: data.changes_summary || [],
+        services: data.services_added || [],
+      }]);
+      if (data.code && !data.error) {
+        setIacCode(data.code);
+        setTimeout(() => Prism.highlightAll(), 100);
+      }
+    } catch {
+      setIacChatMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, couldn\'t connect to the IaC assistant.' }]);
+    }
+    setIacChatLoading(false);
+    setTimeout(() => iacChatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+  };
+
+  // ── Generate HLD ──
+  const [hldData, setHldData] = useState(null);
+  const [hldLoading, setHldLoading] = useState(false);
+  const [hldTab, setHldTab] = useState('overview');
+
+  const handleGenerateHld = async () => {
+    setHldLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/diagrams/${diagramId}/generate-hld`, { method: 'POST' });
+      const data = await res.json();
+      if (data.hld) setHldData(data);
+    } catch (err) {
+      setError('HLD generation failed: ' + err.message);
+    }
+    setHldLoading(false);
+  };
+
   // ── Reset ──
   const reset = () => {
     setStep('upload');
@@ -408,6 +467,7 @@ function DiagramTranslator() {
     setAnswers({});
     setIacCode(null);
     setCostEstimate(null);
+    setHldData(null);
     setError(null);
     setAnalyzeProgress([]);
   };
@@ -700,8 +760,170 @@ function DiagramTranslator() {
             <div className="flex items-center gap-2">
               <Button onClick={() => handleGenerateIac('terraform')} loading={loading && iacFormat === 'terraform'} icon={FileCode}>Generate Terraform</Button>
               <Button onClick={() => handleGenerateIac('bicep')} variant="secondary" loading={loading && iacFormat === 'bicep'} icon={FileCode}>Generate Bicep</Button>
+              <Button onClick={handleGenerateHld} loading={hldLoading} variant="secondary" icon={Sparkles}>Generate HLD</Button>
             </div>
           </div>
+
+          {/* HLD Document */}
+          {hldData && (
+            <Card className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <Sparkles className="w-6 h-6 text-cta" />
+                  <div>
+                    <h2 className="text-xl font-bold text-text-primary">{hldData.hld?.title || 'High-Level Design'}</h2>
+                    <p className="text-xs text-text-muted">AI-generated architecture document</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button onClick={() => { navigator.clipboard.writeText(hldData.markdown || ''); }} variant="ghost" size="sm" icon={FileText}>Copy MD</Button>
+                  <Button onClick={() => {
+                    const blob = new Blob([hldData.markdown || ''], { type: 'text/markdown' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url; a.download = 'archmorph-hld.md'; a.click();
+                    URL.revokeObjectURL(url);
+                  }} variant="ghost" size="sm" icon={Download}>Download</Button>
+                  <Button onClick={() => {
+                    const blob = new Blob([JSON.stringify(hldData.hld, null, 2)], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url; a.download = 'archmorph-hld.json'; a.click();
+                    URL.revokeObjectURL(url);
+                  }} variant="ghost" size="sm" icon={Download}>JSON</Button>
+                </div>
+              </div>
+
+              {/* HLD Tabs */}
+              <div className="flex gap-1 mb-4 border-b border-border pb-2">
+                {[
+                  { id: 'overview', label: 'Overview' },
+                  { id: 'services', label: 'Services' },
+                  { id: 'networking', label: 'Networking' },
+                  { id: 'security', label: 'Security' },
+                  { id: 'finops', label: 'FinOps' },
+                  { id: 'migration', label: 'Migration' },
+                  { id: 'waf', label: 'WAF' },
+                ].map(t => (
+                  <button key={t.id} onClick={() => setHldTab(t.id)}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
+                      hldTab === t.id ? 'bg-cta/15 text-cta' : 'text-text-muted hover:text-text-primary'
+                    }`}>{t.label}</button>
+                ))}
+              </div>
+
+              <div className="text-sm text-text-secondary space-y-3 max-h-[600px] overflow-y-auto">
+                {hldTab === 'overview' && (
+                  <div className="space-y-3">
+                    <p className="whitespace-pre-wrap">{hldData.hld?.executive_summary}</p>
+                    {hldData.hld?.architecture_overview && (
+                      <div className="p-4 bg-surface rounded-xl border border-border">
+                        <p className="text-xs font-semibold text-text-primary mb-2">Architecture Style: {hldData.hld.architecture_overview.architecture_style}</p>
+                        <p className="text-xs">{hldData.hld.architecture_overview.description}</p>
+                      </div>
+                    )}
+                    {hldData.hld?.region_strategy && (
+                      <div className="p-4 bg-surface rounded-xl border border-border">
+                        <p className="text-xs font-semibold text-text-primary mb-1">Region Strategy</p>
+                        <p className="text-xs">Primary: {hldData.hld.region_strategy.primary_region} | DR: {hldData.hld.region_strategy.dr_region}</p>
+                      </div>
+                    )}
+                    {hldData.hld?.azure_caf_alignment && (
+                      <div className="p-4 bg-surface rounded-xl border border-border">
+                        <p className="text-xs font-semibold text-text-primary mb-1">Azure CAF Alignment</p>
+                        <p className="text-xs">Naming: {hldData.hld.azure_caf_alignment.naming_convention}</p>
+                        <p className="text-xs">Landing Zone: {hldData.hld.azure_caf_alignment.landing_zone}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {hldTab === 'services' && hldData.hld?.services && (
+                  <div className="space-y-3">
+                    {hldData.hld.services.map((svc, i) => (
+                      <div key={i} className="p-4 bg-surface rounded-xl border border-border">
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="text-xs font-semibold text-text-primary">{svc.azure_service}</h4>
+                          {svc.source_service && <span className="text-[10px] px-2 py-0.5 bg-warning/10 text-warning rounded-full">from {svc.source_service}</span>}
+                        </div>
+                        <p className="text-xs mb-2">{svc.description}</p>
+                        <p className="text-[10px] text-cta font-medium mb-1">Why: {svc.justification}</p>
+                        <div className="flex flex-wrap gap-2 text-[10px] text-text-muted">
+                          {svc.tier_recommendation && <span>Tier: {svc.tier_recommendation}</span>}
+                          {svc.sla && <span>SLA: {svc.sla}</span>}
+                          {svc.estimated_monthly_cost && <span>Cost: {svc.estimated_monthly_cost}</span>}
+                        </div>
+                        {svc.documentation_url && (
+                          <a href={svc.documentation_url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-cta hover:underline mt-1 inline-block">Documentation →</a>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {hldTab === 'networking' && hldData.hld?.networking_design && (
+                  <div className="space-y-2 p-4 bg-surface rounded-xl border border-border">
+                    <p className="text-xs"><strong>Topology:</strong> {hldData.hld.networking_design.topology}</p>
+                    <p className="text-xs"><strong>VNet:</strong> {hldData.hld.networking_design.vnet_design}</p>
+                    <p className="text-xs"><strong>DNS:</strong> {hldData.hld.networking_design.dns_strategy}</p>
+                    {hldData.hld.networking_design.security_controls && (
+                      <p className="text-xs"><strong>Controls:</strong> {hldData.hld.networking_design.security_controls.join(', ')}</p>
+                    )}
+                  </div>
+                )}
+
+                {hldTab === 'security' && hldData.hld?.security_design && (
+                  <div className="space-y-2 p-4 bg-surface rounded-xl border border-border">
+                    <p className="text-xs"><strong>Identity:</strong> {hldData.hld.security_design.identity}</p>
+                    <p className="text-xs"><strong>Data:</strong> {hldData.hld.security_design.data_protection}</p>
+                    <p className="text-xs"><strong>Network:</strong> {hldData.hld.security_design.network_security}</p>
+                    <p className="text-xs"><strong>Secrets:</strong> {hldData.hld.security_design.secrets_management}</p>
+                  </div>
+                )}
+
+                {hldTab === 'finops' && hldData.hld?.finops && (
+                  <div className="space-y-2 p-4 bg-surface rounded-xl border border-border">
+                    <p className="text-xs font-semibold text-cta">Total: {hldData.hld.finops.total_estimated_monthly_cost}</p>
+                    {hldData.hld.finops.cost_optimization_recommendations?.map((r, i) => (
+                      <p key={i} className="text-xs flex items-start gap-1"><span className="text-cta">•</span> {r}</p>
+                    ))}
+                    {hldData.hld.finops.reserved_instances_candidates?.length > 0 && (
+                      <p className="text-xs"><strong>RI Candidates:</strong> {hldData.hld.finops.reserved_instances_candidates.join(', ')}</p>
+                    )}
+                  </div>
+                )}
+
+                {hldTab === 'migration' && hldData.hld?.migration_approach && (
+                  <div className="space-y-3">
+                    <p className="text-xs font-semibold">Strategy: {hldData.hld.migration_approach.strategy}</p>
+                    {hldData.hld.migration_approach.phases?.map((p, i) => (
+                      <div key={i} className="p-3 bg-surface rounded-xl border border-border">
+                        <p className="text-xs font-semibold text-text-primary">Phase {p.phase}: {p.name}</p>
+                        <p className="text-[10px] text-text-muted mt-1">{p.description}</p>
+                        <p className="text-[10px] mt-1">Duration: {p.duration_weeks} weeks | Services: {p.services?.join(', ')}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {hldTab === 'waf' && hldData.hld?.waf_assessment && (
+                  <div className="space-y-2 p-4 bg-surface rounded-xl border border-border">
+                    {Object.entries(hldData.hld.waf_assessment).map(([pillar, info]) => (
+                      <div key={pillar} className="flex items-center justify-between py-1 border-b border-border/50 last:border-0">
+                        <span className="text-xs font-medium text-text-primary capitalize">{pillar.replace(/_/g, ' ')}</span>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                            info.score === 'High' ? 'bg-cta/15 text-cta' : info.score === 'Medium' ? 'bg-warning/15 text-warning' : 'bg-red-500/15 text-red-400'
+                          }`}>{info.score}</span>
+                          <span className="text-[10px] text-text-muted max-w-xs truncate">{info.notes}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </Card>
+          )}
         </div>
       )}
 
@@ -784,6 +1006,163 @@ function DiagramTranslator() {
               </div>
             </Card>
           )}
+
+          {/* IaC Chat Panel */}
+          <Card className="p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-cta/15 flex items-center justify-center">
+                  <Sparkles className="w-4 h-4 text-cta" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-text-primary">IaC Assistant</h3>
+                  <p className="text-[10px] text-text-muted">Ask AI to add services, networking, storage & more</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {iacChatOpen && (
+                  <button
+                    onClick={() => {
+                      setIacChatMessages([{ role: 'assistant', content: 'Chat reset. What would you like to change in your IaC code?' }]);
+                      if (diagramId) fetch(`${API_BASE}/diagrams/${diagramId}/iac-chat`, { method: 'DELETE' });
+                    }}
+                    className="p-1.5 hover:bg-surface rounded-lg transition-colors cursor-pointer"
+                    title="Reset chat"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 text-text-muted" />
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    setIacChatOpen(!iacChatOpen);
+                    setTimeout(() => iacChatInputRef.current?.focus(), 100);
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer flex items-center gap-1.5 ${
+                    iacChatOpen
+                      ? 'bg-cta/15 text-cta border border-cta/30'
+                      : 'bg-surface border border-border text-text-secondary hover:border-cta/40 hover:text-cta'
+                  }`}
+                >
+                  <Bot className="w-3.5 h-3.5" />
+                  {iacChatOpen ? 'Close Chat' : 'Open Chat'}
+                </button>
+              </div>
+            </div>
+
+            {!iacChatOpen && (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {[
+                  { label: 'Add VNet & Subnets', msg: 'Add a Virtual Network with 3 subnets: frontend (10.0.1.0/24), backend (10.0.2.0/24), and data (10.0.3.0/24). Include NSGs for each subnet with appropriate rules.' },
+                  { label: 'Add Public IPs', msg: 'Add public IP addresses for the load balancer and application gateway. Use Standard SKU with static allocation.' },
+                  { label: 'Add Storage Account', msg: 'Add a general-purpose v2 storage account with blob containers, lifecycle management policy, and private endpoint.' },
+                  { label: 'Apply Naming Convention', msg: 'Apply Microsoft Cloud Adoption Framework (CAF) naming conventions to ALL resources. Use the pattern: {resource-type}-{project}-{environment}.' },
+                  { label: 'Add Monitoring', msg: 'Add Azure Monitor with Log Analytics workspace, diagnostic settings for all resources, and Application Insights.' },
+                  { label: 'Add Key Vault Policies', msg: 'Add access policies to the Key Vault for the current user with full key, secret, and certificate permissions. Also add managed identity access for compute resources.' },
+                  { label: 'Add Private Endpoints', msg: 'Add private endpoints for all PaaS services (storage accounts, Cosmos DB, SQL, Key Vault). Include Private DNS Zones for each service.' },
+                  { label: 'Add Bastion Host', msg: 'Add Azure Bastion with a dedicated AzureBastionSubnet (/26) for secure RDP/SSH access to VMs without public IPs.' },
+                ].map((q, i) => (
+                  <button
+                    key={i}
+                    onClick={() => {
+                      setIacChatOpen(true);
+                      setIacChatInput(q.msg);
+                      setTimeout(() => iacChatInputRef.current?.focus(), 100);
+                    }}
+                    className="px-3 py-2 bg-surface border border-border rounded-lg text-[11px] text-text-secondary hover:border-cta/40 hover:text-cta transition-all cursor-pointer text-left flex items-center gap-1.5"
+                  >
+                    <Plus className="w-3 h-3 shrink-0" />
+                    {q.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {iacChatOpen && (
+              <div className="border border-border rounded-xl overflow-hidden bg-primary">
+                {/* Messages */}
+                <div className="h-80 overflow-y-auto px-4 py-3 space-y-3">
+                  {iacChatMessages.map((msg, i) => (
+                    <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                      <div className={`max-w-[88%] px-3 py-2 rounded-xl text-sm ${
+                        msg.role === 'user'
+                          ? 'bg-cta/15 text-text-primary rounded-br-sm'
+                          : 'bg-secondary text-text-primary rounded-bl-sm'
+                      }`}>
+                        {msg.content.split('\n').map((line, li) => (
+                          <p key={li} className={li > 0 ? 'mt-1.5' : ''}>
+                            {line.split(/(\*\*.*?\*\*)/).map((part, pi) => {
+                              const bold = part.match(/^\*\*(.*?)\*\*$/);
+                              if (bold) return <strong key={pi} className="font-semibold">{bold[1]}</strong>;
+                              return part;
+                            })}
+                          </p>
+                        ))}
+                        {msg.changes && msg.changes.length > 0 && (
+                          <div className="mt-2 pt-2 border-t border-border/50">
+                            <p className="text-[10px] font-semibold text-cta mb-1 flex items-center gap-1">
+                              <CheckCircle className="w-3 h-3" /> Changes applied:
+                            </p>
+                            <ul className="space-y-0.5">
+                              {msg.changes.map((c, ci) => (
+                                <li key={ci} className="text-[10px] text-text-muted flex items-start gap-1">
+                                  <span className="text-cta mt-0.5">+</span> {c}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        {msg.services && msg.services.length > 0 && (
+                          <div className="mt-1.5 flex flex-wrap gap-1">
+                            {msg.services.map((s, si) => (
+                              <span key={si} className="inline-flex items-center px-1.5 py-0.5 text-[9px] font-medium rounded bg-cta/10 text-cta border border-cta/20">
+                                {s}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  {iacChatLoading && (
+                    <div className="flex justify-start">
+                      <div className="bg-secondary px-3 py-2 rounded-xl rounded-bl-sm flex items-center gap-2">
+                        <Loader2 className="w-4 h-4 text-cta animate-spin" />
+                        <span className="text-xs text-text-muted">Modifying code...</span>
+                      </div>
+                    </div>
+                  )}
+                  <div ref={iacChatEndRef} />
+                </div>
+
+                {/* Input */}
+                <div className="px-3 py-3 border-t border-border bg-secondary/50">
+                  <div className="flex items-center gap-2">
+                    <input
+                      ref={iacChatInputRef}
+                      type="text"
+                      value={iacChatInput}
+                      onChange={e => setIacChatInput(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault();
+                          handleIacChat();
+                        }
+                      }}
+                      placeholder="Ask to add VNet, storage, IPs, naming conventions..."
+                      className="flex-1 px-3 py-2 bg-surface border border-border rounded-lg text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-cta/50 transition-colors"
+                    />
+                    <button
+                      onClick={handleIacChat}
+                      disabled={!iacChatInput.trim() || iacChatLoading}
+                      className="p-2 rounded-lg bg-cta hover:bg-cta-hover text-surface disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                    >
+                      <Send className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </Card>
 
           <div className="flex items-center justify-between">
             <Button onClick={() => setStep('results')} variant="ghost" icon={Eye}>Back to Results</Button>

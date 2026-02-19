@@ -391,7 +391,133 @@ test.describe('API Endpoints', () => {
 });
 
 // ====================================================================
-// 10. Footer & Branding
+// 10. HLD Generation
+// ====================================================================
+
+test.describe('HLD Generation', () => {
+  test('Generate HLD button visible on results page', async ({ page }) => {
+    await page.goto('/');
+    await navigateToResults(page);
+
+    await expect(page.getByRole('button', { name: /Generate HLD/i })).toBeVisible();
+  });
+
+  test('HLD API endpoint generates document', async ({ request }) => {
+    // Upload + Analyze first
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...Array(50).fill(0)]);
+    const uploadResp = await request.post(`${API_BASE}/api/projects/e2e-hld/diagrams`, {
+      multipart: {
+        file: { name: 'test.png', mimeType: 'image/png', buffer: png },
+      },
+      timeout: API_TIMEOUT,
+    });
+    expect(uploadResp.ok()).toBeTruthy();
+    const { diagram_id } = await uploadResp.json();
+
+    await request.post(`${API_BASE}/api/diagrams/${diagram_id}/analyze`, { timeout: API_TIMEOUT });
+
+    // Generate HLD
+    const hldResp = await request.post(`${API_BASE}/api/diagrams/${diagram_id}/generate-hld`, { timeout: API_TIMEOUT });
+    expect(hldResp.ok()).toBeTruthy();
+    const data = await hldResp.json();
+    expect(data.hld).toBeDefined();
+    expect(data.hld.title).toBeDefined();
+    expect(data.hld.services).toBeDefined();
+    expect(data.markdown).toBeDefined();
+    expect(data.markdown.length).toBeGreaterThan(100);
+  });
+
+  test('GET HLD returns cached document', async ({ request }) => {
+    // Upload + Analyze + Generate first
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...Array(50).fill(0)]);
+    const uploadResp = await request.post(`${API_BASE}/api/projects/e2e-hld-get/diagrams`, {
+      multipart: {
+        file: { name: 'test.png', mimeType: 'image/png', buffer: png },
+      },
+      timeout: API_TIMEOUT,
+    });
+    const { diagram_id } = await uploadResp.json();
+    await request.post(`${API_BASE}/api/diagrams/${diagram_id}/analyze`, { timeout: API_TIMEOUT });
+    await request.post(`${API_BASE}/api/diagrams/${diagram_id}/generate-hld`, { timeout: API_TIMEOUT });
+
+    // GET cached HLD
+    const getResp = await request.get(`${API_BASE}/api/diagrams/${diagram_id}/hld`, { timeout: API_TIMEOUT });
+    expect(getResp.ok()).toBeTruthy();
+    const data = await getResp.json();
+    expect(data.hld).toBeDefined();
+    expect(data.markdown).toBeDefined();
+  });
+
+  test('HLD 404 when not generated', async ({ request }) => {
+    const resp = await request.get(`${API_BASE}/api/diagrams/nonexistent-hld-id/hld`);
+    expect(resp.status()).toBe(404);
+  });
+});
+
+// ====================================================================
+// 11. IaC Chat Assistant
+// ====================================================================
+
+test.describe('IaC Chat', () => {
+  test('IaC chat endpoint processes message', async ({ request }) => {
+    // Upload + Analyze + Generate IaC first
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...Array(50).fill(0)]);
+    const uploadResp = await request.post(`${API_BASE}/api/projects/e2e-chat/diagrams`, {
+      multipart: {
+        file: { name: 'test.png', mimeType: 'image/png', buffer: png },
+      },
+      timeout: API_TIMEOUT,
+    });
+    const { diagram_id } = await uploadResp.json();
+    await request.post(`${API_BASE}/api/diagrams/${diagram_id}/analyze`, { timeout: API_TIMEOUT });
+    await request.post(`${API_BASE}/api/diagrams/${diagram_id}/generate?format=terraform`, { timeout: API_TIMEOUT });
+
+    // Send IaC chat message
+    const chatResp = await request.post(`${API_BASE}/api/diagrams/${diagram_id}/iac-chat`, {
+      data: { message: 'Add a Redis cache resource', format: 'terraform' },
+      timeout: API_TIMEOUT,
+    });
+    expect(chatResp.ok()).toBeTruthy();
+    const data = await chatResp.json();
+    expect(data.reply).toBeDefined();
+    expect(data.reply.length).toBeGreaterThan(10);
+  });
+
+  test('IaC chat history returns messages', async ({ request }) => {
+    // Upload + Analyze + Generate + Chat first
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...Array(50).fill(0)]);
+    const uploadResp = await request.post(`${API_BASE}/api/projects/e2e-chat-hist/diagrams`, {
+      multipart: {
+        file: { name: 'test.png', mimeType: 'image/png', buffer: png },
+      },
+      timeout: API_TIMEOUT,
+    });
+    const { diagram_id } = await uploadResp.json();
+    await request.post(`${API_BASE}/api/diagrams/${diagram_id}/analyze`, { timeout: API_TIMEOUT });
+    await request.post(`${API_BASE}/api/diagrams/${diagram_id}/generate?format=terraform`, { timeout: API_TIMEOUT });
+    await request.post(`${API_BASE}/api/diagrams/${diagram_id}/iac-chat`, {
+      data: { message: 'Explain the code', format: 'terraform' },
+      timeout: API_TIMEOUT,
+    });
+
+    // Get history
+    const histResp = await request.get(`${API_BASE}/api/diagrams/${diagram_id}/iac-chat`, { timeout: API_TIMEOUT });
+    expect(histResp.ok()).toBeTruthy();
+    const data = await histResp.json();
+    expect(data.messages).toBeDefined();
+    expect(data.messages.length).toBeGreaterThanOrEqual(2); // user + assistant
+  });
+
+  test('IaC chat clear returns success', async ({ request }) => {
+    const resp = await request.delete(`${API_BASE}/api/diagrams/e2e-clear-test/iac-chat`);
+    expect(resp.ok()).toBeTruthy();
+    const data = await resp.json();
+    expect(data).toHaveProperty('cleared');
+  });
+});
+
+// ====================================================================
+// 12. Footer & Branding
 // ====================================================================
 
 test.describe('Footer & Branding', () => {
@@ -407,7 +533,7 @@ test.describe('Footer & Branding', () => {
 });
 
 // ====================================================================
-// 11. Additional API Coverage
+// 13. Additional API Coverage
 // ====================================================================
 
 test.describe('Additional API Coverage', () => {

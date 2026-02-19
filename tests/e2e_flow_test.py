@@ -3,9 +3,10 @@
 Archmorph E2E Flow Test — 5 Architecture Diagrams (3 AWS + 2 GCP)
 =================================================================
 
-Tests the full 7-step translation flow for each diagram:
+Tests the full 9-step translation flow for each diagram:
   1. Upload → 2. Analyze → 3. Guided Questions → 4. Apply Answers →
-  5. Export Diagram → 6. Generate IaC → 7. Cost Estimate
+  5. Export Diagram → 6. Generate IaC → 7. Cost Estimate →
+  8. HLD Generation → 9. IaC Chat
 """
 
 import json
@@ -236,6 +237,66 @@ def run_flow(d: dict):
             )
         if len(cost["services"]) > 5:
             print(f"     ... and {len(cost['services']) - 5} more services")
+
+    # ── Step 8: HLD Generation ──────────────────────────────
+    resp = client.post(f"/api/diagrams/{diagram_id}/generate-hld")
+    ok = resp.status_code == 200
+    hld_data = resp.json() if ok else {}
+    hld = hld_data.get("hld", {})
+    markdown = hld_data.get("markdown", "")
+    hld_title = hld.get("title", "?")
+    n_hld_services = len(hld.get("services", []))
+    step(
+        f"[{pid}] 8. Generate HLD",
+        ok,
+        f"{n_hld_services} services, {len(markdown)} chars MD",
+    )
+    if ok:
+        print(f"     Title: {hld_title[:80]}")
+        if hld.get("services"):
+            for s in hld["services"][:4]:
+                print(f"     - {s.get('azure_service', '?')}: {s.get('justification', '')[:60]}")
+            if n_hld_services > 4:
+                print(f"     ... and {n_hld_services - 4} more services")
+        if hld.get("waf_assessment"):
+            waf = hld["waf_assessment"]
+            pillars = ["reliability", "security", "cost_optimization", "operational_excellence", "performance_efficiency"]
+            scores = [f"{p[:3]}={waf.get(p, {}).get('score', '?')}" for p in pillars if p in waf]
+            if scores:
+                print(f"     WAF: {', '.join(scores)}")
+
+    # ── Step 8b: GET HLD ──────────────────────────────────────
+    resp = client.get(f"/api/diagrams/{diagram_id}/hld")
+    ok = resp.status_code == 200
+    step(f"[{pid}] 8b. GET HLD", ok, "retrieved cached HLD")
+
+    # ── Step 9: IaC Chat ──────────────────────────────────────
+    resp = client.post(
+        f"/api/diagrams/{diagram_id}/iac-chat",
+        json={"message": "Add a Redis cache resource for session management", "format": "terraform"},
+    )
+    ok = resp.status_code == 200
+    chat_data = resp.json() if ok else {}
+    chat_reply = chat_data.get("reply", "")
+    updated_code = chat_data.get("updated_code", "")
+    step(
+        f"[{pid}] 9a. IaC Chat (add Redis)",
+        ok,
+        f"reply={len(chat_reply)} chars, code={len(updated_code)} chars",
+    )
+    if ok and chat_reply:
+        print(f"     Reply: {chat_reply[:120]}...")
+
+    # ── Step 9b: IaC Chat History ─────────────────────────────
+    resp = client.get(f"/api/diagrams/{diagram_id}/iac-chat")
+    ok = resp.status_code == 200
+    history = resp.json().get("messages", []) if ok else []
+    step(f"[{pid}] 9b. IaC Chat History", ok, f"{len(history)} messages")
+
+    # ── Step 9c: Clear IaC Chat ───────────────────────────────
+    resp = client.delete(f"/api/diagrams/{diagram_id}/iac-chat")
+    ok = resp.status_code == 200
+    step(f"[{pid}] 9c. Clear IaC Chat", ok, "session cleared")
 
     client.close()
     print()

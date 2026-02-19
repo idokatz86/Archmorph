@@ -10,6 +10,7 @@ import base64
 import json
 import logging
 import os
+from difflib import SequenceMatcher
 from typing import Any, Dict, List, Optional, Tuple
 
 from openai import AzureOpenAI
@@ -132,6 +133,74 @@ _SYNONYMS: Dict[str, str] = {
     "amazon api gateway": "api gateway",
     "eks cluster": "eks",
     "aws amplify": "amplify",
+    # ── GCP synonyms ─────────────────────────────────────────
+    "load balancer": "cloud load balancing",
+    "gcp load balancer": "cloud load balancing",
+    "google load balancer": "cloud load balancing",
+    "cloud load balancer": "cloud load balancing",
+    "google cloud load balancing": "cloud load balancing",
+    "google managed ssl": "certificate manager",
+    "managed ssl": "certificate manager",
+    "managed ssl certificate": "certificate manager",
+    "google managed ssl certificate": "certificate manager",
+    "ssl certificate": "certificate manager",
+    "google certificate manager": "certificate manager",
+    "gcp certificate manager": "certificate manager",
+    "cloud ssl": "certificate manager",
+    "google cloud storage": "cloud storage",
+    "gcp storage": "cloud storage",
+    "google cloud functions": "cloud functions",
+    "gcp functions": "cloud functions",
+    "google compute engine": "compute engine",
+    "gcp compute": "compute engine",
+    "google kubernetes engine": "gke",
+    "gcp kubernetes": "gke",
+    "google cloud sql": "cloud sql",
+    "gcp cloud sql": "cloud sql",
+    "google cloud pub/sub": "cloud pub/sub",
+    "gcp pub/sub": "cloud pub/sub",
+    "google cloud run": "cloud run",
+    "gcp cloud run": "cloud run",
+    "google bigquery": "bigquery",
+    "gcp bigquery": "bigquery",
+    "google cloud cdn": "cloud cdn",
+    "gcp cdn": "cloud cdn",
+    "google cloud armor": "cloud armor",
+    "gcp cloud armor": "cloud armor",
+    "google cloud dns": "cloud dns",
+    "gcp cloud dns": "cloud dns",
+    "google cloud spanner": "cloud spanner",
+    "gcp spanner": "cloud spanner",
+    "google dataflow": "dataflow",
+    "gcp dataflow": "dataflow",
+    "google dataproc": "dataproc",
+    "gcp dataproc": "dataproc",
+    "google cloud iam": "cloud iam",
+    "gcp iam": "cloud iam",
+    "google cloud kms": "cloud kms",
+    "gcp kms": "cloud kms",
+    "google memorystore": "memorystore",
+    "gcp memorystore": "memorystore",
+    "google filestore": "filestore",
+    "gcp filestore": "filestore",
+    "google cloud logging": "cloud logging",
+    "gcp logging": "cloud logging",
+    "google cloud monitoring": "cloud monitoring",
+    "gcp monitoring": "cloud monitoring",
+    "google vertex ai": "vertex ai",
+    "gcp vertex ai": "vertex ai",
+    "google cloud endpoints": "cloud endpoints",
+    "gcp endpoints": "cloud endpoints",
+    "google app engine": "app engine",
+    "gcp app engine": "app engine",
+    "google firebase": "firebase",
+    "gcp firebase": "firebase",
+    "google anthos": "anthos",
+    "gcp anthos": "anthos",
+    "google cloud interconnect": "cloud interconnect",
+    "gcp interconnect": "cloud interconnect",
+    "google cloud vpn": "cloud vpn",
+    "gcp vpn": "cloud vpn",
 }
 
 # ─────────────────────────────────────────────────────────────
@@ -145,13 +214,19 @@ RULES:
 3. Group services into logical architecture zones (e.g., "Networking", "Compute", "Database", "Security", "Storage", "Frontend", "Backend", etc.).
 4. For each service, provide:
    - The exact service name as shown in the diagram (e.g., "Amazon RDS", "Lambda", "S3")
-   - A short name for catalog matching (e.g., "RDS", "Lambda", "S3")
+   - A short_name using the CANONICAL AWS/GCP service name for catalog lookup (use official names like "RDS", "Lambda", "S3", "EKS", "Cloud Load Balancing", "Certificate Manager", "Cloud Storage", "Compute Engine", etc.)
    - The role or purpose it plays in this architecture
+   - detection_confidence: a float 0.0–1.0 rating how certain you are that this service was correctly identified (1.0 = clearly labeled icon, 0.5 = inferred from context, 0.3 = uncertain guess)
    - The zone/layer it belongs to
 5. Also identify:
    - Architecture patterns (e.g., "multi-AZ", "serverless", "microservices", "data pipeline")
    - Networking constructs (VPCs, subnets, availability zones, load balancers)
+   - Data flow connections between services (from → to)
    - Any compliance/regulatory hints (HIPAA, PCI, etc.)
+
+CANONICAL NAME EXAMPLES:
+- AWS: "EC2", "S3", "RDS", "Lambda", "ECS", "EKS", "CloudFront", "Route 53", "VPC", "ELB", "DynamoDB", "SQS", "SNS", "Kinesis", "API Gateway", "CloudWatch", "IAM", "KMS"
+- GCP: "Compute Engine", "Cloud Storage", "Cloud SQL", "Cloud Functions", "GKE", "Cloud Load Balancing", "Cloud CDN", "Cloud DNS", "BigQuery", "Pub/Sub", "Cloud Run", "Dataflow", "Certificate Manager"
 
 IMPORTANT: Be thorough — extract EVERY service icon, label, and component visible. Don't skip small components. Include infrastructure elements like VPC, subnets, internet gateways, NAT gateways, etc.
 
@@ -161,6 +236,9 @@ Respond ONLY with valid JSON in this exact format:
   "source_provider": "aws" | "gcp",
   "architecture_patterns": ["pattern1", "pattern2"],
   "compliance_hints": ["hint1"],
+  "service_connections": [
+    {"from": "<service short_name>", "to": "<service short_name>", "protocol": "<HTTPS/gRPC/TCP/event/etc>"}
+  ],
   "zones": [
     {
       "name": "<zone name>",
@@ -168,8 +246,9 @@ Respond ONLY with valid JSON in this exact format:
       "services": [
         {
           "name": "<full service name as shown>",
-          "short_name": "<short name for catalog lookup, e.g. RDS, Lambda, S3>",
-          "role": "<what it does in this architecture>"
+          "short_name": "<canonical service name for catalog lookup>",
+          "role": "<what it does in this architecture>",
+          "detection_confidence": 0.95
         }
       ]
     }
@@ -235,6 +314,23 @@ def _find_azure_mapping(
                 "confidence": infra_map["confidence"],
                 "notes": infra_map["notes"],
             }
+
+    # 3. Fuzzy semantic matching fallback — find best match by string similarity
+    best_match = None
+    best_ratio = 0.0
+    all_mappings = _MAPPING_BY_AWS if source_provider == "aws" else _MAPPING_BY_GCP
+    for mapping_key, mapping in all_mappings.items():
+        ratio = SequenceMatcher(None, key, mapping_key).ratio()
+        if ratio > best_ratio:
+            best_ratio = ratio
+            best_match = mapping
+    # Accept fuzzy match if similarity ≥ 65%
+    if best_match and best_ratio >= 0.65:
+        result = dict(best_match)
+        # Penalize confidence based on fuzzy match quality
+        result["confidence"] = round(result["confidence"] * best_ratio, 2)
+        result["notes"] = f"Fuzzy match ({best_ratio:.0%} similarity). " + result.get("notes", "")
+        return result
 
     return None
 
@@ -335,18 +431,24 @@ def _build_analysis_result(vision_result: Dict[str, Any]) -> Dict[str, Any]:
             short_name = svc.get("short_name", full_name)
             role = svc.get("role", "")
 
+            # GPT-4o detection confidence (how sure it is about identifying this service)
+            detection_conf = svc.get("detection_confidence", 0.85)
+
             # Find Azure mapping
             mapping = _find_azure_mapping(short_name, source_provider)
 
             if mapping:
                 azure_service = mapping["azure"]
-                confidence = mapping["confidence"]
+                # Blend mapping confidence with GPT-4o detection confidence
+                mapping_conf = mapping["confidence"]
+                confidence = round(mapping_conf * 0.7 + detection_conf * 0.3, 2)
+                confidence = min(1.0, max(0.0, confidence))
                 notes = mapping.get("notes", "")
                 category = mapping.get("category", "General")
             else:
                 # No direct mapping found — flag it
                 azure_service = f"[Manual mapping needed] {full_name}"
-                confidence = 0.50
+                confidence = round(0.30 * 0.7 + detection_conf * 0.3, 2)
                 notes = f"No direct cross-cloud mapping found for {full_name}"
                 category = "Unknown"
                 warnings.append(
@@ -406,6 +508,9 @@ def _build_analysis_result(vision_result: Dict[str, Any]) -> Dict[str, Any]:
     low = len([m for m in mappings if m["confidence"] < 0.80])
     avg = round(sum(m["confidence"] for m in mappings) / max(len(mappings), 1), 2)
 
+    # Extract service connections (dependency graph)
+    connections = vision_result.get("service_connections", [])
+
     return {
         "diagram_type": diagram_type,
         "source_provider": source_provider,
@@ -415,6 +520,7 @@ def _build_analysis_result(vision_result: Dict[str, Any]) -> Dict[str, Any]:
         "zones": zones_with_services,
         "mappings": mappings,
         "warnings": warnings,
+        "service_connections": connections,
         "confidence_summary": {
             "high": high,
             "medium": medium,

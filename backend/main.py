@@ -18,6 +18,8 @@ from service_updater import start_scheduler, stop_scheduler, run_update_now, get
 from guided_questions import generate_questions, apply_answers
 from diagram_export import generate_diagram
 from chatbot import process_chat_message, get_chat_history, clear_chat_session
+from iac_chat import process_iac_chat, get_iac_chat_history, clear_iac_chat
+from hld_generator import generate_hld, generate_hld_markdown
 from vision_analyzer import analyze_image
 from usage_metrics import (
     record_event, get_metrics_summary, get_daily_metrics, get_recent_events,
@@ -1256,6 +1258,117 @@ async def get_stats(response: Response):
         "avgConfidence": round(
             sum(m["confidence"] for m in CROSS_CLOUD_MAPPINGS) / len(CROSS_CLOUD_MAPPINGS), 2
         ) if CROSS_CLOUD_MAPPINGS else 0,
+    }
+
+
+# ─────────────────────────────────────────────────────────────
+# IaC Chat — GPT-4o powered Terraform/Bicep assistant
+# ─────────────────────────────────────────────────────────────
+class IaCChatMessage(BaseModel):
+    message: str
+    code: str
+    format: str = "terraform"
+
+
+@app.post("/api/diagrams/{diagram_id}/iac-chat")
+async def iac_chat_endpoint(diagram_id: str, msg: IaCChatMessage):
+    """Chat with AI to modify generated Terraform/Bicep code."""
+    record_event("iac_chat_messages", {"diagram_id": diagram_id})
+
+    # Get analysis context from session
+    session = SESSION_STORE.get(diagram_id, {})
+    analysis_context = session.get("analysis") if session else None
+
+    result = process_iac_chat(
+        diagram_id=diagram_id,
+        message=msg.message,
+        current_code=msg.code,
+        iac_format=msg.format,
+        analysis_context=analysis_context,
+    )
+
+    if result.get("services_added"):
+        record_event("iac_services_added", {
+            "diagram_id": diagram_id,
+            "services": result["services_added"],
+        })
+
+    return result
+
+
+@app.get("/api/diagrams/{diagram_id}/iac-chat/history")
+async def iac_chat_history(diagram_id: str):
+    """Get IaC chat history for a diagram."""
+    return {
+        "diagram_id": diagram_id,
+        "messages": get_iac_chat_history(diagram_id),
+    }
+
+
+@app.delete("/api/diagrams/{diagram_id}/iac-chat")
+async def iac_chat_clear(diagram_id: str):
+    """Clear IaC chat session for a diagram."""
+    cleared = clear_iac_chat(diagram_id)
+    return {"cleared": cleared}
+
+
+# ─────────────────────────────────────────────────────────────
+# HLD Generation — AI-powered High-Level Design document
+# ─────────────────────────────────────────────────────────────
+
+@app.post("/api/diagrams/{diagram_id}/generate-hld")
+async def generate_hld_endpoint(diagram_id: str):
+    """Generate a comprehensive High-Level Design document."""
+    record_event("hld_generated", {"diagram_id": diagram_id})
+
+    session = SESSION_STORE.get(diagram_id)
+    if not session:
+        raise HTTPException(404, "No analysis found. Analyze a diagram first.")
+
+    analysis = session
+
+    # Get cost estimate if available
+    cost_estimate = None
+    try:
+        from services.azure_pricing import estimate_costs
+        iac_params = session.get("iac_parameters", {})
+        region = iac_params.get("region", "westeurope")
+        strategy = iac_params.get("sku_strategy", "balanced")
+        cost_estimate = estimate_costs(analysis.get("mappings", []), region=region, sku_strategy=strategy)
+    except Exception:
+        pass
+
+    try:
+        hld = generate_hld(
+            analysis=analysis,
+            cost_estimate=cost_estimate,
+            iac_params=session.get("iac_parameters"),
+        )
+        markdown = generate_hld_markdown(hld)
+    except ValueError as e:
+        raise HTTPException(500, str(e))
+
+    # Store in session
+    session["hld"] = hld
+    session["hld_markdown"] = markdown
+
+    return {
+        "diagram_id": diagram_id,
+        "hld": hld,
+        "markdown": markdown,
+    }
+
+
+@app.get("/api/diagrams/{diagram_id}/hld")
+async def get_hld(diagram_id: str):
+    """Get previously generated HLD document."""
+    session = SESSION_STORE.get(diagram_id)
+    if not session or "hld" not in session:
+        raise HTTPException(404, "No HLD found. Generate one first.")
+    return {
+        "diagram_id": diagram_id,
+        "hld": session["hld"],
+        "markdown": session.get("hld_markdown", ""),
     }
 
 
