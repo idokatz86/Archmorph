@@ -347,7 +347,7 @@ def analyze_image(image_bytes: bytes, content_type: str = "image/png") -> Dict[s
                 ],
             },
         ],
-        max_completion_tokens=16384,
+        max_tokens=4096,
         temperature=0.1,
     )
 

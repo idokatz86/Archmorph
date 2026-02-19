@@ -102,7 +102,7 @@ def classify_image(image_bytes: bytes, content_type: str = "image/png") -> Dict[
                 ],
             },
         ],
-        max_completion_tokens=256,
+        max_tokens=256,
         temperature=0.0,
     )
 

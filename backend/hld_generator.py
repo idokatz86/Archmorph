@@ -318,7 +318,7 @@ def generate_hld(
                 {"role": "system", "content": HLD_SYSTEM_PROMPT},
                 {"role": "user", "content": f"Generate a comprehensive HLD document for this migration:\n\n{context}"},
             ],
-            max_completion_tokens=16384,
+            max_tokens=4096,
             temperature=0.3,
             response_format={"type": "json_object"},
         )
