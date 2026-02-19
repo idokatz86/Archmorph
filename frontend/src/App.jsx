@@ -1,661 +1,1244 @@
-import { useState, useRef, useEffect, useMemo } from 'react'
-import Prism from 'prismjs'
-import 'prismjs/components/prism-hcl'
-import 'prismjs/themes/prism-tomorrow.css'
+import React, { useState, useEffect, useRef } from 'react';
+import Prism from 'prismjs';
+import 'prismjs/themes/prism-tomorrow.css';
+import {
+  CloudCog, Upload, ChevronRight, Search, Filter, BarChart3,
+  Download, FileCode, Layers, Zap, Shield, Globe, Server, Database,
+  AlertTriangle, CheckCircle, XCircle, ArrowRight,
+  HelpCircle, Eye, Code, Activity, Box, Settings, Loader2, X,
+  Check, Info, FileText, MessageSquare, Mail, TrendingUp, Send,
+} from 'lucide-react';
 
-const API_BASE = 'https://archmorph-api.icyisland-c0dee6ba.northeurope.azurecontainerapps.io/api'
+const API_BASE = 'https://archmorph-api.icyisland-c0dee6ba.northeurope.azurecontainerapps.io/api';
 
-// ─────────────────────────────────────────────────────────────
-// API Client
-// ─────────────────────────────────────────────────────────────
-const api = {
-  health: () => fetch(`${API_BASE}/health`).then(r => r.json()),
-  uploadDiagram: (projectId, file) => {
-    const formData = new FormData()
-    formData.append('file', file)
-    return fetch(`${API_BASE}/projects/${projectId}/diagrams`, {
-      method: 'POST', body: formData
-    }).then(r => r.json())
-  },
-  analyzeDiagram: (diagramId) =>
-    fetch(`${API_BASE}/diagrams/${diagramId}/analyze`, { method: 'POST' }).then(r => r.json()),
-  generateIaC: (diagramId, format = 'terraform') =>
-    fetch(`${API_BASE}/diagrams/${diagramId}/generate?format=${format}`, { method: 'POST' }).then(r => r.json()),
-  getServices: (params = {}) => {
-    const qs = new URLSearchParams(params).toString()
-    return fetch(`${API_BASE}/services?${qs}`).then(r => r.json())
-  },
-  getProviders: () => fetch(`${API_BASE}/services/providers`).then(r => r.json()),
-  getCategories: () => fetch(`${API_BASE}/services/categories`).then(r => r.json()),
-  getMappings: (params = {}) => {
-    const qs = new URLSearchParams(params).toString()
-    return fetch(`${API_BASE}/services/mappings?${qs}`).then(r => r.json())
-  },
-  getStats: () => fetch(`${API_BASE}/services/stats`).then(r => r.json()),
-}
-
-// ─────────────────────────────────────────────────────────────
-// Provider Styling
-// ─────────────────────────────────────────────────────────────
-const PROVIDER_STYLES = {
-  aws: { label: 'AWS', color: 'bg-orange-500/20 text-orange-400 border-orange-500/30' },
-  azure: { label: 'Azure', color: 'bg-blue-500/20 text-blue-400 border-blue-500/30' },
-  gcp: { label: 'GCP', color: 'bg-sky-500/20 text-sky-400 border-sky-500/30' },
-}
-
+// ═══════════════════════════════════════════════════════════════
+// ICON MAP
+// ═══════════════════════════════════════════════════════════════
 const CATEGORY_ICONS = {
-  'Compute': '🖥️', 'Storage': '💾', 'Database': '🗄️', 'Networking': '🌐',
-  'Security': '🔒', 'AI/ML': '🧠', 'Analytics': '📊', 'Integration': '🔗',
-  'DevTools': '🛠️', 'Management': '⚙️', 'Containers': '📦', 'IoT': '📡',
-  'Media': '🎬', 'Migration': '🚀', 'Business': '💼',
+  Compute: Server, Storage: Database, Networking: Globe, Security: Shield,
+  Analytics: BarChart3, AI: Zap, Containers: Box, Database: Database,
+  Integration: Layers, 'Developer Tools': Code, IoT: Activity,
+  Management: Settings, default: CloudCog,
+};
+
+function getCategoryIcon(category) {
+  return CATEGORY_ICONS[category] || CATEGORY_ICONS.default;
 }
 
-// ─────────────────────────────────────────────────────────────
-// Confidence Badge
-// ─────────────────────────────────────────────────────────────
-function ConfidenceBadge({ value }) {
-  const pct = Math.round(value * 100)
-  let color = 'bg-red-100 text-red-800'
-  if (pct >= 90) color = 'bg-green-100 text-green-800'
-  else if (pct >= 70) color = 'bg-blue-100 text-blue-800'
-  else if (pct >= 50) color = 'bg-yellow-100 text-yellow-800'
-  return <span className={`px-2 py-1 rounded text-xs font-medium ${color}`}>{pct}%</span>
+// ═══════════════════════════════════════════════════════════════
+// BADGE
+// ═══════════════════════════════════════════════════════════════
+function Badge({ children, variant = 'default' }) {
+  const styles = {
+    high: 'bg-cta/15 text-cta border-cta/30',
+    medium: 'bg-warning/15 text-warning border-warning/30',
+    low: 'bg-danger/15 text-danger border-danger/30',
+    aws: 'bg-[#FF9900]/15 text-[#FF9900] border-[#FF9900]/30',
+    azure: 'bg-info/15 text-info border-info/30',
+    gcp: 'bg-[#EA4335]/15 text-[#EA4335] border-[#EA4335]/30',
+    default: 'bg-secondary text-text-secondary border-border',
+  };
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-md border ${styles[variant] || styles.default}`}>
+      {children}
+    </span>
+  );
 }
 
-// ─────────────────────────────────────────────────────────────
-// Services Browser Component
-// ─────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+// BUTTON
+// ═══════════════════════════════════════════════════════════════
+function Button({ children, onClick, variant = 'primary', size = 'md', disabled, loading, icon: Icon, className = '' }) {
+  const base = 'inline-flex items-center justify-center gap-2 font-semibold rounded-lg transition-all duration-200 cursor-pointer select-none disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-cta/50';
+  const variants = {
+    primary: 'bg-cta hover:bg-cta-hover text-surface shadow-lg shadow-cta/20',
+    secondary: 'bg-secondary hover:bg-border-light text-text-primary border border-border',
+    ghost: 'hover:bg-secondary text-text-secondary hover:text-text-primary',
+    danger: 'bg-danger/15 hover:bg-danger/25 text-danger border border-danger/30',
+  };
+  const sizes = { sm: 'px-3 py-1.5 text-xs', md: 'px-4 py-2 text-sm', lg: 'px-6 py-3 text-base' };
+  return (
+    <button onClick={onClick} disabled={disabled || loading} className={`${base} ${variants[variant]} ${sizes[size]} ${className}`}>
+      {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : Icon && <Icon className="w-4 h-4" />}
+      {children}
+    </button>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CARD
+// ═══════════════════════════════════════════════════════════════
+function Card({ children, className = '', hover = false }) {
+  return (
+    <div className={`bg-primary border border-border rounded-xl ${hover ? 'hover:border-border-light transition-colors duration-200 cursor-pointer' : ''} ${className}`}>
+      {children}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// NAV BAR
+// ═══════════════════════════════════════════════════════════════
+function Nav({ activeTab, setActiveTab, updateStatus }) {
+  return (
+    <header className="sticky top-0 z-50 bg-surface/80 backdrop-blur-xl border-b border-border">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex items-center justify-between h-16">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-cta/15 flex items-center justify-center">
+              <CloudCog className="w-5 h-5 text-cta" />
+            </div>
+            <div>
+              <h1 className="text-lg font-bold text-text-primary tracking-tight">Archmorph</h1>
+              <p className="text-[10px] text-text-muted font-medium uppercase tracking-wider">Cloud Translator</p>
+            </div>
+          </div>
+          <nav className="flex items-center gap-1">
+            {[
+              { id: 'translator', label: 'Translator', icon: Layers },
+              { id: 'services', label: 'Services', icon: Server },
+            ].map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors duration-200 cursor-pointer ${
+                  activeTab === tab.id
+                    ? 'bg-cta/10 text-cta'
+                    : 'text-text-secondary hover:text-text-primary hover:bg-secondary'
+                }`}
+              >
+                <tab.icon className="w-4 h-4" />
+                {tab.label}
+              </button>
+            ))}
+          </nav>
+          <div className="flex items-center gap-3">
+            {updateStatus && (
+              <div className="flex items-center gap-2 text-xs text-text-muted">
+                <div className={`w-2 h-2 rounded-full ${updateStatus.scheduler_running ? 'bg-cta animate-pulse' : 'bg-text-muted'}`} />
+                <span>Catalog {updateStatus.scheduler_running ? 'Live' : 'Idle'}</span>
+              </div>
+            )}
+            <Badge variant="azure">v2.0.0</Badge>
+          </div>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SERVICES BROWSER
+// ═══════════════════════════════════════════════════════════════
 function ServicesBrowser() {
-  const [services, setServices] = useState([])
-  const [mappings, setMappings] = useState([])
-  const [stats, setStats] = useState(null)
-  const [categories, setCategories] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [selProvider, setSelProvider] = useState('')
-  const [selCategory, setSelCategory] = useState('')
-  const [search, setSearch] = useState('')
-  const [view, setView] = useState('services')
+  const [services, setServices] = useState([]);
+  const [stats, setStats] = useState(null);
+  const [search, setSearch] = useState('');
+  const [provider, setProvider] = useState('all');
+  const [category, setCategory] = useState('all');
+  const [categories, setCategories] = useState([]);
+  const [view, setView] = useState('grid');
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     Promise.all([
-      api.getServices(),
-      api.getMappings(),
-      api.getStats(),
-      api.getCategories(),
-    ]).then(([svc, map, st, cats]) => {
-      setServices(svc.services || [])
-      setMappings(map.mappings || [])
-      setStats(st)
-      setCategories(cats.categories || [])
-      setLoading(false)
-    }).catch(() => setLoading(false))
-  }, [])
+      fetch(`${API_BASE}/services`).then(r => r.json()),
+      fetch(`${API_BASE}/services/stats`).then(r => r.json()),
+      fetch(`${API_BASE}/services/categories`).then(r => r.json()),
+    ]).then(([svc, st, cats]) => {
+      setServices(svc.services || []);
+      setStats(st);
+      setCategories(cats.categories || []);
+      setLoading(false);
+    }).catch(() => setLoading(false));
+  }, []);
 
-  const filteredServices = useMemo(() => {
-    let result = services
-    if (selProvider) result = result.filter(s => s.provider === selProvider)
-    if (selCategory) result = result.filter(s => s.category === selCategory)
-    if (search) {
-      const q = search.toLowerCase()
-      result = result.filter(s =>
-        s.name.toLowerCase().includes(q) ||
-        (s.fullName || '').toLowerCase().includes(q) ||
-        (s.description || '').toLowerCase().includes(q)
-      )
-    }
-    return result
-  }, [services, selProvider, selCategory, search])
+  const filtered = services.filter(s => {
+    if (provider !== 'all' && s.provider !== provider) return false;
+    if (category !== 'all' && s.category !== category) return false;
+    if (search && !s.name.toLowerCase().includes(search.toLowerCase()) && !s.description?.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
 
-  const filteredMappings = useMemo(() => {
-    let result = mappings
-    if (selCategory) result = result.filter(m => m.category === selCategory)
-    if (search) {
-      const q = search.toLowerCase()
-      result = result.filter(m =>
-        m.aws.toLowerCase().includes(q) ||
-        m.azure.toLowerCase().includes(q) ||
-        m.gcp.toLowerCase().includes(q) ||
-        (m.notes || '').toLowerCase().includes(q)
-      )
-    }
-    return result
-  }, [mappings, selCategory, search])
-
-  if (loading) {
-    return (
-      <div className="bg-slate-800/50 rounded-2xl p-12 border border-slate-700 text-center">
-        <div className="animate-spin text-6xl mb-6">⚙️</div>
-        <h2 className="text-2xl font-bold text-white mb-2">Loading Services Catalog...</h2>
-        <p className="text-slate-400">Fetching AWS, Azure, and GCP services</p>
-      </div>
-    )
-  }
+  if (loading) return (
+    <div className="flex items-center justify-center h-64">
+      <Loader2 className="w-8 h-8 text-cta animate-spin" />
+    </div>
+  );
 
   return (
     <div className="space-y-6">
-      {/* Stats Banner */}
+      {/* Stats */}
       {stats && (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-          <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-4 text-center">
-            <div className="text-3xl font-bold text-white">{stats.totalServices}</div>
-            <div className="text-xs text-slate-400 mt-1">Total Services</div>
-          </div>
-          <div className="bg-slate-800/50 border border-orange-500/30 rounded-xl p-4 text-center">
-            <div className="text-3xl font-bold text-orange-400">{stats.providers?.aws || 0}</div>
-            <div className="text-xs text-slate-400 mt-1">AWS Services</div>
-          </div>
-          <div className="bg-slate-800/50 border border-blue-500/30 rounded-xl p-4 text-center">
-            <div className="text-3xl font-bold text-blue-400">{stats.providers?.azure || 0}</div>
-            <div className="text-xs text-slate-400 mt-1">Azure Services</div>
-          </div>
-          <div className="bg-slate-800/50 border border-sky-500/30 rounded-xl p-4 text-center">
-            <div className="text-3xl font-bold text-sky-400">{stats.providers?.gcp || 0}</div>
-            <div className="text-xs text-slate-400 mt-1">GCP Services</div>
-          </div>
-          <div className="bg-slate-800/50 border border-green-500/30 rounded-xl p-4 text-center">
-            <div className="text-3xl font-bold text-green-400">{stats.totalMappings}</div>
-            <div className="text-xs text-slate-400 mt-1">Cross-Cloud Mappings</div>
-          </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {[
+            { label: 'Total Services', value: stats.totalServices, icon: Server },
+            { label: 'Cross-Cloud Mappings', value: stats.totalMappings, icon: Layers },
+            { label: 'Categories', value: stats.categories, icon: Filter },
+            { label: 'Avg Confidence', value: `${(stats.avgConfidence * 100).toFixed(0)}%`, icon: BarChart3 },
+          ].map(s => (
+            <Card key={s.label} className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-cta/10 flex items-center justify-center">
+                  <s.icon className="w-5 h-5 text-cta" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold text-text-primary">{s.value}</p>
+                  <p className="text-xs text-text-muted">{s.label}</p>
+                </div>
+              </div>
+            </Card>
+          ))}
         </div>
       )}
 
-      {/* Controls */}
-      <div className="bg-slate-800/50 rounded-2xl p-4 border border-slate-700">
-        <div className="flex flex-col lg:flex-row gap-4">
-          <div className="flex gap-2">
-            {[
-              { key: 'services', label: '📋 All Services' },
-              { key: 'mappings', label: '🔄 Cross-Cloud Mappings' },
-              { key: 'compare', label: '⚖️ Compare Providers' },
-            ].map(v => (
-              <button key={v.key} onClick={() => setView(v.key)}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition ${view === v.key ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}>
-                {v.label}
+      {/* Filters */}
+      <Card className="p-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
+            <input
+              type="text"
+              placeholder="Search services..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 bg-surface border border-border rounded-lg text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-cta/50 focus:ring-1 focus:ring-cta/30 transition-colors"
+            />
+          </div>
+          <select value={provider} onChange={e => setProvider(e.target.value)} className="px-3 py-2 bg-surface border border-border rounded-lg text-sm text-text-primary cursor-pointer focus:outline-none focus:border-cta/50">
+            <option value="all">All Providers</option>
+            <option value="aws">AWS</option>
+            <option value="azure">Azure</option>
+            <option value="gcp">GCP</option>
+          </select>
+          <select value={category} onChange={e => setCategory(e.target.value)} className="px-3 py-2 bg-surface border border-border rounded-lg text-sm text-text-primary cursor-pointer focus:outline-none focus:border-cta/50">
+            <option value="all">All Categories</option>
+            {categories.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <div className="flex items-center gap-1 border border-border rounded-lg p-0.5">
+            {['grid', 'list'].map(v => (
+              <button key={v} onClick={() => setView(v)} className={`p-1.5 rounded cursor-pointer transition-colors ${view === v ? 'bg-cta/15 text-cta' : 'text-text-muted hover:text-text-primary'}`}>
+                {v === 'grid' ? <Box className="w-4 h-4" /> : <FileText className="w-4 h-4" />}
               </button>
             ))}
           </div>
-          <div className="flex flex-1 gap-3">
-            <input type="text" placeholder="Search services..." value={search} onChange={e => setSearch(e.target.value)}
-              className="flex-1 px-4 py-2 bg-slate-700 text-white rounded-lg border border-slate-600 focus:border-blue-500 focus:outline-none text-sm" />
-            {view !== 'compare' && (
-              <select value={selCategory} onChange={e => setSelCategory(e.target.value)}
-                className="px-3 py-2 bg-slate-700 text-white rounded-lg border border-slate-600 text-sm">
-                <option value="">All Categories</option>
-                {categories.map(c => <option key={c.name} value={c.name}>{CATEGORY_ICONS[c.name] || '📌'} {c.name}</option>)}
-              </select>
-            )}
-            {view === 'services' && (
-              <select value={selProvider} onChange={e => setSelProvider(e.target.value)}
-                className="px-3 py-2 bg-slate-700 text-white rounded-lg border border-slate-600 text-sm">
-                <option value="">All Providers</option>
-                <option value="aws">☁️ AWS</option>
-                <option value="azure">🔷 Azure</option>
-                <option value="gcp">🌐 GCP</option>
-              </select>
-            )}
-          </div>
         </div>
-      </div>
+        <p className="mt-2 text-xs text-text-muted">{filtered.length} services found</p>
+      </Card>
 
-      {/* All Services View */}
-      {view === 'services' && (
-        <div className="bg-slate-800/50 rounded-2xl border border-slate-700 overflow-hidden">
-          <div className="p-4 border-b border-slate-700">
-            <h3 className="text-lg font-semibold text-white">
-              Services {filteredServices.length !== services.length && `(${filteredServices.length} of ${services.length})`}
-            </h3>
-          </div>
-          <div className="max-h-[600px] overflow-y-auto">
-            <table className="w-full">
-              <thead className="sticky top-0 bg-slate-800 z-10">
-                <tr className="text-left text-slate-400 border-b border-slate-700 text-sm">
-                  <th className="p-3">Provider</th><th className="p-3">Service</th><th className="p-3">Full Name</th>
-                  <th className="p-3">Category</th><th className="p-3">Description</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredServices.map((s, i) => (
-                  <tr key={s.id + i} className="border-b border-slate-700/50 hover:bg-slate-700/30 text-white text-sm">
-                    <td className="p-3">
-                      <span className={`px-2 py-1 rounded text-xs font-medium border ${PROVIDER_STYLES[s.provider]?.color || ''}`}>
-                        {PROVIDER_STYLES[s.provider]?.label || s.provider}
-                      </span>
-                    </td>
-                    <td className="p-3 font-medium">{s.name}</td>
-                    <td className="p-3 text-slate-300">{s.fullName}</td>
-                    <td className="p-3 text-slate-400">{CATEGORY_ICONS[s.category] || '📌'} {s.category}</td>
-                    <td className="p-3 text-slate-400">{s.description}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {filteredServices.length === 0 && <div className="p-12 text-center text-slate-500">No services match your filters</div>}
-          </div>
-        </div>
-      )}
-
-      {/* Cross-Cloud Mappings View */}
-      {view === 'mappings' && (
-        <div className="bg-slate-800/50 rounded-2xl border border-slate-700 overflow-hidden">
-          <div className="p-4 border-b border-slate-700">
-            <h3 className="text-lg font-semibold text-white">
-              Cross-Cloud Mappings {filteredMappings.length !== mappings.length && `(${filteredMappings.length} of ${mappings.length})`}
-            </h3>
-          </div>
-          <div className="max-h-[600px] overflow-y-auto">
-            <table className="w-full">
-              <thead className="sticky top-0 bg-slate-800 z-10">
-                <tr className="text-left text-sm border-b border-slate-700">
-                  <th className="p-3 text-orange-400">AWS</th>
-                  <th className="p-3 text-center text-slate-500">↔</th>
-                  <th className="p-3 text-blue-400">Azure</th>
-                  <th className="p-3 text-center text-slate-500">↔</th>
-                  <th className="p-3 text-sky-400">GCP</th>
-                  <th className="p-3 text-slate-400">Category</th>
-                  <th className="p-3 text-slate-400">Confidence</th>
-                  <th className="p-3 text-slate-400">Notes</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredMappings.map((m, i) => (
-                  <tr key={i} className="border-b border-slate-700/50 hover:bg-slate-700/30 text-sm">
-                    <td className="p-3 text-orange-300 font-medium">{m.aws}</td>
-                    <td className="p-3 text-center text-slate-600">→</td>
-                    <td className="p-3 text-blue-300 font-medium">{m.azure}</td>
-                    <td className="p-3 text-center text-slate-600">→</td>
-                    <td className="p-3 text-sky-300 font-medium">{m.gcp}</td>
-                    <td className="p-3 text-slate-400">{CATEGORY_ICONS[m.category] || '📌'} {m.category}</td>
-                    <td className="p-3"><ConfidenceBadge value={m.confidence} /></td>
-                    <td className="p-3 text-slate-500 max-w-[200px] truncate">{m.notes}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {filteredMappings.length === 0 && <div className="p-12 text-center text-slate-500">No mappings match your filters</div>}
-          </div>
-        </div>
-      )}
-
-      {/* Compare Providers View */}
-      {view === 'compare' && (
-        <div className="space-y-4">
-          {categories.filter(c => !selCategory || c.name === selCategory).map(cat => (
-            <div key={cat.name} className="bg-slate-800/50 rounded-xl border border-slate-700 overflow-hidden">
-              <div className="p-4 border-b border-slate-700 flex items-center justify-between">
-                <h3 className="text-white font-semibold">{CATEGORY_ICONS[cat.name] || '📌'} {cat.name}</h3>
-                <div className="flex gap-4 text-xs">
-                  <span className="text-orange-400">AWS: {cat.counts.aws}</span>
-                  <span className="text-blue-400">Azure: {cat.counts.azure}</span>
-                  <span className="text-sky-400">GCP: {cat.counts.gcp}</span>
+      {/* Service Grid/List */}
+      <div className={view === 'grid' ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4' : 'space-y-2'}>
+        {filtered.slice(0, 60).map((s, i) => {
+          const Icon = getCategoryIcon(s.category);
+          return view === 'grid' ? (
+            <Card key={i} hover className="p-4">
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 rounded-lg bg-secondary flex items-center justify-center shrink-0">
+                  <Icon className="w-4 h-4 text-text-secondary" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <h3 className="text-sm font-semibold text-text-primary truncate">{s.name}</h3>
+                    <Badge variant={s.provider}>{s.provider.toUpperCase()}</Badge>
+                  </div>
+                  <p className="text-xs text-text-muted line-clamp-2">{s.description}</p>
+                  <p className="text-[10px] text-text-muted mt-2 uppercase tracking-wide">{s.category}</p>
                 </div>
               </div>
-              <div className="grid grid-cols-3 divide-x divide-slate-700">
-                {['aws', 'azure', 'gcp'].map(provider => (
-                  <div key={provider} className="p-3">
-                    <div className={`text-xs font-medium mb-2 ${provider === 'aws' ? 'text-orange-400' : provider === 'azure' ? 'text-blue-400' : 'text-sky-400'}`}>
-                      {PROVIDER_STYLES[provider].label}
-                    </div>
-                    <div className="space-y-1">
-                      {services
-                        .filter(s => s.provider === provider && s.category === cat.name)
-                        .filter(s => !search || s.name.toLowerCase().includes(search.toLowerCase()) || s.description.toLowerCase().includes(search.toLowerCase()))
-                        .map(s => (
-                          <div key={s.id} className="text-xs text-slate-300 py-1 px-2 rounded hover:bg-slate-700/50" title={s.description}>
-                            <span className="font-medium">{s.name}</span>
-                            <span className="text-slate-500 ml-1 hidden lg:inline">— {s.description}</span>
-                          </div>
-                        ))}
-                    </div>
-                  </div>
-                ))}
+            </Card>
+          ) : (
+            <Card key={i} hover className="px-4 py-3">
+              <div className="flex items-center gap-4">
+                <Icon className="w-4 h-4 text-text-muted shrink-0" />
+                <span className="text-sm font-medium text-text-primary flex-1 truncate">{s.name}</span>
+                <Badge variant={s.provider}>{s.provider.toUpperCase()}</Badge>
+                <span className="text-xs text-text-muted hidden md:block truncate max-w-xs">{s.category}</span>
               </div>
-            </div>
-          ))}
-        </div>
+            </Card>
+          );
+        })}
+      </div>
+      {filtered.length > 60 && (
+        <p className="text-center text-sm text-text-muted">Showing 60 of {filtered.length} services</p>
       )}
     </div>
-  )
+  );
 }
 
-// ─────────────────────────────────────────────────────────────
-// Diagram Translator Component
-// ─────────────────────────────────────────────────────────────
+
+// ═══════════════════════════════════════════════════════════════
+// DIAGRAM TRANSLATOR
+// ═══════════════════════════════════════════════════════════════
 function DiagramTranslator() {
-  const [step, setStep] = useState('upload')
-  const [file, setFile] = useState(null)
-  const [preview, setPreview] = useState(null)
-  const [analysis, setAnalysis] = useState(null)
-  const [iacCode, setIacCode] = useState(null)
-  const [iacFormat, setIacFormat] = useState('terraform')
-  const [costEstimate, setCostEstimate] = useState(null)
-  const [error, setError] = useState(null)
-  const [analyzeProgress, setAnalyzeProgress] = useState(0)
-  const fileInputRef = useRef(null)
+  const [step, setStep] = useState('upload');
+  const [diagramId, setDiagramId] = useState(null);
+  const [analysis, setAnalysis] = useState(null);
+  const [questions, setQuestions] = useState([]);
+  const [answers, setAnswers] = useState({});
+  const [iacCode, setIacCode] = useState(null);
+  const [iacFormat, setIacFormat] = useState('terraform');
+  const [costEstimate, setCostEstimate] = useState(null);
+  const [exportLoading, setExportLoading] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [analyzeProgress, setAnalyzeProgress] = useState([]);
+  const fileInputRef = useRef(null);
 
-  const handleFileSelect = (e) => { const f = e.target.files[0]; if (f) { setFile(f); setPreview(URL.createObjectURL(f)); setError(null) } }
-  const handleDrop = (e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) { setFile(f); setPreview(URL.createObjectURL(f)); setError(null) } }
+  // ── Upload & Analyze ──
+  const handleUpload = async (file) => {
+    setError(null);
+    setStep('analyzing');
+    setAnalyzeProgress([]);
 
-  const handleAnalyze = async () => {
-    if (!file) return; setStep('analyzing'); setError(null); setAnalyzeProgress(0)
-    // Simulate progressive analysis phases
-    const phases = [
-      { pct: 10, label: 'Uploading diagram...' },
-      { pct: 25, label: 'Running GPT-4 Vision detection...' },
-      { pct: 45, label: 'Identifying AWS services...' },
-      { pct: 60, label: 'Mapping to Azure equivalents...' },
-      { pct: 75, label: 'Computing confidence scores...' },
-      { pct: 85, label: 'Generating zone analysis...' },
-      { pct: 95, label: 'Estimating costs...' },
-      { pct: 100, label: 'Complete!' },
-    ]
-    for (const phase of phases) {
-      setAnalyzeProgress(phase.pct)
-      await new Promise(r => setTimeout(r, 600 + Math.random() * 400))
+    const zones = [
+      'Connecting to analysis engine...',
+      'Zone 1: Ingest (Direct Connect, IoT Greengrass, IoT Core)...',
+      'Zone 2: OTA Ingest (IoT Core real-time)...',
+      'Zone 3: Data Quality Check (EMR, S3 splits)...',
+      'Zone 4: Orchestration (MWAA workflows)...',
+      'Zone 5: Data Enrichment (Fargate, EMR, S3)...',
+      'Zone 6: Scene Detection (EMR + ML)...',
+      'Zone 7: Data Catalog (Glue, Neptune, DynamoDB, ES)...',
+      'Zone 8: Image Anonymization (Fargate, Lambda, Rekognition)...',
+      'Zone 9: Labeling (SageMaker Ground Truth)...',
+      'Zone 10: Analytics & Visualization (QuickSight, AppSync)...',
+      'Mapping AWS services to Azure equivalents...',
+      'Calculating confidence scores...',
+      'Analysis complete.',
+    ];
+
+    for (const msg of zones) {
+      await new Promise(r => setTimeout(r, 250 + Math.random() * 200));
+      setAnalyzeProgress(prev => [...prev, msg]);
     }
+
     try {
-      const uploaded = await api.uploadDiagram('demo-project', file)
-      const diagramId = uploaded.diagram_id || 'demo'
-      const result = await api.analyzeDiagram(diagramId)
-      setAnalysis(result)
-      // Also fetch cost estimate
-      try {
-        const cost = await fetch(`${API_BASE}/diagrams/${diagramId}/cost-estimate`).then(r => r.json())
-        setCostEstimate(cost)
-      } catch (_) {}
-      setStep('results')
-    } catch (err) { setError(err.message || 'Analysis failed'); setStep('upload') }
-  }
+      const formData = new FormData();
+      formData.append('file', file);
+      const uploadRes = await fetch(`${API_BASE}/projects/demo-project/diagrams`, { method: 'POST', body: formData });
+      const { diagram_id } = await uploadRes.json();
+      setDiagramId(diagram_id);
 
-  const handleGenerateIaC = async () => {
-    if (!analysis) return
+      const analyzeRes = await fetch(`${API_BASE}/diagrams/${diagram_id}/analyze`, { method: 'POST' });
+      const result = await analyzeRes.json();
+      setAnalysis(result);
+
+      // Fetch guided questions
+      const qRes = await fetch(`${API_BASE}/diagrams/${diagram_id}/questions`, { method: 'POST' });
+      const qData = await qRes.json();
+      setQuestions(qData.questions || []);
+
+      // Set defaults
+      const defaults = {};
+      (qData.questions || []).forEach(q => { defaults[q.id] = q.default; });
+      setAnswers(defaults);
+
+      setStep('questions');
+    } catch (err) {
+      setError(err.message);
+      setStep('upload');
+    }
+  };
+
+  // ── Apply Answers ──
+  const handleApplyAnswers = async () => {
+    setLoading(true);
     try {
-      const result = await api.generateIaC(analysis.diagram_id, iacFormat)
-      setIacCode(result.code)
-      setStep('iac')
-    } catch (err) { setError(err.message || 'IaC generation failed') }
-  }
+      const res = await fetch(`${API_BASE}/diagrams/${diagramId}/apply-answers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(answers),
+      });
+      const refined = await res.json();
+      setAnalysis(refined);
+      setStep('results');
+    } catch (err) {
+      setError(err.message);
+    }
+    setLoading(false);
+  };
 
-  const handleSwitchFormat = async (fmt) => {
-    setIacFormat(fmt)
-    if (!analysis) return
+  // ── Generate IaC ──
+  const handleGenerateIac = async (fmt) => {
+    setLoading(true);
+    setIacFormat(fmt);
     try {
-      const result = await api.generateIaC(analysis.diagram_id, fmt)
-      setIacCode(result.code)
-    } catch (_) {}
-  }
+      const [iacRes, costRes] = await Promise.all([
+        fetch(`${API_BASE}/diagrams/${diagramId}/generate?format=${fmt}`, { method: 'POST' }),
+        fetch(`${API_BASE}/diagrams/${diagramId}/cost-estimate`),
+      ]);
+      const iacData = await iacRes.json();
+      const costData = await costRes.json();
+      setIacCode(iacData.code);
+      setCostEstimate(costData);
+      setStep('iac');
+      setTimeout(() => Prism.highlightAll(), 100);
+    } catch (err) {
+      setError(err.message);
+    }
+    setLoading(false);
+  };
 
-  const handleCopyCode = () => { if (iacCode) { navigator.clipboard.writeText(iacCode); } }
-  const handleDownload = () => {
-    if (!iacCode) return
-    const blob = new Blob([iacCode], { type: 'text/plain' }); const url = URL.createObjectURL(blob)
-    const a = document.createElement('a'); a.href = url; a.download = iacFormat === 'terraform' ? 'main.tf' : 'main.bicep'; a.click(); URL.revokeObjectURL(url)
-  }
-  const reset = () => { setStep('upload'); setFile(null); setPreview(null); setAnalysis(null); setIacCode(null); setCostEstimate(null); setError(null); setAnalyzeProgress(0) }
+  // ── Export Diagram ──
+  const handleExportDiagram = async (format) => {
+    setExportLoading(prev => ({ ...prev, [format]: true }));
+    try {
+      const res = await fetch(`${API_BASE}/diagrams/${diagramId}/export-diagram?format=${format}`, { method: 'POST' });
+      const data = await res.json();
+      const content = typeof data.content === 'string' ? data.content : JSON.stringify(data.content, null, 2);
+      const blob = new Blob([content], { type: 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = data.filename || `archmorph-diagram.${format === 'excalidraw' ? 'excalidraw' : format === 'drawio' ? 'drawio' : 'vdx'}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(`Export failed: ${err.message}`);
+    }
+    setExportLoading(prev => ({ ...prev, [format]: false }));
+  };
 
-  // Group mappings by zone
-  const zoneGroups = useMemo(() => {
-    if (!analysis?.mappings) return []
-    const zones = analysis.zones || []
-    return zones.map(z => ({
-      ...z,
-      mappings: analysis.mappings.filter(m => (m.notes || '').includes(`Zone ${z.id}`))
-    }))
-  }, [analysis])
+  // ── Reset ──
+  const reset = () => {
+    setStep('upload');
+    setDiagramId(null);
+    setAnalysis(null);
+    setQuestions([]);
+    setAnswers({});
+    setIacCode(null);
+    setCostEstimate(null);
+    setError(null);
+    setAnalyzeProgress([]);
+  };
 
   return (
-    <div>
-      {error && <div className="mb-6 p-4 bg-red-500/20 border border-red-500/50 rounded-lg text-red-300">{error}</div>}
-
-      {/* UPLOAD STEP */}
-      {step === 'upload' && (
-        <div className="bg-slate-800/50 rounded-2xl p-8 border border-slate-700">
-          <h2 className="text-2xl font-bold text-white mb-2">Upload Architecture Diagram</h2>
-          <p className="text-slate-400 mb-6">Upload an AWS or GCP architecture diagram to translate it to Azure equivalents with full IaC generation.</p>
-          <div className="border-2 border-dashed border-slate-600 rounded-xl p-12 text-center hover:border-blue-500 transition cursor-pointer"
-            onDrop={handleDrop} onDragOver={e => e.preventDefault()} onClick={() => fileInputRef.current?.click()}>
-            <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/svg+xml,application/pdf" onChange={handleFileSelect} className="hidden" />
-            {preview ? (
-              <div><img src={preview} alt="Preview" className="max-h-64 mx-auto rounded-lg mb-4 shadow-lg" /><p className="text-white font-medium">{file?.name}</p><p className="text-slate-400 text-sm mt-1">{(file?.size / 1024).toFixed(0)} KB</p></div>
-            ) : (
-              <div><div className="text-5xl mb-4">📁</div><p className="text-white font-medium">Drop your architecture diagram here</p><p className="text-slate-400 text-sm mt-2">PNG, JPG, SVG, or PDF up to 25MB</p></div>
-            )}
-          </div>
-          {file && <button onClick={handleAnalyze} className="mt-6 w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition text-lg">🔍 Analyze & Translate to Azure</button>}
-        </div>
-      )}
-
-      {/* ANALYZING STEP */}
-      {step === 'analyzing' && (
-        <div className="bg-slate-800/50 rounded-2xl p-12 border border-slate-700 text-center">
-          <div className="animate-spin text-6xl mb-6">⚙️</div>
-          <h2 className="text-2xl font-bold text-white mb-2">Analyzing Architecture Diagram</h2>
-          <p className="text-slate-400 mb-6">Using GPT-4 Vision to detect cloud services and map to Azure</p>
-          <div className="max-w-md mx-auto">
-            <div className="w-full bg-slate-700 rounded-full h-3 mb-3">
-              <div className="bg-blue-600 h-3 rounded-full transition-all duration-500" style={{ width: `${analyzeProgress}%` }}></div>
+    <div className="space-y-6">
+      {/* Progress Steps */}
+      <div className="flex items-center justify-center gap-2 text-xs font-medium">
+        {[
+          { id: 'upload', label: 'Upload' },
+          { id: 'analyzing', label: 'Analyzing' },
+          { id: 'questions', label: 'Customize' },
+          { id: 'results', label: 'Results' },
+          { id: 'iac', label: 'IaC Code' },
+        ].map((s, i, arr) => (
+          <React.Fragment key={s.id}>
+            <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-colors ${
+              step === s.id ? 'bg-cta/15 text-cta' :
+              arr.findIndex(x => x.id === step) > i ? 'text-cta' : 'text-text-muted'
+            }`}>
+              {arr.findIndex(x => x.id === step) > i ? <CheckCircle className="w-3.5 h-3.5" /> : <span className="w-5 h-5 rounded-full border border-current flex items-center justify-center text-[10px]">{i + 1}</span>}
+              <span className="hidden sm:inline">{s.label}</span>
             </div>
-            <p className="text-slate-400 text-sm">{analyzeProgress}% complete</p>
+            {i < arr.length - 1 && <ChevronRight className="w-4 h-4 text-text-muted" />}
+          </React.Fragment>
+        ))}
+      </div>
+
+      {error && (
+        <Card className="p-4 border-danger/30">
+          <div className="flex items-center gap-3">
+            <XCircle className="w-5 h-5 text-danger shrink-0" />
+            <p className="text-sm text-danger">{error}</p>
+            <button onClick={() => setError(null)} className="ml-auto cursor-pointer"><X className="w-4 h-4 text-text-muted" /></button>
           </div>
-          {preview && <img src={preview} alt="Analyzing" className="max-h-32 mx-auto rounded-lg mt-6 opacity-50" />}
+        </Card>
+      )}
+
+      {/* ── Step: Upload ── */}
+      {step === 'upload' && (
+        <Card className="p-12">
+          <div className="text-center max-w-lg mx-auto">
+            <div className="w-16 h-16 rounded-2xl bg-cta/10 flex items-center justify-center mx-auto mb-6">
+              <Upload className="w-8 h-8 text-cta" />
+            </div>
+            <h2 className="text-2xl font-bold text-text-primary mb-2">Upload Architecture Diagram</h2>
+            <p className="text-sm text-text-secondary mb-8">
+              Upload your AWS or GCP architecture diagram. We will analyze it and translate every service to Azure with IaC generation.
+            </p>
+            <input ref={fileInputRef} type="file" accept="image/*,.pdf,.svg" onChange={e => e.target.files[0] && handleUpload(e.target.files[0])} className="hidden" />
+            <Button onClick={() => fileInputRef.current?.click()} variant="primary" size="lg" icon={Upload}>
+              Select Diagram File
+            </Button>
+            <p className="text-xs text-text-muted mt-4">Supports PNG, JPG, SVG, PDF</p>
+          </div>
+        </Card>
+      )}
+
+      {/* ── Step: Analyzing ── */}
+      {step === 'analyzing' && (
+        <Card className="p-8">
+          <div className="max-w-2xl mx-auto">
+            <div className="flex items-center gap-3 mb-6">
+              <Loader2 className="w-6 h-6 text-cta animate-spin" />
+              <h2 className="text-xl font-bold text-text-primary">Analyzing Architecture...</h2>
+            </div>
+            <div className="space-y-1 font-mono text-xs">
+              {analyzeProgress.map((msg, i) => (
+                <div key={i} className="flex items-center gap-2 text-text-secondary animate-fade-in">
+                  <CheckCircle className="w-3.5 h-3.5 text-cta shrink-0" />
+                  <span>{msg}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {/* ── Step: Questions ── */}
+      {step === 'questions' && (
+        <div className="space-y-6">
+          <Card className="p-6">
+            <div className="flex items-center gap-3 mb-2">
+              <HelpCircle className="w-6 h-6 text-cta" />
+              <h2 className="text-xl font-bold text-text-primary">Customize Your Azure Architecture</h2>
+            </div>
+            <p className="text-sm text-text-secondary">
+              We detected {analysis?.services_detected || 0} AWS services across {analysis?.zones?.length || 0} zones.
+              Answer these questions to tailor the Azure translation to your needs.
+            </p>
+          </Card>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {questions.map(q => (
+              <Card key={q.id} className="p-4 space-y-3">
+                <div className="flex items-start gap-2">
+                  <Badge>{q.category?.replace(/_/g, ' ')}</Badge>
+                  {q.impact && <span className="text-[10px] text-text-muted uppercase">{q.impact}</span>}
+                </div>
+                <p className="text-sm font-medium text-text-primary">{q.question}</p>
+                {q.type === 'single_choice' && (
+                  <div className="space-y-1.5">
+                    {q.options?.map(raw => {
+                      const opt = typeof raw === 'string' ? { value: raw, label: raw } : raw;
+                      return (
+                        <label key={opt.value} className="flex items-center gap-3 p-2 rounded-lg hover:bg-secondary cursor-pointer transition-colors">
+                          <input
+                            type="radio"
+                            name={q.id}
+                            value={opt.value}
+                            checked={answers[q.id] === opt.value}
+                            onChange={() => setAnswers(prev => ({ ...prev, [q.id]: opt.value }))}
+                            className="w-4 h-4 accent-cta cursor-pointer"
+                          />
+                          <div>
+                            <span className="text-sm text-text-primary">{opt.label}</span>
+                            {opt.description && <p className="text-xs text-text-muted">{opt.description}</p>}
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+                {(q.type === 'multi_choice' || q.type === 'multiple_choice') && (
+                  <div className="space-y-1.5">
+                    {q.options?.map(raw => {
+                      const opt = typeof raw === 'string' ? { value: raw, label: raw } : raw;
+                      return (
+                        <label key={opt.value} className="flex items-center gap-3 p-2 rounded-lg hover:bg-secondary cursor-pointer transition-colors">
+                          <input
+                            type="checkbox"
+                            checked={(answers[q.id] || []).includes(opt.value)}
+                            onChange={e => {
+                              const current = answers[q.id] || [];
+                              setAnswers(prev => ({
+                                ...prev,
+                                [q.id]: e.target.checked ? [...current, opt.value] : current.filter(v => v !== opt.value),
+                              }));
+                            }}
+                            className="w-4 h-4 accent-cta cursor-pointer"
+                          />
+                          <span className="text-sm text-text-primary">{opt.label}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+                {(q.type === 'boolean' || q.type === 'yes_no') && (
+                  <div className="flex items-center gap-3">
+                    {['yes', 'no'].map(v => (
+                      <label key={v} className="flex items-center gap-2 p-2 rounded-lg hover:bg-secondary cursor-pointer transition-colors">
+                        <input type="radio" name={q.id} value={v} checked={answers[q.id] === v} onChange={() => setAnswers(prev => ({ ...prev, [q.id]: v }))} className="w-4 h-4 accent-cta cursor-pointer" />
+                        <span className="text-sm text-text-primary capitalize">{v}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </Card>
+            ))}
+          </div>
+
+          <div className="flex items-center justify-between">
+            <Button onClick={() => { setStep('results'); }} variant="ghost" icon={ChevronRight}>Skip Customization</Button>
+            <Button onClick={handleApplyAnswers} loading={loading} icon={Check}>Apply and View Results</Button>
+          </div>
         </div>
       )}
 
-      {/* RESULTS STEP */}
+      {/* ── Step: Results ── */}
       {step === 'results' && analysis && (
         <div className="space-y-6">
-          {/* Summary Header */}
-          <div className="bg-slate-800/50 rounded-2xl p-6 border border-slate-700">
-            <div className="flex flex-col lg:flex-row items-start justify-between gap-4 mb-6">
+          {/* Summary */}
+          <Card className="p-6">
+            <div className="flex items-center justify-between mb-4">
               <div>
-                <h2 className="text-2xl font-bold text-white">{analysis.diagram_type || 'Architecture'} → Azure</h2>
-                <p className="text-slate-400">{analysis.services_detected} services detected across {analysis.zones?.length || 0} architecture zones</p>
+                <h2 className="text-xl font-bold text-text-primary">{analysis.diagram_type}</h2>
+                <p className="text-sm text-text-secondary mt-1">
+                  {analysis.services_detected} services mapped across {analysis.zones?.length} zones
+                </p>
               </div>
-              <div className="flex gap-3">
-                <button onClick={reset} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition">← New Diagram</button>
-                <button onClick={handleGenerateIaC} className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition">⚡ Generate IaC →</button>
+              <div className="flex items-center gap-2">
+                <Badge variant="aws">AWS</Badge>
+                <ArrowRight className="w-4 h-4 text-text-muted" />
+                <Badge variant="azure">Azure</Badge>
               </div>
             </div>
 
-            {/* Confidence Summary */}
+            {/* Confidence Dashboard */}
             {analysis.confidence_summary && (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-4 text-center">
-                  <div className="text-2xl font-bold text-green-400">{analysis.confidence_summary.high}</div>
-                  <div className="text-xs text-slate-400 mt-1">High Confidence (≥90%)</div>
-                </div>
-                <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4 text-center">
-                  <div className="text-2xl font-bold text-blue-400">{analysis.confidence_summary.medium}</div>
-                  <div className="text-xs text-slate-400 mt-1">Medium (80-89%)</div>
-                </div>
-                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4 text-center">
-                  <div className="text-2xl font-bold text-yellow-400">{analysis.confidence_summary.low}</div>
-                  <div className="text-xs text-slate-400 mt-1">Needs Review (&lt;80%)</div>
-                </div>
-                <div className="bg-purple-500/10 border border-purple-500/30 rounded-xl p-4 text-center">
-                  <div className="text-2xl font-bold text-purple-400">{Math.round(analysis.confidence_summary.average * 100)}%</div>
-                  <div className="text-xs text-slate-400 mt-1">Average Confidence</div>
-                </div>
-              </div>
-            )}
-
-            {/* Original Diagram Thumbnail */}
-            {preview && (
-              <div className="mb-6">
-                <p className="text-xs text-slate-500 mb-2 uppercase tracking-wider">Source Diagram</p>
-                <img src={preview} alt="Source" className="max-h-40 rounded-lg border border-slate-600" />
-              </div>
-            )}
-          </div>
-
-          {/* Zone-by-Zone Mappings */}
-          {zoneGroups.map(zone => (
-            <div key={zone.id} className="bg-slate-800/50 rounded-2xl border border-slate-700 overflow-hidden">
-              <div className="p-4 border-b border-slate-700 flex items-center gap-3">
-                <span className="w-8 h-8 rounded-lg bg-blue-600 text-white text-sm font-bold flex items-center justify-center">{zone.id}</span>
-                <div>
-                  <h3 className="text-white font-semibold">{zone.name}</h3>
-                  <p className="text-slate-400 text-xs">{zone.services} service{zone.services !== 1 ? 's' : ''} in this zone</p>
-                </div>
-              </div>
-              <table className="w-full">
-                <thead>
-                  <tr className="text-left text-slate-400 border-b border-slate-700 text-xs uppercase tracking-wider">
-                    <th className="px-4 py-2">AWS Service</th>
-                    <th className="px-4 py-2 text-center">→</th>
-                    <th className="px-4 py-2">Azure Equivalent</th>
-                    <th className="px-4 py-2">Confidence</th>
-                    <th className="px-4 py-2">Notes</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {zone.mappings.map((m, i) => (
-                    <tr key={i} className="border-b border-slate-700/50 hover:bg-slate-700/20 text-sm">
-                      <td className="px-4 py-3 font-medium text-orange-300">{m.source_service}</td>
-                      <td className="px-4 py-3 text-center text-slate-500">→</td>
-                      <td className="px-4 py-3 font-medium text-blue-300">{m.azure_service}</td>
-                      <td className="px-4 py-3"><ConfidenceBadge value={m.confidence} /></td>
-                      <td className="px-4 py-3 text-slate-400 text-xs max-w-xs">{(m.notes || '').replace(/Zone \d+ – [^:]+: /, '')}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ))}
-
-          {/* Cost Estimation */}
-          {costEstimate && (
-            <div className="bg-slate-800/50 rounded-2xl p-6 border border-slate-700">
-              <h3 className="text-xl font-bold text-white mb-4">💰 Azure Monthly Cost Estimate</h3>
-              <div className="grid grid-cols-3 gap-4 mb-6">
-                <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-4 text-center">
-                  <div className="text-xs text-slate-400 mb-1">Low Estimate</div>
-                  <div className="text-2xl font-bold text-green-400">${costEstimate.monthly_estimate.low.toLocaleString()}</div>
-                  <div className="text-xs text-slate-500">/month</div>
-                </div>
-                <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4 text-center">
-                  <div className="text-xs text-slate-400 mb-1">Medium Estimate</div>
-                  <div className="text-2xl font-bold text-blue-400">${costEstimate.monthly_estimate.medium.toLocaleString()}</div>
-                  <div className="text-xs text-slate-500">/month</div>
-                </div>
-                <div className="bg-orange-500/10 border border-orange-500/30 rounded-xl p-4 text-center">
-                  <div className="text-xs text-slate-400 mb-1">High Estimate</div>
-                  <div className="text-2xl font-bold text-orange-400">${costEstimate.monthly_estimate.high.toLocaleString()}</div>
-                  <div className="text-xs text-slate-500">/month</div>
-                </div>
-              </div>
-              <div className="space-y-2">
-                {costEstimate.services.map((s, i) => (
-                  <div key={i} className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-slate-700/30 text-sm">
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs text-slate-500 w-8">Z{s.zone}</span>
-                      <span className="text-white">{s.service}</span>
-                    </div>
-                    <span className="text-slate-300 font-medium">${s.estimate}/mo</span>
+              <div className="grid grid-cols-4 gap-3 mt-4">
+                {[
+                  { label: 'High', value: analysis.confidence_summary.high, color: 'text-cta' },
+                  { label: 'Medium', value: analysis.confidence_summary.medium, color: 'text-warning' },
+                  { label: 'Low', value: analysis.confidence_summary.low, color: 'text-danger' },
+                  { label: 'Average', value: `${(analysis.confidence_summary.average * 100).toFixed(0)}%`, color: 'text-info' },
+                ].map(c => (
+                  <div key={c.label} className="bg-surface rounded-lg p-3 text-center">
+                    <p className={`text-2xl font-bold ${c.color}`}>{c.value}</p>
+                    <p className="text-xs text-text-muted mt-1">{c.label} Confidence</p>
                   </div>
                 ))}
               </div>
-            </div>
-          )}
+            )}
+          </Card>
+
+          {/* Zones */}
+          <div className="space-y-3">
+            {analysis.zones?.map(zone => {
+              const zoneMappings = analysis.mappings?.filter(m => m.notes?.includes(`Zone ${zone.id}`)) || [];
+              return (
+                <Card key={zone.id} className="overflow-hidden">
+                  <div className="px-4 py-3 bg-secondary/50 border-b border-border flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="w-6 h-6 rounded bg-cta/15 text-cta text-xs font-bold flex items-center justify-center">{zone.id}</span>
+                      <h3 className="text-sm font-semibold text-text-primary">{zone.name}</h3>
+                    </div>
+                    <span className="text-xs text-text-muted">{zone.services} services</span>
+                  </div>
+                  {zoneMappings.length > 0 && (
+                    <div className="divide-y divide-border">
+                      {zoneMappings.map((m, i) => (
+                        <div key={i} className="px-4 py-3 flex items-center gap-3">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-sm text-[#FF9900] font-medium">{m.source_service}</span>
+                              <ArrowRight className="w-3.5 h-3.5 text-text-muted shrink-0" />
+                              <span className="text-sm text-info font-medium">{m.azure_service}</span>
+                            </div>
+                          </div>
+                          <Badge variant={m.confidence >= 0.9 ? 'high' : m.confidence >= 0.8 ? 'medium' : 'low'}>
+                            {(m.confidence * 100).toFixed(0)}%
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </Card>
+              );
+            })}
+          </div>
 
           {/* Warnings */}
           {analysis.warnings?.length > 0 && (
-            <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-2xl p-6">
-              <h3 className="text-yellow-400 font-semibold mb-3">⚠️ Migration Warnings & Notes</h3>
-              <ul className="space-y-2">{analysis.warnings.map((w, i) => <li key={i} className="text-yellow-300/80 text-sm flex gap-2"><span className="text-yellow-500 mt-0.5">•</span><span>{w}</span></li>)}</ul>
-            </div>
+            <Card className="p-4">
+              <h3 className="text-sm font-semibold text-warning flex items-center gap-2 mb-3">
+                <AlertTriangle className="w-4 h-4" />
+                Warnings and Recommendations
+              </h3>
+              <div className="space-y-2">
+                {analysis.warnings.map((w, i) => (
+                  <div key={i} className="flex items-start gap-2 text-xs text-text-secondary">
+                    <Info className="w-3.5 h-3.5 text-warning shrink-0 mt-0.5" />
+                    <span>{w}</span>
+                  </div>
+                ))}
+              </div>
+            </Card>
           )}
 
-          {/* Generate IaC CTA */}
-          <div className="bg-gradient-to-r from-green-500/10 to-blue-500/10 border border-green-500/30 rounded-2xl p-6 text-center">
-            <h3 className="text-xl font-bold text-white mb-2">Ready to generate Infrastructure as Code?</h3>
-            <p className="text-slate-400 mb-4">Export the Azure architecture as Terraform or Bicep — production-ready templates</p>
-            <button onClick={handleGenerateIaC} className="px-8 py-3 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition text-lg">⚡ Generate Terraform / Bicep</button>
+          {/* Export + Generate */}
+          <Card className="p-6">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-sm font-semibold text-text-primary mb-1">Export Architecture Diagram</h3>
+                <p className="text-xs text-text-muted">Download in your preferred format with Azure stencils</p>
+              </div>
+              <div className="flex items-center gap-2">
+                {[
+                  { id: 'excalidraw', label: 'Excalidraw' },
+                  { id: 'drawio', label: 'Draw.io' },
+                  { id: 'vsdx', label: 'Visio' },
+                ].map(f => (
+                  <Button
+                    key={f.id}
+                    onClick={() => handleExportDiagram(f.id)}
+                    variant="secondary"
+                    size="sm"
+                    loading={exportLoading[f.id]}
+                    icon={Download}
+                  >
+                    {f.label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          </Card>
+
+          <div className="flex items-center justify-between">
+            <Button onClick={() => setStep('questions')} variant="ghost" icon={HelpCircle}>Back to Questions</Button>
+            <div className="flex items-center gap-2">
+              <Button onClick={() => handleGenerateIac('terraform')} loading={loading && iacFormat === 'terraform'} icon={FileCode}>Generate Terraform</Button>
+              <Button onClick={() => handleGenerateIac('bicep')} variant="secondary" loading={loading && iacFormat === 'bicep'} icon={FileCode}>Generate Bicep</Button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* IaC CODE STEP */}
+      {/* ── Step: IaC Code ── */}
       {step === 'iac' && iacCode && (
         <div className="space-y-6">
-          <div className="bg-slate-800/50 rounded-2xl p-6 border border-slate-700">
-            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-6">
-              <div>
-                <h2 className="text-2xl font-bold text-white">Generated Infrastructure Code</h2>
-                <p className="text-slate-400">Azure translation of {analysis?.diagram_type || 'architecture'} — {iacFormat === 'terraform' ? 'HashiCorp Terraform (HCL)' : 'Azure Bicep'}</p>
-              </div>
-              <div className="flex gap-3 flex-wrap">
-                <button onClick={() => setStep('results')} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition">← Mappings</button>
-                <div className="flex bg-slate-700 rounded-lg overflow-hidden">
-                  <button onClick={() => handleSwitchFormat('terraform')}
-                    className={`px-4 py-2 text-sm font-medium transition ${iacFormat === 'terraform' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-600'}`}>
-                    Terraform
-                  </button>
-                  <button onClick={() => handleSwitchFormat('bicep')}
-                    className={`px-4 py-2 text-sm font-medium transition ${iacFormat === 'bicep' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-600'}`}>
-                    Bicep
-                  </button>
+          <Card className="p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <FileCode className="w-6 h-6 text-cta" />
+                <div>
+                  <h2 className="text-xl font-bold text-text-primary">
+                    {iacFormat === 'terraform' ? 'Terraform' : 'Bicep'} Code
+                  </h2>
+                  <p className="text-xs text-text-muted">{iacCode.split('\n').length} lines generated</p>
                 </div>
-                <button onClick={handleCopyCode} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition">📋 Copy</button>
-                <button onClick={handleDownload} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg transition">⬇ Download {iacFormat === 'terraform' ? 'main.tf' : 'main.bicep'}</button>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button onClick={() => { navigator.clipboard.writeText(iacCode); }} variant="ghost" size="sm" icon={FileText}>Copy</Button>
+                <Button onClick={() => {
+                  const blob = new Blob([iacCode], { type: 'text/plain' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = iacFormat === 'terraform' ? 'main.tf' : 'main.bicep';
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }} variant="secondary" size="sm" icon={Download}>Download</Button>
               </div>
             </div>
-            <div className="bg-slate-900 rounded-xl overflow-hidden border border-slate-700">
-              <div className="flex items-center gap-2 px-4 py-2 bg-slate-800 border-b border-slate-700">
-                <div className="w-3 h-3 rounded-full bg-red-500"></div>
-                <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
-                <div className="w-3 h-3 rounded-full bg-green-500"></div>
-                <span className="ml-2 text-slate-400 text-xs">{iacFormat === 'terraform' ? 'main.tf' : 'main.bicep'} — {iacCode.split('\n').length} lines</span>
-              </div>
-              <pre className="p-6 overflow-x-auto text-sm max-h-[700px] overflow-y-auto"><code className="language-hcl text-slate-300">{iacCode}</code></pre>
+            <div className="bg-surface rounded-lg border border-border overflow-auto max-h-[600px]">
+              <pre className="p-4 text-xs leading-relaxed">
+                <code className={`language-${iacFormat === 'terraform' ? 'hcl' : 'json'}`}>{iacCode}</code>
+              </pre>
             </div>
-          </div>
+          </Card>
 
-          {/* Back to new diagram */}
-          <div className="text-center">
-            <button onClick={reset} className="px-6 py-3 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition">🔄 Translate Another Diagram</button>
+          {/* Cost Estimate */}
+          {costEstimate && (
+            <Card className="p-6">
+              <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2 mb-4">
+                <BarChart3 className="w-5 h-5 text-cta" />
+                Estimated Monthly Cost
+              </h3>
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                <div className="bg-surface rounded-lg p-3 text-center">
+                  <p className="text-lg font-bold text-cta">${costEstimate.total_monthly_estimate?.low?.toLocaleString() || '---'}</p>
+                  <p className="text-xs text-text-muted">Low Estimate</p>
+                </div>
+                <div className="bg-surface rounded-lg p-3 text-center">
+                  <p className="text-lg font-bold text-warning">${costEstimate.total_monthly_estimate?.high?.toLocaleString() || '---'}</p>
+                  <p className="text-xs text-text-muted">High Estimate</p>
+                </div>
+              </div>
+              {costEstimate.services && (
+                <div className="space-y-2 max-h-64 overflow-auto">
+                  {costEstimate.services.map((s, i) => (
+                    <div key={i} className="flex items-center justify-between py-1.5 border-b border-border last:border-0">
+                      <span className="text-xs text-text-secondary">{s.service}</span>
+                      <span className="text-xs font-medium text-text-primary">
+                        ${s.monthly_low} - ${s.monthly_high}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+          )}
+
+          <div className="flex items-center justify-between">
+            <Button onClick={() => setStep('results')} variant="ghost" icon={Eye}>Back to Results</Button>
+            <Button onClick={reset} variant="secondary" icon={Upload}>New Translation</Button>
           </div>
         </div>
       )}
     </div>
-  )
+  );
 }
 
-// ─────────────────────────────────────────────────────────────
-// Main App
-// ─────────────────────────────────────────────────────────────
-export default function App() {
-  const [page, setPage] = useState('services')
+
+// ═══════════════════════════════════════════════════════════════
+// CHAT WIDGET — Floating chatbot with GitHub issue creation
+// ═══════════════════════════════════════════════════════════════
+function ChatWidget() {
+  const [open, setOpen] = useState(false);
+  const [messages, setMessages] = useState([
+    { role: 'assistant', content: 'Hi! I\'m the Archmorph assistant. I can help you learn about the tool or **create a GitHub issue**. What can I help you with?' },
+  ]);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [sessionId] = useState(() => `chat-${Date.now()}`);
+  const messagesEndRef = useRef(null);
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  useEffect(() => {
+    if (open) inputRef.current?.focus();
+  }, [open]);
+
+  const sendMessage = async () => {
+    const text = input.trim();
+    if (!text || loading) return;
+    setInput('');
+    setMessages(prev => [...prev, { role: 'user', content: text }]);
+    setLoading(true);
+
+    try {
+      const res = await fetch(`${API_BASE}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text, session_id: sessionId }),
+      });
+      const data = await res.json();
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: data.reply,
+        action: data.action,
+        data: data.data,
+      }]);
+    } catch {
+      setMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, I couldn\'t connect to the server. Please try again.' }]);
+    }
+    setLoading(false);
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  };
+
+  // Simple markdown-like rendering for bold and links
+  const renderContent = (text) => {
+    return text.split('\n').map((line, i) => (
+      <p key={i} className={i > 0 ? 'mt-1.5' : ''}>
+        {line.split(/(\*\*.*?\*\*|\[.*?\]\(.*?\))/).map((part, j) => {
+          const boldMatch = part.match(/^\*\*(.*?)\*\*$/);
+          if (boldMatch) return <strong key={j} className="font-semibold">{boldMatch[1]}</strong>;
+          const linkMatch = part.match(/^\[(.*?)\]\((.*?)\)$/);
+          if (linkMatch) return <a key={j} href={linkMatch[2]} target="_blank" rel="noopener noreferrer" className="text-cta underline cursor-pointer">{linkMatch[1]}</a>;
+          return part;
+        })}
+      </p>
+    ));
+  };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
-      <header className="border-b border-slate-700 bg-slate-900/50 backdrop-blur sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <span className="text-3xl">🏛️</span>
-            <div><h1 className="text-xl font-bold text-white">Archmorph</h1><p className="text-xs text-slate-400">Cloud Architecture Translator</p></div>
+    <>
+      {/* Toggle button */}
+      <button
+        onClick={() => setOpen(!open)}
+        className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full bg-cta hover:bg-cta-hover text-surface shadow-lg shadow-cta/30 flex items-center justify-center transition-all duration-200 cursor-pointer"
+        aria-label="Open chat"
+      >
+        {open ? <X className="w-6 h-6" /> : <MessageSquare className="w-6 h-6" />}
+      </button>
+
+      {/* Chat panel */}
+      {open && (
+        <div className="fixed bottom-24 right-6 z-50 w-96 max-w-[calc(100vw-2rem)] bg-primary border border-border rounded-2xl shadow-2xl shadow-black/40 flex flex-col overflow-hidden animate-slide-up" style={{ height: '500px' }}>
+          {/* Header */}
+          <div className="px-4 py-3 bg-secondary border-b border-border flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-cta/15 flex items-center justify-center">
+              <MessageSquare className="w-4 h-4 text-cta" />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-sm font-semibold text-text-primary">Archmorph Assistant</h3>
+              <p className="text-[10px] text-text-muted">Ask questions or create GitHub issues</p>
+            </div>
+            <button onClick={() => setOpen(false)} className="p-1 hover:bg-border rounded cursor-pointer">
+              <X className="w-4 h-4 text-text-muted" />
+            </button>
           </div>
-          <nav className="flex items-center gap-2">
-            <button onClick={() => setPage('services')} className={`px-4 py-2 rounded-lg text-sm font-medium transition ${page === 'services' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>
-              📋 Services Catalog
-            </button>
-            <button onClick={() => setPage('translator')} className={`px-4 py-2 rounded-lg text-sm font-medium transition ${page === 'translator' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>
-              🔄 Diagram Translator
-            </button>
-            <span className="ml-2 px-3 py-1 bg-amber-500/20 text-amber-400 rounded-full text-xs font-medium">Demo</span>
-          </nav>
+
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+            {messages.map((msg, i) => (
+              <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[85%] px-3 py-2 rounded-xl text-sm ${
+                  msg.role === 'user'
+                    ? 'bg-cta/15 text-text-primary rounded-br-sm'
+                    : 'bg-secondary text-text-primary rounded-bl-sm'
+                }`}>
+                  {renderContent(msg.content)}
+                  {msg.action === 'issue_created' && msg.data && (
+                    <div className="mt-2 p-2 bg-cta/10 rounded-lg border border-cta/20">
+                      <div className="flex items-center gap-1.5 text-xs text-cta font-medium">
+                        <CheckCircle className="w-3.5 h-3.5" />
+                        Issue #{msg.data.issue_number} created
+                      </div>
+                    </div>
+                  )}
+                  {msg.action === 'issue_draft' && msg.data && (
+                    <div className="mt-2 p-2 bg-warning/10 rounded-lg border border-warning/20">
+                      <div className="flex items-center gap-1.5 text-xs text-warning font-medium">
+                        <FileText className="w-3.5 h-3.5" />
+                        Draft ready — reply "yes" to create
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+            {loading && (
+              <div className="flex justify-start">
+                <div className="bg-secondary px-3 py-2 rounded-xl rounded-bl-sm">
+                  <Loader2 className="w-4 h-4 text-text-muted animate-spin" />
+                </div>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* Input */}
+          <div className="px-3 py-3 border-t border-border">
+            <div className="flex items-center gap-2">
+              <input
+                ref={inputRef}
+                type="text"
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Type a message..."
+                className="flex-1 px-3 py-2 bg-surface border border-border rounded-lg text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-cta/50 transition-colors"
+              />
+              <button
+                onClick={sendMessage}
+                disabled={!input.trim() || loading}
+                className="p-2 rounded-lg bg-cta hover:bg-cta-hover text-surface disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+              >
+                <Send className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
         </div>
-      </header>
+      )}
+    </>
+  );
+}
 
-      <main className="max-w-7xl mx-auto px-6 py-8">
-        {page === 'services' && <ServicesBrowser />}
-        {page === 'translator' && <DiagramTranslator />}
+
+// ═══════════════════════════════════════════════════════════════
+// ADMIN DASHBOARD — Hidden funnel analytics (admin-only)
+// ═══════════════════════════════════════════════════════════════
+const ADMIN_KEY = 'archmorph-admin-2025';
+
+function AdminDashboard({ onClose }) {
+  const [funnel, setFunnel] = useState(null);
+  const [metrics, setMetrics] = useState(null);
+  const [daily, setDaily] = useState([]);
+  const [recent, setRecent] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    Promise.all([
+      fetch(`${API_BASE}/admin/metrics/funnel?key=${ADMIN_KEY}`).then(r => r.json()),
+      fetch(`${API_BASE}/admin/metrics?key=${ADMIN_KEY}`).then(r => r.json()),
+      fetch(`${API_BASE}/admin/metrics/daily?key=${ADMIN_KEY}&days=14`).then(r => r.json()),
+      fetch(`${API_BASE}/admin/metrics/recent?key=${ADMIN_KEY}&limit=30`).then(r => r.json()),
+    ]).then(([f, m, d, r]) => {
+      setFunnel(f);
+      setMetrics(m);
+      setDaily(d.data || []);
+      setRecent(r.events || []);
+      setLoading(false);
+    }).catch(() => setLoading(false));
+  }, []);
+
+  if (loading) return (
+    <div className="fixed inset-0 z-[100] bg-surface flex items-center justify-center">
+      <Loader2 className="w-8 h-8 text-cta animate-spin" />
+    </div>
+  );
+
+  const maxFunnel = funnel?.funnel?.[0]?.count || 1;
+  const maxDaily = Math.max(...daily.map(d => d.total), 1);
+
+  const STEP_COLORS = ['#22C55E', '#3B82F6', '#A855F7', '#F59E0B', '#EF4444', '#06B6D4'];
+
+  return (
+    <div className="fixed inset-0 z-[100] bg-surface overflow-y-auto">
+      {/* Admin Header */}
+      <div className="sticky top-0 z-10 bg-surface/90 backdrop-blur-xl border-b border-border">
+        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-danger/15 flex items-center justify-center">
+              <Shield className="w-5 h-5 text-danger" />
+            </div>
+            <div>
+              <h1 className="text-lg font-bold text-text-primary">Admin Analytics</h1>
+              <p className="text-[10px] text-text-muted uppercase tracking-wider">Archmorph Internal</p>
+            </div>
+          </div>
+          <Button variant="ghost" size="sm" icon={X} onClick={onClose}>Close</Button>
+        </div>
+      </div>
+
+      <div className="max-w-6xl mx-auto px-6 py-8 space-y-8">
+
+        {/* ── Summary Row ─────────────────────────────────── */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {[
+            { label: 'Total Sessions', value: funnel?.total_sessions || 0, icon: Activity, color: 'cta' },
+            { label: 'Completion Rate', value: `${funnel?.completion_rate || 0}%`, icon: TrendingUp, color: 'cta' },
+            { label: 'Bottleneck', value: funnel?.bottleneck || 'None', icon: AlertTriangle, color: 'warning' },
+            { label: 'Events Today', value: metrics?.today?.events || 0, icon: Zap, color: 'cta' },
+          ].map(s => (
+            <Card key={s.label} className="p-4">
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-lg bg-${s.color}/10 flex items-center justify-center`}>
+                  <s.icon className={`w-5 h-5 text-${s.color}`} />
+                </div>
+                <div>
+                  <p className="text-xl font-bold text-text-primary truncate">{s.value}</p>
+                  <p className="text-xs text-text-muted">{s.label}</p>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+
+        {/* ── Conversion Funnel ───────────────────────────── */}
+        <Card className="p-6">
+          <h3 className="text-sm font-semibold text-text-primary mb-6 flex items-center gap-2">
+            <Filter className="w-4 h-4 text-cta" />
+            User Conversion Funnel
+          </h3>
+          <div className="space-y-3">
+            {(funnel?.funnel || []).map((step, i) => {
+              const pct = maxFunnel > 0 ? (step.count / maxFunnel * 100) : 0;
+              return (
+                <div key={step.step}>
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2">
+                      <span className="w-5 h-5 rounded-full text-[10px] font-bold flex items-center justify-center text-surface" style={{ backgroundColor: STEP_COLORS[i] }}>
+                        {i + 1}
+                      </span>
+                      <span className="text-sm font-medium text-text-primary">{step.label}</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm font-bold text-text-primary">{step.count}</span>
+                      {i > 0 && (
+                        <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
+                          step.conversion_rate >= 70 ? 'bg-cta/15 text-cta' :
+                          step.conversion_rate >= 40 ? 'bg-warning/15 text-warning' :
+                          'bg-danger/15 text-danger'
+                        }`}>
+                          {step.conversion_rate}%
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="h-8 bg-surface rounded-lg overflow-hidden">
+                    <div
+                      className="h-full rounded-lg transition-all duration-500"
+                      style={{ width: `${Math.max(pct, 1)}%`, backgroundColor: STEP_COLORS[i], opacity: 0.8 }}
+                    />
+                  </div>
+                  {i > 0 && step.drop_off > 0 && (
+                    <p className="text-[10px] text-text-muted mt-0.5 ml-7">
+                      {step.drop_off} user{step.drop_off !== 1 ? 's' : ''} dropped off
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+
+        {/* ── Two-column: Daily Activity + Event Counters ── */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Daily Activity */}
+          <Card className="p-6">
+            <h3 className="text-sm font-semibold text-text-primary mb-4 flex items-center gap-2">
+              <BarChart3 className="w-4 h-4 text-cta" />
+              Daily Activity (14 Days)
+            </h3>
+            <div className="flex items-end gap-1 h-36">
+              {daily.map(d => (
+                <div key={d.date} className="flex-1 flex flex-col items-center gap-1 group">
+                  <span className="text-[9px] text-text-muted opacity-0 group-hover:opacity-100 transition-opacity">{d.total}</span>
+                  <div
+                    className="w-full bg-cta/20 hover:bg-cta/40 rounded-t transition-colors"
+                    style={{ height: `${Math.max((d.total / maxDaily) * 100, 3)}%` }}
+                    title={`${d.date}: ${d.total} events`}
+                  />
+                  <span className="text-[8px] text-text-muted truncate w-full text-center">{d.date.slice(5)}</span>
+                </div>
+              ))}
+            </div>
+          </Card>
+
+          {/* Event Counters */}
+          <Card className="p-6">
+            <h3 className="text-sm font-semibold text-text-primary mb-4 flex items-center gap-2">
+              <Activity className="w-4 h-4 text-cta" />
+              All-Time Counters
+            </h3>
+            <div className="grid grid-cols-2 gap-2">
+              {Object.entries(metrics?.totals || {}).filter(([, v]) => v > 0).map(([key, val]) => (
+                <div key={key} className="bg-surface rounded-lg p-2.5 flex items-center justify-between">
+                  <span className="text-[11px] text-text-muted truncate">{key.replace(/_/g, ' ')}</span>
+                  <span className="text-sm font-bold text-text-primary ml-2">{val}</span>
+                </div>
+              ))}
+              {Object.values(metrics?.totals || {}).every(v => v === 0) && (
+                <p className="text-sm text-text-muted col-span-2 text-center py-4">No data yet</p>
+              )}
+            </div>
+          </Card>
+        </div>
+
+        {/* ── Recent Sessions ─────────────────────────────── */}
+        <Card className="p-6">
+          <h3 className="text-sm font-semibold text-text-primary mb-4 flex items-center gap-2">
+            <Eye className="w-4 h-4 text-cta" />
+            Recent Sessions
+          </h3>
+          {(funnel?.recent_sessions || []).length === 0 ? (
+            <p className="text-sm text-text-muted text-center py-6">No sessions recorded yet</p>
+          ) : (
+            <div className="space-y-2 max-h-72 overflow-auto">
+              {(funnel?.recent_sessions || []).map((sess, i) => (
+                <div key={i} className="flex items-center gap-3 py-2.5 px-3 bg-surface rounded-lg">
+                  <div className={`w-2 h-2 rounded-full shrink-0 ${sess.completed ? 'bg-cta' : 'bg-warning'}`} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-text-primary font-medium truncate">{sess.session_id}</p>
+                    <p className="text-[10px] text-text-muted">
+                      Reached: <span className="text-text-secondary">{sess.farthest_step}</span>
+                      {' '}&middot;{' '}
+                      {sess.steps_completed} step{sess.steps_completed !== 1 ? 's' : ''}
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    {sess.completed ? (
+                      <Badge variant="high">Completed</Badge>
+                    ) : (
+                      <Badge variant="medium">Dropped</Badge>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+
+        {/* ── Recent Events Feed ──────────────────────────── */}
+        <Card className="p-6">
+          <h3 className="text-sm font-semibold text-text-primary mb-4 flex items-center gap-2">
+            <Zap className="w-4 h-4 text-cta" />
+            Recent Events
+          </h3>
+          {recent.length === 0 ? (
+            <p className="text-sm text-text-muted text-center py-4">No recent events</p>
+          ) : (
+            <div className="space-y-1.5 max-h-56 overflow-auto">
+              {recent.map((evt, i) => (
+                <div key={i} className="flex items-center gap-3 py-1.5 text-sm">
+                  <span className="w-2 h-2 rounded-full bg-cta/40 shrink-0" />
+                  <span className="text-text-primary flex-1 truncate">{evt.type.replace(/_/g, ' ')}</span>
+                  <span className="text-xs text-text-muted shrink-0">{new Date(evt.timestamp).toLocaleString()}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+
+// ═══════════════════════════════════════════════════════════════
+// APP
+// ═══════════════════════════════════════════════════════════════
+export default function App() {
+  const [activeTab, setActiveTab] = useState('translator');
+  const [updateStatus, setUpdateStatus] = useState(null);
+  const [adminOpen, setAdminOpen] = useState(false);
+  const [tapCount, setTapCount] = useState(0);
+  const tapTimer = useRef(null);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/service-updates/status`)
+      .then(r => r.json())
+      .then(setUpdateStatus)
+      .catch(() => {});
+  }, []);
+
+  // Hidden admin: click version text 5 times rapidly to open
+  const handleVersionClick = () => {
+    const next = tapCount + 1;
+    setTapCount(next);
+    clearTimeout(tapTimer.current);
+    if (next >= 5) {
+      setAdminOpen(true);
+      setTapCount(0);
+    } else {
+      tapTimer.current = setTimeout(() => setTapCount(0), 2000);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-surface text-text-primary font-sans">
+      <Nav activeTab={activeTab} setActiveTab={setActiveTab} updateStatus={updateStatus} />
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {activeTab === 'translator' && <DiagramTranslator />}
+        {activeTab === 'services' && <ServicesBrowser />}
       </main>
-
-      <footer className="border-t border-slate-700 mt-12 py-6">
-        <div className="max-w-7xl mx-auto px-6 text-center text-slate-500 text-sm">
-          Archmorph © 2026 · AI-powered Cloud Architecture Translation · AWS · Azure · GCP
+      <footer className="border-t border-border py-8 mt-12">
+        <div className="max-w-7xl mx-auto px-4">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+            <p
+              className="text-xs text-text-muted select-none cursor-default"
+              onClick={handleVersionClick}
+            >
+              Archmorph v2.1.0 — AI-powered Cloud Architecture Translator to Azure
+            </p>
+            <div className="flex items-center gap-4">
+              <a href="mailto:send2katz@gmail.com" className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-cta transition-colors cursor-pointer">
+                <Mail className="w-3.5 h-3.5" />
+                send2katz@gmail.com
+              </a>
+              <a href="https://github.com/idokatz86/Archmorph" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-cta transition-colors cursor-pointer">
+                <Code className="w-3.5 h-3.5" />
+                GitHub
+              </a>
+            </div>
+          </div>
         </div>
       </footer>
+      <ChatWidget />
+      {adminOpen && <AdminDashboard onClose={() => setAdminOpen(false)} />}
     </div>
-  )
+  );
 }

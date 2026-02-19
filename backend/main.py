@@ -5,16 +5,42 @@ Cloud Architecture Translator to Azure — Full Services Catalog
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
+from contextlib import asynccontextmanager
 import os
+import logging
 
 from services import AWS_SERVICES, AZURE_SERVICES, GCP_SERVICES, CROSS_CLOUD_MAPPINGS
+from service_updater import start_scheduler, stop_scheduler, run_update_now, get_update_status, get_last_update
+from guided_questions import generate_questions, apply_answers
+from diagram_export import generate_diagram
+from chatbot import process_chat_message, get_chat_history, clear_chat_session
+from usage_metrics import (
+    record_event, get_metrics_summary, get_daily_metrics, get_recent_events,
+    get_funnel_metrics, record_funnel_step, flush_metrics, ADMIN_SECRET,
+)
+
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Startup/shutdown lifecycle manager."""
+    logger.info("Starting Archmorph API v2.1.0 — production mode")
+    start_scheduler()
+    yield
+    logger.info("Shutting down Archmorph API")
+    stop_scheduler()
+    flush_metrics()
+
 
 app = FastAPI(
     title="Archmorph API",
     description="AI-powered Cloud Architecture Translator to Azure",
-    version="0.1.0"
+    version="2.1.0",
+    lifespan=lifespan,
 )
 
 # CORS
@@ -27,8 +53,10 @@ app.add_middleware(
 )
 
 # Environment
-ENVIRONMENT = os.getenv("ENVIRONMENT", "dev")
-DEMO_MODE = os.getenv("DEMO_MODE", "true").lower() == "true"
+ENVIRONMENT = os.getenv("ENVIRONMENT", "production")
+
+# In-memory session store for analysis results (production would use Redis/DB)
+SESSION_STORE: Dict[str, Any] = {}
 
 
 # ─────────────────────────────────────────────────────────────
@@ -60,11 +88,20 @@ class AnalysisResult(BaseModel):
 # ─────────────────────────────────────────────────────────────
 @app.get("/api/health")
 async def health():
+    update_status = get_update_status()
     return {
         "status": "healthy",
-        "version": "0.1.0",
+        "version": "2.1.0",
         "environment": ENVIRONMENT,
-        "demo_mode": DEMO_MODE
+        "mode": "production",
+        "service_catalog": {
+            "aws": len(AWS_SERVICES),
+            "azure": len(AZURE_SERVICES),
+            "gcp": len(GCP_SERVICES),
+            "mappings": len(CROSS_CLOUD_MAPPINGS),
+        },
+        "last_service_update": update_status.get("last_check"),
+        "scheduler_running": update_status.get("scheduler_running", False),
     }
 
 
@@ -94,8 +131,11 @@ async def upload_diagram(project_id: str, file: UploadFile = File(...)):
         raise HTTPException(400, f"File type {file.content_type} not supported")
     
     # TODO: Save to Azure Blob Storage
+    diagram_id = "diag-001"
+    record_event("diagrams_uploaded", {"filename": file.filename})
+    record_funnel_step(diagram_id, "upload")
     return {
-        "diagram_id": "diag-001",
+        "diagram_id": diagram_id,
         "filename": file.filename,
         "size": 0,
         "status": "uploaded"
@@ -225,7 +265,6 @@ async def analyze_diagram(diagram_id: str):
     ]
 
     warnings = [
-        "Demo mode – Vision analysis is simulated using the AWS Automotive/IoT Data Pipeline reference architecture",
         "Amazon EMR appears 4× in different zones — each maps to Azure Synapse Spark Pool (consider consolidating)",
         "Amazon S3 appears 10× with different roles — mapped to ADLS Gen2 for Parquet/analytics, Blob Storage for images/raw data",
         "AWS Fargate appears 3× — mapped to ACI (extract) and Container Apps (long-running visualization)",
@@ -233,7 +272,7 @@ async def analyze_diagram(diagram_id: str):
         "AWS AppSync → APIM + SignalR: No direct Azure GraphQL managed service; consider Hot Chocolate on Container Apps",
     ]
 
-    return {
+    result = {
         "diagram_id": diagram_id,
         "diagram_type": "AWS Automotive / IoT Data Pipeline",
         "source_provider": "aws",
@@ -261,6 +300,12 @@ async def analyze_diagram(diagram_id: str):
         },
     }
 
+    # Store analysis result for guided questions and diagram export
+    SESSION_STORE[diagram_id] = result
+    record_event("analyses_run", {"diagram_id": diagram_id, "services": len(mappings)})
+    record_funnel_step(diagram_id, "analyze")
+    return result
+
 
 @app.get("/api/diagrams/{diagram_id}/mappings")
 async def get_mappings(diagram_id: str):
@@ -272,6 +317,86 @@ async def get_mappings(diagram_id: str):
 async def update_mapping(diagram_id: str, service: str, azure_service: str):
     # TODO: Implement override
     return {"status": "updated", "service": service, "new_mapping": azure_service}
+
+
+# ─────────────────────────────────────────────────────────────
+# Guided Questions
+# ─────────────────────────────────────────────────────────────
+@app.post("/api/diagrams/{diagram_id}/questions")
+async def get_guided_questions(diagram_id: str):
+    """Generate guided questions based on detected AWS services."""
+    analysis = SESSION_STORE.get(diagram_id)
+    if not analysis:
+        raise HTTPException(404, f"No analysis found for diagram {diagram_id}. Run /analyze first.")
+
+    detected = [m["source_service"] for m in analysis.get("mappings", [])]
+    questions = generate_questions(detected)
+    record_event("questions_generated", {"diagram_id": diagram_id, "count": len(questions)})
+    record_funnel_step(diagram_id, "questions")
+    return {
+        "diagram_id": diagram_id,
+        "questions": questions,
+        "total": len(questions),
+    }
+
+
+@app.post("/api/diagrams/{diagram_id}/apply-answers")
+async def apply_guided_answers(diagram_id: str, answers: Dict[str, Any]):
+    """Apply user answers to refine the Azure architecture analysis."""
+    analysis = SESSION_STORE.get(diagram_id)
+    if not analysis:
+        raise HTTPException(404, f"No analysis found for diagram {diagram_id}. Run /analyze first.")
+
+    refined = apply_answers(analysis, answers)
+    SESSION_STORE[diagram_id] = refined
+    record_event("answers_applied", {"diagram_id": diagram_id})
+    record_funnel_step(diagram_id, "answers")
+    return refined
+
+
+# ─────────────────────────────────────────────────────────────
+# Diagram Export (Excalidraw / Draw.io / Visio)
+# ─────────────────────────────────────────────────────────────
+@app.post("/api/diagrams/{diagram_id}/export-diagram")
+async def export_architecture_diagram(diagram_id: str, format: str = "excalidraw"):
+    """Generate an architecture diagram in Excalidraw, Draw.io, or Visio format."""
+    if format not in ("excalidraw", "drawio", "vsdx"):
+        raise HTTPException(400, "Format must be 'excalidraw', 'drawio', or 'vsdx'")
+
+    analysis = SESSION_STORE.get(diagram_id)
+    if not analysis:
+        raise HTTPException(404, f"No analysis found for diagram {diagram_id}. Run /analyze first.")
+
+    try:
+        result = generate_diagram(analysis, format)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+    record_event(f"exports_{format}", {"diagram_id": diagram_id})
+    record_funnel_step(diagram_id, "export")
+    return result
+
+
+# ─────────────────────────────────────────────────────────────
+# Service Updater
+# ─────────────────────────────────────────────────────────────
+@app.get("/api/service-updates/status")
+async def service_update_status():
+    """Return the service updater scheduler status."""
+    return get_update_status()
+
+
+@app.get("/api/service-updates/last")
+async def service_update_last():
+    """Return info about the most recent catalog check."""
+    return get_last_update()
+
+
+@app.post("/api/service-updates/run-now")
+async def trigger_service_update():
+    """Trigger an immediate service catalog update."""
+    result = run_update_now()
+    return result
 
 
 # ─────────────────────────────────────────────────────────────
@@ -295,6 +420,10 @@ terraform {
       source  = "hashicorp/azurerm"
       version = "~> 3.85"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.6"
+    }
   }
   backend "azurerm" {
     resource_group_name  = "archmorph-tfstate-rg"
@@ -306,6 +435,17 @@ terraform {
 
 provider "azurerm" {
   features {}
+}
+
+# Generate a strong random password for SQL admin
+resource "random_password" "sql_admin" {
+  length           = 24
+  special          = true
+  override_special = "!@#$%&*"
+  min_upper        = 2
+  min_lower        = 2
+  min_numeric      = 2
+  min_special      = 2
 }
 
 locals {
@@ -371,11 +511,10 @@ resource "azurerm_eventhub_namespace" "ingest" {
 }
 
 resource "azurerm_eventhub" "raw_telemetry" {
-  name                = "raw-vehicle-telemetry"
-  namespace_name      = azurerm_eventhub_namespace.ingest.name
-  resource_group_name = azurerm_resource_group.main.name
-  partition_count     = 8
-  message_retention   = 7
+  name              = "raw-vehicle-telemetry"
+  namespace_id      = azurerm_eventhub_namespace.ingest.id
+  partition_count   = 8
+  message_retention = 7
 }
 
 # ════════════════════════════════════════════════════════════
@@ -394,38 +533,38 @@ resource "azurerm_storage_account" "raw" {
 }
 
 resource "azurerm_storage_container" "raw_drive" {
-  name                  = "raw-drive-data"
-  storage_account_name  = azurerm_storage_account.raw.name
+  name                 = "raw-drive-data"
+  storage_account_id   = azurerm_storage_account.raw.id
   container_access_type = "private"
 }
 
 resource "azurerm_storage_container" "high_quality" {
-  name                  = "high-quality-data"
-  storage_account_name  = azurerm_storage_account.raw.name
+  name                 = "high-quality-data"
+  storage_account_id   = azurerm_storage_account.raw.id
   container_access_type = "private"
 }
 
 resource "azurerm_storage_container" "low_quality" {
-  name                  = "low-quality-quarantine"
-  storage_account_name  = azurerm_storage_account.raw.name
+  name                 = "low-quality-quarantine"
+  storage_account_id   = azurerm_storage_account.raw.id
   container_access_type = "private"
 }
 
 resource "azurerm_storage_container" "raw_images" {
-  name                  = "raw-images"
-  storage_account_name  = azurerm_storage_account.raw.name
+  name                 = "raw-images"
+  storage_account_id   = azurerm_storage_account.raw.id
   container_access_type = "private"
 }
 
 resource "azurerm_storage_container" "anonymized_images" {
-  name                  = "anonymized-images"
-  storage_account_name  = azurerm_storage_account.raw.name
+  name                 = "anonymized-images"
+  storage_account_id   = azurerm_storage_account.raw.id
   container_access_type = "private"
 }
 
 resource "azurerm_storage_container" "labeled_data" {
-  name                  = "labeled-annotated"
-  storage_account_name  = azurerm_storage_account.raw.name
+  name                 = "labeled-annotated"
+  storage_account_id   = azurerm_storage_account.raw.id
   container_access_type = "private"
 }
 
@@ -487,7 +626,7 @@ resource "azurerm_synapse_workspace" "main" {
   location                             = azurerm_resource_group.main.location
   storage_data_lake_gen2_filesystem_id = azurerm_storage_data_lake_gen2_filesystem.parsed.id
   sql_administrator_login              = "sqladmin"
-  sql_administrator_login_password     = "P@ssw0rd1234!"  # Use Key Vault in production
+  sql_administrator_login_password     = random_password.sql_admin.result
   identity {
     type = "SystemAssigned"
   }
@@ -606,7 +745,7 @@ resource "azurerm_cosmosdb_account" "metadata" {
 
 resource "azurerm_cosmosdb_sql_database" "drive_metadata" {
   name                = "drive-metadata"
-  resource_group_name = azurerm_resource_group.main.name
+  resource_group_name = azurerm_cosmosdb_account.metadata.resource_group_name
   account_name        = azurerm_cosmosdb_account.metadata.name
   throughput          = 400
 }
@@ -650,6 +789,13 @@ resource "azurerm_linux_function_app" "anonymizer" {
     }
   }
   tags = local.tags
+}
+
+# Store SQL admin password in Key Vault
+resource "azurerm_key_vault_secret" "sql_password" {
+  name         = "synapse-sql-admin-password"
+  value        = random_password.sql_admin.result
+  key_vault_id = azurerm_key_vault.main.id
 }
 
 # Azure AI Services (replaces Amazon Rekognition)
@@ -780,6 +926,10 @@ param env string = 'dev'
 @description('Primary Azure region')
 param location string = 'westeurope'
 
+@secure()
+@description('SQL Administrator password for Synapse workspace')
+param sqlAdminPassword string
+
 var project = 'automotive-iot'
 var tags = {
   Project: 'Automotive-IoT-Pipeline'
@@ -890,7 +1040,7 @@ resource synapse 'Microsoft.Synapse/workspaces@2021-06-01' = {
       filesystem: 'parsed-parquet'
     }
     sqlAdministratorLogin: 'sqladmin'
-    sqlAdministratorLoginPassword: 'P@ssw0rd1234!'
+    sqlAdministratorLoginPassword: sqlAdminPassword
   }
   tags: tags
 }
@@ -1020,6 +1170,8 @@ output purviewEndpoint string = 'https://${purview.name}.purview.azure.com'
 output searchEndpoint string = 'https://${search.name}.search.windows.net'
 '''
     
+    record_event(f"iac_generated_{format}", {"diagram_id": diagram_id})
+    record_funnel_step(diagram_id, "iac_generate")
     return {"diagram_id": diagram_id, "format": format, "code": code}
 
 
@@ -1034,6 +1186,7 @@ async def export_iac(diagram_id: str, format: str = "terraform"):
 # ─────────────────────────────────────────────────────────────
 @app.get("/api/diagrams/{diagram_id}/cost-estimate")
 async def estimate_cost(diagram_id: str):
+    record_event("cost_estimates", {"diagram_id": diagram_id})
     return {
         "diagram_id": diagram_id,
         "monthly_estimate": {
@@ -1222,6 +1375,87 @@ async def get_stats():
         "avgConfidence": round(
             sum(m["confidence"] for m in CROSS_CLOUD_MAPPINGS) / len(CROSS_CLOUD_MAPPINGS), 2
         ) if CROSS_CLOUD_MAPPINGS else 0,
+    }
+
+
+# ─────────────────────────────────────────────────────────────
+# Chatbot — AI assistant with GitHub issue creation
+# ─────────────────────────────────────────────────────────────
+class ChatMessage(BaseModel):
+    message: str
+    session_id: Optional[str] = "default"
+
+
+@app.post("/api/chat")
+async def chat(msg: ChatMessage):
+    """Process a chat message and return bot response. Can create GitHub issues."""
+    record_event("chat_messages", {"session_id": msg.session_id})
+    result = process_chat_message(msg.session_id, msg.message)
+    if result.get("action") == "issue_created":
+        record_event("github_issues_created", result.get("data", {}))
+    return result
+
+
+@app.get("/api/chat/history/{session_id}")
+async def chat_history(session_id: str):
+    """Get chat history for a session."""
+    return {"session_id": session_id, "messages": get_chat_history(session_id)}
+
+
+@app.delete("/api/chat/{session_id}")
+async def chat_clear(session_id: str):
+    """Clear a chat session."""
+    cleared = clear_chat_session(session_id)
+    return {"cleared": cleared}
+
+
+# ─────────────────────────────────────────────────────────────
+# Admin Metrics (protected by secret key)
+# ─────────────────────────────────────────────────────────────
+def _check_admin(key: str):
+    if key != ADMIN_SECRET:
+        raise HTTPException(403, "Invalid admin key")
+
+
+@app.get("/api/admin/metrics")
+async def admin_metrics_summary(key: str = Query(...)):
+    """Return aggregate usage metrics (admin only)."""
+    _check_admin(key)
+    return get_metrics_summary()
+
+
+@app.get("/api/admin/metrics/funnel")
+async def admin_funnel(key: str = Query(...)):
+    """Return conversion funnel data (admin only)."""
+    _check_admin(key)
+    return get_funnel_metrics()
+
+
+@app.get("/api/admin/metrics/daily")
+async def admin_metrics_daily(key: str = Query(...), days: int = Query(30, ge=1, le=365)):
+    """Return daily metrics for the last N days (admin only)."""
+    _check_admin(key)
+    return {"days": days, "data": get_daily_metrics(days)}
+
+
+@app.get("/api/admin/metrics/recent")
+async def admin_metrics_recent(key: str = Query(...), limit: int = Query(50, ge=1, le=200)):
+    """Return the most recent usage events (admin only)."""
+    _check_admin(key)
+    return {"events": get_recent_events(limit)}
+
+
+# ─────────────────────────────────────────────────────────────
+# Contact
+# ─────────────────────────────────────────────────────────────
+@app.get("/api/contact")
+async def contact_info():
+    """Return contact information."""
+    return {
+        "email": "send2katz@gmail.com",
+        "name": "Ido Katz",
+        "project": "Archmorph",
+        "github": "https://github.com/idokatz86/Archmorph",
     }
 
 
