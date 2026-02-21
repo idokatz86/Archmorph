@@ -80,7 +80,6 @@ jobs:
 
   azure-monitor-check:
     runs-on: ubuntu-latest
-    environment: production
     if: always()
     needs: api-health-check
     outputs:
@@ -139,7 +138,6 @@ jobs:
 
   application-insights-check:
     runs-on: ubuntu-latest
-    environment: production
     if: always()
     needs: api-health-check
     outputs:
