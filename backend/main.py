@@ -131,7 +131,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Archmorph API",
     description="AI-powered Cloud Architecture Translator to Azure",
-    version="2.11.0",
+    version="2.11.1",
     lifespan=lifespan,
 )
 
@@ -229,7 +229,7 @@ async def health():
 
     return {
         "status": "healthy",
-        "version": "2.11.0",
+        "version": "2.11.1",
         "environment": ENVIRONMENT,
         "mode": "production",
         "checks": checks,
