@@ -87,6 +87,12 @@ jobs:
       errors_found: ${{ steps.query.outputs.errors_found }}
       error_count: ${{ steps.query.outputs.error_count }}
     steps:
+      - name: Debug secrets presence
+        run: |
+          echo "AZURE_CLIENT_ID present: ${{ secrets.AZURE_CLIENT_ID != '' }}"
+          echo "AZURE_TENANT_ID present: ${{ secrets.AZURE_TENANT_ID != '' }}"
+          echo "AZURE_SUBSCRIPTION_ID present: ${{ secrets.AZURE_SUBSCRIPTION_ID != '' }}"
+          
       - name: Azure Login
         uses: azure/login@v2
         with:
@@ -141,6 +147,13 @@ jobs:
       failure_rate: ${{ steps.query.outputs.failure_rate }}
       avg_response_time: ${{ steps.query.outputs.avg_response_time }}
     steps:
+      - name: Debug secrets presence
+        run: |
+          echo "AZURE_CLIENT_ID present: ${{ secrets.AZURE_CLIENT_ID != '' }}"
+          echo "AZURE_TENANT_ID present: ${{ secrets.AZURE_TENANT_ID != '' }}"
+          echo "AZURE_SUBSCRIPTION_ID present: ${{ secrets.AZURE_SUBSCRIPTION_ID != '' }}"
+          echo "APP_INSIGHTS_APP_ID present: ${{ secrets.APP_INSIGHTS_APP_ID != '' }}"
+
       - name: Check if App Insights configured
         id: check
         run: |
