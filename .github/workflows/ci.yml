@@ -23,6 +23,7 @@ env:
   CONTAINER_APP_ENV: ${{ secrets.CONTAINER_APP_ENV }}
   SWA_NAME: ${{ secrets.SWA_NAME }}
   API_URL: ${{ secrets.API_URL }}
+  ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
 
 jobs:
   # ============================================
@@ -152,10 +153,15 @@ jobs:
 
       - name: Deploy to Container Apps
         run: |
+          az containerapp secret set \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --secrets admin-key="${{ env.ADMIN_KEY }}" 2>/dev/null || true
           az containerapp update \
             --name ${{ env.CONTAINER_APP_NAME }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --image ${{ env.ACR_LOGIN_SERVER }}/archmorph-api:${{ github.sha }}
+            --image ${{ env.ACR_LOGIN_SERVER }}/archmorph-api:${{ github.sha }} \
+            --set-env-vars ARCHMORPH_ADMIN_KEY=secretref:admin-key
 
       - name: Verify deployment
         run: |
@@ -192,6 +198,7 @@ jobs:
           npm run build
         env:
           VITE_API_BASE: ${{ env.API_URL }}
+          VITE_ADMIN_KEY: ${{ env.ADMIN_KEY }}
 
       - name: Deploy to Azure Static Web Apps
         uses: Azure/static-web-apps-deploy@v1
