@@ -453,13 +453,14 @@ QUESTION_BANK: QuestionBank = {
             "question": "Alerting and notification channel?",
             "type": "single_choice",
             "options": [
+                "None — no alerts needed",
                 "Email only",
                 "Email + Slack / Teams webhook",
                 "PagerDuty / Opsgenie integration",
                 "Custom webhook",
             ],
             "condition": ["CloudWatch", "SNS", "EventBridge"],
-            "impact": "Configures Azure Monitor action groups and alert rules in IaC",
+            "impact": "Configures Azure Monitor action groups and alert rules in IaC (or nothing if None)",
             "default": "Email + Slack / Teams webhook",
         },
     ],
@@ -1495,7 +1496,9 @@ def _apply_monitoring(
     iac["monitoring_depth"] = depth
     iac["cicd_platform"] = cicd
 
-    if "None" in depth or "no monitoring" in depth.lower():
+    is_no_monitoring = "None" in depth or "no monitoring" in depth.lower()
+
+    if is_no_monitoring:
         pass  # No monitoring resources added
     elif "Full observability" in depth:
         iac["managed_grafana"] = True
@@ -1523,8 +1526,9 @@ def _apply_monitoring(
     elif cicd == "GitHub Actions":
         iac["github_actions"] = True
 
-    if alerting:
-        iac["alerting_channel"] = alerting
+    if alerting and not is_no_monitoring:
+        if "None" not in alerting and "no alerts" not in alerting.lower():
+            iac["alerting_channel"] = alerting
 
 
 def _apply_containers(

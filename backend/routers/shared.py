@@ -9,7 +9,6 @@ from typing import Optional, List
 from fastapi import HTTPException, Security, Header
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
-from cachetools import TTLCache
 
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -18,6 +17,7 @@ from admin_auth import (
     validate_session_token,
     is_configured as admin_is_configured,
 )
+from session_store import get_store
 
 # ─────────────────────────────────────────────────────────────
 # Rate Limiting
@@ -63,17 +63,17 @@ async def verify_admin_key(
 
 
 # ─────────────────────────────────────────────────────────────
-# In-memory Stores
+# In-memory Stores (backed by SessionStore abstraction — Issue #69)
 # ─────────────────────────────────────────────────────────────
 
-# In-memory session store for analysis results (TTL: 2 hours, max 500 sessions)
-SESSION_STORE: TTLCache = TTLCache(maxsize=500, ttl=7200)
+# Session store for analysis results (TTL: 2 hours, max 500 sessions)
+SESSION_STORE = get_store("sessions", maxsize=500, ttl=7200)
 
-# In-memory image store keyed by diagram_id → (image_bytes, content_type) (TTL: 1 hour, max 200)
-IMAGE_STORE: TTLCache = TTLCache(maxsize=200, ttl=3600)
+# Image store keyed by diagram_id → (image_bytes, content_type) (TTL: 1 hour, max 200)
+IMAGE_STORE = get_store("images", maxsize=200, ttl=3600)
 
 # Share links store (TTL: 24 hours, max 100)
-SHARE_STORE: TTLCache = TTLCache(maxsize=100, ttl=86400)  # 24 hour TTL
+SHARE_STORE = get_store("shares", maxsize=100, ttl=86400)
 
 # ─────────────────────────────────────────────────────────────
 # Environment & Config

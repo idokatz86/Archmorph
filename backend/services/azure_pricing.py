@@ -29,11 +29,20 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────
 # Cache configuration
 # ─────────────────────────────────────────────────────────────
+import os
+
 CACHE_DIR = Path(__file__).parent.parent / "data"
 CACHE_FILE = CACHE_DIR / "azure_pricing_cache.json"
-CACHE_MAX_AGE_SECONDS = 30 * 24 * 3600  # ~30 days
+CACHE_MAX_AGE_SECONDS = int(os.getenv("PRICING_CACHE_TTL_SECONDS", str(24 * 3600)))  # 24h default
 
 AZURE_PRICING_API = "https://prices.azure.com/api/retail/prices"
+
+# Azure Blob Storage persistence — RBAC preferred, connection string fallback
+AZURE_STORAGE_ACCOUNT_URL = os.getenv("AZURE_STORAGE_ACCOUNT_URL", "")
+AZURE_STORAGE_CONNECTION_STRING = os.getenv("AZURE_STORAGE_CONNECTION_STRING", "")
+AZURE_CLIENT_ID = os.getenv("AZURE_CLIENT_ID", "")  # For user-assigned managed identity
+PRICING_BLOB_CONTAINER = "pricing"
+PRICING_BLOB_NAME = "azure_pricing_cache.json"
 
 # ─────────────────────────────────────────────────────────────
 # Region display name → armRegionName mapping
@@ -944,24 +953,82 @@ _price_cache: dict[str, Any] = {}
 _cache_loaded = False
 
 
+def _get_blob_client():
+    """Return an Azure BlobClient for pricing cache persistence, or None.
+
+    Auth priority:
+      1. RBAC via DefaultAzureCredential (production — managed identity)
+      2. Connection string (local dev / legacy)
+    """
+    if not AZURE_STORAGE_ACCOUNT_URL and not AZURE_STORAGE_CONNECTION_STRING:
+        return None
+    try:
+        from azure.storage.blob import BlobServiceClient
+
+        if AZURE_STORAGE_ACCOUNT_URL:
+            from azure.identity import DefaultAzureCredential
+            credential = DefaultAzureCredential(
+                managed_identity_client_id=AZURE_CLIENT_ID or None
+            )
+            bsc = BlobServiceClient(AZURE_STORAGE_ACCOUNT_URL, credential=credential)
+            logger.debug("Using RBAC auth for pricing blob storage")
+        else:
+            bsc = BlobServiceClient.from_connection_string(AZURE_STORAGE_CONNECTION_STRING)
+            logger.debug("Using connection string auth for pricing blob storage")
+
+        container = bsc.get_container_client(PRICING_BLOB_CONTAINER)
+        try:
+            container.get_container_properties()
+        except Exception:
+            container.create_container()
+            logger.info("Created blob container '%s' for pricing cache", PRICING_BLOB_CONTAINER)
+        return container.get_blob_client(PRICING_BLOB_NAME)
+    except Exception as exc:
+        logger.warning("Failed to create pricing blob client: %s", exc)
+        return None
+
+
+def _is_cache_valid(data: dict[str, Any]) -> bool:
+    """Check if cache data is within the configured TTL."""
+    cached_at = data.get("cached_at", 0)
+    return time.time() - cached_at < CACHE_MAX_AGE_SECONDS
+
+
 def _load_cache() -> dict[str, Any]:
-    """Load pricing cache from disk if valid."""
+    """Load pricing cache from Azure Blob Storage (primary) or local disk (fallback)."""
     global _price_cache, _cache_loaded
     if _cache_loaded and _price_cache:
         return _price_cache
 
+    # 1. Try Azure Blob Storage
+    blob = _get_blob_client()
+    if blob:
+        try:
+            raw = blob.download_blob().readall()
+            data = json.loads(raw)
+            if _is_cache_valid(data):
+                _price_cache = data
+                _cache_loaded = True
+                logger.info("Loaded Azure pricing cache from Blob Storage (age: %.1f h)",
+                            (time.time() - data.get("cached_at", 0)) / 3600)
+                return _price_cache
+            else:
+                logger.info("Blob pricing cache expired, will refresh")
+        except Exception as exc:
+            logger.info("Blob pricing cache load skipped (%s) — trying local file", exc)
+
+    # 2. Fallback to local file
     if CACHE_FILE.exists():
         try:
             data = json.loads(CACHE_FILE.read_text())
-            cached_at = data.get("cached_at", 0)
-            if time.time() - cached_at < CACHE_MAX_AGE_SECONDS:
+            if _is_cache_valid(data):
                 _price_cache = data
                 _cache_loaded = True
-                logger.info("Loaded Azure pricing cache (age: %.1f days)",
-                            (time.time() - cached_at) / 86400)
+                logger.info("Loaded Azure pricing cache from local disk (age: %.1f h)",
+                            (time.time() - data.get("cached_at", 0)) / 3600)
                 return _price_cache
             else:
-                logger.info("Azure pricing cache expired, will refresh")
+                logger.info("Local pricing cache expired, will refresh")
         except (json.JSONDecodeError, KeyError):
             logger.warning("Corrupt pricing cache, will refresh")
 
@@ -970,14 +1037,36 @@ def _load_cache() -> dict[str, Any]:
 
 
 def _save_cache(data: dict[str, Any]) -> None:
-    """Persist pricing cache to disk."""
+    """Persist pricing cache to Azure Blob Storage (primary) and local disk (fallback)."""
     global _price_cache
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
     data["cached_at"] = time.time()
     data["cached_date"] = datetime.now(timezone.utc).isoformat()
-    CACHE_FILE.write_text(json.dumps(data, indent=2))
-    _price_cache = data
-    logger.info("Saved Azure pricing cache to %s", CACHE_FILE)
+    payload = json.dumps(data, indent=2)
+
+    saved = False
+
+    # 1. Try Azure Blob Storage
+    blob = _get_blob_client()
+    if blob:
+        try:
+            blob.upload_blob(payload, overwrite=True)
+            logger.info("Saved Azure pricing cache to Blob Storage")
+            saved = True
+        except Exception as exc:
+            logger.warning("Blob pricing save failed (%s) — falling back to disk", exc)
+
+    # 2. Always save to local disk as secondary backup
+    try:
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        CACHE_FILE.write_text(payload)
+        saved = True
+        if not blob:
+            logger.info("Saved Azure pricing cache to %s", CACHE_FILE)
+    except Exception as exc:
+        logger.warning("Failed to save pricing cache to disk: %s", exc)
+
+    if saved:
+        _price_cache = data
 
 
 def invalidate_cache() -> None:
@@ -987,6 +1076,14 @@ def invalidate_cache() -> None:
     _cache_loaded = False
     if CACHE_FILE.exists():
         CACHE_FILE.unlink()
+    # Also invalidate blob cache
+    blob = _get_blob_client()
+    if blob:
+        try:
+            blob.delete_blob()
+            logger.info("Deleted pricing cache blob")
+        except Exception:
+            pass  # Blob may not exist
     logger.info("Azure pricing cache invalidated")
 
 

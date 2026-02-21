@@ -22,6 +22,7 @@ from guided_questions import (
     _apply_network_isolation,
     _apply_deploy_region,
     _apply_encryption,
+    _apply_monitoring,
     generate_questions,
     apply_answers,
     QUESTION_BANK,
@@ -409,3 +410,71 @@ class TestNewQuestionCategories:
         ids = [q["id"] for q in result]
         ai_ids = [q["id"] for q in QUESTION_BANK.get("generative_ai", [])]
         assert any(aid in ids for aid in ai_ids), "No gen AI questions triggered by Bedrock"
+
+
+# ====================================================================
+# _apply_monitoring() — None handling (Issue #58)
+# ====================================================================
+
+class TestApplyMonitoringNone:
+    """Verify 'None' monitoring option skips monitoring and alerting resources."""
+
+    def test_none_monitoring_no_resources(self):
+        answers = {"ops_monitoring_depth": "None \u2014 no monitoring needed"}
+        mappings = []
+        warnings = []
+        iac = {}
+        _apply_monitoring(answers, mappings, warnings, iac)
+        assert iac.get("monitoring_depth") == "None \u2014 no monitoring needed"
+        assert "application_insights" not in iac
+        assert "log_analytics_workspace" not in iac
+        assert "managed_grafana" not in iac
+        assert "sentinel_enabled" not in iac
+
+    def test_none_monitoring_skips_alerting(self):
+        answers = {
+            "ops_monitoring_depth": "None \u2014 no monitoring needed",
+            "ops_alerting": "Email only",
+        }
+        mappings = []
+        warnings = []
+        iac = {}
+        _apply_monitoring(answers, mappings, warnings, iac)
+        assert "alerting_channel" not in iac
+
+    def test_none_alerting_option(self):
+        answers = {
+            "ops_monitoring_depth": "Basic metrics (Azure Monitor)",
+            "ops_alerting": "None \u2014 no alerts needed",
+        }
+        mappings = []
+        warnings = []
+        iac = {}
+        _apply_monitoring(answers, mappings, warnings, iac)
+        assert "alerting_channel" not in iac
+
+    def test_full_observability_still_works(self):
+        answers = {
+            "ops_monitoring_depth": "Full observability (Azure Monitor + Grafana + Log Analytics)",
+            "ops_alerting": "Email + Slack / Teams webhook",
+        }
+        mappings = []
+        warnings = []
+        iac = {}
+        _apply_monitoring(answers, mappings, warnings, iac)
+        assert iac.get("managed_grafana") is True
+        assert iac.get("log_analytics_workspace") is True
+        assert iac.get("application_insights") is True
+        assert iac.get("alerting_channel") == "Email + Slack / Teams webhook"
+
+    def test_monitoring_none_option_exists_in_bank(self):
+        """Verify the 'None' option is present in the monitoring question."""
+        mon_qs = QUESTION_BANK.get("monitoring_operations", [])
+        depth_q = [q for q in mon_qs if q["id"] == "ops_monitoring_depth"][0]
+        assert any("None" in opt for opt in depth_q["options"])
+
+    def test_alerting_none_option_exists_in_bank(self):
+        """Verify the 'None' option is present in the alerting question."""
+        mon_qs = QUESTION_BANK.get("monitoring_operations", [])
+        alert_q = [q for q in mon_qs if q["id"] == "ops_alerting"][0]
+        assert any("None" in opt for opt in alert_q["options"])
