@@ -1,5 +1,5 @@
 import React from 'react';
-import { CloudCog, Layers, Server } from 'lucide-react';
+import { CloudCog, Layers, Server, Rocket } from 'lucide-react';
 import { Badge } from './ui';
 import { APP_VERSION } from '../constants';
 
@@ -21,6 +21,7 @@ export default function Nav({ activeTab, setActiveTab, updateStatus }) {
             {[
               { id: 'translator', label: 'Translator', icon: Layers },
               { id: 'services', label: 'Services', icon: Server },
+              { id: 'roadmap', label: 'Roadmap', icon: Rocket },
             ].map(tab => (
               <button
                 key={tab.id}

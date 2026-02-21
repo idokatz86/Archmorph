@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import 'prismjs/themes/prism-tomorrow.css';
-import { AlertTriangle, Mail, Code } from 'lucide-react';
+import { AlertTriangle, Mail, Code, Coffee } from 'lucide-react';
 import ErrorBoundary from './components/ErrorBoundary';
 import Nav from './components/Nav';
 import DiagramTranslator from './components/DiagramTranslator';
 import ServicesBrowser from './components/ServicesBrowser';
+import Roadmap from './components/Roadmap';
 import ChatWidget from './components/ChatWidget';
 import AdminDashboard from './components/AdminDashboard';
 import FeedbackWidget from './components/FeedbackWidget';
@@ -51,6 +52,7 @@ export default function App() {
         <ErrorBoundary>
           {activeTab === 'translator' && <DiagramTranslator />}
           {activeTab === 'services' && <ServicesBrowser />}
+          {activeTab === 'roadmap' && <Roadmap />}
         </ErrorBoundary>
       </main>
       <footer className="border-t border-border py-8 mt-12">
@@ -70,6 +72,10 @@ export default function App() {
               <a href="https://github.com/idokatz86/Archmorph" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-cta transition-colors cursor-pointer">
                 <Code className="w-3.5 h-3.5" />
                 GitHub
+              </a>
+              <a href="https://buymeacoffee.com/idokatz" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-amber-400 transition-colors cursor-pointer">
+                <Coffee className="w-3.5 h-3.5" />
+                Buy me a coffee
               </a>
             </div>
           </div>

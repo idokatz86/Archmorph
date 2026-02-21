@@ -1,9 +1,9 @@
 """
-Archmorph Chatbot — AI-powered assistant that can create GitHub issues.
+Archmorph AI Assistant — GPT-4o powered intelligent assistant.
 
-Supports general Q&A about Archmorph features and structured issue creation
-through natural conversation. Uses Azure OpenAI for intent detection and
-GitHub API for issue management.
+A true AI assistant that can answer any question about Archmorph, cloud
+architecture, Azure services, and migrations. Uses natural language
+understanding via GPT-4o and can create GitHub issues for bugs/features.
 """
 
 import os
@@ -15,6 +15,8 @@ from datetime import datetime, timezone
 
 from cachetools import TTLCache
 
+from openai_client import get_openai_client, AZURE_OPENAI_DEPLOYMENT, openai_retry
+
 logger = logging.getLogger(__name__)
 
 # GitHub configuration
@@ -24,25 +26,144 @@ GITHUB_REPO = os.getenv("GITHUB_REPO", "idokatz86/Archmorph")
 # Conversation history per session (TTL: 2 hours, max 500 sessions)
 CHAT_SESSIONS: TTLCache = TTLCache(maxsize=500, ttl=7200)
 
+
 # ─────────────────────────────────────────────────────────────
-# Label mapping for auto-categorization
+# AI Assistant System Prompt
 # ─────────────────────────────────────────────────────────────
-LABEL_KEYWORDS = {
-    "bug": ["bug", "broken", "error", "crash", "not working", "fails", "issue", "problem", "fix"],
-    "enhancement": ["feature", "enhance", "improve", "add", "request", "suggestion", "want", "could you", "would be nice"],
-    "documentation": ["docs", "documentation", "readme", "guide", "explain", "how to"],
-    "question": ["question", "how", "why", "what", "where", "when", "help"],
-}
+SYSTEM_PROMPT = """\
+You are **Archmorph AI Assistant** — a friendly, knowledgeable AI assistant for Archmorph, the cloud architecture migration platform.
+
+## About Archmorph
+Archmorph is an AI-powered Cloud Architecture Translator that:
+- Converts AWS and GCP architecture diagrams into Azure equivalents
+- Generates production-ready Terraform and Bicep IaC code
+- Uses GPT-4o Vision to analyze uploaded architecture diagrams
+- Asks 8-18 guided migration questions to refine recommendations
+- Provides cost estimates using Azure Retail Prices API
+- Exports diagrams in Excalidraw, Draw.io, and Visio formats
+
+## Current Version: 2.10.0 (February 21, 2026)
+Recent features include:
+- Azure AD B2C authentication with user tiers (Free/Pro/Enterprise)
+- Usage quotas and lead capture
+- Migration runbook generator
+- Architecture versioning
+- Terraform plan preview
+- AI-powered assistant (you!)
+- Interactive roadmap timeline
+
+## Your Capabilities
+You can help users with:
+1. **Archmorph Questions** — How the platform works, features, pricing, supported formats
+2. **Cloud Architecture** — AWS, Azure, GCP services, best practices, migration strategies
+3. **Terraform/Bicep** — IaC questions, HCL syntax, Azure resource configuration
+4. **Bug Reports** — Help users report bugs (you'll structure and create GitHub issues)
+5. **Feature Requests** — Capture feature ideas for the roadmap
+6. **General Help** — Contact info, documentation, getting started
+
+## Response Guidelines
+- Be conversational, friendly, and helpful — not robotic
+- Give direct, concise answers — don't over-explain simple questions
+- Use markdown formatting for clarity (bold, lists, code blocks)
+- For code examples, use proper syntax highlighting
+- If you don't know something specific about Archmorph, say so honestly
+- Proactively offer to create GitHub issues when users report bugs or request features
+
+## Special Actions
+When users want to report a bug or request a feature, respond with a JSON action:
+
+For bug reports, include in your response:
+```json
+{"action": "create_bug", "title": "<bug title>", "description": "<details>"}
+```
+
+For feature requests:
+```json
+{"action": "create_feature", "title": "<feature title>", "description": "<details>"}
+```
+
+## Service Catalog
+- AWS services: 145 (EC2, S3, RDS, Lambda, EKS, etc.)
+- Azure services: 143 (VMs, Storage, SQL, Functions, AKS, etc.)
+- GCP services: 117 (Compute Engine, Cloud Storage, Cloud SQL, etc.)
+- Cross-cloud mappings: 122 verified service mappings
+
+## Contact
+- Email: send2katz@gmail.com
+- GitHub: https://github.com/idokatz86/Archmorph
+"""
 
 
-def _detect_labels(text: str) -> List[str]:
-    """Auto-detect appropriate GitHub labels from text content."""
-    text_lower = text.lower()
-    labels = []
-    for label, keywords in LABEL_KEYWORDS.items():
-        if any(kw in text_lower for kw in keywords):
-            labels.append(label)
-    return labels if labels else ["triage"]
+def _call_ai_assistant(
+    message: str,
+    history: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """
+    Call GPT-4o to generate an intelligent response.
+    
+    Returns the AI response and any detected actions (bug/feature creation).
+    """
+    # Build messages for GPT-4o
+    messages: List[Dict[str, str]] = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+    ]
+    
+    # Add conversation history (keep last 10 turns)
+    recent_history = history[-10:]
+    for entry in recent_history:
+        if entry.get("role") in ("user", "assistant"):
+            messages.append({
+                "role": entry["role"],
+                "content": entry["content"],
+            })
+    
+    # Add current message
+    messages.append({"role": "user", "content": message})
+    
+    try:
+        client = get_openai_client()
+        
+        response = openai_retry(client.chat.completions.create)(
+            model=AZURE_OPENAI_DEPLOYMENT,
+            messages=messages,
+            max_tokens=2048,
+            temperature=0.7,
+        )
+        
+        reply_text = response.choices[0].message.content.strip()
+        
+        # Check for action JSON in response
+        action = None
+        action_match = re.search(
+            r'```json\s*(\{[^}]*"action"[^}]*\})\s*```',
+            reply_text,
+            re.DOTALL
+        )
+        if action_match:
+            try:
+                action = json.loads(action_match.group(1))
+                # Remove the JSON block from visible reply
+                reply_text = re.sub(
+                    r'```json\s*\{[^}]*"action"[^}]*\}\s*```',
+                    '',
+                    reply_text
+                ).strip()
+            except json.JSONDecodeError:
+                pass
+        
+        return {
+            "reply": reply_text,
+            "action": action,
+            "tokens_used": response.usage.total_tokens if response.usage else 0,
+        }
+        
+    except Exception as exc:
+        logger.error(f"AI assistant error: {exc}")
+        return {
+            "reply": "I apologize, but I'm having trouble processing your request right now. Please try again in a moment, or contact us at send2katz@gmail.com for assistance.",
+            "action": None,
+            "error": str(exc),
+        }
 
 
 def _create_github_issue(title: str, body: str, labels: List[str]) -> Dict[str, Any]:
@@ -82,69 +203,7 @@ def _create_github_issue(title: str, body: str, labels: List[str]) -> Dict[str, 
 
 
 # ─────────────────────────────────────────────────────────────
-# Intent detection
-# ─────────────────────────────────────────────────────────────
-ISSUE_PATTERNS = [
-    r"create\s+(?:a\s+)?(?:github\s+)?issue",
-    r"open\s+(?:a\s+)?(?:github\s+)?issue",
-    r"file\s+(?:a\s+)?(?:github\s+)?issue",
-    r"report\s+(?:a\s+)?(?:github\s+)?(?:bug|issue)",
-    r"submit\s+(?:a\s+)?(?:github\s+)?(?:bug|issue|feature)",
-    r"new\s+issue",
-    r"i\s+want\s+to\s+report",
-    r"i\s+found\s+a\s+bug",
-    r"can\s+you\s+create\s+(?:an?\s+)?issue",
-]
-
-
-def _detect_intent(message: str) -> str:
-    """Detect user intent: 'create_issue', 'confirm_issue', or 'general'."""
-    msg_lower = message.lower().strip()
-
-    for pattern in ISSUE_PATTERNS:
-        if re.search(pattern, msg_lower):
-            return "create_issue"
-
-    return "general"
-
-
-def _extract_issue_details(message: str, history: List[Dict]) -> Dict[str, str]:
-    """Extract title and body from conversation context."""
-    # Look for explicit title patterns
-    title_match = re.search(
-        r"(?:title|subject|name)[\s:]+[\"']?(.+?)[\"']?(?:\n|$|\.(?:\s|$))",
-        message,
-        re.IGNORECASE,
-    )
-    body_match = re.search(
-        r"(?:body|description|details|content)[\s:]+[\"']?(.+?)(?:[\"']?$)",
-        message,
-        re.IGNORECASE | re.DOTALL,
-    )
-
-    title = title_match.group(1).strip() if title_match else ""
-    body = body_match.group(1).strip() if body_match else ""
-
-    # If no explicit title, try to extract from the message
-    if not title:
-        # Remove the "create issue" trigger phrase and use the rest
-        cleaned = re.sub(
-            r"(?:please\s+)?(?:create|open|file|report|submit)\s+(?:a\s+)?(?:new\s+)?(?:github\s+)?(?:issue|bug|feature)\s*(?:for|about|regarding|:)?\s*",
-            "",
-            message,
-            flags=re.IGNORECASE,
-        ).strip()
-        if cleaned and len(cleaned) > 5:
-            # Take first sentence as title
-            first_sentence = re.split(r"[.\n]", cleaned)[0].strip()
-            title = first_sentence[:120] if first_sentence else ""
-            body = cleaned if len(cleaned) > len(first_sentence) + 5 else ""
-
-    return {"title": title, "body": body}
-
-
-# ─────────────────────────────────────────────────────────────
-# Archmorph FAQ knowledge base
+# Archmorph Knowledge Base (for fallback/quick answers)
 # ─────────────────────────────────────────────────────────────
 FAQ = {
     "what is archmorph": "Archmorph is an AI-powered Cloud Architecture Translator that converts AWS and GCP architecture diagrams into Azure equivalents with ready-to-deploy Terraform/Bicep IaC code.",
@@ -160,34 +219,18 @@ FAQ = {
 }
 
 
-def _find_faq_answer(message: str) -> Optional[str]:
-    """Find a matching FAQ answer."""
-    msg_lower = message.lower()
-    best_match = None
-    best_score = 0
-
-    for key, answer in FAQ.items():
-        keywords = key.split()
-        score = sum(1 for kw in keywords if kw in msg_lower)
-        if score > best_score and score >= len(keywords) * 0.5:
-            best_score = score
-            best_match = answer
-
-    return best_match
-
-
 # ─────────────────────────────────────────────────────────────
-# Main chat handler
+# Main chat handler — AI-powered
 # ─────────────────────────────────────────────────────────────
 def process_chat_message(
     session_id: str, message: str
 ) -> Dict[str, Any]:
     """
-    Process an incoming chat message.
+    Process an incoming chat message using GPT-4o AI.
 
     Returns a response dict with:
-      - reply: bot's text response
-      - action: None | 'issue_draft' | 'issue_created'
+      - reply: AI's text response
+      - action: None | 'issue_draft' | 'issue_created' | 'bug_created' | 'feature_created'
       - data: additional data (issue details, etc.)
     """
     # Initialize session
@@ -195,111 +238,106 @@ def process_chat_message(
         CHAT_SESSIONS[session_id] = []
 
     history = CHAT_SESSIONS[session_id]
-    history.append({"role": "user", "content": message, "ts": datetime.now(timezone.utc).isoformat()})
+    history.append({
+        "role": "user",
+        "content": message,
+        "ts": datetime.now(timezone.utc).isoformat()
+    })
 
-    intent = _detect_intent(message)
-
-    # ── Create Issue flow ──
-    if intent == "create_issue":
-        details = _extract_issue_details(message, history)
-        labels = _detect_labels(message)
-
-        if details["title"]:
-            # We have enough info — present a draft
-            draft = {
-                "title": details["title"],
-                "body": details["body"] or f"Issue reported via Archmorph chatbot.\n\nOriginal message:\n> {message}",
-                "labels": labels,
-            }
-            reply = (
-                f"I've prepared a GitHub issue draft:\n\n"
-                f"**Title:** {draft['title']}\n"
-                f"**Labels:** {', '.join(draft['labels'])}\n\n"
-                f"Would you like me to create this issue? Reply **yes** to confirm, or tell me what to change."
-            )
-            history.append({"role": "assistant", "content": reply, "ts": datetime.now(timezone.utc).isoformat()})
-            CHAT_SESSIONS[session_id] = history
-
-            return {
-                "reply": reply,
-                "action": "issue_draft",
-                "data": draft,
-            }
-        else:
-            reply = (
-                "I can create a GitHub issue for you. Please tell me:\n\n"
-                "1. **Title** — A short summary of the issue\n"
-                "2. **Description** — Details about what happened or what you'd like\n\n"
-                "For example: *Create an issue: Add dark mode toggle — The app should have a button to switch between light and dark themes.*"
-            )
-            history.append({"role": "assistant", "content": reply, "ts": datetime.now(timezone.utc).isoformat()})
-            return {"reply": reply, "action": None, "data": None}
-
-    # ── Confirm issue creation ──
+    # ── Handle confirmation of pending actions ──
     msg_lower = message.lower().strip()
-    if msg_lower in ("yes", "y", "confirm", "create it", "go ahead", "do it", "sure", "ok"):
-        # Check if there's a pending draft
-        last_draft = None
-        for entry in reversed(history):
-            if entry.get("role") == "assistant" and "issue_draft" in str(entry.get("content", "")):
-                break
+    if msg_lower in ("yes", "y", "confirm", "create it", "go ahead", "do it", "sure", "ok", "submit"):
+        # Check for pending issue draft
+        for entry in reversed(history[:-1]):  # Exclude current message
+            if entry.get("role") == "assistant" and entry.get("pending_action"):
+                pending = entry["pending_action"]
+                
+                if pending.get("type") == "bug":
+                    result = _create_github_issue(
+                        f"[Bug] {pending['title']}",
+                        f"## Bug Report\n\n**Reported via:** Archmorph AI Assistant\n\n### Description\n{pending['description']}\n\n---\n*Auto-generated from chat*",
+                        ["bug", "triage"],
+                    )
+                elif pending.get("type") == "feature":
+                    result = _create_github_issue(
+                        f"[Feature Request] {pending['title']}",
+                        f"## Feature Request\n\n**Requested via:** Archmorph AI Assistant\n\n### Description\n{pending['description']}\n\n---\n*Auto-generated from chat*",
+                        ["enhancement", "feature-request"],
+                    )
+                else:
+                    result = _create_github_issue(
+                        pending["title"],
+                        pending.get("description", ""),
+                        pending.get("labels", ["triage"]),
+                    )
+                
+                if result["success"]:
+                    reply = (
+                        f"Done! I've created the issue.\n\n"
+                        f"**#{result['issue_number']}** — {result['title']}\n\n"
+                        f"[View on GitHub]({result['issue_url']})"
+                    )
+                    action_type = f"{pending.get('type', 'issue')}_created"
+                else:
+                    reply = f"I couldn't create the issue: {result.get('error', 'Unknown error')}"
+                    action_type = None
+                    result = None
+                
+                history.append({
+                    "role": "assistant",
+                    "content": reply,
+                    "ts": datetime.now(timezone.utc).isoformat()
+                })
+                return {"reply": reply, "action": action_type, "data": result}
 
-        # Look for draft in recent bot responses
-        for i, entry in enumerate(reversed(history)):
-            if entry.get("role") == "assistant":
-                if "**Title:**" in entry.get("content", ""):
-                    # Extract from the formatted draft
-                    content = entry["content"]
-                    title_match = re.search(r"\*\*Title:\*\*\s*(.+?)(?:\n|$)", content)
-                    if title_match:
-                        last_draft = {
-                            "title": title_match.group(1).strip(),
-                            "body": f"Issue reported via Archmorph chatbot.\n\nConversation context:\n",
-                            "labels": _detect_labels(title_match.group(1)),
-                        }
-                        # Build body from user messages
-                        user_msgs = [e["content"] for e in history if e["role"] == "user"]
-                        last_draft["body"] += "\n".join(f"> {m}" for m in user_msgs[:-1])
-                    break
-
-        if last_draft:
-            result = _create_github_issue(
-                last_draft["title"],
-                last_draft["body"],
-                last_draft["labels"],
-            )
-            if result["success"]:
-                reply = (
-                    f"Issue created successfully!\n\n"
-                    f"**#{result['issue_number']}** — {result['title']}\n"
-                    f"[View on GitHub]({result['issue_url']})"
-                )
-                history.append({"role": "assistant", "content": reply, "ts": datetime.now(timezone.utc).isoformat()})
-                return {"reply": reply, "action": "issue_created", "data": result}
-            else:
-                reply = f"Sorry, I couldn't create the issue: {result['error']}"
-                history.append({"role": "assistant", "content": reply, "ts": datetime.now(timezone.utc).isoformat()})
-                return {"reply": reply, "action": None, "data": result}
-        else:
-            reply = "I don't have a pending issue draft. Tell me what issue you'd like to create."
-            history.append({"role": "assistant", "content": reply, "ts": datetime.now(timezone.utc).isoformat()})
-            return {"reply": reply, "action": None, "data": None}
-
-    # ── General Q&A ──
-    faq_answer = _find_faq_answer(message)
-    if faq_answer:
-        reply = faq_answer
-    else:
-        reply = (
-            "I'm the Archmorph assistant. I can help you with:\n\n"
-            "- **Create a GitHub issue** — Just say 'create an issue about...'\n"
-            "- **Learn about Archmorph** — Ask me how it works, supported formats, pricing, etc.\n"
-            "- **Get support** — Contact us at send2katz@gmail.com\n\n"
-            "What would you like to know?"
-        )
-
-    history.append({"role": "assistant", "content": reply, "ts": datetime.now(timezone.utc).isoformat()})
-    return {"reply": reply, "action": None, "data": None}
+    # ── Call GPT-4o AI assistant ──
+    ai_response = _call_ai_assistant(message, history[:-1])  # Exclude current msg (added to messages in function)
+    
+    reply = ai_response["reply"]
+    action = ai_response.get("action")
+    action_result = None
+    pending_action = None
+    
+    # ── Handle AI-detected actions ──
+    if action:
+        action_type = action.get("action", "")
+        
+        if action_type == "create_bug":
+            pending_action = {
+                "type": "bug",
+                "title": action.get("title", "Bug Report"),
+                "description": action.get("description", ""),
+            }
+            reply += f"\n\n---\n**Ready to create bug report:**\n- **Title:** {pending_action['title']}\n\nReply **yes** to submit this to GitHub, or provide more details."
+            action_result = "issue_draft"
+            
+        elif action_type == "create_feature":
+            pending_action = {
+                "type": "feature",
+                "title": action.get("title", "Feature Request"),
+                "description": action.get("description", ""),
+            }
+            reply += f"\n\n---\n**Ready to create feature request:**\n- **Title:** {pending_action['title']}\n\nReply **yes** to submit this to GitHub, or provide more details."
+            action_result = "issue_draft"
+    
+    # Store response with any pending action
+    history_entry = {
+        "role": "assistant",
+        "content": reply,
+        "ts": datetime.now(timezone.utc).isoformat(),
+    }
+    if pending_action:
+        history_entry["pending_action"] = pending_action
+    
+    history.append(history_entry)
+    CHAT_SESSIONS[session_id] = history
+    
+    return {
+        "reply": reply,
+        "action": action_result,
+        "data": pending_action,
+        "ai_powered": True,
+    }
 
 
 def get_chat_history(session_id: str) -> List[Dict[str, str]]:

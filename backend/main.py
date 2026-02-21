@@ -1,13 +1,14 @@
 """
-Archmorph Backend API
+Archmorph Backend API v2.10.0
 Cloud Architecture Translator to Azure — Full Services Catalog
+Enterprise-ready with Authentication, Analytics, AI Assistant, and Roadmap
 """
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Response, Request, Depends, Security
+from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Response, Request, Depends, Security, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import APIKeyHeader
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, EmailStr
 from typing import Optional, List, Dict, Any
 from contextlib import asynccontextmanager
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -16,6 +17,7 @@ import os
 import logging
 import secrets
 import uuid
+import time
 from datetime import datetime, timezone
 
 from cachetools import TTLCache
@@ -42,6 +44,10 @@ from guided_questions import generate_questions, apply_answers
 from diagram_export import generate_diagram
 from chatbot import process_chat_message, get_chat_history, clear_chat_session
 from iac_chat import process_iac_chat, get_iac_chat_history, clear_iac_chat
+from roadmap import (
+    get_roadmap, get_release_by_version, submit_feature_request, submit_bug_report,
+    IssueType,
+)
 from iac_generator import generate_iac_code
 from hld_generator import generate_hld, generate_hld_markdown
 from image_classifier import classify_image
@@ -95,7 +101,7 @@ async def verify_api_key(api_key: Optional[str] = Security(API_KEY_HEADER)):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup/shutdown lifecycle manager."""
-    logger.info("Starting Archmorph API v2.8.0 — production mode")
+    logger.info("Starting Archmorph API v2.10.0 — production mode")
     start_scheduler()
 
     # Auto-load built-in icon packs from samples/
@@ -119,7 +125,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Archmorph API",
     description="AI-powered Cloud Architecture Translator to Azure",
-    version="2.8.0",
+    version="2.10.0",
     lifespan=lifespan,
 )
 
@@ -217,7 +223,7 @@ async def health():
 
     return {
         "status": "healthy",
-        "version": "2.8.0",
+        "version": "2.10.0",
         "environment": ENVIRONMENT,
         "mode": "production",
         "checks": checks,
@@ -899,6 +905,94 @@ async def chat_clear(session_id: str):
 
 
 # ─────────────────────────────────────────────────────────────
+# Roadmap — Version Timeline & Feature Requests
+# ─────────────────────────────────────────────────────────────
+@app.get("/api/roadmap")
+async def roadmap():
+    """
+    Get the complete Archmorph roadmap with timeline.
+    
+    Returns all releases from Day 0 to current, plus planned features.
+    """
+    return get_roadmap()
+
+
+@app.get("/api/roadmap/release/{version}")
+async def roadmap_release(version: str):
+    """Get details for a specific release version."""
+    release = get_release_by_version(version)
+    if not release:
+        raise HTTPException(404, f"Release {version} not found")
+    return release
+
+
+class FeatureRequestPayload(BaseModel):
+    """Feature request submission."""
+    title: str = Field(..., min_length=5, max_length=200, description="Feature title")
+    description: str = Field(..., min_length=20, max_length=2000, description="Detailed description")
+    use_case: Optional[str] = Field(None, max_length=1000, description="Use case or problem solved")
+    email: Optional[EmailStr] = Field(None, description="Contact email for follow-up")
+
+
+@app.post("/api/roadmap/feature-request")
+@limiter.limit("3/hour")
+async def roadmap_feature_request(request: Request, payload: FeatureRequestPayload):
+    """
+    Submit a feature request.
+    
+    Creates a GitHub issue labeled as feature-request.
+    """
+    record_event("feature_requests", {"title": payload.title})
+    result = await asyncio.to_thread(
+        submit_feature_request,
+        payload.title,
+        payload.description,
+        payload.use_case or "",
+        payload.email,
+    )
+    if not result["success"]:
+        raise HTTPException(500, result.get("error", "Failed to create feature request"))
+    return result
+
+
+class BugReportPayload(BaseModel):
+    """Bug report submission."""
+    title: str = Field(..., min_length=5, max_length=200, description="Bug title")
+    description: str = Field(..., min_length=20, max_length=2000, description="Bug description")
+    steps_to_reproduce: Optional[str] = Field(None, max_length=2000, description="Steps to reproduce")
+    expected_behavior: Optional[str] = Field(None, max_length=500, description="Expected behavior")
+    actual_behavior: Optional[str] = Field(None, max_length=500, description="Actual behavior")
+    browser: Optional[str] = Field(None, max_length=100, description="Browser info")
+    os_info: Optional[str] = Field(None, max_length=100, description="Operating system")
+    email: Optional[EmailStr] = Field(None, description="Contact email for follow-up")
+
+
+@app.post("/api/roadmap/bug-report")
+@limiter.limit("5/hour")
+async def roadmap_bug_report(request: Request, payload: BugReportPayload):
+    """
+    Submit a bug report.
+    
+    Creates a GitHub issue labeled as bug.
+    """
+    record_event("bug_reports", {"title": payload.title})
+    result = await asyncio.to_thread(
+        submit_bug_report,
+        payload.title,
+        payload.description,
+        payload.steps_to_reproduce or "",
+        payload.expected_behavior or "",
+        payload.actual_behavior or "",
+        payload.browser or "Unknown",
+        payload.os_info or "Unknown",
+        payload.email,
+    )
+    if not result["success"]:
+        raise HTTPException(500, result.get("error", "Failed to create bug report"))
+    return result
+
+
+# ─────────────────────────────────────────────────────────────
 # Admin Metrics (protected by secret key)
 # ─────────────────────────────────────────────────────────────
 ADMIN_KEY_HEADER = APIKeyHeader(name="X-Admin-Key", auto_error=False)
@@ -1267,6 +1361,356 @@ async def get_shared_analysis(share_id: str):
         "shared_at": shared["created_at"],
         "read_only": True
     }
+
+
+# ─────────────────────────────────────────────────────────────
+# Authentication & User Management (v2.9.0)
+# ─────────────────────────────────────────────────────────────
+class LoginRequest(BaseModel):
+    provider: str = Field(..., description="azure_ad_b2c or github")
+    token: Optional[str] = None
+    code: Optional[str] = None
+
+
+class LeadCaptureRequest(BaseModel):
+    email: EmailStr
+    diagram_id: str
+    action: str = Field(..., description="iac_download, hld_download, or share")
+    company: Optional[str] = None
+    role: Optional[str] = None
+    use_case: Optional[str] = None
+    marketing_consent: bool = False
+
+
+@app.get("/api/auth/config")
+async def get_auth_config():
+    """Get public authentication configuration."""
+    from auth import get_auth_config
+    return get_auth_config()
+
+
+@app.post("/api/auth/login")
+async def login(request: LoginRequest):
+    """Login with Azure AD B2C or GitHub OAuth."""
+    from auth import validate_azure_ad_b2c_token, exchange_github_code, generate_session_token
+    
+    try:
+        if request.provider == "azure_ad_b2c":
+            if not request.token:
+                raise HTTPException(400, "Token required for Azure AD B2C")
+            user = await validate_azure_ad_b2c_token(request.token)
+        elif request.provider == "github":
+            if not request.code:
+                raise HTTPException(400, "Code required for GitHub OAuth")
+            user = await exchange_github_code(request.code)
+        else:
+            raise HTTPException(400, f"Unknown provider: {request.provider}")
+        
+        session_token = generate_session_token(user)
+        
+        return {
+            "user": user.to_dict(),
+            "session_token": session_token,
+        }
+    except ValueError as e:
+        raise HTTPException(401, str(e))
+
+
+@app.get("/api/auth/me")
+async def get_current_user(authorization: Optional[str] = Header(None)):
+    """Get current authenticated user."""
+    from auth import get_user_from_session, get_anonymous_user
+    
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization[7:]
+        from auth import get_user_from_session
+        user = get_user_from_session(token)
+        if user:
+            return user.to_dict()
+    
+    # Return anonymous user info
+    return {"authenticated": False, "tier": "free"}
+
+
+@app.get("/api/auth/quota")
+async def check_quota(action: str = Query(...), authorization: Optional[str] = Header(None)):
+    """Check user quota for an action."""
+    from auth import get_user_from_session, get_anonymous_user
+    
+    user = None
+    if authorization and authorization.startswith("Bearer "):
+        user = get_user_from_session(authorization[7:])
+    
+    if not user:
+        user = get_anonymous_user("unknown")
+    
+    return user.check_quota(action)
+
+
+@app.post("/api/leads/capture")
+@limiter.limit("10/minute")
+async def capture_lead_endpoint(request: Request, data: LeadCaptureRequest):
+    """Capture lead information before gated action."""
+    from auth import capture_lead
+    
+    lead = capture_lead(
+        email=data.email,
+        diagram_id=data.diagram_id,
+        action=data.action,
+        company=data.company,
+        role=data.role,
+        use_case=data.use_case,
+        marketing_consent=data.marketing_consent,
+    )
+    
+    return {"success": True, "captured_at": lead.captured_at.isoformat()}
+
+
+@app.get("/api/admin/leads")
+async def get_leads_endpoint(_admin=Depends(verify_admin_key)):
+    """Get captured leads summary (admin only)."""
+    from auth import get_leads_summary
+    return get_leads_summary()
+
+
+# ─────────────────────────────────────────────────────────────
+# Architecture Versioning (v2.9.0)
+# ─────────────────────────────────────────────────────────────
+@app.post("/api/diagrams/{diagram_id}/versions")
+async def create_version_endpoint(diagram_id: str, message: Optional[str] = None):
+    """Create a new version of an architecture analysis."""
+    analysis = SESSION_STORE.get(diagram_id)
+    if not analysis:
+        raise HTTPException(404, "Analysis not found")
+    
+    from versioning import create_version
+    
+    version = create_version(
+        diagram_id=diagram_id,
+        snapshot=analysis,
+        message=message,
+    )
+    
+    return version.to_dict()
+
+
+@app.get("/api/diagrams/{diagram_id}/versions")
+async def get_version_history_endpoint(diagram_id: str):
+    """Get version history for a diagram."""
+    from versioning import get_version_history
+    return get_version_history(diagram_id)
+
+
+@app.get("/api/diagrams/{diagram_id}/versions/{version_number}")
+async def get_version_endpoint(diagram_id: str, version_number: int):
+    """Get a specific version of an architecture."""
+    from versioning import get_version
+    
+    version = get_version(diagram_id, version_number)
+    if not version:
+        raise HTTPException(404, f"Version {version_number} not found")
+    
+    return version.to_dict()
+
+
+@app.post("/api/diagrams/{diagram_id}/versions/{version_number}/restore")
+async def restore_version_endpoint(diagram_id: str, version_number: int):
+    """Restore a previous version, creating a new version from it."""
+    from versioning import restore_version
+    
+    snapshot = restore_version(diagram_id, version_number)
+    if not snapshot:
+        raise HTTPException(404, f"Version {version_number} not found")
+    
+    # Update session
+    SESSION_STORE[diagram_id] = snapshot
+    
+    return {"success": True, "restored_from": version_number}
+
+
+@app.get("/api/diagrams/{diagram_id}/versions/compare")
+async def compare_versions_endpoint(
+    diagram_id: str,
+    v1: int = Query(..., description="First version number"),
+    v2: int = Query(..., description="Second version number"),
+):
+    """Compare two versions of an architecture."""
+    from versioning import compare_versions
+    return compare_versions(diagram_id, v1, v2)
+
+
+# ─────────────────────────────────────────────────────────────
+# Migration Runbook Generator (v2.9.0)
+# ─────────────────────────────────────────────────────────────
+@app.post("/api/diagrams/{diagram_id}/runbook")
+@limiter.limit("3/minute")
+async def generate_runbook_endpoint(
+    request: Request,
+    diagram_id: str,
+    project_name: Optional[str] = None,
+    _auth=Depends(verify_api_key),
+):
+    """Generate a migration runbook based on architecture analysis."""
+    analysis = SESSION_STORE.get(diagram_id)
+    if not analysis:
+        raise HTTPException(404, "Analysis not found")
+    
+    from migration_runbook import generate_migration_runbook
+    
+    runbook = generate_migration_runbook(diagram_id, analysis, project_name)
+    
+    # Store runbook in session
+    analysis["runbook"] = runbook.to_dict()
+    SESSION_STORE[diagram_id] = analysis
+    
+    record_event("runbook_generated", {"diagram_id": diagram_id, "tasks": len(runbook.tasks)})
+    
+    return runbook.to_dict()
+
+
+@app.get("/api/diagrams/{diagram_id}/runbook")
+async def get_runbook_endpoint(diagram_id: str):
+    """Get generated runbook for a diagram."""
+    analysis = SESSION_STORE.get(diagram_id)
+    if not analysis or "runbook" not in analysis:
+        raise HTTPException(404, "Runbook not found. Generate one first.")
+    
+    return analysis["runbook"]
+
+
+@app.get("/api/diagrams/{diagram_id}/runbook/markdown")
+async def get_runbook_markdown_endpoint(diagram_id: str):
+    """Get runbook as downloadable Markdown."""
+    analysis = SESSION_STORE.get(diagram_id)
+    if not analysis or "runbook" not in analysis:
+        raise HTTPException(404, "Runbook not found")
+    
+    from migration_runbook import MigrationRunbook, render_runbook_markdown
+    
+    # Reconstruct runbook object
+    runbook_data = analysis["runbook"]
+    runbook = MigrationRunbook(
+        id=runbook_data["id"],
+        diagram_id=runbook_data["diagram_id"],
+        title=runbook_data["title"],
+        source_cloud=runbook_data["source_cloud"],
+        risk_level=runbook_data["risk_level"],
+        estimated_duration_days=runbook_data["estimated_duration_days"],
+    )
+    
+    markdown = render_runbook_markdown(runbook)
+    
+    return Response(
+        content=markdown,
+        media_type="text/markdown",
+        headers={"Content-Disposition": f"attachment; filename=runbook-{diagram_id}.md"}
+    )
+
+
+# ─────────────────────────────────────────────────────────────
+# Terraform Plan Preview (v2.9.0)
+# ─────────────────────────────────────────────────────────────
+class TerraformValidateRequest(BaseModel):
+    code: str
+
+
+@app.post("/api/diagrams/{diagram_id}/terraform-preview")
+async def preview_terraform_plan_endpoint(diagram_id: str):
+    """Generate a preview of what Terraform would create."""
+    analysis = SESSION_STORE.get(diagram_id)
+    if not analysis:
+        raise HTTPException(404, "Analysis not found")
+    
+    # Get IaC code if available, or generate it
+    iac_code = analysis.get("generated_iac")
+    if not iac_code:
+        try:
+            iac_code = await asyncio.to_thread(
+                generate_iac_code,
+                analysis=analysis,
+                iac_format="terraform",
+                params=analysis.get("iac_parameters", {}),
+            )
+        except Exception as e:
+            raise HTTPException(500, f"Failed to generate IaC: {str(e)}")
+    
+    from terraform_preview import preview_terraform_plan
+    
+    result = preview_terraform_plan(iac_code, diagram_id)
+    
+    return result.to_dict()
+
+
+@app.post("/api/terraform/validate")
+async def validate_terraform_syntax_endpoint(data: TerraformValidateRequest):
+    """Validate Terraform HCL syntax."""
+    from terraform_preview import validate_terraform_syntax
+    return validate_terraform_syntax(data.code)
+
+
+# ─────────────────────────────────────────────────────────────
+# Application Analytics (v2.9.0)
+# ─────────────────────────────────────────────────────────────
+@app.get("/api/admin/analytics")
+async def get_analytics_summary_endpoint(
+    hours: int = Query(24, ge=1, le=168),
+    _admin=Depends(verify_admin_key),
+):
+    """Get comprehensive analytics summary (admin only)."""
+    from analytics import get_analytics_summary
+    return get_analytics_summary(hours)
+
+
+@app.get("/api/admin/analytics/performance")
+async def get_performance_metrics_endpoint(_admin=Depends(verify_admin_key)):
+    """Get API performance metrics (admin only)."""
+    from analytics import get_performance_metrics
+    return get_performance_metrics()
+
+
+@app.get("/api/admin/analytics/features")
+async def get_feature_metrics_endpoint(_admin=Depends(verify_admin_key)):
+    """Get feature usage metrics (admin only)."""
+    from analytics import get_feature_metrics
+    return get_feature_metrics()
+
+
+@app.get("/api/admin/analytics/funnel")
+async def get_conversion_funnel_endpoint(_admin=Depends(verify_admin_key)):
+    """Get conversion funnel metrics (admin only)."""
+    from analytics import get_conversion_funnel
+    return get_conversion_funnel()
+
+
+# ─────────────────────────────────────────────────────────────
+# Request Latency Tracking Middleware (v2.9.0)
+# ─────────────────────────────────────────────────────────────
+class LatencyTrackingMiddleware(BaseHTTPMiddleware):
+    """Track request latencies for performance monitoring."""
+    
+    async def dispatch(self, request, call_next):
+        start_time = time.perf_counter()
+        
+        response = await call_next(request)
+        
+        duration_ms = (time.perf_counter() - start_time) * 1000
+        
+        # Track latency
+        try:
+            from analytics import track_request_latency
+            endpoint = request.url.path
+            method = request.method
+            track_request_latency(endpoint, method, duration_ms, response.status_code)
+        except Exception:
+            pass  # Don't fail requests due to tracking errors
+        
+        # Add timing header
+        response.headers["X-Response-Time"] = f"{duration_ms:.2f}ms"
+        
+        return response
+
+
+app.add_middleware(LatencyTrackingMiddleware)
 
 
 if __name__ == "__main__":

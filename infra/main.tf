@@ -530,7 +530,262 @@ resource "azurerm_application_insights" "main" {
   workspace_id        = azurerm_log_analytics_workspace.main.id
   application_type    = "web"
   retention_in_days   = 30
+  sampling_percentage = var.environment == "prod" ? 50 : 100  # Sample 50% in prod to reduce costs
+  
+  # Enable distributed tracing
+  disable_ip_masking = false  # GDPR compliance
+  
+  tags = local.tags
+}
 
+# ─────────────────────────────────────────────────────────────
+# Azure Monitor Action Group (for alerts)
+# ─────────────────────────────────────────────────────────────
+resource "azurerm_monitor_action_group" "critical" {
+  name                = "archmorph-critical-alerts"
+  resource_group_name = azurerm_resource_group.main.name
+  short_name          = "archcrit"
+  
+  email_receiver {
+    name                    = "admin"
+    email_address          = var.alert_email
+    use_common_alert_schema = true
+  }
+  
+  tags = local.tags
+}
+
+# ─────────────────────────────────────────────────────────────
+# Azure Monitor Alerts
+# ─────────────────────────────────────────────────────────────
+
+# High Error Rate Alert
+resource "azurerm_monitor_metric_alert" "high_error_rate" {
+  name                = "archmorph-high-error-rate"
+  resource_group_name = azurerm_resource_group.main.name
+  scopes              = [azurerm_application_insights.main.id]
+  description         = "Alert when error rate exceeds 5%"
+  severity            = 1
+  frequency           = "PT5M"
+  window_size         = "PT15M"
+  
+  criteria {
+    metric_namespace = "microsoft.insights/components"
+    metric_name      = "requests/failed"
+    aggregation      = "Count"
+    operator         = "GreaterThan"
+    threshold        = 50
+  }
+  
+  action {
+    action_group_id = azurerm_monitor_action_group.critical.id
+  }
+  
+  tags = local.tags
+}
+
+# High Response Time Alert
+resource "azurerm_monitor_metric_alert" "high_response_time" {
+  name                = "archmorph-high-response-time"
+  resource_group_name = azurerm_resource_group.main.name
+  scopes              = [azurerm_application_insights.main.id]
+  description         = "Alert when P95 response time exceeds 5s"
+  severity            = 2
+  frequency           = "PT5M"
+  window_size         = "PT15M"
+  
+  criteria {
+    metric_namespace = "microsoft.insights/components"
+    metric_name      = "requests/duration"
+    aggregation      = "Average"
+    operator         = "GreaterThan"
+    threshold        = 5000  # 5 seconds in milliseconds
+  }
+  
+  action {
+    action_group_id = azurerm_monitor_action_group.critical.id
+  }
+  
+  tags = local.tags
+}
+
+# Container App CPU Alert
+resource "azurerm_monitor_metric_alert" "high_cpu" {
+  name                = "archmorph-high-cpu"
+  resource_group_name = azurerm_resource_group.main.name
+  scopes              = [azurerm_container_app.backend.id]
+  description         = "Alert when CPU exceeds 80%"
+  severity            = 2
+  frequency           = "PT5M"
+  window_size         = "PT15M"
+  
+  criteria {
+    metric_namespace = "Microsoft.App/containerApps"
+    metric_name      = "UsageNanoCores"
+    aggregation      = "Average"
+    operator         = "GreaterThan"
+    threshold        = 800000000  # 80% of 1 core in nanocores
+  }
+  
+  action {
+    action_group_id = azurerm_monitor_action_group.critical.id
+  }
+  
+  tags = local.tags
+}
+
+# Database Connection Alert
+resource "azurerm_monitor_metric_alert" "db_connections" {
+  name                = "archmorph-db-connections"
+  resource_group_name = azurerm_resource_group.main.name
+  scopes              = [azurerm_postgresql_flexible_server.main.id]
+  description         = "Alert when database connections exceed 80%"
+  severity            = 2
+  frequency           = "PT5M"
+  window_size         = "PT15M"
+  
+  criteria {
+    metric_namespace = "Microsoft.DBforPostgreSQL/flexibleServers"
+    metric_name      = "active_connections"
+    aggregation      = "Average"
+    operator         = "GreaterThan"
+    threshold        = 80  # Percent of max connections
+  }
+  
+  action {
+    action_group_id = azurerm_monitor_action_group.critical.id
+  }
+  
+  tags = local.tags
+}
+
+# Storage Account Availability Alert
+resource "azurerm_monitor_metric_alert" "storage_availability" {
+  name                = "archmorph-storage-availability"
+  resource_group_name = azurerm_resource_group.main.name
+  scopes              = [azurerm_storage_account.main.id]
+  description         = "Alert when storage availability drops below 99%"
+  severity            = 1
+  frequency           = "PT5M"
+  window_size         = "PT15M"
+  
+  criteria {
+    metric_namespace = "Microsoft.Storage/storageAccounts"
+    metric_name      = "Availability"
+    aggregation      = "Average"
+    operator         = "LessThan"
+    threshold        = 99
+  }
+  
+  action {
+    action_group_id = azurerm_monitor_action_group.critical.id
+  }
+  
+  tags = local.tags
+}
+
+# ─────────────────────────────────────────────────────────────
+# Log Analytics Saved Queries (for dashboards)
+# ─────────────────────────────────────────────────────────────
+resource "azurerm_log_analytics_saved_search" "error_logs" {
+  name                       = "ArchmorphErrorLogs"
+  log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
+  category                   = "Archmorph"
+  display_name              = "Error Logs"
+  query                     = <<-QUERY
+    AppExceptions
+    | where TimeGenerated > ago(24h)
+    | summarize count() by ExceptionType, bin(TimeGenerated, 1h)
+    | order by TimeGenerated desc
+  QUERY
+  function_alias            = "ArchmorphErrors"
+}
+
+resource "azurerm_log_analytics_saved_search" "api_latency" {
+  name                       = "ArchmorphApiLatency"
+  log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
+  category                   = "Archmorph"
+  display_name              = "API Latency by Endpoint"
+  query                     = <<-QUERY
+    AppRequests
+    | where TimeGenerated > ago(24h)
+    | summarize 
+        avg(DurationMs), 
+        percentile(DurationMs, 95),
+        percentile(DurationMs, 99),
+        count()
+      by Name, bin(TimeGenerated, 1h)
+    | order by TimeGenerated desc
+  QUERY
+  function_alias            = "ArchmorphLatency"
+}
+
+resource "azurerm_log_analytics_saved_search" "user_analytics" {
+  name                       = "ArchmorphUserAnalytics"
+  log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
+  category                   = "Archmorph"
+  display_name              = "User Analytics"
+  query                     = <<-QUERY
+    AppRequests
+    | where TimeGenerated > ago(7d)
+    | where Name startswith "/api/diagrams"
+    | summarize 
+        Analyses = countif(Name contains "analyze"),
+        Exports = countif(Name contains "export"),
+        IaCGenerated = countif(Name contains "generate")
+      by bin(TimeGenerated, 1d)
+    | order by TimeGenerated desc
+  QUERY
+  function_alias            = "ArchmorphUserAnalytics"
+}
+
+# ─────────────────────────────────────────────────────────────
+# Azure Monitor Workbook (Dashboard)
+# ─────────────────────────────────────────────────────────────
+resource "azurerm_application_insights_workbook" "dashboard" {
+  name                = "archmorph-dashboard"
+  location            = azurerm_resource_group.main.location
+  resource_group_name = azurerm_resource_group.main.name
+  display_name        = "Archmorph Operations Dashboard"
+  source_id           = azurerm_application_insights.main.id
+  category            = "workbook"
+  
+  data_json = jsonencode({
+    version = "Notebook/1.0"
+    items = [
+      {
+        type = 1
+        content = {
+          json = "# Archmorph Operations Dashboard\n\nReal-time monitoring for the Archmorph architecture translation platform."
+        }
+      },
+      {
+        type = 3
+        content = {
+          version = "KqlItem/1.0"
+          query = "AppRequests | where TimeGenerated > ago(24h) | summarize count() by bin(TimeGenerated, 1h) | render timechart"
+          size = 0
+          title = "Requests Over Time"
+          queryType = 0
+          resourceType = "microsoft.insights/components"
+        }
+      },
+      {
+        type = 3
+        content = {
+          version = "KqlItem/1.0"
+          query = "AppRequests | where TimeGenerated > ago(24h) | where Success == false | summarize count() by Name | top 10 by count_"
+          size = 0
+          title = "Top Failed Endpoints"
+          queryType = 0
+          resourceType = "microsoft.insights/components"
+        }
+      }
+    ]
+    isLocked = false
+    fallbackResourceIds = [azurerm_application_insights.main.id]
+  })
+  
   tags = local.tags
 }
 

@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 os.environ["RATE_LIMIT_ENABLED"] = "false"
 
 from main import app, SESSION_STORE, IMAGE_STORE
-from chatbot import process_chat_message, get_chat_history, clear_chat_session, _detect_intent, _detect_labels, _find_faq_answer
+from chatbot import process_chat_message, get_chat_history, clear_chat_session
 from usage_metrics import record_event, record_funnel_step, get_metrics_summary, get_funnel_metrics, get_daily_metrics, get_recent_events
 from guided_questions import generate_questions, apply_answers
 from diagram_export import generate_diagram, get_azure_stencil_id
@@ -109,7 +109,7 @@ class TestHealth:
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "healthy"
-        assert data["version"] == "2.8.0"
+        assert data["version"] == "2.10.0"
 
     def test_health_has_catalog_counts(self, client):
         data = client.get("/api/health").json()
@@ -433,41 +433,58 @@ class TestCostEstimate:
 
 
 # ====================================================================
-# 9. Chatbot
+# 9. Chatbot (GPT-4o AI Assistant)
 # ====================================================================
 
 class TestChatbot:
-    def test_detect_intent_general(self):
-        assert _detect_intent("hello how are you") == "general"
-
-    def test_detect_intent_issue(self):
-        assert _detect_intent("create a github issue about broken export") == "create_issue"
-
-    def test_detect_intent_report_bug(self):
-        assert _detect_intent("i found a bug in the diagram") == "create_issue"
-
-    def test_detect_labels(self):
-        labels = _detect_labels("there is a bug in the export feature")
-        assert "bug" in labels
-
-    def test_faq_answer(self):
-        answer = _find_faq_answer("what is archmorph")
-        assert answer is not None
-
-    def test_process_general_message(self):
+    @patch("chatbot._call_ai_assistant")
+    def test_process_general_message(self, mock_ai):
+        mock_ai.return_value = {
+            "reply": "Archmorph is an AI-powered tool that helps migrate cloud architectures.",
+            "action": None,
+        }
         result = process_chat_message("test-session-1", "what is archmorph?")
         assert "reply" in result
-        assert result["action"] is None or result["action"] == "issue_draft" or result["reply"]
+        assert "Archmorph" in result["reply"]
+        mock_ai.assert_called_once()
 
-    def test_chat_history(self):
+    @patch("chatbot._call_ai_assistant")
+    def test_ai_detects_bug_action(self, mock_ai):
+        mock_ai.return_value = {
+            "reply": "I understand you found a bug. I can help you report it.",
+            "action": {"action": "create_bug", "title": "Export feature bug", "description": "Bug in export"},
+        }
+        result = process_chat_message("test-bug-1", "there's a bug in the export feature")
+        # Should result in pending_action being set
+        assert result.get("action") == "issue_draft" or result.get("pending_action") is not None
+
+    @patch("chatbot._call_ai_assistant")
+    def test_ai_detects_feature_action(self, mock_ai):
+        mock_ai.return_value = {
+            "reply": "Great feature idea! Let me help you submit it.",
+            "action": {"action": "create_feature", "title": "Dark mode", "description": "Add dark mode support"},
+        }
+        result = process_chat_message("test-feature-1", "I have a feature request for dark mode")
+        assert result.get("action") == "issue_draft" or result.get("pending_action") is not None
+
+    @patch("chatbot._call_ai_assistant")
+    def test_chat_history(self, mock_ai):
+        mock_ai.return_value = {"reply": "Hello! How can I help you today?", "action": None}
         process_chat_message("test-hist-1", "hello")
         history = get_chat_history("test-hist-1")
         assert len(history) >= 2  # user + assistant
 
-    def test_clear_session(self):
+    @patch("chatbot._call_ai_assistant")
+    def test_clear_session(self, mock_ai):
+        mock_ai.return_value = {"reply": "Hi there!", "action": None}
         process_chat_message("test-clear-1", "hello")
         assert clear_chat_session("test-clear-1") is True
         assert clear_chat_session("test-clear-1") is False  # already cleared
+
+    def test_chat_session_structure(self):
+        """Test that chat history returns proper structure"""
+        history = get_chat_history("nonexistent-session")
+        assert isinstance(history, list)
 
     def test_chat_endpoint(self, client):
         resp = client.post("/api/chat", json={"message": "what is archmorph?"})

@@ -7,7 +7,7 @@ import { API_BASE } from '../constants';
 export default function ChatWidget() {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([
-    { role: 'assistant', content: 'Hi! I\'m the Archmorph assistant. I can help you learn about the tool or **create a GitHub issue**. What can I help you with?' },
+    { role: 'assistant', content: 'Hi! I\'m the Archmorph AI assistant powered by GPT-4o. I can answer questions about cloud architecture, help you with migrations, or **report bugs** and **request features**. What can I help you with?' },
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -87,8 +87,8 @@ export default function ChatWidget() {
               <MessageSquare className="w-4 h-4 text-cta" />
             </div>
             <div className="flex-1">
-              <h3 className="text-sm font-semibold text-text-primary">Archmorph Assistant</h3>
-              <p className="text-[10px] text-text-muted">Ask questions or create GitHub issues</p>
+              <h3 className="text-sm font-semibold text-text-primary">Archmorph AI Assistant</h3>
+              <p className="text-[10px] text-text-muted">Powered by GPT-4o • Ask me anything</p>
             </div>
             <button onClick={() => setOpen(false)} className="p-1 hover:bg-border rounded cursor-pointer" aria-label="Close chat">
               <X className="w-4 h-4 text-text-muted" />

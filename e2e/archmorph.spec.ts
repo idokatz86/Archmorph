@@ -114,7 +114,7 @@ test.describe('API Health', () => {
     expect(resp.ok()).toBeTruthy();
     const data = await resp.json();
     expect(data.status).toBe('healthy');
-    expect(data.version).toBe('2.8.0');
+    expect(data.version).toBe('2.10.0');
     expect(data.service_catalog.aws).toBeGreaterThan(100);
   });
 
@@ -291,7 +291,7 @@ test.describe('Admin Dashboard', () => {
   test('5 rapid clicks on footer opens admin panel', async ({ page }) => {
     await page.goto('/');
 
-    const versionText = page.getByText('Archmorph v2.8.0', { exact: false });
+    const versionText = page.getByText('Archmorph v2.10.0', { exact: false });
     await expect(versionText).toBeVisible();
 
     // Click 5 times rapidly
@@ -528,7 +528,7 @@ test.describe('Footer & Branding', () => {
 
   test('footer shows version', async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByText('Archmorph v2.8.0')).toBeVisible();
+    await expect(page.getByText('Archmorph v2.10.0')).toBeVisible();
   });
 });
 
@@ -663,5 +663,204 @@ test.describe('API Robustness', () => {
     expect(data).toHaveProperty('environment');
     expect(data).toHaveProperty('mode');
     expect(data).toHaveProperty('scheduler_running');
+  });
+});
+
+// ====================================================================
+// 16. Roadmap API Tests (v2.10)
+// ====================================================================
+
+test.describe('Roadmap API (v2.10)', () => {
+  test('roadmap endpoint returns timeline', async ({ request }) => {
+    const resp = await request.get(`${API_BASE}/api/roadmap`);
+    expect(resp.ok()).toBeTruthy();
+
+    const data = await resp.json();
+    expect(data).toHaveProperty('timeline');
+    expect(data.timeline).toHaveProperty('released');
+    expect(data.timeline).toHaveProperty('in_progress');
+    expect(data.timeline).toHaveProperty('planned');
+    expect(data.timeline).toHaveProperty('ideas');
+  });
+
+  test('roadmap includes statistics', async ({ request }) => {
+    const resp = await request.get(`${API_BASE}/api/roadmap`);
+    const data = await resp.json();
+    
+    expect(data).toHaveProperty('stats');
+    expect(data.stats).toHaveProperty('total_releases');
+    expect(data.stats).toHaveProperty('features_shipped');
+    expect(data.stats).toHaveProperty('days_since_launch');
+    expect(data.stats).toHaveProperty('current_version');
+  });
+
+  test('roadmap has v1.0.0 as first release', async ({ request }) => {
+    const resp = await request.get(`${API_BASE}/api/roadmap`);
+    const data = await resp.json();
+    
+    const versions = data.timeline.released.map((r: any) => r.version);
+    expect(versions).toContain('1.0.0');
+  });
+
+  test('roadmap release endpoint returns specific version', async ({ request }) => {
+    const resp = await request.get(`${API_BASE}/api/roadmap/release/2.9.0`);
+    expect(resp.ok()).toBeTruthy();
+
+    const data = await resp.json();
+    expect(data.version).toBe('2.9.0');
+    expect(data.name).toContain('Enterprise');
+  });
+
+  test('roadmap release returns 404 for unknown version', async ({ request }) => {
+    const resp = await request.get(`${API_BASE}/api/roadmap/release/99.99.99`);
+    expect(resp.status()).toBe(404);
+  });
+
+  test('feature request endpoint requires valid data', async ({ request }) => {
+    const resp = await request.post(`${API_BASE}/api/roadmap/feature-request`, {
+      data: { title: 'x', description: 'y' }, // Too short
+      headers: { 'Content-Type': 'application/json' },
+    });
+    expect(resp.status()).toBe(422); // Validation error
+  });
+
+  test('bug report endpoint requires valid data', async ({ request }) => {
+    const resp = await request.post(`${API_BASE}/api/roadmap/bug-report`, {
+      data: { title: 'x', description: 'y' }, // Too short
+      headers: { 'Content-Type': 'application/json' },
+    });
+    expect(resp.status()).toBe(422); // Validation error
+  });
+});
+
+// ====================================================================
+// 17. AI Chat Assistant Tests (v2.10)
+// ====================================================================
+
+test.describe('AI Chat Assistant (v2.10)', () => {
+  test('chat endpoint accepts messages', async ({ request }) => {
+    const resp = await request.post(`${API_BASE}/api/chat`, {
+      data: { 
+        message: 'Hello, how does Archmorph work?',
+        session_id: `e2e-test-${Date.now()}`
+      },
+      headers: { 'Content-Type': 'application/json' },
+    });
+    expect(resp.ok()).toBeTruthy();
+
+    const data = await resp.json();
+    expect(data).toHaveProperty('reply');
+    expect(data.reply.length).toBeGreaterThan(0);
+  });
+
+  test('chat response indicates AI-powered', async ({ request }) => {
+    const resp = await request.post(`${API_BASE}/api/chat`, {
+      data: { 
+        message: 'What is Archmorph?',
+        session_id: `e2e-ai-${Date.now()}`
+      },
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const data = await resp.json();
+    expect(data).toHaveProperty('ai_powered');
+    expect(data.ai_powered).toBe(true);
+  });
+
+  test('chat history endpoint works', async ({ request }) => {
+    const sessionId = `e2e-history-${Date.now()}`;
+    
+    // Send a message first
+    await request.post(`${API_BASE}/api/chat`, {
+      data: { message: 'Test message', session_id: sessionId },
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    // Get history
+    const resp = await request.get(`${API_BASE}/api/chat/history/${sessionId}`);
+    expect(resp.ok()).toBeTruthy();
+
+    const data = await resp.json();
+    expect(data).toHaveProperty('messages');
+    expect(data.messages.length).toBeGreaterThan(0);
+  });
+
+  test('chat session can be cleared', async ({ request }) => {
+    const sessionId = `e2e-clear-${Date.now()}`;
+    
+    // Send a message
+    await request.post(`${API_BASE}/api/chat`, {
+      data: { message: 'Test', session_id: sessionId },
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    // Clear session
+    const resp = await request.delete(`${API_BASE}/api/chat/${sessionId}`);
+    expect(resp.ok()).toBeTruthy();
+
+    const data = await resp.json();
+    expect(data.cleared).toBe(true);
+  });
+});
+
+// ====================================================================
+// 18. Roadmap UI Tests (v2.10)
+// ====================================================================
+
+test.describe('Roadmap UI (v2.10)', () => {
+  test('Roadmap tab exists in navigation', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.getByRole('button', { name: 'Roadmap' })).toBeVisible();
+  });
+
+  test('Roadmap tab loads timeline', async ({ page }) => {
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Roadmap' }).click();
+    
+    // Wait for roadmap to load
+    await expect(page.getByText('Roadmap & Timeline')).toBeVisible({ timeout: COLD_START_TIMEOUT });
+    await expect(page.getByText('From Day 0 to today')).toBeVisible();
+  });
+
+  test('Roadmap shows release statistics', async ({ page }) => {
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Roadmap' }).click();
+    
+    await expect(page.getByText('Releases Shipped')).toBeVisible({ timeout: COLD_START_TIMEOUT });
+    await expect(page.getByText('Features Delivered')).toBeVisible();
+    await expect(page.getByText('Days Since Launch')).toBeVisible();
+  });
+
+  test('Roadmap has feature request button', async ({ page }) => {
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Roadmap' }).click();
+    
+    await expect(page.getByRole('button', { name: /Request Feature/i })).toBeVisible({ timeout: COLD_START_TIMEOUT });
+  });
+
+  test('Roadmap has bug report button', async ({ page }) => {
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Roadmap' }).click();
+    
+    await expect(page.getByRole('button', { name: /Report Bug/i })).toBeVisible({ timeout: COLD_START_TIMEOUT });
+  });
+
+  test('Feature request modal opens', async ({ page }) => {
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Roadmap' }).click();
+    await page.waitForTimeout(1000);
+    
+    await page.getByRole('button', { name: /Request Feature/i }).click();
+    await expect(page.getByText('Request a Feature')).toBeVisible();
+    await expect(page.getByText('Feature Title')).toBeVisible();
+  });
+
+  test('Bug report modal opens', async ({ page }) => {
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Roadmap' }).click();
+    await page.waitForTimeout(1000);
+    
+    await page.getByRole('button', { name: /Report Bug/i }).click();
+    await expect(page.getByText('Report a Bug')).toBeVisible();
+    await expect(page.getByText('Bug Title')).toBeVisible();
   });
 });

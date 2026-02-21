@@ -1,0 +1,25 @@
+# Archmorph Code Owners
+# These users will be automatically requested for review on PRs
+
+# Global owners (fallback for all files)
+* @idokatz86
+
+# Backend code
+/backend/ @idokatz86
+/backend/tests/ @idokatz86
+
+# Frontend code  
+/frontend/ @idokatz86
+
+# Infrastructure
+/infra/ @idokatz86
+
+# Documentation
+/docs/ @idokatz86
+*.md @idokatz86
+
+# CI/CD and GitHub config
+/.github/ @idokatz86
+
+# E2E tests
+/e2e/ @idokatz86

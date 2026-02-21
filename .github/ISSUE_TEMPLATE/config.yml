@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/idokatz86/Archmorph/blob/main/README.md
+    about: Read the documentation before opening an issue
+  - name: Security Vulnerability
+    url: https://github.com/idokatz86/Archmorph/blob/main/SECURITY.md
+    about: Report security vulnerabilities privately (do not open public issues)

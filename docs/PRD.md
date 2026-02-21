@@ -1,6 +1,6 @@
 # Archmorph — Cloud Architecture Translator to Azure
 ## Product Requirements Document (PRD)
-**Version:** 2.8.0
+**Version:** 2.10.0
 **Date:** February 21, 2026
 **Author:** Ido Katz
 
@@ -8,11 +8,11 @@
 
 ## 1. Executive Summary
 
-Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams into Azure equivalents. It analyzes uploaded diagrams using GPT-4o vision, identifies cloud services, allows users to add services via natural language, asks guided migration questions with smart deduplication to refine the translation, maps services to Azure counterparts with confidence scores, exports translated architecture diagrams in multiple formats, generates ready-to-deploy Terraform/Bicep infrastructure code, provides dynamic cost estimates based on the Azure Retail Prices API with 134 service pricing entries, automatically discovers and integrates new cloud services into its catalog, generates comprehensive AI-powered High-Level Design (HLD) documents, provides an interactive IaC chat assistant, analyzes architecture against Azure Well-Architected Framework (WAF), provides cost optimization recommendations, includes sample diagrams for onboarding, collects NPS feedback, supports shareable analysis links, and includes E2E monitoring with automatic GitHub issue creation.
+Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams into Azure equivalents. It analyzes uploaded diagrams using GPT-4o vision, identifies cloud services, allows users to add services via natural language, asks guided migration questions with smart deduplication to refine the translation, maps services to Azure counterparts with confidence scores, exports translated architecture diagrams in multiple formats, generates ready-to-deploy Terraform/Bicep infrastructure code, provides dynamic cost estimates based on the Azure Retail Prices API with 134 service pricing entries, automatically discovers and integrates new cloud services into its catalog, generates comprehensive AI-powered High-Level Design (HLD) documents, provides an interactive IaC chat assistant, analyzes architecture against Azure Well-Architected Framework (WAF), provides cost optimization recommendations, includes sample diagrams for onboarding, collects NPS feedback, supports shareable analysis links, provides user authentication with Azure AD B2C and GitHub OAuth, implements usage quotas and lead capture, generates migration runbooks with step-by-step task tracking, supports architecture versioning with change history, provides Terraform plan previews, comprehensive application analytics, and includes E2E monitoring with automatic GitHub issue creation.
 
 **Problem:** Organizations migrating to Azure spend weeks manually mapping source architecture to Azure services. This process is error-prone, requires deep multi-cloud expertise, and lacks tooling for interactive refinement.
 
-**Solution:** Automated diagram analysis and service translation with natural language service addition, smart question deduplication, confidence-scored mappings, multi-format diagram export, self-updating service catalog with auto-integration, generated IaC with secure credential handling, region-aware pricing with optimized targeted queries, AI-powered HLD generation, interactive IaC chat assistant, WAF best practices linting, cost optimization tips, sample diagram onboarding, NPS feedback collection, shareable links, E2E monitoring with Azure Application Insights, and an integrated chatbot assistant.
+**Solution:** Automated diagram analysis and service translation with natural language service addition, smart question deduplication, confidence-scored mappings, multi-format diagram export, self-updating service catalog with auto-integration, generated IaC with secure credential handling, region-aware pricing with optimized targeted queries, AI-powered HLD generation, interactive IaC chat assistant, WAF best practices linting, cost optimization tips, sample diagram onboarding, NPS feedback collection, shareable links, user authentication with quotas, migration runbook generation, architecture versioning, Terraform plan preview, comprehensive analytics, Azure Monitor integration with alerts, and an integrated chatbot assistant.
 
 ---
 
@@ -168,6 +168,116 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 - **Error sanitization** — internal exception details no longer leaked to API responses
 - **Dependabot** — automated dependency updates for pip, npm, Docker, GitHub Actions, and Terraform
 - **CI hardening** — `npm audit` failures no longer silently ignored
+
+### 3.16 User Authentication & Quotas (v2.9)
+- **Azure AD B2C** — Enterprise SSO with JWT validation, JWKS caching, user persistence
+- **GitHub OAuth** — Developer-friendly authentication with email access
+- **Anonymous users** — IP-based tracking with free tier limits
+- **User tiers:**
+  - **Free:** 5 analyses, 3 IaC downloads, 2 HLD generations, 10 cost estimates, 3 share links per month
+  - **Pro:** 50 analyses, 30 IaC downloads, 20 HLD generations, 100 cost estimates, 50 share links per month
+  - **Enterprise:** Unlimited usage
+- **Quota enforcement** — Real-time usage tracking with upgrade prompts at low quota
+- **Session management** — Secure session tokens with TTL-based expiration
+- **Lead capture** — Optional email capture before gated actions (IaC download, HLD, share)
+- **Marketing consent** — GDPR-compliant opt-in for marketing communications
+
+### 3.17 Migration Runbook Generator (v2.9)
+- **AI-generated runbooks** — Step-by-step migration guide based on architecture analysis
+- **7 migration phases:** Assessment, Planning, Preparation, Migration, Validation, Cutover, Post-Migration
+- **Task prioritization:** Critical, High, Medium, Low with dependency tracking
+- **Service-specific tasks:** Compute, Database, Storage, Networking, Security, Monitoring
+- **Risk assessment:** Automatic risk level calculation based on service complexity and confidence scores
+- **Azure CLI commands** — Pre-built commands for common migration tasks
+- **Validation checklists** — Per-task validation steps with checkbox tracking
+- **Rollback procedures** — Documented rollback steps for each critical task
+- **Markdown export** — Downloadable runbook as `.md` file with full formatting
+- **Duration estimation** — Automatic calculation of total migration duration in days
+
+### 3.18 Architecture Versioning (v2.9)
+- **Version history** — Track all changes to architecture analyses over time
+- **Change detection:** Service Added, Service Removed, Mapping Changed, Configuration Changed, NL Addition
+- **Version comparison** — Side-by-side diff of any two versions with detailed change list
+- **Restore versions** — Restore any previous version, creating a new version from it
+- **Content hashing** — SHA-256 based content fingerprinting for change detection
+- **Timeline view** — Chronological timeline of all architecture changes
+- **7-day retention** — In-memory storage with TTL-based cleanup
+
+### 3.19 Terraform Plan Preview (v2.9)
+- **HCL parsing** — Extracts resource definitions from generated Terraform code
+- **Simulation mode** — Preview what resources would be created without running Terraform
+- **Resource categorization:** Create, Update, Delete, Replace, No-Op, Read
+- **Syntax validation** — Checks for common HCL errors (unbalanced braces, double equals, invalid names)
+- **Best practices warnings:**
+  - Hardcoded passwords detection
+  - Missing tags warning
+  - Missing terraform block
+  - Missing provider block
+- **Plan summary** — Resource counts by action type
+- **Markdown preview** — Human-readable plan output with emoji indicators
+
+### 3.20 Application Analytics (v2.9)
+- **Event tracking** — Comprehensive event capture with category, properties, and metrics
+- **Session management** — Track user sessions with page views and conversion status
+- **Metrics types:** Counter, Gauge, Histogram, Timer
+- **Performance monitoring:**
+  - Request latency tracking by endpoint and method
+  - P50, P95, P99 percentile calculations
+  - Error rate tracking
+- **Feature analytics** — Track usage of each feature for product decisions
+- **Conversion funnel:** Upload → Analyze → Questions → Export → IaC Download
+- **Timer context manager** — Easy timing of operations with automatic recording
+- **Admin dashboard** — Comprehensive analytics summary with performance metrics
+
+### 3.21 Azure Monitor Integration (v2.9)
+- **Application Insights** — Distributed tracing, APM, and telemetry
+- **Azure Monitor Alerts:**
+  - High error rate (>50 failures in 15 min)
+  - High response time (>5s average)
+  - High CPU usage (>80%)
+  - Database connection saturation (>80%)
+  - Storage availability drop (<99%)
+- **Action groups** — Email notifications for critical alerts
+- **Log Analytics saved queries:**
+  - Error logs by exception type
+  - API latency by endpoint
+  - User analytics by action
+- **Workbook dashboard** — Operations dashboard with request trends and failure analysis
+
+### 3.22 GPT-4o AI Assistant (v2.10)
+- **Natural language conversations** — True AI assistant powered by GPT-4o for any question
+- **Context-aware responses** — Understands Archmorph features, cloud architecture, migrations
+- **Knowledge domains:**
+  - Archmorph platform features and usage
+  - AWS, Azure, GCP services and best practices
+  - Terraform and Bicep IaC code
+  - Migration strategies and patterns
+- **Automatic action detection** — Recognizes bug reports and feature requests in conversation
+- **GitHub issue creation** — Creates structured issues with templates when users report bugs/request features
+- **Session history** — Maintains conversation context across messages (2-hour TTL)
+- **Fallback handling** — Graceful degradation when AI unavailable
+
+### 3.23 Product Roadmap & Timeline (v2.10)
+- **Complete version history** — Timeline from Day 0 (Dec 2025) to current release
+- **Release categorization:**
+  - Released — Shipped features with dates and metrics
+  - In Progress — Currently being developed
+  - Planned — Scheduled for future releases
+  - Ideas — Under consideration based on feedback
+- **Release details** — Version, name, date, highlights, service/mapping counts
+- **Statistics dashboard** — Total releases, features shipped, days since launch
+- **Interactive timeline UI** — Expandable cards with filters (All/Released/Planned/Ideas)
+- **GitHub repository link** — Direct access to source code and contributions
+
+### 3.24 Feature Request & Bug Report System (v2.10)
+- **Feature request submission** — Users can request features via UI or AI assistant
+- **Structured templates:**
+  - Feature requests: title, description, use case, email
+  - Bug reports: title, description, steps, expected/actual behavior, browser/OS
+- **Automatic GitHub integration** — Creates issues with appropriate labels
+- **Rate limiting** — 3 feature requests/hour, 5 bug reports/hour to prevent abuse
+- **Email capture** — Optional contact email for follow-up
+- **Success confirmation** — Toast notification with link to created issue
 
 ---
 
@@ -328,8 +438,14 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | NL Service Builder | In-process GPT-4o engine (fuzzy Azure service matching, alias support, confidence scoring) |
 | Smart Question Dedup | In-process engine (implicit answer detection, smart defaults from analysis) |
 | E2E Monitoring | GitHub Actions workflow (Azure Monitor + App Insights health checks, auto GitHub issue creation) |
+| Authentication | In-process (Azure AD B2C JWT validation, GitHub OAuth, session tokens, usage quotas) |
+| Migration Runbook | In-process generator (7 phases, task templates, risk assessment, Markdown export) |
+| Architecture Versioning | In-memory store (change detection, version comparison, restore, 7-day TTL) |
+| Terraform Preview | In-process HCL parser (resource extraction, syntax validation, plan simulation) |
+| Application Analytics | In-memory metrics (event tracking, sessions, performance, funnels) |
+| Azure Monitoring | Application Insights + Azure Monitor (alerts, workbooks, Log Analytics queries) |
 
-### 8.2 API Endpoints (54 total)
+### 8.2 API Endpoints (78 total)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
@@ -363,10 +479,32 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | `/api/feedback/feature` | POST | Submit feature feedback thumbs up/down (v2.8) |
 | `/api/feedback/bug` | POST | Submit bug report with context (v2.8) |
 | `/api/admin/feedback` | GET | Get feedback summary (admin only, v2.8) |
-| `/api/service-updates/status` | GET | Scheduler status, auto-added totals |
-| `/api/service-updates/last` | GET | Last catalog update details |
-| `/api/service-updates/run-now` | POST | Trigger immediate catalog refresh + auto-add |
-| `/api/chat` | POST | Send message to chatbot assistant |
+| `/api/auth/config` | GET | Get public authentication configuration (v2.9) |
+| `/api/auth/login` | POST | Login with Azure AD B2C or GitHub OAuth (v2.9) |
+| `/api/auth/me` | GET | Get current authenticated user (v2.9) |
+| `/api/auth/quota` | GET | Check user quota for an action (v2.9) |
+| `/api/leads/capture` | POST | Capture lead information before gated action (v2.9) |
+| `/api/admin/leads` | GET | Get captured leads summary (admin only, v2.9) |
+| `/api/diagrams/{id}/versions` | POST | Create a new version of an architecture (v2.9) |
+| `/api/diagrams/{id}/versions` | GET | Get version history for a diagram (v2.9) |
+| `/api/diagrams/{id}/versions/{num}` | GET | Get a specific version of an architecture (v2.9) |
+| `/api/diagrams/{id}/versions/{num}/restore` | POST | Restore a previous version (v2.9) |
+| `/api/diagrams/{id}/versions/compare` | GET | Compare two versions of an architecture (v2.9) |
+| `/api/diagrams/{id}/runbook` | POST | Generate a migration runbook (v2.9) |
+| `/api/diagrams/{id}/runbook` | GET | Get generated runbook for a diagram (v2.9) |
+| `/api/diagrams/{id}/runbook/markdown` | GET | Get runbook as downloadable Markdown (v2.9) |
+| `/api/diagrams/{id}/terraform-preview` | POST | Generate a preview of Terraform plan (v2.9) |
+| `/api/terraform/validate` | POST | Validate Terraform HCL syntax (v2.9) |
+| `/api/admin/analytics` | GET | Get comprehensive analytics summary (admin, v2.9) |
+| `/api/admin/analytics/performance` | GET | Get API performance metrics (admin, v2.9) |
+| `/api/admin/analytics/features` | GET | Get feature usage metrics (admin, v2.9) |
+| `/api/admin/analytics/funnel` | GET | Get conversion funnel metrics (admin, v2.9) |
+| `/api/roadmap` | GET | Get complete roadmap with timeline (v2.10) |
+| `/api/roadmap/release/{version}` | GET | Get details for a specific release (v2.10) |
+| `/api/roadmap/feature-request` | POST | Submit a feature request to GitHub (v2.10) |
+| `/api/roadmap/bug-report` | POST | Submit a bug report to GitHub (v2.10) |
+| `/api/chat` | POST | Send message to GPT-4o AI assistant (v2.10) |
+| `/api/chat/history/{session_id}` | GET | Get AI chat session history (v2.10) |
 | `/api/chat/history/{session_id}` | GET | Get chat session history |
 | `/api/chat/{session_id}` | DELETE | Clear chat session |
 | `/api/admin/metrics` | GET | Admin usage metrics summary (key-protected) |
@@ -419,6 +557,8 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | **v2.6 — Icon Registry & Security** | Done | Icon Registry (405 icons, 3 library formats, SVG sanitization, thread-safe, persistent, auto-load), security hardening (timing-safe auth, security headers, ZIP slip protection, XSS prevention, Dependabot), diagram export bridge to registry |
 | **v2.7 — NL Builder & Monitoring** | Done | Natural Language Service Builder (add Azure services via text after diagram analysis), Smart Question Deduplication (filters questions based on implicit user answers), E2E Monitoring (Azure Monitor + Application Insights health checks, automatic GitHub issue creation), enhanced test coverage (21 service builder tests, integration tests, E2E monitoring workflow) |
 | **v2.8 — UX & Insights** | Done | Sample diagrams for onboarding (4 pre-built AWS/GCP examples), WAF Best Practices Linter (5 pillars, 15+ rules), Cost Optimization recommendations (7 categories, RI/Spot/tiering), NPS & Feedback collection (surveys, feature ratings, bug reports), share links (24h TTL), question progress bar, Feedback Widget UI, 438 unit tests |
+| **v2.9 — Enterprise Security** | Done | Azure AD B2C authentication, GitHub OAuth, User tiers (Free/Pro/Enterprise), Usage quotas, Lead capture, Migration runbook generator (7 phases), Architecture versioning with restore, Terraform plan preview, Application analytics, Azure Monitor alerts & workbook |
+| **v2.10 — AI Assistant & Roadmap** | Done | GPT-4o AI Assistant (natural language, context-aware), Product Roadmap UI (timeline from Day 0), Feature request system (GitHub integration), Bug report system (GitHub integration), Buy Me a Coffee support link |
 | **v3.0 — Enterprise** | Planned | Visio import, API keys, import blocks for existing resources, SSO, RBAC |
 | **v4.0 — Advanced** | Planned | Pulumi output, Azure Migrate integration, multi-diagram projects |
 
