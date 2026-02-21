@@ -433,6 +433,15 @@ def get_roadmap() -> Dict[str, Any]:
         datetime.now(timezone.utc) - datetime(2025, 12, 1, tzinfo=timezone.utc)
     ).days
     
+    # Productivity metrics
+    total_versioned = len(released) + len(in_progress) + len(planned)
+    progress_pct = round(
+        (len(released) + len(in_progress)) / max(total_versioned, 1) * 100, 1
+    )
+    releases_remaining = len(planned) + len(in_progress)
+    weeks_since_launch = max(days_since_start / 7, 1)
+    velocity = round(len(released) / weeks_since_launch, 1)
+
     return {
         "timeline": {
             "released": released,
@@ -447,6 +456,9 @@ def get_roadmap() -> Dict[str, Any]:
             "current_version": in_progress[0]["version"] if in_progress else released[-1]["version"],
             "services_supported": 405,
             "cloud_mappings": 122,
+            "progress_pct": progress_pct,
+            "releases_remaining": releases_remaining,
+            "velocity": velocity,
         },
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }

@@ -543,21 +543,46 @@ export default function Roadmap() {
 
       {/* Stats Cards */}
       {stats && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {[
-            { label: 'Releases Shipped', value: stats.total_releases, icon: Rocket },
-            { label: 'Features Delivered', value: stats.features_shipped, icon: Sparkles },
-            { label: 'Days Since Launch', value: stats.days_since_launch, icon: Calendar },
-            { label: 'Current Version', value: stats.current_version, icon: GitBranch },
-          ].map((stat, i) => (
-            <div key={i} className="bg-secondary/50 border border-border rounded-xl px-4 py-3">
-              <div className="flex items-center gap-2 text-text-muted mb-1">
-                <stat.icon className="w-4 h-4" />
-                <span className="text-xs font-medium">{stat.label}</span>
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {[
+              { label: 'Releases Shipped', value: stats.total_releases, icon: Rocket },
+              { label: 'Features Delivered', value: stats.features_shipped, icon: Sparkles },
+              { label: 'Days Since Launch', value: stats.days_since_launch, icon: Calendar },
+              { label: 'Current Version', value: stats.current_version, icon: GitBranch },
+            ].map((stat, i) => (
+              <div key={i} className="bg-secondary/50 border border-border rounded-xl px-4 py-3">
+                <div className="flex items-center gap-2 text-text-muted mb-1">
+                  <stat.icon className="w-4 h-4" />
+                  <span className="text-xs font-medium">{stat.label}</span>
+                </div>
+                <p className="text-xl font-bold text-text-primary">{stat.value}</p>
               </div>
-              <p className="text-xl font-bold text-text-primary">{stat.value}</p>
+            ))}
+          </div>
+
+          {/* Productivity Progress Bar */}
+          {stats.progress_pct !== undefined && (
+            <div className="bg-secondary/50 border border-border rounded-xl px-4 py-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-medium text-text-muted">
+                  Team Productivity — {stats.releases_remaining} release{stats.releases_remaining !== 1 ? 's' : ''} remaining
+                </span>
+                <span className="text-xs font-bold text-cta">{stats.progress_pct}% complete</span>
+              </div>
+              <div className="w-full bg-primary rounded-full h-2">
+                <div
+                  className="bg-cta h-2 rounded-full transition-all duration-500"
+                  style={{ width: `${stats.progress_pct}%` }}
+                />
+              </div>
+              {stats.velocity !== undefined && (
+                <p className="text-xs text-text-muted mt-1.5">
+                  Shipping at <span className="font-semibold text-text-secondary">{stats.velocity} releases/week</span>
+                </p>
+              )}
             </div>
-          ))}
+          )}
         </div>
       )}
 

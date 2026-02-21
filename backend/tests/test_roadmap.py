@@ -76,6 +76,45 @@ class TestGetRoadmap:
         result = get_roadmap()
         assert result["stats"]["cloud_mappings"] == 122
 
+    def test_stats_progress_pct(self):
+        """Stats should include progress_pct between 0 and 100."""
+        result = get_roadmap()
+        pct = result["stats"]["progress_pct"]
+        assert isinstance(pct, float)
+        assert 0.0 <= pct <= 100.0
+
+    def test_stats_releases_remaining(self):
+        """Stats should include non-negative releases_remaining."""
+        result = get_roadmap()
+        remaining = result["stats"]["releases_remaining"]
+        assert isinstance(remaining, int)
+        assert remaining >= 0
+
+    def test_stats_velocity(self):
+        """Stats should include positive velocity (releases per week)."""
+        result = get_roadmap()
+        velocity = result["stats"]["velocity"]
+        assert isinstance(velocity, float)
+        assert velocity > 0.0
+
+    def test_productivity_progress_pct_reflects_releases(self):
+        """progress_pct should equal (released + in_progress) / total_versioned * 100."""
+        result = get_roadmap()
+        timeline = result["timeline"]
+        released = len(timeline["released"])
+        in_progress = len(timeline["in_progress"])
+        planned = len(timeline["planned"])
+        total = released + in_progress + planned
+        expected = round((released + in_progress) / max(total, 1) * 100, 1)
+        assert result["stats"]["progress_pct"] == expected
+
+    def test_productivity_releases_remaining_is_planned_plus_in_progress(self):
+        """releases_remaining should equal planned + in_progress count."""
+        result = get_roadmap()
+        timeline = result["timeline"]
+        expected = len(timeline["planned"]) + len(timeline["in_progress"])
+        assert result["stats"]["releases_remaining"] == expected
+
 
 class TestGetReleaseByVersion:
     """Tests for fetching specific release."""
