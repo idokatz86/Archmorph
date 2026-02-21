@@ -1,0 +1,129 @@
+"""
+Shared test fixtures for Archmorph backend tests.
+
+Provides:
+  - test_client: FastAPI TestClient (session-scoped)
+  - mock_openai_response: reusable OpenAI mock
+  - sample_diagram_data: standard analysis result for tests
+  - auto-use timing fixture for slow-test detection
+"""
+
+import copy
+import io
+import os
+import sys
+import time
+from unittest.mock import MagicMock, patch
+
+import pytest
+from fastapi.testclient import TestClient
+
+# Ensure backend is importable
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+# Disable rate limiting for all tests
+os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
+
+from main import app, SESSION_STORE, IMAGE_STORE  # noqa: E402
+
+
+# ─────────────────────────────────────────────────────────────
+# Session-scoped fixtures (expensive setup, created once)
+# ─────────────────────────────────────────────────────────────
+
+@pytest.fixture(scope="session")
+def test_client():
+    """Session-scoped FastAPI TestClient — avoids repeated app startup."""
+    with TestClient(app, raise_server_exceptions=False) as c:
+        yield c
+
+
+# ─────────────────────────────────────────────────────────────
+# Sample data fixtures
+# ─────────────────────────────────────────────────────────────
+
+SAMPLE_ANALYSIS = {
+    "diagram_type": "AWS Architecture",
+    "source_provider": "aws",
+    "target_provider": "azure",
+    "architecture_patterns": ["multi-AZ", "serverless"],
+    "services_detected": 3,
+    "zones": [
+        {
+            "id": 1,
+            "name": "Compute",
+            "number": 1,
+            "services": [
+                {"aws": "Lambda", "azure": "Azure Functions", "confidence": 0.95},
+            ],
+        },
+        {
+            "id": 2,
+            "name": "Storage",
+            "number": 2,
+            "services": [
+                {"aws": "S3", "azure": "Azure Blob Storage", "confidence": 0.95},
+            ],
+        },
+    ],
+    "mappings": [
+        {
+            "source_service": "Lambda",
+            "source_provider": "aws",
+            "azure_service": "Azure Functions",
+            "confidence": 0.95,
+            "notes": "Zone 1 – Compute",
+        },
+        {
+            "source_service": "S3",
+            "source_provider": "aws",
+            "azure_service": "Azure Blob Storage",
+            "confidence": 0.95,
+            "notes": "Zone 2 – Storage",
+        },
+        {
+            "source_service": "DynamoDB",
+            "source_provider": "aws",
+            "azure_service": "Azure Cosmos DB",
+            "confidence": 0.85,
+            "notes": "Zone 2 – Storage",
+        },
+    ],
+    "warnings": [],
+    "confidence_summary": {"high": 2, "medium": 1, "low": 0, "average": 0.92},
+}
+
+
+@pytest.fixture()
+def sample_diagram_data():
+    """Return a deep copy of a standard mock analysis result."""
+    return copy.deepcopy(SAMPLE_ANALYSIS)
+
+
+@pytest.fixture()
+def mock_openai_response():
+    """Return a factory that builds a mock OpenAI chat-completion response."""
+
+    def _build(content: str = '{"result": "ok"}'):
+        mock_resp = MagicMock()
+        mock_resp.choices = [MagicMock()]
+        mock_resp.choices[0].message.content = content
+        return mock_resp
+
+    return _build
+
+
+# ─────────────────────────────────────────────────────────────
+# Auto-use: test timing (prints warnings for slow tests)
+# ─────────────────────────────────────────────────────────────
+
+@pytest.fixture(autouse=True)
+def _test_timer(request):
+    """Record wall-clock time for every test; warn if > 2 s."""
+    start = time.perf_counter()
+    yield
+    elapsed = time.perf_counter() - start
+    if elapsed > 2.0:
+        # Attach as a custom property so pytest-html / reporters can pick it up
+        if hasattr(request.node, "user_properties"):
+            request.node.user_properties.append(("duration_warning", f"{elapsed:.2f}s"))
