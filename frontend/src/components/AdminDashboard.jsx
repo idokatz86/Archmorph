@@ -1,14 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import {
   Shield, X, Filter, Activity, BarChart3, AlertTriangle, TrendingUp,
-  Zap, Eye, Loader2, DollarSign,
+  Zap, Eye, Loader2, DollarSign, Monitor,
 } from 'lucide-react';
 import { Badge, Button, Card } from './ui';
 import { API_BASE, ADMIN_KEY } from '../constants';
+import MonitoringDashboard from './MonitoringDashboard';
 
 const STEP_COLORS = ['#22C55E', '#3B82F6', '#A855F7', '#F59E0B', '#EF4444', '#06B6D4'];
+const TABS = [
+  { key: 'analytics', label: 'Analytics', icon: BarChart3 },
+  { key: 'monitoring', label: 'Monitoring', icon: Monitor },
+];
 
 export default function AdminDashboard({ onClose }) {
+  const [activeTab, setActiveTab] = useState('analytics');
   const [funnel, setFunnel] = useState(null);
   const [metrics, setMetrics] = useState(null);
   const [daily, setDaily] = useState([]);
@@ -53,15 +59,39 @@ export default function AdminDashboard({ onClose }) {
               <Shield className="w-5 h-5 text-danger" />
             </div>
             <div>
-              <h1 className="text-lg font-bold text-text-primary">Admin Analytics</h1>
+              <h1 className="text-lg font-bold text-text-primary">Admin Dashboard</h1>
               <p className="text-[10px] text-text-muted uppercase tracking-wider">Archmorph Internal</p>
             </div>
           </div>
-          <Button variant="ghost" size="sm" icon={X} onClick={onClose}>Close</Button>
+          <div className="flex items-center gap-4">
+            {/* Tab Navigation */}
+            <div className="flex items-center bg-secondary rounded-lg p-0.5">
+              {TABS.map(tab => (
+                <button
+                  key={tab.key}
+                  onClick={() => setActiveTab(tab.key)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all duration-200 ${
+                    activeTab === tab.key
+                      ? 'bg-cta text-surface shadow-sm'
+                      : 'text-text-muted hover:text-text-primary'
+                  }`}
+                >
+                  <tab.icon className="w-3.5 h-3.5" />
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+            <Button variant="ghost" size="sm" icon={X} onClick={onClose}>Close</Button>
+          </div>
         </div>
       </div>
 
       <div className="max-w-6xl mx-auto px-6 py-8 space-y-8">
+        {/* Monitoring Tab */}
+        {activeTab === 'monitoring' && <MonitoringDashboard />}
+
+        {/* Analytics Tab */}
+        {activeTab === 'analytics' && (<>
         {/* Summary Row */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
@@ -266,6 +296,7 @@ export default function AdminDashboard({ onClose }) {
             </div>
           )}
         </Card>
+        </>)}
       </div>
     </div>
   );

@@ -339,9 +339,7 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
         result = await asyncio.to_thread(analyze_image, image_bytes, content_type)
     except Exception as exc:
         logger.error("Vision analysis failed for %s: %s", diagram_id, exc, exc_info=True)
-        err_type = type(exc).__name__
-        err_msg = str(exc)[:200]
-        raise HTTPException(500, f"Vision analysis failed ({err_type}): {err_msg}")
+        raise HTTPException(500, "Vision analysis failed. Please try again with a different image.")
 
     # Inject diagram_id and classification metadata into result
     result["diagram_id"] = diagram_id
@@ -437,7 +435,7 @@ async def add_services_natural_language(
         )
     except Exception as exc:
         logger.error("Failed to add services for %s: %s", diagram_id, exc)
-        raise HTTPException(500, f"Failed to process request: {str(exc)}")
+        raise HTTPException(500, "Failed to process request. Please try again.")
     
     # Store user context for smart question deduplication
     updated.setdefault("user_context", {})
@@ -767,9 +765,9 @@ async def get_stats(response: Response):
 # IaC Chat — GPT-4o powered Terraform/Bicep assistant
 # ─────────────────────────────────────────────────────────────
 class IaCChatMessage(BaseModel):
-    message: str
-    code: str
-    format: str = "terraform"
+    message: str = Field(..., min_length=1, max_length=5000)
+    code: str = Field(..., max_length=100000)
+    format: str = Field(default="terraform", pattern="^(terraform|bicep)$")
 
 
 @app.post("/api/diagrams/{diagram_id}/iac-chat")
@@ -882,8 +880,8 @@ async def get_hld(diagram_id: str):
 # Chatbot — AI assistant with GitHub issue creation
 # ─────────────────────────────────────────────────────────────
 class ChatMessage(BaseModel):
-    message: str
-    session_id: Optional[str] = "default"
+    message: str = Field(..., min_length=1, max_length=5000)
+    session_id: Optional[str] = Field(default="default", max_length=100)
 
 
 @app.post("/api/chat")
@@ -1085,6 +1083,112 @@ async def admin_cost_dashboard(_admin=Depends(verify_admin_key)):
             "estimated_output_tokens": output_tokens,
             "openai_cost_usd": openai_cost,
         },
+    }
+
+
+@app.get("/api/admin/monitoring")
+async def admin_monitoring_dashboard(_admin=Depends(verify_admin_key)):
+    """
+    Return real-time application monitoring data for the admin dashboard.
+
+    Aggregates in-memory observability metrics (request counts, latency
+    histograms, error rates, endpoint performance) into a structured
+    read-only payload.  No Azure subscription IDs are exposed.
+    """
+    raw = get_metrics()
+
+    # ── Request traffic ──
+    total_requests = 0
+    total_errors = 0
+    status_breakdown: Dict[str, int] = {}
+    endpoint_stats: Dict[str, Dict[str, Any]] = {}
+
+    for key, counter in raw.get("counters", {}).items():
+        tags = counter.get("tags", {})
+        val = counter.get("value", 0)
+
+        if key == "http.requests.total":
+            total_requests += val
+            path = tags.get("path", "unknown")
+            method = tags.get("method", "")
+            ep_key = f"{method} {path}"
+            endpoint_stats.setdefault(ep_key, {"requests": 0, "errors": 0})
+            endpoint_stats[ep_key]["requests"] += val
+
+        elif key == "http.errors.total":
+            total_errors += val
+            status = tags.get("status", "unknown")
+            status_breakdown[status] = status_breakdown.get(status, 0) + val
+            path = tags.get("path", "unknown")
+            method = tags.get("method", "")
+            ep_key = f"{method} {path}"
+            endpoint_stats.setdefault(ep_key, {"requests": 0, "errors": 0})
+            endpoint_stats[ep_key]["errors"] += val
+
+    # ── Latency ──
+    latency_global = {}
+    for key, hist in raw.get("histograms", {}).items():
+        if key == "http.request.duration_ms":
+            latency_global = {
+                "avg_ms": round(hist.get("avg", 0), 1),
+                "p50_ms": round(hist.get("p50", 0), 1),
+                "p95_ms": round(hist.get("p95", 0), 1),
+                "p99_ms": round(hist.get("p99", 0), 1),
+                "max_ms": round(hist.get("max", 0), 1),
+                "total_samples": hist.get("count", 0),
+            }
+            # Attach latency to matching endpoint
+            tags = hist.get("tags", {})
+            path = tags.get("path", "")
+            method = tags.get("method", "")
+            if path:
+                ep_key = f"{method} {path}"
+                if ep_key in endpoint_stats:
+                    endpoint_stats[ep_key]["avg_ms"] = round(hist.get("avg", 0), 1)
+                    endpoint_stats[ep_key]["p95_ms"] = round(hist.get("p95", 0), 1)
+
+    # ── Top endpoints by request volume ──
+    top_endpoints = sorted(
+        [
+            {"endpoint": k, **v}
+            for k, v in endpoint_stats.items()
+            if not k.endswith("/health") and not k.endswith("/favicon.ico")
+        ],
+        key=lambda x: x["requests"],
+        reverse=True,
+    )[:20]
+
+    # ── Error rate ──
+    error_rate = round((total_errors / total_requests) * 100, 2) if total_requests > 0 else 0
+
+    # ── Uptime (process) ──
+    try:
+        import psutil  # noqa: E402
+        process = psutil.Process()
+        uptime_seconds = int(time.time() - process.create_time())
+        memory_mb = round(process.memory_info().rss / (1024 * 1024), 1)
+        cpu_percent = process.cpu_percent(interval=0)
+    except Exception:
+        uptime_seconds = 0
+        memory_mb = 0
+        cpu_percent = 0
+
+    uptime_hours = uptime_seconds // 3600
+    uptime_mins = (uptime_seconds % 3600) // 60
+
+    return {
+        "overview": {
+            "total_requests": total_requests,
+            "total_errors": total_errors,
+            "error_rate_pct": error_rate,
+            "uptime": f"{uptime_hours}h {uptime_mins}m",
+            "uptime_seconds": uptime_seconds,
+            "memory_mb": memory_mb,
+            "cpu_percent": cpu_percent,
+        },
+        "latency": latency_global,
+        "status_codes": status_breakdown,
+        "top_endpoints": top_endpoints,
     }
 
 
@@ -1721,7 +1825,7 @@ async def preview_terraform_plan_endpoint(diagram_id: str):
                 params=analysis.get("iac_parameters", {}),
             )
         except Exception as e:
-            raise HTTPException(500, f"Failed to generate IaC: {str(e)}")
+            raise HTTPException(500, "Failed to generate IaC code. Please try again.")
     
     from terraform_preview import preview_terraform_plan
     

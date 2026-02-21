@@ -11,6 +11,7 @@ import logging
 from typing import Any, Dict, Optional
 
 from openai_client import get_openai_client, AZURE_OPENAI_DEPLOYMENT, openai_retry
+from prompt_guard import PROMPT_ARMOR
 
 logger = logging.getLogger(__name__)
 
@@ -228,7 +229,7 @@ Return a JSON object with these EXACT keys:
 7. Apply Well-Architected Framework principles to each recommendation.
 8. Focus on FinOps — cost optimization, reserved instances, right-sizing.
 9. Keep service descriptions concise but technically accurate.
-"""
+""" + PROMPT_ARMOR
 
 
 def generate_hld(

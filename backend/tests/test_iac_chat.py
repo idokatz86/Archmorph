@@ -169,7 +169,7 @@ class TestIacChatProcessing:
 
         assert result["error"] is True
         assert result["code"] == SAMPLE_TF_CODE  # Returns original code on error
-        assert "API timeout" in result["reply"]
+        assert "sorry" in result["reply"].lower() or "couldn't" in result["reply"].lower()
 
     @patch("iac_chat.get_openai_client")
     def test_process_iac_chat_json_error(self, mock_client):

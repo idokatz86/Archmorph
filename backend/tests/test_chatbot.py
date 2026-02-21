@@ -117,7 +117,7 @@ class TestAIAssistant:
         mock_client.side_effect = Exception("API unavailable")
 
         result = _call_ai_assistant("Hello", [])
-        assert "error" in result
+        assert result["action"] is None
         assert "apologize" in result["reply"].lower() or "trouble" in result["reply"].lower()
 
 
@@ -177,14 +177,14 @@ class TestIssueCreation:
 class TestGitHubIssueCreation:
     """Tests for direct GitHub issue creation."""
 
-    @patch("chatbot.GITHUB_TOKEN", "")
+    @patch("chatbot._GITHUB_TOKEN", "")
     def test_no_token_returns_error(self):
         """Should return error when GitHub token not set."""
         result = _create_github_issue("Test", "Body", ["bug"])
         assert result["success"] is False
         assert "not configured" in result["error"].lower()
 
-    @patch("chatbot.GITHUB_TOKEN", "fake-token")
+    @patch("chatbot._GITHUB_TOKEN", "fake-token")
     def test_creates_issue_successfully(self):
         """Should create issue with correct parameters."""
         with patch("github.Github") as mock_github_cls:
@@ -204,7 +204,7 @@ class TestGitHubIssueCreation:
             assert result["issue_number"] == 123
             mock_repo.create_issue.assert_called_once()
 
-    @patch("chatbot.GITHUB_TOKEN", "fake-token")
+    @patch("chatbot._GITHUB_TOKEN", "fake-token")
     def test_handles_api_error(self):
         """Should handle GitHub API errors."""
         with patch("github.Github") as mock_github_cls:
@@ -213,4 +213,4 @@ class TestGitHubIssueCreation:
             result = _create_github_issue("Test", "Body", ["bug"])
 
             assert result["success"] is False
-            assert "Rate limited" in result["error"]
+            assert "failed" in result["error"].lower()

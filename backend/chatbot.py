@@ -10,17 +10,18 @@ import os
 import re
 import json
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 
 from cachetools import TTLCache
 
 from openai_client import get_openai_client, AZURE_OPENAI_DEPLOYMENT, openai_retry
+from prompt_guard import PROMPT_ARMOR, sanitize_message, sanitize_response, validate_message
 
 logger = logging.getLogger(__name__)
 
-# GitHub configuration
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
+# GitHub configuration — loaded lazily to avoid module-level secret exposure
+_GITHUB_TOKEN: Optional[str] = None
 GITHUB_REPO = os.getenv("GITHUB_REPO", "idokatz86/Archmorph")
 
 # Conversation history per session (TTL: 2 hours, max 500 sessions)
@@ -91,7 +92,7 @@ For feature requests:
 ## Support
 - GitHub Issues: https://github.com/idokatz86/Archmorph/issues
 - Documentation: https://github.com/idokatz86/Archmorph#readme
-"""
+""" + PROMPT_ARMOR
 
 
 def _call_ai_assistant(
@@ -131,6 +132,7 @@ def _call_ai_assistant(
         )
         
         reply_text = response.choices[0].message.content.strip()
+        reply_text = sanitize_response(reply_text)
         
         # Check for action JSON in response
         action = None
@@ -162,13 +164,15 @@ def _call_ai_assistant(
         return {
             "reply": "I apologize, but I'm having trouble processing your request right now. Please try again in a moment, or report the issue at https://github.com/idokatz86/Archmorph/issues",
             "action": None,
-            "error": str(exc),
         }
 
 
 def _create_github_issue(title: str, body: str, labels: List[str]) -> Dict[str, Any]:
     """Create a GitHub issue using PyGithub."""
-    if not GITHUB_TOKEN:
+    global _GITHUB_TOKEN
+    if _GITHUB_TOKEN is None:
+        _GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
+    if not _GITHUB_TOKEN:
         return {
             "success": False,
             "error": "GitHub token not configured. Set GITHUB_TOKEN environment variable.",
@@ -177,7 +181,7 @@ def _create_github_issue(title: str, body: str, labels: List[str]) -> Dict[str, 
     try:
         from github import Github
 
-        g = Github(GITHUB_TOKEN)
+        g = Github(_GITHUB_TOKEN)
         repo = g.get_repo(GITHUB_REPO)
 
         # Filter labels to only existing ones
@@ -199,7 +203,7 @@ def _create_github_issue(title: str, body: str, labels: List[str]) -> Dict[str, 
         }
     except Exception as exc:
         logger.error(f"GitHub issue creation failed: {exc}")
-        return {"success": False, "error": str(exc)}
+        return {"success": False, "error": "Failed to create GitHub issue. Please try again."}
 
 
 # ─────────────────────────────────────────────────────────────
@@ -233,6 +237,18 @@ def process_chat_message(
       - action: None | 'issue_draft' | 'issue_created' | 'bug_created' | 'feature_created'
       - data: additional data (issue details, etc.)
     """
+    # ── Input validation ──
+    message = sanitize_message(message)
+    is_safe, reason = validate_message(message, max_length=5000, context="chatbot")
+    if not is_safe:
+        logger.warning("Chatbot input rejected for session %s: %s", session_id, reason or "injection detected")
+        return {
+            "reply": reason or "I can only help with Archmorph, cloud architecture, and migration topics. Please rephrase your question.",
+            "action": None,
+            "data": None,
+            "ai_powered": False,
+        }
+
     # Initialize session
     if session_id not in CHAT_SESSIONS:
         CHAT_SESSIONS[session_id] = []

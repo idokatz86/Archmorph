@@ -15,6 +15,13 @@ from typing import Any, Dict, List, Optional
 from cachetools import TTLCache
 
 from openai_client import get_openai_client, AZURE_OPENAI_DEPLOYMENT, openai_retry
+from prompt_guard import (
+    PROMPT_ARMOR,
+    sanitize_message,
+    sanitize_response,
+    validate_code_input,
+    validate_message,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +67,7 @@ ALWAYS respond with a JSON object containing exactly these fields:
 8. Keep comments consistent with the existing style.
 9. If the user asks to EXPLAIN something, set `code` to the current code unchanged and put the explanation in `message`.
 10. If the format is Bicep, generate valid Bicep (not Terraform). If Terraform, generate valid HCL.
-"""
+""" + PROMPT_ARMOR
 
 
 # ─────────────────────────────────────────────────────────────
@@ -98,6 +105,29 @@ def process_iac_chat(
         ``{"reply", "code", "changes_summary", "services_added"}``
     """
     session_key = f"{diagram_id}:iac"
+
+    # ── Input validation ──
+    message = sanitize_message(message)
+    is_safe, reason = validate_message(message, max_length=5000, context="iac_chat")
+    if not is_safe:
+        logger.warning("IaC chat input rejected for diagram %s: %s", diagram_id, reason or "injection detected")
+        return {
+            "reply": reason or "I can only help with Terraform and Bicep infrastructure code. Please rephrase your request.",
+            "code": current_code,
+            "changes_summary": [],
+            "services_added": [],
+            "error": True,
+        }
+
+    code_ok, code_reason = validate_code_input(current_code)
+    if not code_ok:
+        return {
+            "reply": code_reason,
+            "code": current_code,
+            "changes_summary": [],
+            "services_added": [],
+            "error": True,
+        }
 
     # Initialize session history
     if session_key not in IAC_CHAT_SESSIONS:
@@ -165,7 +195,7 @@ def process_iac_chat(
 
         result = json.loads(raw_text)
 
-        reply = result.get("message", "Code updated.")
+        reply = sanitize_response(result.get("message", "Code updated."))
         code = result.get("code", current_code)
         changes = result.get("changes_summary", [])
         services = result.get("services_added", [])
@@ -182,7 +212,7 @@ def process_iac_chat(
     except Exception as exc:
         logger.error("IaC chat OpenAI call failed: %s", exc)
         return {
-            "reply": f"Sorry, I couldn't process your request: {str(exc)}",
+            "reply": "Sorry, I couldn't process your request. Please try again.",
             "code": current_code,
             "changes_summary": [],
             "services_added": [],
