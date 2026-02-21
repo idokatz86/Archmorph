@@ -20,8 +20,9 @@ env:
   ACR_NAME: archmorphacm7pd
   ACR_LOGIN_SERVER: archmorphacm7pd.azurecr.io
   CONTAINER_APP_NAME: archmorph-api
+  CONTAINER_APP_ENV: archmorph-cae-dev
   SWA_NAME: archmorph-frontend
-  API_URL: https://archmorph-api.icyisland-c0dee6ba.northeurope.azurecontainerapps.io/api
+  API_URL: https://archmorph-api.nicesea-1430d1f7.westeurope.azurecontainerapps.io/api
 
 jobs:
   # ============================================
