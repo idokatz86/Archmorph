@@ -11,6 +11,12 @@ on:
         type: boolean
         default: true
 
+# OIDC permissions for Azure login
+permissions:
+  id-token: write
+  contents: read
+  issues: write
+
 env:
   API_URL: ${{ secrets.API_URL }}
   FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
@@ -83,7 +89,9 @@ jobs:
       - name: Azure Login
         uses: azure/login@v2
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Query Log Analytics for Errors
         id: query
@@ -131,12 +139,26 @@ jobs:
       failure_rate: ${{ steps.query.outputs.failure_rate }}
       avg_response_time: ${{ steps.query.outputs.avg_response_time }}
     steps:
+      - name: Check if App Insights configured
+        id: check
+        run: |
+          if [ -z "${{ secrets.APP_INSIGHTS_APP_ID }}" ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "::notice::Application Insights not configured, skipping"
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Azure Login
+        if: steps.check.outputs.skip != 'true'
         uses: azure/login@v2
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Query Application Insights Metrics
+        if: steps.check.outputs.skip != 'true'
         id: query
         run: |
           # Get failed requests rate
@@ -175,6 +197,7 @@ jobs:
           fi
 
       - name: Query Exception Details
+        if: steps.check.outputs.skip != 'true'
         id: exceptions
         run: |
           EXCEPTION_QUERY='exceptions
@@ -197,7 +220,7 @@ jobs:
           fi
 
       - name: Upload Exception Details
-        if: steps.exceptions.outputs.exception_count != '0'
+        if: steps.check.outputs.skip != 'true' && steps.exceptions.outputs.exception_count != '0'
         uses: actions/upload-artifact@v4
         with:
           name: exception-logs
