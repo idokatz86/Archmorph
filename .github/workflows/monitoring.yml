@@ -11,6 +11,10 @@ on:
         type: boolean
         default: true
 
+env:
+  API_URL: ${{ secrets.API_URL }}
+  FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+
 jobs:
   api-health-check:
     runs-on: ubuntu-latest
@@ -23,10 +27,10 @@ jobs:
       - name: Check API Health
         id: health
         run: |
-          API_URL="https://archmorph-api.icyisland-c0dee6ba.northeurope.azurecontainerapps.io/api/health"
+          HEALTH_URL="${{ env.API_URL }}/health"
           
           # Make request with timeout
-          RESPONSE=$(curl -s -w "\n%{http_code}" --max-time 30 "$API_URL" || echo "FAILED")
+          RESPONSE=$(curl -s -w "\n%{http_code}" --max-time 30 "$HEALTH_URL" || echo "FAILED")
           HTTP_CODE=$(echo "$RESPONSE" | tail -1)
           BODY=$(echo "$RESPONSE" | head -n -1)
           
@@ -59,8 +63,7 @@ jobs:
       - name: Check Frontend
         id: frontend
         run: |
-          FRONTEND_URL="https://agreeable-ground-01012c003.2.azurestaticapps.net"
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "$FRONTEND_URL")
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "${{ env.FRONTEND_URL }}")
           
           if [ "$HTTP_CODE" != "200" ]; then
             echo "::error::Frontend returned HTTP $HTTP_CODE"

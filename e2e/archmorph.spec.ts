@@ -1,16 +1,19 @@
 /**
  * Archmorph E2E Tests — Playwright
  *
- * Tests the live deployed application end-to-end:
- *   Frontend: https://agreeable-ground-01012c003.2.azurestaticapps.net
- *   Backend:  https://archmorph-api.icyisland-c0dee6ba.northeurope.azurecontainerapps.io
+ * Tests the live deployed application end-to-end.
+ * Configure via environment variables:
+ *   - API_BASE: Backend API URL
+ *   - ADMIN_KEY: Admin authentication key
  */
 
 import { test, expect, Page } from '@playwright/test';
 import path from 'path';
 import fs from 'fs';
 
-const API_BASE = 'https://archmorph-api.icyisland-c0dee6ba.northeurope.azurecontainerapps.io';
+// Use environment variables with safe fallbacks for local development
+const API_BASE = process.env.API_BASE || 'http://localhost:8000';
+const ADMIN_KEY = process.env.ADMIN_KEY || 'test-admin-key';
 
 // Longer timeout for cold-start container apps
 const COLD_START_TIMEOUT = 45_000;
@@ -114,15 +117,16 @@ test.describe('API Health', () => {
     expect(resp.ok()).toBeTruthy();
     const data = await resp.json();
     expect(data.status).toBe('healthy');
-    expect(data.version).toBe('2.10.0');
+    expect(data.version).toBe('2.11.1');
     expect(data.service_catalog.aws).toBeGreaterThan(100);
   });
 
-  test('contact endpoint returns email', async ({ request }) => {
+  test('contact endpoint returns project info', async ({ request }) => {
     const resp = await request.get(`${API_BASE}/api/contact`);
     expect(resp.ok()).toBeTruthy();
     const data = await resp.json();
-    expect(data.email).toBe('send2katz@gmail.com');
+    expect(data.github).toContain('Archmorph');
+    expect(data.issues).toContain('issues');
   });
 });
 
@@ -291,7 +295,7 @@ test.describe('Admin Dashboard', () => {
   test('5 rapid clicks on footer opens admin panel', async ({ page }) => {
     await page.goto('/');
 
-    const versionText = page.getByText('Archmorph v2.10.0', { exact: false });
+    const versionText = page.getByText('Archmorph v2.11.1', { exact: false });
     await expect(versionText).toBeVisible();
 
     // Click 5 times rapidly
@@ -385,7 +389,7 @@ test.describe('API Endpoints', () => {
     const badResp = await request.get(`${API_BASE}/api/admin/metrics?key=wrong`);
     expect(badResp.status()).toBe(403);
 
-    const goodResp = await request.get(`${API_BASE}/api/admin/metrics?key=archmorph-admin-2025`);
+    const goodResp = await request.get(`${API_BASE}/api/admin/metrics?key=${ADMIN_KEY}`);
     expect(goodResp.ok()).toBeTruthy();
   });
 });
@@ -521,14 +525,14 @@ test.describe('IaC Chat', () => {
 // ====================================================================
 
 test.describe('Footer & Branding', () => {
-  test('footer shows contact email', async ({ page }) => {
+  test('footer shows GitHub link', async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByText('send2katz@gmail.com')).toBeVisible();
+    await expect(page.getByRole('link', { name: /GitHub/i })).toBeVisible();
   });
 
   test('footer shows version', async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByText('Archmorph v2.10.0')).toBeVisible();
+    await expect(page.getByText('Archmorph v2.11.1')).toBeVisible();
   });
 });
 

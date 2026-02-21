@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, forwardRef, useImperativeHandle } from 'react';
 import { X, ThumbsUp, ThumbsDown, Send, MessageSquare, Bug } from 'lucide-react';
 import { Button, Card } from './ui';
 import { API_BASE } from '../constants';
 
-export default function FeedbackWidget() {
+const FeedbackWidget = forwardRef(function FeedbackWidget({ position = 'bottom' }, ref) {
   const [isOpen, setIsOpen] = useState(false);
   const [mode, setMode] = useState('nps'); // 'nps', 'feature', 'bug'
   const [npsScore, setNpsScore] = useState(null);
@@ -12,6 +12,12 @@ export default function FeedbackWidget() {
   const [bugDescription, setBugDescription] = useState('');
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  // Expose open method to parent
+  useImperativeHandle(ref, () => ({
+    open: () => setIsOpen(true),
+    close: () => { setIsOpen(false); reset(); },
+  }));
 
   const handleSubmitNPS = async () => {
     if (npsScore === null) return;
@@ -84,20 +90,17 @@ export default function FeedbackWidget() {
     setMode('nps');
   };
 
+  // Position classes based on prop
+  const positionClasses = position === 'top' 
+    ? 'fixed top-16 right-4 z-50 w-80' 
+    : 'fixed bottom-20 right-4 z-50 w-80';
+
   if (!isOpen) {
-    return (
-      <button
-        onClick={() => setIsOpen(true)}
-        className="fixed bottom-20 right-4 z-40 p-3 rounded-full bg-secondary border border-border shadow-lg hover:bg-cta/20 transition-colors cursor-pointer"
-        title="Give Feedback"
-      >
-        <MessageSquare className="w-5 h-5 text-text-primary" />
-      </button>
-    );
+    return null; // Button is now in Nav component
   }
 
   return (
-    <div className="fixed bottom-20 right-4 z-50 w-80">
+    <div className={positionClasses}>
       <Card className="p-4 shadow-xl border-cta/30">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-semibold text-text-primary">Feedback</h3>
@@ -232,4 +235,6 @@ export default function FeedbackWidget() {
       </Card>
     </div>
   );
-}
+});
+
+export default FeedbackWidget;

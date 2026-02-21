@@ -11,18 +11,18 @@ permissions:
   id-token: write
   contents: read
 
-# Fixed configuration - Subscription ID: 00000000-0000-0000-0000-000000000000
+# All sensitive values come from GitHub Secrets - no hardcoded credentials
 env:
-  AZURE_SUBSCRIPTION_ID: 00000000-0000-0000-0000-000000000000
-  AZURE_TENANT_ID: 00000000-0000-0000-0000-000000000000
-  AZURE_CLIENT_ID: 00000000-0000-0000-0000-000000000000
-  AZURE_RESOURCE_GROUP: archmorph-rg-dev
-  ACR_NAME: archmorphacm7pd
-  ACR_LOGIN_SERVER: archmorphacm7pd.azurecr.io
-  CONTAINER_APP_NAME: archmorph-api
-  CONTAINER_APP_ENV: archmorph-cae-dev
-  SWA_NAME: archmorph-frontend
-  API_URL: https://archmorph-api.nicesea-1430d1f7.westeurope.azurecontainerapps.io/api
+  AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+  AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+  AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+  ACR_NAME: ${{ secrets.ACR_NAME }}
+  ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}
+  CONTAINER_APP_NAME: ${{ secrets.CONTAINER_APP_NAME }}
+  CONTAINER_APP_ENV: ${{ secrets.CONTAINER_APP_ENV }}
+  SWA_NAME: ${{ secrets.SWA_NAME }}
+  API_URL: ${{ secrets.API_URL }}
 
 jobs:
   # ============================================

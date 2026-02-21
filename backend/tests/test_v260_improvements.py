@@ -184,12 +184,12 @@ class TestHealthCheck:
             yield c
 
     def test_health_returns_checks(self, client):
-        """Health endpoint should include version 2.10.0 and checks section."""
+        """Health endpoint should include version 2.11.1 and checks section."""
         r = client.get("/api/health")
         assert r.status_code == 200
         data = r.json()
         assert data["status"] == "healthy"
-        assert data["version"] == "2.11.0"
+        assert data["version"] == "2.11.1"
         assert "checks" in data
         assert "openai" in data["checks"]
         assert "storage" in data["checks"]

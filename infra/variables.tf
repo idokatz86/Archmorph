@@ -41,5 +41,5 @@ variable "db_admin_password" {
 variable "alert_email" {
   description = "Email address for Azure Monitor alerts"
   type        = string
-  default     = "send2katz@gmail.com"
+  # Must be set in terraform.tfvars - no default for security
 }

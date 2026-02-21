@@ -1178,10 +1178,10 @@ async def admin_span_metrics(_admin=Depends(verify_admin_key)):
 async def contact_info():
     """Return contact information."""
     return {
-        "email": "send2katz@gmail.com",
-        "name": "Ido Katz",
         "project": "Archmorph",
         "github": "https://github.com/idokatz86/Archmorph",
+        "issues": "https://github.com/idokatz86/Archmorph/issues",
+        "documentation": "https://github.com/idokatz86/Archmorph#readme",
     }
 
 

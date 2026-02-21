@@ -88,9 +88,9 @@ For feature requests:
 - GCP services: 117 (Compute Engine, Cloud Storage, Cloud SQL, etc.)
 - Cross-cloud mappings: 122 verified service mappings
 
-## Contact
-- Email: send2katz@gmail.com
-- GitHub: https://github.com/idokatz86/Archmorph
+## Support
+- GitHub Issues: https://github.com/idokatz86/Archmorph/issues
+- Documentation: https://github.com/idokatz86/Archmorph#readme
 """
 
 
@@ -160,7 +160,7 @@ def _call_ai_assistant(
     except Exception as exc:
         logger.error(f"AI assistant error: {exc}")
         return {
-            "reply": "I apologize, but I'm having trouble processing your request right now. Please try again in a moment, or contact us at send2katz@gmail.com for assistance.",
+            "reply": "I apologize, but I'm having trouble processing your request right now. Please try again in a moment, or report the issue at https://github.com/idokatz86/Archmorph/issues",
             "action": None,
             "error": str(exc),
         }
@@ -215,7 +215,7 @@ FAQ = {
     "questions": "After analysis, Archmorph asks 8-18 guided migration questions across 8 categories (compute, database, networking, security, compliance, DR, cost, integration) to refine your Azure architecture.",
     "terraform": "Archmorph generates production-ready Terraform HCL code with secure credential handling (random_password + Key Vault) — no hardcoded secrets.",
     "bicep": "Archmorph generates Bicep code with @secure() parameters for sensitive values like database passwords.",
-    "contact": "You can reach the team at send2katz@gmail.com for questions, feedback, or partnership inquiries.",
+    "contact": "For questions, feedback, or bug reports, please open a GitHub issue at https://github.com/idokatz86/Archmorph/issues",
 }
 
 

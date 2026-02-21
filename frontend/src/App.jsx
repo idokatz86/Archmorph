@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import 'prismjs/themes/prism-tomorrow.css';
-import { AlertTriangle, Mail, Code, Coffee } from 'lucide-react';
+import { AlertTriangle, Code, Coffee } from 'lucide-react';
 import ErrorBoundary from './components/ErrorBoundary';
 import Nav from './components/Nav';
 import DiagramTranslator from './components/DiagramTranslator';
@@ -8,7 +8,6 @@ import ServicesBrowser from './components/ServicesBrowser';
 import Roadmap from './components/Roadmap';
 import ChatWidget from './components/ChatWidget';
 import AdminDashboard from './components/AdminDashboard';
-import FeedbackWidget from './components/FeedbackWidget';
 import { API_BASE, APP_VERSION } from './constants';
 
 export default function App() {
@@ -65,10 +64,6 @@ export default function App() {
               Archmorph v{APP_VERSION} — AI-powered Cloud Architecture Translator to Azure
             </p>
             <div className="flex items-center gap-4">
-              <a href="mailto:send2katz@gmail.com" className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-cta transition-colors cursor-pointer">
-                <Mail className="w-3.5 h-3.5" />
-                send2katz@gmail.com
-              </a>
               <a href="https://github.com/idokatz86/Archmorph" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-cta transition-colors cursor-pointer">
                 <Code className="w-3.5 h-3.5" />
                 GitHub
@@ -82,7 +77,6 @@ export default function App() {
         </div>
       </footer>
       <ChatWidget />
-      <FeedbackWidget />
       {adminOpen && <AdminDashboard onClose={() => setAdminOpen(false)} />}
     </div>
   );

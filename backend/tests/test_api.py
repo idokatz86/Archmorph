@@ -109,7 +109,7 @@ class TestHealth:
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "healthy"
-        assert data["version"] == "2.11.0"
+        assert data["version"] == "2.11.1"
 
     def test_health_has_catalog_counts(self, client):
         data = client.get("/api/health").json()
@@ -671,8 +671,9 @@ class TestContact:
         resp = client.get("/api/contact")
         assert resp.status_code == 200
         data = resp.json()
-        assert "email" in data
-        assert data["email"] == "send2katz@gmail.com"
+        assert "github" in data
+        assert "issues" in data
+        assert "archmorph" in data["github"].lower()
 
 
 # ====================================================================

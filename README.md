@@ -6,11 +6,11 @@ Convert AWS and GCP architecture diagrams into Azure equivalents with guided mig
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Azure](https://img.shields.io/badge/cloud-Azure-0078D4.svg)
-![Version](https://img.shields.io/badge/version-2.6.0-22C55E.svg)
+![Version](https://img.shields.io/badge/version-2.11.1-22C55E.svg)
 ![Status](https://img.shields.io/badge/status-Production-22C55E.svg)
-![Tests](https://img.shields.io/badge/tests-348%20passing-22C55E.svg)
+![Tests](https://img.shields.io/badge/tests-621%20passing-22C55E.svg)
 
-> **[Live Demo](https://agreeable-ground-01012c003.2.azurestaticapps.net)** | **[API Docs](https://archmorph-api.icyisland-c0dee6ba.northeurope.azurecontainerapps.io/docs)**
+> **[Live Demo](https://agreeable-ground-01012c003.2.azurestaticapps.net)** | **[API Docs](https://archmorph-api.nicesea-1430d1f7.westeurope.azurecontainerapps.io/docs)**
 
 ---
 
@@ -92,7 +92,7 @@ npm run dev
 | HLD Generator | GPT-4o, 13 sections, 60+ doc links | In-process engine |
 | IaC Chat | GPT-4o interactive assistant | In-process engine |
 | Security | Headers, timing-safe auth, Dependabot | Middleware |
-| Testing | pytest + Playwright | 348 unit + 34 E2E tests |
+| Testing | pytest + Playwright | 621 unit + 35 E2E tests |
 
 See [docs/architecture.excalidraw](docs/architecture.excalidraw) for the full architecture diagram and [docs/application-flow.excalidraw](docs/application-flow.excalidraw) for the user flow.
 

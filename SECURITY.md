@@ -16,7 +16,7 @@ We take security seriously. If you discover a security vulnerability, please rep
 ### How to Report
 
 1. **DO NOT** create a public GitHub issue for security vulnerabilities
-2. Email security concerns to: **send2katz@gmail.com**
+2. Use GitHub's private vulnerability reporting feature at: **https://github.com/idokatz86/Archmorph/security/advisories/new**
 3. Include the following information:
    - Type of vulnerability
    - Full paths of affected source files
