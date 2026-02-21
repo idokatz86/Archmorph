@@ -29,7 +29,7 @@ variable "environment" {
 variable "db_admin_username" {
   description = "PostgreSQL administrator username"
   type        = string
-  default     = "archmorphadmin"
+  # Must be set in terraform.tfvars - no default for security
 }
 
 variable "db_admin_password" {
@@ -40,6 +40,12 @@ variable "db_admin_password" {
 
 variable "alert_email" {
   description = "Email address for Azure Monitor alerts"
+  type        = string
+  # Must be set in terraform.tfvars - no default for security
+}
+
+variable "frontend_url" {
+  description = "Frontend URL for CORS configuration"
   type        = string
   # Must be set in terraform.tfvars - no default for security
 }

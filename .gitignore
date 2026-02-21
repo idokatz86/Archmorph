@@ -10,11 +10,20 @@ override.tf.json
 *_override.tf
 *_override.tf.json
 
-# Secrets
+# Secrets & credentials
 *.tfvars.secret
 terraform.tfvars
 .env
 .env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.cert
+credentials.json
+service-account*.json
+*.keystore
 
 # OS
 .DS_Store
