@@ -439,8 +439,8 @@ def get_roadmap() -> Dict[str, Any]:
         (len(released) + len(in_progress)) / max(total_versioned, 1) * 100, 1
     )
     releases_remaining = len(planned) + len(in_progress)
-    weeks_since_launch = max(days_since_start / 7, 1)
-    velocity = round(len(released) / weeks_since_launch, 1)
+    weeks_since_start = max(days_since_start / 7, 1)
+    velocity = round(len(released) / weeks_since_start, 1)
 
     return {
         "timeline": {
