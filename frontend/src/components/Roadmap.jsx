@@ -398,18 +398,48 @@ export default function Roadmap() {
   };
 
   const filteredReleases = useMemo(() => {
-    if (!roadmap) return [];
+    if (!roadmap) return { sections: [] };
     const { released = [], in_progress = [], planned = [], ideas = [] } = roadmap.timeline || {};
     
+    // Group releases by status for better UX
+    const sortedReleased = [...released].sort((a, b) => {
+      // Sort by version number descending (newest first)
+      const vA = a.version.replace('v', '').split('.').map(Number);
+      const vB = b.version.replace('v', '').split('.').map(Number);
+      for (let i = 0; i < 3; i++) {
+        if ((vB[i] || 0) !== (vA[i] || 0)) return (vB[i] || 0) - (vA[i] || 0);
+      }
+      return 0;
+    });
+
     switch (filter) {
       case 'released':
-        return [...in_progress, ...released.slice().reverse()];
+        return {
+          sections: [
+            { title: 'Released', status: 'released', items: sortedReleased, icon: CheckCircle2 }
+          ]
+        };
       case 'planned':
-        return planned;
+        return {
+          sections: [
+            { title: 'Planned for Future', status: 'planned', items: planned, icon: Clock }
+          ]
+        };
       case 'ideas':
-        return ideas;
+        return {
+          sections: [
+            { title: 'Under Consideration', status: 'idea', items: ideas, icon: Lightbulb }
+          ]
+        };
       default:
-        return [...in_progress, ...released.slice().reverse(), ...planned, ...ideas];
+        return {
+          sections: [
+            { title: 'In Progress', status: 'in_progress', items: in_progress, icon: Loader2, highlight: true },
+            { title: 'Recently Released', status: 'released', items: sortedReleased.slice(0, 5), icon: CheckCircle2 },
+            { title: 'Coming Soon', status: 'planned', items: planned, icon: Clock },
+            { title: 'Ideas & Requests', status: 'idea', items: ideas, icon: Lightbulb },
+          ].filter(s => s.items.length > 0)
+        };
     }
   }, [roadmap, filter]);
 
@@ -554,16 +584,63 @@ export default function Roadmap() {
         ))}
       </div>
 
-      {/* Timeline */}
-      <div className="space-y-3">
-        {filteredReleases.map((release, idx) => (
-          <ReleaseCard
-            key={release.version + idx}
-            release={release}
-            isExpanded={expandedVersions.has(release.version)}
-            onToggle={() => toggleExpanded(release.version)}
-          />
+      {/* Timeline by Sections */}
+      <div className="space-y-8">
+        {filteredReleases.sections.map((section, sIdx) => (
+          <div key={section.title} className="space-y-3">
+            {/* Section Header */}
+            <div className={`flex items-center gap-3 pb-2 border-b ${
+              section.highlight ? 'border-warning/30' : 'border-border/50'
+            }`}>
+              <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                section.highlight ? 'bg-warning/20' : 'bg-secondary'
+              }`}>
+                <section.icon className={`w-4 h-4 ${
+                  section.highlight ? 'text-warning animate-pulse' : 
+                  section.status === 'released' ? 'text-cta' :
+                  section.status === 'planned' ? 'text-text-muted' :
+                  'text-purple-400'
+                }`} />
+              </div>
+              <h2 className={`text-lg font-semibold ${
+                section.highlight ? 'text-warning' : 'text-text-primary'
+              }`}>
+                {section.title}
+              </h2>
+              <span className="text-xs text-text-muted bg-secondary px-2 py-0.5 rounded-full">
+                {section.items.length}
+              </span>
+            </div>
+
+            {/* Release Cards */}
+            <div className="space-y-2 pl-4 border-l-2 border-border/30 ml-4">
+              {section.items.map((release, idx) => (
+                <ReleaseCard
+                  key={release.version + idx}
+                  release={release}
+                  isExpanded={expandedVersions.has(release.version)}
+                  onToggle={() => toggleExpanded(release.version)}
+                />
+              ))}
+            </div>
+
+            {/* Show more link for Released section in All view */}
+            {section.status === 'released' && filter === 'all' && roadmap.timeline.released.length > 5 && (
+              <button
+                onClick={() => setFilter('released')}
+                className="ml-8 text-sm text-cta hover:underline cursor-pointer"
+              >
+                View all {roadmap.timeline.released.length} releases →
+              </button>
+            )}
+          </div>
         ))}
+
+        {filteredReleases.sections.length === 0 && (
+          <div className="text-center py-12 text-text-muted">
+            <p>No items in this category yet.</p>
+          </div>
+        )}
       </div>
 
       {/* GitHub Link */}
