@@ -355,20 +355,98 @@ async def update_mapping(diagram_id: str, service: str, azure_service: str):
 # Guided Questions
 # ─────────────────────────────────────────────────────────────
 @app.post("/api/diagrams/{diagram_id}/questions")
-async def get_guided_questions(diagram_id: str):
-    """Generate guided questions based on detected AWS services."""
+async def get_guided_questions(diagram_id: str, smart_dedup: bool = True):
+    """Generate guided questions based on detected AWS services.
+    
+    If smart_dedup=True, questions that have been implicitly answered
+    by user context (e.g., natural language additions) are filtered out.
+    """
     analysis = SESSION_STORE.get(diagram_id)
     if not analysis:
         raise HTTPException(404, f"No analysis found for diagram {diagram_id}. Run /analyze first.")
 
     detected = [m["source_service"] for m in analysis.get("mappings", [])]
     questions = generate_questions(detected)
+    
+    # Apply smart deduplication if enabled
+    inferred_answers = {}
+    if smart_dedup:
+        from service_builder import deduplicate_questions, get_smart_defaults_from_analysis
+        user_context = analysis.get("user_context", {})
+        questions, inferred_answers = deduplicate_questions(questions, analysis, user_context)
+        smart_defaults = get_smart_defaults_from_analysis(analysis)
+        inferred_answers = {**smart_defaults, **inferred_answers}
+    
     record_event("questions_generated", {"diagram_id": diagram_id, "count": len(questions)})
     record_funnel_step(diagram_id, "questions")
     return {
         "diagram_id": diagram_id,
         "questions": questions,
         "total": len(questions),
+        "inferred_answers": inferred_answers,
+        "questions_skipped": len(inferred_answers),
+    }
+
+
+# ─────────────────────────────────────────────────────────────
+# Natural Language Service Builder
+# ─────────────────────────────────────────────────────────────
+class AddServicesRequest(BaseModel):
+    text: str
+
+
+@app.post("/api/diagrams/{diagram_id}/add-services")
+@limiter.limit("10/minute")
+async def add_services_natural_language(
+    request: Request,
+    diagram_id: str,
+    body: AddServicesRequest,
+    _auth=Depends(verify_api_key),
+):
+    """Add Azure services to an architecture using natural language.
+    
+    Example: "Add a Redis cache and API Gateway with WAF"
+    
+    The services are added to the existing analysis, and users can continue
+    to the guided questions or IaC generation.
+    """
+    from service_builder import add_services_from_text
+    
+    analysis = SESSION_STORE.get(diagram_id)
+    if not analysis:
+        raise HTTPException(404, f"No analysis found for diagram {diagram_id}. Run /analyze first.")
+    
+    try:
+        updated = await asyncio.to_thread(
+            add_services_from_text,
+            analysis=analysis,
+            user_text=body.text,
+        )
+    except Exception as exc:
+        logger.error("Failed to add services for %s: %s", diagram_id, exc)
+        raise HTTPException(500, f"Failed to process request: {str(exc)}")
+    
+    # Store user context for smart question deduplication
+    updated.setdefault("user_context", {})
+    updated["user_context"].setdefault("natural_language_additions", [])
+    updated["user_context"]["natural_language_additions"].append({
+        "text": body.text,
+        "services_added": updated.get("services_added", []),
+    })
+    
+    SESSION_STORE[diagram_id] = updated
+    
+    record_event("services_added_nl", {
+        "diagram_id": diagram_id,
+        "services_count": len(updated.get("services_added", [])),
+    })
+    
+    return {
+        "diagram_id": diagram_id,
+        "services_added": updated.get("services_added", []),
+        "services_detected": updated.get("services_detected", 0),
+        "inferred_requirements": updated.get("inferred_requirements", []),
+        "message": f"Added {len(updated.get('services_added', []))} service(s) to your architecture.",
     }
 
 

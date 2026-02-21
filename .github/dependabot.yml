@@ -1,4 +1,12 @@
 version: 2
+
+registries:
+  # Add private registry if needed in the future
+  # npm-private:
+  #   type: npm-registry
+  #   url: https://npm.pkg.github.com
+  #   token: ${{secrets.NPM_TOKEN}}
+
 updates:
   # Python backend dependencies
   - package-ecosystem: pip
@@ -6,10 +14,31 @@ updates:
     schedule:
       interval: weekly
       day: monday
+      time: "06:00"
+      timezone: "UTC"
     open-pull-requests-limit: 10
     labels:
       - dependencies
-      - security
+      - python
+      - backend
+    commit-message:
+      prefix: "deps(py)"
+    groups:
+      pip:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "fastapi"
+          - "openai"
+        update-types:
+          - "minor"
+          - "patch"
+      security:
+        applies-to: security-updates
+    reviewers:
+      - idokatz86
+    assignees:
+      - idokatz86
 
   # Node.js frontend dependencies
   - package-ecosystem: npm
@@ -17,34 +46,90 @@ updates:
     schedule:
       interval: weekly
       day: monday
+      time: "06:00"
+      timezone: "UTC"
     open-pull-requests-limit: 10
     labels:
       - dependencies
-      - security
+      - javascript
+      - frontend
+    commit-message:
+      prefix: "deps(npm)"
+    groups:
+      npm-dev:
+        dependency-type: development
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+      npm-prod:
+        dependency-type: production
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "react"
+          - "react-dom"
+        update-types:
+          - "minor"
+          - "patch"
+    reviewers:
+      - idokatz86
+    assignees:
+      - idokatz86
 
   # Docker base images
   - package-ecosystem: docker
     directory: /backend
     schedule:
       interval: weekly
+      time: "06:00"
+      timezone: "UTC"
     labels:
       - dependencies
       - docker
+    commit-message:
+      prefix: "deps(docker)"
+    reviewers:
+      - idokatz86
 
   # GitHub Actions versions
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+      time: "06:00"
+      timezone: "UTC"
     labels:
       - dependencies
       - ci
+    commit-message:
+      prefix: "ci(deps)"
+    groups:
+      gh-actions:
+        patterns:
+          - "*"
+    reviewers:
+      - idokatz86
 
   # Terraform providers
   - package-ecosystem: terraform
     directory: /infra
     schedule:
       interval: weekly
+      time: "06:00"
+      timezone: "UTC"
     labels:
       - dependencies
       - infrastructure
+      - terraform
+    commit-message:
+      prefix: "deps(tf)"
+    groups:
+      azurerm:
+        patterns:
+          - "hashicorp/azurerm"
+    reviewers:
+      - idokatz86
+    assignees:
+      - idokatz86

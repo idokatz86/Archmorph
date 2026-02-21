@@ -1,18 +1,18 @@
 # Archmorph — Cloud Architecture Translator to Azure
 ## Product Requirements Document (PRD)
-**Version:** 2.6.0
-**Date:** February 19, 2026
+**Version:** 2.7.0
+**Date:** February 21, 2026
 **Author:** Ido Katz
 
 ---
 
 ## 1. Executive Summary
 
-Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams into Azure equivalents. It analyzes uploaded diagrams using GPT-4o vision, identifies cloud services, asks guided migration questions to refine the translation, maps services to Azure counterparts with confidence scores, exports translated architecture diagrams in multiple formats, generates ready-to-deploy Terraform/Bicep infrastructure code, provides dynamic cost estimates based on the Azure Retail Prices API with 134 service pricing entries, automatically discovers and integrates new cloud services into its catalog, generates comprehensive AI-powered High-Level Design (HLD) documents, and provides an interactive IaC chat assistant for code modifications.
+Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams into Azure equivalents. It analyzes uploaded diagrams using GPT-4o vision, identifies cloud services, allows users to add services via natural language, asks guided migration questions with smart deduplication to refine the translation, maps services to Azure counterparts with confidence scores, exports translated architecture diagrams in multiple formats, generates ready-to-deploy Terraform/Bicep infrastructure code, provides dynamic cost estimates based on the Azure Retail Prices API with 134 service pricing entries, automatically discovers and integrates new cloud services into its catalog, generates comprehensive AI-powered High-Level Design (HLD) documents, provides an interactive IaC chat assistant for code modifications, and includes E2E monitoring with automatic GitHub issue creation.
 
 **Problem:** Organizations migrating to Azure spend weeks manually mapping source architecture to Azure services. This process is error-prone, requires deep multi-cloud expertise, and lacks tooling for interactive refinement.
 
-**Solution:** Automated diagram analysis and service translation with guided migration questions, confidence-scored mappings, multi-format diagram export, self-updating service catalog with auto-integration, generated IaC with secure credential handling, region-aware pricing with optimized targeted queries, AI-powered HLD generation, interactive IaC chat assistant, and an integrated chatbot assistant.
+**Solution:** Automated diagram analysis and service translation with natural language service addition, smart question deduplication, confidence-scored mappings, multi-format diagram export, self-updating service catalog with auto-integration, generated IaC with secure credential handling, region-aware pricing with optimized targeted queries, AI-powered HLD generation, interactive IaC chat assistant, E2E monitoring with Azure Application Insights, and an integrated chatbot assistant.
 
 ---
 
@@ -317,13 +317,16 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | Diagram Export | In-process engine (Excalidraw, Draw.io, Visio with 36 Azure stencils + 405-icon registry fallback) |
 | Pricing | Azure Retail Prices API with 30-day disk cache (134 service entries, 56 aliases, targeted queries) |
 | IaC | Terraform (infra), Bicep support in-app |
-| Testing | pytest (backend, 348 tests), E2E flow test (65 steps across 5 diagrams), Playwright (35 browser tests) |
+| Testing | pytest (backend, 361 tests), E2E flow test (65 steps across 5 diagrams), Playwright (35+ browser tests), integration tests |
 | HLD Generator | In-process GPT-4o engine (60+ Azure doc links, 13-section HLD, markdown converter) |
 | IaC Chat | In-process GPT-4o assistant (session management, code modification, context-aware) |
 | Icon Registry | In-process engine (405 icons, Draw.io/Excalidraw/Visio library builders, SVG sanitization, thread-safe, persistent) |
 | Security | Security headers, timing-safe auth, Dependabot, defusedxml, ZIP slip protection |
+| NL Service Builder | In-process GPT-4o engine (fuzzy Azure service matching, alias support, confidence scoring) |
+| Smart Question Dedup | In-process engine (implicit answer detection, smart defaults from analysis) |
+| E2E Monitoring | GitHub Actions workflow (Azure Monitor + App Insights health checks, auto GitHub issue creation) |
 
-### 8.2 API Endpoints (44 total)
+### 8.2 API Endpoints (45 total)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
@@ -341,6 +344,7 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | `/api/diagrams/{id}/mappings` | GET | Get diagram mappings |
 | `/api/diagrams/{id}/mappings/{svc}` | PATCH | Override a service mapping |
 | `/api/diagrams/{id}/questions` | POST | Generate guided migration questions |
+| `/api/diagrams/{id}/add-services` | POST | Add Azure services via natural language text |
 | `/api/diagrams/{id}/apply-answers` | POST | Apply answers to refine analysis |
 | `/api/diagrams/{id}/export-diagram` | POST | Export diagram (Excalidraw/Draw.io/Visio) |
 | `/api/diagrams/{id}/generate` | POST | Generate IaC code (Terraform/Bicep) |
@@ -400,6 +404,7 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | **v2.4 — HLD, IaC Chat & Confidence** | Done | AI-powered HLD generation (13 sections, 60+ doc links, WAF assessment, migration phases), IaC Chat assistant (GPT-4o, session-based, quick actions), confidence engine (70+ GCP synonyms, fuzzy matching ≥65%, confidence blending 70/30, recalculation), service connections extraction, 257 unit tests, 65 E2E steps |
 | **v2.5 — Audit & Quality** | Done | 34 audit improvements, comprehensive test coverage (290 → 348 tests) |
 | **v2.6 — Icon Registry & Security** | Done | Icon Registry (405 icons, 3 library formats, SVG sanitization, thread-safe, persistent, auto-load), security hardening (timing-safe auth, security headers, ZIP slip protection, XSS prevention, Dependabot), diagram export bridge to registry |
+| **v2.7 — NL Builder & Monitoring** | Done | Natural Language Service Builder (add Azure services via text after diagram analysis), Smart Question Deduplication (filters questions based on implicit user answers), E2E Monitoring (Azure Monitor + Application Insights health checks, automatic GitHub issue creation), enhanced test coverage (21 service builder tests, integration tests, E2E monitoring workflow) |
 | **v3.0 — Enterprise** | Planned | Visio import, API keys, import blocks for existing resources, SSO, RBAC |
 | **v4.0 — Advanced** | Planned | Pulumi output, Azure Migrate integration, multi-diagram projects |
 

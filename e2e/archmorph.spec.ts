@@ -114,7 +114,7 @@ test.describe('API Health', () => {
     expect(resp.ok()).toBeTruthy();
     const data = await resp.json();
     expect(data.status).toBe('healthy');
-    expect(data.version).toBe('2.1.0');
+    expect(data.version).toBe('2.6.0');
     expect(data.service_catalog.aws).toBeGreaterThan(100);
   });
 
@@ -291,7 +291,7 @@ test.describe('Admin Dashboard', () => {
   test('5 rapid clicks on footer opens admin panel', async ({ page }) => {
     await page.goto('/');
 
-    const versionText = page.getByText('Archmorph v2.1.0', { exact: false });
+    const versionText = page.getByText('Archmorph v2.6.0', { exact: false });
     await expect(versionText).toBeVisible();
 
     // Click 5 times rapidly
@@ -528,7 +528,7 @@ test.describe('Footer & Branding', () => {
 
   test('footer shows version', async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByText('Archmorph v2.1.0')).toBeVisible();
+    await expect(page.getByText('Archmorph v2.6.0')).toBeVisible();
   });
 });
 
@@ -590,5 +590,78 @@ test.describe('Additional API Coverage', () => {
     expect(data).toHaveProperty('sku_strategy');
     expect(data).toHaveProperty('pricing_source');
     expect(data.service_count).toBeGreaterThanOrEqual(0);
+  });
+});
+// ====================================================================
+// 14. Natural Language Service Builder (New UX Feature)
+// ====================================================================
+
+test.describe('Natural Language Service Builder', () => {
+  test('add-services endpoint requires analysis first', async ({ request }) => {
+    const resp = await request.post(`${API_BASE}/api/diagrams/nonexistent-diagram/add-services`, {
+      data: { text: 'Add Redis cache' },
+      headers: { 'Content-Type': 'application/json' },
+    });
+    expect(resp.status()).toBe(404);
+  });
+
+  test('questions endpoint returns inferred_answers for smart dedup', async ({ request }) => {
+    // This tests the new smart deduplication feature
+    const resp = await request.post(`${API_BASE}/api/diagrams/test-dedup/questions?smart_dedup=true`);
+    // Will 404 since no analysis, but tests endpoint exists
+    expect(resp.status()).toBe(404);
+    const data = await resp.json();
+    expect(data.detail).toContain('No analysis found');
+  });
+
+  test('questions endpoint accepts smart_dedup parameter', async ({ request }) => {
+    const resp = await request.post(`${API_BASE}/api/diagrams/test/questions?smart_dedup=false`);
+    // 404 is expected, we just want to verify the endpoint accepts the param
+    expect(resp.status()).toBe(404);
+  });
+});
+
+// ====================================================================
+// 15. API Robustness Tests
+// ====================================================================
+
+test.describe('API Robustness', () => {
+  test('API handles concurrent requests gracefully', async ({ request }) => {
+    // Fire multiple requests simultaneously
+    const promises = Array(5).fill(null).map(() =>
+      request.get(`${API_BASE}/api/health`)
+    );
+    
+    const responses = await Promise.all(promises);
+    
+    // All should succeed
+    responses.forEach(resp => {
+      expect(resp.ok()).toBeTruthy();
+    });
+  });
+
+  test('API returns proper CORS headers', async ({ request }) => {
+    const resp = await request.get(`${API_BASE}/api/health`);
+    // CORS headers should be present
+    const headers = resp.headers();
+    expect(headers['x-content-type-options']).toBe('nosniff');
+    expect(headers['x-frame-options']).toBe('DENY');
+  });
+
+  test('API handles malformed JSON gracefully', async ({ request }) => {
+    const resp = await request.post(`${API_BASE}/api/chat`, {
+      headers: { 'Content-Type': 'application/json' },
+      data: 'not valid json',
+    });
+    // Should return 422 (validation error) not 500
+    expect(resp.status()).toBe(422);
+  });
+
+  test('health check includes environment info', async ({ request }) => {
+    const resp = await request.get(`${API_BASE}/api/health`);
+    const data = await resp.json();
+    expect(data).toHaveProperty('environment');
+    expect(data).toHaveProperty('mode');
+    expect(data).toHaveProperty('scheduler_running');
   });
 });

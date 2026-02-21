@@ -80,17 +80,34 @@ resource "azurerm_storage_account" "main" {
   account_tier                    = "Standard"
   account_replication_type        = "LRS"
   min_tls_version                 = "TLS1_2"
-  shared_access_key_enabled       = true
+  shared_access_key_enabled       = false  # Use RBAC instead of shared keys
   allow_nested_items_to_be_public = false
+  public_network_access_enabled   = true   # Disable in prod with VNet integration
+  https_traffic_only_enabled      = true
+  infrastructure_encryption_enabled = true  # Double encryption at rest
 
   blob_properties {
     cors_rule {
-      allowed_headers    = ["*"]
+      allowed_headers    = ["Content-Type", "Authorization"]
       allowed_methods    = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
       allowed_origins    = ["https://agreeable-ground-01012c003.2.azurestaticapps.net"]
-      exposed_headers    = ["*"]
+      exposed_headers    = ["ETag", "Content-Length"]
       max_age_in_seconds = 3600
     }
+    delete_retention_policy {
+      days = 7
+    }
+    container_delete_retention_policy {
+      days = 7
+    }
+  }
+
+  # Network rules - restrict in production
+  network_rules {
+    default_action             = var.environment == "prod" ? "Deny" : "Allow"
+    bypass                     = ["AzureServices"]
+    ip_rules                   = []  # Add trusted IPs in production
+    virtual_network_subnet_ids = []
   }
 
   tags = local.tags
@@ -98,13 +115,13 @@ resource "azurerm_storage_account" "main" {
 
 resource "azurerm_storage_container" "diagrams" {
   name                  = "diagrams"
-  storage_account_name  = azurerm_storage_account.main.name
+  storage_account_id    = azurerm_storage_account.main.id
   container_access_type = "private"
 }
 
 resource "azurerm_storage_container" "iac" {
   name                  = "generated-iac"
-  storage_account_name  = azurerm_storage_account.main.name
+  storage_account_id    = azurerm_storage_account.main.id
   container_access_type = "private"
 }
 
@@ -112,12 +129,20 @@ resource "azurerm_storage_container" "iac" {
 # Azure Container Registry
 # ─────────────────────────────────────────────────────────────
 resource "azurerm_container_registry" "main" {
-  name                = "archmorph${local.name_suffix}"
-  resource_group_name = azurerm_resource_group.main.name
-  location            = azurerm_resource_group.main.location
-  sku                 = "Basic"
-  admin_enabled       = true
-  tags                = local.tags
+  name                          = "archmorph${local.name_suffix}"
+  resource_group_name           = azurerm_resource_group.main.name
+  location                      = azurerm_resource_group.main.location
+  sku                           = var.environment == "prod" ? "Standard" : "Basic"
+  admin_enabled                 = var.environment != "prod"  # Disable admin in production
+  public_network_access_enabled = true
+  zone_redundancy_enabled       = var.environment == "prod"
+  anonymous_pull_enabled        = false
+  data_endpoint_enabled         = var.environment == "prod"
+
+  # Enable content trust in production
+  trust_policy_enabled = var.environment == "prod"
+
+  tags = local.tags
 }
 
 # ─────────────────────────────────────────────────────────────
@@ -133,10 +158,16 @@ resource "azurerm_postgresql_flexible_server" "main" {
   storage_mb             = 32768
   sku_name               = var.environment == "prod" ? "GP_Standard_D2s_v3" : "B_Standard_B1ms"
   zone                   = "1"
+  backup_retention_days  = var.environment == "prod" ? 35 : 7
+  geo_redundant_backup_enabled = var.environment == "prod"
 
   authentication {
-    password_auth_enabled = true
+    password_auth_enabled         = true
+    active_directory_auth_enabled = var.environment == "prod"  # Enable AAD auth in prod
   }
+
+  # Require SSL/TLS for all connections
+  # Note: ssl_enforcement_enabled is not available - use connection string sslmode=require
 
   tags = local.tags
 }
@@ -166,15 +197,27 @@ resource "azurerm_key_vault" "main" {
   location                   = azurerm_resource_group.main.location
   tenant_id                  = data.azurerm_client_config.current.tenant_id
   sku_name                   = "standard"
-  soft_delete_retention_days = 7
-  purge_protection_enabled   = false
+  soft_delete_retention_days  = var.environment == "prod" ? 90 : 7
+  purge_protection_enabled    = var.environment == "prod"  # Enable in production
+  rbac_authorization_enabled  = var.environment == "prod"  # Use RBAC in production
+
+  # Network ACLs - restrict in production
+  network_acls {
+    bypass                     = "AzureServices"
+    default_action             = var.environment == "prod" ? "Deny" : "Allow"
+    ip_rules                   = []
+    virtual_network_subnet_ids = []
+  }
 
   access_policy {
     tenant_id = data.azurerm_client_config.current.tenant_id
     object_id = data.azurerm_client_config.current.object_id
 
     secret_permissions = [
-      "Get", "List", "Set", "Delete", "Purge"
+      "Get", "List", "Set", "Delete", "Purge", "Backup", "Restore"
+    ]
+    key_permissions = [
+      "Get", "List", "Create", "Delete", "Purge"
     ]
   }
 
@@ -217,8 +260,8 @@ resource "azurerm_cognitive_deployment" "gpt4_vision" {
     version = "2024-05-13"
   }
 
-  scale {
-    type     = "Standard"
+  sku {
+    name     = "Standard"
     capacity = 10
   }
 }
@@ -256,6 +299,12 @@ resource "azurerm_container_app" "backend" {
   revision_mode                = "Single"
   tags                         = local.tags
 
+  # Managed identity for secure access to Azure resources
+  identity {
+    type         = "UserAssigned"
+    identity_ids = [azurerm_user_assigned_identity.container_app.id]
+  }
+
   registry {
     server               = azurerm_container_registry.main.login_server
     username             = azurerm_container_registry.main.admin_username
@@ -280,6 +329,11 @@ resource "azurerm_container_app" "backend" {
   secret {
     name  = "openai-key"
     value = azurerm_cognitive_account.openai.primary_access_key
+  }
+
+  secret {
+    name  = "appinsights-connection"
+    value = azurerm_application_insights.main.connection_string
   }
 
   ingress {
@@ -333,6 +387,11 @@ resource "azurerm_container_app" "backend" {
         value = var.environment
       }
 
+      env {
+        name        = "APPLICATIONINSIGHTS_CONNECTION_STRING"
+        secret_name = "appinsights-connection"
+      }
+
       liveness_probe {
         path              = "/api/health"
         port              = 8000
@@ -372,3 +431,127 @@ resource "azurerm_static_web_app" "frontend" {
   sku_size            = var.environment == "prod" ? "Standard" : "Free"
   tags                = local.tags
 }
+
+# ─────────────────────────────────────────────────────────────
+# User Assigned Managed Identity (for Container App)
+# ─────────────────────────────────────────────────────────────
+resource "azurerm_user_assigned_identity" "container_app" {
+  name                = "archmorph-api-identity"
+  resource_group_name = azurerm_resource_group.main.name
+  location            = azurerm_resource_group.main.location
+  tags                = local.tags
+}
+
+# Grant Container App identity access to Key Vault secrets
+resource "azurerm_key_vault_access_policy" "container_app" {
+  key_vault_id = azurerm_key_vault.main.id
+  tenant_id    = data.azurerm_client_config.current.tenant_id
+  object_id    = azurerm_user_assigned_identity.container_app.principal_id
+
+  secret_permissions = ["Get", "List"]
+}
+
+# Grant Container App identity access to Storage (Blob Data Contributor)
+resource "azurerm_role_assignment" "container_app_storage" {
+  scope                = azurerm_storage_account.main.id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = azurerm_user_assigned_identity.container_app.principal_id
+}
+
+# Grant Container App identity access to ACR (AcrPull)
+resource "azurerm_role_assignment" "container_app_acr" {
+  scope                = azurerm_container_registry.main.id
+  role_definition_name = "AcrPull"
+  principal_id         = azurerm_user_assigned_identity.container_app.principal_id
+}
+
+# ─────────────────────────────────────────────────────────────
+# Diagnostic Settings (Security & Audit Logging)
+# ─────────────────────────────────────────────────────────────
+resource "azurerm_monitor_diagnostic_setting" "key_vault" {
+  name                       = "keyvault-diagnostics"
+  target_resource_id         = azurerm_key_vault.main.id
+  log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
+
+  enabled_log {
+    category = "AuditEvent"
+  }
+}
+
+resource "azurerm_monitor_diagnostic_setting" "storage" {
+  name                       = "storage-diagnostics"
+  target_resource_id         = "${azurerm_storage_account.main.id}/blobServices/default"
+  log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
+
+  enabled_log {
+    category = "StorageRead"
+  }
+
+  enabled_log {
+    category = "StorageWrite"
+  }
+
+  enabled_log {
+    category = "StorageDelete"
+  }
+}
+
+resource "azurerm_monitor_diagnostic_setting" "postgresql" {
+  name                       = "postgresql-diagnostics"
+  target_resource_id         = azurerm_postgresql_flexible_server.main.id
+  log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
+
+  enabled_log {
+    category = "PostgreSQLLogs"
+  }
+}
+
+resource "azurerm_monitor_diagnostic_setting" "openai" {
+  name                       = "openai-diagnostics"
+  target_resource_id         = azurerm_cognitive_account.openai.id
+  log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
+
+  enabled_log {
+    category = "Audit"
+  }
+
+  enabled_log {
+    category = "RequestResponse"
+  }
+}
+
+# ─────────────────────────────────────────────────────────────
+# Application Insights (APM & Telemetry)
+# ─────────────────────────────────────────────────────────────
+resource "azurerm_application_insights" "main" {
+  name                = "archmorph-insights-${local.name_suffix}"
+  resource_group_name = azurerm_resource_group.main.name
+  location            = azurerm_resource_group.main.location
+  workspace_id        = azurerm_log_analytics_workspace.main.id
+  application_type    = "web"
+  retention_in_days   = 30
+
+  tags = local.tags
+}
+
+# ─────────────────────────────────────────────────────────────
+# Microsoft Defender for Cloud (Optional - for enterprise)
+# ─────────────────────────────────────────────────────────────
+# Uncomment to enable Defender for key resources in production
+# resource "azurerm_security_center_subscription_pricing" "storage" {
+#   count         = var.environment == "prod" ? 1 : 0
+#   tier          = "Standard"
+#   resource_type = "StorageAccounts"
+# }
+#
+# resource "azurerm_security_center_subscription_pricing" "keyvault" {
+#   count         = var.environment == "prod" ? 1 : 0
+#   tier          = "Standard"
+#   resource_type = "KeyVaults"
+# }
+#
+# resource "azurerm_security_center_subscription_pricing" "containers" {
+#   count         = var.environment == "prod" ? 1 : 0
+#   tier          = "Standard"
+#   resource_type = "Containers"
+# }

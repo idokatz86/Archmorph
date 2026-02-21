@@ -1,0 +1,325 @@
+name: E2E Health Monitoring
+
+on:
+  schedule:
+    # Run every 15 minutes
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+    inputs:
+      create_issues:
+        description: 'Create GitHub issues for detected problems'
+        type: boolean
+        default: true
+
+jobs:
+  api-health-check:
+    runs-on: ubuntu-latest
+    outputs:
+      health_status: ${{ steps.health.outputs.status }}
+      api_version: ${{ steps.health.outputs.version }}
+      storage_status: ${{ steps.health.outputs.storage }}
+      openai_status: ${{ steps.health.outputs.openai }}
+    steps:
+      - name: Check API Health
+        id: health
+        run: |
+          API_URL="https://archmorph-api.icyisland-c0dee6ba.northeurope.azurecontainerapps.io/api/health"
+          
+          # Make request with timeout
+          RESPONSE=$(curl -s -w "\n%{http_code}" --max-time 30 "$API_URL" || echo "FAILED")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+          
+          echo "HTTP Code: $HTTP_CODE"
+          echo "Response: $BODY"
+          
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "status=unhealthy" >> $GITHUB_OUTPUT
+            echo "error=HTTP $HTTP_CODE" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          
+          # Parse JSON response
+          STATUS=$(echo "$BODY" | jq -r '.status // "unknown"')
+          VERSION=$(echo "$BODY" | jq -r '.version // "unknown"')
+          STORAGE=$(echo "$BODY" | jq -r '.checks.storage // "unknown"')
+          OPENAI=$(echo "$BODY" | jq -r '.checks.openai // "unknown"')
+          
+          echo "status=$STATUS" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "storage=$STORAGE" >> $GITHUB_OUTPUT
+          echo "openai=$OPENAI" >> $GITHUB_OUTPUT
+          
+          # Check for issues
+          if [ "$STATUS" != "healthy" ]; then
+            echo "::error::API status is $STATUS"
+            exit 1
+          fi
+
+      - name: Check Frontend
+        id: frontend
+        run: |
+          FRONTEND_URL="https://agreeable-ground-01012c003.2.azurestaticapps.net"
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "$FRONTEND_URL")
+          
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::Frontend returned HTTP $HTTP_CODE"
+            echo "status=unhealthy" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+          echo "status=healthy" >> $GITHUB_OUTPUT
+
+  azure-monitor-check:
+    runs-on: ubuntu-latest
+    if: always()
+    needs: api-health-check
+    outputs:
+      errors_found: ${{ steps.query.outputs.errors_found }}
+      error_count: ${{ steps.query.outputs.error_count }}
+    steps:
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Query Log Analytics for Errors
+        id: query
+        run: |
+          # Query for errors in the last 15 minutes
+          QUERY='ContainerAppConsoleLogs_CL
+          | where TimeGenerated > ago(15m)
+          | where Log_s contains "ERROR" or Log_s contains "CRITICAL"
+          | project TimeGenerated, Log_s
+          | order by TimeGenerated desc
+          | take 10'
+          
+          # Run query against Log Analytics
+          RESULT=$(az monitor log-analytics query \
+            --workspace "${{ secrets.LOG_ANALYTICS_WORKSPACE_ID }}" \
+            --analytics-query "$QUERY" \
+            --output json 2>/dev/null || echo '{"tables":[{"rows":[]}]}')
+          
+          ERROR_COUNT=$(echo "$RESULT" | jq '.tables[0].rows | length')
+          
+          echo "error_count=$ERROR_COUNT" >> $GITHUB_OUTPUT
+          
+          if [ "$ERROR_COUNT" -gt "0" ]; then
+            echo "errors_found=true" >> $GITHUB_OUTPUT
+            echo "::warning::Found $ERROR_COUNT errors in the last 15 minutes"
+            echo "$RESULT" | jq '.tables[0].rows[:5]' > errors.json
+          else
+            echo "errors_found=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload Error Details
+        if: steps.query.outputs.errors_found == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: error-logs
+          path: errors.json
+          retention-days: 7
+
+  application-insights-check:
+    runs-on: ubuntu-latest
+    if: always()
+    needs: api-health-check
+    outputs:
+      failures_found: ${{ steps.query.outputs.failures_found }}
+      failure_rate: ${{ steps.query.outputs.failure_rate }}
+      avg_response_time: ${{ steps.query.outputs.avg_response_time }}
+    steps:
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Query Application Insights Metrics
+        id: query
+        run: |
+          # Get failed requests rate
+          FAILED_QUERY='requests
+          | where timestamp > ago(15m)
+          | summarize 
+              total = count(),
+              failed = countif(success == false),
+              avg_duration = avg(duration)
+          | extend failure_rate = round(todouble(failed) / todouble(total) * 100, 2)'
+          
+          RESULT=$(az monitor app-insights query \
+            --app "${{ secrets.APP_INSIGHTS_APP_ID }}" \
+            --analytics-query "$FAILED_QUERY" \
+            --output json 2>/dev/null || echo '{"tables":[{"rows":[[0,0,0,0]]}]}')
+          
+          TOTAL=$(echo "$RESULT" | jq -r '.tables[0].rows[0][0] // 0')
+          FAILED=$(echo "$RESULT" | jq -r '.tables[0].rows[0][1] // 0')
+          AVG_DURATION=$(echo "$RESULT" | jq -r '.tables[0].rows[0][2] // 0')
+          FAILURE_RATE=$(echo "$RESULT" | jq -r '.tables[0].rows[0][3] // 0')
+          
+          echo "total_requests=$TOTAL" >> $GITHUB_OUTPUT
+          echo "failed_requests=$FAILED" >> $GITHUB_OUTPUT
+          echo "avg_response_time=$AVG_DURATION" >> $GITHUB_OUTPUT
+          echo "failure_rate=$FAILURE_RATE" >> $GITHUB_OUTPUT
+          
+          # Alert if failure rate > 5% or avg response > 5000ms
+          if [ "$(echo "$FAILURE_RATE > 5" | bc -l)" -eq 1 ]; then
+            echo "failures_found=true" >> $GITHUB_OUTPUT
+            echo "::error::High failure rate: ${FAILURE_RATE}%"
+          elif [ "$(echo "$AVG_DURATION > 5000" | bc -l 2>/dev/null || echo 0)" -eq 1 ]; then
+            echo "failures_found=true" >> $GITHUB_OUTPUT
+            echo "::warning::High average response time: ${AVG_DURATION}ms"
+          else
+            echo "failures_found=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Query Exception Details
+        id: exceptions
+        run: |
+          EXCEPTION_QUERY='exceptions
+          | where timestamp > ago(15m)
+          | project timestamp, type, outerMessage, innermostMessage
+          | order by timestamp desc
+          | take 5'
+          
+          RESULT=$(az monitor app-insights query \
+            --app "${{ secrets.APP_INSIGHTS_APP_ID }}" \
+            --analytics-query "$EXCEPTION_QUERY" \
+            --output json 2>/dev/null || echo '{"tables":[{"rows":[]}]}')
+          
+          EXCEPTION_COUNT=$(echo "$RESULT" | jq '.tables[0].rows | length')
+          
+          echo "exception_count=$EXCEPTION_COUNT" >> $GITHUB_OUTPUT
+          
+          if [ "$EXCEPTION_COUNT" -gt "0" ]; then
+            echo "$RESULT" | jq '.tables[0].rows' > exceptions.json
+          fi
+
+      - name: Upload Exception Details
+        if: steps.exceptions.outputs.exception_count != '0'
+        uses: actions/upload-artifact@v4
+        with:
+          name: exception-logs
+          path: exceptions.json
+          retention-days: 7
+
+  create-issue-if-needed:
+    runs-on: ubuntu-latest
+    needs: [api-health-check, azure-monitor-check, application-insights-check]
+    if: |
+      always() && (
+        needs.api-health-check.result == 'failure' ||
+        needs.azure-monitor-check.outputs.errors_found == 'true' ||
+        needs.application-insights-check.outputs.failures_found == 'true'
+      )
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Check for existing open issue
+        id: check_issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'monitoring-alert',
+              per_page: 1
+            });
+            
+            if (issues.data.length > 0) {
+              console.log('Found existing monitoring issue:', issues.data[0].number);
+              return { exists: true, number: issues.data[0].number };
+            }
+            return { exists: false };
+
+      - name: Prepare Issue Body
+        id: body
+        run: |
+          cat << 'EOF' > issue_body.md
+          ## Automated Monitoring Alert
+          
+          **Detected at:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          **Workflow Run:** ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          
+          ### Health Check Results
+          
+          | Check | Status |
+          |-------|--------|
+          | API Health | ${{ needs.api-health-check.outputs.health_status || 'FAILED' }} |
+          | API Version | ${{ needs.api-health-check.outputs.api_version || 'N/A' }} |
+          | Storage | ${{ needs.api-health-check.outputs.storage_status || 'N/A' }} |
+          | OpenAI | ${{ needs.api-health-check.outputs.openai_status || 'N/A' }} |
+          
+          ### Azure Monitor
+          
+          - **Errors Found:** ${{ needs.azure-monitor-check.outputs.errors_found || 'N/A' }}
+          - **Error Count:** ${{ needs.azure-monitor-check.outputs.error_count || '0' }}
+          
+          ### Application Insights
+          
+          - **Failure Rate:** ${{ needs.application-insights-check.outputs.failure_rate || '0' }}%
+          - **Avg Response Time:** ${{ needs.application-insights-check.outputs.avg_response_time || 'N/A' }}ms
+          
+          ### Actions Required
+          
+          1. Check the [Azure Portal](https://portal.azure.com) for detailed logs
+          2. Review Application Insights for exception details
+          3. Check Container App metrics and scaling
+          4. Verify all secrets and connections are valid
+          
+          ---
+          
+          *This issue was automatically created by the E2E monitoring workflow.*
+          EOF
+
+      - name: Create or Update Issue
+        uses: actions/github-script@v7
+        if: github.event.inputs.create_issues != 'false'
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('issue_body.md', 'utf8');
+            
+            const checkResult = ${{ steps.check_issue.outputs.result || '{"exists": false}' }};
+            
+            if (checkResult.exists) {
+              // Update existing issue with comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: checkResult.number,
+                body: `## Update\n\n${body}`
+              });
+              console.log('Updated existing issue #', checkResult.number);
+            } else {
+              // Create new issue
+              const issue = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `[ALERT] Monitoring detected issues - ${new Date().toISOString().split('T')[0]}`,
+                body: body,
+                labels: ['monitoring-alert', 'automated', 'high-priority']
+              });
+              console.log('Created issue #', issue.data.number);
+            }
+
+  notify-success:
+    runs-on: ubuntu-latest
+    needs: [api-health-check, azure-monitor-check, application-insights-check]
+    if: |
+      always() && 
+      needs.api-health-check.result == 'success' &&
+      needs.azure-monitor-check.outputs.errors_found != 'true' &&
+      needs.application-insights-check.outputs.failures_found != 'true'
+    steps:
+      - name: All Checks Passed
+        run: |
+          echo "✅ All monitoring checks passed!"
+          echo ""
+          echo "API Status: ${{ needs.api-health-check.outputs.health_status }}"
+          echo "API Version: ${{ needs.api-health-check.outputs.api_version }}"
+          echo "Storage: ${{ needs.api-health-check.outputs.storage_status }}"
+          echo "OpenAI: ${{ needs.api-health-check.outputs.openai_status }}"
+          echo "Errors in last 15m: ${{ needs.azure-monitor-check.outputs.error_count || 0 }}"
+          echo "Failure Rate: ${{ needs.application-insights-check.outputs.failure_rate || 0 }}%"

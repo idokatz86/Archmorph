@@ -69,3 +69,20 @@ output "static_web_app_api_key" {
   value       = azurerm_static_web_app.frontend.api_key
   sensitive   = true
 }
+
+output "application_insights_connection_string" {
+  description = "Application Insights connection string for telemetry"
+  value       = azurerm_application_insights.main.connection_string
+  sensitive   = true
+}
+
+output "application_insights_instrumentation_key" {
+  description = "Application Insights instrumentation key"
+  value       = azurerm_application_insights.main.instrumentation_key
+  sensitive   = true
+}
+
+output "managed_identity_client_id" {
+  description = "Managed Identity client ID for Container App"
+  value       = azurerm_user_assigned_identity.container_app.client_id
+}
