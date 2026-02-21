@@ -75,6 +75,59 @@ npm run dev
 
 ## Architecture
 
+### System Architecture Diagram
+
+```mermaid
+flowchart TB
+    subgraph Azure["☁️ Azure Cloud"]
+        subgraph Frontend["Static Web Apps"]
+            UI[React 18 + Vite<br/>TailwindCSS]
+        end
+        
+        subgraph Backend["Container Apps"]
+            API[FastAPI<br/>Python 3.11]
+            subgraph Engines["Processing Engines"]
+                Vision[GPT-4 Vision<br/>Analyzer]
+                GQ[Guided Questions<br/>32 rules, 8 categories]
+                Export[Diagram Export<br/>Excalidraw/Draw.io/Visio]
+                IaC[IaC Generator<br/>Terraform/Bicep]
+                HLD[HLD Generator<br/>13 sections]
+                Chat[IaC Chat<br/>GPT-4o Assistant]
+            end
+        end
+        
+        subgraph Data["Data Services"]
+            ACR[Container Registry]
+            DB[(PostgreSQL<br/>Flexible Server)]
+            Blob[(Blob Storage)]
+        end
+        
+        subgraph AI["Azure OpenAI"]
+            GPT4V[GPT-4 Vision]
+            GPT4O[GPT-4o]
+        end
+        
+        Pricing[Azure Retail<br/>Prices API]
+        AppInsights[Application<br/>Insights]
+    end
+    
+    User((User)) --> UI
+    UI <--> API
+    API --> Vision --> GPT4V
+    API --> GQ
+    API --> Export
+    API --> IaC
+    API --> HLD --> GPT4O
+    API --> Chat --> GPT4O
+    API --> Pricing
+    API --> DB
+    API --> Blob
+    ACR --> API
+    API --> AppInsights
+```
+
+### Component Overview
+
 | Component | Technology | Azure Service |
 |-----------|------------|---------------|
 | Frontend | React 18, Vite, TailwindCSS, Lucide React | Static Web Apps |
@@ -94,11 +147,52 @@ npm run dev
 | Security | Headers, timing-safe auth, Dependabot | Middleware |
 | Testing | pytest + Playwright | 621 unit + 35 E2E tests |
 
-See [docs/architecture.excalidraw](docs/architecture.excalidraw) for the full architecture diagram and [docs/application-flow.excalidraw](docs/application-flow.excalidraw) for the user flow.
+> 📐 **Detailed Diagrams:** [architecture.excalidraw](docs/architecture.excalidraw) | [application-flow.excalidraw](docs/application-flow.excalidraw) — Open in [Excalidraw](https://excalidraw.com)
 
 ---
 
 ## Application Flow
+
+### User Journey
+
+```mermaid
+flowchart LR
+    subgraph Upload["1️⃣ Upload"]
+        A[📤 Upload Diagram<br/>PNG/JPG/SVG/PDF/Draw.io]
+    end
+    
+    subgraph Analysis["2️⃣ AI Analysis"]
+        B[🤖 GPT-4 Vision<br/>Service Detection]
+    end
+    
+    subgraph Questions["3️⃣ Guided Questions"]
+        C[❓ 8-18 Questions<br/>SKU/Compliance/DR/Region]
+    end
+    
+    subgraph Results["4️⃣ Results"]
+        D[📊 Azure Mappings<br/>Confidence Scores]
+    end
+    
+    subgraph Export["5️⃣ Export"]
+        E[📐 Diagram Export<br/>Excalidraw/Draw.io/Visio]
+        F[📝 IaC Generator<br/>Terraform/Bicep]
+        G[💰 Cost Estimate<br/>Azure Pricing API]
+        H[📄 HLD Document<br/>13 Sections + WAF]
+    end
+    
+    A --> B --> C --> D --> E
+    D --> F
+    D --> G
+    D --> H
+    
+    style Upload fill:#3B82F6,color:#fff
+    style Analysis fill:#8B5CF6,color:#fff
+    style Questions fill:#F59E0B,color:#fff
+    style Results fill:#22C55E,color:#fff
+    style Export fill:#06B6D4,color:#fff
+```
+
+### Step-by-Step Flow
 
 ```
 Upload Diagram → AI Analysis → Guided Questions → Results & Export → Generate IaC → Cost Estimate
