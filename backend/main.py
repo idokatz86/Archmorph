@@ -1824,7 +1824,7 @@ async def preview_terraform_plan_endpoint(diagram_id: str):
                 iac_format="terraform",
                 params=analysis.get("iac_parameters", {}),
             )
-        except Exception as e:
+        except Exception:
             raise HTTPException(500, "Failed to generate IaC code. Please try again.")
     
     from terraform_preview import preview_terraform_plan
