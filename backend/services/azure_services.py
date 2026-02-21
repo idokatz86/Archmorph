@@ -201,4 +201,53 @@ AZURE_SERVICES = [
     {"id": "az-power-apps", "name": "Power Apps", "fullName": "Microsoft Power Apps", "category": "Business", "description": "Low-code application development", "icon": "lowcode"},
     {"id": "az-power-automate", "name": "Power Automate", "fullName": "Microsoft Power Automate", "category": "Business", "description": "Automate workflows across apps and services", "icon": "workflow"},
     {"id": "az-dynamics-365", "name": "Dynamics 365", "fullName": "Microsoft Dynamics 365", "category": "Business", "description": "CRM and ERP cloud applications", "icon": "crm"},
+
+    # ═══════════════════════════════════════════════════════════
+    # HYBRID & MULTI-CLOUD  (Issue #60)
+    # ═══════════════════════════════════════════════════════════
+    {"id": "az-arc-k8s", "name": "Arc-enabled Kubernetes", "fullName": "Azure Arc-enabled Kubernetes", "category": "Hybrid", "description": "Manage Kubernetes clusters anywhere with Azure Arc", "icon": "kubernetes"},
+    {"id": "az-arc-servers", "name": "Arc-enabled Servers", "fullName": "Azure Arc-enabled Servers", "category": "Hybrid", "description": "Manage on-prem and multi-cloud servers from Azure", "icon": "hybrid"},
+    {"id": "az-arc-sql", "name": "Arc-enabled SQL", "fullName": "Azure Arc-enabled SQL Managed Instance", "category": "Hybrid", "description": "Run Azure SQL managed instance anywhere via Arc", "icon": "database"},
+    {"id": "az-lighthouse", "name": "Azure Lighthouse", "fullName": "Azure Lighthouse", "category": "Hybrid", "description": "Cross-tenant management at scale", "icon": "management"},
+
+    # ═══════════════════════════════════════════════════════════
+    # GENERATIVE AI  (Issue #61)
+    # ═══════════════════════════════════════════════════════════
+    {"id": "az-ai-agent-service", "name": "AI Agent Service", "fullName": "Azure AI Agent Service", "category": "AI/ML", "description": "Build and deploy autonomous AI agents with tool use", "icon": "bot"},
+    {"id": "az-ai-foundry", "name": "AI Foundry", "fullName": "Azure AI Foundry", "category": "AI/ML", "description": "Unified platform for building generative AI applications", "icon": "ai"},
+    {"id": "az-ai-content-safety", "name": "AI Content Safety", "fullName": "Azure AI Content Safety", "category": "AI/ML", "description": "Detect harmful content in text and images", "icon": "shield"},
+    {"id": "az-ml-automl", "name": "Azure ML AutoML", "fullName": "Azure Machine Learning AutoML", "category": "AI/ML", "description": "Automated machine learning model training", "icon": "ai"},
+    {"id": "az-github-advanced-security", "name": "GitHub Advanced Security", "fullName": "GitHub Advanced Security", "category": "AI/ML", "description": "AI-powered code scanning and security analysis", "icon": "shield"},
+
+    # ═══════════════════════════════════════════════════════════
+    # EDGE COMPUTING  (Issue #62)
+    # ═══════════════════════════════════════════════════════════
+    {"id": "az-edge-zones", "name": "Edge Zones", "fullName": "Azure Edge Zones", "category": "Edge", "description": "Azure services at carrier 5G edge locations", "icon": "edge"},
+    {"id": "az-extended-zones", "name": "Extended Zones", "fullName": "Azure Extended Zones", "category": "Edge", "description": "Azure infrastructure in metro areas for low-latency apps", "icon": "edge"},
+    {"id": "az-front-door-rules", "name": "Front Door Rules Engine", "fullName": "Azure Front Door Rules Engine", "category": "Edge", "description": "Edge compute rules for request/response manipulation", "icon": "cdn"},
+    {"id": "az-cdn-rules", "name": "CDN Rules Engine", "fullName": "Azure CDN Rules Engine", "category": "Edge", "description": "Custom rules for CDN content delivery", "icon": "cdn"},
+
+    # ═══════════════════════════════════════════════════════════
+    # MANAGED OBSERVABILITY  (Issue #63)
+    # ═══════════════════════════════════════════════════════════
+    {"id": "az-managed-grafana", "name": "Managed Grafana", "fullName": "Azure Managed Grafana", "category": "Observability", "description": "Fully managed Grafana dashboards natively integrated with Azure", "icon": "dashboard"},
+    {"id": "az-monitor-prometheus", "name": "Monitor (Prometheus)", "fullName": "Azure Monitor managed service for Prometheus", "category": "Observability", "description": "Prometheus-compatible metrics collection for containers", "icon": "metrics"},
+    {"id": "az-monitor-otel", "name": "Monitor (OpenTelemetry)", "fullName": "Azure Monitor OpenTelemetry Distro", "category": "Observability", "description": "OpenTelemetry-based telemetry for Azure Monitor", "icon": "trace"},
+    {"id": "az-container-insights", "name": "Container Insights", "fullName": "Azure Monitor Container Insights", "category": "Observability", "description": "Container and Kubernetes monitoring and logging", "icon": "container"},
+
+    # ═══════════════════════════════════════════════════════════
+    # DATA GOVERNANCE  (Issue #64)
+    # ═══════════════════════════════════════════════════════════
+    {"id": "az-purview-governance", "name": "Purview (Governance)", "fullName": "Microsoft Purview Data Governance", "category": "Data Governance", "description": "Unified data governance with catalog and lineage", "icon": "governance"},
+    {"id": "az-clean-rooms", "name": "Confidential Clean Rooms", "fullName": "Azure Confidential Clean Rooms", "category": "Data Governance", "description": "Privacy-preserving multi-party data collaboration", "icon": "privacy"},
+    {"id": "az-purview-compliance", "name": "Purview Compliance Manager", "fullName": "Microsoft Purview Compliance Manager", "category": "Data Governance", "description": "Automated compliance assessment and evidence collection", "icon": "compliance"},
+
+    # ═══════════════════════════════════════════════════════════
+    # ZERO TRUST & SASE  (Issue #67)
+    # ═══════════════════════════════════════════════════════════
+    {"id": "az-entra-private-access", "name": "Entra Private Access", "fullName": "Microsoft Entra Private Access", "category": "Zero Trust", "description": "Identity-centric ZTNA replacing legacy VPN", "icon": "shield"},
+    {"id": "az-sentinel-datalake", "name": "Sentinel (Data Lake)", "fullName": "Microsoft Sentinel Security Data Lake", "category": "Zero Trust", "description": "Centralized security data lake with OCSF schema", "icon": "shield"},
+    {"id": "az-sentinel-investigation", "name": "Sentinel (Investigation)", "fullName": "Microsoft Sentinel Investigation", "category": "Zero Trust", "description": "Security investigation and root-cause analysis", "icon": "shield"},
+    {"id": "az-firewall-manager", "name": "Firewall Manager", "fullName": "Azure Firewall Manager", "category": "Zero Trust", "description": "Central firewall policy management across subscriptions", "icon": "firewall"},
+    {"id": "az-firewall-premium", "name": "Firewall Premium (IDPS)", "fullName": "Azure Firewall Premium", "category": "Zero Trust", "description": "Firewall with intrusion detection and prevention", "icon": "firewall"},
 ]

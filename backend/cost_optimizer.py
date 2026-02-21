@@ -266,7 +266,7 @@ def analyze_cost_optimizations(
                     opt = rule["optimization"](services)
                     optimizations.append(opt)
         except Exception as e:
-            logger.warning(f"Cost rule {rule.get('id', 'unknown')} failed: {e}")
+            logger.warning("Cost rule %s failed: %s", rule.get('id', 'unknown'), e)
     
     # Calculate potential savings
     current_monthly = cost_estimate.get("total_monthly_usd", 0) if cost_estimate else 0

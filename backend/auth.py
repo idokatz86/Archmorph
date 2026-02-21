@@ -77,7 +77,7 @@ class UsageQuota:
                 cost_estimates_per_month=100,
                 share_links_per_month=50,
             )
-        else:  # ENTERPRISE
+        elif tier == UserTier.ENTERPRISE:
             return cls(
                 analyses_per_month=10000,
                 iac_downloads_per_month=10000,
@@ -85,6 +85,8 @@ class UsageQuota:
                 cost_estimates_per_month=10000,
                 share_links_per_month=10000,
             )
+        else:
+            raise ValueError(f"Unknown user tier: {tier}")
 
 
 @dataclass

@@ -15,7 +15,8 @@ Enforces:
 from __future__ import annotations
 
 import re
-import xml.etree.ElementTree as ET  # nosec B405 - this IS the SVG sanitizer
+import defusedxml.ElementTree as ET  # Secure XML parsing — prevents XXE and XML bomb attacks
+import xml.etree.ElementTree as _StdET  # Standard lib for register_namespace / tostring
 from io import BytesIO
 from typing import Optional
 
@@ -83,7 +84,7 @@ def validate_svg(svg_bytes: bytes) -> str:
 
     # Parse XML
     try:
-        tree = ET.parse(BytesIO(svg_bytes))  # nosec B314 - input is sanitized by this function
+        tree = ET.parse(BytesIO(svg_bytes))
     except ET.ParseError as exc:
         raise SVGSanitizationError(f"Invalid SVG XML: {exc}") from exc
 
@@ -98,11 +99,11 @@ def validate_svg(svg_bytes: bytes) -> str:
     _sanitize_element(root)
 
     # Register default SVG namespace to avoid ns0: prefix
-    ET.register_namespace("", "http://www.w3.org/2000/svg")
-    ET.register_namespace("xlink", "http://www.w3.org/1999/xlink")
+    _StdET.register_namespace("", "http://www.w3.org/2000/svg")
+    _StdET.register_namespace("xlink", "http://www.w3.org/1999/xlink")
 
     # Serialize back
-    raw = ET.tostring(root, encoding="unicode")
+    raw = _StdET.tostring(root, encoding="unicode")
 
     # Minify: collapse whitespace between tags
     raw = _minify_svg(raw)
@@ -117,7 +118,7 @@ def _local_tag(tag: str) -> str:
     return tag
 
 
-def _sanitize_element(el: ET.Element) -> None:
+def _sanitize_element(el: _StdET.Element) -> None:
     """Recursively sanitize an XML element tree in-place."""
     # Remove blocked child elements
     to_remove = []
@@ -185,7 +186,7 @@ def _minify_svg(svg: str) -> str:
 def extract_svg_dimensions(svg_str: str) -> tuple[int, int]:
     """Extract width/height from SVG markup. Returns (width, height)."""
     try:
-        root = ET.fromstring(svg_str)  # nosec B314 - internal SVG dimension extraction
+        root = ET.fromstring(svg_str)
     except ET.ParseError:
         return (64, 64)
 

@@ -1,10 +1,11 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import Prism from 'prismjs';
 import {
   Upload, ChevronRight, BarChart3, Download, FileCode,
   AlertTriangle, CheckCircle, XCircle, ArrowRight,
   HelpCircle, Eye, Info, Loader2, X, Check,
   FileText, Send, Sparkles, Bot, RotateCcw, Plus,
+  Shield, DollarSign, Network, Globe, Wrench, Layers,
 } from 'lucide-react';
 import { Badge, Button, Card } from './ui';
 import { API_BASE } from '../constants';
@@ -38,6 +39,42 @@ export default function DiagramTranslator() {
   const [hldData, setHldData] = useState(null);
   const [hldLoading, setHldLoading] = useState(false);
   const [hldTab, setHldTab] = useState('overview');
+
+  // UX state
+  const [dragOver, setDragOver] = useState(false);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [filePreviewUrl, setFilePreviewUrl] = useState(null);
+  const [copyFeedback, setCopyFeedback] = useState({});
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [hldExportLoading, setHldExportLoading] = useState({});
+  const [hldIncludeDiagrams, setHldIncludeDiagrams] = useState(true);
+
+  // Copy with feedback helper
+  const copyWithFeedback = useCallback((text, key) => {
+    navigator.clipboard.writeText(text);
+    setCopyFeedback(prev => ({ ...prev, [key]: true }));
+    setTimeout(() => setCopyFeedback(prev => ({ ...prev, [key]: false })), 2000);
+  }, []);
+
+  // Drag & drop handlers
+  const handleDragOver = useCallback((e) => { e.preventDefault(); e.stopPropagation(); setDragOver(true); }, []);
+  const handleDragLeave = useCallback((e) => { e.preventDefault(); e.stopPropagation(); setDragOver(false); }, []);
+  const handleDrop = useCallback((e) => {
+    e.preventDefault(); e.stopPropagation(); setDragOver(false);
+    const file = e.dataTransfer?.files?.[0];
+    if (file && (file.type.startsWith('image/') || file.name.match(/\.(svg|pdf)$/i))) {
+      setSelectedFile(file);
+      if (file.type.startsWith('image/')) setFilePreviewUrl(URL.createObjectURL(file));
+      else setFilePreviewUrl(null);
+    }
+  }, []);
+
+  const handleFileSelect = useCallback((file) => {
+    if (!file) return;
+    setSelectedFile(file);
+    if (file.type.startsWith('image/')) setFilePreviewUrl(URL.createObjectURL(file));
+    else setFilePreviewUrl(null);
+  }, []);
 
   // ── Upload & Analyze ──
   const handleUpload = async (file) => {
@@ -174,6 +211,34 @@ export default function DiagramTranslator() {
     setLoading(false);
   };
 
+  const handleHldExport = async (fmt) => {
+    setHldExportLoading(prev => ({ ...prev, [fmt]: true }));
+    try {
+      const res = await fetch(`${API_BASE}/diagrams/${diagramId}/export-hld?format=${fmt}&include_diagrams=${hldIncludeDiagrams}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.detail || `Export failed (${res.status})`);
+      }
+      const data = await res.json();
+      const bytes = Uint8Array.from(atob(data.content_b64), c => c.charCodeAt(0));
+      const blob = new Blob([bytes], { type: data.content_type });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = data.filename;
+      a.click();
+      URL.revokeObjectURL(url);
+      copyWithFeedback('', `hld-${fmt}`);
+    } catch (err) {
+      setError(`HLD export failed: ${err.message}`);
+    }
+    setHldExportLoading(prev => ({ ...prev, [fmt]: false }));
+  };
+
   const handleExportDiagram = async (format) => {
     setExportLoading(prev => ({ ...prev, [format]: true }));
     try {
@@ -248,6 +313,9 @@ export default function DiagramTranslator() {
     setHldData(null);
     setError(null);
     setAnalyzeProgress([]);
+    setSelectedFile(null);
+    setFilePreviewUrl(null);
+    setConfirmReset(false);
   };
 
   return (
@@ -276,7 +344,7 @@ export default function DiagramTranslator() {
                 title={`Go to ${s.label}`}
               >
                 {isPast ? <CheckCircle className="w-3.5 h-3.5" /> : <span className="w-5 h-5 rounded-full border border-current flex items-center justify-center text-[10px]">{i + 1}</span>}
-                <span className="hidden sm:inline underline decoration-dotted underline-offset-2">{s.label}</span>
+                <span className={`underline decoration-dotted underline-offset-2 ${isActive ? '' : 'hidden sm:inline'}`}>{s.label}</span>
               </button>
             ) : (
               <div
@@ -286,7 +354,7 @@ export default function DiagramTranslator() {
                 }`}
               >
                 {isPast ? <CheckCircle className="w-3.5 h-3.5" /> : <span className="w-5 h-5 rounded-full border border-current flex items-center justify-center text-[10px]">{i + 1}</span>}
-                <span className="hidden sm:inline">{s.label}</span>
+                <span className={isActive ? '' : 'hidden sm:inline'}>{s.label}</span>
               </div>
             )}
             {i < arr.length - 1 && <ChevronRight className="w-4 h-4 text-text-muted" />}
@@ -299,7 +367,7 @@ export default function DiagramTranslator() {
           <div className="flex items-center gap-3">
             <XCircle className="w-5 h-5 text-danger shrink-0" />
             <p className="text-sm text-danger">{error}</p>
-            <button onClick={() => setError(null)} className="ml-auto cursor-pointer" aria-label="Dismiss error"><X className="w-4 h-4 text-text-muted" /></button>
+            <button onClick={() => setError(null)} className="ml-auto cursor-pointer hover:bg-secondary rounded-lg p-1 transition-colors" aria-label="Dismiss error" title="Dismiss"><X className="w-4 h-4 text-text-muted" /></button>
           </div>
         </Card>
       )}
@@ -308,28 +376,74 @@ export default function DiagramTranslator() {
       {step === 'upload' && (
         <Card className="p-12">
           <div className="text-center max-w-lg mx-auto">
-            <div className="w-16 h-16 rounded-2xl bg-cta/10 flex items-center justify-center mx-auto mb-6">
-              <Upload className="w-8 h-8 text-cta" />
+
+            {/* Drag & Drop Zone */}
+            <div
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              onClick={() => !selectedFile && fileInputRef.current?.click()}
+              className={`relative rounded-2xl border-2 border-dashed p-8 mb-6 transition-all duration-200 cursor-pointer ${
+                dragOver
+                  ? 'border-cta bg-cta/10 scale-[1.02]'
+                  : selectedFile
+                    ? 'border-cta/40 bg-cta/5'
+                    : 'border-border hover:border-cta/40 hover:bg-secondary/50'
+              }`}
+            >
+              {/* File preview */}
+              {selectedFile ? (
+                <div className="space-y-3">
+                  {filePreviewUrl ? (
+                    <img src={filePreviewUrl} alt="Preview" className="max-h-40 mx-auto rounded-lg border border-border object-contain" />
+                  ) : (
+                    <div className="w-16 h-16 rounded-2xl bg-cta/10 flex items-center justify-center mx-auto">
+                      <FileText className="w-8 h-8 text-cta" />
+                    </div>
+                  )}
+                  <div>
+                    <p className="text-sm font-medium text-text-primary">{selectedFile.name}</p>
+                    <p className="text-xs text-text-muted">{(selectedFile.size / 1024).toFixed(0)} KB</p>
+                  </div>
+                  <div className="flex items-center justify-center gap-2">
+                    <Button onClick={(e) => { e.stopPropagation(); handleUpload(selectedFile); }} variant="primary" size="md" icon={Upload}>
+                      Analyze This Diagram
+                    </Button>
+                    <Button onClick={(e) => { e.stopPropagation(); setSelectedFile(null); setFilePreviewUrl(null); }} variant="ghost" size="sm" icon={X}>
+                      Remove
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="w-16 h-16 rounded-2xl bg-cta/10 flex items-center justify-center mx-auto mb-4">
+                    <Upload className="w-8 h-8 text-cta" />
+                  </div>
+                  <h2 className="text-2xl font-bold text-text-primary mb-2">Upload Architecture Diagram</h2>
+                  <p className="text-sm text-text-secondary mb-4">
+                    Drag & drop your AWS or GCP diagram here, or click to browse
+                  </p>
+                  <p className="text-xs text-text-muted">Supports PNG, JPG, SVG, PDF — up to 10 MB</p>
+                  {dragOver && (
+                    <div className="absolute inset-0 rounded-2xl bg-cta/10 flex items-center justify-center">
+                      <p className="text-lg font-bold text-cta">Drop diagram here</p>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
-            <h2 className="text-2xl font-bold text-text-primary mb-2">Upload Architecture Diagram</h2>
-            <p className="text-sm text-text-secondary mb-8">
-              Upload your AWS or GCP architecture diagram. We will analyze it and translate every service to Azure with IaC generation.
-            </p>
-            <input ref={fileInputRef} type="file" accept="image/*,.pdf,.svg" onChange={e => e.target.files[0] && handleUpload(e.target.files[0])} className="hidden" aria-label="Select architecture diagram file" />
-            <Button onClick={() => fileInputRef.current?.click()} variant="primary" size="lg" icon={Upload}>
-              Select Diagram File
-            </Button>
-            <p className="text-xs text-text-muted mt-4">Supports PNG, JPG, SVG, PDF</p>
+
+            <input ref={fileInputRef} type="file" accept="image/*,.pdf,.svg" onChange={e => e.target.files[0] && handleFileSelect(e.target.files[0])} className="hidden" aria-label="Select architecture diagram file" />
             
             {/* Sample Diagrams */}
-            <div className="mt-8 pt-6 border-t border-border">
-              <p className="text-sm text-text-secondary mb-4">Or try with a sample diagram:</p>
+            <div className="mt-6 pt-6 border-t border-border">
+              <p className="text-sm text-text-secondary mb-4">Or try with a sample architecture:</p>
               <div className="grid grid-cols-2 gap-3">
                 {[
-                  { id: 'aws-3tier', name: 'AWS 3-Tier', icon: '🏗️', desc: 'ALB + EC2 + RDS' },
-                  { id: 'aws-serverless', name: 'Serverless', icon: '⚡', desc: 'API Gateway + Lambda' },
-                  { id: 'gcp-microservices', name: 'GCP Microservices', icon: '🐳', desc: 'GKE + Cloud SQL' },
-                  { id: 'aws-data-lake', name: 'Data Lake', icon: '📊', desc: 'S3 + Glue + Athena' },
+                  { id: 'aws-iaas', name: 'AWS IaaS', icon: '🖥️', desc: 'VPC + EC2 + RDS + S3', provider: 'aws' },
+                  { id: 'gcp-iaas', name: 'GCP IaaS', icon: '🌐', desc: 'VPC + VMs + Cloud SQL', provider: 'gcp' },
+                  { id: 'aws-eks', name: 'AWS Containers', icon: '🐳', desc: 'EKS + Fargate + ECR', provider: 'aws' },
+                  { id: 'gcp-gke', name: 'GCP Containers', icon: '☸️', desc: 'GKE + Pub/Sub + Firestore', provider: 'gcp' },
                 ].map(sample => (
                   <button
                     key={sample.id}
@@ -338,10 +452,19 @@ export default function DiagramTranslator() {
                       setAnalyzeProgress(['Loading sample diagram...']);
                       try {
                         const res = await fetch(`${API_BASE}/samples/${sample.id}/analyze`, { method: 'POST' });
+                        if (!res.ok) throw new Error('Sample analysis failed');
                         const result = await res.json();
                         setDiagramId(result.diagram_id);
                         setAnalysis(result);
-                        setAnalyzeProgress(prev => [...prev, 'Sample loaded successfully ✓']);
+                        for (const zone of (result.zones || [])) {
+                          const svcNames = (zone.services || []).map(s => s.source || s.name || '').filter(Boolean).slice(0, 3);
+                          setAnalyzeProgress(prev => [...prev, `Zone ${zone.id}: ${zone.name} (${svcNames.join(', ')})...`]);
+                          await new Promise(r => setTimeout(r, 300));
+                        }
+                        setAnalyzeProgress(prev => [...prev, `Mapping ${sample.provider.toUpperCase()} services to Azure equivalents...`]);
+                        await new Promise(r => setTimeout(r, 400));
+                        setAnalyzeProgress(prev => [...prev, 'Sample loaded successfully \u2713']);
+                        await new Promise(r => setTimeout(r, 600));
                         const qRes = await fetch(`${API_BASE}/diagrams/${result.diagram_id}/questions`, { method: 'POST' });
                         const qData = await qRes.json();
                         setQuestions(qData.questions || []);
@@ -354,10 +477,15 @@ export default function DiagramTranslator() {
                         setStep('upload');
                       }
                     }}
-                    className="p-3 rounded-lg bg-secondary hover:bg-secondary/80 transition-colors text-left cursor-pointer border border-border hover:border-cta/50"
+                    className={`p-3 rounded-lg bg-secondary hover:bg-secondary/80 transition-all text-left cursor-pointer border border-border hover:scale-[1.02] ${
+                      sample.provider === 'gcp' ? 'hover:border-[#EA4335]/50' : 'hover:border-[#FF9900]/50'
+                    }`}
                   >
-                    <span className="text-lg">{sample.icon}</span>
-                    <p className="text-sm font-medium text-text-primary mt-1">{sample.name}</p>
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">{sample.icon}</span>
+                      <Badge variant={sample.provider}>{sample.provider.toUpperCase()}</Badge>
+                    </div>
+                    <p className="text-sm font-medium text-text-primary mt-1.5">{sample.name}</p>
                     <p className="text-xs text-text-muted">{sample.desc}</p>
                   </button>
                 ))}
@@ -399,23 +527,48 @@ export default function DiagramTranslator() {
               We detected {analysis?.services_detected || 0} {(analysis?.source_provider || 'aws').toUpperCase()} services across {analysis?.zones?.length || 0} zones.
               Answer these questions to tailor the Azure translation to your needs.
             </p>
-            {/* Progress Bar */}
-            <div className="mt-4">
-              <div className="flex items-center justify-between text-xs text-text-muted mb-1">
-                <span>{Object.keys(answers).filter(k => answers[k] !== undefined && answers[k] !== null && answers[k] !== '').length} of {questions.length} answered</span>
-                <span>{Math.round((Object.keys(answers).filter(k => answers[k] !== undefined && answers[k] !== null && answers[k] !== '').length / Math.max(questions.length, 1)) * 100)}%</span>
-              </div>
-              <div className="h-2 bg-secondary rounded-full overflow-hidden">
-                <div 
-                  className="h-full bg-cta transition-all duration-300"
-                  style={{ width: `${(Object.keys(answers).filter(k => answers[k] !== undefined && answers[k] !== null && answers[k] !== '').length / Math.max(questions.length, 1)) * 100}%` }}
-                />
-              </div>
-            </div>
+            {/* Progress Bar with category breakdown */}
+            {(() => {
+              const answered = Object.keys(answers).filter(k => answers[k] !== undefined && answers[k] !== null && answers[k] !== '');
+              const cats = [...new Set(questions.map(q => q.category || 'General'))];
+              return (
+                <div className="mt-4">
+                  <div className="flex items-center justify-between text-xs text-text-muted mb-1">
+                    <span>{answered.length} of {questions.length} answered</span>
+                    <span>{Math.round((answered.length / Math.max(questions.length, 1)) * 100)}%</span>
+                  </div>
+                  <div className="h-2 bg-secondary rounded-full overflow-hidden">
+                    <div className="h-full bg-cta transition-all duration-300" style={{ width: `${(answered.length / Math.max(questions.length, 1)) * 100}%` }} />
+                  </div>
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {cats.map(cat => {
+                      const catQs = questions.filter(q => (q.category || 'General') === cat);
+                      const catAnswered = catQs.filter(q => answered.includes(q.id)).length;
+                      return (
+                        <span key={cat} className={`text-[10px] px-2 py-0.5 rounded-full border ${
+                          catAnswered === catQs.length ? 'border-cta/40 text-cta bg-cta/10' : 'border-border text-text-muted'
+                        }`}>
+                          {cat.replace(/_/g, ' ')} {catAnswered}/{catQs.length}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
           </Card>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {questions.map(q => (
+          {/* Questions grouped by category */}
+          {(() => {
+            const categories = [...new Set(questions.map(q => q.category || 'General'))];
+            return categories.map(cat => (
+              <div key={cat} className="space-y-3">
+                <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wider px-1 flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-cta" />
+                  {cat.replace(/_/g, ' ')}
+                </h3>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {questions.filter(q => (q.category || 'General') === cat).map(q => (
               <Card key={q.id} className="p-4 space-y-3">
                 <div className="flex items-start gap-2">
                   <Badge>{q.category?.replace(/_/g, ' ')}</Badge>
@@ -465,8 +618,11 @@ export default function DiagramTranslator() {
                   </div>
                 )}
               </Card>
-            ))}
-          </div>
+                  ))}
+                </div>
+              </div>
+            ));
+          })()}
 
           <div className="flex items-center justify-between">
             <Button onClick={() => { setStep('results'); }} variant="ghost" icon={ChevronRight}>Skip Customization</Button>
@@ -606,7 +762,7 @@ export default function DiagramTranslator() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Button onClick={() => { navigator.clipboard.writeText(hldData.markdown || ''); }} variant="ghost" size="sm" icon={FileText}>Copy MD</Button>
+                  <Button onClick={() => copyWithFeedback(hldData.markdown || '', 'hld-md')} variant="ghost" size="sm" icon={copyFeedback['hld-md'] ? Check : FileText}>{copyFeedback['hld-md'] ? 'Copied!' : 'Copy MD'}</Button>
                   <Button onClick={() => {
                     const blob = new Blob([hldData.markdown || ''], { type: 'text/markdown' });
                     const url = URL.createObjectURL(blob);
@@ -622,21 +778,61 @@ export default function DiagramTranslator() {
                 </div>
               </div>
 
+              {/* HLD Document Export */}
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3 bg-surface rounded-xl border border-border mb-4">
+                <div className="flex items-center gap-3">
+                  <Download className="w-5 h-5 text-cta" />
+                  <div>
+                    <p className="text-xs font-semibold text-text-primary">Export Document</p>
+                    <p className="text-[10px] text-text-muted">Download as a formatted document</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <label className="flex items-center gap-1.5 text-[10px] text-text-secondary cursor-pointer mr-2">
+                    <input
+                      type="checkbox"
+                      checked={hldIncludeDiagrams}
+                      onChange={e => setHldIncludeDiagrams(e.target.checked)}
+                      className="accent-cta w-3 h-3"
+                    />
+                    Include diagrams
+                  </label>
+                  {[
+                    { id: 'docx', label: 'Word', color: 'text-blue-400' },
+                    { id: 'pdf', label: 'PDF', color: 'text-red-400' },
+                    { id: 'pptx', label: 'PowerPoint', color: 'text-orange-400' },
+                  ].map(f => (
+                    <Button
+                      key={f.id}
+                      onClick={() => handleHldExport(f.id)}
+                      variant="secondary"
+                      size="sm"
+                      loading={hldExportLoading[f.id]}
+                      icon={copyFeedback[`hld-${f.id}`] ? Check : Download}
+                    >
+                      <span className={copyFeedback[`hld-${f.id}`] ? 'text-cta' : ''}>
+                        {copyFeedback[`hld-${f.id}`] ? 'Downloaded!' : f.label}
+                      </span>
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
               {/* HLD Tabs */}
               <div className="flex gap-1 mb-4 border-b border-border pb-2">
                 {[
-                  { id: 'overview', label: 'Overview' },
-                  { id: 'services', label: 'Services' },
-                  { id: 'networking', label: 'Networking' },
-                  { id: 'security', label: 'Security' },
-                  { id: 'finops', label: 'FinOps' },
-                  { id: 'migration', label: 'Migration' },
-                  { id: 'waf', label: 'WAF' },
+                  { id: 'overview', label: 'Overview', icon: Eye },
+                  { id: 'services', label: 'Services', icon: Layers },
+                  { id: 'networking', label: 'Networking', icon: Network },
+                  { id: 'security', label: 'Security', icon: Shield },
+                  { id: 'finops', label: 'FinOps', icon: DollarSign },
+                  { id: 'migration', label: 'Migration', icon: ArrowRight },
+                  { id: 'waf', label: 'WAF', icon: Wrench },
                 ].map(t => (
                   <button key={t.id} onClick={() => setHldTab(t.id)}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
+                    className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 ${
                       hldTab === t.id ? 'bg-cta/15 text-cta' : 'text-text-muted hover:text-text-primary'
-                    }`}>{t.label}</button>
+                    }`}><t.icon className="w-3 h-3" />{t.label}</button>
                 ))}
               </div>
 
@@ -784,12 +980,20 @@ export default function DiagramTranslator() {
               </div>
               {costEstimate.services && (
                 <div className="space-y-2 max-h-64 overflow-auto">
-                  {costEstimate.services.map((s, i) => (
-                    <div key={i} className="flex items-center justify-between py-1.5 border-b border-border last:border-0">
-                      <span className="text-xs text-text-secondary">{s.service}</span>
-                      <span className="text-xs font-medium text-text-primary">${s.monthly_low} - ${s.monthly_high}</span>
-                    </div>
-                  ))}
+                  {(() => {
+                    const maxCost = Math.max(...costEstimate.services.map(s => s.monthly_high || 0), 1);
+                    return costEstimate.services.map((s, i) => (
+                      <div key={i} className="py-1.5 border-b border-border last:border-0">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs text-text-secondary">{s.service}</span>
+                          <span className="text-xs font-medium text-text-primary">${s.monthly_low} - ${s.monthly_high}</span>
+                        </div>
+                        <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
+                          <div className="h-full bg-cta/40 rounded-full transition-all duration-500" style={{ width: `${(s.monthly_high / maxCost) * 100}%` }} />
+                        </div>
+                      </div>
+                    ));
+                  })()}
                 </div>
               )}
               <div className="mt-4 pt-3 border-t border-border flex items-start gap-2">
@@ -814,7 +1018,7 @@ export default function DiagramTranslator() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <Button onClick={() => { navigator.clipboard.writeText(iacCode); }} variant="ghost" size="sm" icon={FileText}>Copy</Button>
+                <Button onClick={() => copyWithFeedback(iacCode, 'iac-code')} variant="ghost" size="sm" icon={copyFeedback['iac-code'] ? Check : FileText}>{copyFeedback['iac-code'] ? 'Copied!' : 'Copy'}</Button>
                 <Button onClick={() => {
                   const blob = new Blob([iacCode], { type: 'text/plain' });
                   const url = URL.createObjectURL(blob);
@@ -826,7 +1030,14 @@ export default function DiagramTranslator() {
             </div>
             <div className="bg-surface rounded-lg border border-border overflow-auto max-h-[600px]">
               <pre className="p-4 text-xs leading-relaxed">
-                <code className={`language-${iacFormat === 'terraform' ? 'hcl' : 'json'}`}>{iacCode}</code>
+                <code className={`language-${iacFormat === 'terraform' ? 'hcl' : 'json'}`}>
+                  {iacCode.split('\n').map((line, i) => (
+                    <div key={i} className="flex">
+                      <span className="inline-block w-10 text-right pr-4 text-text-muted select-none opacity-50">{i + 1}</span>
+                      <span>{line || ' '}</span>
+                    </div>
+                  ))}
+                </code>
               </pre>
             </div>
           </Card>
@@ -939,6 +1150,20 @@ export default function DiagramTranslator() {
                 </div>
 
                 <div className="px-3 py-3 border-t border-border bg-secondary/50">
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {[
+                      { label: 'VNet', msg: 'Add a Virtual Network with 3 subnets: frontend, backend, and data, with NSGs.' },
+                      { label: 'Storage', msg: 'Add a general-purpose v2 storage account with blob containers and private endpoint.' },
+                      { label: 'Monitoring', msg: 'Add Azure Monitor with Log Analytics workspace and Application Insights.' },
+                      { label: 'Naming', msg: 'Apply CAF naming conventions to ALL resources.' },
+                      { label: 'Bastion', msg: 'Add Azure Bastion for secure RDP/SSH access without public IPs.' },
+                    ].map((q, i) => (
+                      <button key={i} onClick={() => { setIacChatInput(q.msg); iacChatInputRef.current?.focus(); }}
+                        className="px-2 py-0.5 text-[10px] rounded-full border border-border text-text-muted hover:border-cta/40 hover:text-cta transition-colors cursor-pointer">
+                        + {q.label}
+                      </button>
+                    ))}
+                  </div>
                   <div className="flex items-center gap-2">
                     <input ref={iacChatInputRef} type="text" value={iacChatInput}
                       onChange={e => setIacChatInput(e.target.value)}
@@ -958,7 +1183,15 @@ export default function DiagramTranslator() {
 
           <div className="flex items-center justify-between">
             <Button onClick={() => setStep('results')} variant="ghost" icon={Eye}>Back to Results</Button>
-            <Button onClick={reset} variant="secondary" icon={Upload}>New Translation</Button>
+            {confirmReset ? (
+              <div className="flex items-center gap-2 bg-secondary rounded-lg px-3 py-2 border border-border animate-fade-in">
+                <span className="text-xs text-text-secondary">Discard current translation?</span>
+                <Button onClick={reset} variant="danger" size="sm">Yes, Start Over</Button>
+                <Button onClick={() => setConfirmReset(false)} variant="ghost" size="sm">Cancel</Button>
+              </div>
+            ) : (
+              <Button onClick={() => setConfirmReset(true)} variant="secondary" icon={Upload}>New Translation</Button>
+            )}
           </div>
         </div>
       )}

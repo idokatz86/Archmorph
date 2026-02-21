@@ -180,9 +180,9 @@ def test_classify_fail_open_on_parse_error(mock_client):
 
     result = classify_image(b"bad-response-bytes", "image/png")
 
-    # Should fail-open: allow through
-    assert result["is_architecture_diagram"] is True
-    assert result["confidence"] == 0.5
+    # Should fail-closed: reject on parse error (issue #73)
+    assert result["is_architecture_diagram"] is False
+    assert result["confidence"] == 0.0
     assert "parse error" in result["reason"].lower()
 
 

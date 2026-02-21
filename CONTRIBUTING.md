@@ -27,8 +27,12 @@ npm run dev
 ### Running Tests
 
 ```bash
-# Backend
+# Backend (747 tests)
 cd backend && python -m pytest -v
+
+# Backend with markers
+cd backend && python -m pytest -m fast      # Quick tests only
+cd backend && python -m pytest -m security   # Security tests only
 
 # Frontend
 cd frontend && npm test
@@ -54,11 +58,13 @@ cd backend && ruff check . && bandit -r . -x ./tests --skip B101
 
 ## Architecture
 
-- **Backend**: FastAPI (Python 3.11), Azure OpenAI GPT-4o for vision/chat
+- **Backend**: FastAPI (Python 3.11+), Azure OpenAI GPT-4o for vision/chat
 - **Frontend**: React 19.1, Vite 7.3, TailwindCSS 4.2
 - **Infrastructure**: Azure Container Apps, Azure Static Web Apps, ACR
 - **Auth**: JWT (HS256) with 1-hour TTL for admin endpoints
 - **CI/CD**: GitHub Actions with OIDC → ACR → Container Apps
+- **Security**: Semgrep SAST, Gitleaks, Trivy container scan, CycloneDX SBOM
+- **Testing**: pytest (747 tests, 30 files) + Playwright E2E
 
 ## API Routes
 
@@ -73,6 +79,7 @@ cd backend && ruff check . && bandit -r . -x ./tests --skip B101
 | POST | `/api/diagrams/{id}/iac/generate` | Generate Terraform/Bicep |
 | POST | `/api/diagrams/{id}/iac/chat` | IaC chat assistant |
 | POST | `/api/diagrams/{id}/hld` | Generate HLD document |
+| POST | `/api/diagrams/{id}/export-hld` | Export HLD as DOCX/PDF/PPTX |
 | GET | `/api/diagrams/{id}/cost-estimate` | Azure cost estimation |
 | POST | `/api/diagrams/{id}/export-diagram` | Export to Excalidraw/Draw.io |
 | POST | `/api/chatbot/message` | General chatbot |

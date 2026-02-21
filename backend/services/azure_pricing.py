@@ -723,6 +723,143 @@ SERVICE_PRICE_QUERIES: dict[str, dict[str, Any]] = {
         "skuName": "Standard",
         "fallback_monthly": 10,
     },
+    # ── Hybrid & Multi-Cloud (Issue #60) ──────────────────
+    "Azure Arc-enabled Kubernetes": {
+        "serviceName": "Azure Arc",
+        "fallback_monthly": 2,  # per vCPU/month for Arc-enabled K8s
+    },
+    "Azure Arc-enabled Servers": {
+        "serviceName": "Azure Arc",
+        "fallback_monthly": 0,  # Free for basic management; ESU/Defender extra
+    },
+    "Azure Arc-enabled SQL": {
+        "serviceName": "Azure Arc",
+        "fallback_monthly": 0,  # License-based; SQL Server license required
+    },
+    "Azure Lighthouse": {
+        "serviceName": "Azure Lighthouse",
+        "fallback_monthly": 0,  # Free service — revenue is managed-services
+    },
+    "Azure Stack HCI": {
+        "serviceName": "Azure Stack HCI",
+        "fallback_monthly": 10,  # per physical core/month
+    },
+    # ── Generative AI (Issue #61) ─────────────────────────
+    "Azure AI Agent Service": {
+        "serviceName": "Azure AI Services",
+        "fallback_monthly": 150,  # Token-based; highly variable
+    },
+    "Azure AI Foundry": {
+        "serviceName": "Azure AI Services",
+        "fallback_monthly": 0,  # Platform free; model inference costs separate
+    },
+    "Azure AI Content Safety": {
+        "serviceName": "Azure AI Services",
+        "fallback_monthly": 75,  # per 1K images or 1M characters
+    },
+    "Azure ML AutoML": {
+        "serviceName": "Azure Machine Learning",
+        "fallback_monthly": 350,  # Compute-dependent
+    },
+    "Microsoft 365 Copilot / AI Foundry": {
+        "serviceName": "Azure AI Services",
+        "fallback_monthly": 30,  # per user/month (M365 Copilot license)
+    },
+    "Azure AI Foundry (low-code)": {
+        "serviceName": "Azure AI Services",
+        "fallback_monthly": 0,  # Platform free; inference costs separate
+    },
+    "GitHub Advanced Security": {
+        "serviceName": "GitHub",
+        "fallback_monthly": 49,  # per active committer/month
+    },
+    "Azure AI Search (RAG)": {
+        "serviceName": "Azure AI Search",
+        "skuName": "Standard",
+        "fallback_monthly": 250,
+    },
+    # ── Edge Computing (Issue #62) ────────────────────────
+    "Azure Edge Zones": {
+        "serviceName": "Azure Edge Zones",
+        "fallback_monthly": 200,  # Varies by telco partner; compute-based
+    },
+    "Azure Extended Zones": {
+        "serviceName": "Azure Extended Zones",
+        "fallback_monthly": 150,  # Regional VM pricing with premium
+    },
+    "Azure Front Door Rules Engine": {
+        "serviceName": "Azure Front Door Service",
+        "fallback_monthly": 35,  # Included in Front Door; route-based pricing
+    },
+    "Azure CDN Rules Engine": {
+        "serviceName": "Content Delivery Network",
+        "fallback_monthly": 24,  # Included in CDN pricing
+    },
+    # ── Managed Observability (Issue #63) ─────────────────
+    "Azure Managed Grafana": {
+        "serviceName": "Azure Managed Grafana",
+        "fallback_monthly": 9,  # Essential tier; Standard ~$9/instance
+    },
+    "Azure Monitor (Prometheus)": {
+        "serviceName": "Azure Monitor",
+        "fallback_monthly": 6,  # per million samples ingested
+    },
+    "Azure Monitor (OpenTelemetry)": {
+        "serviceName": "Azure Monitor",
+        "fallback_monthly": 0,  # OTEL SDK free; data ingestion via Monitor pricing
+    },
+    "Container Insights (Azure Monitor)": {
+        "serviceName": "Azure Monitor",
+        "fallback_monthly": 0,  # Log Analytics workspace ingestion pricing
+    },
+    # ── Data Governance (Issue #64) ───────────────────────
+    "Microsoft Purview (Data Governance)": {
+        "serviceName": "Microsoft Purview",
+        "fallback_monthly": 450,
+    },
+    "Azure Confidential Clean Rooms": {
+        "serviceName": "Azure Confidential Ledger",
+        "fallback_monthly": 500,  # Confidential computing + compute costs
+    },
+    "Azure Logic Apps (SaaS connectors)": {
+        "serviceName": "Logic Apps",
+        "skuName": "Consumption",
+        "fallback_monthly": 15,
+    },
+    "Microsoft Purview Compliance Manager": {
+        "serviceName": "Microsoft Purview",
+        "fallback_monthly": 0,  # Included with E5 license; standalone varies
+    },
+    "Azure Data Factory (data wrangling)": {
+        "serviceName": "Azure Data Factory v2",
+        "fallback_monthly": 180,
+    },
+    # ── Zero Trust & SASE (Issue #67) ─────────────────────
+    "Entra Private Access": {
+        "serviceName": "Microsoft Entra ID",
+        "fallback_monthly": 6,  # per user/month (Global Secure Access)
+    },
+    "Microsoft Sentinel (data lake)": {
+        "serviceName": "Microsoft Sentinel",
+        "fallback_monthly": 100,  # Data ingestion dependent
+    },
+    "Microsoft Sentinel (investigation)": {
+        "serviceName": "Microsoft Sentinel",
+        "fallback_monthly": 100,
+    },
+    "Azure Firewall Manager": {
+        "serviceName": "Azure Firewall Manager",
+        "fallback_monthly": 100,  # per firewall policy/month
+    },
+    "Azure Firewall Premium (IDPS)": {
+        "serviceName": "Azure Firewall",
+        "skuName": "Premium",
+        "fallback_monthly": 1825,  # ~$2.50/hr Premium SKU
+    },
+    "Azure Private Link (service networking)": {
+        "serviceName": "Private Link",
+        "fallback_monthly": 7,  # per endpoint/month
+    },
 }
 
 # ─────────────────────────────────────────────────────────────

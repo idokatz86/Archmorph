@@ -424,13 +424,14 @@ QUESTION_BANK: QuestionBank = {
             "question": "Desired monitoring and observability depth?",
             "type": "single_choice",
             "options": [
+                "None — no monitoring needed",
                 "Basic metrics (Azure Monitor)",
                 "Application Insights (APM + distributed tracing)",
                 "Full observability (Azure Monitor + Grafana + Log Analytics)",
                 "Security-focused (Azure Monitor + Microsoft Sentinel SIEM)",
             ],
             "condition": [],
-            "impact": "Adds Log Analytics workspace, Application Insights, Managed Grafana, or Sentinel to IaC",
+            "impact": "Adds Log Analytics workspace, Application Insights, Managed Grafana, or Sentinel to IaC (or nothing if None)",
             "default": "Application Insights (APM + distributed tracing)",
         },
         {
@@ -542,6 +543,187 @@ QUESTION_BANK: QuestionBank = {
             "default": "GPU clusters (deep learning)",
         },
     ],
+
+    # ─────────────────────────────────────────────────────────
+    # HYBRID & MULTI-CLOUD  (Issue #60)
+    # ─────────────────────────────────────────────────────────
+    "hybrid_multicloud": [
+        {
+            "id": "hybrid_strategy",
+            "question": "What is your hybrid / multi-cloud strategy?",
+            "type": "single_choice",
+            "options": [
+                "Full migration to Azure (no hybrid)",
+                "Hybrid — keep some workloads on-premises",
+                "Multi-cloud — run workloads across Azure + another cloud",
+                "Edge + cloud — processing at the edge with cloud control plane",
+            ],
+            "condition": ["Outposts", "EKS Anywhere", "EKS", "ECS Anywhere"],
+            "impact": "Adds Azure Arc, Azure Stack HCI, or Lighthouse resources to IaC depending on chosen strategy",
+            "default": "Full migration to Azure (no hybrid)",
+        },
+        {
+            "id": "hybrid_arc_scope",
+            "question": "Which resources need Azure Arc management?",
+            "type": "multiple_choice",
+            "options": [
+                "Kubernetes clusters",
+                "SQL databases",
+                "Linux/Windows servers",
+                "None — cloud-only",
+            ],
+            "condition": ["Outposts", "EKS Anywhere", "SSM"],
+            "impact": "Determines which Arc-enabled services to provision — Arc K8s, Arc SQL, or Arc Servers",
+            "default": "None — cloud-only",
+        },
+    ],
+
+    # ─────────────────────────────────────────────────────────
+    # GENERATIVE AI & AI AGENTS  (Issue #61)
+    # ─────────────────────────────────────────────────────────
+    "generative_ai": [
+        {
+            "id": "genai_model_provider",
+            "question": "Preferred foundation model provider on Azure?",
+            "type": "single_choice",
+            "options": [
+                "Azure OpenAI (GPT-4o, GPT-4, GPT-3.5)",
+                "Meta Llama (via Azure AI Foundry)",
+                "Mistral (via Azure AI Foundry)",
+                "Cohere (via Azure AI Foundry)",
+                "Bring your own model",
+            ],
+            "condition": ["Bedrock", "Bedrock Agents", "Bedrock Knowledge Bases", "Q Business", "PartyRock"],
+            "impact": "Selects the model deployment target — Azure OpenAI or AI Foundry model catalog",
+            "default": "Azure OpenAI (GPT-4o, GPT-4, GPT-3.5)",
+        },
+        {
+            "id": "genai_agent_pattern",
+            "question": "Do you need autonomous AI agents with tool use?",
+            "type": "single_choice",
+            "options": [
+                "Yes — Azure AI Agent Service (hosted agents)",
+                "Yes — Semantic Kernel / LangChain (code-first)",
+                "No — simple prompt/response pattern",
+            ],
+            "condition": ["Bedrock Agents", "Bedrock Knowledge Bases"],
+            "impact": "Adds Azure AI Agent Service or custom agent framework resources to the architecture",
+            "default": "No — simple prompt/response pattern",
+        },
+        {
+            "id": "genai_content_safety",
+            "question": "Content safety requirements for AI outputs?",
+            "type": "single_choice",
+            "options": [
+                "Default Azure OpenAI content filters",
+                "Custom Azure AI Content Safety policies",
+                "No content filtering needed (internal use only)",
+            ],
+            "condition": ["Bedrock", "Bedrock Guardrails", "Bedrock Agents"],
+            "impact": "Configures Azure AI Content Safety resources and custom filter policies",
+            "default": "Default Azure OpenAI content filters",
+        },
+    ],
+
+    # ─────────────────────────────────────────────────────────
+    # EDGE COMPUTING  (Issue #62)
+    # ─────────────────────────────────────────────────────────
+    "edge_computing": [
+        {
+            "id": "edge_use_case",
+            "question": "What is the primary edge computing use case?",
+            "type": "single_choice",
+            "options": [
+                "Ultra-low-latency at 5G / telco edge (Azure Edge Zones)",
+                "Metro-area proximity (Azure Extended Zones)",
+                "CDN edge functions (Front Door Rules Engine)",
+                "On-premises edge appliance (Azure Stack Edge)",
+                "Not applicable",
+            ],
+            "condition": ["Wavelength", "Local Zones", "Lambda@Edge", "CloudFront Functions", "Outposts"],
+            "impact": "Selects the appropriate Azure edge compute target and adds related IaC resources",
+            "default": "Not applicable",
+        },
+    ],
+
+    # ─────────────────────────────────────────────────────────
+    # DATA GOVERNANCE  (Issue #64)
+    # ─────────────────────────────────────────────────────────
+    "data_governance": [
+        {
+            "id": "gov_data_catalog",
+            "question": "Do you need a centralized data catalog and governance?",
+            "type": "single_choice",
+            "options": [
+                "Yes — Microsoft Purview (full data governance)",
+                "Basic metadata only (Azure Data Catalog)",
+                "No — data governance not needed now",
+            ],
+            "condition": ["DataZone", "Lake Formation", "Glue", "Glue DataBrew"],
+            "impact": "Adds Microsoft Purview resources for data catalog, lineage, and governance",
+            "default": "No — data governance not needed now",
+        },
+        {
+            "id": "gov_clean_rooms",
+            "question": "Do you need privacy-preserving data collaboration (clean rooms)?",
+            "type": "single_choice",
+            "options": [
+                "Yes — Azure Confidential Clean Rooms",
+                "No",
+            ],
+            "condition": ["Clean Rooms"],
+            "impact": "Adds Azure Confidential Clean Rooms with confidential computing guarantees",
+            "default": "No",
+        },
+    ],
+
+    # ─────────────────────────────────────────────────────────
+    # ZERO TRUST & SASE SECURITY  (Issue #67)
+    # ─────────────────────────────────────────────────────────
+    "zero_trust": [
+        {
+            "id": "zt_network_access",
+            "question": "How should users access internal applications?",
+            "type": "single_choice",
+            "options": [
+                "Traditional VPN (Azure VPN Gateway)",
+                "Zero Trust Network Access (Microsoft Entra Private Access)",
+                "Conditional Access + App Proxy",
+                "Not applicable — public apps only",
+            ],
+            "condition": ["Verified Access", "Client VPN", "VPN"],
+            "impact": "Replaces VPN with Entra Private Access for zero-trust identity-based access to apps",
+            "default": "Traditional VPN (Azure VPN Gateway)",
+        },
+        {
+            "id": "zt_siem",
+            "question": "Preferred SIEM / security analytics solution?",
+            "type": "single_choice",
+            "options": [
+                "Microsoft Sentinel (full SIEM + SOAR)",
+                "Microsoft Sentinel (SIEM only, no automation)",
+                "Third-party SIEM (Splunk, Datadog, etc.)",
+                "No SIEM needed",
+            ],
+            "condition": ["Security Hub", "Security Lake", "Detective", "GuardDuty"],
+            "impact": "Provisions Microsoft Sentinel workspace with data connectors and analytics rules",
+            "default": "Microsoft Sentinel (full SIEM + SOAR)",
+        },
+        {
+            "id": "zt_firewall_tier",
+            "question": "Azure Firewall tier?",
+            "type": "single_choice",
+            "options": [
+                "Standard (L3-L7 filtering, threat intelligence)",
+                "Premium (adds IDPS, TLS inspection, URL filtering)",
+                "Basic (simplified, cost-optimized)",
+                "No centralized firewall",
+            ],
+            "condition": ["Network Firewall", "Firewall Manager", "WAF"],
+            "impact": "Selects Azure Firewall SKU; Premium required for intrusion detection and TLS inspection",
+            "default": "Standard (L3-L7 filtering, threat intelligence)",
+        },
+    ],
 }
 
 
@@ -622,6 +804,44 @@ _NORMALISE: dict[str, str] = {
     "Amazon Keyspaces": "Keyspaces",
     "Amazon Personalize": "Personalize",
     "Amazon Forecast": "Forecast",
+    # ── Hybrid / Multi-cloud ──
+    "Amazon EKS Anywhere": "EKS Anywhere",
+    "AWS Systems Manager": "SSM",
+    "AWS SSM": "SSM",
+    "Amazon RDS on Outposts": "RDS on Outposts",
+    # ── Generative AI ──
+    "Amazon Bedrock Agents": "Bedrock Agents",
+    "Amazon Bedrock Knowledge Bases": "Bedrock Knowledge Bases",
+    "Amazon Q Business": "Q Business",
+    "Amazon Q Developer": "Q Developer",
+    "Amazon SageMaker Canvas": "SageMaker Canvas",
+    "Amazon Bedrock Guardrails": "Bedrock Guardrails",
+    "Amazon PartyRock": "PartyRock",
+    "Amazon CodeGuru": "CodeGuru",
+    # ── Edge Computing ──
+    "AWS Wavelength": "Wavelength",
+    "AWS Local Zones": "Local Zones",
+    "CloudFront Functions": "CloudFront Functions",
+    "Lambda@Edge": "Lambda@Edge",
+    "AWS Elastic Disaster Recovery": "Elastic Disaster Recovery",
+    # ── Observability ──
+    "Amazon Managed Grafana": "Managed Grafana",
+    "Amazon Managed Service for Prometheus": "Managed Prometheus",
+    "AWS Distro for OpenTelemetry": "Distro for OpenTelemetry",
+    "Amazon CloudWatch Container Insights": "CloudWatch Container Insights",
+    # ── Data Governance ──
+    "Amazon DataZone": "DataZone",
+    "AWS Clean Rooms": "Clean Rooms",
+    "Amazon AppFlow": "AppFlow",
+    "AWS Audit Manager": "Audit Manager",
+    "AWS Glue DataBrew": "Glue DataBrew",
+    # ── Zero Trust / SASE ──
+    "AWS Verified Access": "Verified Access",
+    "Amazon Security Lake": "Security Lake",
+    "Amazon Detective": "Detective",
+    "AWS Firewall Manager": "Firewall Manager",
+    "AWS Network Firewall": "Network Firewall",
+    "Amazon VPC Lattice": "VPC Lattice",
 }
 
 
@@ -1275,7 +1495,9 @@ def _apply_monitoring(
     iac["monitoring_depth"] = depth
     iac["cicd_platform"] = cicd
 
-    if "Full observability" in depth:
+    if "None" in depth or "no monitoring" in depth.lower():
+        pass  # No monitoring resources added
+    elif "Full observability" in depth:
         iac["managed_grafana"] = True
         iac["log_analytics_workspace"] = True
         iac["application_insights"] = True

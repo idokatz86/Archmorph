@@ -158,7 +158,19 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 - **DELETE endpoint** — remove icon packs and their icons via `DELETE /api/icon-packs/{pack_id}`
 - **Cache** — TTL-based asset cache (1-hour, 200 entries) for transformed library outputs
 
-### 3.15 Security Hardening (v2.6)
+### 3.25 HLD Document Export (v2.11.1)
+- **Multi-format export** — download HLD documents as Word (.docx), PDF, or PowerPoint (.pptx)
+- **Branded formatting** — consistent Archmorph branding with green (#22C55E) accent color across all formats
+- **Word export:** python-docx with styled headings, tables, bullet lists, and section numbering
+- **PDF export:** fpdf2 with custom ArchmorphPDF class, Unicode sanitization (Latin-1 safe), TOC, branded header/footer
+- **PowerPoint export:** python-pptx with slide-per-section layout, title slides, content slides with bullet points
+- **Diagram embedding** — optional base64-encoded architecture diagram embedded in exports
+- **Section coverage:** Executive Summary, Architecture Overview, Services, Networking, Security, Data, CAF, FinOps, WAF Assessment, Migration, Risks, Next Steps
+- **Filename convention:** `archmorph-{project-title}.{ext}` with slug-safe naming
+- **Base64 response:** Export returned as base64-encoded content with filename and MIME type for frontend download
+- **27 unit tests** covering all 3 export formats, edge cases, dispatcher, and diagram inclusion
+
+### 3.15 Security Hardening (v2.6 + v2.11.1)
 - **Security headers middleware** — X-Content-Type-Options, X-Frame-Options, Referrer-Policy, HSTS, Permissions-Policy
 - **Timing-safe key comparison** — `secrets.compare_digest()` for API key and admin key verification
 - **No default admin secret** — `ARCHMORPH_ADMIN_KEY` must be set via environment variable (503 if unset)
@@ -168,6 +180,10 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 - **Error sanitization** — internal exception details no longer leaked to API responses
 - **Dependabot** — automated dependency updates for pip, npm, Docker, GitHub Actions, and Terraform
 - **CI hardening** — `npm audit` failures no longer silently ignored
+- **SAST scanning** (v2.11.1) — Semgrep static analysis with OWASP Top 10, security-audit, and Python rulesets
+- **Secret detection** (v2.11.1) — Gitleaks full-history scanning on every push/PR
+- **Container scanning** (v2.11.1) — Trivy vulnerability scan (CRITICAL/HIGH) on every deployment
+- **SBOM generation** (v2.11.1) — CycloneDX Bill of Materials for Python and npm dependencies (90-day retention)
 
 ### 3.16 User Authentication & Quotas (v2.9)
 - **Azure AD B2C** — Enterprise SSO with JWT validation, JWKS caching, user persistence
@@ -427,14 +443,14 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | Diagram Export | In-process engine (Excalidraw, Draw.io, Visio with 36 Azure stencils + 405-icon registry fallback) |
 | Pricing | Azure Retail Prices API with 30-day disk cache (134 service entries, 56 aliases, targeted queries) |
 | IaC | Terraform (infra), Bicep support in-app |
-| Testing | pytest (backend, 719 tests in 29 files), E2E flow test (65 steps across 5 diagrams), Playwright (35+ browser tests), integration tests |
+| Testing | pytest (backend, 747 tests in 30 files), E2E flow test (65 steps across 5 diagrams), Playwright (35+ browser tests), integration tests |
 | Best Practices | In-process WAF linter (5 pillars, 15+ rules, quick wins, pillar scores) |
 | Cost Optimizer | In-process engine (7 categories, RI/Spot/tiering/auto-shutdown recommendations) |
 | Feedback | In-process NPS/feature/bug collection (30-day trend, admin dashboard) |
 | HLD Generator | In-process GPT-4o engine (60+ Azure doc links, 13-section HLD, markdown converter) |
 | IaC Chat | In-process GPT-4o assistant (session management, code modification, context-aware) |
 | Icon Registry | In-process engine (405 icons, Draw.io/Excalidraw/Visio library builders, SVG sanitization, thread-safe, persistent) |
-| Security | JWT admin auth (HS256, 1h TTL), security headers, timing-safe auth, Dependabot, defusedxml, ZIP slip protection |
+| Security | JWT admin auth (HS256, 1h TTL), security headers, timing-safe auth, Dependabot, defusedxml, ZIP slip protection, Semgrep SAST, Gitleaks, Trivy, CycloneDX SBOM |
 | NL Service Builder | In-process GPT-4o engine (fuzzy Azure service matching, alias support, confidence scoring) |
 | Smart Question Dedup | In-process engine (implicit answer detection, smart defaults from analysis) |
 | E2E Monitoring | GitHub Actions workflow (Azure Monitor + App Insights health checks, auto GitHub issue creation) |
@@ -445,7 +461,7 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | Application Analytics | Persistent metrics via Azure Blob Storage (background flush, crash-safe shutdown, event tracking, sessions, funnels) |
 | Azure Monitoring | Application Insights + Azure Monitor (alerts, workbooks, Log Analytics queries) |
 
-### 8.2 API Endpoints (81 total)
+### 8.2 API Endpoints (82 total)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
@@ -513,6 +529,7 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | `/api/admin/metrics/recent` | GET | Admin recent events |
 | `/api/diagrams/{id}/generate-hld` | POST | Generate AI-powered High-Level Design document |
 | `/api/diagrams/{id}/hld` | GET | Retrieve cached HLD document |
+| `/api/diagrams/{id}/export-hld` | POST | Export HLD as DOCX, PDF, or PPTX (v2.11.1) |
 | `/api/diagrams/{id}/iac-chat` | POST | Send message to IaC chat assistant |
 | `/api/diagrams/{id}/iac-chat` | GET | Get IaC chat session history |
 | `/api/diagrams/{id}/iac-chat` | DELETE | Clear IaC chat session |
@@ -559,6 +576,8 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | **v2.8 — UX & Insights** | Done | Sample diagrams for onboarding (4 pre-built AWS/GCP examples), WAF Best Practices Linter (5 pillars, 15+ rules), Cost Optimization recommendations (7 categories, RI/Spot/tiering), NPS & Feedback collection (surveys, feature ratings, bug reports), share links (24h TTL), question progress bar, Feedback Widget UI, 438 unit tests |
 | **v2.9 — Enterprise Security** | Done | Azure AD B2C authentication, GitHub OAuth, User tiers (Free/Pro/Enterprise), Usage quotas, Lead capture, Migration runbook generator (7 phases), Architecture versioning with restore, Terraform plan preview, Application analytics, Azure Monitor alerts & workbook |
 | **v2.10 — AI Assistant & Roadmap** | Done | GPT-4o AI Assistant (natural language, context-aware), Product Roadmap UI (timeline from Day 0), Feature request system (GitHub integration), Bug report system (GitHub integration), Buy Me a Coffee support link |
+| **v2.11.0 — Admin & Analytics** | Done | JWT admin auth (HS256, 1h TTL, in-memory revocation), persistent analytics (Azure Blob Storage with background flush), conversion funnel, security headers middleware |
+| **v2.11.1 — UX Polish & Document Export** | Done | HLD export (DOCX/PDF/PPTX), 15 UX improvements, CI/CD security (Semgrep SAST, Gitleaks secret detection, Trivy container scan, CycloneDX SBOM), Python 3.11+3.12 matrix testing, 747 tests in 30 files across 82 endpoints |
 | **v3.0 — Enterprise** | Planned | Visio import, API keys, import blocks for existing resources, SSO, RBAC |
 | **v4.0 — Advanced** | Planned | Pulumi output, Azure Migrate integration, multi-diagram projects |
 

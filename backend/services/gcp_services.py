@@ -175,4 +175,54 @@ GCP_SERVICES = [
     {"id": "gcp-workspace", "name": "Google Workspace", "fullName": "Google Workspace", "category": "Business", "description": "Collaboration and productivity apps", "icon": "productivity"},
     {"id": "gcp-maps-platform", "name": "Maps Platform", "fullName": "Google Maps Platform", "category": "Business", "description": "Location APIs and mapping services", "icon": "maps"},
     {"id": "gcp-firebase", "name": "Firebase", "fullName": "Google Firebase", "category": "Business", "description": "App development platform for web and mobile", "icon": "mobile"},
+
+    # ═══════════════════════════════════════════════════════════
+    # HYBRID & MULTI-CLOUD  (Issue #60)
+    # ═══════════════════════════════════════════════════════════
+    {"id": "gcp-anthos-multicloud", "name": "Anthos (multi-cloud)", "fullName": "Anthos Multi-Cloud", "category": "Hybrid", "description": "Manage Kubernetes across GCP, AWS, Azure, and on-prem", "icon": "kubernetes"},
+    {"id": "gcp-anthos-vms", "name": "Anthos for VMs", "fullName": "Anthos for Virtual Machines", "category": "Hybrid", "description": "Bring VM workloads under Anthos management", "icon": "hybrid"},
+    {"id": "gcp-alloydb-omni", "name": "AlloyDB Omni", "fullName": "AlloyDB Omni", "category": "Hybrid", "description": "Run AlloyDB anywhere — on-prem, edge, or other clouds", "icon": "database"},
+    {"id": "gcp-gdc", "name": "Google Distributed Cloud", "fullName": "Google Distributed Cloud", "category": "Hybrid", "description": "Google Cloud infrastructure on customer premises", "icon": "hybrid"},
+
+    # ═══════════════════════════════════════════════════════════
+    # GENERATIVE AI  (Issue #61)
+    # ═══════════════════════════════════════════════════════════
+    {"id": "gcp-vertex-agents", "name": "Vertex AI Agents", "fullName": "Vertex AI Agent Builder", "category": "AI/ML", "description": "Build and deploy autonomous AI agents", "icon": "bot"},
+    {"id": "gcp-vertex-search", "name": "Vertex AI Search", "fullName": "Vertex AI Search", "category": "AI/ML", "description": "Enterprise search with RAG and grounding", "icon": "search"},
+    {"id": "gcp-gemini-workspace", "name": "Gemini for Workspace", "fullName": "Gemini for Google Workspace", "category": "AI/ML", "description": "AI assistant for Google Workspace apps", "icon": "ai"},
+    {"id": "gcp-vertex-automl", "name": "Vertex AI AutoML", "fullName": "Vertex AI AutoML", "category": "AI/ML", "description": "No-code ML model training", "icon": "ai"},
+    {"id": "gcp-vertex-safety", "name": "Vertex AI Safety Filters", "fullName": "Vertex AI Safety Filters", "category": "AI/ML", "description": "Content safety and responsible AI guardrails", "icon": "shield"},
+    {"id": "gcp-vertex-studio", "name": "Vertex AI Studio", "fullName": "Vertex AI Studio", "category": "AI/ML", "description": "Rapid prototyping with generative AI models", "icon": "ai"},
+    {"id": "gcp-gemini-code-assist", "name": "Gemini Code Assist", "fullName": "Gemini Code Assist", "category": "AI/ML", "description": "AI-powered code completion and review", "icon": "code"},
+
+    # ═══════════════════════════════════════════════════════════
+    # EDGE COMPUTING  (Issue #62)
+    # ═══════════════════════════════════════════════════════════
+    {"id": "gcp-distributed-cloud-edge", "name": "Distributed Cloud Edge", "fullName": "Google Distributed Cloud Edge", "category": "Edge", "description": "Edge compute at 5G and telco network edge", "icon": "edge"},
+    {"id": "gcp-cdn-edge", "name": "Cloud CDN (edge functions)", "fullName": "Cloud CDN Edge Functions", "category": "Edge", "description": "Lightweight edge compute at CDN POP locations", "icon": "cdn"},
+
+    # ═══════════════════════════════════════════════════════════
+    # MANAGED OBSERVABILITY  (Issue #63)
+    # ═══════════════════════════════════════════════════════════
+    {"id": "gcp-managed-prometheus", "name": "Managed Prometheus", "fullName": "Google Cloud Managed Service for Prometheus", "category": "Observability", "description": "Fully managed Prometheus-compatible monitoring", "icon": "metrics"},
+    {"id": "gcp-gke-monitoring", "name": "GKE Monitoring", "fullName": "GKE Monitoring", "category": "Observability", "description": "GKE-specific monitoring and logging", "icon": "container"},
+
+    # ═══════════════════════════════════════════════════════════
+    # DATA GOVERNANCE  (Issue #64)
+    # ═══════════════════════════════════════════════════════════
+    {"id": "gcp-dataplex", "name": "Dataplex", "fullName": "Google Cloud Dataplex", "category": "Data Governance", "description": "Intelligent data fabric for data mesh governance", "icon": "governance"},
+    {"id": "gcp-bq-clean-rooms", "name": "BigQuery Clean Rooms", "fullName": "BigQuery Clean Rooms", "category": "Data Governance", "description": "Privacy-safe collaborative analytics", "icon": "privacy"},
+    {"id": "gcp-app-integration", "name": "Application Integration", "fullName": "Google Application Integration", "category": "Data Governance", "description": "No-code API and SaaS integration platform", "icon": "integration"},
+    {"id": "gcp-assured-workloads", "name": "Assured Workloads", "fullName": "Google Assured Workloads", "category": "Data Governance", "description": "Compliance and sovereignty controls", "icon": "compliance"},
+    {"id": "gcp-dataprep", "name": "Dataprep", "fullName": "Dataprep by Trifacta", "category": "Data Governance", "description": "Visual data wrangling and cleansing", "icon": "data"},
+
+    # ═══════════════════════════════════════════════════════════
+    # ZERO TRUST & SASE  (Issue #67)
+    # ═══════════════════════════════════════════════════════════
+    {"id": "gcp-beyondcorp-enterprise", "name": "BeyondCorp Enterprise", "fullName": "Google BeyondCorp Enterprise", "category": "Zero Trust", "description": "Zero trust access to apps without VPN", "icon": "shield"},
+    {"id": "gcp-chronicle-siem", "name": "Chronicle SIEM", "fullName": "Google Chronicle SIEM", "category": "Zero Trust", "description": "Cloud-native SIEM with petabyte-scale security analytics", "icon": "shield"},
+    {"id": "gcp-chronicle-investigation", "name": "Chronicle Investigation", "fullName": "Google Chronicle Investigation", "category": "Zero Trust", "description": "Interactive security investigation workflows", "icon": "shield"},
+    {"id": "gcp-firewall-policies", "name": "Cloud Firewall Policies", "fullName": "Google Cloud Firewall Policies", "category": "Zero Trust", "description": "Hierarchical firewall policy management", "icon": "firewall"},
+    {"id": "gcp-cloud-ids", "name": "Cloud IDS", "fullName": "Google Cloud IDS", "category": "Zero Trust", "description": "Network-based intrusion detection", "icon": "shield"},
+    {"id": "gcp-private-service-connect", "name": "Private Service Connect", "fullName": "Google Private Service Connect", "category": "Zero Trust", "description": "Private and secure service-to-service networking", "icon": "network"},
 ]

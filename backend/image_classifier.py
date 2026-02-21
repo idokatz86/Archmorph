@@ -126,12 +126,12 @@ def classify_image(image_bytes: bytes, content_type: str = "image/png") -> Dict[
         result = json.loads(json_text.strip())
     except json.JSONDecodeError as exc:
         logger.error("Failed to parse classification JSON: %s\nRaw: %s", exc, raw_text)
-        # On parse failure, allow through (fail-open) to avoid blocking valid diagrams
+        # On parse failure, reject (fail-closed) to avoid processing non-diagrams
         return {
-            "is_architecture_diagram": True,
-            "confidence": 0.5,
+            "is_architecture_diagram": False,
+            "confidence": 0.0,
             "image_type": "unknown",
-            "reason": "Classification parse error — allowing through for analysis",
+            "reason": "Classification parse error — rejecting for safety",
         }
 
     # Normalize result

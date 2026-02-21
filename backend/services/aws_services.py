@@ -207,4 +207,57 @@ AWS_SERVICES = [
     {"id": "aws-pinpoint", "name": "Pinpoint", "fullName": "Amazon Pinpoint", "category": "Business", "description": "Multichannel marketing communications", "icon": "marketing"},
     {"id": "aws-workspaces", "name": "WorkSpaces", "fullName": "Amazon WorkSpaces", "category": "Business", "description": "Virtual desktops in the cloud", "icon": "desktop"},
     {"id": "aws-appstream", "name": "AppStream 2.0", "fullName": "Amazon AppStream 2.0", "category": "Business", "description": "Stream desktop applications", "icon": "streaming"},
+
+    # ═══════════════════════════════════════════════════════════
+    # HYBRID & MULTI-CLOUD  (Issue #60)
+    # ═══════════════════════════════════════════════════════════
+    {"id": "aws-eks-anywhere", "name": "EKS Anywhere", "fullName": "Amazon EKS Anywhere", "category": "Hybrid", "description": "Run EKS on your own infrastructure", "icon": "kubernetes"},
+    {"id": "aws-ssm-hybrid", "name": "SSM (hybrid nodes)", "fullName": "AWS Systems Manager Hybrid Activations", "category": "Hybrid", "description": "Manage on-premises servers via Systems Manager", "icon": "hybrid"},
+    {"id": "aws-rds-outposts", "name": "RDS on Outposts", "fullName": "Amazon RDS on Outposts", "category": "Hybrid", "description": "Managed relational databases on AWS Outposts", "icon": "database"},
+
+    # ═══════════════════════════════════════════════════════════
+    # GENERATIVE AI  (Issue #61)
+    # ═══════════════════════════════════════════════════════════
+    {"id": "aws-bedrock-agents", "name": "Bedrock Agents", "fullName": "Amazon Bedrock Agents", "category": "AI/ML", "description": "Build autonomous AI agents with tool use", "icon": "bot"},
+    {"id": "aws-bedrock-kb", "name": "Bedrock Knowledge Bases", "fullName": "Amazon Bedrock Knowledge Bases", "category": "AI/ML", "description": "RAG with managed vector stores", "icon": "ai"},
+    {"id": "aws-q-business", "name": "Q Business", "fullName": "Amazon Q Business", "category": "AI/ML", "description": "Enterprise AI assistant grounded in organization data", "icon": "ai"},
+    {"id": "aws-sagemaker-canvas", "name": "SageMaker Canvas", "fullName": "Amazon SageMaker Canvas", "category": "AI/ML", "description": "No-code ML model building", "icon": "ai"},
+    {"id": "aws-bedrock-guardrails", "name": "Bedrock Guardrails", "fullName": "Amazon Bedrock Guardrails", "category": "AI/ML", "description": "Content filtering and responsible AI guardrails", "icon": "shield"},
+    {"id": "aws-partyrock", "name": "PartyRock", "fullName": "Amazon PartyRock", "category": "AI/ML", "description": "Low-code generative AI app builder", "icon": "ai"},
+    {"id": "aws-codeguru", "name": "CodeGuru", "fullName": "Amazon CodeGuru", "category": "AI/ML", "description": "AI-powered code review and profiling", "icon": "code"},
+
+    # ═══════════════════════════════════════════════════════════
+    # EDGE COMPUTING  (Issue #62)
+    # ═══════════════════════════════════════════════════════════
+    {"id": "aws-local-zones", "name": "Local Zones", "fullName": "AWS Local Zones", "category": "Edge", "description": "Run latency-sensitive apps closer to end users", "icon": "edge"},
+    {"id": "aws-lambda-edge", "name": "Lambda@Edge", "fullName": "Lambda@Edge", "category": "Edge", "description": "Run Lambda functions at CloudFront edge locations", "icon": "function"},
+    {"id": "aws-cloudfront-functions", "name": "CloudFront Functions", "fullName": "CloudFront Functions", "category": "Edge", "description": "Lightweight edge compute for HTTP manipulation", "icon": "cdn"},
+    {"id": "aws-elastic-dr", "name": "Elastic Disaster Recovery", "fullName": "AWS Elastic Disaster Recovery", "category": "Edge", "description": "Scalable cloud-native disaster recovery", "icon": "recovery"},
+
+    # ═══════════════════════════════════════════════════════════
+    # MANAGED OBSERVABILITY  (Issue #63)
+    # ═══════════════════════════════════════════════════════════
+    {"id": "aws-managed-grafana", "name": "Managed Grafana", "fullName": "Amazon Managed Grafana", "category": "Observability", "description": "Fully managed Grafana for operational dashboards", "icon": "dashboard"},
+    {"id": "aws-managed-prometheus", "name": "Managed Prometheus", "fullName": "Amazon Managed Service for Prometheus", "category": "Observability", "description": "Prometheus-compatible monitoring service", "icon": "metrics"},
+    {"id": "aws-otel", "name": "Distro for OpenTelemetry", "fullName": "AWS Distro for OpenTelemetry", "category": "Observability", "description": "OpenTelemetry distribution for AWS", "icon": "trace"},
+    {"id": "aws-cw-container-insights", "name": "CloudWatch Container Insights", "fullName": "Amazon CloudWatch Container Insights", "category": "Observability", "description": "Monitoring for containerized applications", "icon": "container"},
+
+    # ═══════════════════════════════════════════════════════════
+    # DATA GOVERNANCE  (Issue #64)
+    # ═══════════════════════════════════════════════════════════
+    {"id": "aws-datazone", "name": "DataZone", "fullName": "Amazon DataZone", "category": "Data Governance", "description": "Data management service for data mesh architectures", "icon": "governance"},
+    {"id": "aws-clean-rooms", "name": "Clean Rooms", "fullName": "AWS Clean Rooms", "category": "Data Governance", "description": "Privacy-safe collaborative analytics", "icon": "privacy"},
+    {"id": "aws-appflow", "name": "AppFlow", "fullName": "Amazon AppFlow", "category": "Data Governance", "description": "SaaS data integration with no code", "icon": "integration"},
+    {"id": "aws-audit-manager", "name": "Audit Manager", "fullName": "AWS Audit Manager", "category": "Data Governance", "description": "Continuously audit AWS usage for compliance", "icon": "compliance"},
+    {"id": "aws-glue-databrew", "name": "Glue DataBrew", "fullName": "AWS Glue DataBrew", "category": "Data Governance", "description": "Visual data preparation tool", "icon": "data"},
+
+    # ═══════════════════════════════════════════════════════════
+    # ZERO TRUST & SASE  (Issue #67)
+    # ═══════════════════════════════════════════════════════════
+    {"id": "aws-verified-access", "name": "Verified Access", "fullName": "AWS Verified Access", "category": "Zero Trust", "description": "Zero trust access to corporate applications", "icon": "shield"},
+    {"id": "aws-security-lake", "name": "Security Lake", "fullName": "Amazon Security Lake", "category": "Zero Trust", "description": "Centralized security data lake (OCSF)", "icon": "shield"},
+    {"id": "aws-detective", "name": "Detective", "fullName": "Amazon Detective", "category": "Zero Trust", "description": "Investigate security findings", "icon": "shield"},
+    {"id": "aws-firewall-manager", "name": "Firewall Manager", "fullName": "AWS Firewall Manager", "category": "Zero Trust", "description": "Central security management across accounts", "icon": "firewall"},
+    {"id": "aws-network-firewall-idps", "name": "Network Firewall (IDPS)", "fullName": "AWS Network Firewall (IDPS)", "category": "Zero Trust", "description": "Intrusion detection and prevention", "icon": "firewall"},
+    {"id": "aws-vpc-lattice", "name": "VPC Lattice", "fullName": "Amazon VPC Lattice", "category": "Zero Trust", "description": "Application-layer service networking", "icon": "network"},
 ]

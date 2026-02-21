@@ -125,17 +125,17 @@ class TestHealth:
 
 
 # ====================================================================
-# 2. Projects (Stubs)
+# 2. Projects (Removed — stub endpoints deleted per issue #79)
 # ====================================================================
 
 class TestProjects:
-    def test_create_project(self, client):
+    def test_create_project_not_found(self, client):
         resp = client.post("/api/projects", json={"name": "Test"})
-        assert resp.status_code == 501
+        assert resp.status_code == 404
 
-    def test_get_project(self, client):
+    def test_get_project_not_found(self, client):
         resp = client.get("/api/projects/proj-001")
-        assert resp.status_code == 501
+        assert resp.status_code == 404
 
 
 # ====================================================================
@@ -597,30 +597,40 @@ class TestMetrics:
 
 class TestServicesCatalog:
     def test_list_all_services(self, client):
-        resp = client.get("/api/services")
+        resp = client.get("/api/services?page_size=200")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["total"] > 0
         assert data["total"] == len(AWS_SERVICES) + len(AZURE_SERVICES) + len(GCP_SERVICES)
+        assert data["page"] == 1
+        assert "total_pages" in data
 
     def test_filter_by_provider(self, client):
-        resp = client.get("/api/services?provider=aws")
+        resp = client.get("/api/services?provider=aws&page_size=200")
         data = resp.json()
         assert data["total"] == len(AWS_SERVICES)
         for s in data["services"]:
             assert s["provider"] == "aws"
 
     def test_filter_by_category(self, client):
-        resp = client.get("/api/services?category=compute")
+        resp = client.get("/api/services?category=compute&page_size=200")
         data = resp.json()
         assert data["total"] > 0
         for s in data["services"]:
             assert s["category"].lower() == "compute"
 
     def test_search_services(self, client):
-        resp = client.get("/api/services?search=lambda")
+        resp = client.get("/api/services?search=lambda&page_size=200")
         data = resp.json()
         assert data["total"] > 0
+
+    def test_pagination(self, client):
+        """Test that pagination returns correct page metadata."""
+        resp = client.get("/api/services?page=1&page_size=10")
+        data = resp.json()
+        assert len(data["services"]) == 10
+        assert data["page"] == 1
+        assert data["page_size"] == 10
+        assert data["total_pages"] > 1
 
     def test_providers_endpoint(self, client):
         resp = client.get("/api/services/providers")
@@ -724,3 +734,73 @@ class TestServiceDataQuality:
             assert "aws" in m
             assert "azure" in m
             assert "confidence" in m
+
+    def test_new_mapping_categories_present(self):
+        """Issues #60-#67: new mapping categories should exist."""
+        categories = {m.get("category") for m in CROSS_CLOUD_MAPPINGS}
+        expected = [
+            "Hybrid / Multi-Cloud", "Generative AI", "Edge Computing",
+            "Observability", "Data Governance", "Zero Trust / SASE",
+        ]
+        for cat in expected:
+            assert cat in categories, f"Missing new category {cat}"
+
+    def test_all_mappings_have_required_fields(self):
+        """Every mapping (not just first 10) has required fields."""
+        for m in CROSS_CLOUD_MAPPINGS:
+            assert "aws" in m, f"Mapping missing 'aws': {m}"
+            assert "azure" in m, f"Mapping missing 'azure': {m}"
+            assert "confidence" in m, f"Mapping missing 'confidence': {m}"
+            assert 0 < m["confidence"] <= 1.0
+
+    def test_all_services_have_id(self):
+        """Every service in all 3 catalogs has a unique id."""
+        for catalog_name, catalog in [("AWS", AWS_SERVICES), ("Azure", AZURE_SERVICES), ("GCP", GCP_SERVICES)]:
+            ids = [s["id"] for s in catalog]
+            assert len(ids) == len(set(ids)), f"Duplicate IDs found in {catalog_name}"
+
+
+# ====================================================================
+# 15. Migration Assessment Endpoint
+# ====================================================================
+
+class TestMigrationAssessment:
+    def test_assessment_without_analysis_returns_404(self, client, clean_session):
+        resp = client.get("/api/diagrams/no-such-id/migration-assessment")
+        assert resp.status_code == 404
+
+    def test_assessment_with_analysis(self, client, analyzed_diagram):
+        resp = client.get(f"/api/diagrams/{analyzed_diagram}/migration-assessment")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "overall_score" in data
+        assert "risk_level" in data
+        assert "services" in data
+        assert data["total_services"] > 0
+
+    def test_assessment_caches_in_session(self, client, analyzed_diagram):
+        client.get(f"/api/diagrams/{analyzed_diagram}/migration-assessment")
+        # Second call should also work (cached)
+        resp = client.get(f"/api/diagrams/{analyzed_diagram}/migration-assessment")
+        assert resp.status_code == 200
+
+
+# ====================================================================
+# 16. Cost Comparison Endpoint
+# ====================================================================
+
+class TestCostComparison:
+    def test_comparison_without_analysis_returns_404(self, client, clean_session):
+        resp = client.get("/api/diagrams/no-such-id/cost-comparison")
+        assert resp.status_code == 404
+
+    def test_comparison_with_analysis(self, client, analyzed_diagram):
+        resp = client.get(f"/api/diagrams/{analyzed_diagram}/cost-comparison")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "providers" in data
+        assert "aws" in data["providers"]
+        assert "azure" in data["providers"]
+        assert "gcp" in data["providers"]
+        assert "services" in data
+        assert data["total_services"] > 0

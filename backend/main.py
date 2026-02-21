@@ -1,5 +1,5 @@
 """
-Archmorph Backend API v2.11.0
+Archmorph Backend API v2.11.1
 Cloud Architecture Translator to Azure — Full Services Catalog
 Enterprise-ready with Authentication, Analytics, AI Assistant, Roadmap, and Observability
 """
@@ -67,6 +67,34 @@ from audit_logging import (  # noqa: E402
 from observability import (  # noqa: E402
     get_metrics,
 )
+from version import __version__  # noqa: E402
+from service_builder import deduplicate_questions, get_smart_defaults_from_analysis, add_services_from_text  # noqa: E402
+from services.azure_pricing import estimate_services_cost  # noqa: E402
+from hld_export import export_hld, SUPPORTED_FORMATS  # noqa: E402
+from best_practices import analyze_architecture, get_quick_wins  # noqa: E402
+from cost_optimizer import analyze_cost_optimizations  # noqa: E402
+from feedback import (  # noqa: E402
+    submit_nps, submit_feature_feedback,
+    submit_bug_report as submit_feedback_bug_report,
+    get_feedback_summary, get_nps_trend,
+)
+from auth import (  # noqa: E402
+    get_auth_config, validate_azure_ad_b2c_token, exchange_github_code,
+    generate_session_token, get_user_from_session, get_anonymous_user,
+    capture_lead, get_leads_summary,
+)
+from versioning import (  # noqa: E402
+    create_version, get_version_history, get_version,
+    restore_version, compare_versions,
+)
+from migration_runbook import generate_migration_runbook, MigrationRunbook, render_runbook_markdown  # noqa: E402
+from migration_assessment import assess_migration_complexity  # noqa: E402
+from cost_comparison import generate_cost_comparison  # noqa: E402
+from terraform_preview import preview_terraform_plan, validate_terraform_syntax  # noqa: E402
+from analytics import (  # noqa: E402
+    get_analytics_summary, get_performance_metrics,
+    get_feature_metrics, get_conversion_funnel, track_request_latency,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +139,7 @@ async def verify_api_key(api_key: Optional[str] = Security(API_KEY_HEADER)):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup/shutdown lifecycle manager."""
-    logger.info("Starting Archmorph API v2.11.0 — production mode")
+    logger.info("Starting Archmorph API %s — production mode", __version__)
     start_scheduler()
 
     # Auto-load built-in icon packs from samples/
@@ -135,7 +163,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Archmorph API",
     description="AI-powered Cloud Architecture Translator to Azure",
-    version="2.11.1",
+    version=__version__,
     lifespan=lifespan,
 )
 
@@ -163,8 +191,9 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["X-XSS-Protection"] = "0"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-        if request.url.scheme == "https":
-            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        response.headers["Content-Security-Policy"] = "default-src 'self'; frame-ancestors 'none'"
+        # Always set HSTS — behind Container Apps reverse proxy, scheme may report as HTTP
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         return response
 
 
@@ -233,7 +262,7 @@ async def health():
 
     return {
         "status": "healthy",
-        "version": "2.11.1",
+        "version": __version__,
         "environment": ENVIRONMENT,
         "mode": "production",
         "checks": checks,
@@ -246,19 +275,6 @@ async def health():
         "last_service_update": update_status.get("last_check"),
         "scheduler_running": update_status.get("scheduler_running", False),
     }
-
-
-# ─────────────────────────────────────────────────────────────
-# Projects
-# ─────────────────────────────────────────────────────────────
-@app.post("/api/projects")
-async def create_project(project: Project):
-    raise HTTPException(501, "Project management is not yet implemented.")
-
-
-@app.get("/api/projects/{project_id}")
-async def get_project(project_id: str):
-    raise HTTPException(501, "Project management is not yet implemented.")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -350,20 +366,13 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
     result["image_classification"] = classification
 
     # Store analysis result for guided questions and diagram export
+    if len(SESSION_STORE) >= SESSION_STORE.maxsize:
+        logger.warning("Session store at capacity (%d/%d) — oldest sessions will be evicted",
+                       len(SESSION_STORE), SESSION_STORE.maxsize)
     SESSION_STORE[diagram_id] = result
     record_event("analyses_run", {"diagram_id": diagram_id, "services": result["services_detected"]})
     record_funnel_step(diagram_id, "analyze")
     return result
-
-
-@app.get("/api/diagrams/{diagram_id}/mappings")
-async def get_mappings(diagram_id: str):
-    raise HTTPException(501, "Mapping retrieval is not yet implemented.")
-
-
-@app.patch("/api/diagrams/{diagram_id}/mappings/{service}")
-async def update_mapping(diagram_id: str, service: str, azure_service: str):
-    raise HTTPException(501, "Mapping override is not yet implemented.")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -386,7 +395,6 @@ async def get_guided_questions(diagram_id: str, smart_dedup: bool = True):
     # Apply smart deduplication if enabled
     inferred_answers = {}
     if smart_dedup:
-        from service_builder import deduplicate_questions, get_smart_defaults_from_analysis
         user_context = analysis.get("user_context", {})
         questions, inferred_answers = deduplicate_questions(questions, analysis, user_context)
         smart_defaults = get_smart_defaults_from_analysis(analysis)
@@ -425,8 +433,6 @@ async def add_services_natural_language(
     The services are added to the existing analysis, and users can continue
     to the guided questions or IaC generation.
     """
-    from service_builder import add_services_from_text
-    
     analysis = SESSION_STORE.get(diagram_id)
     if not analysis:
         raise HTTPException(404, f"No analysis found for diagram {diagram_id}. Run /analyze first.")
@@ -554,11 +560,6 @@ async def generate_iac(request: Request, diagram_id: str, format: str = "terrafo
     return {"diagram_id": diagram_id, "format": format, "code": code}
 
 
-@app.get("/api/diagrams/{diagram_id}/export")
-async def export_iac(diagram_id: str, format: str = "terraform"):
-    raise HTTPException(501, "File download export is not yet implemented.")
-
-
 # ─────────────────────────────────────────────────────────────
 # Cost Estimation
 # ─────────────────────────────────────────────────────────────
@@ -576,8 +577,6 @@ async def estimate_cost(diagram_id: str):
     sku_strategy = iac_params.get("sku_strategy", "Balanced")
 
     # If we have real mappings, compute dynamic pricing
-    from services.azure_pricing import estimate_services_cost
-
     if mappings:
         result = estimate_services_cost(mappings, region=region, sku_strategy=sku_strategy)
         result["diagram_id"] = diagram_id
@@ -608,8 +607,10 @@ async def list_all_services(
     provider: Optional[str] = Query(None, description="Filter by provider: aws, azure, gcp"),
     category: Optional[str] = Query(None, description="Filter by category"),
     search: Optional[str] = Query(None, description="Search services by name/description"),
+    page: int = Query(1, ge=1, description="Page number (1-based)"),
+    page_size: int = Query(50, ge=1, le=200, description="Items per page (max 200)"),
 ):
-    """List cloud services from all providers, with optional filters."""
+    """List cloud services from all providers, with optional filters and pagination."""
     response.headers["Cache-Control"] = "public, max-age=300"
     results = []
     
@@ -636,9 +637,17 @@ async def list_all_services(
             or q in s.get("description", "").lower()
         ]
 
+    total = len(results)
+    start = (page - 1) * page_size
+    end = start + page_size
+    paginated = results[start:end]
+
     return {
-        "total": len(results),
-        "services": results,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": (total + page_size - 1) // page_size if total > 0 else 0,
+        "services": paginated,
     }
 
 
@@ -837,7 +846,6 @@ async def generate_hld_endpoint(request: Request, diagram_id: str, _auth=Depends
     # Get cost estimate if available
     cost_estimate = None
     try:
-        from services.azure_pricing import estimate_services_cost
         iac_params = session.get("iac_parameters", {})
         region = iac_params.get("region", "westeurope")
         strategy = iac_params.get("sku_strategy", "balanced")
@@ -878,6 +886,55 @@ async def get_hld(diagram_id: str):
         "hld": session["hld"],
         "markdown": session.get("hld_markdown", ""),
     }
+
+
+@app.post("/api/diagrams/{diagram_id}/export-hld")
+@limiter.limit("10/minute")
+async def export_hld_endpoint(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
+    """Export HLD document to Word, PDF, or PowerPoint format.
+
+    Query params:
+      - format: docx | pdf | pptx (required)
+      - include_diagrams: true | false (default: true)
+
+    Body (optional JSON):
+      - diagram_image: base64-encoded diagram image to embed
+    """
+    fmt = request.query_params.get("format", "").lower()
+    if fmt not in SUPPORTED_FORMATS:
+        raise HTTPException(400, f"Invalid format. Use one of: {', '.join(sorted(SUPPORTED_FORMATS))}")
+
+    include_diagrams = request.query_params.get("include_diagrams", "true").lower() == "true"
+
+    session = SESSION_STORE.get(diagram_id)
+    if not session or "hld" not in session:
+        raise HTTPException(404, "No HLD found. Generate one first.")
+
+    # Optional diagram image from request body
+    diagram_b64 = None
+    try:
+        body = await request.json()
+        diagram_b64 = body.get("diagram_image") if isinstance(body, dict) else None
+    except Exception:
+        pass  # No body or non-JSON body is fine
+
+    record_event("hld_exported", {"diagram_id": diagram_id, "format": fmt, "include_diagrams": include_diagrams})
+
+    try:
+        result = await asyncio.to_thread(
+            export_hld,
+            hld=session["hld"],
+            format=fmt,
+            include_diagrams=include_diagrams,
+            diagram_b64=diagram_b64,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        logger.error("HLD export failed: %s", e)
+        raise HTTPException(500, "Export failed. Please try again or contact support.")
+
+    return result
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1028,7 +1085,8 @@ async def verify_admin_key(
 
 
 @app.post("/api/admin/login")
-async def admin_login(body: AdminLoginRequest):
+@limiter.limit("5/minute")
+async def admin_login(request: Request, body: AdminLoginRequest):
     """Authenticate with the admin key and receive a session JWT."""
     if not admin_is_configured():
         raise HTTPException(503, "Admin API not configured")
@@ -1330,107 +1388,278 @@ async def contact_info():
 # ─────────────────────────────────────────────────────────────
 # Sample Diagrams
 # ─────────────────────────────────────────────────────────────
+
+# Each sample defines zones with services.  The analyze endpoint
+# builds data that matches the *real* vision-analysis output so
+# that the questions / apply-answers / export / IaC pipelines
+# work end-to-end without special-casing.
+
 SAMPLE_DIAGRAMS = [
     {
-        "id": "aws-3tier",
-        "name": "AWS 3-Tier Web App",
-        "description": "Classic 3-tier architecture with ALB, EC2, and RDS",
+        "id": "aws-iaas",
+        "name": "AWS IaaS — VMs, VPC & Storage",
+        "description": "Classic IaaS: VPC with public/private subnets, EC2 Auto Scaling behind an ALB, EBS volumes, S3 backups, and CloudWatch monitoring",
         "provider": "aws",
-        "services": ["ALB", "EC2", "RDS", "S3", "CloudFront"],
-        "complexity": "medium"
+        "zones": [
+            {
+                "name": "Networking",
+                "services": [
+                    {"name": "VPC", "role": "Isolated virtual network with public and private subnets"},
+                    {"name": "ELB", "role": "Application Load Balancer for HTTP/HTTPS traffic distribution"},
+                    {"name": "VPN", "role": "Site-to-site VPN for hybrid connectivity"},
+                    {"name": "Route 53", "role": "DNS resolution and health-check routing"},
+                ],
+            },
+            {
+                "name": "Compute",
+                "services": [
+                    {"name": "EC2", "role": "Auto Scaling group of web/app server instances"},
+                    {"name": "EC2 Auto Scaling", "role": "Horizontal scaling based on CPU utilization"},
+                ],
+            },
+            {
+                "name": "Storage & Database",
+                "services": [
+                    {"name": "EBS", "role": "Block storage volumes attached to EC2 instances"},
+                    {"name": "S3", "role": "Object storage for backups and static assets"},
+                    {"name": "RDS", "role": "Multi-AZ PostgreSQL relational database"},
+                ],
+            },
+            {
+                "name": "Monitoring & Security",
+                "services": [
+                    {"name": "CloudWatch", "role": "Metrics, logs, and alarms"},
+                    {"name": "IAM", "role": "Identity and access management policies"},
+                    {"name": "KMS", "role": "Encryption key management for EBS and S3"},
+                ],
+            },
+        ],
+        "complexity": "medium",
     },
     {
-        "id": "aws-serverless",
-        "name": "AWS Serverless API",
-        "description": "API Gateway + Lambda + DynamoDB architecture",
-        "provider": "aws",
-        "services": ["API Gateway", "Lambda", "DynamoDB", "Cognito"],
-        "complexity": "simple"
-    },
-    {
-        "id": "gcp-microservices",
-        "name": "GCP Microservices",
-        "description": "GKE-based microservices with Cloud SQL and Pub/Sub",
+        "id": "gcp-iaas",
+        "name": "GCP IaaS — VMs, VPC & Cloud SQL",
+        "description": "GCP IaaS stack: custom VPC, Compute Engine MIGs behind a load balancer, Persistent Disks, Cloud SQL, and Cloud Monitoring",
         "provider": "gcp",
-        "services": ["GKE", "Cloud SQL", "Pub/Sub", "Cloud Run"],
-        "complexity": "complex"
+        "zones": [
+            {
+                "name": "Networking",
+                "services": [
+                    {"name": "VPC", "role": "Custom-mode VPC with regional subnets"},
+                    {"name": "Cloud Load Balancing", "role": "Global HTTP(S) load balancer with health checks"},
+                    {"name": "Cloud VPN", "role": "Encrypted tunnel for on-premises connectivity"},
+                    {"name": "Cloud DNS", "role": "Managed DNS with DNSSEC support"},
+                ],
+            },
+            {
+                "name": "Compute",
+                "services": [
+                    {"name": "Compute Engine", "role": "Managed Instance Groups running web/app tier"},
+                    {"name": "Managed Instance Groups", "role": "Autoscaler for horizontal scaling"},
+                ],
+            },
+            {
+                "name": "Storage & Database",
+                "services": [
+                    {"name": "Persistent Disk", "role": "SSD block storage attached to VMs"},
+                    {"name": "Cloud Storage", "role": "Object storage for backups and media"},
+                    {"name": "Cloud SQL", "role": "Managed PostgreSQL with high availability"},
+                ],
+            },
+            {
+                "name": "Monitoring & Security",
+                "services": [
+                    {"name": "Cloud Monitoring", "role": "Infrastructure and application metrics"},
+                    {"name": "Cloud IAM", "role": "Identity and access management"},
+                    {"name": "Cloud KMS", "role": "Encryption key management"},
+                ],
+            },
+        ],
+        "complexity": "medium",
     },
     {
-        "id": "aws-data-lake",
-        "name": "AWS Data Lake",
-        "description": "S3 data lake with Glue, Athena, and Redshift",
+        "id": "aws-eks",
+        "name": "AWS Containers — EKS & ECR",
+        "description": "Container platform: EKS cluster with Fargate, ECR registry, EFS shared storage, ElastiCache, and CloudTrail audit",
         "provider": "aws",
-        "services": ["S3", "Glue", "Athena", "Redshift", "Lake Formation"],
-        "complexity": "complex"
-    }
+        "zones": [
+            {
+                "name": "Networking",
+                "services": [
+                    {"name": "VPC", "role": "Cluster VPC with private node subnets"},
+                    {"name": "ELB", "role": "Network Load Balancer for Kubernetes ingress"},
+                    {"name": "PrivateLink", "role": "Private endpoints for AWS services"},
+                ],
+            },
+            {
+                "name": "Compute",
+                "services": [
+                    {"name": "EKS", "role": "Managed Kubernetes control plane"},
+                    {"name": "Fargate", "role": "Serverless pod execution environment"},
+                    {"name": "ECR", "role": "Private container image registry"},
+                ],
+            },
+            {
+                "name": "Data",
+                "services": [
+                    {"name": "EFS", "role": "Shared NFS file storage for pods"},
+                    {"name": "ElastiCache", "role": "Redis session store and cache layer"},
+                    {"name": "RDS", "role": "Aurora PostgreSQL database"},
+                ],
+            },
+            {
+                "name": "Security & Audit",
+                "services": [
+                    {"name": "IAM", "role": "IRSA roles for pod-level permissions"},
+                    {"name": "Secrets Manager", "role": "Secrets injection via CSI driver"},
+                    {"name": "CloudTrail", "role": "API audit logging"},
+                ],
+            },
+        ],
+        "complexity": "complex",
+    },
+    {
+        "id": "gcp-gke",
+        "name": "GCP Containers — GKE & Pub/Sub",
+        "description": "GKE Autopilot with Cloud Run sidecars, Pub/Sub event bus, Firestore, Memorystore, and Security Command Center",
+        "provider": "gcp",
+        "zones": [
+            {
+                "name": "Networking",
+                "services": [
+                    {"name": "VPC", "role": "Shared VPC with private GKE subnets"},
+                    {"name": "Cloud Load Balancing", "role": "Ingress controller with managed certificates"},
+                    {"name": "Private Service Connect", "role": "Private connectivity to GCP APIs"},
+                ],
+            },
+            {
+                "name": "Compute",
+                "services": [
+                    {"name": "GKE", "role": "Autopilot Kubernetes cluster"},
+                    {"name": "Cloud Run", "role": "Event-driven microservices"},
+                    {"name": "Artifact Registry", "role": "Container and package registry"},
+                ],
+            },
+            {
+                "name": "Data & Messaging",
+                "services": [
+                    {"name": "Pub/Sub", "role": "Asynchronous event bus between services"},
+                    {"name": "Firestore", "role": "NoSQL document database"},
+                    {"name": "Memorystore", "role": "Managed Redis for caching"},
+                ],
+            },
+            {
+                "name": "Security",
+                "services": [
+                    {"name": "Cloud IAM", "role": "Workload Identity for pods"},
+                    {"name": "Secret Manager", "role": "Application secrets management"},
+                    {"name": "Security Command Center", "role": "Threat detection and compliance"},
+                ],
+            },
+        ],
+        "complexity": "complex",
+    },
 ]
 
 @app.get("/api/samples")
 async def list_sample_diagrams():
     """List available sample diagrams for onboarding."""
-    return {"samples": SAMPLE_DIAGRAMS}
+    return {"samples": [
+        {"id": s["id"], "name": s["name"], "description": s["description"],
+         "provider": s["provider"], "complexity": s["complexity"]}
+        for s in SAMPLE_DIAGRAMS
+    ]}
 
 
 @app.post("/api/samples/{sample_id}/analyze")
 @limiter.limit("5/minute")
 async def analyze_sample_diagram(request: Request, sample_id: str):
-    """Generate a mock analysis for a sample diagram."""
+    """Generate a mock analysis for a sample diagram.
+
+    The returned structure mirrors the real vision-analysis output so that
+    every downstream endpoint (questions, apply-answers, export, IaC,
+    HLD, cost-estimate) works without special-casing.
+    """
     sample = next((s for s in SAMPLE_DIAGRAMS if s["id"] == sample_id), None)
     if not sample:
         raise HTTPException(404, f"Sample '{sample_id}' not found")
-    
-    # Generate mock analysis based on sample metadata
+
     diagram_id = f"sample-{sample_id}-{uuid.uuid4().hex[:6]}"
-    
-    # Create mock zones and mappings
-    from services import CROSS_CLOUD_MAPPINGS
-    
-    zones = []
+
     mappings = []
-    
-    # Group services by category
-    for i, svc_name in enumerate(sample["services"]):
-        # Find mapping
-        mapping = next(
-            (m for m in CROSS_CLOUD_MAPPINGS 
-             if svc_name.lower() in m.get("aws", "").lower() 
-             or svc_name.lower() in m.get("gcp", "").lower()),
-            None
-        )
-        azure_svc = mapping["azure"] if mapping else f"Azure {svc_name}"
-        confidence = mapping.get("confidence", 85) / 100 if mapping else 0.8
-        
-        mappings.append({
-            "source": svc_name,
-            "azure": azure_svc,
-            "confidence": confidence,
-            "notes": mapping.get("notes", "Direct mapping") if mapping else "Suggested equivalent"
+    zones_with_services = []
+    provider_key = "aws" if sample["provider"] == "aws" else "gcp"
+
+    for zone_idx, zone_def in enumerate(sample["zones"], start=1):
+        zone_services = []
+        for svc in zone_def["services"]:
+            svc_name = svc["name"]
+            role = svc.get("role", "")
+
+            # Find the cross-cloud mapping for this service
+            mapping = next(
+                (m for m in CROSS_CLOUD_MAPPINGS
+                 if svc_name.lower() == m.get(provider_key, "").lower()
+                 or svc_name.lower() in m.get(provider_key, "").lower()),
+                None
+            )
+
+            azure_svc = mapping["azure"] if mapping else f"Azure {svc_name}"
+            base_conf = mapping["confidence"] if mapping else 0.80
+            confidence = round(min(1.0, base_conf * 0.7 + 0.85 * 0.3), 2)
+            notes_text = mapping.get("notes", "Suggested equivalent") if mapping else "Suggested equivalent"
+            category = mapping.get("category", "General") if mapping else "General"
+
+            mapping_entry = {
+                "source_service": svc_name,
+                "source_provider": sample["provider"],
+                "azure_service": azure_svc,
+                "confidence": confidence,
+                "notes": f"Zone {zone_idx} \u2013 {zone_def['name']}: {role}. {notes_text}".strip(),
+            }
+            mappings.append(mapping_entry)
+
+            zone_services.append({
+                "source": svc_name,
+                "source_provider": sample["provider"],
+                "azure": azure_svc,
+                "confidence": confidence,
+            })
+
+        zones_with_services.append({
+            "id": zone_idx,
+            "name": zone_def["name"],
+            "services": zone_services,
         })
-    
-    zones.append({
-        "number": 1,
-        "name": "Application Tier",
-        "services": mappings
-    })
-    
+
+    high = len([m for m in mappings if m["confidence"] >= 0.90])
+    medium = len([m for m in mappings if 0.80 <= m["confidence"] < 0.90])
+    low = len([m for m in mappings if m["confidence"] < 0.80])
+    avg = round(sum(m["confidence"] for m in mappings) / max(len(mappings), 1), 2)
+
     analysis = {
         "diagram_id": diagram_id,
         "diagram_type": sample["name"],
         "source_provider": sample["provider"],
-        "services_detected": len(sample["services"]),
-        "zones": zones,
+        "target_provider": "azure",
+        "architecture_patterns": [],
+        "services_detected": len(mappings),
+        "zones": zones_with_services,
+        "mappings": mappings,
+        "warnings": [],
+        "service_connections": [],
         "confidence_summary": {
-            "high": sum(1 for m in mappings if m["confidence"] >= 0.9),
-            "medium": sum(1 for m in mappings if 0.7 <= m["confidence"] < 0.9),
-            "low": sum(1 for m in mappings if m["confidence"] < 0.7),
-            "average": sum(m["confidence"] for m in mappings) / len(mappings)
+            "high": high,
+            "medium": medium,
+            "low": low,
+            "average": avg,
         },
-        "is_sample": True
+        "is_sample": True,
     }
-    
+
     SESSION_STORE[diagram_id] = analysis
     record_funnel_step(diagram_id, "analyze")
-    
+
     return analysis
 
 
@@ -1443,8 +1672,6 @@ async def get_best_practices(diagram_id: str):
     analysis = SESSION_STORE.get(diagram_id)
     if not analysis:
         raise HTTPException(404, "Analysis not found")
-    
-    from best_practices import analyze_architecture, get_quick_wins
     
     # Get user answers if available
     answers = analysis.get("applied_answers", {})
@@ -1464,8 +1691,6 @@ async def get_cost_optimization(diagram_id: str):
     analysis = SESSION_STORE.get(diagram_id)
     if not analysis:
         raise HTTPException(404, "Analysis not found")
-    
-    from cost_optimizer import analyze_cost_optimizations
     
     answers = analysis.get("applied_answers", {})
     
@@ -1503,7 +1728,6 @@ class BugReportRequest(BaseModel):
 @limiter.limit("10/minute")
 async def submit_nps_feedback(request: Request, data: NPSRequest):
     """Submit NPS score (0-10) with optional follow-up."""
-    from feedback import submit_nps
     return submit_nps(
         score=data.score,
         follow_up=data.follow_up,
@@ -1516,7 +1740,6 @@ async def submit_nps_feedback(request: Request, data: NPSRequest):
 @limiter.limit("20/minute")
 async def submit_feature_feedback_endpoint(request: Request, data: FeatureFeedbackRequest):
     """Submit feature feedback (thumbs up/down)."""
-    from feedback import submit_feature_feedback
     return submit_feature_feedback(
         feature=data.feature,
         helpful=data.helpful,
@@ -1529,8 +1752,7 @@ async def submit_feature_feedback_endpoint(request: Request, data: FeatureFeedba
 @limiter.limit("5/minute")
 async def submit_bug_report_endpoint(request: Request, data: BugReportRequest):
     """Submit bug report with context."""
-    from feedback import submit_bug_report
-    return submit_bug_report(
+    return submit_feedback_bug_report(
         description=data.description,
         context=data.context,
         severity=data.severity,
@@ -1541,8 +1763,6 @@ async def submit_bug_report_endpoint(request: Request, data: BugReportRequest):
 @app.get("/api/admin/feedback")
 async def get_feedback_summary_endpoint(_admin=Depends(verify_admin_key)):
     """Get feedback summary (admin only)."""
-    from feedback import get_feedback_summary, get_nps_trend
-    
     summary = get_feedback_summary()
     summary["nps_trend"] = get_nps_trend(30)
     return summary
@@ -1613,15 +1833,12 @@ class LeadCaptureRequest(BaseModel):
 @app.get("/api/auth/config")
 async def get_auth_config():
     """Get public authentication configuration."""
-    from auth import get_auth_config
     return get_auth_config()
 
 
 @app.post("/api/auth/login")
 async def login(request: LoginRequest):
     """Login with Azure AD B2C or GitHub OAuth."""
-    from auth import validate_azure_ad_b2c_token, exchange_github_code, generate_session_token
-    
     try:
         if request.provider == "azure_ad_b2c":
             if not request.token:
@@ -1647,11 +1864,8 @@ async def login(request: LoginRequest):
 @app.get("/api/auth/me")
 async def get_current_user(authorization: Optional[str] = Header(None)):
     """Get current authenticated user."""
-    from auth import get_user_from_session
-    
     if authorization and authorization.startswith("Bearer "):
         token = authorization[7:]
-        from auth import get_user_from_session
         user = get_user_from_session(token)
         if user:
             return user.to_dict()
@@ -1663,8 +1877,6 @@ async def get_current_user(authorization: Optional[str] = Header(None)):
 @app.get("/api/auth/quota")
 async def check_quota(action: str = Query(...), authorization: Optional[str] = Header(None)):
     """Check user quota for an action."""
-    from auth import get_user_from_session, get_anonymous_user
-    
     user = None
     if authorization and authorization.startswith("Bearer "):
         user = get_user_from_session(authorization[7:])
@@ -1679,8 +1891,6 @@ async def check_quota(action: str = Query(...), authorization: Optional[str] = H
 @limiter.limit("10/minute")
 async def capture_lead_endpoint(request: Request, data: LeadCaptureRequest):
     """Capture lead information before gated action."""
-    from auth import capture_lead
-    
     lead = capture_lead(
         email=data.email,
         diagram_id=data.diagram_id,
@@ -1697,7 +1907,6 @@ async def capture_lead_endpoint(request: Request, data: LeadCaptureRequest):
 @app.get("/api/admin/leads")
 async def get_leads_endpoint(_admin=Depends(verify_admin_key)):
     """Get captured leads summary (admin only)."""
-    from auth import get_leads_summary
     return get_leads_summary()
 
 
@@ -1711,8 +1920,6 @@ async def create_version_endpoint(diagram_id: str, message: Optional[str] = None
     if not analysis:
         raise HTTPException(404, "Analysis not found")
     
-    from versioning import create_version
-    
     version = create_version(
         diagram_id=diagram_id,
         snapshot=analysis,
@@ -1725,15 +1932,12 @@ async def create_version_endpoint(diagram_id: str, message: Optional[str] = None
 @app.get("/api/diagrams/{diagram_id}/versions")
 async def get_version_history_endpoint(diagram_id: str):
     """Get version history for a diagram."""
-    from versioning import get_version_history
     return get_version_history(diagram_id)
 
 
 @app.get("/api/diagrams/{diagram_id}/versions/{version_number}")
 async def get_version_endpoint(diagram_id: str, version_number: int):
     """Get a specific version of an architecture."""
-    from versioning import get_version
-    
     version = get_version(diagram_id, version_number)
     if not version:
         raise HTTPException(404, f"Version {version_number} not found")
@@ -1744,8 +1948,6 @@ async def get_version_endpoint(diagram_id: str, version_number: int):
 @app.post("/api/diagrams/{diagram_id}/versions/{version_number}/restore")
 async def restore_version_endpoint(diagram_id: str, version_number: int):
     """Restore a previous version, creating a new version from it."""
-    from versioning import restore_version
-    
     snapshot = restore_version(diagram_id, version_number)
     if not snapshot:
         raise HTTPException(404, f"Version {version_number} not found")
@@ -1763,7 +1965,6 @@ async def compare_versions_endpoint(
     v2: int = Query(..., description="Second version number"),
 ):
     """Compare two versions of an architecture."""
-    from versioning import compare_versions
     return compare_versions(diagram_id, v1, v2)
 
 
@@ -1782,8 +1983,6 @@ async def generate_runbook_endpoint(
     analysis = SESSION_STORE.get(diagram_id)
     if not analysis:
         raise HTTPException(404, "Analysis not found")
-    
-    from migration_runbook import generate_migration_runbook
     
     runbook = generate_migration_runbook(diagram_id, analysis, project_name)
     
@@ -1813,8 +2012,6 @@ async def get_runbook_markdown_endpoint(diagram_id: str):
     if not analysis or "runbook" not in analysis:
         raise HTTPException(404, "Runbook not found")
     
-    from migration_runbook import MigrationRunbook, render_runbook_markdown
-    
     # Reconstruct runbook object
     runbook_data = analysis["runbook"]
     runbook = MigrationRunbook(
@@ -1833,6 +2030,59 @@ async def get_runbook_markdown_endpoint(diagram_id: str):
         media_type="text/markdown",
         headers={"Content-Disposition": f"attachment; filename=runbook-{diagram_id}.md"}
     )
+
+
+# ─────────────────────────────────────────────────────────────
+# Terraform Plan Preview (v2.9.0)
+# ─────────────────────────────────────────────────────────────
+
+# ─────────────────────────────────────────────────────────────
+# Migration Complexity Assessment (Issue #65)
+# ─────────────────────────────────────────────────────────────
+@app.get("/api/diagrams/{diagram_id}/migration-assessment")
+async def migration_assessment_endpoint(diagram_id: str):
+    """Assess migration complexity for all services in a diagram analysis."""
+    analysis = SESSION_STORE.get(diagram_id)
+    if not analysis:
+        raise HTTPException(404, "Analysis not found")
+
+    assessment = assess_migration_complexity(analysis)
+
+    # Cache in session
+    analysis["migration_assessment"] = assessment
+    SESSION_STORE[diagram_id] = analysis
+
+    record_event("migration_assessment", {
+        "diagram_id": diagram_id,
+        "overall_score": assessment["overall_score"],
+        "risk_level": assessment["risk_level"],
+        "total_services": assessment["total_services"],
+    })
+
+    return assessment
+
+
+# ─────────────────────────────────────────────────────────────
+# Multi-Cloud Cost Comparison (Issue #66)
+# ─────────────────────────────────────────────────────────────
+@app.get("/api/diagrams/{diagram_id}/cost-comparison")
+async def cost_comparison_endpoint(diagram_id: str):
+    """Get multi-cloud cost comparison for services in a diagram analysis."""
+    analysis = SESSION_STORE.get(diagram_id)
+    if not analysis:
+        raise HTTPException(404, "Analysis not found")
+
+    comparison = generate_cost_comparison(analysis)
+
+    analysis["cost_comparison"] = comparison
+    SESSION_STORE[diagram_id] = analysis
+
+    record_event("cost_comparison", {
+        "diagram_id": diagram_id,
+        "providers_compared": len(comparison.get("providers", {})),
+    })
+
+    return comparison
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1862,8 +2112,6 @@ async def preview_terraform_plan_endpoint(diagram_id: str):
         except Exception:
             raise HTTPException(500, "Failed to generate IaC code. Please try again.")
     
-    from terraform_preview import preview_terraform_plan
-    
     result = preview_terraform_plan(iac_code, diagram_id)
     
     return result.to_dict()
@@ -1872,7 +2120,6 @@ async def preview_terraform_plan_endpoint(diagram_id: str):
 @app.post("/api/terraform/validate")
 async def validate_terraform_syntax_endpoint(data: TerraformValidateRequest):
     """Validate Terraform HCL syntax."""
-    from terraform_preview import validate_terraform_syntax
     return validate_terraform_syntax(data.code)
 
 
@@ -1885,28 +2132,24 @@ async def get_analytics_summary_endpoint(
     _admin=Depends(verify_admin_key),
 ):
     """Get comprehensive analytics summary (admin only)."""
-    from analytics import get_analytics_summary
     return get_analytics_summary(hours)
 
 
 @app.get("/api/admin/analytics/performance")
 async def get_performance_metrics_endpoint(_admin=Depends(verify_admin_key)):
     """Get API performance metrics (admin only)."""
-    from analytics import get_performance_metrics
     return get_performance_metrics()
 
 
 @app.get("/api/admin/analytics/features")
 async def get_feature_metrics_endpoint(_admin=Depends(verify_admin_key)):
     """Get feature usage metrics (admin only)."""
-    from analytics import get_feature_metrics
     return get_feature_metrics()
 
 
 @app.get("/api/admin/analytics/funnel")
 async def get_conversion_funnel_endpoint(_admin=Depends(verify_admin_key)):
     """Get conversion funnel metrics (admin only)."""
-    from analytics import get_conversion_funnel
     return get_conversion_funnel()
 
 
@@ -1925,7 +2168,6 @@ class LatencyTrackingMiddleware(BaseHTTPMiddleware):
         
         # Track latency
         try:
-            from analytics import track_request_latency
             endpoint = request.url.path
             method = request.method
             track_request_latency(endpoint, method, duration_ms, response.status_code)

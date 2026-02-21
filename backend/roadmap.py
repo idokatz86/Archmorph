@@ -238,13 +238,57 @@ RELEASE_TIMELINE: List[Dict[str, Any]] = [
         "metrics": {"services": 405, "mappings": 122, "api_endpoints": 78},
     },
     # ═══════════════════════════════════════════════════════════
-    # v2.11.0 - Multi-Cloud & Enterprise (Current Sprint)
+    # v2.11.0 - Security & Auth (Released)
     # ═══════════════════════════════════════════════════════════
     {
         "version": "2.11.0",
-        "name": "Multi-Cloud & Enterprise Foundation",
-        "date": "2026-02-28",
+        "name": "Security & Authentication",
+        "date": "2026-02-21",
+        "status": ReleaseStatus.RELEASED,
+        "highlights": [
+            "JWT admin authentication (HS256)",
+            "CORS security hardening",
+            "Persistent analytics with Azure Blob Storage",
+            "Security remediation (rate limiting, input validation)",
+            "81+ API endpoints verified",
+            "719 passing tests",
+        ],
+        "metrics": {"services": 405, "mappings": 122, "api_endpoints": 81},
+    },
+    # ═══════════════════════════════════════════════════════════
+    # v2.11.1 - UX Polish & Document Export (Current)
+    # ═══════════════════════════════════════════════════════════
+    {
+        "version": "2.11.1",
+        "name": "UX Polish & Document Export",
+        "date": "2026-02-21",
         "status": ReleaseStatus.IN_PROGRESS,
+        "highlights": [
+            "Drag & drop upload zone with file preview",
+            "HLD export to Word, PDF, and PowerPoint",
+            "Copy/download feedback toasts",
+            "Questions grouped by category with progress pills",
+            "Cost estimate visual progress bars",
+            "IaC code line numbers & copy feedback",
+            "IaC Chat quick action pills",
+            "Confirm before reset dialog",
+            "HLD tab navigation icons",
+            "Mobile stepper labels fix",
+            "Updated sample diagrams with provider badges",
+            "Monitoring 'None' option in guided questions",
+            "Error dismiss tooltip & hover state",
+            "README React 19 documentation fix",
+        ],
+        "metrics": {"services": 405, "mappings": 122, "api_endpoints": 82},
+    },
+    # ═══════════════════════════════════════════════════════════
+    # v2.12.0 - Multi-Cloud & Enterprise (Next Sprint)
+    # ═══════════════════════════════════════════════════════════
+    {
+        "version": "2.12.0",
+        "name": "Multi-Cloud & Enterprise Foundation",
+        "date": "2026-03-07",
+        "status": ReleaseStatus.PLANNED,
         "highlights": [
             "Multi-cloud target support (AWS, GCP, Azure)",
             "Reverse migration & cloud repatriation",
@@ -257,14 +301,11 @@ RELEASE_TIMELINE: List[Dict[str, Any]] = [
             "OpenTelemetry observability stack",
             "API versioning (/v1/ prefix)",
         ],
-        "metrics": {"services": 450, "mappings": 150, "api_endpoints": 95},
     },
-    # ═══════════════════════════════════════════════════════════
-    # Upcoming Releases (Planned)
     {
-        "version": "2.12.0",
+        "version": "2.13.0",
         "name": "QA & Testing Excellence",
-        "date": "2026-03-07",
+        "date": "2026-03-14",
         "status": ReleaseStatus.PLANNED,
         "highlights": [
             "Contract testing for API endpoints",
@@ -276,9 +317,9 @@ RELEASE_TIMELINE: List[Dict[str, Any]] = [
         ],
     },
     {
-        "version": "2.13.0",
+        "version": "2.14.0",
         "name": "DevOps & Platform",
-        "date": "2026-03-14",
+        "date": "2026-03-21",
         "status": ReleaseStatus.PLANNED,
         "highlights": [
             "Blue-green deployments",
@@ -290,9 +331,9 @@ RELEASE_TIMELINE: List[Dict[str, Any]] = [
         ],
     },
     {
-        "version": "2.14.0",
+        "version": "2.15.0",
         "name": "Security Hardening",
-        "date": "2026-03-21",
+        "date": "2026-03-28",
         "status": ReleaseStatus.PLANNED,
         "highlights": [
             "SAST/DAST pipeline integration",
@@ -304,9 +345,9 @@ RELEASE_TIMELINE: List[Dict[str, Any]] = [
         ],
     },
     {
-        "version": "2.15.0",
+        "version": "2.16.0",
         "name": "Team Collaboration",
-        "date": "2026-03-28",
+        "date": "2026-04-04",
         "status": ReleaseStatus.PLANNED,
         "highlights": [
             "Shared diagram workspaces",
@@ -318,7 +359,7 @@ RELEASE_TIMELINE: List[Dict[str, Any]] = [
     {
         "version": "3.0.0",
         "name": "Enterprise Platform",
-        "date": "2026-04-15",
+        "date": "2026-04-30",
         "status": ReleaseStatus.PLANNED,
         "highlights": [
             "Self-hosted deployment option",
@@ -575,7 +616,7 @@ def create_github_issue(
             labels=valid_labels if valid_labels else [],
         )
         
-        logger.info(f"Created GitHub issue #{issue.number}: {title}")
+        logger.info("Created GitHub issue #%d: %s", issue.number, title)
         
         return {
             "success": True,
@@ -586,7 +627,7 @@ def create_github_issue(
         }
         
     except Exception as exc:
-        logger.error(f"Failed to create GitHub issue: {exc}")
+        logger.error("Failed to create GitHub issue: %s", exc)
         return {
             "success": False,
             "error": str(exc),

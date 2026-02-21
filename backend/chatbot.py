@@ -160,7 +160,7 @@ def _call_ai_assistant(
         }
         
     except Exception as exc:
-        logger.error(f"AI assistant error: {exc}")
+        logger.error("AI assistant error: %s", exc)
         return {
             "reply": "I apologize, but I'm having trouble processing your request right now. Please try again in a moment, or report the issue at https://github.com/idokatz86/Archmorph/issues",
             "action": None,
@@ -202,7 +202,7 @@ def _create_github_issue(title: str, body: str, labels: List[str]) -> Dict[str, 
             "labels": [lbl.name for lbl in issue.labels],
         }
     except Exception as exc:
-        logger.error(f"GitHub issue creation failed: {exc}")
+        logger.error("GitHub issue creation failed: %s", exc)
         return {"success": False, "error": "Failed to create GitHub issue. Please try again."}
 
 

@@ -103,7 +103,7 @@ def _load_feedback():
                 with open(FEEDBACK_FILE, "r") as f:
                     _feedback_store = json.load(f)
             except Exception as e:
-                logger.warning(f"Failed to load feedback: {e}")
+                logger.warning("Failed to load feedback: %s", e)
                 _feedback_store = _DEFAULT_FEEDBACK.copy()
         else:
             _feedback_store = _DEFAULT_FEEDBACK.copy()
@@ -117,7 +117,7 @@ def _save_feedback():
             with open(FEEDBACK_FILE, "w") as f:
                 json.dump(_feedback_store, f, indent=2)
         except Exception as e:
-            logger.error(f"Failed to save feedback: {e}")
+            logger.error("Failed to save feedback: %s", e)
 
 
 def _recalculate_nps():

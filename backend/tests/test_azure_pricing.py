@@ -208,3 +208,16 @@ class TestServicePriceQueries:
         for key, query in SERVICE_PRICE_QUERIES.items():
             assert "fallback_monthly" in query, f"{key} missing fallback_monthly"
             assert query["fallback_monthly"] >= 0
+
+    def test_new_services_in_price_queries(self):
+        """Issues #60-#67: new services should have pricing entries."""
+        expected = [
+            "Azure Arc", "Azure Managed Grafana", "Azure Managed Prometheus",
+            "Azure AI Foundry", "Azure Edge Zones", "Microsoft Sentinel (SOAR)",
+        ]
+        for name in expected:
+            assert name in SERVICE_PRICE_QUERIES, f"Missing pricing for {name}"
+
+    def test_price_queries_count_increased(self):
+        """After additions, should have more than the original ~40 entries."""
+        assert len(SERVICE_PRICE_QUERIES) > 50

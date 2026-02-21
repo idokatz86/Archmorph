@@ -25,6 +25,8 @@ from threading import Lock
 
 logger = logging.getLogger(__name__)
 
+_shutdown_event = threading.Event()
+
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 METRICS_FILE = os.path.join(DATA_DIR, "usage_metrics.json")
 
@@ -189,8 +191,8 @@ def _mark_dirty():
 # ─────────────────────────────────────────────────────────────
 def _background_flush():
     """Daemon thread: flush dirty metrics to storage every _flush_interval s."""
-    while True:
-        threading.Event().wait(_flush_interval)
+    while not _shutdown_event.is_set():
+        _shutdown_event.wait(_flush_interval)
         if _dirty:
             with _lock:
                 try:
@@ -201,6 +203,7 @@ def _background_flush():
 
 def _shutdown_flush(*_args):
     """Flush metrics on interpreter exit or SIGTERM."""
+    _shutdown_event.set()  # Signal background thread to stop
     with _lock:
         if _dirty:
             try:

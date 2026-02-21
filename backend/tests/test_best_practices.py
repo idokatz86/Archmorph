@@ -217,3 +217,119 @@ class TestRecommendationDataclass:
         )
         
         assert rec.services_affected == ["VM1", "VM2"]
+
+
+# ====================================================================
+# New WAF rule categories (Issues #60-#67)
+# ====================================================================
+
+class TestHybridRules:
+    """Tests for hybrid/multi-cloud rules."""
+
+    def test_hybrid_trigger_on_outposts(self):
+        """Outposts without Arc should trigger hybrid-001."""
+        analysis = {
+            "zones": [
+                {"name": "Hybrid", "services": [{"azure": "AWS Outposts"}]}
+            ]
+        }
+        result = analyze_architecture(analysis, {})
+        rec_ids = [r["id"] for r in result["recommendations"]]
+        assert "hybrid-001" in rec_ids
+
+    def test_hybrid_trigger_on_arc(self):
+        """Arc-enabled services should trigger hybrid-002 (policy)."""
+        analysis = {
+            "zones": [
+                {"name": "Hybrid", "services": [{"azure": "Azure Arc-enabled Servers"}]}
+            ]
+        }
+        result = analyze_architecture(analysis, {})
+        rec_ids = [r["id"] for r in result["recommendations"]]
+        assert "hybrid-002" in rec_ids
+
+
+class TestGenAIRules:
+    """Tests for generative AI rules."""
+
+    def test_openai_without_content_safety(self):
+        """OpenAI service without content safety triggers genai-001."""
+        analysis = {
+            "zones": [
+                {"name": "AI", "services": [{"azure": "Azure OpenAI Service"}]}
+            ]
+        }
+        result = analyze_architecture(analysis, {})
+        rec_ids = [r["id"] for r in result["recommendations"]]
+        assert "genai-001" in rec_ids
+
+    def test_openai_triggers_rate_limiting(self):
+        """Any LLM service should trigger genai-002 (rate limiting)."""
+        analysis = {
+            "zones": [
+                {"name": "AI", "services": [{"azure": "Azure OpenAI Service"}]}
+            ]
+        }
+        result = analyze_architecture(analysis, {})
+        rec_ids = [r["id"] for r in result["recommendations"]]
+        assert "genai-002" in rec_ids
+
+
+class TestEdgeRules:
+    """Tests for edge computing rules."""
+
+    def test_edge_triggers_resilience(self):
+        """Edge workloads should trigger edge-001."""
+        analysis = {
+            "zones": [
+                {"name": "Edge", "services": [{"azure": "Azure Edge Zones"}]}
+            ]
+        }
+        result = analyze_architecture(analysis, {})
+        rec_ids = [r["id"] for r in result["recommendations"]]
+        assert "edge-001" in rec_ids
+
+
+class TestObservabilityRules:
+    """Tests for observability rules."""
+
+    def test_kubernetes_without_prometheus(self):
+        """AKS without Prometheus should trigger obs-001."""
+        analysis = {
+            "zones": [
+                {"name": "Compute", "services": [{"azure": "Azure Kubernetes Service"}]}
+            ]
+        }
+        result = analyze_architecture(analysis, {})
+        rec_ids = [r["id"] for r in result["recommendations"]]
+        assert "obs-001" in rec_ids
+
+
+class TestDataGovernanceRules:
+    """Tests for data governance rules."""
+
+    def test_data_lake_without_purview(self):
+        """Data lake without Purview should trigger dgov-001."""
+        analysis = {
+            "zones": [
+                {"name": "Analytics", "services": [{"azure": "Azure Data Lake Storage"}]}
+            ]
+        }
+        result = analyze_architecture(analysis, {})
+        rec_ids = [r["id"] for r in result["recommendations"]]
+        assert "dgov-001" in rec_ids
+
+
+class TestZeroTrustRules:
+    """Tests for zero trust rules."""
+
+    def test_vpn_triggers_ztna(self):
+        """VPN gateway should trigger zt-001."""
+        analysis = {
+            "zones": [
+                {"name": "Networking", "services": [{"azure": "VPN Gateway"}]}
+            ]
+        }
+        result = analyze_architecture(analysis, {})
+        rec_ids = [r["id"] for r in result["recommendations"]]
+        assert "zt-001" in rec_ids

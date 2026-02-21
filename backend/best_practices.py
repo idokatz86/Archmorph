@@ -308,6 +308,167 @@ OPS_RULES = [
 
 ALL_RULES = RELIABILITY_RULES + SECURITY_RULES + COST_RULES + PERFORMANCE_RULES + OPS_RULES
 
+# ── Additional rules for new service categories (Issues #60–#67) ──
+
+HYBRID_RULES = [
+    {
+        "id": "hybrid-001",
+        "trigger": lambda zones, services: any("arc" in s.lower() or "hybrid" in s.lower() or "outposts" in s.lower() for s in services),
+        "condition": lambda zones, services, answers: "arc" not in str(services).lower(),
+        "rec": Recommendation(
+            id="hybrid-001",
+            title="Use Azure Arc for Hybrid Management",
+            description="Hybrid workloads detected. Azure Arc provides a single control plane for multi-cloud and on-premises resources.",
+            pillar=WAFPillar.OPERATIONAL_EXCELLENCE,
+            severity=Severity.HIGH,
+            category="Hybrid",
+            action="Enable Azure Arc for unified governance across on-prem, edge, and multi-cloud resources",
+            azure_doc_link="https://learn.microsoft.com/en-us/azure/azure-arc/overview"
+        )
+    },
+    {
+        "id": "hybrid-002",
+        "trigger": lambda zones, services: any("arc" in s.lower() or "stack" in s.lower() for s in services),
+        "condition": lambda zones, services, answers: True,
+        "rec": Recommendation(
+            id="hybrid-002",
+            title="Apply Consistent Policies Across Hybrid Resources",
+            description="Azure Policy should extend to Arc-managed resources for consistent compliance posture.",
+            pillar=WAFPillar.SECURITY,
+            severity=Severity.MEDIUM,
+            category="Hybrid",
+            action="Assign Azure Policy initiatives to Arc-enabled resources for compliance enforcement",
+            azure_doc_link="https://learn.microsoft.com/en-us/azure/azure-arc/servers/security-overview"
+        )
+    },
+]
+
+GENAI_RULES = [
+    {
+        "id": "genai-001",
+        "trigger": lambda zones, services: any("openai" in s.lower() or "bedrock" in s.lower() or "ai agent" in s.lower() or "foundry" in s.lower() for s in services),
+        "condition": lambda zones, services, answers: "content safety" not in str(services).lower(),
+        "rec": Recommendation(
+            id="genai-001",
+            title="Enable AI Content Safety",
+            description="Generative AI services detected without content safety guardrails. Add Azure AI Content Safety.",
+            pillar=WAFPillar.SECURITY,
+            severity=Severity.HIGH,
+            category="AI/ML",
+            action="Configure Azure AI Content Safety to filter harmful content from LLM responses",
+            azure_doc_link="https://learn.microsoft.com/en-us/azure/ai-services/content-safety/overview"
+        )
+    },
+    {
+        "id": "genai-002",
+        "trigger": lambda zones, services: any("openai" in s.lower() or "bedrock" in s.lower() or "ai agent" in s.lower() for s in services),
+        "condition": lambda zones, services, answers: True,
+        "rec": Recommendation(
+            id="genai-002",
+            title="Implement Token/Rate Limiting for LLM APIs",
+            description="LLM APIs can incur high costs without rate limits. Configure TPM/RPM limits in Azure OpenAI.",
+            pillar=WAFPillar.COST,
+            severity=Severity.HIGH,
+            category="AI/ML",
+            action="Set TPM (tokens per minute) and RPM (requests per minute) quotas in Azure OpenAI deployment",
+            azure_doc_link="https://learn.microsoft.com/en-us/azure/ai-services/openai/how-to/quota"
+        )
+    },
+]
+
+EDGE_RULES = [
+    {
+        "id": "edge-001",
+        "trigger": lambda zones, services: any("edge" in s.lower() or "wavelength" in s.lower() or "local zone" in s.lower() for s in services),
+        "condition": lambda zones, services, answers: True,
+        "rec": Recommendation(
+            id="edge-001",
+            title="Design for Edge Resilience",
+            description="Edge deployments must handle intermittent connectivity. Design for store-and-forward patterns.",
+            pillar=WAFPillar.RELIABILITY,
+            severity=Severity.HIGH,
+            category="Edge",
+            action="Implement offline-capable patterns with data sync to cloud when connectivity resumes",
+            azure_doc_link="https://learn.microsoft.com/en-us/azure/architecture/solution-ideas/articles/hybrid-connected-office"
+        )
+    },
+]
+
+OBSERVABILITY_RULES = [
+    {
+        "id": "obs-001",
+        "trigger": lambda zones, services: any("kubernetes" in s.lower() or "aks" in s.lower() or "eks" in s.lower() or "container" in s.lower() for s in services),
+        "condition": lambda zones, services, answers: "prometheus" not in str(services).lower() and "grafana" not in str(services).lower(),
+        "rec": Recommendation(
+            id="obs-001",
+            title="Add Managed Prometheus and Grafana",
+            description="Kubernetes workloads benefit from Prometheus metrics with Managed Grafana dashboards.",
+            pillar=WAFPillar.OPERATIONAL_EXCELLENCE,
+            severity=Severity.MEDIUM,
+            category="Observability",
+            action="Enable Azure Monitor managed service for Prometheus and connect to Managed Grafana",
+            azure_doc_link="https://learn.microsoft.com/en-us/azure/azure-monitor/essentials/prometheus-metrics-overview"
+        )
+    },
+]
+
+DATA_GOV_RULES = [
+    {
+        "id": "dgov-001",
+        "trigger": lambda zones, services: any("data lake" in s.lower() or "adls" in s.lower() or "lake formation" in s.lower() or "datazone" in s.lower() for s in services),
+        "condition": lambda zones, services, answers: "purview" not in str(services).lower(),
+        "rec": Recommendation(
+            id="dgov-001",
+            title="Implement Data Governance with Microsoft Purview",
+            description="Data lake workloads need governance. Microsoft Purview provides catalog, lineage, and classification.",
+            pillar=WAFPillar.OPERATIONAL_EXCELLENCE,
+            severity=Severity.MEDIUM,
+            category="Data Governance",
+            action="Deploy Microsoft Purview for data catalog, sensitivity labeling, and lineage tracking",
+            azure_doc_link="https://learn.microsoft.com/en-us/purview/purview"
+        )
+    },
+]
+
+ZERO_TRUST_RULES = [
+    {
+        "id": "zt-001",
+        "trigger": lambda zones, services: any("vpn" in s.lower() for s in services),
+        "condition": lambda zones, services, answers: "entra private" not in str(services).lower(),
+        "rec": Recommendation(
+            id="zt-001",
+            title="Consider Zero Trust Network Access",
+            description="VPN detected. Consider replacing with Microsoft Entra Private Access for identity-based access.",
+            pillar=WAFPillar.SECURITY,
+            severity=Severity.MEDIUM,
+            category="Zero Trust",
+            action="Evaluate Microsoft Entra Private Access as a VPN replacement for zero-trust network access",
+            azure_doc_link="https://learn.microsoft.com/en-us/entra/global-secure-access/concept-private-access"
+        )
+    },
+    {
+        "id": "zt-002",
+        "trigger": lambda zones, services: any("firewall" in s.lower() for s in services),
+        "condition": lambda zones, services, answers: "firewall manager" not in str(services).lower(),
+        "rec": Recommendation(
+            id="zt-002",
+            title="Centralize Firewall Management",
+            description="Multiple firewall resources detected. Use Azure Firewall Manager for centralized policy management.",
+            pillar=WAFPillar.SECURITY,
+            severity=Severity.LOW,
+            category="Zero Trust",
+            action="Deploy Azure Firewall Manager to manage firewall policies across subscriptions",
+            azure_doc_link="https://learn.microsoft.com/en-us/azure/firewall-manager/overview"
+        )
+    },
+]
+
+ALL_RULES = (
+    RELIABILITY_RULES + SECURITY_RULES + COST_RULES + PERFORMANCE_RULES + OPS_RULES
+    + HYBRID_RULES + GENAI_RULES + EDGE_RULES + OBSERVABILITY_RULES
+    + DATA_GOV_RULES + ZERO_TRUST_RULES
+)
+
 
 def analyze_architecture(analysis: Dict[str, Any], answers: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
@@ -343,7 +504,7 @@ def analyze_architecture(analysis: Dict[str, Any], answers: Optional[Dict[str, A
                     rec.services_affected = [s for s in services[:5]]  # Show first 5
                     recommendations.append(rec)
         except Exception as e:
-            logger.warning(f"Rule {rule.get('id', 'unknown')} failed: {e}")
+            logger.warning("Rule %s failed: %s", rule.get('id', 'unknown'), e)
     
     # Calculate scores by pillar
     pillar_scores = {}

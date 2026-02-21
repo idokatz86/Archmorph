@@ -181,4 +181,60 @@ CROSS_CLOUD_MAPPINGS = [
     {"aws": "Connect", "azure": "Dynamics 365 Contact Center", "gcp": "Contact Center AI", "category": "Business", "confidence": 0.80, "notes": "Cloud contact center"},
     {"aws": "WorkSpaces", "azure": "Virtual Desktop", "gcp": "Chrome Remote Desktop / VDI on GCE", "category": "Business", "confidence": 0.85, "notes": "Virtual desktop infrastructure"},
     {"aws": "Pinpoint", "azure": "Notification Hubs", "gcp": "Firebase Cloud Messaging", "category": "Business", "confidence": 0.75, "notes": "Multi-channel marketing/notifications"},
+
+    # ═══════════════════════════════════════════════════════════
+    # HYBRID & MULTI-CLOUD  (#60 — Azure Arc & Hybrid Management)
+    # ═══════════════════════════════════════════════════════════
+    {"aws": "EKS Anywhere", "azure": "Azure Arc-enabled Kubernetes", "gcp": "Anthos (multi-cloud)", "category": "Hybrid", "confidence": 0.85, "notes": "Managed Kubernetes across on-prem and multi-cloud — Arc projects Azure control plane anywhere"},
+    {"aws": "SSM (hybrid nodes)", "azure": "Azure Arc-enabled Servers", "gcp": "Anthos for VMs", "category": "Hybrid", "confidence": 0.80, "notes": "Manage on-prem/multi-cloud servers from the cloud control plane"},
+    {"aws": "RDS on Outposts", "azure": "Azure Arc-enabled SQL", "gcp": "AlloyDB Omni", "category": "Hybrid", "confidence": 0.75, "notes": "Run managed database engine outside the cloud provider's region"},
+    {"aws": "Control Tower (multi-account)", "azure": "Azure Lighthouse", "gcp": "Cloud Foundation Toolkit", "category": "Hybrid", "confidence": 0.80, "notes": "Multi-tenant / multi-subscription governance and delegation"},
+    {"aws": "Outposts (rack)", "azure": "Azure Stack HCI", "gcp": "Google Distributed Cloud (GDC)", "category": "Hybrid", "confidence": 0.85, "notes": "Full cloud stack running on-premises on customer-owned hardware"},
+
+    # ═══════════════════════════════════════════════════════════
+    # GENERATIVE AI & AI AGENTS  (#61)
+    # ═══════════════════════════════════════════════════════════
+    {"aws": "Bedrock Agents", "azure": "Azure AI Agent Service", "gcp": "Vertex AI Agents", "category": "AI/ML", "confidence": 0.80, "notes": "Autonomous AI agents with tool-use — rapidly evolving across all providers"},
+    {"aws": "Bedrock Knowledge Bases", "azure": "Azure AI Search (RAG)", "gcp": "Vertex AI Search", "category": "AI/ML", "confidence": 0.80, "notes": "Retrieval-Augmented Generation with managed vector stores"},
+    {"aws": "Q Business", "azure": "Microsoft 365 Copilot / AI Foundry", "gcp": "Gemini for Workspace", "category": "AI/ML", "confidence": 0.75, "notes": "Enterprise AI assistant grounded in organizational data"},
+    {"aws": "SageMaker Canvas", "azure": "Azure ML AutoML", "gcp": "Vertex AI AutoML", "category": "AI/ML", "confidence": 0.85, "notes": "No-code / low-code ML model building"},
+    {"aws": "Bedrock Guardrails", "azure": "Azure AI Content Safety", "gcp": "Vertex AI Safety Filters", "category": "AI/ML", "confidence": 0.80, "notes": "Content filtering and responsible AI guardrails for LLM applications"},
+    {"aws": "PartyRock", "azure": "Azure AI Foundry (low-code)", "gcp": "Vertex AI Studio", "category": "AI/ML", "confidence": 0.75, "notes": "Low-code generative AI app builder"},
+    {"aws": "CodeGuru", "azure": "GitHub Advanced Security", "gcp": "Gemini Code Assist", "category": "AI/ML", "confidence": 0.75, "notes": "AI-powered code review and security analysis"},
+
+    # ═══════════════════════════════════════════════════════════
+    # EDGE COMPUTING & DISTRIBUTED CLOUD  (#62)
+    # ═══════════════════════════════════════════════════════════
+    {"aws": "Wavelength", "azure": "Azure Edge Zones", "gcp": "Distributed Cloud Edge", "category": "Edge", "confidence": 0.80, "notes": "Ultra-low-latency compute at 5G / telco edge"},
+    {"aws": "Local Zones", "azure": "Azure Extended Zones", "gcp": "Distributed Cloud Edge", "category": "Edge", "confidence": 0.80, "notes": "Cloud infrastructure closer to metro areas for latency-sensitive apps"},
+    {"aws": "Lambda@Edge", "azure": "Azure Front Door Rules Engine", "gcp": "Cloud CDN (edge functions)", "category": "Edge", "confidence": 0.80, "notes": "Serverless logic at CDN edge locations"},
+    {"aws": "CloudFront Functions", "azure": "Azure CDN Rules Engine", "gcp": "Cloud CDN Policies", "category": "Edge", "confidence": 0.80, "notes": "Lightweight edge compute for request/response manipulation"},
+    {"aws": "Elastic Disaster Recovery", "azure": "Azure Site Recovery", "gcp": "Backup and DR (Actifio)", "category": "Edge", "confidence": 0.85, "notes": "Cloud-native disaster recovery with continuous replication"},
+
+    # ═══════════════════════════════════════════════════════════
+    # MANAGED OBSERVABILITY  (#63)
+    # ═══════════════════════════════════════════════════════════
+    {"aws": "Managed Grafana", "azure": "Azure Managed Grafana", "gcp": "Grafana (marketplace)", "category": "Observability", "confidence": 0.90, "notes": "Fully managed Grafana dashboards — first-party on AWS/Azure, marketplace on GCP"},
+    {"aws": "Managed Prometheus", "azure": "Azure Monitor (Prometheus)", "gcp": "Managed Service for Prometheus", "category": "Observability", "confidence": 0.90, "notes": "Managed Prometheus-compatible metrics collection"},
+    {"aws": "Distro for OpenTelemetry", "azure": "Azure Monitor (OpenTelemetry)", "gcp": "Cloud Trace (OpenTelemetry)", "category": "Observability", "confidence": 0.85, "notes": "OpenTelemetry distribution for vendor-neutral telemetry collection"},
+    {"aws": "CloudWatch Container Insights", "azure": "Container Insights (Azure Monitor)", "gcp": "GKE Monitoring", "category": "Observability", "confidence": 0.85, "notes": "Container and Kubernetes-specific monitoring and logging"},
+
+    # ═══════════════════════════════════════════════════════════
+    # DATA GOVERNANCE & DATA MESH  (#64)
+    # ═══════════════════════════════════════════════════════════
+    {"aws": "DataZone", "azure": "Microsoft Purview (Data Governance)", "gcp": "Dataplex", "category": "Data Governance", "confidence": 0.85, "notes": "Data catalog, governance, and domain-based data mesh management"},
+    {"aws": "Clean Rooms", "azure": "Azure Confidential Clean Rooms", "gcp": "BigQuery Clean Rooms", "category": "Data Governance", "confidence": 0.80, "notes": "Privacy-safe collaborative analytics across organizations"},
+    {"aws": "AppFlow", "azure": "Azure Logic Apps (SaaS connectors)", "gcp": "Application Integration", "category": "Data Governance", "confidence": 0.80, "notes": "No-code SaaS data integration (Salesforce, SAP, etc.)"},
+    {"aws": "Audit Manager", "azure": "Microsoft Purview Compliance Manager", "gcp": "Assured Workloads", "category": "Data Governance", "confidence": 0.80, "notes": "Continuous audit and compliance evidence collection"},
+    {"aws": "Glue DataBrew", "azure": "Azure Data Factory (data wrangling)", "gcp": "Dataprep by Trifacta", "category": "Data Governance", "confidence": 0.85, "notes": "Visual data preparation and cleansing tool"},
+
+    # ═══════════════════════════════════════════════════════════
+    # ZERO TRUST & SASE SECURITY  (#67)
+    # ═══════════════════════════════════════════════════════════
+    {"aws": "Verified Access", "azure": "Entra Private Access", "gcp": "BeyondCorp Enterprise", "category": "Zero Trust", "confidence": 0.85, "notes": "Zero-trust network access — identity-based app access without VPN"},
+    {"aws": "Security Lake", "azure": "Microsoft Sentinel (data lake)", "gcp": "Chronicle SIEM", "category": "Zero Trust", "confidence": 0.80, "notes": "Centralized security data lake with OCSF / normalized schema"},
+    {"aws": "Detective", "azure": "Microsoft Sentinel (investigation)", "gcp": "Chronicle Investigation", "category": "Zero Trust", "confidence": 0.85, "notes": "Security investigation and root-cause analysis"},
+    {"aws": "Firewall Manager", "azure": "Azure Firewall Manager", "gcp": "Cloud Firewall Policies", "category": "Zero Trust", "confidence": 0.90, "notes": "Centralized firewall policy management across accounts/subscriptions"},
+    {"aws": "Network Firewall (IDPS)", "azure": "Azure Firewall Premium (IDPS)", "gcp": "Cloud IDS", "category": "Zero Trust", "confidence": 0.85, "notes": "Intrusion detection and prevention integrated with network firewall"},
+    {"aws": "VPC Lattice", "azure": "Azure Private Link (service networking)", "gcp": "Private Service Connect", "category": "Zero Trust", "confidence": 0.80, "notes": "Application-layer service-to-service networking with built-in auth"},
 ]

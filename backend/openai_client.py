@@ -9,7 +9,7 @@ import logging
 import os
 from typing import Optional
 
-from openai import AzureOpenAI, RateLimitError, APITimeoutError, APIConnectionError
+from openai import AzureOpenAI, RateLimitError, APITimeoutError, APIConnectionError, BadRequestError, AuthenticationError
 from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 from tenacity import (
     retry,
@@ -20,6 +20,62 @@ from tenacity import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class OpenAIServiceError(Exception):
+    """Unified error for all OpenAI service failures."""
+
+    def __init__(self, message: str, *, retryable: bool = False, status_code: int = 502):
+        super().__init__(message)
+        self.retryable = retryable
+        self.status_code = status_code
+
+
+def handle_openai_error(exc: Exception, context: str = "OpenAI call") -> OpenAIServiceError:
+    """Map raw OpenAI exceptions to a unified OpenAIServiceError.
+
+    Parameters
+    ----------
+    exc : Exception
+        The original exception from the OpenAI SDK.
+    context : str
+        Human-readable description of what was being attempted.
+
+    Returns
+    -------
+    OpenAIServiceError
+        A normalized error with ``retryable`` and ``status_code`` attributes.
+    """
+    if isinstance(exc, RateLimitError):
+        logger.warning("%s rate-limited: %s", context, exc)
+        return OpenAIServiceError(
+            f"{context} is temporarily rate-limited. Please retry shortly.",
+            retryable=True, status_code=429,
+        )
+    if isinstance(exc, (APITimeoutError, APIConnectionError, TimeoutError)):
+        logger.error("%s connection failure: %s", context, exc)
+        return OpenAIServiceError(
+            f"{context} timed out or lost connectivity. Please retry.",
+            retryable=True, status_code=504,
+        )
+    if isinstance(exc, AuthenticationError):
+        logger.error("%s authentication failed: %s", context, exc)
+        return OpenAIServiceError(
+            f"{context} authentication error. Contact support.",
+            retryable=False, status_code=502,
+        )
+    if isinstance(exc, BadRequestError):
+        logger.warning("%s bad request: %s", context, exc)
+        return OpenAIServiceError(
+            f"{context} received an invalid request. Check your input.",
+            retryable=False, status_code=400,
+        )
+    # Fallback for unexpected errors
+    logger.error("%s unexpected error: %s", context, exc, exc_info=True)
+    return OpenAIServiceError(
+        f"{context} failed unexpectedly. Please try again.",
+        retryable=True, status_code=502,
+    )
 
 # ─────────────────────────────────────────────────────────────
 # Azure OpenAI Configuration (single source of truth)

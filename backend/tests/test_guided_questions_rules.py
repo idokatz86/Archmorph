@@ -342,3 +342,66 @@ class TestApplyAnswersIntegration:
         # The VM mapping should have been upgraded
         vm = [m for m in result["mappings"] if "EC2" in m["source_service"]][0]
         assert "Premium" in vm["azure_service"] or "premium" in vm.get("notes", "").lower()
+
+
+# ====================================================================
+# QUESTION_BANK — new categories (Issues #60-#67)
+# ====================================================================
+
+class TestNewQuestionCategories:
+    """Verify new question bank categories have correct structure."""
+
+    def test_hybrid_multicloud_category_exists(self):
+        assert "hybrid_multicloud" in QUESTION_BANK
+
+    def test_generative_ai_category_exists(self):
+        assert "generative_ai" in QUESTION_BANK
+
+    def test_edge_computing_category_exists(self):
+        assert "edge_computing" in QUESTION_BANK
+
+    def test_data_governance_category_exists(self):
+        assert "data_governance" in QUESTION_BANK
+
+    def test_zero_trust_category_exists(self):
+        assert "zero_trust_security" in QUESTION_BANK
+
+    def test_new_categories_have_questions(self):
+        new_categories = [
+            "hybrid_multicloud", "generative_ai", "edge_computing",
+            "data_governance", "zero_trust_security",
+        ]
+        for cat in new_categories:
+            qs = QUESTION_BANK.get(cat, [])
+            assert len(qs) >= 2, f"Category {cat} has fewer than 2 questions"
+
+    def test_new_questions_have_required_fields(self):
+        new_categories = [
+            "hybrid_multicloud", "generative_ai", "edge_computing",
+            "data_governance", "zero_trust_security",
+        ]
+        for cat in new_categories:
+            for q in QUESTION_BANK[cat]:
+                assert "id" in q, f"Question in {cat} missing 'id'"
+                assert "question" in q, f"Question in {cat} missing 'question'"
+                assert "options" in q, f"Question in {cat} missing 'options'"
+                assert "default" in q, f"Question in {cat} missing 'default'"
+                assert len(q["options"]) >= 2, f"Question {q['id']} has fewer than 2 options"
+                assert q["default"] in q["options"], (
+                    f"Question {q['id']} default not in options"
+                )
+
+    def test_generate_questions_with_outposts(self):
+        """AWS Outposts should trigger hybrid questions."""
+        result = generate_questions(["AWS Outposts", "EC2"])
+        ids = [q["id"] for q in result]
+        # Should include at least one hybrid question
+        hybrid_ids = [q["id"] for q in QUESTION_BANK.get("hybrid_multicloud", [])]
+        assert any(hid in ids for hid in hybrid_ids), "No hybrid questions triggered by Outposts"
+
+    def test_generate_questions_with_bedrock(self):
+        """Amazon Bedrock Agents should trigger gen AI questions."""
+        result = generate_questions(["Amazon Bedrock Agents", "Lambda"])
+        ids = [q["id"] for q in result]
+        ai_ids = [q["id"] for q in QUESTION_BANK.get("generative_ai", [])]
+        assert any(aid in ids for aid in ai_ids), "No gen AI questions triggered by Bedrock"
