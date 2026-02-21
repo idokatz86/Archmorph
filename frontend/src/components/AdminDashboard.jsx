@@ -89,7 +89,7 @@ export default function AdminDashboard({ onClose }) {
           </h3>
           <div className="space-y-3">
             {(funnel?.funnel || []).map((step, i) => {
-              const pct = maxFunnel > 0 ? (step.count / maxFunnel * 100) : 0;
+              const pct = step.pct_of_total ?? (maxFunnel > 0 ? (step.count / maxFunnel * 100) : 0);
               return (
                 <div key={step.step}>
                   <div className="flex items-center justify-between mb-1">

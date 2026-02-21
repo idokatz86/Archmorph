@@ -53,6 +53,10 @@ _DEFAULT_METRICS: Dict[str, Any] = {
         "github_issues_created": 0,
         "service_searches": 0,
         "cost_estimates": 0,
+        "images_rejected": 0,
+        "hld_generated": 0,
+        "iac_chat_messages": 0,
+        "iac_services_added": 0,
     },
     "daily": {},       # { "2026-02-19": { counter_name: count } }
     "recent_events": [],  # last 200 events
@@ -240,13 +244,19 @@ def get_funnel_metrics() -> Dict[str, Any]:
                 if step in step_counts:
                     step_counts[step] += 1
 
-        # Build funnel with conversion rates
+        # Build funnel with conversion rates (always relative to first step)
+        base_count = step_counts[FUNNEL_STEPS[0]] if step_counts[FUNNEL_STEPS[0]] > 0 else max(total_sessions, 1)
         funnel = []
         for i, step in enumerate(FUNNEL_STEPS):
             count = step_counts[step]
-            prev_count = step_counts[FUNNEL_STEPS[i - 1]] if i > 0 else total_sessions
-            conversion = round((count / prev_count * 100), 1) if prev_count > 0 else 0.0
-            drop_off = prev_count - count if i > 0 else 0
+            # Conversion rate: percentage of sessions that reached this step
+            # relative to sessions that reached the previous step
+            prev_count = step_counts[FUNNEL_STEPS[i - 1]] if i > 0 else base_count
+            conversion = round((count / max(prev_count, 1) * 100), 1) if i > 0 else 100.0
+            # Cap conversion at 100% — if users skip steps, the later step
+            # may have more sessions than an intermediate step
+            conversion = min(conversion, 100.0)
+            drop_off = max(prev_count - count, 0) if i > 0 else 0
 
             funnel.append({
                 "step": step,
@@ -254,6 +264,7 @@ def get_funnel_metrics() -> Dict[str, Any]:
                 "count": count,
                 "conversion_rate": conversion,
                 "drop_off": drop_off,
+                "pct_of_total": round((count / base_count * 100), 1) if base_count > 0 else 0.0,
             })
 
         # Completion rate
