@@ -343,8 +343,7 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
         result = await asyncio.to_thread(analyze_image, image_bytes, content_type)
     except Exception as exc:
         logger.error("Vision analysis failed for %s: %s", diagram_id, exc, exc_info=True)
-        error_detail = f"Vision analysis failed: {type(exc).__name__}: {exc}"
-        raise HTTPException(500, error_detail)
+        raise HTTPException(500, "Vision analysis failed. Please try again with a different image.")
 
     # Inject diagram_id and classification metadata into result
     result["diagram_id"] = diagram_id
