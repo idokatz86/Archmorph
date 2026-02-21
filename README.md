@@ -6,9 +6,9 @@ Convert AWS and GCP architecture diagrams into Azure equivalents with guided mig
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Azure](https://img.shields.io/badge/cloud-Azure-0078D4.svg)
-![Version](https://img.shields.io/badge/version-2.11.1-22C55E.svg)
+![Version](https://img.shields.io/badge/version-2.12.0-22C55E.svg)
 ![Status](https://img.shields.io/badge/status-Production-22C55E.svg)
-![Tests](https://img.shields.io/badge/tests-747%20passing-22C55E.svg)
+![Tests](https://img.shields.io/badge/tests-1149%20passing-22C55E.svg)
 ![Python](https://img.shields.io/badge/python-3.11-3776AB.svg)
 ![React](https://img.shields.io/badge/react-19.1-61DAFB.svg)
 
@@ -39,6 +39,13 @@ Archmorph uses Azure OpenAI GPT-4 Vision to analyze cloud architecture diagrams,
 - **Persistent analytics** — Azure Blob Storage with background flush and crash-safe shutdown
 - **Security hardening** — timing-safe auth, security headers, XSS protection, Dependabot
 - **CI/CD security** — Semgrep SAST, Gitleaks secret detection, Trivy container scanning, CycloneDX SBOM
+- **API versioning** — all `/api/*` routes mirrored at `/api/v1/*` for stable integrations
+- **Feature flags system** — percentage rollout + user targeting with admin API
+- **Comprehensive audit logging** — structured JSON with risk levels, alerting rules, compliance queries
+- **Session persistence** — pluggable SessionStore with InMemory and Redis backends
+- **GPT response caching** — content-hash TTLCache for GPT-4o responses
+- **Zero Trust WAF** — Azure Front Door Premium with OWASP CRS 3.2
+- **Helm charts** — self-hosted Kubernetes deployment via `charts/archmorph/`
 
 ---
 
@@ -90,6 +97,8 @@ flowchart TB
             UI[React 19 + Vite<br/>TailwindCSS]
         end
         
+        WAF[Azure Front Door<br/>WAF / OWASP CRS 3.2]
+        
         subgraph Backend["Container Apps"]
             API[FastAPI<br/>Python 3.11]
             subgraph Engines["Processing Engines"]
@@ -101,12 +110,16 @@ flowchart TB
                 HLDExport[HLD Export<br/>DOCX/PDF/PPTX]
                 Chat[IaC Chat<br/>GPT-4o Assistant]
             end
+            FeatureFlags[Feature Flags<br/>% rollout + targeting]
+            AuditLog[Audit Logging<br/>Structured JSON]
+            SessionStore[Session Store<br/>InMemory / Redis]
         end
         
         subgraph Data["Data Services"]
             ACR[Container Registry]
             DB[(PostgreSQL<br/>Flexible Server)]
             Blob[(Blob Storage)]
+            Redis[(Redis<br/>optional)]
         end
         
         subgraph AI["Azure OpenAI"]
@@ -119,7 +132,7 @@ flowchart TB
     end
     
     User((User)) --> UI
-    UI <--> API
+    UI <--> WAF --> API
     API --> Vision --> GPT4V
     API --> GQ
     API --> Export
@@ -130,6 +143,9 @@ flowchart TB
     API --> Pricing
     API --> DB
     API --> Blob
+    API --> FeatureFlags
+    API --> AuditLog
+    SessionStore --> Redis
     ACR --> API
     API --> AppInsights
 ```
@@ -155,7 +171,12 @@ flowchart TB
 | IaC Chat | GPT-4o interactive assistant | In-process engine |
 | Auth | JWT (HS256), in-memory revocation | Middleware |
 | Security | Headers, timing-safe auth, XSS protection, Dependabot | Middleware |
-| Testing | pytest (747 tests) + Playwright E2E | CI/CD |
+| Feature Flags | Python module, % rollout + user targeting | In-process |
+| Audit Logging | Structured JSON + querying with risk levels | In-process |
+| Session Store | InMemory/Redis adapter | In-process / Azure Cache for Redis |
+| API Versioning | v1 prefix mirror for all routes | Middleware |
+| WAF | OWASP CRS 3.2 | Azure Front Door Premium |
+| Testing | pytest (1149 tests) + Playwright E2E | CI/CD |
 
 > 📐 **Detailed Diagrams:** [architecture.excalidraw](docs/architecture.excalidraw) | [application-flow.excalidraw](docs/application-flow.excalidraw) — Open in [Excalidraw](https://excalidraw.com)
 
@@ -210,14 +231,15 @@ Upload Diagram → AI Analysis → Guided Questions → Results & Export → Gen
 
 1. **Upload** — User uploads an AWS or GCP architecture diagram
 2. **AI Analysis** — GPT-4 Vision detects services, connections, and annotations
-3. **Guided Questions** — 8–18 contextual questions refine migration choices (SKU, compliance, networking, DR, security, deployment region)
-4. **Results** — Azure service mappings grouped by zone with confidence scores
-5. **Diagram Export** — Download translated architecture as Excalidraw, Draw.io, or Visio
-6. **IaC Generation** — Generate Terraform HCL or Bicep with syntax highlighting
-7. **Cost Estimation** — Region-aware monthly cost breakdown via Azure Retail Prices API
-8. **HLD Generation** — AI-powered High-Level Design document with WAF assessment
-9. **HLD Export** — Download HLD as Word, PDF, or PowerPoint with branded formatting
-10. **IaC Chat** — Interactive code modification via GPT-4o assistant
+3. **Feature Flags** — Feature availability checked via flags system (percentage rollout + user targeting)
+4. **Guided Questions** — 8–18 contextual questions refine migration choices (SKU, compliance, networking, DR, security, deployment region)
+5. **Results** — Azure service mappings grouped by zone with confidence scores
+6. **Diagram Export** — Download translated architecture as Excalidraw, Draw.io, or Visio
+7. **IaC Generation** — Generate Terraform HCL or Bicep with syntax highlighting
+8. **Cost Estimation** — Region-aware monthly cost breakdown via Azure Retail Prices API
+9. **HLD Generation** — AI-powered High-Level Design document with WAF assessment
+10. **HLD Export** — Download HLD as Word, PDF, or PowerPoint with branded formatting
+11. **IaC Chat** — Interactive code modification via GPT-4o assistant
 
 ---
 
@@ -285,7 +307,9 @@ Dynamic pricing powered by the [Azure Retail Prices API](https://prices.azure.co
 
 ## API Reference
 
-### Core Endpoints (82 total)
+### Core Endpoints (~90+ total)
+
+> **Note:** All `/api/*` routes are also available at `/api/v1/*` for versioned API access.
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
@@ -356,6 +380,16 @@ Dynamic pricing powered by the [Azure Retail Prices API](https://prices.azure.co
 | `/api/service-updates/last` | GET | Last update details |
 | `/api/service-updates/run-now` | POST | Trigger immediate catalog refresh + auto-add |
 
+### Feature Flags
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/flags` | GET | List all feature flags |
+| `/api/flags/{name}` | GET | Get specific flag status |
+| `/api/flags/{name}` | PUT | Update flag configuration (admin) |
+
+> **Note:** All routes also available at `/api/v1/*`
+
 Full API documentation: [Swagger UI](https://archmorph-api.nicesea-1430d1f7.westeurope.azurecontainerapps.io/docs)
 
 ---
@@ -364,23 +398,27 @@ Full API documentation: [Swagger UI](https://archmorph-api.nicesea-1430d1f7.west
 
 | Suite | Framework | Tests | Command |
 |-------|-----------|-------|---------|
-| Backend unit | pytest | 747 | `cd backend && python -m pytest tests/ -v` |
+| Backend unit | pytest | 1149 | `cd backend && python -m pytest tests/ -v` |
 | E2E | Playwright | 34 | `npx playwright test` |
-| **Total** | | **781** | |
+| **Total** | | **1183** | |
 
 ### Coverage
 
-- **30 test files** covering all 82 API endpoints
+- **35+ test files** covering all API endpoints and router modules
 - **79 core API tests** covering the full translation flow
 - **58 icon registry tests** covering SVG sanitization, registry ops, all 3 library builders, API routes, and Pydantic models
+- **56 contract tests** covering API contract validation
+- **55 middleware tests** covering correlation ID, logging, versioning, and feature flags middleware
+- **46 coverage gap tests** covering edge cases and uncovered paths
 - **45 service updater tests** covering auto-discovery, fuzzy matching, and catalog integration
 - **36 HLD generator tests** covering AI document generation and WAF assessment
 - **33 guided questions tests** covering rule evaluation and deduplication
 - **32 prompt injection guard tests** covering input sanitization
 - **28 analytics tests** covering funnel tracking, metrics persistence, and Azure Blob Storage
 - **28 pricing tests** covering Azure Retail Prices API integration and caching
-- **24 roadmap tests** covering feature requests and bug reports
 - **27 HLD export tests** covering Word/PDF/PowerPoint generation, edge cases, and diagram inclusion
+- **26 chaos engineering tests** covering fault injection, recovery, and resilience
+- **24 roadmap tests** covering feature requests and bug reports
 - **21 auth tests** covering JWT session management, login/logout, token revocation
 - **10 E2E test groups** covering full translation flow, diagram export, IaC generation, chat widget, services browser, admin dashboard, API validation, and additional API coverage
 - All backend tests run against a test FastAPI client; E2E tests run against the deployed app
@@ -400,7 +438,16 @@ Archmorph/
 │   │   └── components/
 │   │       ├── AdminDashboard.jsx   # Admin metrics & monitoring panel
 │   │       ├── ChatWidget.jsx       # AI chatbot assistant overlay
-│   │       ├── DiagramTranslator.jsx # Main diagram upload & translation flow
+│   │       ├── DiagramTranslator/   # Main diagram upload & translation flow (9 sub-components)
+│   │       │   ├── index.jsx            # Root component with useReducer state machine
+│   │       │   ├── UploadPanel.jsx
+│   │       │   ├── AnalysisResults.jsx
+│   │       │   ├── GuidedQuestions.jsx
+│   │       │   ├── MappingView.jsx
+│   │       │   ├── DiagramExport.jsx
+│   │       │   ├── IaCPanel.jsx
+│   │       │   ├── CostEstimate.jsx
+│   │       │   └── HLDPanel.jsx
 │   │       ├── ErrorBoundary.jsx    # React error boundary
 │   │       ├── FeedbackWidget.jsx   # NPS and feedback collection
 │   │       ├── MonitoringDashboard.jsx # Observability dashboard
@@ -411,7 +458,21 @@ Archmorph/
 │   ├── vite.config.js
 │   └── package.json
 ├── backend/                         # FastAPI service
-│   ├── main.py                      # 82 API endpoints, analysis engine
+│   ├── main.py                      # App factory, middleware (181 lines)
+│   ├── routers/                     # 13 FastAPI router modules
+│   │   ├── services.py              # Service catalog routes
+│   │   ├── diagrams.py              # Diagram analysis routes
+│   │   ├── iac.py                   # IaC generation routes
+│   │   ├── hld.py                   # HLD generation & export routes
+│   │   ├── chat.py                  # Chat & IaC chat routes
+│   │   ├── admin.py                 # Admin dashboard routes
+│   │   ├── auth.py                  # Auth routes
+│   │   ├── feedback.py              # Feedback & NPS routes
+│   │   ├── roadmap.py               # Roadmap routes
+│   │   ├── flags.py                 # Feature flag routes
+│   │   ├── icons.py                 # Icon registry routes
+│   │   ├── versioning.py            # Architecture versioning routes
+│   │   └── misc.py                  # Health, contact, etc.
 │   ├── admin_auth.py                # JWT session management (HS256, 1h TTL)
 │   ├── vision_analyzer.py           # GPT-4o image analysis engine
 │   ├── image_classifier.py          # Pre-check gate for diagram validation
@@ -424,6 +485,11 @@ Archmorph/
 │   ├── chatbot.py                   # FAQ chatbot with intent detection
 │   ├── service_updater.py           # APScheduler daily catalog sync
 │   ├── openai_client.py             # Shared Azure OpenAI client factory
+│   ├── feature_flags.py             # Feature flags with % rollout + user targeting
+│   ├── session_store.py             # Session persistence (InMemory/Redis backends)
+│   ├── logging_config.py            # Structured JSON logging + CorrelationIdMiddleware
+│   ├── audit_logging.py             # Comprehensive audit logging with risk levels
+│   ├── api_versioning.py            # API v1 prefix mirror middleware
 │   ├── usage_metrics.py             # Analytics with Azure Blob Storage persistence
 │   ├── icons/                       # Icon Registry system
 │   │   ├── models.py                # Pydantic models
@@ -444,7 +510,7 @@ Archmorph/
 │   │   ├── gcp_services.py          # 117 GCP services
 │   │   ├── mappings.py              # 122 cross-cloud mappings
 │   │   └── azure_pricing.py         # Azure Retail Prices API + cache
-│   ├── tests/                       # 30 test files, 747 tests
+│   ├── tests/                       # 35+ test files, 1149 tests
 │   ├── Dockerfile
 │   └── requirements.txt
 ├── e2e/
@@ -456,7 +522,12 @@ Archmorph/
 │   └── terraform.tfvars.example     # Example configuration
 ├── .github/
 │   └── workflows/
-│       └── ci.yml                   # CI/CD: lint, test, build, deploy
+│       ├── ci.yml                   # CI/CD: lint, test, build, deploy
+│       ├── security.yml             # SAST/DAST/SCA security pipeline
+│       ├── sbom.yml                 # CycloneDX SBOM generation
+│       └── rollback.yml             # Blue-green rollback workflow
+├── charts/
+│   └── archmorph/                   # Helm chart for self-hosted K8s deployment
 ├── docs/                            # Documentation
 │   ├── PRD.md                       # Product Requirements Document
 │   ├── DEPLOYMENT_COSTS.md          # Azure cost breakdown
@@ -492,10 +563,15 @@ The CI/CD workflow (`.github/workflows/ci.yml`) runs 8 jobs:
 2. **sast-semgrep** — Semgrep SAST scan (OWASP Top 10, security-audit, Python rules)
 3. **secret-detection** — Gitleaks full-history secret scanning
 4. **sbom** — CycloneDX SBOM generation (Python + npm, 90-day artifact retention)
-5. **backend-tests** — 747 pytest tests (matrix: Python 3.11 + 3.12)
+5. **backend-tests** — 1149 pytest tests (matrix: Python 3.11 + 3.12)
 6. **frontend-build** — Vite production build + npm audit
-7. **deploy-backend** — Docker build → ACR push → Trivy container scan → Container Apps revision
+7. **deploy-backend** — Docker build → ACR push → Trivy container scan → Container Apps revision (blue-green with instant rollback)
 8. **deploy-frontend** — Azure Static Web Apps (automatic)
+
+Additional workflows:
+- **security.yml** — SAST/DAST/SCA security pipeline (Semgrep, Bandit, CodeQL, Trivy, Gitleaks)
+- **sbom.yml** — CycloneDX + Grype SBOM generation and vulnerability scanning
+- **rollback.yml** — Blue-green deployment rollback trigger
 
 ### Manual Deploy (if needed)
 
@@ -509,6 +585,15 @@ az containerapp update --name archmorph-api --resource-group <rg> --image <acr>.
 cd frontend
 npm run build
 npx swa deploy dist --deployment-token <token> --env production
+```
+
+### Helm Chart (Self-Hosted Kubernetes)
+
+```bash
+helm install archmorph charts/archmorph/ \
+  --set backend.image=<acr>.azurecr.io/archmorph-api:latest \
+  --set frontend.image=<acr>.azurecr.io/archmorph-frontend:latest \
+  --namespace archmorph --create-namespace
 ```
 
 ### Estimated Costs
@@ -534,6 +619,7 @@ See [docs/DEPLOYMENT_COSTS.md](docs/DEPLOYMENT_COSTS.md) for full breakdown.
 | v2.6 — Icon Registry & Security | Done | Icon Registry (405 icons, 3 library formats), security hardening (timing-safe auth, headers, XSS protection) |
 | v2.11.0 — Admin & Analytics | Done | JWT admin auth, persistent analytics (Azure Blob Storage), conversion funnel |
 | v2.11.1 — UX Polish & Document Export | Done | HLD export (DOCX/PDF/PPTX), 15 UX improvements, CI/CD security (Semgrep, Gitleaks, SBOM, Trivy), 747 tests |
+| v2.12.0 — Modular Architecture & Security | Done | Router decomposition (main.py 2,189→181 lines, 13 router modules), API versioning (v1 prefix), feature flags system, comprehensive audit logging, session persistence (InMemory/Redis), GPT response caching, DiagramTranslator decomposed (1,201→ 9 sub-components), structured JSON logging with correlation IDs, OTel observability rewrite, Azure Front Door WAF + Zero Trust, Helm charts, blue-green deployment, SBOM (CycloneDX + Grype), SAST/DAST/SCA pipeline, storage RBAC auth, pricing cache to Blob, monitoring optimization, 1149 tests (contract 56, chaos 26, coverage 46, middleware 55) |
 | v3.0 — Enterprise | Planned | Visio import, SSO/RBAC, multi-tenant support |
 | v4.0 — Advanced | Planned | Pulumi output, Azure Migrate integration, multi-diagram projects |
 
@@ -553,6 +639,10 @@ See [docs/DEPLOYMENT_COSTS.md](docs/DEPLOYMENT_COSTS.md) for full breakdown.
 - **Secret scanning:** Gitleaks full-history detection in CI
 - **Container security:** Trivy vulnerability scanning (CRITICAL/HIGH) on every deployment
 - **SBOM:** CycloneDX Bill of Materials generated for Python and npm dependencies (90-day retention)
+- **WAF:** Azure Front Door Premium with OWASP CRS 3.2, Zero Trust network configuration
+- **Audit logging:** Comprehensive structured JSON audit logs with risk levels, alerting rules, compliance queries
+- **Feature flags:** Controlled feature rollout with percentage-based and user-targeted flags
+- **Blue-green deployment:** Instant rollback capability for production deployments
 
 ### Reporting Vulnerabilities
 

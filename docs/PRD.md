@@ -1,6 +1,6 @@
 # Archmorph — Cloud Architecture Translator to Azure
 ## Product Requirements Document (PRD)
-**Version:** 2.11.1
+**Version:** 2.12.0
 **Date:** June 22, 2025
 **Author:** Ido Katz
 
@@ -8,11 +8,11 @@
 
 ## 1. Executive Summary
 
-Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams into Azure equivalents. It analyzes uploaded diagrams using GPT-4o vision, identifies cloud services, allows users to add services via natural language, asks guided migration questions with smart deduplication to refine the translation, maps services to Azure counterparts with confidence scores, exports translated architecture diagrams in multiple formats, generates ready-to-deploy Terraform/Bicep infrastructure code, provides dynamic cost estimates based on the Azure Retail Prices API with 134 service pricing entries, automatically discovers and integrates new cloud services into its catalog, generates comprehensive AI-powered High-Level Design (HLD) documents, provides an interactive IaC chat assistant, analyzes architecture against Azure Well-Architected Framework (WAF), provides cost optimization recommendations, includes sample diagrams for onboarding, collects NPS feedback, supports shareable analysis links, provides user authentication with Azure AD B2C and GitHub OAuth, implements usage quotas and lead capture, generates migration runbooks with step-by-step task tracking, supports architecture versioning with change history, provides Terraform plan previews, comprehensive application analytics, and includes E2E monitoring with automatic GitHub issue creation.
+Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams into Azure equivalents. It analyzes uploaded diagrams using GPT-4o vision, identifies cloud services, allows users to add services via natural language, asks guided migration questions with smart deduplication to refine the translation, maps services to Azure counterparts with confidence scores, exports translated architecture diagrams in multiple formats, generates ready-to-deploy Terraform/Bicep infrastructure code, provides dynamic cost estimates based on the Azure Retail Prices API with 134 service pricing entries, automatically discovers and integrates new cloud services into its catalog, generates comprehensive AI-powered High-Level Design (HLD) documents, provides an interactive IaC chat assistant, analyzes architecture against Azure Well-Architected Framework (WAF), provides cost optimization recommendations, includes sample diagrams for onboarding, collects NPS feedback, supports shareable analysis links, provides user authentication with Azure AD B2C and GitHub OAuth, implements usage quotas and lead capture, generates migration runbooks with step-by-step task tracking, supports architecture versioning with change history, provides Terraform plan previews, comprehensive application analytics, includes E2E monitoring with automatic GitHub issue creation, features a modular router architecture (13 FastAPI router modules), API versioning with v1 prefix, a feature flags system with percentage rollout and user targeting, comprehensive audit logging with risk levels and compliance queries, pluggable session persistence (InMemory/Redis), GPT-4o response caching, and Zero Trust WAF via Azure Front Door.
 
 **Problem:** Organizations migrating to Azure spend weeks manually mapping source architecture to Azure services. This process is error-prone, requires deep multi-cloud expertise, and lacks tooling for interactive refinement.
 
-**Solution:** Automated diagram analysis and service translation with natural language service addition, smart question deduplication, confidence-scored mappings, multi-format diagram export, self-updating service catalog with auto-integration, generated IaC with secure credential handling, region-aware pricing with optimized targeted queries, AI-powered HLD generation, interactive IaC chat assistant, WAF best practices linting, cost optimization tips, sample diagram onboarding, NPS feedback collection, shareable links, user authentication with quotas, migration runbook generation, architecture versioning, Terraform plan preview, comprehensive analytics, Azure Monitor integration with alerts, and an integrated chatbot assistant.
+**Solution:** Automated diagram analysis and service translation with natural language service addition, smart question deduplication, confidence-scored mappings, multi-format diagram export, self-updating service catalog with auto-integration, generated IaC with secure credential handling, region-aware pricing with optimized targeted queries, AI-powered HLD generation, interactive IaC chat assistant, WAF best practices linting, cost optimization tips, sample diagram onboarding, NPS feedback collection, shareable links, user authentication with quotas, migration runbook generation, architecture versioning, Terraform plan preview, comprehensive analytics, Azure Monitor integration with alerts, an integrated chatbot assistant, modular router architecture with API versioning, feature flags, comprehensive audit logging, session persistence, GPT response caching, and Zero Trust WAF.
 
 ---
 
@@ -169,6 +169,53 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 - **Filename convention:** `archmorph-{project-title}.{ext}` with slug-safe naming
 - **Base64 response:** Export returned as base64-encoded content with filename and MIME type for frontend download
 - **27 unit tests** covering all 3 export formats, edge cases, dispatcher, and diagram inclusion
+
+### 3.26 Modular Router Architecture (v2.12.0)
+- **main.py decomposition** — reduced from 2,189 lines to 181 lines (app factory + middleware registration)
+- **13 FastAPI router modules** under `backend/routers/`: services, diagrams, iac, hld, chat, admin, auth, feedback, roadmap, flags, icons, versioning, misc
+- **Clean separation of concerns** — each router owns its own endpoints, dependencies, and error handling
+- **Frontend decomposition** — DiagramTranslator.jsx split from 1,201 lines into 9 sub-components with useReducer state machine
+- **Structured JSON logging** — `logging_config.py` with CorrelationIdMiddleware for request tracing
+- **OTel observability rewrite** — consolidated 3 overlapping metrics systems into real OpenTelemetry SDK integration
+
+### 3.27 API Versioning (v2.12.0)
+- **v1 prefix mirror** — all `/api/*` routes automatically mirrored at `/api/v1/*`
+- **Middleware-based** — transparent routing via `api_versioning.py` middleware
+- **Backward compatible** — existing `/api/*` routes continue to work unchanged
+- **Future-proof** — infrastructure in place for v2 breaking changes without disrupting v1 consumers
+
+### 3.28 Feature Flags System (v2.12.0)
+- **Percentage rollout** — gradually enable features for a percentage of users
+- **User targeting** — enable/disable features for specific users or user segments
+- **Admin API** — `GET /api/flags`, `GET /api/flags/{name}`, `PUT /api/flags/{name}`
+- **In-process evaluation** — zero-latency flag checks with in-memory state
+- **Configurable defaults** — flags can be enabled/disabled globally with override rules
+
+### 3.29 Comprehensive Audit Logging (v2.12.0)
+- **Structured JSON logs** — machine-parseable audit trail for all security-relevant actions
+- **Risk levels** — each audit event tagged with risk level (Low, Medium, High, Critical)
+- **Alerting rules** — configurable rules for triggering alerts on high-risk events
+- **Compliance queries** — pre-built queries for SOC2, ISO 27001, and GDPR audit evidence
+- **Searchable** — admin API for querying audit events by time range, risk level, actor, and action
+
+### 3.30 Session Persistence (v2.12.0)
+- **SessionStore abstraction** — pluggable interface for session storage backends
+- **InMemory backend** — default for development and single-instance deployments
+- **Redis backend** — production-ready adapter for Azure Cache for Redis
+- **TTL management** — automatic session expiration with configurable TTL
+- **Backward compatible** — transparent replacement of previous in-memory-only session handling
+
+### 3.31 GPT Response Caching (v2.12.0)
+- **Content-hash TTLCache** — cache GPT-4o responses by hashing input content
+- **Configurable TTL** — tunable cache duration (default: 1 hour)
+- **Cost reduction** — eliminates redundant GPT-4o API calls for identical inputs
+- **Azure pricing cache** — pricing data persisted to Blob Storage with TTL for cross-instance sharing
+
+### 3.32 Zero Trust WAF (v2.12.0)
+- **Azure Front Door Premium** — global load balancer with WAF integration
+- **OWASP CRS 3.2** — Core Rule Set for web application protection
+- **Zero Trust network** — Container Apps locked down to Front Door origin only
+- **Terraform config** — full infrastructure-as-code for WAF policies, rules, and Front Door profiles
 
 ### 3.15 Security Hardening (v2.6 + v2.11.1)
 - **Security headers middleware** — X-Content-Type-Options, X-Frame-Options, Referrer-Policy, HSTS, Permissions-Policy
@@ -443,14 +490,19 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | Diagram Export | In-process engine (Excalidraw, Draw.io, Visio with 36 Azure stencils + 405-icon registry fallback) |
 | Pricing | Azure Retail Prices API with 30-day disk cache (134 service entries, 56 aliases, targeted queries) |
 | IaC | Terraform (infra), Bicep support in-app |
-| Testing | pytest (backend, 747 tests in 30 files), E2E flow test (65 steps across 5 diagrams), Playwright (35+ browser tests), integration tests |
+| Testing | pytest (backend, 1149 tests in 35+ files), E2E flow test (65 steps across 5 diagrams), Playwright (35+ browser tests), integration tests, contract tests (56), chaos tests (26), coverage gap tests (46), middleware tests (55) |
 | Best Practices | In-process WAF linter (5 pillars, 15+ rules, quick wins, pillar scores) |
 | Cost Optimizer | In-process engine (7 categories, RI/Spot/tiering/auto-shutdown recommendations) |
 | Feedback | In-process NPS/feature/bug collection (30-day trend, admin dashboard) |
 | HLD Generator | In-process GPT-4o engine (60+ Azure doc links, 13-section HLD, markdown converter) |
 | IaC Chat | In-process GPT-4o assistant (session management, code modification, context-aware) |
 | Icon Registry | In-process engine (405 icons, Draw.io/Excalidraw/Visio library builders, SVG sanitization, thread-safe, persistent) |
-| Security | JWT admin auth (HS256, 1h TTL), security headers, timing-safe auth, Dependabot, defusedxml, ZIP slip protection, Semgrep SAST, Gitleaks, Trivy, CycloneDX SBOM |
+| Security | JWT admin auth (HS256, 1h TTL), security headers, timing-safe auth, Dependabot, defusedxml, ZIP slip protection, Semgrep SAST, Gitleaks, Trivy, CycloneDX SBOM, Azure Front Door WAF (OWASP CRS 3.2), Zero Trust networking, comprehensive audit logging |
+| Feature Flags | In-process engine (percentage rollout, user targeting, admin API) |
+| Session Store | Pluggable backends (InMemory default, Redis for production) |
+| GPT Response Cache | Content-hash TTLCache for GPT-4o responses, Blob Storage pricing cache |
+| API Versioning | Middleware-based v1 prefix mirror for all routes |
+| Router Architecture | 13 FastAPI router modules (main.py reduced to 181-line app factory) |
 | NL Service Builder | In-process GPT-4o engine (fuzzy Azure service matching, alias support, confidence scoring) |
 | Smart Question Dedup | In-process engine (implicit answer detection, smart defaults from analysis) |
 | E2E Monitoring | GitHub Actions workflow (Azure Monitor + App Insights health checks, auto GitHub issue creation) |
@@ -461,7 +513,7 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | Application Analytics | Persistent metrics via Azure Blob Storage (background flush, crash-safe shutdown, event tracking, sessions, funnels) |
 | Azure Monitoring | Application Insights + Azure Monitor (alerts, workbooks, Log Analytics queries) |
 
-### 8.2 API Endpoints (82 total)
+### 8.2 API Endpoints (~90+ total)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
@@ -578,6 +630,7 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | **v2.10 — AI Assistant & Roadmap** | Done | GPT-4o AI Assistant (natural language, context-aware), Product Roadmap UI (timeline from Day 0), Feature request system (GitHub integration), Bug report system (GitHub integration), Buy Me a Coffee support link |
 | **v2.11.0 — Admin & Analytics** | Done | JWT admin auth (HS256, 1h TTL, in-memory revocation), persistent analytics (Azure Blob Storage with background flush), conversion funnel, security headers middleware |
 | **v2.11.1 — UX Polish & Document Export** | Done | HLD export (DOCX/PDF/PPTX), 15 UX improvements, CI/CD security (Semgrep SAST, Gitleaks secret detection, Trivy container scan, CycloneDX SBOM), Python 3.11+3.12 matrix testing, 747 tests in 30 files across 82 endpoints |
+| **v2.12.0 — Modular Architecture & Security** | Done | Router decomposition (main.py 2,189→181 lines, 13 router modules), API versioning (v1 prefix), feature flags system (% rollout + user targeting), comprehensive audit logging (risk levels, alerting rules, compliance queries), session persistence (InMemory/Redis), GPT-4o response caching (content-hash TTLCache), DiagramTranslator decomposed (1,201→ 9 sub-components with useReducer), structured JSON logging with correlation IDs, OTel observability rewrite, Azure Front Door WAF + Zero Trust, Helm charts for self-hosted K8s, blue-green deployment with instant rollback, SBOM (CycloneDX + Grype), SAST/DAST/SCA pipeline (Semgrep, Bandit, CodeQL, Trivy, Gitleaks), storage RBAC auth (DefaultAzureCredential), pricing cache persisted to Blob Storage, monitoring reduced to hourly, "None" alerting option, service_updater JSON output, 1149 tests (contract 56, chaos 26, coverage 46, middleware 55) in 35+ files |
 | **v3.0 — Enterprise** | Planned | Visio import, API keys, import blocks for existing resources, SSO, RBAC |
 | **v4.0 — Advanced** | Planned | Pulumi output, Azure Migrate integration, multi-diagram projects |
 
