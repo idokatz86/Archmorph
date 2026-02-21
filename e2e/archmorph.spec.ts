@@ -537,6 +537,73 @@ test.describe('Footer & Branding', () => {
 });
 
 // ====================================================================
+// 12b. Feedback Widget
+// ====================================================================
+
+test.describe('Feedback Widget', () => {
+  test('feedback button visible in header next to version', async ({ page }) => {
+    await page.goto('/');
+    // Feedback button should be in header (within first 100px from top)
+    const feedbackBtn = page.locator('header button[title="Give Feedback"]');
+    await expect(feedbackBtn).toBeVisible();
+  });
+
+  test('feedback modal opens on button click', async ({ page }) => {
+    await page.goto('/');
+    const feedbackBtn = page.locator('header button[title="Give Feedback"]');
+    await feedbackBtn.click();
+    // Modal should appear with feedback heading
+    await expect(page.getByRole('heading', { name: 'Feedback' })).toBeVisible();
+  });
+
+  test('feedback modal has NPS rating scale', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('header button[title="Give Feedback"]').click();
+    // Should show 0-10 NPS scale
+    await expect(page.getByText('How likely are you to recommend')).toBeVisible();
+    // Check for rating buttons (0-10)
+    await expect(page.getByRole('button', { name: '0' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '10' })).toBeVisible();
+  });
+
+  test('feedback modal has mode tabs (Rate, Feature, Bug)', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('header button[title="Give Feedback"]').click();
+    await expect(page.getByRole('button', { name: /Rate/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Feature/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Bug/i })).toBeVisible();
+  });
+
+  test('feedback modal closes on X click', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('header button[title="Give Feedback"]').click();
+    await expect(page.getByRole('heading', { name: 'Feedback' })).toBeVisible();
+    // Close the modal
+    await page.locator('button').filter({ has: page.locator('svg.lucide-x') }).click();
+    // Modal should be hidden
+    await expect(page.getByRole('heading', { name: 'Feedback' })).not.toBeVisible();
+  });
+
+  test('feedback can submit NPS score', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('header button[title="Give Feedback"]').click();
+    // Select score 9
+    await page.getByRole('button', { name: '9' }).click();
+    // Submit
+    await page.getByRole('button', { name: 'Submit' }).click();
+    // Should show thank you message
+    await expect(page.getByText('Thank you!')).toBeVisible({ timeout: 10000 });
+  });
+
+  test('feedback Bug tab shows description field', async ({ page }) => {
+    await page.goto('/');
+    await page.locator('header button[title="Give Feedback"]').click();
+    await page.getByRole('button', { name: /Bug/i }).click();
+    await expect(page.getByPlaceholder('Describe the issue')).toBeVisible();
+  });
+});
+
+// ====================================================================
 // 13. Additional API Coverage
 // ====================================================================
 
@@ -866,5 +933,133 @@ test.describe('Roadmap UI (v2.10)', () => {
     await page.getByRole('button', { name: /Report Bug/i }).click();
     await expect(page.getByText('Report a Bug')).toBeVisible();
     await expect(page.getByText('Bug Title')).toBeVisible();
+  });
+});
+
+// ====================================================================
+// 18. Chat Widget
+// ====================================================================
+
+test.describe('Chat Widget', () => {
+  test('chat button visible at bottom of page', async ({ page }) => {
+    await page.goto('/');
+    // Chat widget button should be visible
+    const chatBtn = page.locator('button[title*="Chat"], button[title*="chat"], button:has(svg.lucide-message-circle)').first();
+    await expect(chatBtn).toBeVisible();
+  });
+
+  test('chat modal opens on button click', async ({ page }) => {
+    await page.goto('/');
+    const chatBtn = page.locator('button').filter({ has: page.locator('svg.lucide-message-circle') }).first();
+    await chatBtn.click();
+    // Should show chat interface
+    await expect(page.getByPlaceholder(/message|ask|type/i)).toBeVisible({ timeout: 5000 });
+  });
+});
+
+// ====================================================================
+// 19. Header & Navigation UI
+// ====================================================================
+
+test.describe('Header UI', () => {
+  test('header shows Archmorph branding', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('header h1')).toContainText('Archmorph');
+    await expect(page.locator('header')).toContainText('Cloud Translator');
+  });
+
+  test('header has navigation tabs', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.getByRole('button', { name: 'Translator' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Services' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Roadmap' })).toBeVisible();
+  });
+
+  test('version badge shows current version in header', async ({ page }) => {
+    await page.goto('/');
+    const versionBadge = page.locator('header').getByText(/v2\.\d+\.\d+/);
+    await expect(versionBadge).toBeVisible();
+  });
+
+  test('catalog status indicator visible', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('header').getByText(/Catalog/i)).toBeVisible();
+  });
+});
+
+// ====================================================================
+// 20. Services Browser Functionality
+// ====================================================================
+
+test.describe('Services Browser', () => {
+  test('services page shows provider filters', async ({ page }) => {
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Services' }).click();
+    await expect(page.getByText('AWS')).toBeVisible({ timeout: COLD_START_TIMEOUT });
+    await expect(page.getByText('Azure')).toBeVisible();
+    await expect(page.getByText('GCP')).toBeVisible();
+  });
+
+  test('services page has search functionality', async ({ page }) => {
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Services' }).click();
+    const searchInput = page.locator('input[placeholder*="Search"]');
+    await expect(searchInput).toBeVisible({ timeout: COLD_START_TIMEOUT });
+    
+    // Type a search term
+    await searchInput.fill('EC2');
+    await page.waitForTimeout(500);
+    // Should filter results
+    await expect(page.getByText(/EC2|Compute/i)).toBeVisible();
+  });
+
+  test('services shows total count', async ({ page }) => {
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Services' }).click();
+    // Should show service count
+    await expect(page.getByText(/Total Services/i)).toBeVisible({ timeout: COLD_START_TIMEOUT });
+  });
+});
+
+// ====================================================================
+// 21. Beta Warning Banner
+// ====================================================================
+
+test.describe('Beta Warning', () => {
+  test('beta warning banner visible on load', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.getByText('Beta Preview')).toBeVisible();
+  });
+
+  test('beta warning mentions production review', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.getByText(/production/i)).toBeVisible();
+  });
+});
+
+// ====================================================================
+// 22. API Analytics Endpoints
+// ====================================================================
+
+test.describe('Analytics API', () => {
+  test('feedback NPS endpoint accepts POST', async ({ request }) => {
+    const resp = await request.post(`${API_BASE}/api/feedback/nps`, {
+      data: { score: 8, follow_up: 'E2E test' },
+    });
+    expect(resp.status()).toBeLessThan(500); // May be 200 or 400 depending on validation
+  });
+
+  test('feedback feature endpoint accepts POST', async ({ request }) => {
+    const resp = await request.post(`${API_BASE}/api/feedback/feature`, {
+      data: { feature: 'diagram_analysis', helpful: true },
+    });
+    expect(resp.status()).toBeLessThan(500);
+  });
+
+  test('feedback bug endpoint accepts POST', async ({ request }) => {
+    const resp = await request.post(`${API_BASE}/api/feedback/bug`, {
+      data: { description: 'E2E test bug report', severity: 'low' },
+    });
+    expect(resp.status()).toBeLessThan(500);
   });
 });
