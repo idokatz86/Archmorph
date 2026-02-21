@@ -162,7 +162,7 @@ jobs:
             --location westeurope \
             --sku Standard_LRS \
             --min-tls-version TLS1_2 \
-            --https-traffic-only true \
+            --https-only true \
             --allow-blob-public-access false \
             --only-show-errors
           # Get connection string
