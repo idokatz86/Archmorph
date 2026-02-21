@@ -16,6 +16,7 @@ import os
 import logging
 import secrets
 import uuid
+from datetime import datetime, timezone
 
 from cachetools import TTLCache
 
@@ -94,7 +95,7 @@ async def verify_api_key(api_key: Optional[str] = Security(API_KEY_HEADER)):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup/shutdown lifecycle manager."""
-    logger.info("Starting Archmorph API v2.6.0 — production mode")
+    logger.info("Starting Archmorph API v2.8.0 — production mode")
     start_scheduler()
 
     # Auto-load built-in icon packs from samples/
@@ -118,7 +119,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Archmorph API",
     description="AI-powered Cloud Architecture Translator to Azure",
-    version="2.6.0",
+    version="2.8.0",
     lifespan=lifespan,
 )
 
@@ -216,7 +217,7 @@ async def health():
 
     return {
         "status": "healthy",
-        "version": "2.6.0",
+        "version": "2.8.0",
         "environment": ENVIRONMENT,
         "mode": "production",
         "checks": checks,
@@ -998,6 +999,273 @@ async def contact_info():
         "name": "Ido Katz",
         "project": "Archmorph",
         "github": "https://github.com/idokatz86/Archmorph",
+    }
+
+
+# ─────────────────────────────────────────────────────────────
+# Sample Diagrams
+# ─────────────────────────────────────────────────────────────
+SAMPLE_DIAGRAMS = [
+    {
+        "id": "aws-3tier",
+        "name": "AWS 3-Tier Web App",
+        "description": "Classic 3-tier architecture with ALB, EC2, and RDS",
+        "provider": "aws",
+        "services": ["ALB", "EC2", "RDS", "S3", "CloudFront"],
+        "complexity": "medium"
+    },
+    {
+        "id": "aws-serverless",
+        "name": "AWS Serverless API",
+        "description": "API Gateway + Lambda + DynamoDB architecture",
+        "provider": "aws",
+        "services": ["API Gateway", "Lambda", "DynamoDB", "Cognito"],
+        "complexity": "simple"
+    },
+    {
+        "id": "gcp-microservices",
+        "name": "GCP Microservices",
+        "description": "GKE-based microservices with Cloud SQL and Pub/Sub",
+        "provider": "gcp",
+        "services": ["GKE", "Cloud SQL", "Pub/Sub", "Cloud Run"],
+        "complexity": "complex"
+    },
+    {
+        "id": "aws-data-lake",
+        "name": "AWS Data Lake",
+        "description": "S3 data lake with Glue, Athena, and Redshift",
+        "provider": "aws",
+        "services": ["S3", "Glue", "Athena", "Redshift", "Lake Formation"],
+        "complexity": "complex"
+    }
+]
+
+@app.get("/api/samples")
+async def list_sample_diagrams():
+    """List available sample diagrams for onboarding."""
+    return {"samples": SAMPLE_DIAGRAMS}
+
+
+@app.post("/api/samples/{sample_id}/analyze")
+@limiter.limit("5/minute")
+async def analyze_sample_diagram(request: Request, sample_id: str):
+    """Generate a mock analysis for a sample diagram."""
+    sample = next((s for s in SAMPLE_DIAGRAMS if s["id"] == sample_id), None)
+    if not sample:
+        raise HTTPException(404, f"Sample '{sample_id}' not found")
+    
+    # Generate mock analysis based on sample metadata
+    diagram_id = f"sample-{sample_id}-{uuid.uuid4().hex[:6]}"
+    
+    # Create mock zones and mappings
+    from services import CROSS_CLOUD_MAPPINGS
+    
+    zones = []
+    mappings = []
+    
+    # Group services by category
+    for i, svc_name in enumerate(sample["services"]):
+        # Find mapping
+        mapping = next(
+            (m for m in CROSS_CLOUD_MAPPINGS 
+             if svc_name.lower() in m.get("aws", "").lower() 
+             or svc_name.lower() in m.get("gcp", "").lower()),
+            None
+        )
+        azure_svc = mapping["azure"] if mapping else f"Azure {svc_name}"
+        confidence = mapping.get("confidence", 85) / 100 if mapping else 0.8
+        
+        mappings.append({
+            "source": svc_name,
+            "azure": azure_svc,
+            "confidence": confidence,
+            "notes": mapping.get("notes", "Direct mapping") if mapping else "Suggested equivalent"
+        })
+    
+    zones.append({
+        "number": 1,
+        "name": "Application Tier",
+        "services": mappings
+    })
+    
+    analysis = {
+        "diagram_id": diagram_id,
+        "diagram_type": sample["name"],
+        "source_provider": sample["provider"],
+        "services_detected": len(sample["services"]),
+        "zones": zones,
+        "confidence_summary": {
+            "high": sum(1 for m in mappings if m["confidence"] >= 0.9),
+            "medium": sum(1 for m in mappings if 0.7 <= m["confidence"] < 0.9),
+            "low": sum(1 for m in mappings if m["confidence"] < 0.7),
+            "average": sum(m["confidence"] for m in mappings) / len(mappings)
+        },
+        "is_sample": True
+    }
+    
+    SESSION_STORE[diagram_id] = analysis
+    record_funnel_step(diagram_id, "analyze")
+    
+    return analysis
+
+
+# ─────────────────────────────────────────────────────────────
+# Best Practices & WAF Analysis
+# ─────────────────────────────────────────────────────────────
+@app.get("/api/diagrams/{diagram_id}/best-practices")
+async def get_best_practices(diagram_id: str):
+    """Analyze architecture against Azure Well-Architected Framework."""
+    analysis = SESSION_STORE.get(diagram_id)
+    if not analysis:
+        raise HTTPException(404, "Analysis not found")
+    
+    from best_practices import analyze_architecture, get_quick_wins
+    
+    # Get user answers if available
+    answers = analysis.get("applied_answers", {})
+    
+    result = analyze_architecture(analysis, answers)
+    result["quick_wins"] = get_quick_wins(result["recommendations"])
+    
+    return result
+
+
+# ─────────────────────────────────────────────────────────────
+# Cost Optimization
+# ─────────────────────────────────────────────────────────────
+@app.get("/api/diagrams/{diagram_id}/cost-optimization")
+async def get_cost_optimization(diagram_id: str):
+    """Get cost optimization recommendations for the architecture."""
+    analysis = SESSION_STORE.get(diagram_id)
+    if not analysis:
+        raise HTTPException(404, "Analysis not found")
+    
+    from cost_optimizer import analyze_cost_optimizations
+    
+    answers = analysis.get("applied_answers", {})
+    
+    # Try to get cost estimate if available
+    cost_estimate = analysis.get("cost_estimate")
+    
+    return analyze_cost_optimizations(analysis, answers, cost_estimate)
+
+
+# ─────────────────────────────────────────────────────────────
+# Feedback & NPS
+# ─────────────────────────────────────────────────────────────
+class NPSRequest(BaseModel):
+    score: int
+    follow_up: Optional[str] = None
+    session_id: Optional[str] = None
+    feature_context: Optional[str] = None
+
+
+class FeatureFeedbackRequest(BaseModel):
+    feature: str
+    helpful: bool
+    comment: Optional[str] = None
+    session_id: Optional[str] = None
+
+
+class BugReportRequest(BaseModel):
+    description: str
+    context: Optional[Dict[str, Any]] = None
+    severity: str = "medium"
+    session_id: Optional[str] = None
+
+
+@app.post("/api/feedback/nps")
+@limiter.limit("10/minute")
+async def submit_nps_feedback(request: Request, data: NPSRequest):
+    """Submit NPS score (0-10) with optional follow-up."""
+    from feedback import submit_nps
+    return submit_nps(
+        score=data.score,
+        follow_up=data.follow_up,
+        session_id=data.session_id,
+        feature_context=data.feature_context
+    )
+
+
+@app.post("/api/feedback/feature")
+@limiter.limit("20/minute")
+async def submit_feature_feedback_endpoint(request: Request, data: FeatureFeedbackRequest):
+    """Submit feature feedback (thumbs up/down)."""
+    from feedback import submit_feature_feedback
+    return submit_feature_feedback(
+        feature=data.feature,
+        helpful=data.helpful,
+        comment=data.comment,
+        session_id=data.session_id
+    )
+
+
+@app.post("/api/feedback/bug")
+@limiter.limit("5/minute")
+async def submit_bug_report_endpoint(request: Request, data: BugReportRequest):
+    """Submit bug report with context."""
+    from feedback import submit_bug_report
+    return submit_bug_report(
+        description=data.description,
+        context=data.context,
+        severity=data.severity,
+        session_id=data.session_id
+    )
+
+
+@app.get("/api/admin/feedback")
+async def get_feedback_summary_endpoint(admin_key: str = Query(...)):
+    """Get feedback summary (admin only)."""
+    if not ADMIN_SECRET or not secrets.compare_digest(admin_key, ADMIN_SECRET):
+        raise HTTPException(401, "Invalid admin key")
+    
+    from feedback import get_feedback_summary, get_nps_trend
+    
+    summary = get_feedback_summary()
+    summary["nps_trend"] = get_nps_trend(30)
+    return summary
+
+
+# ─────────────────────────────────────────────────────────────
+# Share Links
+# ─────────────────────────────────────────────────────────────
+SHARE_STORE: TTLCache = TTLCache(maxsize=100, ttl=86400)  # 24 hour TTL
+
+
+@app.post("/api/diagrams/{diagram_id}/share")
+async def create_share_link(diagram_id: str):
+    """Create a shareable read-only link for analysis results."""
+    analysis = SESSION_STORE.get(diagram_id)
+    if not analysis:
+        raise HTTPException(404, "Analysis not found")
+    
+    share_id = f"share-{uuid.uuid4().hex[:10]}"
+    
+    # Store a read-only snapshot
+    SHARE_STORE[share_id] = {
+        "analysis": analysis,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "expires_in": "24 hours"
+    }
+    
+    return {
+        "share_id": share_id,
+        "share_url": f"/shared/{share_id}",
+        "expires_in": "24 hours"
+    }
+
+
+@app.get("/api/shared/{share_id}")
+async def get_shared_analysis(share_id: str):
+    """Get shared analysis by share ID (public, read-only)."""
+    shared = SHARE_STORE.get(share_id)
+    if not shared:
+        raise HTTPException(404, "Share link expired or invalid")
+    
+    return {
+        "analysis": shared["analysis"],
+        "shared_at": shared["created_at"],
+        "read_only": True
     }
 
 

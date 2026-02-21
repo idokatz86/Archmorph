@@ -320,6 +320,49 @@ export default function DiagramTranslator() {
               Select Diagram File
             </Button>
             <p className="text-xs text-text-muted mt-4">Supports PNG, JPG, SVG, PDF</p>
+            
+            {/* Sample Diagrams */}
+            <div className="mt-8 pt-6 border-t border-border">
+              <p className="text-sm text-text-secondary mb-4">Or try with a sample diagram:</p>
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  { id: 'aws-3tier', name: 'AWS 3-Tier', icon: '🏗️', desc: 'ALB + EC2 + RDS' },
+                  { id: 'aws-serverless', name: 'Serverless', icon: '⚡', desc: 'API Gateway + Lambda' },
+                  { id: 'gcp-microservices', name: 'GCP Microservices', icon: '🐳', desc: 'GKE + Cloud SQL' },
+                  { id: 'aws-data-lake', name: 'Data Lake', icon: '📊', desc: 'S3 + Glue + Athena' },
+                ].map(sample => (
+                  <button
+                    key={sample.id}
+                    onClick={async () => {
+                      setStep('analyzing');
+                      setAnalyzeProgress(['Loading sample diagram...']);
+                      try {
+                        const res = await fetch(`${API_BASE}/samples/${sample.id}/analyze`, { method: 'POST' });
+                        const result = await res.json();
+                        setDiagramId(result.diagram_id);
+                        setAnalysis(result);
+                        setAnalyzeProgress(prev => [...prev, 'Sample loaded successfully ✓']);
+                        const qRes = await fetch(`${API_BASE}/diagrams/${result.diagram_id}/questions`, { method: 'POST' });
+                        const qData = await qRes.json();
+                        setQuestions(qData.questions || []);
+                        const defaults = {};
+                        (qData.questions || []).forEach(q => { defaults[q.id] = q.default; });
+                        setAnswers(defaults);
+                        setStep('questions');
+                      } catch (err) {
+                        setError('Failed to load sample: ' + err.message);
+                        setStep('upload');
+                      }
+                    }}
+                    className="p-3 rounded-lg bg-secondary hover:bg-secondary/80 transition-colors text-left cursor-pointer border border-border hover:border-cta/50"
+                  >
+                    <span className="text-lg">{sample.icon}</span>
+                    <p className="text-sm font-medium text-text-primary mt-1">{sample.name}</p>
+                    <p className="text-xs text-text-muted">{sample.desc}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         </Card>
       )}
@@ -356,6 +399,19 @@ export default function DiagramTranslator() {
               We detected {analysis?.services_detected || 0} {(analysis?.source_provider || 'aws').toUpperCase()} services across {analysis?.zones?.length || 0} zones.
               Answer these questions to tailor the Azure translation to your needs.
             </p>
+            {/* Progress Bar */}
+            <div className="mt-4">
+              <div className="flex items-center justify-between text-xs text-text-muted mb-1">
+                <span>{Object.keys(answers).filter(k => answers[k] !== undefined && answers[k] !== null && answers[k] !== '').length} of {questions.length} answered</span>
+                <span>{Math.round((Object.keys(answers).filter(k => answers[k] !== undefined && answers[k] !== null && answers[k] !== '').length / Math.max(questions.length, 1)) * 100)}%</span>
+              </div>
+              <div className="h-2 bg-secondary rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-cta transition-all duration-300"
+                  style={{ width: `${(Object.keys(answers).filter(k => answers[k] !== undefined && answers[k] !== null && answers[k] !== '').length / Math.max(questions.length, 1)) * 100}%` }}
+                />
+              </div>
+            </div>
           </Card>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

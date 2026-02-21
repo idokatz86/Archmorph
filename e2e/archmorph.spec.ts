@@ -114,7 +114,7 @@ test.describe('API Health', () => {
     expect(resp.ok()).toBeTruthy();
     const data = await resp.json();
     expect(data.status).toBe('healthy');
-    expect(data.version).toBe('2.6.0');
+    expect(data.version).toBe('2.8.0');
     expect(data.service_catalog.aws).toBeGreaterThan(100);
   });
 
@@ -291,7 +291,7 @@ test.describe('Admin Dashboard', () => {
   test('5 rapid clicks on footer opens admin panel', async ({ page }) => {
     await page.goto('/');
 
-    const versionText = page.getByText('Archmorph v2.6.0', { exact: false });
+    const versionText = page.getByText('Archmorph v2.8.0', { exact: false });
     await expect(versionText).toBeVisible();
 
     // Click 5 times rapidly
@@ -528,7 +528,7 @@ test.describe('Footer & Branding', () => {
 
   test('footer shows version', async ({ page }) => {
     await page.goto('/');
-    await expect(page.getByText('Archmorph v2.6.0')).toBeVisible();
+    await expect(page.getByText('Archmorph v2.8.0')).toBeVisible();
   });
 });
 

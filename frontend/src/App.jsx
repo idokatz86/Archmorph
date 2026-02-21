@@ -7,6 +7,7 @@ import DiagramTranslator from './components/DiagramTranslator';
 import ServicesBrowser from './components/ServicesBrowser';
 import ChatWidget from './components/ChatWidget';
 import AdminDashboard from './components/AdminDashboard';
+import FeedbackWidget from './components/FeedbackWidget';
 import { API_BASE, APP_VERSION } from './constants';
 
 export default function App() {
@@ -75,6 +76,7 @@ export default function App() {
         </div>
       </footer>
       <ChatWidget />
+      <FeedbackWidget />
       {adminOpen && <AdminDashboard onClose={() => setAdminOpen(false)} />}
     </div>
   );

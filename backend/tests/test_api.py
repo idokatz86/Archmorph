@@ -109,7 +109,7 @@ class TestHealth:
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "healthy"
-        assert data["version"] == "2.6.0"
+        assert data["version"] == "2.8.0"
 
     def test_health_has_catalog_counts(self, client):
         data = client.get("/api/health").json()

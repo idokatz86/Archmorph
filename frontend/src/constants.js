@@ -5,7 +5,7 @@ import {
 
 export const API_BASE = import.meta.env.VITE_API_BASE || 'https://archmorph-api.icyisland-c0dee6ba.northeurope.azurecontainerapps.io/api';
 
-export const APP_VERSION = '2.6.0';
+export const APP_VERSION = '2.8.0';
 
 export const ADMIN_KEY = import.meta.env.VITE_ADMIN_KEY || '';
 

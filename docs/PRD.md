@@ -1,6 +1,6 @@
 # Archmorph — Cloud Architecture Translator to Azure
 ## Product Requirements Document (PRD)
-**Version:** 2.7.0
+**Version:** 2.8.0
 **Date:** February 21, 2026
 **Author:** Ido Katz
 
@@ -8,11 +8,11 @@
 
 ## 1. Executive Summary
 
-Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams into Azure equivalents. It analyzes uploaded diagrams using GPT-4o vision, identifies cloud services, allows users to add services via natural language, asks guided migration questions with smart deduplication to refine the translation, maps services to Azure counterparts with confidence scores, exports translated architecture diagrams in multiple formats, generates ready-to-deploy Terraform/Bicep infrastructure code, provides dynamic cost estimates based on the Azure Retail Prices API with 134 service pricing entries, automatically discovers and integrates new cloud services into its catalog, generates comprehensive AI-powered High-Level Design (HLD) documents, provides an interactive IaC chat assistant for code modifications, and includes E2E monitoring with automatic GitHub issue creation.
+Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams into Azure equivalents. It analyzes uploaded diagrams using GPT-4o vision, identifies cloud services, allows users to add services via natural language, asks guided migration questions with smart deduplication to refine the translation, maps services to Azure counterparts with confidence scores, exports translated architecture diagrams in multiple formats, generates ready-to-deploy Terraform/Bicep infrastructure code, provides dynamic cost estimates based on the Azure Retail Prices API with 134 service pricing entries, automatically discovers and integrates new cloud services into its catalog, generates comprehensive AI-powered High-Level Design (HLD) documents, provides an interactive IaC chat assistant, analyzes architecture against Azure Well-Architected Framework (WAF), provides cost optimization recommendations, includes sample diagrams for onboarding, collects NPS feedback, supports shareable analysis links, and includes E2E monitoring with automatic GitHub issue creation.
 
 **Problem:** Organizations migrating to Azure spend weeks manually mapping source architecture to Azure services. This process is error-prone, requires deep multi-cloud expertise, and lacks tooling for interactive refinement.
 
-**Solution:** Automated diagram analysis and service translation with natural language service addition, smart question deduplication, confidence-scored mappings, multi-format diagram export, self-updating service catalog with auto-integration, generated IaC with secure credential handling, region-aware pricing with optimized targeted queries, AI-powered HLD generation, interactive IaC chat assistant, E2E monitoring with Azure Application Insights, and an integrated chatbot assistant.
+**Solution:** Automated diagram analysis and service translation with natural language service addition, smart question deduplication, confidence-scored mappings, multi-format diagram export, self-updating service catalog with auto-integration, generated IaC with secure credential handling, region-aware pricing with optimized targeted queries, AI-powered HLD generation, interactive IaC chat assistant, WAF best practices linting, cost optimization tips, sample diagram onboarding, NPS feedback collection, shareable links, E2E monitoring with Azure Application Insights, and an integrated chatbot assistant.
 
 ---
 
@@ -317,7 +317,10 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | Diagram Export | In-process engine (Excalidraw, Draw.io, Visio with 36 Azure stencils + 405-icon registry fallback) |
 | Pricing | Azure Retail Prices API with 30-day disk cache (134 service entries, 56 aliases, targeted queries) |
 | IaC | Terraform (infra), Bicep support in-app |
-| Testing | pytest (backend, 391 tests), E2E flow test (65 steps across 5 diagrams), Playwright (35+ browser tests), integration tests |
+| Testing | pytest (backend, 438 tests), E2E flow test (65 steps across 5 diagrams), Playwright (35+ browser tests), integration tests |
+| Best Practices | In-process WAF linter (5 pillars, 15+ rules, quick wins, pillar scores) |
+| Cost Optimizer | In-process engine (7 categories, RI/Spot/tiering/auto-shutdown recommendations) |
+| Feedback | In-process NPS/feature/bug collection (30-day trend, admin dashboard) |
 | HLD Generator | In-process GPT-4o engine (60+ Azure doc links, 13-section HLD, markdown converter) |
 | IaC Chat | In-process GPT-4o assistant (session management, code modification, context-aware) |
 | Icon Registry | In-process engine (405 icons, Draw.io/Excalidraw/Visio library builders, SVG sanitization, thread-safe, persistent) |
@@ -326,7 +329,7 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | Smart Question Dedup | In-process engine (implicit answer detection, smart defaults from analysis) |
 | E2E Monitoring | GitHub Actions workflow (Azure Monitor + App Insights health checks, auto GitHub issue creation) |
 
-### 8.2 API Endpoints (45 total)
+### 8.2 API Endpoints (54 total)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
@@ -350,6 +353,16 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | `/api/diagrams/{id}/generate` | POST | Generate IaC code (Terraform/Bicep) |
 | `/api/diagrams/{id}/export` | GET | Export IaC file download |
 | `/api/diagrams/{id}/cost-estimate` | GET | Dynamic cost estimate (Azure Retail Prices API) |
+| `/api/diagrams/{id}/best-practices` | GET | Analyze architecture against Azure WAF (v2.8) |
+| `/api/diagrams/{id}/cost-optimization` | GET | Get cost optimization recommendations (v2.8) |
+| `/api/diagrams/{id}/share` | POST | Create shareable read-only link (v2.8) |
+| `/api/shared/{id}` | GET | Get shared analysis by share ID (v2.8) |
+| `/api/samples` | GET | List available sample diagrams (v2.8) |
+| `/api/samples/{id}/analyze` | POST | Analyze a sample diagram (v2.8) |
+| `/api/feedback/nps` | POST | Submit NPS score with follow-up (v2.8) |
+| `/api/feedback/feature` | POST | Submit feature feedback thumbs up/down (v2.8) |
+| `/api/feedback/bug` | POST | Submit bug report with context (v2.8) |
+| `/api/admin/feedback` | GET | Get feedback summary (admin only, v2.8) |
 | `/api/service-updates/status` | GET | Scheduler status, auto-added totals |
 | `/api/service-updates/last` | GET | Last catalog update details |
 | `/api/service-updates/run-now` | POST | Trigger immediate catalog refresh + auto-add |
@@ -405,6 +418,7 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | **v2.5 — Audit & Quality** | Done | 34 audit improvements, comprehensive test coverage (290 → 348 tests) |
 | **v2.6 — Icon Registry & Security** | Done | Icon Registry (405 icons, 3 library formats, SVG sanitization, thread-safe, persistent, auto-load), security hardening (timing-safe auth, security headers, ZIP slip protection, XSS prevention, Dependabot), diagram export bridge to registry |
 | **v2.7 — NL Builder & Monitoring** | Done | Natural Language Service Builder (add Azure services via text after diagram analysis), Smart Question Deduplication (filters questions based on implicit user answers), E2E Monitoring (Azure Monitor + Application Insights health checks, automatic GitHub issue creation), enhanced test coverage (21 service builder tests, integration tests, E2E monitoring workflow) |
+| **v2.8 — UX & Insights** | Done | Sample diagrams for onboarding (4 pre-built AWS/GCP examples), WAF Best Practices Linter (5 pillars, 15+ rules), Cost Optimization recommendations (7 categories, RI/Spot/tiering), NPS & Feedback collection (surveys, feature ratings, bug reports), share links (24h TTL), question progress bar, Feedback Widget UI, 438 unit tests |
 | **v3.0 — Enterprise** | Planned | Visio import, API keys, import blocks for existing resources, SSO, RBAC |
 | **v4.0 — Advanced** | Planned | Pulumi output, Azure Migrate integration, multi-diagram projects |
 
