@@ -102,21 +102,31 @@ jobs:
       - name: Query Log Analytics for Errors
         id: query
         run: |
-          # Query for errors in the last 15 minutes
-          QUERY='ContainerAppConsoleLogs_CL
+          # Query for errors in the last 15 minutes - gracefully handle missing data
+          QUERY='ContainerAppConsoleLogs
           | where TimeGenerated > ago(15m)
-          | where Log_s contains "ERROR" or Log_s contains "CRITICAL"
+          | where Log_s has "ERROR" or Log_s has "CRITICAL" or Log_s has "error" or Log_s has "Exception"
           | project TimeGenerated, Log_s
           | order by TimeGenerated desc
           | take 10'
           
-          # Run query against Log Analytics
+          # Run query against Log Analytics - handle table not existing gracefully
+          set +e
           RESULT=$(az monitor log-analytics query \
             --workspace "${{ secrets.LOG_ANALYTICS_WORKSPACE_ID }}" \
             --analytics-query "$QUERY" \
-            --output json 2>/dev/null || echo '{"tables":[{"rows":[]}]}')
+            --output json 2>&1)
+          EXIT_CODE=$?
+          set -e
           
-          ERROR_COUNT=$(echo "$RESULT" | jq '.tables[0].rows | length')
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo "::notice::Log Analytics query failed (exit code $EXIT_CODE) - table may not exist yet"
+            echo "error_count=0" >> $GITHUB_OUTPUT
+            echo "errors_found=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          ERROR_COUNT=$(echo "$RESULT" | jq '.tables[0].rows | length' 2>/dev/null || echo "0")
           
           echo "error_count=$ERROR_COUNT" >> $GITHUB_OUTPUT
           
