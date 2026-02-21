@@ -105,8 +105,8 @@ jobs:
           # Query for errors in the last 15 minutes - gracefully handle missing data
           QUERY='ContainerAppConsoleLogs
           | where TimeGenerated > ago(15m)
-          | where Log_s has "ERROR" or Log_s has "CRITICAL" or Log_s has "error" or Log_s has "Exception"
-          | project TimeGenerated, Log_s
+          | where Log has "ERROR" or Log has "CRITICAL" or Log has "Exception"
+          | project TimeGenerated, Log, ContainerAppName
           | order by TimeGenerated desc
           | take 10'
           
