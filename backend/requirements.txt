@@ -1,7 +1,7 @@
 fastapi==0.128.8
 uvicorn[standard]==0.39.0
 pydantic==2.12.5
-python-multipart==0.0.20
+python-multipart>=0.0.20  # 0.0.22+ requires Python 3.10+ and fixes GHSA-wp53-j4wj-2cfg
 httpx==0.28.1
 azure-storage-blob==12.24.1
 azure-identity==1.19.0
@@ -10,7 +10,7 @@ psycopg2-binary==2.9.11
 sqlalchemy==2.0.36
 alembic==1.16.5
 python-dotenv==1.0.1
-pillow==11.3.0
+pillow>=11.3.0  # 12.1.1 requires Python 3.10+ and fixes GHSA-cfh3-3jmp-rvhc
 apscheduler==3.10.4
 PyGithub==2.8.1
 slowapi==0.1.9
@@ -18,5 +18,5 @@ cachetools==6.2.6
 defusedxml>=0.7.1
 azure-monitor-opentelemetry==1.6.4
 tenacity==9.1.2
-python-jose[cryptography]==3.3.0
+python-jose[cryptography]>=3.4.0  # Fixes PYSEC-2024-232, PYSEC-2024-233
 email-validator==2.1.1
