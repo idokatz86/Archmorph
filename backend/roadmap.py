@@ -227,7 +227,7 @@ RELEASE_TIMELINE: List[Dict[str, Any]] = [
         "version": "2.10.0",
         "name": "AI Assistant & Roadmap",
         "date": "2026-02-21",
-        "status": ReleaseStatus.IN_PROGRESS,
+        "status": ReleaseStatus.RELEASED,
         "highlights": [
             "GPT-4o powered AI assistant",
             "Natural language conversations",
@@ -238,24 +238,75 @@ RELEASE_TIMELINE: List[Dict[str, Any]] = [
         "metrics": {"services": 405, "mappings": 122, "api_endpoints": 78},
     },
     # ═══════════════════════════════════════════════════════════
-    # Upcoming Releases (Planned)
+    # v2.11.0 - Multi-Cloud & Enterprise (Current Sprint)
     # ═══════════════════════════════════════════════════════════
     {
         "version": "2.11.0",
-        "name": "Multi-Cloud Support",
-        "date": "2026-03-01",
+        "name": "Multi-Cloud & Enterprise Foundation",
+        "date": "2026-02-28",
+        "status": ReleaseStatus.IN_PROGRESS,
+        "highlights": [
+            "Multi-cloud target support (AWS, GCP, Azure)",
+            "Reverse migration & cloud repatriation",
+            "Live infrastructure scanning via SDK",
+            "Drift detection for running infrastructure",
+            "SSO/SAML integration with Azure AD/Okta",
+            "Audit logging & compliance reports",
+            "GitHub App integration for PR analysis",
+            "Background job queue (Redis + Celery)",
+            "OpenTelemetry observability stack",
+            "API versioning (/v1/ prefix)",
+        ],
+        "metrics": {"services": 450, "mappings": 150, "api_endpoints": 95},
+    },
+    # ═══════════════════════════════════════════════════════════
+    # Upcoming Releases (Planned)
+    {
+        "version": "2.12.0",
+        "name": "QA & Testing Excellence",
+        "date": "2026-03-07",
         "status": ReleaseStatus.PLANNED,
         "highlights": [
-            "Azure to AWS reverse migration",
-            "Multi-cloud architecture diagrams",
-            "Cross-cloud cost comparison",
-            "Hybrid cloud patterns",
+            "Contract testing for API endpoints",
+            "Visual regression testing with Percy",
+            "Load testing with k6/Locust",
+            "Chaos engineering framework",
+            "Test coverage reporting (95%+ target)",
+            "Mutation testing integration",
         ],
     },
     {
-        "version": "2.12.0",
+        "version": "2.13.0",
+        "name": "DevOps & Platform",
+        "date": "2026-03-14",
+        "status": ReleaseStatus.PLANNED,
+        "highlights": [
+            "Blue-green deployments",
+            "Canary release support",
+            "Feature flags system",
+            "Auto-rollback on failure",
+            "Multi-region deployment",
+            "Helm charts for Kubernetes",
+        ],
+    },
+    {
+        "version": "2.14.0",
+        "name": "Security Hardening",
+        "date": "2026-03-21",
+        "status": ReleaseStatus.PLANNED,
+        "highlights": [
+            "SAST/DAST pipeline integration",
+            "Secrets scanning with Gitleaks",
+            "SBOM generation (CycloneDX)",
+            "WAF integration",
+            "Zero-trust networking",
+            "Penetration testing automation",
+        ],
+    },
+    {
+        "version": "2.15.0",
         "name": "Team Collaboration",
-        "date": "2026-03-15",
+        "date": "2026-03-28",
         "status": ReleaseStatus.PLANNED,
         "highlights": [
             "Shared diagram workspaces",
@@ -267,15 +318,16 @@ RELEASE_TIMELINE: List[Dict[str, Any]] = [
     {
         "version": "3.0.0",
         "name": "Enterprise Platform",
-        "date": "2026-04-01",
+        "date": "2026-04-15",
         "status": ReleaseStatus.PLANNED,
         "highlights": [
             "Self-hosted deployment option",
-            "SSO with any IdP (SAML/OIDC)",
+            "Multi-tenancy & org hierarchy",
             "Role-based access control",
-            "Audit logging",
             "Custom service catalog",
             "API for CI/CD integration",
+            "VS Code extension",
+            "CLI tool",
         ],
     },
     # ═══════════════════════════════════════════════════════════

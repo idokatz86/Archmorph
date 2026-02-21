@@ -1,7 +1,7 @@
 """
-Archmorph Backend API v2.10.0
+Archmorph Backend API v2.11.0
 Cloud Architecture Translator to Azure — Full Services Catalog
-Enterprise-ready with Authentication, Analytics, AI Assistant, and Roadmap
+Enterprise-ready with Authentication, Analytics, AI Assistant, Roadmap, and Observability
 """
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Response, Request, Depends, Security, Header
@@ -57,6 +57,15 @@ from usage_metrics import (
     get_funnel_metrics, record_funnel_step, flush_metrics, ADMIN_SECRET,
 )
 from icons.routes import router as icon_router
+from api_versioning import get_api_versions, VersionMiddleware
+from audit_logging import (
+    log_audit_event, get_audit_logs, get_audit_summary, clear_audit_logs,
+    AuditEventType, AuditSeverity,
+)
+from observability import (
+    get_metrics, increment_counter, record_histogram, set_gauge,
+    ObservabilityMiddleware, trace_span,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +110,7 @@ async def verify_api_key(api_key: Optional[str] = Security(API_KEY_HEADER)):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup/shutdown lifecycle manager."""
-    logger.info("Starting Archmorph API v2.10.0 — production mode")
+    logger.info("Starting Archmorph API v2.11.0 — production mode")
     start_scheduler()
 
     # Auto-load built-in icon packs from samples/
@@ -125,7 +134,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Archmorph API",
     description="AI-powered Cloud Architecture Translator to Azure",
-    version="2.10.0",
+    version="2.11.0",
     lifespan=lifespan,
 )
 
@@ -223,7 +232,7 @@ async def health():
 
     return {
         "status": "healthy",
-        "version": "2.10.0",
+        "version": "2.11.0",
         "environment": ENVIRONMENT,
         "mode": "production",
         "checks": checks,
@@ -1080,6 +1089,89 @@ async def admin_cost_dashboard(_admin=Depends(verify_admin_key)):
             "openai_cost_usd": openai_cost,
         },
     }
+
+
+# ─────────────────────────────────────────────────────────────
+# API Versioning & Info
+# ─────────────────────────────────────────────────────────────
+@app.get("/api/versions")
+async def api_versions():
+    """Get information about API versions."""
+    return get_api_versions()
+
+
+@app.get("/api/v1/health")
+async def health_v1():
+    """V1 health endpoint - alias for /api/health."""
+    return await health()
+
+
+# ─────────────────────────────────────────────────────────────
+# Audit Logging (Admin)
+# ─────────────────────────────────────────────────────────────
+@app.get("/api/admin/audit")
+async def admin_audit_logs(
+    event_type: Optional[str] = None,
+    user_id: Optional[str] = None,
+    severity: Optional[str] = None,
+    limit: int = Query(100, ge=1, le=1000),
+    _admin=Depends(verify_admin_key),
+):
+    """
+    Query audit logs with optional filters.
+    
+    Returns recent audit events for compliance and security monitoring.
+    """
+    return {
+        "logs": get_audit_logs(
+            event_type=event_type,
+            user_id=user_id,
+            severity=severity,
+            limit=limit,
+        )
+    }
+
+
+@app.get("/api/admin/audit/summary")
+async def admin_audit_summary(_admin=Depends(verify_admin_key)):
+    """Get audit log summary statistics."""
+    return get_audit_summary()
+
+
+@app.delete("/api/admin/audit")
+async def admin_clear_audit(_admin=Depends(verify_admin_key)):
+    """Clear all audit logs (destructive operation)."""
+    cleared = clear_audit_logs()
+    log_audit_event(
+        AuditEventType.ADMIN_CONFIG_CHANGE,
+        details={"action": "audit_logs_cleared", "count": cleared},
+        severity=AuditSeverity.WARNING,
+    )
+    return {"cleared": cleared, "message": "Audit logs cleared"}
+
+
+# ─────────────────────────────────────────────────────────────
+# Observability & Metrics
+# ─────────────────────────────────────────────────────────────
+@app.get("/api/admin/observability")
+async def admin_observability(_admin=Depends(verify_admin_key)):
+    """
+    Get observability metrics.
+    
+    Returns counters, histograms, and gauges for system health monitoring.
+    """
+    return get_metrics()
+
+
+@app.get("/api/admin/observability/spans")
+async def admin_span_metrics(_admin=Depends(verify_admin_key)):
+    """Get span timing metrics for distributed tracing."""
+    metrics = get_metrics()
+    spans = {
+        k: v for k, v in metrics.get("histograms", {}).items()
+        if k.startswith("span.")
+    }
+    return {"spans": spans}
 
 
 # ─────────────────────────────────────────────────────────────

@@ -190,7 +190,7 @@ class TestHealthCheck:
         assert r.status_code == 200
         data = r.json()
         assert data["status"] == "healthy"
-        assert data["version"] == "2.10.0"
+        assert data["version"] == "2.11.0"
         assert "checks" in data
         assert "openai" in data["checks"]
         assert "storage" in data["checks"]
