@@ -30,7 +30,10 @@ jobs:
         run: bandit -r . -x ./tests --skip B101
 
       - name: pip-audit
-        run: pip install -r requirements.txt && pip-audit
+        run: |
+          pip install -r requirements.txt
+          pip-audit --ignore-vuln GHSA-wj6h-64fc-37mp
+        # Note: GHSA-wj6h-64fc-37mp (ecdsa timing attack) has no fix available yet
 
   backend-tests:
     needs: backend-lint
