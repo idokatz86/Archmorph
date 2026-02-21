@@ -154,7 +154,8 @@ jobs:
       - name: Provision metrics storage
         run: |
           STORAGE_NAME="archmorphmetrics"
-          # Create storage account if it doesn't exist (idempotent)
+          # Create storage account (idempotent — no-op if it already exists)
+          echo "Creating storage account $STORAGE_NAME..."
           az storage account create \
             --name "$STORAGE_NAME" \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
@@ -163,7 +164,7 @@ jobs:
             --min-tls-version TLS1_2 \
             --https-traffic-only true \
             --allow-blob-public-access false \
-            --only-show-errors 2>/dev/null || true
+            --only-show-errors
           # Get connection string
           STORAGE_CONN=$(az storage account show-connection-string \
             --name "$STORAGE_NAME" \
@@ -175,7 +176,7 @@ jobs:
             --name metrics \
             --account-name "$STORAGE_NAME" \
             --connection-string "$STORAGE_CONN" \
-            --only-show-errors 2>/dev/null || true
+            --only-show-errors || true
 
       - name: Deploy to Container Apps
         run: |
