@@ -19,6 +19,11 @@ logger = logging.getLogger(__name__)
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 METRICS_FILE = os.path.join(DATA_DIR, "usage_metrics.json")
 
+# Azure Blob Storage persistence (survives container restarts/deploys)
+AZURE_STORAGE_CONNECTION_STRING = os.getenv("AZURE_STORAGE_CONNECTION_STRING", "")
+METRICS_BLOB_CONTAINER = "metrics"
+METRICS_BLOB_NAME = "usage_metrics.json"
+
 # Admin secret – MUST be set via env var in production
 ADMIN_SECRET = os.getenv("ARCHMORPH_ADMIN_KEY", "")
 
@@ -83,30 +88,76 @@ def _ensure_keys(m: Dict):
         m["funnel_totals"] = {s: 0 for s in FUNNEL_STEPS}
 
 
+def _get_blob_client():
+    """Return an Azure BlobClient for metrics persistence, or None."""
+    if not AZURE_STORAGE_CONNECTION_STRING:
+        return None
+    try:
+        from azure.storage.blob import BlobServiceClient
+        bsc = BlobServiceClient.from_connection_string(AZURE_STORAGE_CONNECTION_STRING)
+        container = bsc.get_container_client(METRICS_BLOB_CONTAINER)
+        try:
+            container.get_container_properties()
+        except Exception:
+            container.create_container()
+            logger.info("Created blob container '%s' for metrics", METRICS_BLOB_CONTAINER)
+        return container.get_blob_client(METRICS_BLOB_NAME)
+    except Exception as exc:
+        logger.warning("Failed to create blob client: %s", exc)
+        return None
+
+
 def _load_metrics():
-    """Load metrics from disk."""
+    """Load metrics from Azure Blob Storage (primary) or local disk (fallback)."""
     global _metrics
+
+    # 1. Try Azure Blob Storage
+    blob = _get_blob_client()
+    if blob:
+        try:
+            data = blob.download_blob().readall()
+            _metrics = json.loads(data)
+            _ensure_keys(_metrics)
+            logger.info("Loaded usage metrics from Azure Blob Storage")
+            return
+        except Exception as exc:
+            logger.info("Blob load skipped (%s) — trying local file", exc)
+
+    # 2. Fallback to local file
     if os.path.exists(METRICS_FILE):
         try:
             with open(METRICS_FILE, "r") as f:
                 _metrics = json.load(f)
             _ensure_keys(_metrics)
-            logger.info("Loaded usage metrics from disk")
+            logger.info("Loaded usage metrics from local disk")
         except Exception as exc:
-            logger.warning(f"Failed to load metrics: {exc}")
+            logger.warning("Failed to load metrics from disk: %s", exc)
             _metrics = json.loads(json.dumps(_DEFAULT_METRICS))
     else:
         _metrics = json.loads(json.dumps(_DEFAULT_METRICS))
 
 
 def _save_metrics():
-    """Persist metrics to disk."""
+    """Persist metrics to Azure Blob Storage (primary) and local disk (fallback)."""
+    payload = json.dumps(_metrics, indent=2, default=str)
+
+    # 1. Try Azure Blob Storage
+    blob = _get_blob_client()
+    if blob:
+        try:
+            blob.upload_blob(payload, overwrite=True)
+            logger.debug("Saved usage metrics to Azure Blob Storage")
+            return
+        except Exception as exc:
+            logger.warning("Blob save failed (%s) — falling back to disk", exc)
+
+    # 2. Fallback to local file
     try:
         os.makedirs(DATA_DIR, exist_ok=True)
         with open(METRICS_FILE, "w") as f:
-            json.dump(_metrics, f, indent=2, default=str)
+            f.write(payload)
     except Exception as exc:
-        logger.warning(f"Failed to save metrics: {exc}")
+        logger.warning("Failed to save metrics to disk: %s", exc)
 
 
 # Load on import

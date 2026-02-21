@@ -23,6 +23,18 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
+# ── Azure Monitor / Application Insights ──
+APPLICATIONINSIGHTS_CONNECTION_STRING = os.getenv("APPLICATIONINSIGHTS_CONNECTION_STRING", "")
+if APPLICATIONINSIGHTS_CONNECTION_STRING:
+    try:
+        from azure.monitor.opentelemetry import configure_azure_monitor
+        configure_azure_monitor(connection_string=APPLICATIONINSIGHTS_CONNECTION_STRING)
+        logging.getLogger(__name__).info("Application Insights telemetry enabled")
+    except Exception as exc:
+        logging.getLogger(__name__).warning("App Insights init failed: %s", exc)
+else:
+    logging.getLogger(__name__).info("APPLICATIONINSIGHTS_CONNECTION_STRING not set — telemetry disabled")
+
 from services import AWS_SERVICES, AZURE_SERVICES, GCP_SERVICES, CROSS_CLOUD_MAPPINGS
 from service_updater import start_scheduler, stop_scheduler, run_update_now, get_update_status, get_last_update
 from guided_questions import generate_questions, apply_answers
@@ -55,11 +67,17 @@ limiter = Limiter(
 API_KEY = os.getenv("ARCHMORPH_API_KEY", "")  # Empty = auth disabled (dev mode)
 API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=False)
 
-# Allowed frontend origins (production)
-ALLOWED_ORIGINS = os.getenv(
-    "ALLOWED_ORIGINS",
-    "https://agreeable-ground-01012c003.2.azurestaticapps.net,http://localhost:5173,http://localhost:3000"
-).split(",")
+# Allowed frontend origins (production) — strictly enumerated, no wildcards
+ALLOWED_ORIGINS = [
+    o.strip() for o in os.getenv(
+        "ALLOWED_ORIGINS",
+        "https://agreeable-ground-01012c003.2.azurestaticapps.net"
+    ).split(",")
+    if o.strip()
+]
+# Add local dev origins only when running locally
+if os.getenv("ENVIRONMENT", "production") == "dev":
+    ALLOWED_ORIGINS += ["http://localhost:5173", "http://localhost:3000"]
 
 # Max upload file size (10 MB)
 MAX_UPLOAD_SIZE = int(os.getenv("MAX_UPLOAD_SIZE", str(10 * 1024 * 1024)))
@@ -76,7 +94,7 @@ async def verify_api_key(api_key: Optional[str] = Security(API_KEY_HEADER)):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup/shutdown lifecycle manager."""
-    logger.info("Starting Archmorph API v2.5.0 — production mode")
+    logger.info("Starting Archmorph API v2.6.0 — production mode")
     start_scheduler()
 
     # Auto-load built-in icon packs from samples/
@@ -100,7 +118,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Archmorph API",
     description="AI-powered Cloud Architecture Translator to Azure",
-    version="2.5.0",
+    version="2.6.0",
     lifespan=lifespan,
 )
 
@@ -108,13 +126,14 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# CORS — use explicit origins in production
+# CORS — strict origin list, minimal methods/headers
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "X-API-Key", "X-Admin-Key", "Authorization"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PATCH", "DELETE"],
+    allow_headers=["Content-Type", "X-API-Key", "X-Admin-Key"],
+    max_age=3600,  # Cache preflight for 1 hour
 )
 
 
@@ -177,11 +196,30 @@ class AnalysisResult(BaseModel):
 @app.get("/api/health")
 async def health():
     update_status = get_update_status()
+
+    # Deeper checks
+    checks = {"openai": "unknown", "storage": "unknown"}
+
+    # Check OpenAI client is reachable
+    try:
+        from openai_client import AZURE_OPENAI_ENDPOINT
+        checks["openai"] = "configured" if AZURE_OPENAI_ENDPOINT else "not_configured"
+    except Exception:
+        checks["openai"] = "error"
+
+    # Check blob storage if configured
+    try:
+        from usage_metrics import AZURE_STORAGE_CONNECTION_STRING
+        checks["storage"] = "configured" if AZURE_STORAGE_CONNECTION_STRING else "local_only"
+    except Exception:
+        checks["storage"] = "error"
+
     return {
         "status": "healthy",
-        "version": "2.5.0",
+        "version": "2.6.0",
         "environment": ENVIRONMENT,
         "mode": "production",
+        "checks": checks,
         "service_catalog": {
             "aws": len(AWS_SERVICES),
             "azure": len(AZURE_SERVICES),
@@ -817,6 +855,58 @@ async def admin_metrics_daily(days: int = Query(30, ge=1, le=365), _admin=Depend
 async def admin_metrics_recent(limit: int = Query(50, ge=1, le=200), _admin=Depends(verify_admin_key)):
     """Return the most recent usage events (admin only)."""
     return {"events": get_recent_events(limit)}
+
+
+@app.get("/api/admin/costs")
+async def admin_cost_dashboard(_admin=Depends(verify_admin_key)):
+    """
+    Return estimated monthly Azure costs for the Archmorph platform itself.
+    Based on actual deployed resource SKUs (not user diagrams).
+    """
+    # Estimated costs per resource (USD/month, pay-as-you-go North Europe)
+    resources = [
+        {"name": "Container Apps (0.5 vCPU, 1Gi)", "category": "Compute", "monthly_usd": 36.50, "notes": "Always-on single instance"},
+        {"name": "Azure OpenAI (GPT-4o)", "category": "AI", "monthly_usd": 0.0, "notes": "Pay-per-token: ~$2.50/1K images analyzed"},
+        {"name": "Static Web Apps (Free)", "category": "Frontend", "monthly_usd": 0.0, "notes": "Free tier"},
+        {"name": "Container Registry (Basic)", "category": "Containers", "monthly_usd": 5.0, "notes": "Basic SKU"},
+        {"name": "Log Analytics (PerGB2018)", "category": "Monitoring", "monthly_usd": 2.76, "notes": "~1 GB/month ingest"},
+        {"name": "Storage Account (LRS)", "category": "Storage", "monthly_usd": 0.50, "notes": "Blob storage for metrics"},
+        {"name": "PostgreSQL Flex (B1ms)", "category": "Database", "monthly_usd": 12.90, "notes": "Burstable B1ms, 32GB storage"},
+        {"name": "Key Vault (Standard)", "category": "Security", "monthly_usd": 0.03, "notes": "3 secrets"},
+    ]
+
+    # Compute per-token OpenAI cost estimate from actual usage
+    metrics = get_metrics_summary()
+    analyses = metrics["totals"].get("analyses_run", 0)
+    iac_generated = metrics["totals"].get("iac_generated_terraform", 0) + metrics["totals"].get("iac_generated_bicep", 0)
+    hld_count = metrics["totals"].get("hld_generated", 0)
+    chat_msgs = metrics["totals"].get("iac_chat_messages", 0) + metrics["totals"].get("chat_messages", 0)
+
+    # Rough token estimates: vision ~1500 tokens in + 4000 out, IaC ~2000 in + 8000 out
+    input_tokens = analyses * 2000 + iac_generated * 2000 + hld_count * 2000 + chat_msgs * 500
+    output_tokens = analyses * 4000 + iac_generated * 8000 + hld_count * 8000 + chat_msgs * 1000
+    # GPT-4o pricing: $2.50/1M input, $10/1M output
+    openai_cost = round(input_tokens * 2.50 / 1_000_000 + output_tokens * 10.0 / 1_000_000, 2)
+    resources[1]["monthly_usd"] = openai_cost
+    resources[1]["notes"] = f"~{input_tokens:,} in + {output_tokens:,} out tokens used"
+
+    total = round(sum(r["monthly_usd"] for r in resources), 2)
+
+    return {
+        "total_monthly_usd": total,
+        "currency": "USD",
+        "region": "North Europe",
+        "resources": resources,
+        "usage_based": {
+            "analyses_run": analyses,
+            "iac_generated": iac_generated,
+            "hld_generated": hld_count,
+            "chat_messages": chat_msgs,
+            "estimated_input_tokens": input_tokens,
+            "estimated_output_tokens": output_tokens,
+            "openai_cost_usd": openai_cost,
+        },
+    }
 
 
 # ─────────────────────────────────────────────────────────────

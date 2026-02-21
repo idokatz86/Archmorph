@@ -11,7 +11,7 @@ import json
 import logging
 from typing import Any, Dict
 
-from openai_client import get_openai_client, AZURE_OPENAI_DEPLOYMENT
+from openai_client import get_openai_client, AZURE_OPENAI_DEPLOYMENT, openai_retry
 
 logger = logging.getLogger(__name__)
 
@@ -70,18 +70,22 @@ def classify_image(image_bytes: bytes, content_type: str = "image/png") -> Dict[
             - image_type (str)
             - reason (str)
     """
-    b64_image = base64.b64encode(image_bytes).decode("utf-8")
-    media_type = content_type if content_type else "image/png"
+    # Compress for classification (low detail is fine)
+    from vision_analyzer import compress_image
+    compressed_bytes, compressed_type = compress_image(image_bytes, content_type)
+
+    b64_image = base64.b64encode(compressed_bytes).decode("utf-8")
+    media_type = compressed_type
 
     client = get_openai_client()
 
     logger.info(
         "Classifying image (%d bytes, %s) — architecture diagram pre-check",
-        len(image_bytes),
+        len(compressed_bytes),
         media_type,
     )
 
-    response = client.chat.completions.create(
+    response = openai_retry(client.chat.completions.create)(
         model=AZURE_OPENAI_DEPLOYMENT,
         messages=[
             {"role": "system", "content": CLASSIFICATION_PROMPT},

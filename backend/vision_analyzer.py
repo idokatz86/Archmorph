@@ -7,14 +7,64 @@ the cross-cloud service catalog.
 """
 
 import base64
+import io
 import json
 import logging
 import os
 from difflib import SequenceMatcher
 from typing import Any, Dict, List, Optional, Tuple
 
+from PIL import Image
+
 from services import AWS_SERVICES, GCP_SERVICES, CROSS_CLOUD_MAPPINGS
-from openai_client import get_openai_client, AZURE_OPENAI_DEPLOYMENT
+from openai_client import get_openai_client, AZURE_OPENAI_DEPLOYMENT, openai_retry
+
+# Maximum image dimension for GPT-4o vision (keeps quality while reducing tokens)
+MAX_IMAGE_DIMENSION = 2048
+JPEG_QUALITY = 85
+
+
+def compress_image(image_bytes: bytes, content_type: str = "image/png") -> tuple[bytes, str]:
+    """
+    Resize & compress an image before sending to GPT-4o.
+
+    - Caps the longest edge at MAX_IMAGE_DIMENSION px
+    - Converts to JPEG (lossy, much smaller than PNG)
+    - Returns (compressed_bytes, new_content_type)
+    """
+    try:
+        img = Image.open(io.BytesIO(image_bytes))
+
+        # Convert palette / RGBA to RGB for JPEG
+        if img.mode in ("RGBA", "P", "LA"):
+            background = Image.new("RGB", img.size, (255, 255, 255))
+            if img.mode == "P":
+                img = img.convert("RGBA")
+            background.paste(img, mask=img.split()[-1] if "A" in img.mode else None)
+            img = background
+        elif img.mode != "RGB":
+            img = img.convert("RGB")
+
+        # Resize if too large
+        w, h = img.size
+        if max(w, h) > MAX_IMAGE_DIMENSION:
+            ratio = MAX_IMAGE_DIMENSION / max(w, h)
+            new_size = (int(w * ratio), int(h * ratio))
+            img = img.resize(new_size, Image.LANCZOS)
+            logger.info("Resized image from %dx%d to %dx%d", w, h, *new_size)
+
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=JPEG_QUALITY, optimize=True)
+        compressed = buf.getvalue()
+        logger.info(
+            "Compressed image: %d → %d bytes (%.0f%% reduction)",
+            len(image_bytes), len(compressed),
+            (1 - len(compressed) / max(len(image_bytes), 1)) * 100,
+        )
+        return compressed, "image/jpeg"
+    except Exception as exc:
+        logger.warning("Image compression failed (%s) — using original", exc)
+        return image_bytes, content_type
 
 logger = logging.getLogger(__name__)
 
@@ -313,20 +363,23 @@ def analyze_image(image_bytes: bytes, content_type: str = "image/png") -> Dict[s
     Returns:
         Full analysis result dict with mappings, zones, warnings, confidence_summary.
     """
+    # Compress image to reduce tokens and latency
+    compressed_bytes, compressed_type = compress_image(image_bytes, content_type)
+
     # Encode image to base64
-    b64_image = base64.b64encode(image_bytes).decode("utf-8")
-    media_type = content_type if content_type else "image/png"
+    b64_image = base64.b64encode(compressed_bytes).decode("utf-8")
+    media_type = compressed_type
 
     # Call GPT-4o with vision
     client = get_openai_client()
 
     logger.info(
         "Sending image to GPT-4o for analysis (%d bytes, %s)",
-        len(image_bytes),
+        len(compressed_bytes),
         media_type,
     )
 
-    response = client.chat.completions.create(
+    response = openai_retry(client.chat.completions.create)(
         model=AZURE_OPENAI_DEPLOYMENT,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},

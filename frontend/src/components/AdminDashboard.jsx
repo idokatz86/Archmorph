@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Shield, X, Filter, Activity, BarChart3, AlertTriangle, TrendingUp,
-  Zap, Eye, Loader2,
+  Zap, Eye, Loader2, DollarSign,
 } from 'lucide-react';
 import { Badge, Button, Card } from './ui';
 import { API_BASE, ADMIN_KEY } from '../constants';
@@ -13,6 +13,7 @@ export default function AdminDashboard({ onClose }) {
   const [metrics, setMetrics] = useState(null);
   const [daily, setDaily] = useState([]);
   const [recent, setRecent] = useState([]);
+  const [costs, setCosts] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const adminHeaders = ADMIN_KEY ? { 'X-Admin-Key': ADMIN_KEY } : {};
@@ -23,11 +24,13 @@ export default function AdminDashboard({ onClose }) {
       fetch(`${API_BASE}/admin/metrics`, { headers: adminHeaders }).then(r => r.json()),
       fetch(`${API_BASE}/admin/metrics/daily?days=14`, { headers: adminHeaders }).then(r => r.json()),
       fetch(`${API_BASE}/admin/metrics/recent?limit=30`, { headers: adminHeaders }).then(r => r.json()),
-    ]).then(([f, m, d, r]) => {
+      fetch(`${API_BASE}/admin/costs`, { headers: adminHeaders }).then(r => r.ok ? r.json() : null).catch(() => null),
+    ]).then(([f, m, d, r, c]) => {
       setFunnel(f);
       setMetrics(m);
       setDaily(d.data || []);
       setRecent(r.events || []);
+      setCosts(c);
       setLoading(false);
     }).catch(() => setLoading(false));
   }, []);
@@ -203,6 +206,45 @@ export default function AdminDashboard({ onClose }) {
             </div>
           )}
         </Card>
+
+        {/* Cost Dashboard */}
+        {costs && (
+          <Card className="p-6">
+            <h3 className="text-sm font-semibold text-text-primary mb-4 flex items-center gap-2">
+              <DollarSign className="w-4 h-4 text-cta" />
+              Platform Cost Estimate
+              <span className="text-xs text-text-muted font-normal ml-auto">${costs.total_monthly_usd}/mo</span>
+            </h3>
+            <div className="space-y-2">
+              {(costs.resources || []).map((r, i) => (
+                <div key={i} className="flex items-center gap-3 py-2 px-3 bg-surface rounded-lg">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-text-primary font-medium truncate">{r.name}</p>
+                    <p className="text-[10px] text-text-muted">{r.notes}</p>
+                  </div>
+                  <span className="text-sm font-bold text-text-primary shrink-0">
+                    ${r.monthly_usd.toFixed(2)}
+                  </span>
+                </div>
+              ))}
+            </div>
+            {costs.usage_based && (
+              <div className="mt-4 pt-4 border-t border-border">
+                <p className="text-xs text-text-muted mb-2">Token Usage (cumulative)</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="bg-surface rounded-lg p-2.5 flex items-center justify-between">
+                    <span className="text-[11px] text-text-muted">Input tokens</span>
+                    <span className="text-sm font-bold text-text-primary">{costs.usage_based.estimated_input_tokens?.toLocaleString()}</span>
+                  </div>
+                  <div className="bg-surface rounded-lg p-2.5 flex items-center justify-between">
+                    <span className="text-[11px] text-text-muted">Output tokens</span>
+                    <span className="text-sm font-bold text-text-primary">{costs.usage_based.estimated_output_tokens?.toLocaleString()}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </Card>
+        )}
 
         {/* Recent Events Feed */}
         <Card className="p-6">
