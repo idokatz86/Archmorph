@@ -62,12 +62,6 @@ async def api_versions():
     return get_api_versions()
 
 
-@router.get("/api/v1/health")
-async def health_v1():
-    """V1 health endpoint - alias for /api/health."""
-    return await health()
-
-
 @router.get("/api/contact")
 async def contact_info():
     """Return contact information."""

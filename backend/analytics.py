@@ -1,6 +1,15 @@
 """
-Archmorph Application Analytics
-Comprehensive analytics, metrics, and telemetry for monitoring user behavior and application performance
+Archmorph Application Analytics  (Issue #71 — consolidated metrics)
+
+Business-level analytics: sessions, events, conversion funnel, feature
+tracking, and API performance monitoring for the admin dashboard.
+
+.. deprecated::
+    The low-level metric primitives (``increment_counter``,
+    ``set_gauge``, ``record_histogram``) in this module are **thin
+    wrappers** that also forward to ``observability.py`` for OTel /
+    Azure Monitor export.  New code should import those functions
+    directly from ``observability`` instead.
 """
 
 import os
@@ -13,6 +22,14 @@ from enum import Enum
 from collections import defaultdict
 from cachetools import TTLCache
 import statistics
+
+# Forward metric primitives to the consolidated observability module
+# so every counter / histogram also reaches OTel + Azure Monitor.
+from observability import (
+    increment_counter as _obs_increment_counter,
+    record_histogram as _obs_record_histogram,
+    set_gauge as _obs_set_gauge,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -242,31 +259,46 @@ def track_conversion(session_id: str, conversion_type: str):
 # Metrics Functions
 # ─────────────────────────────────────────────────────────────
 def increment_counter(name: str, value: int = 1, tags: Optional[Dict[str, str]] = None):
-    """Increment a counter metric."""
+    """Increment a counter metric.
+
+    .. deprecated:: Use ``observability.increment_counter`` for new code.
+    """
     key = name
     if tags:
         key = f"{name}:{','.join(f'{k}={v}' for k, v in sorted(tags.items()))}"
     COUNTERS[key] += value
+    # Forward to observability for OTel export
+    _obs_increment_counter(name, value, tags)
 
 
 def set_gauge(name: str, value: float, tags: Optional[Dict[str, str]] = None):
-    """Set a gauge metric value."""
+    """Set a gauge metric value.
+
+    .. deprecated:: Use ``observability.set_gauge`` for new code.
+    """
     key = name
     if tags:
         key = f"{name}:{','.join(f'{k}={v}' for k, v in sorted(tags.items()))}"
     GAUGES[key] = value
+    # Forward to observability for OTel export
+    _obs_set_gauge(name, value, tags)
 
 
 def record_histogram(name: str, value: float, tags: Optional[Dict[str, str]] = None):
-    """Record a value in a histogram."""
+    """Record a value in a histogram.
+
+    .. deprecated:: Use ``observability.record_histogram`` for new code.
+    """
     key = name
     if tags:
         key = f"{name}:{','.join(f'{k}={v}' for k, v in sorted(tags.items()))}"
     HISTOGRAMS[key].append(value)
-    
+
     # Keep only last 1000 values
     if len(HISTOGRAMS[key]) > 1000:
         HISTOGRAMS[key] = HISTOGRAMS[key][-1000:]
+    # Forward to observability for OTel export
+    _obs_record_histogram(name, value, tags)
 
 
 def record_timing(name: str, duration_ms: float, tags: Optional[Dict[str, str]] = None):

@@ -69,21 +69,42 @@ def create_versioned_router(version: str, prefix: str = "") -> APIRouter:
 
 class VersionMiddleware:
     """
-    Middleware to add API version headers to responses.
+    ASGI middleware to add API version headers to every response.
+
+    Headers added:
+        X-API-Version   – resolved version (e.g., "v1")
+        X-API-Deprecated – "true" if the resolved version is deprecated
     """
-    
+
     def __init__(self, app):
         self.app = app
-    
+
     async def __call__(self, scope, receive, send):
         if scope["type"] == "http":
+            path = scope.get("path", "")
+
+            # Determine the API version from the URL path
+            resolved_version = CURRENT_VERSION  # default for unversioned /api/*
+            deprecated = False
+
+            for ver in SUPPORTED_VERSIONS + DEPRECATED_VERSIONS:
+                if path.startswith(f"/api/{ver}/") or path == f"/api/{ver}":
+                    resolved_version = ver
+                    deprecated = ver in DEPRECATED_VERSIONS
+                    break
+
             async def send_wrapper(message):
                 if message["type"] == "http.response.start":
                     headers = list(message.get("headers", []))
-                    headers.append((b"x-api-version", CURRENT_VERSION.encode()))
-                    headers.append((b"x-api-deprecated", b"false"))
+                    headers.append(
+                        (b"x-api-version", resolved_version.encode())
+                    )
+                    headers.append(
+                        (b"x-api-deprecated", b"true" if deprecated else b"false")
+                    )
                     message["headers"] = headers
                 await send(message)
+
             await self.app(scope, receive, send_wrapper)
         else:
             await self.app(scope, receive, send)
