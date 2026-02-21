@@ -267,7 +267,7 @@ class TestIacChatEndpoints:
             "warnings": [],
             "confidence_summary": {"high": 1, "medium": 0, "low": 0, "average": 0.95},
         }
-        with patch("main.analyze_image", return_value=mock_analysis):
+        with patch("routers.diagrams.analyze_image", return_value=mock_analysis):
             client.post(f"/api/diagrams/{diagram_id}/analyze")
 
         yield diagram_id

@@ -246,9 +246,9 @@ AWS_SERVICES = [
     # DATA GOVERNANCE  (Issue #64)
     # ═══════════════════════════════════════════════════════════
     {"id": "aws-datazone", "name": "DataZone", "fullName": "Amazon DataZone", "category": "Data Governance", "description": "Data management service for data mesh architectures", "icon": "governance"},
-    {"id": "aws-clean-rooms", "name": "Clean Rooms", "fullName": "AWS Clean Rooms", "category": "Data Governance", "description": "Privacy-safe collaborative analytics", "icon": "privacy"},
+    {"id": "aws-clean-rooms-dg", "name": "Clean Rooms", "fullName": "AWS Clean Rooms", "category": "Data Governance", "description": "Privacy-safe collaborative analytics", "icon": "privacy"},
     {"id": "aws-appflow", "name": "AppFlow", "fullName": "Amazon AppFlow", "category": "Data Governance", "description": "SaaS data integration with no code", "icon": "integration"},
-    {"id": "aws-audit-manager", "name": "Audit Manager", "fullName": "AWS Audit Manager", "category": "Data Governance", "description": "Continuously audit AWS usage for compliance", "icon": "compliance"},
+    {"id": "aws-audit-manager-dg", "name": "Audit Manager", "fullName": "AWS Audit Manager", "category": "Data Governance", "description": "Continuously audit AWS usage for compliance", "icon": "compliance"},
     {"id": "aws-glue-databrew", "name": "Glue DataBrew", "fullName": "AWS Glue DataBrew", "category": "Data Governance", "description": "Visual data preparation tool", "icon": "data"},
 
     # ═══════════════════════════════════════════════════════════
@@ -256,8 +256,8 @@ AWS_SERVICES = [
     # ═══════════════════════════════════════════════════════════
     {"id": "aws-verified-access", "name": "Verified Access", "fullName": "AWS Verified Access", "category": "Zero Trust", "description": "Zero trust access to corporate applications", "icon": "shield"},
     {"id": "aws-security-lake", "name": "Security Lake", "fullName": "Amazon Security Lake", "category": "Zero Trust", "description": "Centralized security data lake (OCSF)", "icon": "shield"},
-    {"id": "aws-detective", "name": "Detective", "fullName": "Amazon Detective", "category": "Zero Trust", "description": "Investigate security findings", "icon": "shield"},
-    {"id": "aws-firewall-manager", "name": "Firewall Manager", "fullName": "AWS Firewall Manager", "category": "Zero Trust", "description": "Central security management across accounts", "icon": "firewall"},
+    {"id": "aws-detective-zt", "name": "Detective", "fullName": "Amazon Detective", "category": "Zero Trust", "description": "Investigate security findings", "icon": "shield"},
+    {"id": "aws-firewall-manager-zt", "name": "Firewall Manager", "fullName": "AWS Firewall Manager", "category": "Zero Trust", "description": "Central security management across accounts", "icon": "firewall"},
     {"id": "aws-network-firewall-idps", "name": "Network Firewall (IDPS)", "fullName": "AWS Network Firewall (IDPS)", "category": "Zero Trust", "description": "Intrusion detection and prevention", "icon": "firewall"},
     {"id": "aws-vpc-lattice", "name": "VPC Lattice", "fullName": "Amazon VPC Lattice", "category": "Zero Trust", "description": "Application-layer service networking", "icon": "network"},
 ]

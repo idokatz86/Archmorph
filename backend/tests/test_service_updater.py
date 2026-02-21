@@ -17,6 +17,8 @@ from service_updater import (
     _load_local_catalog,
     _read_state,
     _write_state,
+    _load_discovered_services,
+    _save_discovered_services,
     _PROVIDER_CONFIG,
 )
 
@@ -243,7 +245,6 @@ class TestProviderConfig:
         for provider, config in _PROVIDER_CONFIG.items():
             assert "module" in config, f"{provider} missing 'module'"
             assert "variable" in config, f"{provider} missing 'variable'"
-            assert "file" in config, f"{provider} missing 'file'"
             assert "id_prefix" in config, f"{provider} missing 'id_prefix'"
 
     def test_variable_names_match_actual_exports(self):
@@ -253,3 +254,78 @@ class TestProviderConfig:
             assert hasattr(mod, config["variable"]), (
                 f"{config['module']} has no attribute {config['variable']}"
             )
+
+    def test_no_file_key_in_config(self):
+        """Ensure _PROVIDER_CONFIG no longer references .py catalog files."""
+        for provider, config in _PROVIDER_CONFIG.items():
+            assert "file" not in config, (
+                f"{provider} config should not have 'file' key (no .py file modification)"
+            )
+
+
+# ====================================================================
+# _load_discovered_services / _save_discovered_services
+# ====================================================================
+
+class TestDiscoveredServices:
+    def test_load_missing_file_returns_empty(self, tmp_path):
+        with patch("service_updater._DISCOVERED_FILE", tmp_path / "nonexistent.json"):
+            result = _load_discovered_services()
+            assert result == {"aws": [], "azure": [], "gcp": []}
+
+    def test_load_corrupt_json_returns_empty(self, tmp_path):
+        bad_file = tmp_path / "bad.json"
+        bad_file.write_text("{not valid", encoding="utf-8")
+        with patch("service_updater._DISCOVERED_FILE", bad_file):
+            result = _load_discovered_services()
+            assert result == {"aws": [], "azure": [], "gcp": []}
+
+    def test_save_and_load_roundtrip(self, tmp_path):
+        disc_file = tmp_path / "discovered.json"
+        with patch("service_updater._DISCOVERED_FILE", disc_file), \
+             patch("service_updater._DATA_DIR", tmp_path):
+            entries = [
+                {"id": "aws-test-svc", "name": "Test Svc", "fullName": "AWS Test Svc",
+                 "category": "Other", "description": "test", "icon": "cloud"},
+            ]
+            added = _save_discovered_services("aws", entries)
+            assert added == 1
+
+            loaded = _load_discovered_services()
+            assert len(loaded["aws"]) == 1
+            assert loaded["aws"][0]["id"] == "aws-test-svc"
+
+    def test_save_deduplicates_by_id(self, tmp_path):
+        disc_file = tmp_path / "discovered.json"
+        with patch("service_updater._DISCOVERED_FILE", disc_file), \
+             patch("service_updater._DATA_DIR", tmp_path):
+            entry = {"id": "aws-dup", "name": "Dup", "fullName": "AWS Dup",
+                     "category": "Other", "description": "d", "icon": "cloud"}
+            _save_discovered_services("aws", [entry])
+            added = _save_discovered_services("aws", [entry])
+            assert added == 0  # duplicate, nothing new
+
+            loaded = _load_discovered_services()
+            assert len(loaded["aws"]) == 1
+
+    def test_save_empty_returns_zero(self, tmp_path):
+        disc_file = tmp_path / "discovered.json"
+        with patch("service_updater._DISCOVERED_FILE", disc_file), \
+             patch("service_updater._DATA_DIR", tmp_path):
+            assert _save_discovered_services("aws", []) == 0
+
+    def test_does_not_modify_py_files(self, tmp_path):
+        """Verify that saving discovered services never touches .py files."""
+        disc_file = tmp_path / "discovered.json"
+        fake_py = tmp_path / "aws_services.py"
+        fake_py.write_text("AWS_SERVICES = []\n", encoding="utf-8")
+        original_content = fake_py.read_text()
+
+        with patch("service_updater._DISCOVERED_FILE", disc_file), \
+             patch("service_updater._DATA_DIR", tmp_path):
+            entry = {"id": "aws-new", "name": "New", "fullName": "AWS New",
+                     "category": "Other", "description": "n", "icon": "cloud"}
+            _save_discovered_services("aws", [entry])
+
+        assert fake_py.read_text() == original_content, \
+            ".py file was modified -- service updater must only write to JSON"

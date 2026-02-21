@@ -1,0 +1,110 @@
+"""
+Authentication & User Management routes (v2.9.0).
+"""
+
+from fastapi import APIRouter, HTTPException, Request, Header, Query
+from pydantic import BaseModel, Field, EmailStr
+from typing import Optional
+
+from routers.shared import limiter
+from auth import (
+    get_auth_config as _get_auth_config,
+    validate_azure_ad_b2c_token,
+    exchange_github_code,
+    generate_session_token,
+    get_user_from_session,
+    get_anonymous_user,
+    capture_lead,
+)
+
+router = APIRouter()
+
+
+class LoginRequest(BaseModel):
+    provider: str = Field(..., description="azure_ad_b2c or github")
+    token: Optional[str] = None
+    code: Optional[str] = None
+
+
+class LeadCaptureRequest(BaseModel):
+    email: EmailStr
+    diagram_id: str
+    action: str = Field(..., description="iac_download, hld_download, or share")
+    company: Optional[str] = None
+    role: Optional[str] = None
+    use_case: Optional[str] = None
+    marketing_consent: bool = False
+
+
+@router.get("/api/auth/config")
+async def get_auth_config():
+    """Get public authentication configuration."""
+    return _get_auth_config()
+
+
+@router.post("/api/auth/login")
+async def login(request: LoginRequest):
+    """Login with Azure AD B2C or GitHub OAuth."""
+    try:
+        if request.provider == "azure_ad_b2c":
+            if not request.token:
+                raise HTTPException(400, "Token required for Azure AD B2C")
+            user = await validate_azure_ad_b2c_token(request.token)
+        elif request.provider == "github":
+            if not request.code:
+                raise HTTPException(400, "Code required for GitHub OAuth")
+            user = await exchange_github_code(request.code)
+        else:
+            raise HTTPException(400, f"Unknown provider: {request.provider}")
+        
+        session_token = generate_session_token(user)
+        
+        return {
+            "user": user.to_dict(),
+            "session_token": session_token,
+        }
+    except ValueError as e:
+        raise HTTPException(401, str(e))
+
+
+@router.get("/api/auth/me")
+async def get_current_user(authorization: Optional[str] = Header(None)):
+    """Get current authenticated user."""
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization[7:]
+        user = get_user_from_session(token)
+        if user:
+            return user.to_dict()
+    
+    # Return anonymous user info
+    return {"authenticated": False, "tier": "free"}
+
+
+@router.get("/api/auth/quota")
+async def check_quota(action: str = Query(...), authorization: Optional[str] = Header(None)):
+    """Check user quota for an action."""
+    user = None
+    if authorization and authorization.startswith("Bearer "):
+        user = get_user_from_session(authorization[7:])
+    
+    if not user:
+        user = get_anonymous_user("unknown")
+    
+    return user.check_quota(action)
+
+
+@router.post("/api/leads/capture")
+@limiter.limit("10/minute")
+async def capture_lead_endpoint(request: Request, data: LeadCaptureRequest):
+    """Capture lead information before gated action."""
+    lead = capture_lead(
+        email=data.email,
+        diagram_id=data.diagram_id,
+        action=data.action,
+        company=data.company,
+        role=data.role,
+        use_case=data.use_case,
+        marketing_consent=data.marketing_consent,
+    )
+    
+    return {"success": True, "captured_at": lead.captured_at.isoformat()}

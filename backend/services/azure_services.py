@@ -208,14 +208,14 @@ AZURE_SERVICES = [
     {"id": "az-arc-k8s", "name": "Arc-enabled Kubernetes", "fullName": "Azure Arc-enabled Kubernetes", "category": "Hybrid", "description": "Manage Kubernetes clusters anywhere with Azure Arc", "icon": "kubernetes"},
     {"id": "az-arc-servers", "name": "Arc-enabled Servers", "fullName": "Azure Arc-enabled Servers", "category": "Hybrid", "description": "Manage on-prem and multi-cloud servers from Azure", "icon": "hybrid"},
     {"id": "az-arc-sql", "name": "Arc-enabled SQL", "fullName": "Azure Arc-enabled SQL Managed Instance", "category": "Hybrid", "description": "Run Azure SQL managed instance anywhere via Arc", "icon": "database"},
-    {"id": "az-lighthouse", "name": "Azure Lighthouse", "fullName": "Azure Lighthouse", "category": "Hybrid", "description": "Cross-tenant management at scale", "icon": "management"},
+    {"id": "az-lighthouse-hybrid", "name": "Azure Lighthouse", "fullName": "Azure Lighthouse", "category": "Hybrid", "description": "Cross-tenant management at scale", "icon": "management"},
 
     # ═══════════════════════════════════════════════════════════
     # GENERATIVE AI  (Issue #61)
     # ═══════════════════════════════════════════════════════════
     {"id": "az-ai-agent-service", "name": "AI Agent Service", "fullName": "Azure AI Agent Service", "category": "AI/ML", "description": "Build and deploy autonomous AI agents with tool use", "icon": "bot"},
     {"id": "az-ai-foundry", "name": "AI Foundry", "fullName": "Azure AI Foundry", "category": "AI/ML", "description": "Unified platform for building generative AI applications", "icon": "ai"},
-    {"id": "az-ai-content-safety", "name": "AI Content Safety", "fullName": "Azure AI Content Safety", "category": "AI/ML", "description": "Detect harmful content in text and images", "icon": "shield"},
+    {"id": "az-ai-content-safety-genai", "name": "AI Content Safety", "fullName": "Azure AI Content Safety", "category": "AI/ML", "description": "Detect harmful content in text and images", "icon": "shield"},
     {"id": "az-ml-automl", "name": "Azure ML AutoML", "fullName": "Azure Machine Learning AutoML", "category": "AI/ML", "description": "Automated machine learning model training", "icon": "ai"},
     {"id": "az-github-advanced-security", "name": "GitHub Advanced Security", "fullName": "GitHub Advanced Security", "category": "AI/ML", "description": "AI-powered code scanning and security analysis", "icon": "shield"},
 
@@ -240,7 +240,7 @@ AZURE_SERVICES = [
     # ═══════════════════════════════════════════════════════════
     {"id": "az-purview-governance", "name": "Purview (Governance)", "fullName": "Microsoft Purview Data Governance", "category": "Data Governance", "description": "Unified data governance with catalog and lineage", "icon": "governance"},
     {"id": "az-clean-rooms", "name": "Confidential Clean Rooms", "fullName": "Azure Confidential Clean Rooms", "category": "Data Governance", "description": "Privacy-preserving multi-party data collaboration", "icon": "privacy"},
-    {"id": "az-purview-compliance", "name": "Purview Compliance Manager", "fullName": "Microsoft Purview Compliance Manager", "category": "Data Governance", "description": "Automated compliance assessment and evidence collection", "icon": "compliance"},
+    {"id": "az-purview-compliance-dg", "name": "Purview Compliance Manager", "fullName": "Microsoft Purview Compliance Manager", "category": "Data Governance", "description": "Automated compliance assessment and evidence collection", "icon": "compliance"},
 
     # ═══════════════════════════════════════════════════════════
     # ZERO TRUST & SASE  (Issue #67)

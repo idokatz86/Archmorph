@@ -497,7 +497,7 @@ class TestHldEndpoints:
         )
         diagram_id = resp.json()["diagram_id"]
 
-        with patch("main.analyze_image", return_value=copy.deepcopy(MOCK_ANALYSIS)):
+        with patch("routers.diagrams.analyze_image", return_value=copy.deepcopy(MOCK_ANALYSIS)):
             client.post(f"/api/diagrams/{diagram_id}/analyze")
 
         yield diagram_id

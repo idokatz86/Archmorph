@@ -86,8 +86,8 @@ class TestFullAnalysisFlow:
         diagram_id = resp.json()["diagram_id"]
 
         # Analyze with mock
-        with patch("main.analyze_image", return_value=copy.deepcopy(MOCK_ANALYSIS)), \
-             patch("main.classify_image", return_value={
+        with patch("routers.diagrams.analyze_image", return_value=copy.deepcopy(MOCK_ANALYSIS)), \
+             patch("routers.diagrams.classify_image", return_value={
                  "is_architecture_diagram": True,
                  "confidence": 0.95,
                  "image_type": "architecture_diagram",
@@ -175,8 +175,8 @@ class TestServiceAdditionIntegration:
         )
         diagram_id = resp.json()["diagram_id"]
 
-        with patch("main.analyze_image", return_value=copy.deepcopy(MOCK_ANALYSIS)), \
-             patch("main.classify_image", return_value={
+        with patch("routers.diagrams.analyze_image", return_value=copy.deepcopy(MOCK_ANALYSIS)), \
+             patch("routers.diagrams.classify_image", return_value={
                  "is_architecture_diagram": True,
                  "confidence": 0.95
              }):
@@ -259,8 +259,8 @@ class TestQuestionDeduplicationIntegration:
         analysis = copy.deepcopy(MOCK_ANALYSIS)
         analysis["architecture_patterns"] = ["multi-AZ", "high-availability"]
 
-        with patch("main.analyze_image", return_value=analysis), \
-             patch("main.classify_image", return_value={
+        with patch("routers.diagrams.analyze_image", return_value=analysis), \
+             patch("routers.diagrams.classify_image", return_value={
                  "is_architecture_diagram": True,
                  "confidence": 0.95
              }):
@@ -296,8 +296,8 @@ class TestErrorHandling:
         )
         diagram_id = resp.json()["diagram_id"]
 
-        with patch("main.analyze_image", return_value=copy.deepcopy(MOCK_ANALYSIS)), \
-             patch("main.classify_image", return_value={
+        with patch("routers.diagrams.analyze_image", return_value=copy.deepcopy(MOCK_ANALYSIS)), \
+             patch("routers.diagrams.classify_image", return_value={
                  "is_architecture_diagram": True,
                  "confidence": 0.95
              }):

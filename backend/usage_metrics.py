@@ -30,8 +30,10 @@ _shutdown_event = threading.Event()
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 METRICS_FILE = os.path.join(DATA_DIR, "usage_metrics.json")
 
-# Azure Blob Storage persistence (survives container restarts/deploys)
+# Azure Blob Storage persistence — RBAC preferred, connection string fallback
+AZURE_STORAGE_ACCOUNT_URL = os.getenv("AZURE_STORAGE_ACCOUNT_URL", "")
 AZURE_STORAGE_CONNECTION_STRING = os.getenv("AZURE_STORAGE_CONNECTION_STRING", "")
+AZURE_CLIENT_ID = os.getenv("AZURE_CLIENT_ID", "")  # For user-assigned managed identity
 METRICS_BLOB_CONTAINER = "metrics"
 METRICS_BLOB_NAME = "usage_metrics.json"
 
@@ -102,12 +104,28 @@ def _ensure_keys(m: Dict):
 
 
 def _get_blob_client():
-    """Return an Azure BlobClient for metrics persistence, or None."""
-    if not AZURE_STORAGE_CONNECTION_STRING:
+    """Return an Azure BlobClient for metrics persistence, or None.
+
+    Auth priority:
+      1. RBAC via DefaultAzureCredential (production — managed identity)
+      2. Connection string (local dev / legacy)
+    """
+    if not AZURE_STORAGE_ACCOUNT_URL and not AZURE_STORAGE_CONNECTION_STRING:
         return None
     try:
         from azure.storage.blob import BlobServiceClient
-        bsc = BlobServiceClient.from_connection_string(AZURE_STORAGE_CONNECTION_STRING)
+
+        if AZURE_STORAGE_ACCOUNT_URL:
+            from azure.identity import DefaultAzureCredential
+            credential = DefaultAzureCredential(
+                managed_identity_client_id=AZURE_CLIENT_ID or None
+            )
+            bsc = BlobServiceClient(AZURE_STORAGE_ACCOUNT_URL, credential=credential)
+            logger.debug("Using RBAC auth for blob storage")
+        else:
+            bsc = BlobServiceClient.from_connection_string(AZURE_STORAGE_CONNECTION_STRING)
+            logger.debug("Using connection string auth for blob storage")
+
         container = bsc.get_container_client(METRICS_BLOB_CONTAINER)
         try:
             container.get_container_properties()

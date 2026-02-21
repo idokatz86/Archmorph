@@ -210,10 +210,10 @@ GCP_SERVICES = [
     # ═══════════════════════════════════════════════════════════
     # DATA GOVERNANCE  (Issue #64)
     # ═══════════════════════════════════════════════════════════
-    {"id": "gcp-dataplex", "name": "Dataplex", "fullName": "Google Cloud Dataplex", "category": "Data Governance", "description": "Intelligent data fabric for data mesh governance", "icon": "governance"},
+    {"id": "gcp-dataplex-dg", "name": "Dataplex", "fullName": "Google Cloud Dataplex", "category": "Data Governance", "description": "Intelligent data fabric for data mesh governance", "icon": "governance"},
     {"id": "gcp-bq-clean-rooms", "name": "BigQuery Clean Rooms", "fullName": "BigQuery Clean Rooms", "category": "Data Governance", "description": "Privacy-safe collaborative analytics", "icon": "privacy"},
     {"id": "gcp-app-integration", "name": "Application Integration", "fullName": "Google Application Integration", "category": "Data Governance", "description": "No-code API and SaaS integration platform", "icon": "integration"},
-    {"id": "gcp-assured-workloads", "name": "Assured Workloads", "fullName": "Google Assured Workloads", "category": "Data Governance", "description": "Compliance and sovereignty controls", "icon": "compliance"},
+    {"id": "gcp-assured-workloads-dg", "name": "Assured Workloads", "fullName": "Google Assured Workloads", "category": "Data Governance", "description": "Compliance and sovereignty controls", "icon": "compliance"},
     {"id": "gcp-dataprep", "name": "Dataprep", "fullName": "Dataprep by Trifacta", "category": "Data Governance", "description": "Visual data wrangling and cleansing", "icon": "data"},
 
     # ═══════════════════════════════════════════════════════════
@@ -224,5 +224,5 @@ GCP_SERVICES = [
     {"id": "gcp-chronicle-investigation", "name": "Chronicle Investigation", "fullName": "Google Chronicle Investigation", "category": "Zero Trust", "description": "Interactive security investigation workflows", "icon": "shield"},
     {"id": "gcp-firewall-policies", "name": "Cloud Firewall Policies", "fullName": "Google Cloud Firewall Policies", "category": "Zero Trust", "description": "Hierarchical firewall policy management", "icon": "firewall"},
     {"id": "gcp-cloud-ids", "name": "Cloud IDS", "fullName": "Google Cloud IDS", "category": "Zero Trust", "description": "Network-based intrusion detection", "icon": "shield"},
-    {"id": "gcp-private-service-connect", "name": "Private Service Connect", "fullName": "Google Private Service Connect", "category": "Zero Trust", "description": "Private and secure service-to-service networking", "icon": "network"},
+    {"id": "gcp-private-service-connect-zt", "name": "Private Service Connect", "fullName": "Google Private Service Connect", "category": "Zero Trust", "description": "Private and secure service-to-service networking", "icon": "network"},
 ]

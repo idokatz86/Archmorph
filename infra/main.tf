@@ -321,10 +321,7 @@ resource "azurerm_container_app" "backend" {
     value = "postgresql://${var.db_admin_username}:${var.db_admin_password}@${azurerm_postgresql_flexible_server.main.fqdn}:5432/archmorph?sslmode=require"
   }
 
-  secret {
-    name  = "storage-connection"
-    value = azurerm_storage_account.main.primary_connection_string
-  }
+  # Storage uses RBAC (shared_access_key_enabled = false) — no connection string needed
 
   secret {
     name  = "openai-key"
@@ -363,8 +360,13 @@ resource "azurerm_container_app" "backend" {
       }
 
       env {
-        name        = "AZURE_STORAGE_CONNECTION_STRING"
-        secret_name = "storage-connection"
+        name  = "AZURE_STORAGE_ACCOUNT_URL"
+        value = "https://${azurerm_storage_account.main.name}.blob.core.windows.net"
+      }
+
+      env {
+        name  = "AZURE_CLIENT_ID"
+        value = azurerm_user_assigned_identity.container_app.client_id
       }
 
       env {

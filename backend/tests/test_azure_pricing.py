@@ -212,8 +212,9 @@ class TestServicePriceQueries:
     def test_new_services_in_price_queries(self):
         """Issues #60-#67: new services should have pricing entries."""
         expected = [
-            "Azure Arc", "Azure Managed Grafana", "Azure Managed Prometheus",
-            "Azure AI Foundry", "Azure Edge Zones", "Microsoft Sentinel (SOAR)",
+            "Azure Arc-enabled Servers", "Azure Managed Grafana",
+            "Azure Monitor (Prometheus)",
+            "Azure AI Foundry", "Azure Edge Zones", "Microsoft Sentinel",
         ]
         for name in expected:
             assert name in SERVICE_PRICE_QUERIES, f"Missing pricing for {name}"

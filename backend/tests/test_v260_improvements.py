@@ -163,9 +163,9 @@ class TestMetricsPersistence:
         assert os.path.exists(METRICS_FILE)
 
     def test_blob_client_returns_none_without_env(self):
-        """_get_blob_client returns None when no connection string."""
+        """_get_blob_client returns None when no URL or connection string."""
         from usage_metrics import _get_blob_client
-        with patch.dict(os.environ, {"AZURE_STORAGE_CONNECTION_STRING": ""}, clear=False):
+        with patch.dict(os.environ, {"AZURE_STORAGE_ACCOUNT_URL": "", "AZURE_STORAGE_CONNECTION_STRING": ""}, clear=False):
             assert _get_blob_client() is None
 
 

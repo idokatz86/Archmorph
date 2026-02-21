@@ -2,8 +2,11 @@
 Daily Cloud Service Catalog Updater
 
 Periodically fetches service catalogs from AWS, Azure, and GCP pricing APIs,
-compares them against the local catalogs, and automatically integrates new
-services into the Python catalog files.
+compares them against the local catalogs, and writes newly discovered services
+to a JSON data file (data/discovered_services.json).
+
+The services module merges this discovery file with the static Python catalogs
+at import time, so no Python source files are modified at runtime.
 
 Uses APScheduler BackgroundScheduler to run updates every 24 hours at 2:00 AM UTC.
 """
@@ -37,6 +40,7 @@ _BASE_DIR = Path(__file__).resolve().parent
 _DATA_DIR = _BASE_DIR / "data"
 _SERVICES_DIR = _BASE_DIR / "services"
 _UPDATES_FILE = _DATA_DIR / "service_updates.json"
+_DISCOVERED_FILE = _DATA_DIR / "discovered_services.json"
 
 # ---------------------------------------------------------------------------
 # API endpoints
@@ -64,21 +68,18 @@ _PROVIDER_CONFIG = {
     "aws": {
         "module": "services.aws_services",
         "variable": "AWS_SERVICES",
-        "file": _SERVICES_DIR / "aws_services.py",
         "id_prefix": "aws",
         "icon_default": "cloud",
     },
     "azure": {
         "module": "services.azure_services",
         "variable": "AZURE_SERVICES",
-        "file": _SERVICES_DIR / "azure_services.py",
         "id_prefix": "az",
         "icon_default": "cloud",
     },
     "gcp": {
         "module": "services.gcp_services",
         "variable": "GCP_SERVICES",
-        "file": _SERVICES_DIR / "gcp_services.py",
         "id_prefix": "gcp",
         "icon_default": "cloud",
     },
@@ -332,79 +333,67 @@ def _make_service_entry(
 
 
 # ---------------------------------------------------------------------------
-# Auto-integration -- write new services into catalog files
+# Auto-integration -- write discovered services to JSON data file
 # ---------------------------------------------------------------------------
 
 
-def _append_services_to_catalog(
+def _load_discovered_services() -> dict[str, list[dict[str, str]]]:
+    """
+    Load previously discovered services from the JSON data file.
+
+    Returns a dict keyed by provider ("aws", "azure", "gcp"),
+    each containing a list of service entry dicts.
+    """
+    try:
+        with open(_DISCOVERED_FILE, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+            if isinstance(data, dict):
+                return data
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+    return {"aws": [], "azure": [], "gcp": []}
+
+
+def _save_discovered_services(
     provider: str,
     new_entries: list[dict[str, str]],
 ) -> int:
     """
-    Append new service entries to the Python catalog file.
+    Append newly discovered service entries to the JSON discovery file.
 
-    Inserts new entries just before the closing ``]`` bracket of the main
-    list variable, keeping them grouped under a ``# AUTO-DISCOVERED`` comment.
-
-    Returns the number of services successfully added.
+    Merges with any previously discovered services (deduplicated by id).
+    Returns the number of services newly added.
     """
     if not new_entries:
         return 0
 
-    config = _PROVIDER_CONFIG[provider]
-    filepath = config["file"]
+    discovered = _load_discovered_services()
+    existing = discovered.get(provider, [])
+    existing_ids = {entry["id"] for entry in existing}
 
-    try:
-        content = filepath.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        logger.error("Catalog file not found: %s", filepath)
+    added = []
+    for entry in new_entries:
+        if entry["id"] not in existing_ids:
+            added.append(entry)
+            existing_ids.add(entry["id"])
+
+    if not added:
         return 0
 
-    # Find the last `]` that closes the main list
-    last_bracket_match = None
-    for m in re.finditer(r"\n(\])\s*$", content):
-        last_bracket_match = m
+    existing.extend(added)
+    discovered[provider] = existing
 
-    if last_bracket_match is None:
-        # Fallback: find the very last `]` in the file
-        idx = content.rfind("]")
-        if idx == -1:
-            logger.error("Cannot find closing bracket in %s", filepath)
-            return 0
-        insert_pos = idx
-    else:
-        insert_pos = last_bracket_match.start(1)
+    _DATA_DIR.mkdir(parents=True, exist_ok=True)
+    with open(_DISCOVERED_FILE, "w", encoding="utf-8") as fh:
+        json.dump(discovered, fh, indent=2)
 
-    # Build the new entries as formatted lines
-    entry_lines: list[str] = []
-    for entry in new_entries:
-        line = (
-            '    {{"id": "{id}", "name": "{name}", '
-            '"fullName": "{fullName}", "category": "{category}", '
-            '"description": "{description}", "icon": "{icon}"}},'.format(**entry)
-        )
-        entry_lines.append(line)
-
-    # Check if there is already an AUTO-DISCOVERED section
-    auto_marker = "# AUTO-DISCOVERED (added by service_updater)"
-    if auto_marker in content:
-        # Append after existing entries (before the closing bracket)
-        insert_text = "\n".join(entry_lines) + "\n"
-    else:
-        # Create a new section header
-        header_lines = [
-            "",
-            "    # ═══════════════════════════════════════════════════════════",
-            f"    {auto_marker}",
-            "    # ═══════════════════════════════════════════════════════════",
-        ]
-        insert_text = "\n".join(header_lines + entry_lines) + "\n"
-
-    new_content = content[:insert_pos] + insert_text + content[insert_pos:]
-    filepath.write_text(new_content, encoding="utf-8")
-
-    logger.info("Added %d new services to %s", len(new_entries), filepath.name)
-    return len(new_entries)
+    logger.info(
+        "Saved %d new discovered services for %s to %s",
+        len(added),
+        provider.upper(),
+        _DISCOVERED_FILE.name,
+    )
+    return len(added)
 
 
 # ---------------------------------------------------------------------------
@@ -522,19 +511,19 @@ def run_update_now(*, auto_add: bool = True) -> dict[str, Any]:
                         + (" ..." if len(new_services) > 10 else ""),
                     )
 
-                    # Auto-add to catalog files
+                    # Save discovered services to JSON data file
                     if auto_add:
                         entries = [
                             _make_service_entry(name, provider)
                             for name in new_services
                         ]
-                        added = _append_services_to_catalog(provider, entries)
+                        added = _save_discovered_services(provider, entries)
                         if added > 0:
                             auto_added[provider] = [
                                 e["name"] for e in entries[:added]
                             ]
                             logger.info(
-                                "%s: auto-added %d services to catalog file",
+                                "%s: saved %d discovered services to JSON",
                                 provider.upper(),
                                 added,
                             )

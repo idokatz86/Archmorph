@@ -364,21 +364,25 @@ class TestNewQuestionCategories:
         assert "data_governance" in QUESTION_BANK
 
     def test_zero_trust_category_exists(self):
-        assert "zero_trust_security" in QUESTION_BANK
+        assert "zero_trust" in QUESTION_BANK
 
     def test_new_categories_have_questions(self):
         new_categories = [
-            "hybrid_multicloud", "generative_ai", "edge_computing",
-            "data_governance", "zero_trust_security",
+            "hybrid_multicloud", "generative_ai",
+            "data_governance", "zero_trust",
         ]
         for cat in new_categories:
             qs = QUESTION_BANK.get(cat, [])
             assert len(qs) >= 2, f"Category {cat} has fewer than 2 questions"
 
+    def test_edge_computing_has_questions(self):
+        qs = QUESTION_BANK.get("edge_computing", [])
+        assert len(qs) >= 1, "edge_computing category should have at least 1 question"
+
     def test_new_questions_have_required_fields(self):
         new_categories = [
             "hybrid_multicloud", "generative_ai", "edge_computing",
-            "data_governance", "zero_trust_security",
+            "data_governance", "zero_trust",
         ]
         for cat in new_categories:
             for q in QUESTION_BANK[cat]:

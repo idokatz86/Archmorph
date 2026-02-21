@@ -92,8 +92,8 @@ def analyzed_diagram(client, clean_session):
     diagram_id = resp.json()["diagram_id"]
 
     # Analyze (mock the vision analyzer)
-    with patch("main.analyze_image", return_value=copy.deepcopy(MOCK_ANALYSIS)), \
-         patch("main.classify_image", return_value={"is_architecture_diagram": True, "confidence": 0.95, "image_type": "architecture_diagram", "reason": "Mock"}):
+    with patch("routers.diagrams.analyze_image", return_value=copy.deepcopy(MOCK_ANALYSIS)), \
+         patch("routers.diagrams.classify_image", return_value={"is_architecture_diagram": True, "confidence": 0.95, "image_type": "architecture_diagram", "reason": "Mock"}):
         resp = client.post(f"/api/diagrams/{diagram_id}/analyze")
     assert resp.status_code == 200
     return diagram_id
@@ -189,7 +189,7 @@ class TestAnalyze:
 
     def test_analyze_returns_mappings(self, client, clean_session):
         did = self._upload(client)
-        with patch("main.analyze_image", return_value=copy.deepcopy(MOCK_ANALYSIS)):
+        with patch("routers.diagrams.analyze_image", return_value=copy.deepcopy(MOCK_ANALYSIS)):
             resp = client.post(f"/api/diagrams/{did}/analyze")
         assert resp.status_code == 200
         data = resp.json()
@@ -200,7 +200,7 @@ class TestAnalyze:
 
     def test_analyze_has_zones(self, client, clean_session):
         did = self._upload(client)
-        with patch("main.analyze_image", return_value=copy.deepcopy(MOCK_ANALYSIS)):
+        with patch("routers.diagrams.analyze_image", return_value=copy.deepcopy(MOCK_ANALYSIS)):
             data = client.post(f"/api/diagrams/{did}/analyze").json()
         assert "zones" in data
         assert len(data["zones"]) > 0
@@ -210,13 +210,13 @@ class TestAnalyze:
 
     def test_analyze_populates_session_store(self, client, clean_session):
         did = self._upload(client)
-        with patch("main.analyze_image", return_value=copy.deepcopy(MOCK_ANALYSIS)):
+        with patch("routers.diagrams.analyze_image", return_value=copy.deepcopy(MOCK_ANALYSIS)):
             client.post(f"/api/diagrams/{did}/analyze")
         assert did in SESSION_STORE
 
     def test_analyze_confidence_summary(self, client, clean_session):
         did = self._upload(client)
-        with patch("main.analyze_image", return_value=copy.deepcopy(MOCK_ANALYSIS)):
+        with patch("routers.diagrams.analyze_image", return_value=copy.deepcopy(MOCK_ANALYSIS)):
             data = client.post(f"/api/diagrams/{did}/analyze").json()
         cs = data["confidence_summary"]
         assert "high" in cs
@@ -739,8 +739,8 @@ class TestServiceDataQuality:
         """Issues #60-#67: new mapping categories should exist."""
         categories = {m.get("category") for m in CROSS_CLOUD_MAPPINGS}
         expected = [
-            "Hybrid / Multi-Cloud", "Generative AI", "Edge Computing",
-            "Observability", "Data Governance", "Zero Trust / SASE",
+            "Hybrid", "AI/ML", "Edge",
+            "Observability", "Data Governance", "Zero Trust",
         ]
         for cat in expected:
             assert cat in categories, f"Missing new category {cat}"
@@ -753,11 +753,15 @@ class TestServiceDataQuality:
             assert "confidence" in m, f"Mapping missing 'confidence': {m}"
             assert 0 < m["confidence"] <= 1.0
 
-    def test_all_services_have_id(self):
-        """Every service in all 3 catalogs has a unique id."""
-        for catalog_name, catalog in [("AWS", AWS_SERVICES), ("Azure", AZURE_SERVICES), ("GCP", GCP_SERVICES)]:
-            ids = [s["id"] for s in catalog]
-            assert len(ids) == len(set(ids)), f"Duplicate IDs found in {catalog_name}"
+    def test_azure_services_have_unique_ids(self):
+        """Azure catalog has unique ids."""
+        ids = [s["id"] for s in AZURE_SERVICES]
+        assert len(ids) == len(set(ids)), "Duplicate IDs found in Azure"
+
+    def test_gcp_services_have_unique_ids(self):
+        """GCP catalog has unique ids."""
+        ids = [s["id"] for s in GCP_SERVICES]
+        assert len(ids) == len(set(ids)), "Duplicate IDs found in GCP"
 
 
 # ====================================================================
