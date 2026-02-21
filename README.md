@@ -8,7 +8,9 @@ Convert AWS and GCP architecture diagrams into Azure equivalents with guided mig
 ![Azure](https://img.shields.io/badge/cloud-Azure-0078D4.svg)
 ![Version](https://img.shields.io/badge/version-2.11.1-22C55E.svg)
 ![Status](https://img.shields.io/badge/status-Production-22C55E.svg)
-![Tests](https://img.shields.io/badge/tests-621%20passing-22C55E.svg)
+![Tests](https://img.shields.io/badge/tests-719%20passing-22C55E.svg)
+![Python](https://img.shields.io/badge/python-3.11-3776AB.svg)
+![React](https://img.shields.io/badge/react-19.1-61DAFB.svg)
 
 > **[Live Demo](https://agreeable-ground-01012c003.2.azurestaticapps.net)** | **[API Docs](https://archmorph-api.nicesea-1430d1f7.westeurope.azurecontainerapps.io/docs)**
 
@@ -32,6 +34,8 @@ Archmorph uses Azure OpenAI GPT-4 Vision to analyze cloud architecture diagrams,
 - **IaC Chat assistant** — interactive GPT-4o assistant for code modifications
 - **Chatbot assistant** — FAQ support and GitHub issue creation with intent detection
 - **Admin dashboard** — conversion funnel, daily metrics, session tracking
+- **JWT admin authentication** — HS256 tokens with 1-hour TTL, in-memory revocation
+- **Persistent analytics** — Azure Blob Storage with background flush and crash-safe shutdown
 - **Security hardening** — timing-safe auth, security headers, XSS protection, Dependabot
 
 ---
@@ -130,22 +134,23 @@ flowchart TB
 
 | Component | Technology | Azure Service |
 |-----------|------------|---------------|
-| Frontend | React 18, Vite, TailwindCSS, Lucide React | Static Web Apps |
-| Backend API | Python 3.11, FastAPI | Container Apps |
-| AI Engine | GPT-4 Vision | Azure OpenAI |
+| Frontend | React 19.1, Vite 7.3, TailwindCSS 4.2, Lucide React | Static Web Apps |
+| Backend API | Python 3.11, FastAPI 0.128 | Container Apps |
+| AI Engine | GPT-4 Vision + GPT-4o | Azure OpenAI |
 | Container Registry | Docker | Azure Container Registry |
 | Database | PostgreSQL | Flexible Server |
-| Storage | Blob | Storage Account |
+| Storage | Blob | Storage Account (metrics persistence) |
 | Scheduler | APScheduler (CronTrigger) | In-process |
-| Service Auto-Discovery | Daily sync + auto-integration | In-process |
+| Service Auto-Discovery | Daily sync + auto-integration | In-process engine |
 | Guided Questions | 32 questions, 8 categories | In-process engine |
 | Diagram Export | Excalidraw / Draw.io / Visio | In-process engine |
 | Icon Registry | 405 icons, 3 library formats | In-process engine |
 | Pricing | Azure Retail Prices API (46 queries) | 30-day disk cache |
 | HLD Generator | GPT-4o, 13 sections, 60+ doc links | In-process engine |
 | IaC Chat | GPT-4o interactive assistant | In-process engine |
-| Security | Headers, timing-safe auth, Dependabot | Middleware |
-| Testing | pytest + Playwright | 621 unit + 35 E2E tests |
+| Auth | JWT (HS256), in-memory revocation | Middleware |
+| Security | Headers, timing-safe auth, XSS protection, Dependabot | Middleware |
+| Testing | pytest (719 tests) + Playwright E2E | CI/CD |
 
 > 📐 **Detailed Diagrams:** [architecture.excalidraw](docs/architecture.excalidraw) | [application-flow.excalidraw](docs/application-flow.excalidraw) — Open in [Excalidraw](https://excalidraw.com)
 
@@ -274,7 +279,7 @@ Dynamic pricing powered by the [Azure Retail Prices API](https://prices.azure.co
 
 ## API Reference
 
-### Core Endpoints (44 total)
+### Core Endpoints (81 total)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
@@ -305,10 +310,22 @@ Dynamic pricing powered by the [Azure Retail Prices API](https://prices.azure.co
 | `/api/chat` | POST | Send message to chatbot assistant |
 | `/api/chat/history/{session_id}` | GET | Get chat session history |
 | `/api/chat/{session_id}` | DELETE | Clear chat session |
-| `/api/admin/metrics` | GET | Usage metrics (key-protected) |
+| `/api/admin/login` | POST | Authenticate with admin key, receive JWT |
+| `/api/admin/logout` | POST | Revoke admin session token |
+| `/api/admin/metrics` | GET | Usage metrics (JWT-protected) |
 | `/api/admin/metrics/funnel` | GET | Conversion funnel data |
 | `/api/admin/metrics/daily` | GET | Daily activity metrics |
 | `/api/admin/metrics/recent` | GET | Recent events feed |
+| `/api/admin/monitoring` | GET | System health & performance |
+| `/api/admin/costs` | GET | Azure deployment cost tracking |
+| `/api/admin/analytics` | GET | Comprehensive analytics dashboard |
+| `/api/admin/analytics/performance` | GET | Performance metrics |
+| `/api/admin/analytics/features` | GET | Feature usage analytics |
+| `/api/admin/analytics/funnel` | GET | Detailed funnel analytics |
+| `/api/admin/audit` | GET | Security audit log |
+| `/api/admin/observability` | GET | Observability spans & traces |
+| `/api/admin/feedback` | GET | User feedback summary |
+| `/api/admin/leads` | GET | Lead capture data |
 
 ### Icon Registry
 
@@ -332,7 +349,7 @@ Dynamic pricing powered by the [Azure Retail Prices API](https://prices.azure.co
 | `/api/service-updates/last` | GET | Last update details |
 | `/api/service-updates/run-now` | POST | Trigger immediate catalog refresh + auto-add |
 
-Full API documentation: [Swagger UI](https://archmorph-api.icyisland-c0dee6ba.northeurope.azurecontainerapps.io/docs)
+Full API documentation: [Swagger UI](https://archmorph-api.nicesea-1430d1f7.westeurope.azurecontainerapps.io/docs)
 
 ---
 
@@ -340,16 +357,25 @@ Full API documentation: [Swagger UI](https://archmorph-api.icyisland-c0dee6ba.no
 
 | Suite | Framework | Tests | Command |
 |-------|-----------|-------|---------|
-| Backend unit | pytest | 348 | `cd backend && python -m pytest tests/ -v` |
+| Backend unit | pytest | 719 | `cd backend && python -m pytest tests/ -v` |
 | E2E | Playwright | 34 | `npx playwright test` |
-| **Total** | | **382** | |
+| **Total** | | **753** | |
 
 ### Coverage
 
-- **14 test classes** covering all major API endpoints
+- **29 test files** covering all 81 API endpoints
+- **79 core API tests** covering the full translation flow
 - **58 icon registry tests** covering SVG sanitization, registry ops, all 3 library builders, API routes, and Pydantic models
+- **45 service updater tests** covering auto-discovery, fuzzy matching, and catalog integration
+- **36 HLD generator tests** covering AI document generation and WAF assessment
+- **33 guided questions tests** covering rule evaluation and deduplication
+- **32 prompt injection guard tests** covering input sanitization
+- **28 analytics tests** covering funnel tracking, metrics persistence, and Azure Blob Storage
+- **28 pricing tests** covering Azure Retail Prices API integration and caching
+- **24 roadmap tests** covering feature requests and bug reports
+- **21 auth tests** covering JWT session management, login/logout, token revocation
 - **10 E2E test groups** covering full translation flow, diagram export, IaC generation, chat widget, services browser, admin dashboard, API validation, and additional API coverage
-- All tests run against the live deployed backend
+- All backend tests run against a test FastAPI client; E2E tests run against the deployed app
 
 ---
 
@@ -359,25 +385,42 @@ Full API documentation: [Swagger UI](https://archmorph-api.icyisland-c0dee6ba.no
 Archmorph/
 ├── frontend/                        # React SPA
 │   ├── src/
-│   │   ├── App.jsx                  # Main application (components, views, flow)
+│   │   ├── App.jsx                  # Main application with tab routing
+│   │   ├── constants.js             # API_BASE, APP_VERSION
 │   │   ├── index.css                # Global styles, fonts, scrollbar
-│   │   └── main.jsx                 # Entry point
-│   ├── tailwind.config.js           # Design system (colors, fonts, animations)
+│   │   ├── main.jsx                 # Entry point
+│   │   └── components/
+│   │       ├── AdminDashboard.jsx   # Admin metrics & monitoring panel
+│   │       ├── ChatWidget.jsx       # AI chatbot assistant overlay
+│   │       ├── DiagramTranslator.jsx # Main diagram upload & translation flow
+│   │       ├── ErrorBoundary.jsx    # React error boundary
+│   │       ├── FeedbackWidget.jsx   # NPS and feedback collection
+│   │       ├── MonitoringDashboard.jsx # Observability dashboard
+│   │       ├── Nav.jsx              # Navigation bar
+│   │       ├── Roadmap.jsx          # Product roadmap timeline
+│   │       ├── ServicesBrowser.jsx  # Service catalog browser
+│   │       └── ui.jsx               # Shared UI components
+│   ├── vite.config.js
 │   └── package.json
 ├── backend/                         # FastAPI service
-│   ├── main.py                      # 44 API endpoints, analysis engine, IaC generation
+│   ├── main.py                      # 81 API endpoints, analysis engine
+│   ├── admin_auth.py                # JWT session management (HS256, 1h TTL)
+│   ├── vision_analyzer.py           # GPT-4o image analysis engine
+│   ├── image_classifier.py          # Pre-check gate for diagram validation
 │   ├── guided_questions.py          # 32 questions across 8 categories
-│   ├── diagram_export.py            # Excalidraw/Draw.io/Visio export with 36 stencils + registry fallback
+│   ├── diagram_export.py            # Excalidraw/Draw.io/Visio export
 │   ├── hld_generator.py             # AI-powered HLD generation (13 sections)
+│   ├── iac_generator.py             # Terraform/Bicep code generation
 │   ├── iac_chat.py                  # Interactive IaC chat assistant
-│   ├── service_updater.py           # APScheduler daily catalog sync + auto-integration
+│   ├── chatbot.py                   # FAQ chatbot with intent detection
+│   ├── service_updater.py           # APScheduler daily catalog sync
 │   ├── openai_client.py             # Shared Azure OpenAI client factory
-│   ├── usage_metrics.py             # Admin metrics and funnel tracking
+│   ├── usage_metrics.py             # Analytics with Azure Blob Storage persistence
 │   ├── icons/                       # Icon Registry system
-│   │   ├── models.py                # Pydantic models (Provider, IconMeta, IconEntry)
-│   │   ├── svg_sanitizer.py         # SVG validation, sanitization, XSS prevention
-│   │   ├── registry.py              # Central icon catalog (thread-safe, persistent)
-│   │   ├── routes.py                # FastAPI endpoints for icon management
+│   │   ├── models.py                # Pydantic models
+│   │   ├── svg_sanitizer.py         # SVG validation & XSS prevention
+│   │   ├── registry.py              # Thread-safe icon catalog
+│   │   ├── routes.py                # Icon management API endpoints
 │   │   └── builders/                # Library format builders
 │   │       ├── drawio.py            # Draw.io mxlibrary XML builder
 │   │       ├── excalidraw.py        # Excalidraw JSON library builder
@@ -391,29 +434,27 @@ Archmorph/
 │   │   ├── azure_services.py        # 143 Azure services
 │   │   ├── gcp_services.py          # 117 GCP services
 │   │   ├── mappings.py              # 122 cross-cloud mappings
-│   │   └── azure_pricing.py         # Azure Retail Prices API + cache (46 queries)
-│   ├── tests/
-│   │   ├── test_api.py              # 75 core API tests (14 classes)
-│   │   ├── test_icon_registry.py    # 58 icon registry tests
-│   │   ├── test_service_updater.py  # 42 service updater tests
-│   │   ├── test_azure_pricing.py    # 30 pricing service tests
-│   │   └── test_guided_questions_rules.py  # 34 rule function tests
-│   ├── data/                        # Runtime data (pricing cache, metrics, icon registry)
+│   │   └── azure_pricing.py         # Azure Retail Prices API + cache
+│   ├── tests/                       # 29 test files, 719 tests
 │   ├── Dockerfile
 │   └── requirements.txt
 ├── e2e/
-│   └── archmorph.spec.ts            # 27 Playwright E2E tests
+│   └── archmorph.spec.ts            # Playwright E2E tests
 ├── infra/                           # Terraform IaC
-│   ├── main.tf
-│   ├── terraform.tfvars
-│   └── outputs.tf
+│   ├── main.tf                      # All Azure resources
+│   ├── variables.tf                 # Input variables
+│   ├── outputs.tf                   # Output values
+│   └── terraform.tfvars.example     # Example configuration
+├── .github/
+│   └── workflows/
+│       └── ci.yml                   # CI/CD: lint, test, build, deploy
 ├── docs/                            # Documentation
 │   ├── PRD.md                       # Product Requirements Document
 │   ├── DEPLOYMENT_COSTS.md          # Azure cost breakdown
-│   ├── AWS_AUTOMOTIVE_MAPPING.md    # Automotive industry mapping reference
-│   ├── architecture.excalidraw      # Architecture diagram
+│   ├── architecture.excalidraw      # System architecture diagram
 │   └── application-flow.excalidraw  # Application flow diagram
-├── playwright.config.ts             # E2E test configuration
+├── CONTRIBUTING.md
+├── playwright.config.ts
 └── README.md
 ```
 
@@ -462,12 +503,30 @@ See [docs/DEPLOYMENT_COSTS.md](docs/DEPLOYMENT_COSTS.md) for full breakdown.
 |-------|--------|----------|
 | v1.0 — MVP | Done | AWS/GCP → Azure mapping, Terraform/Bicep output, basic cost estimation |
 | v2.0 — Production | Done | Guided questions, diagram export, daily service sync, 405-service catalog, secure IaC, chatbot, admin dashboard |
-| v2.1 — Pricing | Done | Dynamic Azure pricing, deployment region question, monthly cache, SKU multipliers, 102 tests |
-| v2.2 — Self-Updating | Done | Auto-integration of new services, fuzzy name matching, category auto-classification, dry-run CLI, auto-added tracking |
-| v2.5 — Audit & Quality | Done | 34 audit improvements, comprehensive test coverage (290 → 348 tests) |
-| v2.6 — Icon Registry & Security | Done | Icon Registry (405 icons, 3 library formats), security hardening (timing-safe auth, headers, XSS protection, Dependabot) |
-| v3.0 — Enterprise | Planned | Visio import, API keys, import blocks, SSO, RBAC |
+| v2.1 — Pricing | Done | Dynamic Azure pricing, deployment region question, monthly cache, SKU multipliers |
+| v2.2 — Self-Updating | Done | Auto-integration of new services, fuzzy name matching, category auto-classification, dry-run CLI |
+| v2.5 — Audit & Quality | Done | 34 audit improvements, comprehensive test coverage |
+| v2.6 — Icon Registry & Security | Done | Icon Registry (405 icons, 3 library formats), security hardening (timing-safe auth, headers, XSS protection) |
+| v2.11 — Admin & Analytics | Done | JWT admin auth, persistent analytics (Azure Blob Storage), conversion funnel, 719 tests |
+| v3.0 — Enterprise | Planned | Visio import, SSO/RBAC, multi-tenant support |
 | v4.0 — Advanced | Planned | Pulumi output, Azure Migrate integration, multi-diagram projects |
+
+---
+
+## Security
+
+- **Authentication:** JWT tokens (HS256) with 1-hour expiry and in-memory revocation for admin endpoints
+- **Input validation:** Pydantic models on all endpoints, prompt injection guard on AI inputs
+- **Transport:** HTTPS-only with TLS 1.2+ for all Azure resources
+- **Headers:** Security headers middleware (X-Content-Type-Options, X-Frame-Options, CSP)
+- **SVG sanitization:** DefusedXML-based sanitizer strips scripts and event handlers
+- **Rate limiting:** SlowAPI rate limits on public endpoints
+- **Secrets management:** All credentials via environment variables or GitHub Secrets; no secrets in code or git history
+- **Dependencies:** Dependabot enabled for automated security updates, pip-audit in CI
+
+### Reporting Vulnerabilities
+
+If you discover a security vulnerability, please report it privately by opening a [GitHub Security Advisory](https://github.com/idokatz86/Archmorph/security/advisories/new).
 
 ---
 
@@ -490,6 +549,8 @@ MIT License — see [LICENSE](LICENSE) for details.
 ## Links
 
 - **Live App:** https://agreeable-ground-01012c003.2.azurestaticapps.net
-- **API:** https://archmorph-api.icyisland-c0dee6ba.northeurope.azurecontainerapps.io
-- **API Docs (Swagger):** https://archmorph-api.icyisland-c0dee6ba.northeurope.azurecontainerapps.io/docs
+- **API:** https://archmorph-api.nicesea-1430d1f7.westeurope.azurecontainerapps.io
+- **API Docs (Swagger):** https://archmorph-api.nicesea-1430d1f7.westeurope.azurecontainerapps.io/docs
 - **PRD:** [docs/PRD.md](docs/PRD.md)
+- **Architecture Diagram:** [docs/architecture.excalidraw](docs/architecture.excalidraw) — Open in [Excalidraw](https://excalidraw.com)
+- **Application Flow:** [docs/application-flow.excalidraw](docs/application-flow.excalidraw) — Open in [Excalidraw](https://excalidraw.com)

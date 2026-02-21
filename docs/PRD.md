@@ -1,7 +1,7 @@
 # Archmorph — Cloud Architecture Translator to Azure
 ## Product Requirements Document (PRD)
-**Version:** 2.10.0
-**Date:** February 21, 2026
+**Version:** 2.11.1
+**Date:** June 22, 2025
 **Author:** Ido Katz
 
 ---
@@ -415,7 +415,7 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 
 | Layer | Technology |
 |-------|------------|
-| Frontend | React 18, Vite, TailwindCSS, Lucide React (icons), Prism.js (syntax highlighting) |
+| Frontend | React 19.1, Vite 7.3, TailwindCSS 4.2, Lucide React (icons), Prism.js (syntax highlighting) |
 | Backend | Python 3.11, FastAPI |
 | AI | Azure OpenAI GPT-4o (deployment `gpt-4o`, model 2024-05-13) |
 | Database | PostgreSQL (Azure Flexible Server) |
@@ -427,14 +427,14 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | Diagram Export | In-process engine (Excalidraw, Draw.io, Visio with 36 Azure stencils + 405-icon registry fallback) |
 | Pricing | Azure Retail Prices API with 30-day disk cache (134 service entries, 56 aliases, targeted queries) |
 | IaC | Terraform (infra), Bicep support in-app |
-| Testing | pytest (backend, 438 tests), E2E flow test (65 steps across 5 diagrams), Playwright (35+ browser tests), integration tests |
+| Testing | pytest (backend, 719 tests in 29 files), E2E flow test (65 steps across 5 diagrams), Playwright (35+ browser tests), integration tests |
 | Best Practices | In-process WAF linter (5 pillars, 15+ rules, quick wins, pillar scores) |
 | Cost Optimizer | In-process engine (7 categories, RI/Spot/tiering/auto-shutdown recommendations) |
 | Feedback | In-process NPS/feature/bug collection (30-day trend, admin dashboard) |
 | HLD Generator | In-process GPT-4o engine (60+ Azure doc links, 13-section HLD, markdown converter) |
 | IaC Chat | In-process GPT-4o assistant (session management, code modification, context-aware) |
 | Icon Registry | In-process engine (405 icons, Draw.io/Excalidraw/Visio library builders, SVG sanitization, thread-safe, persistent) |
-| Security | Security headers, timing-safe auth, Dependabot, defusedxml, ZIP slip protection |
+| Security | JWT admin auth (HS256, 1h TTL), security headers, timing-safe auth, Dependabot, defusedxml, ZIP slip protection |
 | NL Service Builder | In-process GPT-4o engine (fuzzy Azure service matching, alias support, confidence scoring) |
 | Smart Question Dedup | In-process engine (implicit answer detection, smart defaults from analysis) |
 | E2E Monitoring | GitHub Actions workflow (Azure Monitor + App Insights health checks, auto GitHub issue creation) |
@@ -442,10 +442,10 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | Migration Runbook | In-process generator (7 phases, task templates, risk assessment, Markdown export) |
 | Architecture Versioning | In-memory store (change detection, version comparison, restore, 7-day TTL) |
 | Terraform Preview | In-process HCL parser (resource extraction, syntax validation, plan simulation) |
-| Application Analytics | In-memory metrics (event tracking, sessions, performance, funnels) |
+| Application Analytics | Persistent metrics via Azure Blob Storage (background flush, crash-safe shutdown, event tracking, sessions, funnels) |
 | Azure Monitoring | Application Insights + Azure Monitor (alerts, workbooks, Log Analytics queries) |
 
-### 8.2 API Endpoints (78 total)
+### 8.2 API Endpoints (81 total)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|

@@ -55,9 +55,10 @@ cd backend && ruff check . && bandit -r . -x ./tests --skip B101
 ## Architecture
 
 - **Backend**: FastAPI (Python 3.11), Azure OpenAI GPT-4o for vision/chat
-- **Frontend**: React 18, Vite 5, TailwindCSS 3.4
+- **Frontend**: React 19.1, Vite 7.3, TailwindCSS 4.2
 - **Infrastructure**: Azure Container Apps, Azure Static Web Apps, ACR
-- **CI/CD**: GitHub Actions → ACR → Container Apps
+- **Auth**: JWT (HS256) with 1-hour TTL for admin endpoints
+- **CI/CD**: GitHub Actions with OIDC → ACR → Container Apps
 
 ## API Routes
 
@@ -81,4 +82,4 @@ cd backend && ruff check . && bandit -r . -x ./tests --skip B101
 
 ## License
 
-This project is proprietary. See the repository for details.
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
