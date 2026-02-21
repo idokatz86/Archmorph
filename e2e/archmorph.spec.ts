@@ -1066,3 +1066,449 @@ test.describe('Analytics API', () => {
     expect(resp.status()).toBeLessThan(500);
   });
 });
+
+// ====================================================================
+// 23. Feature Flags API (Sprint — Feature flags system)
+// ====================================================================
+
+test.describe('Feature Flags API', () => {
+  test('GET /api/flags returns all feature flags', async ({ request }) => {
+    const resp = await request.get(`${API_BASE}/api/flags`);
+    expect(resp.ok()).toBeTruthy();
+    const data = await resp.json();
+    expect(data).toHaveProperty('flags');
+    expect(data.flags).toHaveProperty('dark_mode');
+    expect(data.flags).toHaveProperty('export_pptx');
+    expect(data.flags).toHaveProperty('new_ai_model');
+  });
+
+  test('GET /api/flags/:name returns single flag', async ({ request }) => {
+    const resp = await request.get(`${API_BASE}/api/flags/dark_mode`);
+    expect(resp.ok()).toBeTruthy();
+    const data = await resp.json();
+    expect(data.name).toBe('dark_mode');
+    expect(data).toHaveProperty('enabled');
+    expect(data).toHaveProperty('rollout_percentage');
+  });
+
+  test('GET /api/flags/:name returns 404 for unknown flag', async ({ request }) => {
+    const resp = await request.get(`${API_BASE}/api/flags/nonexistent_flag_xyz`);
+    expect(resp.status()).toBe(404);
+  });
+
+  test('PUT /api/flags/:name requires admin authentication', async ({ request }) => {
+    const resp = await request.put(`${API_BASE}/api/flags/dark_mode`, {
+      data: { enabled: false },
+      headers: { 'Content-Type': 'application/json' },
+    });
+    // Should require admin auth (401 or 503)
+    expect([401, 403, 503]).toContain(resp.status());
+  });
+});
+
+// ====================================================================
+// 24. API v1 Versioning (Sprint — API versioning v1 mirror)
+// ====================================================================
+
+test.describe('API v1 Versioning', () => {
+  test('GET /api/v1/health mirrors /api/health', async ({ request }) => {
+    const original = await request.get(`${API_BASE}/api/health`, { timeout: COLD_START_TIMEOUT });
+    const v1 = await request.get(`${API_BASE}/api/v1/health`, { timeout: COLD_START_TIMEOUT });
+
+    expect(v1.ok()).toBeTruthy();
+    const origData = await original.json();
+    const v1Data = await v1.json();
+
+    expect(v1Data.status).toBe(origData.status);
+    expect(v1Data.version).toBe(origData.version);
+  });
+
+  test('GET /api/v1/services mirrors /api/services', async ({ request }) => {
+    const v1 = await request.get(`${API_BASE}/api/v1/services`, { timeout: API_TIMEOUT });
+    expect(v1.ok()).toBeTruthy();
+    const data = await v1.json();
+    expect(data.total).toBeGreaterThan(300);
+  });
+
+  test('GET /api/v1/roadmap returns roadmap data', async ({ request }) => {
+    const v1 = await request.get(`${API_BASE}/api/v1/roadmap`, { timeout: API_TIMEOUT });
+    expect(v1.ok()).toBeTruthy();
+    const data = await v1.json();
+    expect(data).toHaveProperty('timeline');
+  });
+
+  test('GET /api/v1/contact mirrors /api/contact', async ({ request }) => {
+    const v1 = await request.get(`${API_BASE}/api/v1/contact`);
+    expect(v1.ok()).toBeTruthy();
+    const data = await v1.json();
+    expect(data.project).toBe('Archmorph');
+  });
+
+  test('GET /api/v1/flags returns feature flags', async ({ request }) => {
+    const v1 = await request.get(`${API_BASE}/api/v1/flags`, { timeout: API_TIMEOUT });
+    expect(v1.ok()).toBeTruthy();
+    const data = await v1.json();
+    expect(data).toHaveProperty('flags');
+  });
+
+  test('v1 responses include X-API-Version header', async ({ request }) => {
+    const resp = await request.get(`${API_BASE}/api/v1/health`, { timeout: COLD_START_TIMEOUT });
+    const headers = resp.headers();
+    expect(headers['x-api-version']).toBe('v1');
+  });
+
+  test('v1 responses include X-API-Deprecated header', async ({ request }) => {
+    const resp = await request.get(`${API_BASE}/api/v1/health`, { timeout: COLD_START_TIMEOUT });
+    const headers = resp.headers();
+    expect(headers['x-api-deprecated']).toBe('false');
+  });
+});
+
+// ====================================================================
+// 25. HLD Export Functionality (Sprint — Export to DOCX/PDF/PPTX)
+// ====================================================================
+
+test.describe('HLD Export', () => {
+  test('export-hld endpoint rejects invalid format', async ({ request }) => {
+    // Upload + Analyze + Generate HLD first
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...Array(50).fill(0)]);
+    const uploadResp = await request.post(`${API_BASE}/api/projects/e2e-hld-export/diagrams`, {
+      multipart: {
+        file: { name: 'test.png', mimeType: 'image/png', buffer: png },
+      },
+      timeout: API_TIMEOUT,
+    });
+    const { diagram_id } = await uploadResp.json();
+    await request.post(`${API_BASE}/api/diagrams/${diagram_id}/analyze`, { timeout: API_TIMEOUT });
+    await request.post(`${API_BASE}/api/diagrams/${diagram_id}/generate-hld`, { timeout: API_TIMEOUT });
+
+    // Try invalid format
+    const resp = await request.post(`${API_BASE}/api/diagrams/${diagram_id}/export-hld?format=xyz`);
+    expect(resp.status()).toBe(400);
+  });
+
+  test('export-hld DOCX returns content', async ({ request }) => {
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...Array(50).fill(0)]);
+    const uploadResp = await request.post(`${API_BASE}/api/projects/e2e-hld-docx/diagrams`, {
+      multipart: {
+        file: { name: 'test.png', mimeType: 'image/png', buffer: png },
+      },
+      timeout: API_TIMEOUT,
+    });
+    const { diagram_id } = await uploadResp.json();
+    await request.post(`${API_BASE}/api/diagrams/${diagram_id}/analyze`, { timeout: API_TIMEOUT });
+    await request.post(`${API_BASE}/api/diagrams/${diagram_id}/generate-hld`, { timeout: API_TIMEOUT });
+
+    const resp = await request.post(`${API_BASE}/api/diagrams/${diagram_id}/export-hld?format=docx`, { timeout: API_TIMEOUT });
+    expect(resp.ok()).toBeTruthy();
+    const data = await resp.json();
+    expect(data).toHaveProperty('content');
+    expect(data.format).toBe('docx');
+  });
+
+  test('export-hld PDF returns content', async ({ request }) => {
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...Array(50).fill(0)]);
+    const uploadResp = await request.post(`${API_BASE}/api/projects/e2e-hld-pdf/diagrams`, {
+      multipart: {
+        file: { name: 'test.png', mimeType: 'image/png', buffer: png },
+      },
+      timeout: API_TIMEOUT,
+    });
+    const { diagram_id } = await uploadResp.json();
+    await request.post(`${API_BASE}/api/diagrams/${diagram_id}/analyze`, { timeout: API_TIMEOUT });
+    await request.post(`${API_BASE}/api/diagrams/${diagram_id}/generate-hld`, { timeout: API_TIMEOUT });
+
+    const resp = await request.post(`${API_BASE}/api/diagrams/${diagram_id}/export-hld?format=pdf`, { timeout: API_TIMEOUT });
+    expect(resp.ok()).toBeTruthy();
+    const data = await resp.json();
+    expect(data).toHaveProperty('content');
+    expect(data.format).toBe('pdf');
+  });
+
+  test('export-hld PPTX returns content', async ({ request }) => {
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...Array(50).fill(0)]);
+    const uploadResp = await request.post(`${API_BASE}/api/projects/e2e-hld-pptx/diagrams`, {
+      multipart: {
+        file: { name: 'test.png', mimeType: 'image/png', buffer: png },
+      },
+      timeout: API_TIMEOUT,
+    });
+    const { diagram_id } = await uploadResp.json();
+    await request.post(`${API_BASE}/api/diagrams/${diagram_id}/analyze`, { timeout: API_TIMEOUT });
+    await request.post(`${API_BASE}/api/diagrams/${diagram_id}/generate-hld`, { timeout: API_TIMEOUT });
+
+    const resp = await request.post(`${API_BASE}/api/diagrams/${diagram_id}/export-hld?format=pptx`, { timeout: API_TIMEOUT });
+    expect(resp.ok()).toBeTruthy();
+    const data = await resp.json();
+    expect(data).toHaveProperty('content');
+    expect(data.format).toBe('pptx');
+  });
+
+  test('export-hld 404 when HLD not generated', async ({ request }) => {
+    const resp = await request.post(`${API_BASE}/api/diagrams/nonexistent-hld-export/export-hld?format=docx`);
+    expect(resp.status()).toBe(404);
+  });
+});
+
+// ====================================================================
+// 26. Guided Questions Flow (Sprint coverage)
+// ====================================================================
+
+test.describe('Guided Questions Flow', () => {
+  test('questions endpoint returns questions after analysis', async ({ request }) => {
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...Array(50).fill(0)]);
+    const uploadResp = await request.post(`${API_BASE}/api/projects/e2e-q-flow/diagrams`, {
+      multipart: {
+        file: { name: 'test.png', mimeType: 'image/png', buffer: png },
+      },
+      timeout: API_TIMEOUT,
+    });
+    const { diagram_id } = await uploadResp.json();
+    await request.post(`${API_BASE}/api/diagrams/${diagram_id}/analyze`, { timeout: API_TIMEOUT });
+
+    const resp = await request.post(`${API_BASE}/api/diagrams/${diagram_id}/questions`, { timeout: API_TIMEOUT });
+    expect(resp.ok()).toBeTruthy();
+    const data = await resp.json();
+    expect(data).toHaveProperty('questions');
+    expect(data.total).toBeGreaterThan(0);
+  });
+
+  test('apply-answers refines the analysis', async ({ request }) => {
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...Array(50).fill(0)]);
+    const uploadResp = await request.post(`${API_BASE}/api/projects/e2e-apply/diagrams`, {
+      multipart: {
+        file: { name: 'test.png', mimeType: 'image/png', buffer: png },
+      },
+      timeout: API_TIMEOUT,
+    });
+    const { diagram_id } = await uploadResp.json();
+    await request.post(`${API_BASE}/api/diagrams/${diagram_id}/analyze`, { timeout: API_TIMEOUT });
+
+    const resp = await request.post(`${API_BASE}/api/diagrams/${diagram_id}/apply-answers`, {
+      data: { environment: 'production', ha_dr: 'active_active' },
+      headers: { 'Content-Type': 'application/json' },
+      timeout: API_TIMEOUT,
+    });
+    expect(resp.ok()).toBeTruthy();
+    const data = await resp.json();
+    expect(data).toHaveProperty('mappings');
+  });
+
+  test('guided questions UI step is visible in full flow', async ({ page }) => {
+    await page.goto('/');
+    const testPng = path.join(__dirname, `test-q-${Date.now()}.png`);
+    createTestPng(testPng);
+
+    try {
+      await page.locator('input[type="file"]').setInputFiles(testPng);
+      // Should show questions step after analysis
+      await expect(page.getByText('Customize Your Azure Architecture')).toBeVisible({ timeout: COLD_START_TIMEOUT });
+      // Questions should have options to choose from
+      await expect(page.getByRole('button', { name: /Apply and View Results/i })).toBeVisible();
+      await expect(page.getByRole('button', { name: /Skip Customization/i })).toBeVisible();
+    } finally {
+      if (fs.existsSync(testPng)) fs.unlinkSync(testPng);
+    }
+  });
+});
+
+// ====================================================================
+// 27. Cost Comparison Panel (Sprint — multi-cloud cost comparison)
+// ====================================================================
+
+test.describe('Cost Comparison', () => {
+  test('cost-comparison endpoint returns multi-cloud pricing', async ({ request }) => {
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...Array(50).fill(0)]);
+    const uploadResp = await request.post(`${API_BASE}/api/projects/e2e-cost-cmp/diagrams`, {
+      multipart: {
+        file: { name: 'test.png', mimeType: 'image/png', buffer: png },
+      },
+      timeout: API_TIMEOUT,
+    });
+    const { diagram_id } = await uploadResp.json();
+    await request.post(`${API_BASE}/api/diagrams/${diagram_id}/analyze`, { timeout: API_TIMEOUT });
+
+    const resp = await request.get(`${API_BASE}/api/diagrams/${diagram_id}/cost-comparison`, { timeout: API_TIMEOUT });
+    expect(resp.ok()).toBeTruthy();
+    const data = await resp.json();
+    expect(data).toHaveProperty('providers');
+    expect(data.providers).toHaveProperty('aws');
+    expect(data.providers).toHaveProperty('azure');
+    expect(data.providers).toHaveProperty('gcp');
+    expect(data).toHaveProperty('services');
+    expect(data.total_services).toBeGreaterThan(0);
+  });
+
+  test('cost-comparison 404 without analysis', async ({ request }) => {
+    const resp = await request.get(`${API_BASE}/api/diagrams/no-such-id-cmp/cost-comparison`);
+    expect(resp.status()).toBe(404);
+  });
+});
+
+// ====================================================================
+// 28. Architecture Diagram Upload Workflow (Sprint coverage)
+// ====================================================================
+
+test.describe('Diagram Upload Workflow', () => {
+  test('upload rejects non-image files', async ({ request }) => {
+    const resp = await request.post(`${API_BASE}/api/projects/e2e-reject/diagrams`, {
+      multipart: {
+        file: { name: 'bad.txt', mimeType: 'text/plain', buffer: Buffer.from('hello') },
+      },
+    });
+    expect(resp.status()).toBe(400);
+  });
+
+  test('upload accepts PNG and returns diagram_id', async ({ request }) => {
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...Array(50).fill(0)]);
+    const resp = await request.post(`${API_BASE}/api/projects/e2e-upload/diagrams`, {
+      multipart: {
+        file: { name: 'arch.png', mimeType: 'image/png', buffer: png },
+      },
+      timeout: API_TIMEOUT,
+    });
+    expect(resp.ok()).toBeTruthy();
+    const data = await resp.json();
+    expect(data.status).toBe('uploaded');
+    expect(data.diagram_id).toBeDefined();
+    expect(data.diagram_id).toContain('diag-');
+    expect(data.filename).toBe('arch.png');
+  });
+
+  test('analyze returns zones and mappings', async ({ request }) => {
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...Array(50).fill(0)]);
+    const uploadResp = await request.post(`${API_BASE}/api/projects/e2e-analyze/diagrams`, {
+      multipart: {
+        file: { name: 'arch.png', mimeType: 'image/png', buffer: png },
+      },
+      timeout: API_TIMEOUT,
+    });
+    const { diagram_id } = await uploadResp.json();
+
+    const resp = await request.post(`${API_BASE}/api/diagrams/${diagram_id}/analyze`, { timeout: COLD_START_TIMEOUT });
+    expect(resp.ok()).toBeTruthy();
+    const data = await resp.json();
+    expect(data.mappings.length).toBeGreaterThan(0);
+    expect(data.zones.length).toBeGreaterThan(0);
+    expect(data).toHaveProperty('confidence_summary');
+  });
+
+  test('full UI upload flow shows upload zone', async ({ page }) => {
+    await page.goto('/');
+    // Upload zone should be visible
+    await expect(page.getByText('Upload Architecture Diagram')).toBeVisible();
+    // File input should exist
+    await expect(page.locator('input[type="file"]')).toBeAttached();
+  });
+});
+
+// ====================================================================
+// 29. Dark Mode Toggle (Sprint — Feature flag)
+// ====================================================================
+
+test.describe('Dark Mode', () => {
+  test('dark mode feature flag is available', async ({ request }) => {
+    const resp = await request.get(`${API_BASE}/api/flags/dark_mode`);
+    expect(resp.ok()).toBeTruthy();
+    const data = await resp.json();
+    expect(data.name).toBe('dark_mode');
+    expect(typeof data.enabled).toBe('boolean');
+  });
+});
+
+// ====================================================================
+// 30. Admin Dashboard Metrics View (Sprint — enhanced admin)
+// ====================================================================
+
+test.describe('Admin Dashboard Metrics', () => {
+  test('admin login and metrics flow', async ({ request }) => {
+    const loginResp = await request.post(`${API_BASE}/api/admin/login`, {
+      data: { key: ADMIN_KEY },
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (loginResp.status() === 503) {
+      // Admin not configured — skip
+      return;
+    }
+    expect(loginResp.ok()).toBeTruthy();
+    const { token } = await loginResp.json();
+
+    // Metrics summary
+    const metricsResp = await request.get(`${API_BASE}/api/admin/metrics`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(metricsResp.ok()).toBeTruthy();
+    const metrics = await metricsResp.json();
+    expect(metrics).toHaveProperty('totals');
+
+    // Funnel
+    const funnelResp = await request.get(`${API_BASE}/api/admin/metrics/funnel`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(funnelResp.ok()).toBeTruthy();
+
+    // Daily
+    const dailyResp = await request.get(`${API_BASE}/api/admin/metrics/daily?days=7`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(dailyResp.ok()).toBeTruthy();
+
+    // Recent events
+    const recentResp = await request.get(`${API_BASE}/api/admin/metrics/recent?limit=5`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(recentResp.ok()).toBeTruthy();
+
+    // Logout
+    const logoutResp = await request.post(`${API_BASE}/api/admin/logout`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(logoutResp.ok()).toBeTruthy();
+  });
+
+  test('admin audit logs endpoint (if admin configured)', async ({ request }) => {
+    const loginResp = await request.post(`${API_BASE}/api/admin/login`, {
+      data: { key: ADMIN_KEY },
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (loginResp.status() === 503) return;
+    if (!loginResp.ok()) return;
+    const { token } = await loginResp.json();
+
+    const resp = await request.get(`${API_BASE}/api/admin/audit`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(resp.ok()).toBeTruthy();
+    const data = await resp.json();
+    expect(data).toHaveProperty('events');
+  });
+
+  test('admin observability endpoint returns OTel metrics', async ({ request }) => {
+    const loginResp = await request.post(`${API_BASE}/api/admin/login`, {
+      data: { key: ADMIN_KEY },
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (loginResp.status() === 503) return;
+    if (!loginResp.ok()) return;
+    const { token } = await loginResp.json();
+
+    const resp = await request.get(`${API_BASE}/api/admin/observability`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(resp.ok()).toBeTruthy();
+    const data = await resp.json();
+    expect(data).toHaveProperty('counters');
+    expect(data).toHaveProperty('histograms');
+  });
+
+  test('admin 5-click opens panel in UI', async ({ page }) => {
+    await page.goto('/');
+    const versionText = page.getByText('Archmorph v2.11.1', { exact: false });
+    if (!(await versionText.isVisible())) return;
+
+    for (let i = 0; i < 5; i++) {
+      await versionText.click({ delay: 50 });
+    }
+    await expect(page.getByText('Admin Analytics')).toBeVisible({ timeout: API_TIMEOUT });
+  });
+});

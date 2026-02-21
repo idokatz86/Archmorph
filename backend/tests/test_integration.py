@@ -313,3 +313,454 @@ class TestErrorHandling:
         """Test getting questions without analysis fails properly."""
         resp = client.post("/api/diagrams/fake-diagram/questions")
         assert resp.status_code == 404
+
+
+# ====================================================================
+# NEW — Sprint Integration Tests (refactoring validation)
+# ====================================================================
+
+
+class TestFullPipelineIntegration:
+    """Full pipeline: upload → analyze → questions → HLD → IaC → export."""
+
+    def _upload_and_analyze(self, client):
+        """Upload + analyze helper, returns diagram_id."""
+        content = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+        resp = client.post(
+            "/api/projects/proj-pipe/diagrams",
+            files={"file": ("pipe.png", io.BytesIO(content), "image/png")},
+        )
+        assert resp.status_code == 200
+        diagram_id = resp.json()["diagram_id"]
+
+        with patch("routers.diagrams.analyze_image", return_value=copy.deepcopy(MOCK_ANALYSIS)), \
+             patch("routers.diagrams.classify_image", return_value={
+                 "is_architecture_diagram": True, "confidence": 0.95,
+                 "image_type": "architecture_diagram", "reason": "Mock"
+             }):
+            resp = client.post(f"/api/diagrams/{diagram_id}/analyze")
+        assert resp.status_code == 200
+        return diagram_id
+
+    def test_full_pipeline_upload_to_export(self, client, clean_session):
+        """Test the complete flow: upload → analyze → questions → HLD → export drawio."""
+        diagram_id = self._upload_and_analyze(client)
+
+        # Questions
+        resp = client.post(f"/api/diagrams/{diagram_id}/questions?smart_dedup=true")
+        assert resp.status_code == 200
+        assert resp.json()["total"] > 0
+
+        # Apply answers
+        resp = client.post(
+            f"/api/diagrams/{diagram_id}/apply-answers",
+            json={"environment": "production", "ha_dr": "active_active"},
+        )
+        assert resp.status_code == 200
+
+        # Generate HLD
+        with patch("routers.diagrams.generate_hld") as mock_hld:
+            mock_hld.return_value = {
+                "title": "Test HLD",
+                "services": [],
+                "executive_summary": "Test",
+                "architecture_overview": {},
+            }
+            resp = client.post(f"/api/diagrams/{diagram_id}/generate-hld")
+        assert resp.status_code == 200
+        assert resp.json()["hld"]["title"] == "Test HLD"
+
+        # Get cached HLD
+        resp = client.get(f"/api/diagrams/{diagram_id}/hld")
+        assert resp.status_code == 200
+
+        # Generate IaC
+        resp = client.post(f"/api/diagrams/{diagram_id}/generate?format=terraform")
+        assert resp.status_code == 200
+        assert "resource" in resp.json()["code"] or "provider" in resp.json()["code"]
+
+        # Export drawio
+        resp = client.post(f"/api/diagrams/{diagram_id}/export-diagram?format=drawio")
+        assert resp.status_code == 200
+        assert resp.json()["format"] == "drawio"
+
+    def test_full_pipeline_with_cost_estimate(self, client, clean_session):
+        """Pipeline includes cost estimation after analysis."""
+        diagram_id = self._upload_and_analyze(client)
+
+        # Cost estimate
+        resp = client.get(f"/api/diagrams/{diagram_id}/cost-estimate")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["currency"] == "USD"
+        assert data["service_count"] > 0
+
+        # Cost comparison
+        resp = client.get(f"/api/diagrams/{diagram_id}/cost-comparison")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "providers" in data
+        assert "aws" in data["providers"]
+        assert "azure" in data["providers"]
+
+    def test_full_pipeline_with_migration_assessment(self, client, clean_session):
+        """Pipeline includes migration assessment after analysis."""
+        diagram_id = self._upload_and_analyze(client)
+
+        resp = client.get(f"/api/diagrams/{diagram_id}/migration-assessment")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "overall_score" in data
+        assert "risk_level" in data
+
+
+class TestSessionPersistenceIntegration:
+    """Session persistence across requests (session store)."""
+
+    def test_session_persists_analysis(self, client, clean_session):
+        """Analysis result persists in session store across requests."""
+        content = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+        resp = client.post(
+            "/api/projects/proj-sess/diagrams",
+            files={"file": ("sess.png", io.BytesIO(content), "image/png")},
+        )
+        diagram_id = resp.json()["diagram_id"]
+
+        with patch("routers.diagrams.analyze_image", return_value=copy.deepcopy(MOCK_ANALYSIS)), \
+             patch("routers.diagrams.classify_image", return_value={
+                 "is_architecture_diagram": True, "confidence": 0.95
+             }):
+            client.post(f"/api/diagrams/{diagram_id}/analyze")
+
+        # Session should exist
+        assert diagram_id in SESSION_STORE
+        session = SESSION_STORE.get(diagram_id)
+        assert session is not None
+        assert "mappings" in session
+
+        # Subsequent requests use same session
+        resp = client.post(f"/api/diagrams/{diagram_id}/questions")
+        assert resp.status_code == 200
+
+        resp = client.get(f"/api/diagrams/{diagram_id}/cost-estimate")
+        assert resp.status_code == 200
+        assert resp.json()["service_count"] > 0
+
+    def test_session_isolation_between_diagrams(self, client, clean_session):
+        """Different diagrams have independent sessions."""
+        content = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+
+        # Upload two diagrams
+        resp1 = client.post(
+            "/api/projects/proj-iso/diagrams",
+            files={"file": ("d1.png", io.BytesIO(content), "image/png")},
+        )
+        did1 = resp1.json()["diagram_id"]
+
+        resp2 = client.post(
+            "/api/projects/proj-iso/diagrams",
+            files={"file": ("d2.png", io.BytesIO(content), "image/png")},
+        )
+        did2 = resp2.json()["diagram_id"]
+
+        assert did1 != did2
+
+        # Analyze only the first
+        with patch("routers.diagrams.analyze_image", return_value=copy.deepcopy(MOCK_ANALYSIS)), \
+             patch("routers.diagrams.classify_image", return_value={
+                 "is_architecture_diagram": True, "confidence": 0.95
+             }):
+            client.post(f"/api/diagrams/{did1}/analyze")
+
+        # First has session, second does not
+        assert did1 in SESSION_STORE
+        assert SESSION_STORE.get(did2) is None or "mappings" not in (SESSION_STORE.get(did2) or {})
+
+
+class TestAPIVersioningIntegration:
+    """API versioning: /api and /api/v1 return same response."""
+
+    def test_health_same_response(self, client, clean_session):
+        """GET /api/health and GET /api/v1/health return same data."""
+        orig = client.get("/api/health")
+        v1 = client.get("/api/v1/health")
+
+        assert orig.status_code == 200
+        assert v1.status_code == 200
+
+        orig_data = orig.json()
+        v1_data = v1.json()
+
+        assert orig_data["status"] == v1_data["status"]
+        assert orig_data["version"] == v1_data["version"]
+        assert orig_data["service_catalog"] == v1_data["service_catalog"]
+
+    def test_services_same_response(self, client, clean_session):
+        """GET /api/services and GET /api/v1/services return same total."""
+        orig = client.get("/api/services")
+        v1 = client.get("/api/v1/services")
+
+        assert orig.status_code == 200
+        assert v1.status_code == 200
+        assert orig.json()["total"] == v1.json()["total"]
+
+    def test_contact_same_response(self, client, clean_session):
+        """GET /api/contact and GET /api/v1/contact return same data."""
+        orig = client.get("/api/contact")
+        v1 = client.get("/api/v1/contact")
+
+        assert orig.status_code == 200
+        assert v1.status_code == 200
+        assert orig.json() == v1.json()
+
+    def test_flags_same_response(self, client, clean_session):
+        """GET /api/flags and GET /api/v1/flags return same flags."""
+        orig = client.get("/api/flags")
+        v1 = client.get("/api/v1/flags")
+
+        assert orig.status_code == 200
+        assert v1.status_code == 200
+        assert orig.json()["flags"].keys() == v1.json()["flags"].keys()
+
+    def test_v1_upload_and_analyze_works(self, client, clean_session):
+        """Upload and analyze via /api/v1/ routes works the same."""
+        content = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+        resp = client.post(
+            "/api/v1/projects/proj-v1/diagrams",
+            files={"file": ("v1.png", io.BytesIO(content), "image/png")},
+        )
+        assert resp.status_code == 200
+        diagram_id = resp.json()["diagram_id"]
+
+        with patch("routers.diagrams.analyze_image", return_value=copy.deepcopy(MOCK_ANALYSIS)), \
+             patch("routers.diagrams.classify_image", return_value={
+                 "is_architecture_diagram": True, "confidence": 0.95
+             }):
+            resp = client.post(f"/api/v1/diagrams/{diagram_id}/analyze")
+        assert resp.status_code == 200
+        assert resp.json()["source_provider"] == "aws"
+
+
+class TestFeatureFlagsIntegration:
+    """Feature flags affecting behavior in integration context."""
+
+    def test_flags_endpoint_returns_all(self, client, clean_session):
+        """GET /api/flags returns all configured flags."""
+        resp = client.get("/api/flags")
+        assert resp.status_code == 200
+        flags = resp.json()["flags"]
+        assert "dark_mode" in flags
+        assert "export_pptx" in flags
+        assert "new_ai_model" in flags
+
+    def test_single_flag_lookup(self, client, clean_session):
+        """GET /api/flags/<name> returns the flag data."""
+        resp = client.get("/api/flags/dark_mode")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["name"] == "dark_mode"
+        assert "enabled" in data
+        assert "rollout_percentage" in data
+
+    def test_unknown_flag_404(self, client, clean_session):
+        """GET /api/flags/<nonexistent> returns 404."""
+        resp = client.get("/api/flags/nonexistent_flag_xyz")
+        assert resp.status_code == 404
+
+    def test_update_flag_requires_auth(self, client, clean_session):
+        """PUT /api/flags/<name> without admin auth is rejected."""
+        resp = client.put("/api/flags/dark_mode", json={"enabled": False})
+        assert resp.status_code in (401, 403, 503)
+
+    def test_flags_available_via_v1(self, client, clean_session):
+        """GET /api/v1/flags works the same."""
+        resp = client.get("/api/v1/flags")
+        assert resp.status_code == 200
+        assert "dark_mode" in resp.json()["flags"]
+
+
+class TestAuditLoggingIntegration:
+    """Audit logging captures events during integration flow."""
+
+    def test_audit_log_captures_events(self, client, clean_session):
+        """Performing actions generates audit log entries."""
+        from audit_logging import get_audit_logs, clear_audit_logs
+        clear_audit_logs()
+
+        # Perform several actions
+        client.get("/api/services")
+        client.get("/api/contact")
+
+        # Upload and analyze
+        content = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+        resp = client.post(
+            "/api/projects/proj-audit/diagrams",
+            files={"file": ("aud.png", io.BytesIO(content), "image/png")},
+        )
+        diagram_id = resp.json()["diagram_id"]
+
+        with patch("routers.diagrams.analyze_image", return_value=copy.deepcopy(MOCK_ANALYSIS)), \
+             patch("routers.diagrams.classify_image", return_value={
+                 "is_architecture_diagram": True, "confidence": 0.95
+             }):
+            client.post(f"/api/diagrams/{diagram_id}/analyze")
+
+        # Audit log should have entries (from AuditMiddleware)
+        logs = get_audit_logs()
+        assert len(logs) > 0
+
+    def test_audit_summary_counts(self, client, clean_session):
+        """Audit summary reflects logged events."""
+        from audit_logging import get_audit_summary, clear_audit_logs
+        clear_audit_logs()
+
+        # Do some requests
+        client.get("/api/services")
+        client.get("/api/contact")
+
+        summary = get_audit_summary()
+        assert "total_events" in summary
+
+
+class TestChatAndRoadmapIntegration:
+    """Chat + roadmap flow integration."""
+
+    def test_chat_and_roadmap_sequence(self, client, clean_session):
+        """User can chat and then view roadmap in same session."""
+        # Chat
+        resp = client.post("/api/chat", json={"message": "What is Archmorph?", "session_id": "int-chat-1"})
+        assert resp.status_code == 200
+        assert "reply" in resp.json()
+
+        # Roadmap
+        resp = client.get("/api/roadmap")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "timeline" in data
+        assert "stats" in data
+
+    def test_chat_history_persists(self, client, clean_session):
+        """Chat history is available after sending messages."""
+        session = f"int-hist-{id(client)}"
+        client.post("/api/chat", json={"message": "Hello", "session_id": session})
+        client.post("/api/chat", json={"message": "What can you do?", "session_id": session})
+
+        resp = client.get(f"/api/chat/history/{session}")
+        assert resp.status_code == 200
+        assert len(resp.json()["messages"]) >= 4  # 2 user + 2 assistant
+
+    def test_chat_clear_works(self, client, clean_session):
+        """Clearing chat session removes history."""
+        session = f"int-clear-{id(client)}"
+        client.post("/api/chat", json={"message": "Hello", "session_id": session})
+
+        resp = client.delete(f"/api/chat/{session}")
+        assert resp.status_code == 200
+        assert resp.json()["cleared"] is True
+
+
+class TestServiceCRUDLifecycle:
+    """Service CRUD lifecycle: upload → analyze → add services → cost check."""
+
+    @patch("service_builder.get_openai_client")
+    def test_service_lifecycle(self, mock_openai, client, clean_session):
+        """Add services, verify they appear in costs and questions."""
+        # Setup
+        content = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+        resp = client.post(
+            "/api/projects/proj-crud/diagrams",
+            files={"file": ("crud.png", io.BytesIO(content), "image/png")},
+        )
+        diagram_id = resp.json()["diagram_id"]
+
+        with patch("routers.diagrams.analyze_image", return_value=copy.deepcopy(MOCK_ANALYSIS)), \
+             patch("routers.diagrams.classify_image", return_value={
+                 "is_architecture_diagram": True, "confidence": 0.95
+             }):
+            client.post(f"/api/diagrams/{diagram_id}/analyze")
+
+        # Add Redis
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = json.dumps({
+            "services": [
+                {"name": "Redis", "full_name": "Azure Cache for Redis", "category": "Database"}
+            ],
+            "inferred_requirements": ["caching"]
+        })
+        mock_openai.return_value.chat.completions.create.return_value = mock_response
+
+        resp = client.post(f"/api/diagrams/{diagram_id}/add-services", json={"text": "Add Redis cache"})
+        assert resp.status_code == 200
+        assert resp.json()["services_detected"] == 4  # 3 original + Redis
+
+        # Cost estimate should now include 4 services
+        resp = client.get(f"/api/diagrams/{diagram_id}/cost-estimate")
+        assert resp.status_code == 200
+        assert resp.json()["service_count"] == 4
+
+        # Questions should reflect added services
+        resp = client.post(f"/api/diagrams/{diagram_id}/questions?smart_dedup=true")
+        assert resp.status_code == 200
+        assert resp.json()["total"] > 0
+
+
+class TestAdminDashboardDataIntegrity:
+    """Admin dashboard data integrity checks."""
+
+    def test_admin_metrics_structure(self, client, clean_session, monkeypatch):
+        """Admin metrics have correct structure."""
+        monkeypatch.setattr("admin_auth.ADMIN_SECRET", "test-admin-key")
+        monkeypatch.setattr("admin_auth.JWT_SECRET", "test-admin-key:test-salt")
+        resp = client.post("/api/admin/login", json={"key": "test-admin-key"})
+        assert resp.status_code == 200
+        token = resp.json()["token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        # Metrics
+        resp = client.get("/api/admin/metrics", headers=headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "totals" in data
+        assert "total_events" in data
+
+        # Funnel
+        resp = client.get("/api/admin/metrics/funnel", headers=headers)
+        assert resp.status_code == 200
+        assert "total_sessions" in resp.json()
+
+        # Daily
+        resp = client.get("/api/admin/metrics/daily?days=7", headers=headers)
+        assert resp.status_code == 200
+        assert "data" in resp.json()
+
+        # Recent
+        resp = client.get("/api/admin/metrics/recent?limit=10", headers=headers)
+        assert resp.status_code == 200
+        assert "events" in resp.json()
+
+    def test_admin_audit_endpoint(self, client, clean_session, monkeypatch):
+        """Admin audit endpoint returns audit log data."""
+        monkeypatch.setattr("admin_auth.ADMIN_SECRET", "test-admin-key")
+        monkeypatch.setattr("admin_auth.JWT_SECRET", "test-admin-key:test-salt")
+        resp = client.post("/api/admin/login", json={"key": "test-admin-key"})
+        token = resp.json()["token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        resp = client.get("/api/admin/audit", headers=headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "logs" in data or "events" in data
+
+    def test_admin_monitoring_endpoint(self, client, clean_session, monkeypatch):
+        """Admin monitoring endpoint returns monitoring data."""
+        monkeypatch.setattr("admin_auth.ADMIN_SECRET", "test-admin-key")
+        monkeypatch.setattr("admin_auth.JWT_SECRET", "test-admin-key:test-salt")
+        resp = client.post("/api/admin/login", json={"key": "test-admin-key"})
+        token = resp.json()["token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        resp = client.get("/api/admin/monitoring", headers=headers)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "overview" in data or "latency" in data
