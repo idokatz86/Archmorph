@@ -90,7 +90,7 @@ test.describe('Page Load', () => {
 
   test('Services tab loads catalog', async ({ page }) => {
     await page.goto('/');
-    await page.getByRole('button', { name: 'Services' }).click();
+    await page.getByRole('button', { name: 'Services', exact: true }).click();
     // Wait for API data to load (may take a while on cold start)
     await expect(page.getByText('Total Services')).toBeVisible({ timeout: COLD_START_TIMEOUT });
     await expect(page.locator('input[placeholder="Search services..."]')).toBeVisible();
@@ -99,7 +99,7 @@ test.describe('Page Load', () => {
   test('navigation between tabs works', async ({ page }) => {
     await page.goto('/');
     // Go to Services
-    await page.getByRole('button', { name: 'Services' }).click();
+    await page.getByRole('button', { name: 'Services', exact: true }).click();
     await expect(page.getByText('Total Services')).toBeVisible({ timeout: COLD_START_TIMEOUT });
     // Go back to Translator
     await page.getByRole('button', { name: 'Translator' }).click();
@@ -126,7 +126,7 @@ test.describe('API Health', () => {
     expect(resp.ok()).toBeTruthy();
     const data = await resp.json();
     expect(data.github).toContain('Archmorph');
-    expect(data.issues).toContain('issues');
+    expect(data.project).toBe('Archmorph');
   });
 });
 
@@ -257,7 +257,7 @@ test.describe('Chat Widget', () => {
 test.describe('Services Browser', () => {
   test('shows service catalog with stats', async ({ page }) => {
     await page.goto('/');
-    await page.getByRole('button', { name: 'Services' }).click();
+    await page.getByRole('button', { name: 'Services', exact: true }).click();
     await expect(page.getByText('Total Services')).toBeVisible({ timeout: COLD_START_TIMEOUT });
     await expect(page.getByText('Cross-Cloud Mappings')).toBeVisible();
     // Use exact match to avoid matching "All Categories" dropdown
@@ -266,7 +266,7 @@ test.describe('Services Browser', () => {
 
   test('search filters services', async ({ page }) => {
     await page.goto('/');
-    await page.getByRole('button', { name: 'Services' }).click();
+    await page.getByRole('button', { name: 'Services', exact: true }).click();
     await expect(page.getByText('Total Services')).toBeVisible({ timeout: COLD_START_TIMEOUT });
 
     await page.fill('input[placeholder="Search services..."]', 'Lambda');
@@ -276,7 +276,7 @@ test.describe('Services Browser', () => {
 
   test('provider filter works', async ({ page }) => {
     await page.goto('/');
-    await page.getByRole('button', { name: 'Services' }).click();
+    await page.getByRole('button', { name: 'Services', exact: true }).click();
     await expect(page.getByText('Total Services')).toBeVisible({ timeout: COLD_START_TIMEOUT });
 
     // Select Azure provider
@@ -971,7 +971,7 @@ test.describe('Header UI', () => {
   test('header has navigation tabs', async ({ page }) => {
     await page.goto('/');
     await expect(page.getByRole('button', { name: 'Translator' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Services' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Services', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Roadmap' })).toBeVisible();
   });
 
@@ -994,16 +994,19 @@ test.describe('Header UI', () => {
 test.describe('Services Browser', () => {
   test('services page shows provider filters', async ({ page }) => {
     await page.goto('/');
-    await page.getByRole('button', { name: 'Services' }).click();
-    await expect(page.getByText('AWS')).toBeVisible({ timeout: COLD_START_TIMEOUT });
-    await expect(page.getByText('Azure')).toBeVisible();
-    await expect(page.getByText('GCP')).toBeVisible();
+    await page.getByRole('button', { name: 'Services', exact: true }).click();
+    // Check provider filter dropdown exists with options
+    const providerSelect = page.locator('select').first();
+    await expect(providerSelect).toBeVisible({ timeout: COLD_START_TIMEOUT });
+    await expect(providerSelect.locator('option:has-text("AWS")')).toHaveCount(1);
+    await expect(providerSelect.locator('option:has-text("Azure")')).toHaveCount(1);
+    await expect(providerSelect.locator('option:has-text("GCP")')).toHaveCount(1);
   });
 
   test('services page has search functionality', async ({ page }) => {
     await page.goto('/');
-    await page.getByRole('button', { name: 'Services' }).click();
-    const searchInput = page.locator('input[placeholder*="Search"]');
+    await page.getByRole('button', { name: 'Services', exact: true }).click();
+    const searchInput = page.locator('input[placeholder="Search services..."]');
     await expect(searchInput).toBeVisible({ timeout: COLD_START_TIMEOUT });
     
     // Type a search term
@@ -1015,7 +1018,7 @@ test.describe('Services Browser', () => {
 
   test('services shows total count', async ({ page }) => {
     await page.goto('/');
-    await page.getByRole('button', { name: 'Services' }).click();
+    await page.getByRole('button', { name: 'Services', exact: true }).click();
     // Should show service count
     await expect(page.getByText(/Total Services/i)).toBeVisible({ timeout: COLD_START_TIMEOUT });
   });
