@@ -402,7 +402,7 @@ class TestSmartDefaults:
 # ====================================================================
 
 @pytest.mark.skipif(
-    os.getenv("AZURE_OPENAI_API_KEY") is None,
+    not os.getenv("AZURE_OPENAI_API_KEY"),
     reason="Requires Azure OpenAI credentials"
 )
 class TestServiceBuilderIntegration:
