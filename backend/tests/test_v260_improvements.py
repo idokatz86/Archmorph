@@ -7,7 +7,6 @@ Tests for v2.6.0 improvements:
 """
 
 import io
-import json
 import os
 import sys
 from unittest.mock import patch, MagicMock
@@ -154,7 +153,7 @@ class TestMetricsPersistence:
 
     def test_save_and_load_local(self):
         """Metrics round-trip through local file when no blob configured."""
-        from usage_metrics import _save_metrics, _load_metrics, _metrics, record_event
+        from usage_metrics import _save_metrics, record_event
 
         record_event("diagrams_uploaded", {"test": True})
         _save_metrics()

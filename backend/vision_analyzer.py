@@ -10,9 +10,8 @@ import base64
 import io
 import json
 import logging
-import os
 from difflib import SequenceMatcher
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional
 
 from PIL import Image
 
@@ -165,7 +164,6 @@ _SYNONYMS: Dict[str, str] = {
     "aws security hub": "security hub",
     "aws backup": "backup",
     "amazon elasticache": "elasticache",
-    "amazon api gateway": "api gateway",
     "amazon api gateway": "api gateway",
     "eks cluster": "eks",
     "aws amplify": "amplify",
@@ -464,13 +462,12 @@ def _build_analysis_result(vision_result: Dict[str, Any]) -> Dict[str, Any]:
                 confidence = round(mapping_conf * 0.7 + detection_conf * 0.3, 2)
                 confidence = min(1.0, max(0.0, confidence))
                 notes = mapping.get("notes", "")
-                category = mapping.get("category", "General")
+                mapping.get("category", "General")
             else:
                 # No direct mapping found — flag it
                 azure_service = f"[Manual mapping needed] {full_name}"
                 confidence = round(0.30 * 0.7 + detection_conf * 0.3, 2)
                 notes = f"No direct cross-cloud mapping found for {full_name}"
-                category = "Unknown"
                 warnings.append(
                     f"{full_name} — no automatic Azure mapping found; manual review required"
                 )

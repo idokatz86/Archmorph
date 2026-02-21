@@ -2,7 +2,6 @@
 Tests for Best Practices Linter module.
 """
 
-import pytest
 from best_practices import (
     analyze_architecture,
     get_quick_wins,

@@ -14,7 +14,7 @@ import logging
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 from threading import Lock
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from enum import Enum
 
 logger = logging.getLogger(__name__)

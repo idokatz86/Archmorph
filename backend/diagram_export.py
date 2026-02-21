@@ -207,7 +207,7 @@ def get_azure_stencil_id(service_name: str, target: str = "drawio") -> str:
     """
     entry = AZURE_STENCILS.get(service_name)
     if entry:
-        return entry.get(target, f"mxgraph.azure.general")
+        return entry.get(target, "mxgraph.azure.general")
     # Fuzzy fallback – try partial match
     lower = service_name.lower()
     for name, ids in AZURE_STENCILS.items():
@@ -1049,9 +1049,9 @@ def _generate_vsdx(analysis: dict) -> dict:
         _vdx_text(conn, "data flow")
 
         # Connect elements
-        c1 = ET.SubElement(connects, f"{{{_VDX_NS}}}Connect", FromSheet=csid, FromCell="BeginX",
+        ET.SubElement(connects, f"{{{_VDX_NS}}}Connect", FromSheet=csid, FromCell="BeginX",
                            ToSheet=src_z["id"])
-        c2 = ET.SubElement(connects, f"{{{_VDX_NS}}}Connect", FromSheet=csid, FromCell="EndX",
+        ET.SubElement(connects, f"{{{_VDX_NS}}}Connect", FromSheet=csid, FromCell="EndX",
                            ToSheet=dst_z["id"])
 
     xml_str = ET.tostring(vdx, encoding="unicode", xml_declaration=True)

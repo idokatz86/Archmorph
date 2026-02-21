@@ -1,9 +1,7 @@
 """Tests for iac_generator module — GPT-4o powered IaC generation."""
 
-import json
 from unittest.mock import patch, MagicMock
 
-import pytest
 
 from iac_generator import generate_iac_code
 

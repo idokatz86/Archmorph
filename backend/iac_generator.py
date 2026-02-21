@@ -4,9 +4,7 @@ Uses GPT-4o to generate Terraform or Bicep code from analysis results.
 Falls back to base templates when no analysis is available.
 """
 
-import json
 import logging
-import os
 from pathlib import Path
 from typing import Optional
 

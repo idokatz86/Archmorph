@@ -8,7 +8,6 @@ Tests the iac_chat.py module:
   - API endpoint integration tests
 """
 
-import copy
 import io
 import json
 import os
@@ -197,7 +196,7 @@ class TestIacChatProcessing:
         mock_response.choices[0].message.content = json.dumps(bicep_response)
         mock_client.return_value.chat.completions.create.return_value = mock_response
 
-        result = process_iac_chat("test-bicep", "Add VNet", "param location string", "bicep")
+        process_iac_chat("test-bicep", "Add VNet", "param location string", "bicep")
 
         call_args = mock_client.return_value.chat.completions.create.call_args
         messages = call_args.kwargs["messages"]

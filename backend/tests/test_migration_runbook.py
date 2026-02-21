@@ -2,7 +2,6 @@
 Tests for Migration Runbook Generator
 """
 
-import pytest
 from migration_runbook import (
     MigrationTask, MigrationRunbook, MigrationPhase, TaskPriority, TaskStatus,
     generate_migration_runbook, render_runbook_markdown,

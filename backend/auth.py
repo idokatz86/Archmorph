@@ -7,7 +7,7 @@ import os
 import logging
 import hashlib
 import secrets
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -457,11 +457,11 @@ def get_leads_summary() -> Dict[str, Any]:
     return {
         "total_leads": len(LEAD_STORE),
         "by_action": {
-            action: len([l for l in LEAD_STORE if l.action == action])
+            action: len([lead for lead in LEAD_STORE if lead.action == action])
             for action in ["iac_download", "hld_download", "share"]
         },
-        "with_marketing_consent": len([l for l in LEAD_STORE if l.marketing_consent]),
-        "recent": [l.to_dict() for l in sorted(LEAD_STORE, key=lambda x: x.captured_at, reverse=True)[:10]],
+        "with_marketing_consent": len([lead for lead in LEAD_STORE if lead.marketing_consent]),
+        "recent": [lead.to_dict() for lead in sorted(LEAD_STORE, key=lambda x: x.captured_at, reverse=True)[:10]],
     }
 
 

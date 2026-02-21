@@ -5,7 +5,6 @@ Track changes to architecture analyses over time with version history
 
 import logging
 import hashlib
-import difflib
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field

@@ -12,7 +12,6 @@ Pricing is based on the deployment region selected by the user (defaults to
 from __future__ import annotations
 
 import json
-import os
 import time
 import logging
 from datetime import datetime, timezone
@@ -596,10 +595,6 @@ SERVICE_PRICE_QUERIES: dict[str, dict[str, Any]] = {
         "serviceName": "Event Hubs",
         "skuName": "Standard",
         "fallback_monthly": 85,
-    },
-    "Microsoft Purview": {
-        "serviceName": "Microsoft Purview",
-        "fallback_monthly": 450,
     },
     "Power BI": {
         "serviceName": "Power BI",

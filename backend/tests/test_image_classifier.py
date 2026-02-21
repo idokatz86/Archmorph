@@ -4,7 +4,6 @@ Tests for image_classifier.py — Architecture diagram pre-check.
 
 import json
 from unittest.mock import patch, MagicMock
-import pytest
 
 # ─── Helper: build a mock OpenAI response ───
 def _mock_response(content: str):
@@ -375,7 +374,7 @@ def test_classify_uses_api_key_auth(mock_azure_cls):
     from openai_client import get_openai_client, reset_client
     reset_client()
 
-    client = get_openai_client()
+    get_openai_client()
 
     mock_azure_cls.assert_called_once()
     call_kwargs = mock_azure_cls.call_args[1]

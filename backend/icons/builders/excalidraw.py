@@ -13,7 +13,6 @@ import base64
 import json
 import logging
 import time
-import uuid
 from typing import Optional
 
 from icons.models import IconEntry
@@ -53,7 +52,6 @@ def build_excalidraw_library(
     if not icons:
         raise ValueError(f"No icons found for pack '{pack_id}'")
 
-    lib_title = title or pack_id
 
     # Excalidraw library format:
     # {

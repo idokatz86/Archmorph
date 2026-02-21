@@ -12,10 +12,8 @@ Endpoints:
 
 from __future__ import annotations
 
-import io
 import json
 import logging
-import zipfile
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, UploadFile, File
@@ -80,7 +78,7 @@ async def upload_icon_pack(
             )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    except Exception as exc:
+    except Exception:
         logger.exception("Icon pack ingestion failed")
         raise HTTPException(status_code=500, detail="Icon pack ingestion failed. Please try again.")
 

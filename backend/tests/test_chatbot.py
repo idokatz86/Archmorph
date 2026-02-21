@@ -1,7 +1,6 @@
 """Tests for chatbot module — GPT-4o powered AI assistant with GitHub issue creation."""
 
 from unittest.mock import patch, MagicMock
-from datetime import datetime
 
 import pytest
 

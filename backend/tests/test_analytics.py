@@ -2,11 +2,9 @@
 Tests for Application Analytics
 """
 
-import pytest
 import time
 from analytics import (
-    AnalyticsEvent, UserSession, EventCategory, MetricType,
-    track_event, start_session, end_session, track_page_view,
+    AnalyticsEvent, UserSession, EventCategory, track_event, start_session, end_session, track_page_view,
     track_conversion, increment_counter, set_gauge, record_histogram,
     record_timing, Timer, track_request_latency, track_error,
     track_feature_usage, track_analysis, track_export, track_iac_generation,

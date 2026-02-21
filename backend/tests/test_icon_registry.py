@@ -11,7 +11,6 @@ Unit tests covering:
   - Registry search / resolve
 """
 
-import base64
 import io
 import json
 import os
@@ -19,7 +18,6 @@ import sys
 import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -36,7 +34,7 @@ from icons.svg_sanitizer import (
     extract_svg_dimensions,
     MAX_SVG_SIZE,
 )
-from icons.models import Provider, IconMeta, IconEntry, IconPackManifest, IconPackItem
+from icons.models import Provider, IconMeta, IconPackManifest, IconPackItem
 from icons import registry
 from icons.builders.drawio import build_drawio_library
 from icons.builders.excalidraw import build_excalidraw_library
@@ -259,7 +257,7 @@ class TestIconRegistry:
         assert metrics["icons_ingested"] >= 1
 
     def test_duplicate_ingest_idempotent(self, small_zip_pack):
-        r1 = registry.ingest_icon_pack(small_zip_pack, pack_id="dup")
+        registry.ingest_icon_pack(small_zip_pack, pack_id="dup")
         r2 = registry.ingest_icon_pack(small_zip_pack, pack_id="dup")
         # Second ingest should still work (overwrite)
         assert r2["ingested"] == 1

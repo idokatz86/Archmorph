@@ -21,7 +21,7 @@ from typing import Any, Optional
 
 from cachetools import TTLCache
 
-from icons.models import IconEntry, IconMeta, IconPackManifest, IconPackItem, Provider
+from icons.models import IconEntry, IconMeta, IconPackManifest, IconPackItem
 from icons.svg_sanitizer import (
     SVGSanitizationError,
     extract_svg_dimensions,

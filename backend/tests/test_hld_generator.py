@@ -345,7 +345,7 @@ class TestHldGeneration:
         mock_response.choices[0].message.content = json.dumps(MOCK_HLD_RESPONSE)
         mock_client.return_value.chat.completions.create.return_value = mock_response
 
-        hld = generate_hld(MOCK_ANALYSIS)
+        generate_hld(MOCK_ANALYSIS)
 
         # Should call Azure OpenAI
         mock_client.return_value.chat.completions.create.assert_called_once()

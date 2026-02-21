@@ -4,7 +4,7 @@ Archmorph API Versioning Module
 Provides API versioning infrastructure with backward compatibility support.
 """
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter
 from typing import Dict, Any
 import logging
 

@@ -2,12 +2,11 @@
 Tests for Architecture Versioning
 """
 
-import pytest
 from versioning import (
-    ArchitectureVersion, ArchitectureChange, VersionHistory, ChangeType,
+    ArchitectureVersion, ArchitectureChange, ChangeType,
     create_version, get_version, get_latest_version, restore_version,
     compare_versions, get_version_history, get_changes_since,
-    get_or_create_history, _detect_changes,
+    _detect_changes,
     VERSION_STORE,
 )
 

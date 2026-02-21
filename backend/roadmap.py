@@ -566,7 +566,7 @@ def create_github_issue(
         
         # Get valid labels
         existing_labels = [label.name for label in repo.get_labels()]
-        valid_labels = [l for l in template["labels"] if l in existing_labels]
+        valid_labels = [lbl for lbl in template["labels"] if lbl in existing_labels]
         
         # Create issue
         issue = repo.create_issue(

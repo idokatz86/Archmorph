@@ -5,13 +5,8 @@ Tests for services/azure_pricing.py
 
 import os
 import sys
-import time
-import json
-import tempfile
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
-import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -23,7 +18,6 @@ from services.azure_pricing import (
     _find_best_price_match,
     estimate_services_cost,
     SERVICE_PRICE_QUERIES,
-    invalidate_cache,
 )
 
 

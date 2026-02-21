@@ -2,7 +2,6 @@
 Tests for Terraform Plan Preview
 """
 
-import pytest
 from terraform_preview import (
     ResourceChange, TerraformPlanResult, ResourceAction,
     preview_terraform_plan, validate_terraform_syntax,

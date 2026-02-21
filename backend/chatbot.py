@@ -10,7 +10,7 @@ import os
 import re
 import json
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, List
 from datetime import datetime, timezone
 
 from cachetools import TTLCache
@@ -181,8 +181,8 @@ def _create_github_issue(title: str, body: str, labels: List[str]) -> Dict[str, 
         repo = g.get_repo(GITHUB_REPO)
 
         # Filter labels to only existing ones
-        existing_labels = [l.name for l in repo.get_labels()]
-        valid_labels = [l for l in labels if l in existing_labels]
+        existing_labels = [lbl.name for lbl in repo.get_labels()]
+        valid_labels = [lbl for lbl in labels if lbl in existing_labels]
 
         issue = repo.create_issue(
             title=title,
@@ -195,7 +195,7 @@ def _create_github_issue(title: str, body: str, labels: List[str]) -> Dict[str, 
             "issue_number": issue.number,
             "issue_url": issue.html_url,
             "title": issue.title,
-            "labels": [l.name for l in issue.labels],
+            "labels": [lbl.name for lbl in issue.labels],
         }
     except Exception as exc:
         logger.error(f"GitHub issue creation failed: {exc}")

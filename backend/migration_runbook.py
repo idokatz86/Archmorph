@@ -568,7 +568,7 @@ def render_runbook_markdown(runbook: MigrationRunbook) -> str:
     ]
     
     # Summary table
-    summary = runbook.get_summary()
+    runbook.get_summary()
     lines.extend([
         "### Task Summary",
         "",

@@ -2,15 +2,12 @@
 Tests for Authentication Module
 """
 
-import pytest
-from unittest.mock import patch, MagicMock, AsyncMock
-from datetime import datetime, timezone, timedelta
 
 from auth import (
     User, AuthProvider, UserTier, UsageQuota,
     get_anonymous_user, generate_session_token, get_user_from_session,
     capture_lead, get_leads_summary, is_auth_enabled, get_auth_config,
-    LeadCapture, USER_STORE, ANONYMOUS_USAGE, LEAD_STORE,
+    LEAD_STORE,
 )
 
 

@@ -11,7 +11,6 @@ import os
 import logging
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta, timezone
-from collections import defaultdict
 from threading import Lock
 
 logger = logging.getLogger(__name__)

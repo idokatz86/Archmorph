@@ -2,7 +2,6 @@
 Tests for Archmorph API Versioning Module
 """
 
-import pytest
 import sys
 import os
 

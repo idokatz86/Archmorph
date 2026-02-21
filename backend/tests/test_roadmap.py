@@ -4,8 +4,7 @@ Tests for Archmorph Roadmap module.
 Tests roadmap retrieval, feature request submission, and bug reporting.
 """
 
-import pytest
-from datetime import datetime, timezone
+from datetime import datetime
 from unittest.mock import patch, MagicMock
 
 from roadmap import (

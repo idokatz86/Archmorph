@@ -6,7 +6,6 @@ Enterprise-ready with Authentication, Analytics, AI Assistant, Roadmap, and Obse
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Response, Request, Depends, Security, Header
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field, EmailStr
 from typing import Optional, List, Dict, Any
@@ -38,33 +37,31 @@ if APPLICATIONINSIGHTS_CONNECTION_STRING:
 else:
     logging.getLogger(__name__).info("APPLICATIONINSIGHTS_CONNECTION_STRING not set — telemetry disabled")
 
-from services import AWS_SERVICES, AZURE_SERVICES, GCP_SERVICES, CROSS_CLOUD_MAPPINGS
-from service_updater import start_scheduler, stop_scheduler, run_update_now, get_update_status, get_last_update
-from guided_questions import generate_questions, apply_answers
-from diagram_export import generate_diagram
-from chatbot import process_chat_message, get_chat_history, clear_chat_session
-from iac_chat import process_iac_chat, get_iac_chat_history, clear_iac_chat
-from roadmap import (
+from services import AWS_SERVICES, AZURE_SERVICES, GCP_SERVICES, CROSS_CLOUD_MAPPINGS  # noqa: E402
+from service_updater import start_scheduler, stop_scheduler, run_update_now, get_update_status, get_last_update  # noqa: E402
+from guided_questions import generate_questions, apply_answers  # noqa: E402
+from diagram_export import generate_diagram  # noqa: E402
+from chatbot import process_chat_message, get_chat_history, clear_chat_session  # noqa: E402
+from iac_chat import process_iac_chat, get_iac_chat_history, clear_iac_chat  # noqa: E402
+from roadmap import (  # noqa: E402
     get_roadmap, get_release_by_version, submit_feature_request, submit_bug_report,
-    IssueType,
 )
-from iac_generator import generate_iac_code
-from hld_generator import generate_hld, generate_hld_markdown
-from image_classifier import classify_image
-from vision_analyzer import analyze_image
-from usage_metrics import (
+from iac_generator import generate_iac_code  # noqa: E402
+from hld_generator import generate_hld, generate_hld_markdown  # noqa: E402
+from image_classifier import classify_image  # noqa: E402
+from vision_analyzer import analyze_image  # noqa: E402
+from usage_metrics import (  # noqa: E402
     record_event, get_metrics_summary, get_daily_metrics, get_recent_events,
     get_funnel_metrics, record_funnel_step, flush_metrics, ADMIN_SECRET,
 )
-from icons.routes import router as icon_router
-from api_versioning import get_api_versions, VersionMiddleware
-from audit_logging import (
+from icons.routes import router as icon_router  # noqa: E402
+from api_versioning import get_api_versions  # noqa: E402
+from audit_logging import (  # noqa: E402
     log_audit_event, get_audit_logs, get_audit_summary, clear_audit_logs,
     AuditEventType, AuditSeverity,
 )
-from observability import (
-    get_metrics, increment_counter, record_histogram, set_gauge,
-    ObservabilityMiddleware, trace_span,
+from observability import (  # noqa: E402
+    get_metrics,
 )
 
 logger = logging.getLogger(__name__)
@@ -1511,7 +1508,7 @@ async def login(request: LoginRequest):
 @app.get("/api/auth/me")
 async def get_current_user(authorization: Optional[str] = Header(None)):
     """Get current authenticated user."""
-    from auth import get_user_from_session, get_anonymous_user
+    from auth import get_user_from_session
     
     if authorization and authorization.startswith("Bearer "):
         token = authorization[7:]

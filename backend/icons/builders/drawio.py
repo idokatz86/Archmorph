@@ -11,7 +11,6 @@ Output is deterministic: same input icons → byte-identical XML.
 from __future__ import annotations
 
 import base64
-import hashlib
 import logging
 import time
 import xml.etree.ElementTree as ET
@@ -59,7 +58,6 @@ def build_drawio_library(
     if not icons:
         raise ValueError(f"No icons found for pack '{pack_id}'")
 
-    lib_title = title or pack_id
 
     # Build mxlibrary JSON array
     # Each entry: {"xml": "<mxGraphModel>...</mxGraphModel>", "w": W, "h": H, "title": "Name", "aspect": "fixed"}

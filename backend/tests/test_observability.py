@@ -58,7 +58,7 @@ class TestCounters:
         increment_counter("requests.total", tags={"method": "GET"})
         increment_counter("requests.total", tags={"method": "POST"})
         
-        metrics = get_metrics()
+        get_metrics()
         # Both should be tracked separately
         assert len(_metrics["counters"]) == 2
 
@@ -184,7 +184,7 @@ class TestTraceSpan:
         """trace_span records duration histogram."""
         _metrics["histograms"].clear()
         
-        with trace_span("my_operation") as span:
+        with trace_span("my_operation"):
             pass  # Quick operation
         
         metrics = get_metrics()

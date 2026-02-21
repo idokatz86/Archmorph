@@ -1199,7 +1199,7 @@ def _apply_streaming(
 
     for m in mappings:
         src = m.get("source_service", "") or ""
-        azure = m.get("azure_service", "") or ""
+        m.get("azure_service", "") or ""
         if any(k in src for k in ["Kinesis", "MSK"]):
             if "Kafka" in engine:
                 m["azure_service"] = "Azure Event Hubs (Kafka protocol)"

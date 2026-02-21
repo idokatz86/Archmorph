@@ -3,15 +3,10 @@ Archmorph — Service Updater Unit Tests
 Tests for the rewritten service_updater.py (v2.2.0)
 """
 
-import json
 import os
 import sys
-import re
-import tempfile
-from pathlib import Path
-from unittest.mock import patch, MagicMock, mock_open
+from unittest.mock import patch
 
-import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -23,7 +18,6 @@ from service_updater import (
     _read_state,
     _write_state,
     _PROVIDER_CONFIG,
-    _CATEGORY_HINTS,
 )
 
 

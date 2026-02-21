@@ -2,7 +2,6 @@
 Tests for Cost Optimizer module.
 """
 
-import pytest
 from cost_optimizer import (
     analyze_cost_optimizations,
     SavingsCategory,
@@ -186,7 +185,7 @@ class TestCostOptimizationDataclass:
         assert opt.id == "test-001"
         assert opt.category == SavingsCategory.RESERVED_INSTANCES
         assert opt.estimated_savings == "30-50%"
-        assert opt.requires_commitment == False
+        assert not opt.requires_commitment
     
     def test_optimization_with_commitment(self):
         """CostOptimization can have commitment requirement."""
@@ -202,4 +201,4 @@ class TestCostOptimizationDataclass:
             requires_commitment=True
         )
         
-        assert opt.requires_commitment == True
+        assert opt.requires_commitment

@@ -13,7 +13,6 @@ import copy
 import os
 import sys
 
-import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -175,7 +174,7 @@ class TestConfidenceRecalculation:
         """apply_answers should NOT modify the original analysis."""
         analysis = self._make_analysis()
         original_conf = analysis["mappings"][0]["confidence"]
-        result = apply_answers(analysis, {"environment": "production"})
+        apply_answers(analysis, {"environment": "production"})
         assert analysis["mappings"][0]["confidence"] == original_conf
 
     def test_apply_answers_with_empty_answers(self):

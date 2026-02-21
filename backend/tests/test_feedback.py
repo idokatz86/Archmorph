@@ -4,8 +4,6 @@ Tests for Feedback & NPS module.
 
 import pytest
 import os
-import json
-import tempfile
 from unittest.mock import patch
 
 # We need to patch the file path before importing

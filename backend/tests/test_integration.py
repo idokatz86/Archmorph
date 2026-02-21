@@ -273,7 +273,7 @@ class TestQuestionDeduplicationIntegration:
 
         # With dedup enabled
         resp1 = client.post(f"/api/diagrams/{diagram_id}/questions?smart_dedup=true")
-        data1 = resp1.json()
+        resp1.json()
 
         # With dedup disabled
         resp2 = client.post(f"/api/diagrams/{diagram_id}/questions?smart_dedup=false")

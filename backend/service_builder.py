@@ -24,11 +24,10 @@ Usage:
 
 import json
 import logging
-import re
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from difflib import SequenceMatcher
 
-from services import AZURE_SERVICES, CROSS_CLOUD_MAPPINGS
+from services import AZURE_SERVICES
 from openai_client import get_openai_client, AZURE_OPENAI_DEPLOYMENT, openai_retry
 
 logger = logging.getLogger(__name__)

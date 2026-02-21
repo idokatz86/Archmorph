@@ -272,15 +272,6 @@ def analyze_cost_optimizations(
     current_monthly = cost_estimate.get("total_monthly_usd", 0) if cost_estimate else 0
     
     # Estimate total savings (conservative: take middle of ranges)
-    savings_ranges = {
-        SavingsCategory.RESERVED_INSTANCES: 0.50,  # 35-65% -> 50%
-        SavingsCategory.SPOT_VMS: 0.75,  # 60-90% -> 75%
-        SavingsCategory.RIGHT_SIZING: 0.35,  # 20-50% -> 35%
-        SavingsCategory.STORAGE_TIERING: 0.60,  # 40-80% -> 60%
-        SavingsCategory.AUTO_SHUTDOWN: 0.55,  # 50-65% -> 55%
-        SavingsCategory.HYBRID_BENEFIT: 0.47,  # 40-55% -> 47%
-        SavingsCategory.DEV_TEST_PRICING: 0.32,  # 25-40% -> 32%
-    }
     
     # Group by category
     by_category = {}
