@@ -530,45 +530,65 @@ class TestMetrics:
         events = get_recent_events(10)
         assert isinstance(events, list)
 
-    def test_admin_metrics_endpoint_403(self, client, monkeypatch):
-        monkeypatch.setattr("usage_metrics.ADMIN_SECRET", "test-admin-key")
-        monkeypatch.setattr("main.ADMIN_SECRET", "test-admin-key")
-        resp = client.get("/api/admin/metrics", headers={"X-Admin-Key": "wrong-key"})
+    def _get_admin_token(self, client, monkeypatch):
+        """Log in via POST /api/admin/login and return Bearer header dict."""
+        monkeypatch.setattr("admin_auth.ADMIN_SECRET", "test-admin-key")
+        monkeypatch.setattr("admin_auth.JWT_SECRET", "test-admin-key:test-salt")
+        resp = client.post("/api/admin/login", json={"key": "test-admin-key"})
+        assert resp.status_code == 200
+        token = resp.json()["token"]
+        return {"Authorization": f"Bearer {token}"}
+
+    def test_admin_login_wrong_key(self, client, monkeypatch):
+        monkeypatch.setattr("admin_auth.ADMIN_SECRET", "test-admin-key")
+        resp = client.post("/api/admin/login", json={"key": "wrong-key"})
         assert resp.status_code == 403
 
-    def test_admin_metrics_endpoint_no_key(self, client, monkeypatch):
-        monkeypatch.setattr("usage_metrics.ADMIN_SECRET", "test-admin-key")
-        monkeypatch.setattr("main.ADMIN_SECRET", "test-admin-key")
+    def test_admin_metrics_endpoint_no_auth(self, client, monkeypatch):
+        monkeypatch.setattr("admin_auth.ADMIN_SECRET", "test-admin-key")
+        monkeypatch.setattr("admin_auth.JWT_SECRET", "test-admin-key:test-salt")
         resp = client.get("/api/admin/metrics")
-        assert resp.status_code == 403
+        assert resp.status_code == 401
+
+    def test_admin_metrics_endpoint_invalid_token(self, client, monkeypatch):
+        monkeypatch.setattr("admin_auth.ADMIN_SECRET", "test-admin-key")
+        monkeypatch.setattr("admin_auth.JWT_SECRET", "test-admin-key:test-salt")
+        resp = client.get("/api/admin/metrics", headers={"Authorization": "Bearer bogus-token"})
+        assert resp.status_code == 401
 
     def test_admin_metrics_endpoint_ok(self, client, monkeypatch):
-        monkeypatch.setattr("usage_metrics.ADMIN_SECRET", "test-admin-key")
-        monkeypatch.setattr("main.ADMIN_SECRET", "test-admin-key")
-        resp = client.get("/api/admin/metrics", headers={"X-Admin-Key": "test-admin-key"})
+        headers = self._get_admin_token(client, monkeypatch)
+        resp = client.get("/api/admin/metrics", headers=headers)
         assert resp.status_code == 200
         assert "totals" in resp.json()
 
     def test_admin_funnel_endpoint(self, client, monkeypatch):
-        monkeypatch.setattr("usage_metrics.ADMIN_SECRET", "test-admin-key")
-        monkeypatch.setattr("main.ADMIN_SECRET", "test-admin-key")
-        resp = client.get("/api/admin/metrics/funnel", headers={"X-Admin-Key": "test-admin-key"})
+        headers = self._get_admin_token(client, monkeypatch)
+        resp = client.get("/api/admin/metrics/funnel", headers=headers)
         assert resp.status_code == 200
         assert "total_sessions" in resp.json()
 
     def test_admin_daily_endpoint(self, client, monkeypatch):
-        monkeypatch.setattr("usage_metrics.ADMIN_SECRET", "test-admin-key")
-        monkeypatch.setattr("main.ADMIN_SECRET", "test-admin-key")
-        resp = client.get("/api/admin/metrics/daily?days=7", headers={"X-Admin-Key": "test-admin-key"})
+        headers = self._get_admin_token(client, monkeypatch)
+        resp = client.get("/api/admin/metrics/daily?days=7", headers=headers)
         assert resp.status_code == 200
         assert "data" in resp.json()
 
     def test_admin_recent_endpoint(self, client, monkeypatch):
-        monkeypatch.setattr("usage_metrics.ADMIN_SECRET", "test-admin-key")
-        monkeypatch.setattr("main.ADMIN_SECRET", "test-admin-key")
-        resp = client.get("/api/admin/metrics/recent?limit=5", headers={"X-Admin-Key": "test-admin-key"})
+        headers = self._get_admin_token(client, monkeypatch)
+        resp = client.get("/api/admin/metrics/recent?limit=5", headers=headers)
         assert resp.status_code == 200
         assert "events" in resp.json()
+
+    def test_admin_logout(self, client, monkeypatch):
+        headers = self._get_admin_token(client, monkeypatch)
+        # Logout should succeed
+        resp = client.post("/api/admin/logout", headers=headers)
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "logged_out"
+        # Token should now be revoked
+        resp = client.get("/api/admin/metrics", headers=headers)
+        assert resp.status_code == 401
 
 
 # ====================================================================

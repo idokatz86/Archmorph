@@ -5,7 +5,7 @@ import {
   RefreshCw, Loader2, XCircle,
 } from 'lucide-react';
 import { Card, Badge } from './ui';
-import { API_BASE, ADMIN_KEY } from '../constants';
+import { API_BASE } from '../constants';
 
 const STATUS_COLORS = {
   healthy: 'text-cta',
@@ -57,7 +57,7 @@ function MetricTile({ icon: Icon, label, value, sub, color = 'cta' }) {
   );
 }
 
-export default function MonitoringDashboard() {
+export default function MonitoringDashboard({ sessionToken }) {
   const [data, setData] = useState(null);
   const [health, setHealth] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -65,13 +65,13 @@ export default function MonitoringDashboard() {
   const [lastRefresh, setLastRefresh] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  const adminHeaders = ADMIN_KEY ? { 'X-Admin-Key': ADMIN_KEY } : {};
+  const authHeaders = sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {};
 
   const fetchData = async (showRefreshing = false) => {
     if (showRefreshing) setRefreshing(true);
     try {
       const [monRes, healthRes] = await Promise.all([
-        fetch(`${API_BASE}/admin/monitoring`, { headers: adminHeaders }),
+        fetch(`${API_BASE}/admin/monitoring`, { headers: authHeaders }),
         fetch(`${API_BASE}/health`),
       ]);
       if (!monRes.ok) throw new Error(`Monitoring API: ${monRes.status}`);

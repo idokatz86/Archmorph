@@ -52,7 +52,11 @@ from image_classifier import classify_image  # noqa: E402
 from vision_analyzer import analyze_image  # noqa: E402
 from usage_metrics import (  # noqa: E402
     record_event, get_metrics_summary, get_daily_metrics, get_recent_events,
-    get_funnel_metrics, record_funnel_step, flush_metrics, ADMIN_SECRET,
+    get_funnel_metrics, record_funnel_step, flush_metrics,
+)
+from admin_auth import (  # noqa: E402
+    verify_admin_secret, create_session_token, validate_session_token,
+    revoke_token, is_configured as admin_is_configured,
 )
 from icons.routes import router as icon_router  # noqa: E402
 from api_versioning import get_api_versions  # noqa: E402
@@ -997,17 +1001,51 @@ async def roadmap_bug_report(request: Request, payload: BugReportPayload):
 
 
 # ─────────────────────────────────────────────────────────────
-# Admin Metrics (protected by secret key)
+# Admin Authentication — JWT-based session login
 # ─────────────────────────────────────────────────────────────
-ADMIN_KEY_HEADER = APIKeyHeader(name="X-Admin-Key", auto_error=False)
 
 
-async def verify_admin_key(admin_key: Optional[str] = Security(ADMIN_KEY_HEADER)):
-    """Verify admin key via X-Admin-Key header."""
-    if not ADMIN_SECRET:
+class AdminLoginRequest(BaseModel):
+    """Body for POST /api/admin/login."""
+    key: str = Field(..., min_length=1, description="Admin secret key")
+
+
+async def verify_admin_key(
+    authorization: Optional[str] = Header(None),
+):
+    """Verify admin session via Authorization: Bearer <jwt>."""
+    if not admin_is_configured():
         raise HTTPException(503, "Admin API not configured")
-    if not admin_key or not secrets.compare_digest(admin_key, ADMIN_SECRET):
-        raise HTTPException(403, "Invalid or missing admin key")
+
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(401, "Missing or malformed Authorization header")
+
+    token = authorization[7:]  # strip "Bearer "
+    payload = validate_session_token(token)
+    if payload is None:
+        raise HTTPException(401, "Invalid or expired session token")
+    return payload
+
+
+@app.post("/api/admin/login")
+async def admin_login(body: AdminLoginRequest):
+    """Authenticate with the admin key and receive a session JWT."""
+    if not admin_is_configured():
+        raise HTTPException(503, "Admin API not configured")
+    if not verify_admin_secret(body.key):
+        raise HTTPException(403, "Invalid admin key")
+    token = create_session_token()
+    return {"token": token, "expires_in_minutes": 60}
+
+
+@app.post("/api/admin/logout")
+async def admin_logout(authorization: Optional[str] = Header(None)):
+    """Revoke the current admin session token."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(400, "No token provided")
+    token = authorization[7:]
+    revoke_token(token)
+    return {"status": "logged_out"}
 
 
 @app.get("/api/admin/metrics")
@@ -1501,11 +1539,8 @@ async def submit_bug_report_endpoint(request: Request, data: BugReportRequest):
 
 
 @app.get("/api/admin/feedback")
-async def get_feedback_summary_endpoint(admin_key: str = Query(...)):
+async def get_feedback_summary_endpoint(_admin=Depends(verify_admin_key)):
     """Get feedback summary (admin only)."""
-    if not ADMIN_SECRET or not secrets.compare_digest(admin_key, ADMIN_SECRET):
-        raise HTTPException(401, "Invalid admin key")
-    
     from feedback import get_feedback_summary, get_nps_trend
     
     summary = get_feedback_summary()

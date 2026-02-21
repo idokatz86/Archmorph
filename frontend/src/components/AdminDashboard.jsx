@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Shield, X, Filter, Activity, BarChart3, AlertTriangle, TrendingUp,
-  Zap, Eye, Loader2, DollarSign, Monitor,
+  Zap, Eye, Loader2, DollarSign, Monitor, LogIn, LogOut, Lock, KeyRound,
 } from 'lucide-react';
 import { Badge, Button, Card } from './ui';
-import { API_BASE, ADMIN_KEY } from '../constants';
+import { API_BASE } from '../constants';
 import MonitoringDashboard from './MonitoringDashboard';
 
 const STEP_COLORS = ['#22C55E', '#3B82F6', '#A855F7', '#F59E0B', '#EF4444', '#06B6D4'];
@@ -20,26 +20,135 @@ export default function AdminDashboard({ onClose }) {
   const [daily, setDaily] = useState([]);
   const [recent, setRecent] = useState([]);
   const [costs, setCosts] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
 
-  const adminHeaders = ADMIN_KEY ? { 'X-Admin-Key': ADMIN_KEY } : {};
+  // ── Auth state (memory-only — never persisted) ──
+  const [sessionToken, setSessionToken] = useState(null);
+  const [loginKey, setLoginKey] = useState('');
+  const [loginError, setLoginError] = useState(null);
+  const [loginLoading, setLoginLoading] = useState(false);
 
+  const authHeaders = sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {};
+
+  // ── Login handler ──
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setLoginLoading(true);
+    setLoginError(null);
+    try {
+      const resp = await fetch(`${API_BASE}/admin/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: loginKey }),
+      });
+      if (resp.status === 503) {
+        setLoginError('Admin API not configured on server');
+      } else if (!resp.ok) {
+        setLoginError('Invalid admin key');
+      } else {
+        const data = await resp.json();
+        setSessionToken(data.token);
+        setLoginKey(''); // clear from memory immediately
+      }
+    } catch {
+      setLoginError('Unable to reach server');
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  // ── Logout handler ──
+  const handleLogout = async () => {
+    if (sessionToken) {
+      fetch(`${API_BASE}/admin/logout`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${sessionToken}` },
+      }).catch(() => {}); // fire-and-forget
+    }
+    setSessionToken(null);
+    setFunnel(null);
+    setMetrics(null);
+    setDaily([]);
+    setRecent([]);
+    setCosts(null);
+  };
+
+  // ── Fetch dashboard data once authenticated ──
   useEffect(() => {
+    if (!sessionToken) return;
+    setLoading(true);
     Promise.all([
-      fetch(`${API_BASE}/admin/metrics/funnel`, { headers: adminHeaders }).then(r => r.json()),
-      fetch(`${API_BASE}/admin/metrics`, { headers: adminHeaders }).then(r => r.json()),
-      fetch(`${API_BASE}/admin/metrics/daily?days=14`, { headers: adminHeaders }).then(r => r.json()),
-      fetch(`${API_BASE}/admin/metrics/recent?limit=30`, { headers: adminHeaders }).then(r => r.json()),
-      fetch(`${API_BASE}/admin/costs`, { headers: adminHeaders }).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(`${API_BASE}/admin/metrics/funnel`, { headers: authHeaders }).then(r => r.ok ? r.json() : null),
+      fetch(`${API_BASE}/admin/metrics`, { headers: authHeaders }).then(r => r.ok ? r.json() : null),
+      fetch(`${API_BASE}/admin/metrics/daily?days=14`, { headers: authHeaders }).then(r => r.ok ? r.json() : null),
+      fetch(`${API_BASE}/admin/metrics/recent?limit=30`, { headers: authHeaders }).then(r => r.ok ? r.json() : null),
+      fetch(`${API_BASE}/admin/costs`, { headers: authHeaders }).then(r => r.ok ? r.json() : null).catch(() => null),
     ]).then(([f, m, d, r, c]) => {
+      if (!f && !m) {
+        // Token may have expired
+        setSessionToken(null);
+        return;
+      }
       setFunnel(f);
       setMetrics(m);
-      setDaily(d.data || []);
-      setRecent(r.events || []);
+      setDaily(d?.data || []);
+      setRecent(r?.events || []);
       setCosts(c);
       setLoading(false);
     }).catch(() => setLoading(false));
-  }, []);
+  }, [sessionToken]);
+
+  // ── Login screen ──
+  if (!sessionToken) {
+    return (
+      <div className="fixed inset-0 z-[100] bg-surface flex items-center justify-center">
+        <div className="absolute top-4 right-4">
+          <Button variant="ghost" size="sm" icon={X} onClick={onClose}>Close</Button>
+        </div>
+        <Card className="w-full max-w-sm p-8">
+          <div className="text-center mb-6">
+            <div className="w-14 h-14 rounded-xl bg-danger/15 flex items-center justify-center mx-auto mb-4">
+              <Lock className="w-7 h-7 text-danger" />
+            </div>
+            <h2 className="text-lg font-bold text-text-primary">Admin Login</h2>
+            <p className="text-xs text-text-muted mt-1">Enter admin key to access the dashboard</p>
+          </div>
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div className="relative">
+              <KeyRound className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
+              <input
+                type="password"
+                value={loginKey}
+                onChange={(e) => setLoginKey(e.target.value)}
+                placeholder="Admin key"
+                autoFocus
+                autoComplete="off"
+                className="w-full pl-10 pr-4 py-2.5 bg-surface border border-border rounded-lg text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-cta/40 focus:border-cta transition-colors"
+              />
+            </div>
+            {loginError && (
+              <div className="flex items-center gap-2 px-3 py-2 bg-danger/10 rounded-lg">
+                <AlertTriangle className="w-3.5 h-3.5 text-danger shrink-0" />
+                <span className="text-xs text-danger">{loginError}</span>
+              </div>
+            )}
+            <button
+              type="submit"
+              disabled={!loginKey || loginLoading}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-cta text-surface rounded-lg text-sm font-medium hover:bg-cta/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              {loginLoading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <LogIn className="w-4 h-4" />
+              )}
+              {loginLoading ? 'Authenticating...' : 'Sign In'}
+            </button>
+          </form>
+        </Card>
+      </div>
+    );
+  }
 
   if (loading) return (
     <div className="fixed inset-0 z-[100] bg-surface flex items-center justify-center">
@@ -81,6 +190,14 @@ export default function AdminDashboard({ onClose }) {
                 </button>
               ))}
             </div>
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-text-muted hover:text-danger rounded-lg hover:bg-danger/10 transition-colors"
+              title="Sign out"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              Sign Out
+            </button>
             <Button variant="ghost" size="sm" icon={X} onClick={onClose}>Close</Button>
           </div>
         </div>
@@ -88,7 +205,7 @@ export default function AdminDashboard({ onClose }) {
 
       <div className="max-w-6xl mx-auto px-6 py-8 space-y-8">
         {/* Monitoring Tab */}
-        {activeTab === 'monitoring' && <MonitoringDashboard />}
+        {activeTab === 'monitoring' && <MonitoringDashboard sessionToken={sessionToken} />}
 
         {/* Analytics Tab */}
         {activeTab === 'analytics' && (<>

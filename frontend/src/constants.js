@@ -7,8 +7,6 @@ export const API_BASE = import.meta.env.VITE_API_BASE || 'https://archmorph-api.
 
 export const APP_VERSION = '2.11.1';
 
-export const ADMIN_KEY = import.meta.env.VITE_ADMIN_KEY || '';
-
 export const CATEGORY_ICONS = {
   Compute: Server, Storage: Database, Networking: Globe, Security: Shield,
   Analytics: BarChart3, AI: Zap, Containers: Box, Database: Database,
