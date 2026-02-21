@@ -1,8 +1,6 @@
 """Tests for admin_auth module — JWT-based admin session management."""
 
-import time
 import pytest
-from unittest.mock import patch
 
 
 class TestAdminAuth:
