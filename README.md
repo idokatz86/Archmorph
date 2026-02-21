@@ -462,25 +462,38 @@ Archmorph/
 
 ## Deployment
 
+Deployment is fully automated via **GitHub Actions CI/CD** on every push to `main`.
+
 ### Azure Resources
 
 | Resource | SKU | Region |
 |----------|-----|--------|
-| Container Apps | Consumption | North Europe |
+| Container Apps | Consumption | West Europe |
 | Static Web Apps | Free | West Europe |
-| Container Registry | Basic | North Europe |
+| Container Registry | Basic | West Europe |
+| Azure OpenAI | S0 | East US |
+| PostgreSQL Flexible Server | Burstable B1ms | West Europe |
+| Application Insights | — | West Europe |
 
-### Deploy Backend
+### CI/CD Pipeline
+
+The CI/CD workflow (`.github/workflows/ci.yml`) runs 5 jobs:
+
+1. **backend-lint** — Ruff linting
+2. **frontend-build** — Vite production build
+3. **backend-tests** — 719 pytest tests
+4. **deploy-frontend** — Azure Static Web Apps (automatic)
+5. **deploy-backend** — Docker build → ACR push → Container Apps revision
+
+### Manual Deploy (if needed)
 
 ```bash
+# Backend
 cd backend
-az acr build --registry <acr-name> --image archmorph-api:v8 .
-az containerapp update --name archmorph-api --resource-group <rg> --image <acr>.azurecr.io/archmorph-api:v8
-```
+az acr build --registry <acr-name> --image archmorph-api:latest .
+az containerapp update --name archmorph-api --resource-group <rg> --image <acr>.azurecr.io/archmorph-api:latest
 
-### Deploy Frontend
-
-```bash
+# Frontend
 cd frontend
 npm run build
 npx swa deploy dist --deployment-token <token> --env production
