@@ -1,0 +1,53 @@
+# Production environment overrides
+replicaCount: 3
+
+image:
+  tag: "latest"
+
+env:
+  ENVIRONMENT: "prod"
+  RATE_LIMIT_ENABLED: "true"
+  ALLOWED_ORIGINS: "https://agreeable-ground-01012c003.2.azurestaticapps.net"
+
+resources:
+  limits:
+    cpu: "1"
+    memory: 2Gi
+  requests:
+    cpu: 500m
+    memory: 1Gi
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 75
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+  hosts:
+    - host: api.archmorph.dev
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: archmorph-prod-tls
+      hosts:
+        - api.archmorph.dev
+
+externalSecrets:
+  enabled: true
+  secretStoreRef:
+    name: azure-keyvault-prod
+    kind: SecretStore
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8000"
+  prometheus.io/path: "/api/admin/monitoring"

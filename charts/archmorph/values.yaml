@@ -1,0 +1,122 @@
+# Default values for archmorph
+# This is a YAML-formatted file.
+
+replicaCount: 1
+
+image:
+  repository: archmorphacr.azurecr.io/archmorph-api
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  runAsNonRoot: true
+  runAsUser: 1000
+  capabilities:
+    drop:
+      - ALL
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8000
+
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations: {}
+  hosts:
+    - host: archmorph.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 1Gi
+  requests:
+    cpu: 250m
+    memory: 512Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 75
+  targetMemoryUtilizationPercentage: 80
+
+# Environment variables from ConfigMap
+env:
+  ENVIRONMENT: "dev"
+  AZURE_OPENAI_DEPLOYMENT: "gpt-4o"
+  RATE_LIMIT_ENABLED: "true"
+  ALLOWED_ORIGINS: "http://localhost:5173"
+
+# Secrets (referenced from external-secrets or Kubernetes secrets)
+externalSecrets:
+  enabled: false
+  secretStoreRef:
+    name: azure-keyvault
+    kind: SecretStore
+  data:
+    - secretKey: AZURE_OPENAI_API_KEY
+      remoteRef:
+        key: openai-api-key
+    - secretKey: DATABASE_URL
+      remoteRef:
+        key: database-url
+    - secretKey: APPLICATIONINSIGHTS_CONNECTION_STRING
+      remoteRef:
+        key: appinsights-connection-string
+    - secretKey: ARCHMORPH_ADMIN_KEY
+      remoteRef:
+        key: admin-key
+
+# Health check configuration
+livenessProbe:
+  httpGet:
+    path: /api/health
+    port: 8000
+  initialDelaySeconds: 10
+  periodSeconds: 30
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /api/health
+    port: 8000
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  failureThreshold: 3
+
+startupProbe:
+  httpGet:
+    path: /api/health
+    port: 8000
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  failureThreshold: 10
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

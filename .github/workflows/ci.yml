@@ -37,21 +37,35 @@ jobs:
           cache-dependency-path: backend/requirements.txt
 
       - name: Install linters
-        run: pip install ruff bandit pip-audit
+        run: |
+          echo "::group::Installing linters"
+          SECONDS=0
+          pip install ruff bandit pip-audit
+          echo "::endgroup::"
+          echo "::notice::Linter install took ${SECONDS}s"
 
       - name: Ruff lint
-        run: ruff check .
+        run: |
+          SECONDS=0
+          ruff check .
+          echo "::notice::Ruff lint took ${SECONDS}s"
 
       - name: Bandit security scan
         run: |
+          SECONDS=0
           # B101 (assert_used) is skipped globally since tests use assertions
           # All other findings use inline # nosec comments for precise documentation
           bandit -r . -x ./tests,./.venv --skip B101
+          echo "::notice::Bandit scan took ${SECONDS}s"
 
       - name: pip-audit
         run: |
+          echo "::group::pip-audit"
+          SECONDS=0
           pip install -r requirements.txt
           pip-audit --ignore-vuln GHSA-wj6h-64fc-37mp
+          echo "::endgroup::"
+          echo "::notice::pip-audit took ${SECONDS}s"
         # Note: GHSA-wj6h-64fc-37mp (ecdsa timing attack) has no fix available yet
 
   # ============================================
@@ -137,6 +151,7 @@ jobs:
     needs: backend-lint
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ['3.11', '3.12']
     defaults:
@@ -153,10 +168,18 @@ jobs:
           cache-dependency-path: backend/requirements.txt
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          echo "::group::Installing dependencies"
+          SECONDS=0
+          pip install -r requirements.txt
+          echo "::endgroup::"
+          echo "::notice::Dependency install took ${SECONDS}s"
 
       - name: Run tests
-        run: python -m pytest --tb=short -q
+        run: |
+          SECONDS=0
+          python -m pytest --tb=short -q
+          echo "::notice::Tests (Python ${{ matrix.python-version }}) took ${SECONDS}s"
         env:
           AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
           AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
@@ -233,6 +256,8 @@ jobs:
             ${{ env.ACR_LOGIN_SERVER }}/archmorph-api:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          build-args: |
+            BUILDKIT_INLINE_CACHE=1
 
       - name: Trivy Container Security Scan (#45)
         uses: aquasecurity/trivy-action@master
@@ -270,7 +295,16 @@ jobs:
             --connection-string "$STORAGE_CONN" \
             --only-show-errors || true
 
-      - name: Deploy to Container Apps
+      # ── Blue-Green Deployment (#38) ──
+      - name: Enable multiple revisions
+        run: |
+          az containerapp revision set-mode \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --mode multiple
+
+      - name: Deploy green revision
+        id: green
         run: |
           az containerapp secret set \
             --name ${{ env.CONTAINER_APP_NAME }} \
@@ -279,24 +313,110 @@ jobs:
               admin-key="${{ env.ADMIN_KEY }}" \
               storage-connection="${{ env.STORAGE_CONN }}" \
             2>/dev/null || true
+
+          # Create new revision (green) with 0% traffic
           az containerapp update \
             --name ${{ env.CONTAINER_APP_NAME }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --image ${{ env.ACR_LOGIN_SERVER }}/archmorph-api:${{ github.sha }} \
             --set-env-vars \
               ARCHMORPH_ADMIN_KEY=secretref:admin-key \
-              AZURE_STORAGE_CONNECTION_STRING=secretref:storage-connection
+              AZURE_STORAGE_CONNECTION_STRING=secretref:storage-connection \
+            --revision-suffix "${{ github.sha }}" \
+            --no-wait
 
-      - name: Verify deployment
+          # Wait for green revision to be ready
+          echo "Waiting for green revision to provision..."
+          sleep 45
+
+          GREEN_REV=$(az containerapp revision list \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --query "[?contains(name, '${{ github.sha }}')].name" -o tsv | head -1)
+
+          echo "green_revision=$GREEN_REV" >> $GITHUB_OUTPUT
+          echo "Green revision: $GREEN_REV"
+
+      - name: Smoke test green revision
         run: |
-          sleep 30
-          HEALTH=$(curl -s ${{ env.API_URL }}/health | jq -r '.status')
+          # Get the green revision FQDN
+          GREEN_FQDN=$(az containerapp revision show \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --revision "${{ steps.green.outputs.green_revision }}" \
+            --query "properties.fqdn" -o tsv 2>/dev/null || echo "")
+
+          # If revision FQDN not available, use main app URL
+          if [ -z "$GREEN_FQDN" ]; then
+            TEST_URL="${{ env.API_URL }}"
+          else
+            TEST_URL="https://$GREEN_FQDN"
+          fi
+
+          echo "Running smoke tests against: $TEST_URL"
+
+          # Health check
+          HEALTH=$(curl -s --max-time 30 "$TEST_URL/health" | jq -r '.status' 2>/dev/null || echo 'failed')
           if [ "$HEALTH" != "healthy" ]; then
-            echo "Health check failed: $HEALTH"
+            echo "::error::Green revision health check failed: $HEALTH"
             exit 1
           fi
-          VERSION=$(curl -s ${{ env.API_URL }}/health | jq -r '.version')
-          echo "✅ Deployed version: $VERSION"
+
+          # Version check
+          VERSION=$(curl -s --max-time 30 "$TEST_URL/health" | jq -r '.version' 2>/dev/null || echo 'unknown')
+          echo "Green revision version: $VERSION"
+
+          # API endpoint test
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "$TEST_URL/api/versions")
+          if [ "$STATUS" != "200" ]; then
+            echo "::error::Green revision /api/versions returned $STATUS"
+            exit 1
+          fi
+
+          echo "All smoke tests passed on green revision"
+
+      - name: Shift traffic to green (100%)
+        run: |
+          az containerapp ingress traffic set \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --revision-weight "${{ steps.green.outputs.green_revision }}=100"
+          echo "100% traffic shifted to green revision: ${{ steps.green.outputs.green_revision }}"
+
+      - name: Deactivate old revisions (keep blue for rollback)
+        run: |
+          # List all active revisions except the new green one
+          OLD_REVS=$(az containerapp revision list \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --query "[?properties.active && name != '${{ steps.green.outputs.green_revision }}'].name" -o tsv)
+
+          # Keep only the most recent old revision (blue) active for rollback
+          KEEP_BLUE=$(echo "$OLD_REVS" | head -1)
+          DEACTIVATE=$(echo "$OLD_REVS" | tail -n +2)
+
+          if [ -n "$KEEP_BLUE" ]; then
+            echo "Keeping blue revision for rollback: $KEEP_BLUE"
+          fi
+
+          for rev in $DEACTIVATE; do
+            echo "Deactivating old revision: $rev"
+            az containerapp revision deactivate \
+              --name ${{ env.CONTAINER_APP_NAME }} \
+              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --revision "$rev" || true
+          done
+
+      - name: Verify production deployment
+        run: |
+          sleep 10
+          HEALTH=$(curl -s --max-time 30 ${{ env.API_URL }}/health | jq -r '.status')
+          if [ "$HEALTH" != "healthy" ]; then
+            echo "::error::Production health check failed after traffic shift: $HEALTH"
+            exit 1
+          fi
+          VERSION=$(curl -s --max-time 30 ${{ env.API_URL }}/health | jq -r '.version')
+          echo "Deployed version: $VERSION (blue-green complete)"
 
   # ============================================
   # FRONTEND DEPLOY (Azure Static Web Apps)

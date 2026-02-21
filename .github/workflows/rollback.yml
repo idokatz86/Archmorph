@@ -1,0 +1,93 @@
+name: Manual Rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      revision_name:
+        description: 'Revision name to roll back to (leave empty for previous revision)'
+        required: false
+        type: string
+      traffic_percentage:
+        description: 'Traffic percentage to route to the target revision (default: 100)'
+        required: false
+        default: '100'
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+  AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+  AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+  CONTAINER_APP_NAME: ${{ secrets.CONTAINER_APP_NAME }}
+  API_URL: ${{ secrets.API_URL }}
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Determine rollback revision
+        id: revision
+        run: |
+          if [ -n "${{ github.event.inputs.revision_name }}" ]; then
+            echo "target=${{ github.event.inputs.revision_name }}" >> $GITHUB_OUTPUT
+            echo "Using specified revision: ${{ github.event.inputs.revision_name }}"
+          else
+            # Get the list of revisions, pick the second one (previous active)
+            REVISIONS=$(az containerapp revision list \
+              --name ${{ env.CONTAINER_APP_NAME }} \
+              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --query "[?properties.active].name" -o tsv)
+            
+            CURRENT=$(az containerapp revision list \
+              --name ${{ env.CONTAINER_APP_NAME }} \
+              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --query "[?properties.trafficWeight > \`0\`].name" -o tsv | head -1)
+
+            PREVIOUS=$(echo "$REVISIONS" | grep -v "^$CURRENT$" | head -1)
+            
+            if [ -z "$PREVIOUS" ]; then
+              echo "::error::No previous revision found for rollback"
+              exit 1
+            fi
+            echo "target=$PREVIOUS" >> $GITHUB_OUTPUT
+            echo "Rolling back to previous revision: $PREVIOUS (current: $CURRENT)"
+          fi
+
+      - name: Activate rollback revision
+        run: |
+          az containerapp revision activate \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --revision ${{ steps.revision.outputs.target }}
+
+      - name: Shift traffic to rollback revision
+        run: |
+          TRAFFIC=${{ github.event.inputs.traffic_percentage || '100' }}
+          az containerapp ingress traffic set \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --revision-weight "${{ steps.revision.outputs.target }}=$TRAFFIC"
+          echo "Shifted ${TRAFFIC}% traffic to ${{ steps.revision.outputs.target }}"
+
+      - name: Verify rollback health
+        run: |
+          echo "Waiting 30s for revision to stabilize..."
+          sleep 30
+          HEALTH=$(curl -s --max-time 30 "${{ env.API_URL }}/health" | jq -r '.status')
+          VERSION=$(curl -s --max-time 30 "${{ env.API_URL }}/health" | jq -r '.version')
+          if [ "$HEALTH" != "healthy" ]; then
+            echo "::error::Health check failed after rollback: $HEALTH"
+            exit 1
+          fi
+          echo "Rollback successful — version: $VERSION, status: $HEALTH"

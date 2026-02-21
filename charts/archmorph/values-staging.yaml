@@ -1,0 +1,45 @@
+# Staging environment overrides
+replicaCount: 2
+
+image:
+  tag: "staging"
+
+env:
+  ENVIRONMENT: "staging"
+  RATE_LIMIT_ENABLED: "true"
+  ALLOWED_ORIGINS: "https://archmorph-staging.azurestaticapps.net"
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 1Gi
+  requests:
+    cpu: 250m
+    memory: 512Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 75
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-staging
+  hosts:
+    - host: api-staging.archmorph.dev
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: archmorph-staging-tls
+      hosts:
+        - api-staging.archmorph.dev
+
+externalSecrets:
+  enabled: true
+  secretStoreRef:
+    name: azure-keyvault-staging
+    kind: SecretStore

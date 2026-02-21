@@ -296,7 +296,7 @@ resource "azurerm_container_app" "backend" {
   name                         = "archmorph-api"
   resource_group_name          = azurerm_resource_group.main.name
   container_app_environment_id = azurerm_container_app_environment.main.id
-  revision_mode                = "Single"
+  revision_mode                = "Multiple"  # Blue-green deployments (#38)
   tags                         = local.tags
 
   # Managed identity for secure access to Azure resources
@@ -1769,3 +1769,406 @@ resource "azurerm_application_insights_workbook" "dashboard" {
 #   tier          = "Standard"
 #   resource_type = "Containers"
 # }
+
+# ─────────────────────────────────────────────────────────────
+# Azure Front Door + WAF Policy (Issue #43 — Zero Trust)
+# ─────────────────────────────────────────────────────────────
+
+# WAF Policy with OWASP CRS 3.2 managed ruleset
+resource "azurerm_cdn_frontdoor_firewall_policy" "waf" {
+  name                              = "archmorphwaf${local.name_suffix}"
+  resource_group_name               = azurerm_resource_group.main.name
+  sku_name                          = "Premium_AzureFrontDoor"
+  enabled                           = true
+  mode                              = var.environment == "prod" ? "Prevention" : "Detection"
+  custom_block_response_status_code = 403
+  custom_block_response_body        = base64encode("{\"error\":\"Request blocked by WAF policy\"}")
+
+  # OWASP CRS 3.2 managed ruleset
+  managed_rule {
+    type    = "Microsoft_DefaultRuleSet"
+    version = "2.1"
+    action  = "Block"
+  }
+
+  # Bot protection managed ruleset
+  managed_rule {
+    type    = "Microsoft_BotManagerRuleSet"
+    version = "1.1"
+    action  = "Block"
+  }
+
+  # Rate limiting — prevent abuse
+  custom_rule {
+    name     = "RateLimitPerIP"
+    enabled  = true
+    priority = 100
+    type     = "RateLimitRule"
+    action   = "Block"
+
+    rate_limit_duration_in_minutes = 1
+    rate_limit_threshold           = 300
+
+    match_condition {
+      match_variable     = "RemoteAddr"
+      operator           = "IPMatch"
+      negation_condition = true
+      match_values       = ["0.0.0.0/0"]  # Match all (rate-limit everyone equally)
+    }
+  }
+
+  # Block known bad user agents
+  custom_rule {
+    name     = "BlockBadBots"
+    enabled  = true
+    priority = 200
+    type     = "MatchRule"
+    action   = "Block"
+
+    match_condition {
+      match_variable     = "RequestHeader"
+      selector           = "User-Agent"
+      operator           = "Contains"
+      negation_condition = false
+      match_values       = ["sqlmap", "nikto", "nmap", "dirbuster", "havij"]
+      transforms         = ["Lowercase"]
+    }
+  }
+
+  tags = local.tags
+}
+
+# Azure Front Door profile
+resource "azurerm_cdn_frontdoor_profile" "main" {
+  name                = "archmorph-fd-${local.name_suffix}"
+  resource_group_name = azurerm_resource_group.main.name
+  sku_name            = "Premium_AzureFrontDoor"
+  tags                = local.tags
+}
+
+# Front Door endpoint
+resource "azurerm_cdn_frontdoor_endpoint" "api" {
+  name                     = "archmorph-api-${local.name_suffix}"
+  cdn_frontdoor_profile_id = azurerm_cdn_frontdoor_profile.main.id
+  enabled                  = true
+  tags                     = local.tags
+}
+
+# Origin group pointing to the Container App
+resource "azurerm_cdn_frontdoor_origin_group" "api" {
+  name                     = "archmorph-api-origin-group"
+  cdn_frontdoor_profile_id = azurerm_cdn_frontdoor_profile.main.id
+  session_affinity_enabled = false
+
+  load_balancing {
+    sample_size                 = 4
+    successful_samples_required = 3
+  }
+
+  health_probe {
+    path                = "/api/health"
+    protocol            = "Https"
+    interval_in_seconds = 30
+    request_type        = "GET"
+  }
+}
+
+# Origin — the Container App backend
+resource "azurerm_cdn_frontdoor_origin" "api" {
+  name                          = "archmorph-api-origin"
+  cdn_frontdoor_origin_group_id = azurerm_cdn_frontdoor_origin_group.api.id
+  enabled                       = true
+
+  certificate_name_check_enabled = true
+  host_name                      = azurerm_container_app.backend.ingress[0].fqdn
+  origin_host_header             = azurerm_container_app.backend.ingress[0].fqdn
+  http_port                      = 80
+  https_port                     = 443
+  priority                       = 1
+  weight                         = 1000
+}
+
+# Route — send all traffic through WAF to the Container App
+resource "azurerm_cdn_frontdoor_route" "api" {
+  name                          = "archmorph-api-route"
+  cdn_frontdoor_endpoint_id     = azurerm_cdn_frontdoor_endpoint.api.id
+  cdn_frontdoor_origin_group_id = azurerm_cdn_frontdoor_origin_group.api.id
+  cdn_frontdoor_origin_ids      = [azurerm_cdn_frontdoor_origin.api.id]
+  enabled                       = true
+
+  forwarding_protocol    = "HttpsOnly"
+  https_redirect_enabled = true
+  patterns_to_match      = ["/*"]
+  supported_protocols    = ["Http", "Https"]
+
+  link_to_default_domain = true
+}
+
+# Associate WAF policy with the Front Door security policy
+resource "azurerm_cdn_frontdoor_security_policy" "waf" {
+  name                     = "archmorph-waf-security-policy"
+  cdn_frontdoor_profile_id = azurerm_cdn_frontdoor_profile.main.id
+
+  security_policies {
+    firewall {
+      cdn_frontdoor_firewall_policy_id = azurerm_cdn_frontdoor_firewall_policy.waf.id
+
+      association {
+        domain {
+          cdn_frontdoor_domain_id = azurerm_cdn_frontdoor_endpoint.api.id
+        }
+        patterns_to_match = ["/*"]
+      }
+    }
+  }
+}
+
+# Front Door diagnostic settings — log WAF events
+resource "azurerm_monitor_diagnostic_setting" "front_door" {
+  name                       = "frontdoor-diagnostics"
+  target_resource_id         = azurerm_cdn_frontdoor_profile.main.id
+  log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
+
+  enabled_log {
+    category = "FrontDoorAccessLog"
+  }
+
+  enabled_log {
+    category = "FrontDoorHealthProbeLog"
+  }
+
+  enabled_log {
+    category = "FrontDoorWebApplicationFirewallLog"
+  }
+
+  metric {
+    category = "AllMetrics"
+  }
+}
+
+# ─────────────────────────────────────────────────────────────
+# DDoS Protection Plan (Issue #43)
+# ─────────────────────────────────────────────────────────────
+# NOTE: Azure DDoS Protection Standard costs ~$2,944/month.
+# Uncomment ONLY for production workloads that justify the cost.
+# Azure Front Door Premium includes basic DDoS protection.
+#
+# resource "azurerm_network_ddos_protection_plan" "main" {
+#   name                = "archmorph-ddos-${local.name_suffix}"
+#   resource_group_name = azurerm_resource_group.main.name
+#   location            = azurerm_resource_group.main.location
+#   tags                = local.tags
+# }
+
+# ─────────────────────────────────────────────────────────────
+# Network Security — VNet + NSG for Container App (Issue #43)
+# ─────────────────────────────────────────────────────────────
+
+# Virtual Network for workload isolation
+resource "azurerm_virtual_network" "main" {
+  name                = "archmorph-vnet-${local.name_suffix}"
+  resource_group_name = azurerm_resource_group.main.name
+  location            = azurerm_resource_group.main.location
+  address_space       = ["10.0.0.0/16"]
+  tags                = local.tags
+
+  # Uncomment to attach DDoS Protection Plan when enabled:
+  # ddos_protection_plan {
+  #   id     = azurerm_network_ddos_protection_plan.main.id
+  #   enable = true
+  # }
+}
+
+# Subnet for Container App Environment
+resource "azurerm_subnet" "container_apps" {
+  name                 = "container-apps-subnet"
+  resource_group_name  = azurerm_resource_group.main.name
+  virtual_network_name = azurerm_virtual_network.main.name
+  address_prefixes     = ["10.0.1.0/24"]
+
+  delegation {
+    name = "container-apps-delegation"
+
+    service_delegation {
+      name    = "Microsoft.App/environments"
+      actions = ["Microsoft.Network/virtualNetworks/subnets/action"]
+    }
+  }
+}
+
+# Subnet for PostgreSQL private endpoint
+resource "azurerm_subnet" "database" {
+  name                 = "database-subnet"
+  resource_group_name  = azurerm_resource_group.main.name
+  virtual_network_name = azurerm_virtual_network.main.name
+  address_prefixes     = ["10.0.2.0/24"]
+  service_endpoints    = ["Microsoft.Storage"]
+}
+
+# NSG for Container App subnet — Zero Trust network controls
+resource "azurerm_network_security_group" "container_apps" {
+  name                = "archmorph-nsg-cae-${local.name_suffix}"
+  resource_group_name = azurerm_resource_group.main.name
+  location            = azurerm_resource_group.main.location
+  tags                = local.tags
+
+  # Allow HTTPS inbound from Front Door only
+  security_rule {
+    name                       = "AllowFrontDoorInbound"
+    priority                   = 100
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "443"
+    source_address_prefix      = "AzureFrontDoor.Backend"
+    destination_address_prefix = "*"
+  }
+
+  # Allow HTTP inbound from Front Door (for redirect)
+  security_rule {
+    name                       = "AllowFrontDoorHTTPInbound"
+    priority                   = 110
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "80"
+    source_address_prefix      = "AzureFrontDoor.Backend"
+    destination_address_prefix = "*"
+  }
+
+  # Allow health probes from Azure infrastructure
+  security_rule {
+    name                       = "AllowAzureLoadBalancer"
+    priority                   = 120
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "*"
+    source_port_range          = "*"
+    destination_port_range     = "*"
+    source_address_prefix      = "AzureLoadBalancer"
+    destination_address_prefix = "*"
+  }
+
+  # Deny all other inbound traffic (Zero Trust)
+  security_rule {
+    name                       = "DenyAllInbound"
+    priority                   = 4000
+    direction                  = "Inbound"
+    access                     = "Deny"
+    protocol                   = "*"
+    source_port_range          = "*"
+    destination_port_range     = "*"
+    source_address_prefix      = "*"
+    destination_address_prefix = "*"
+  }
+
+  # Allow outbound to Azure services (DB, Storage, Key Vault)
+  security_rule {
+    name                       = "AllowAzureServicesOutbound"
+    priority                   = 100
+    direction                  = "Outbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_ranges    = ["443", "5432"]
+    source_address_prefix      = "*"
+    destination_address_prefix = "AzureCloud"
+  }
+
+  # Allow outbound HTTPS for OpenAI API
+  security_rule {
+    name                       = "AllowOpenAIOutbound"
+    priority                   = 110
+    direction                  = "Outbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "443"
+    source_address_prefix      = "*"
+    destination_address_prefix = "Internet"
+  }
+}
+
+# Associate NSG with Container App subnet
+resource "azurerm_subnet_network_security_group_association" "container_apps" {
+  subnet_id                 = azurerm_subnet.container_apps.id
+  network_security_group_id = azurerm_network_security_group.container_apps.id
+}
+
+# NSG for Database subnet
+resource "azurerm_network_security_group" "database" {
+  name                = "archmorph-nsg-db-${local.name_suffix}"
+  resource_group_name = azurerm_resource_group.main.name
+  location            = azurerm_resource_group.main.location
+  tags                = local.tags
+
+  # Allow PostgreSQL from Container App subnet only
+  security_rule {
+    name                       = "AllowPostgreSQLFromCAE"
+    priority                   = 100
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "5432"
+    source_address_prefix      = "10.0.1.0/24"
+    destination_address_prefix = "*"
+  }
+
+  # Deny all other inbound
+  security_rule {
+    name                       = "DenyAllInbound"
+    priority                   = 4000
+    direction                  = "Inbound"
+    access                     = "Deny"
+    protocol                   = "*"
+    source_port_range          = "*"
+    destination_port_range     = "*"
+    source_address_prefix      = "*"
+    destination_address_prefix = "*"
+  }
+}
+
+# Associate NSG with Database subnet
+resource "azurerm_subnet_network_security_group_association" "database" {
+  subnet_id                 = azurerm_subnet.database.id
+  network_security_group_id = azurerm_network_security_group.database.id
+}
+
+# NSG diagnostic logging
+resource "azurerm_monitor_diagnostic_setting" "nsg_container_apps" {
+  name                       = "nsg-cae-diagnostics"
+  target_resource_id         = azurerm_network_security_group.container_apps.id
+  log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
+
+  enabled_log {
+    category = "NetworkSecurityGroupEvent"
+  }
+
+  enabled_log {
+    category = "NetworkSecurityGroupRuleCounter"
+  }
+}
+
+# ─────────────────────────────────────────────────────────────
+# WAF Log Analytics query — blocked requests dashboard
+# ─────────────────────────────────────────────────────────────
+resource "azurerm_log_analytics_saved_search" "waf_blocked" {
+  name                       = "ArchmorphWAFBlocked"
+  log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
+  category                   = "Archmorph"
+  display_name               = "WAF Blocked Requests"
+  query                      = <<-QUERY
+    AzureDiagnostics
+    | where ResourceProvider == "MICROSOFT.CDN"
+    | where Category == "FrontDoorWebApplicationFirewallLog"
+    | where action_s == "Block"
+    | summarize
+        BlockedRequests = count()
+      by ruleName_s, clientIP_s, requestUri_s, bin(TimeGenerated, 1h)
+    | order by BlockedRequests desc
+  QUERY
+  function_alias             = "ArchmorphWAFBlocked"
+}

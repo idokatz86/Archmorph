@@ -1,0 +1,312 @@
+# =============================================================================
+# Security Pipeline — Issue #45
+# SAST (Semgrep, Bandit, CodeQL), SCA (pip-audit, npm audit),
+# Secret Detection (Gitleaks), Container Scanning (Trivy)
+# =============================================================================
+name: Security Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Run weekly on Monday at 06:00 UTC for drift detection
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write   # SARIF upload
+  actions: read             # CodeQL needs this
+
+jobs:
+  # ───────────────────────────────────────────────────────────
+  # SAST: Semgrep
+  # ───────────────────────────────────────────────────────────
+  semgrep:
+    name: "SAST — Semgrep"
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Semgrep
+        run: |
+          semgrep scan \
+            --config p/security-audit \
+            --config p/owasp-top-ten \
+            --sarif \
+            --output semgrep-results.sarif \
+            --error \
+            || true
+        env:
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+
+      - name: Upload Semgrep SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: semgrep-results.sarif
+          category: semgrep
+
+      - name: Upload Semgrep artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: semgrep-results
+          path: semgrep-results.sarif
+          retention-days: 30
+
+  # ───────────────────────────────────────────────────────────
+  # SAST: Bandit (Python-specific)
+  # ───────────────────────────────────────────────────────────
+  bandit:
+    name: "SAST — Bandit"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Bandit
+        run: pip install bandit[sarif]
+
+      - name: Run Bandit
+        run: |
+          bandit -r backend/ \
+            -f sarif \
+            -o bandit-results.sarif \
+            --severity-level medium \
+            -x backend/tests \
+            || true
+
+      - name: Upload Bandit SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: bandit-results.sarif
+          category: bandit
+
+      - name: Upload Bandit artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bandit-results
+          path: bandit-results.sarif
+          retention-days: 30
+
+  # ───────────────────────────────────────────────────────────
+  # SAST: CodeQL Analysis
+  # ───────────────────────────────────────────────────────────
+  codeql:
+    name: "SAST — CodeQL"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [python, javascript]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-extended
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: codeql-${{ matrix.language }}
+
+  # ───────────────────────────────────────────────────────────
+  # SCA: pip-audit (Python dependency vulnerabilities)
+  # ───────────────────────────────────────────────────────────
+  pip-audit:
+    name: "SCA — pip-audit"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Install pip-audit
+        run: pip install pip-audit
+
+      - name: Run pip-audit
+        run: |
+          pip-audit \
+            -r backend/requirements.txt \
+            --format json \
+            --output pip-audit-results.json \
+            || true
+
+      - name: Upload pip-audit results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pip-audit-results
+          path: pip-audit-results.json
+          retention-days: 30
+
+      - name: Display pip-audit summary
+        if: always()
+        run: |
+          echo "## pip-audit Results" >> $GITHUB_STEP_SUMMARY
+          if [ -f pip-audit-results.json ]; then
+            python3 -c "
+          import json
+          with open('pip-audit-results.json') as f:
+              data = json.load(f)
+          deps = data.get('dependencies', [])
+          vulns = [d for d in deps if d.get('vulns')]
+          print(f'Scanned {len(deps)} packages, found {len(vulns)} with vulnerabilities')
+          for d in vulns:
+              for v in d['vulns']:
+                  print(f\"- **{d['name']}** {d['version']}: {v['id']} — {v.get('description', 'N/A')[:100]}\")
+          " >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ───────────────────────────────────────────────────────────
+  # SCA: npm audit (frontend dependency vulnerabilities)
+  # ───────────────────────────────────────────────────────────
+  npm-audit:
+    name: "SCA — npm audit"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Run npm audit
+        run: |
+          npm audit --json > ../npm-audit-results.json || true
+        working-directory: frontend
+
+      - name: Upload npm audit results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: npm-audit-results
+          path: npm-audit-results.json
+          retention-days: 30
+
+      - name: Display npm audit summary
+        if: always()
+        run: |
+          echo "## npm audit Results" >> $GITHUB_STEP_SUMMARY
+          if [ -f npm-audit-results.json ]; then
+            node -e "
+            const data = require('./npm-audit-results.json');
+            const meta = data.metadata || {};
+            console.log('| Severity | Count |');
+            console.log('|----------|-------|');
+            for (const [sev, count] of Object.entries(meta.vulnerabilities || {})) {
+              if (count > 0) console.log('| ' + sev + ' | ' + count + ' |');
+            }
+            " >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ───────────────────────────────────────────────────────────
+  # Secret Detection: Gitleaks
+  # ───────────────────────────────────────────────────────────
+  gitleaks:
+    name: "Secrets — Gitleaks"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+
+  # ───────────────────────────────────────────────────────────
+  # Container Scan: Trivy on Dockerfile
+  # ───────────────────────────────────────────────────────────
+  trivy:
+    name: "Container — Trivy"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Docker image for scanning
+        run: docker build -t archmorph-api:scan backend/
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: "archmorph-api:scan"
+          format: "sarif"
+          output: "trivy-results.sarif"
+          severity: "CRITICAL,HIGH,MEDIUM"
+          exit-code: "0"
+
+      - name: Upload Trivy SARIF to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy
+
+      - name: Upload Trivy artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-results
+          path: trivy-results.sarif
+          retention-days: 30
+
+  # ───────────────────────────────────────────────────────────
+  # Summary Gate — collect all results
+  # ───────────────────────────────────────────────────────────
+  security-summary:
+    name: "Security Summary"
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [semgrep, bandit, codeql, pip-audit, npm-audit, gitleaks, trivy]
+    steps:
+      - name: Security pipeline summary
+        run: |
+          echo "## Security Pipeline Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Semgrep (SAST) | ${{ needs.semgrep.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Bandit (SAST) | ${{ needs.bandit.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| CodeQL (SAST) | ${{ needs.codeql.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| pip-audit (SCA) | ${{ needs.pip-audit.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| npm audit (SCA) | ${{ needs.npm-audit.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Gitleaks (Secrets) | ${{ needs.gitleaks.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Trivy (Container) | ${{ needs.trivy.result }} |" >> $GITHUB_STEP_SUMMARY

@@ -59,8 +59,10 @@ from routers.auth import router as auth_router  # noqa: E402
 from routers.versioning import router as versioning_router  # noqa: E402
 from routers.migration import router as migration_router  # noqa: E402
 from routers.terraform import router as terraform_router  # noqa: E402
+from routers.feature_flags import router as feature_flags_router  # noqa: E402
 from routers.v1 import build_v1_router  # noqa: E402
 from api_versioning import VersionMiddleware  # noqa: E402
+from audit_logging import audit_logger, AuditEventType  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -225,6 +227,42 @@ class LatencyTrackingMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(LatencyTrackingMiddleware)
 
+
+# ─────────────────────────────────────────────────────────────
+# Audit Logging Middleware (v2.12.0)
+# ─────────────────────────────────────────────────────────────
+class AuditMiddleware(BaseHTTPMiddleware):
+    """Automatically audit-log every API request with latency and status."""
+
+    # Paths that generate high volume with negligible security value
+    _SKIP_PATHS = frozenset({"/health", "/api/health", "/favicon.ico", "/openapi.json", "/docs", "/redoc"})
+
+    async def dispatch(self, request: Request, call_next):
+        if request.url.path in self._SKIP_PATHS:
+            return await call_next(request)
+
+        start = time.perf_counter()
+        response = await call_next(request)
+        latency_ms = (time.perf_counter() - start) * 1000
+
+        try:
+            ip = request.client.host if request.client else None
+            audit_logger.log_api_access(
+                endpoint=request.url.path,
+                method=request.method,
+                status_code=response.status_code,
+                latency_ms=latency_ms,
+                ip_address=ip,
+            )
+        except Exception:  # nosec B110 - audit must never break request handling
+            pass
+
+        return response
+
+
+app.add_middleware(AuditMiddleware)
+
+
 # ─────────────────────────────────────────────────────────────
 # API Version Header Middleware
 # ─────────────────────────────────────────────────────────────
@@ -246,6 +284,7 @@ app.include_router(auth_router)
 app.include_router(versioning_router)
 app.include_router(migration_router)
 app.include_router(terraform_router)
+app.include_router(feature_flags_router)
 
 # ─────────────────────────────────────────────────────────────
 # API v1 Versioned Routes (/api/v1/* mirrors /api/*)
@@ -264,6 +303,7 @@ _all_routers = [
     (versioning_router, ""),
     (migration_router, ""),
     (terraform_router, ""),
+    (feature_flags_router, ""),
 ]
 v1_router = build_v1_router(_all_routers)
 app.include_router(v1_router)

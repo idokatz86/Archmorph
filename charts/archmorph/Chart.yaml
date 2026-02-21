@@ -1,0 +1,17 @@
+apiVersion: v2
+name: archmorph
+description: AI-powered Cloud Architecture Translator to Azure
+type: application
+version: 0.1.0
+appVersion: "2.11.1"
+keywords:
+  - cloud
+  - architecture
+  - azure
+  - migration
+  - ai
+maintainers:
+  - name: Archmorph Team
+home: https://github.com/idokatz86/Archmorph
+sources:
+  - https://github.com/idokatz86/Archmorph
