@@ -4,11 +4,21 @@ Archmorph Usage Metrics — Admin-only analytics with funnel tracking.
 Tracks: user sessions through the conversion funnel (upload → analyze →
 questions → answers → IaC → export), drop-off points, completion rates,
 daily activity, and recent events.  Designed for the admin dashboard only.
+
+Persistence priority:
+  1. Azure Blob Storage (survives container restarts/deploys)
+  2. Local disk (fallback for dev / when blob is unavailable)
+
+A background daemon thread flushes dirty metrics every 30 s and an
+atexit / SIGTERM handler guarantees a final flush on shutdown.
 """
 
+import atexit
 import json
 import os
 import logging
+import signal
+import threading
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta, timezone
 from threading import Lock
@@ -27,6 +37,8 @@ METRICS_BLOB_NAME = "usage_metrics.json"
 ADMIN_SECRET = os.getenv("ARCHMORPH_ADMIN_KEY", "")
 
 _lock = Lock()
+_dirty = False          # True when in-memory state diverges from persisted copy
+_flush_interval = 30    # seconds between background flush cycles
 
 # Ordered funnel steps
 FUNNEL_STEPS = ["upload", "analyze", "questions", "answers", "iac_generate", "export"]
@@ -138,7 +150,10 @@ def _load_metrics():
 
 def _save_metrics():
     """Persist metrics to Azure Blob Storage (primary) and local disk (fallback)."""
+    global _dirty
     payload = json.dumps(_metrics, indent=2, default=str)
+
+    saved = False
 
     # 1. Try Azure Blob Storage
     blob = _get_blob_client()
@@ -146,21 +161,69 @@ def _save_metrics():
         try:
             blob.upload_blob(payload, overwrite=True)
             logger.debug("Saved usage metrics to Azure Blob Storage")
-            return
+            saved = True
         except Exception as exc:
             logger.warning("Blob save failed (%s) — falling back to disk", exc)
 
-    # 2. Fallback to local file
+    # 2. Always save to local disk as secondary backup
     try:
         os.makedirs(DATA_DIR, exist_ok=True)
         with open(METRICS_FILE, "w") as f:
             f.write(payload)
+        saved = True
     except Exception as exc:
         logger.warning("Failed to save metrics to disk: %s", exc)
+
+    if saved:
+        _dirty = False
+
+
+def _mark_dirty():
+    """Flag that in-memory metrics have changed and need persisting."""
+    global _dirty
+    _dirty = True
+
+
+# ─────────────────────────────────────────────────────────────
+# Background flush thread + shutdown handler
+# ─────────────────────────────────────────────────────────────
+def _background_flush():
+    """Daemon thread: flush dirty metrics to storage every _flush_interval s."""
+    while True:
+        threading.Event().wait(_flush_interval)
+        if _dirty:
+            with _lock:
+                try:
+                    _save_metrics()
+                except Exception as exc:
+                    logger.warning("Background flush failed: %s", exc)
+
+
+def _shutdown_flush(*_args):
+    """Flush metrics on interpreter exit or SIGTERM."""
+    with _lock:
+        if _dirty:
+            try:
+                _save_metrics()
+                logger.info("Flushed metrics on shutdown")
+            except Exception as exc:
+                logger.warning("Shutdown flush failed: %s", exc)
 
 
 # Load on import
 _load_metrics()
+
+# Start background flush daemon
+_flush_thread = threading.Thread(target=_background_flush, daemon=True, name="metrics-flush")
+_flush_thread.start()
+
+# Register shutdown handlers
+atexit.register(_shutdown_flush)
+try:
+    signal.signal(signal.SIGTERM, _shutdown_flush)
+except (OSError, ValueError):
+    # signal.signal fails if not called from main thread (e.g. in tests)
+    pass
 
 
 # ─────────────────────────────────────────────────────────────
@@ -203,10 +266,7 @@ def record_event(event_type: str, details: Optional[Dict] = None):
         if not _metrics["first_event"]:
             _metrics["first_event"] = now.isoformat()
 
-        # Save periodically (every 10 events)
-        total = sum(_metrics["counters"].values())
-        if total % 10 == 0:
-            _save_metrics()
+        _mark_dirty()
 
 
 # ─────────────────────────────────────────────────────────────
@@ -239,6 +299,7 @@ def record_funnel_step(diagram_id: str, step: str):
             session["steps"].append(step)
             session["last"] = now
             _metrics["funnel_totals"][step] = _metrics["funnel_totals"].get(step, 0) + 1
+            _mark_dirty()
 
         # Prune old sessions (keep last 500)
         if len(sessions) > 500:

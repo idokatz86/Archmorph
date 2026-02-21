@@ -151,17 +151,48 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Provision metrics storage
+        run: |
+          STORAGE_NAME="archmorphmetrics"
+          # Create storage account if it doesn't exist (idempotent)
+          az storage account create \
+            --name "$STORAGE_NAME" \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --location westeurope \
+            --sku Standard_LRS \
+            --min-tls-version TLS1_2 \
+            --https-traffic-only true \
+            --allow-blob-public-access false \
+            --only-show-errors 2>/dev/null || true
+          # Get connection string
+          STORAGE_CONN=$(az storage account show-connection-string \
+            --name "$STORAGE_NAME" \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --query connectionString -o tsv)
+          echo "STORAGE_CONN=$STORAGE_CONN" >> "$GITHUB_ENV"
+          # Create metrics blob container (idempotent)
+          az storage container create \
+            --name metrics \
+            --account-name "$STORAGE_NAME" \
+            --connection-string "$STORAGE_CONN" \
+            --only-show-errors 2>/dev/null || true
+
       - name: Deploy to Container Apps
         run: |
           az containerapp secret set \
             --name ${{ env.CONTAINER_APP_NAME }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --secrets admin-key="${{ env.ADMIN_KEY }}" 2>/dev/null || true
+            --secrets \
+              admin-key="${{ env.ADMIN_KEY }}" \
+              storage-connection="${{ env.STORAGE_CONN }}" \
+            2>/dev/null || true
           az containerapp update \
             --name ${{ env.CONTAINER_APP_NAME }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --image ${{ env.ACR_LOGIN_SERVER }}/archmorph-api:${{ github.sha }} \
-            --set-env-vars ARCHMORPH_ADMIN_KEY=secretref:admin-key
+            --set-env-vars \
+              ARCHMORPH_ADMIN_KEY=secretref:admin-key \
+              AZURE_STORAGE_CONNECTION_STRING=secretref:storage-connection
 
       - name: Verify deployment
         run: |
@@ -198,7 +229,6 @@ jobs:
           npm run build
         env:
           VITE_API_BASE: ${{ env.API_URL }}
-          VITE_ADMIN_KEY: ${{ env.ADMIN_KEY }}
 
       - name: Deploy to Azure Static Web Apps
         uses: Azure/static-web-apps-deploy@v1
