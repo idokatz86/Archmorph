@@ -276,9 +276,9 @@ resource "azurerm_key_vault_secret" "openai_key" {
 # Container Apps Environment
 # ─────────────────────────────────────────────────────────────
 resource "azurerm_container_app_environment" "main" {
-  name                       = "archmorph-cae-${var.environment}"
+  name                       = "archmorph-cae"
   resource_group_name        = azurerm_resource_group.main.name
-  location                   = "westeurope"  # Already exists in westeurope
+  location                   = "northeurope"  # Note: Container Apps deployed to North Europe due to capacity
   log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
 
   workload_profile {
