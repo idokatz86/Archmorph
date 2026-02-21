@@ -13,7 +13,7 @@ from __future__ import annotations
 import base64
 import logging
 import time
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as ET  # nosec B405 - generates XML for drawio diagrams
 from typing import Optional
 
 from icons.models import IconEntry

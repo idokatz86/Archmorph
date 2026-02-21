@@ -840,8 +840,8 @@ async def generate_hld_endpoint(request: Request, diagram_id: str, _auth=Depends
         region = iac_params.get("region", "westeurope")
         strategy = iac_params.get("sku_strategy", "balanced")
         cost_estimate = estimate_services_cost(analysis.get("mappings", []), region=region, sku_strategy=strategy)
-    except Exception:
-        pass
+    except Exception:  # nosec B110
+        logger.debug("Cost estimation unavailable, proceeding without it")
 
     try:
         hld = await asyncio.to_thread(
@@ -1790,8 +1790,8 @@ class LatencyTrackingMiddleware(BaseHTTPMiddleware):
             endpoint = request.url.path
             method = request.method
             track_request_latency(endpoint, method, duration_ms, response.status_code)
-        except Exception:
-            pass  # Don't fail requests due to tracking errors
+        except Exception:  # nosec B110 - analytics must never break request handling
+            pass
         
         # Add timing header
         response.headers["X-Response-Time"] = f"{duration_ms:.2f}ms"
@@ -1804,4 +1804,4 @@ app.add_middleware(LatencyTrackingMiddleware)
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8000)  # nosec B104 - required for Docker container networking

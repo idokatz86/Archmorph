@@ -355,7 +355,8 @@ def get_nps_trend(days: int = 30) -> List[Dict[str, Any]]:
                     daily[day]["passives"] += 1
                 else:
                     daily[day]["detractors"] += 1
-        except Exception:
+        except Exception:  # nosec B112 - skip malformed NPS entries gracefully
+            logger.debug("Skipping malformed NPS entry: %s", r.get("timestamp"))
             continue
     
     trend = []

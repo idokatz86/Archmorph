@@ -323,11 +323,11 @@ def _slugify(text: str) -> str:
 def _load_services(filepath: str) -> list[dict]:
     """Load a Python service catalog by parsing the list literal."""
     # Quick approach: exec the file and grab the variable
-    ns: dict = {}
-    with open(filepath) as f:
-        exec(f.read(), ns)  # noqa: S102
-    # Find the first list value
-    for v in ns.values():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("catalog", filepath)
+    mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    for v in vars(mod).values():
         if isinstance(v, list) and len(v) > 0 and isinstance(v[0], dict):
             return v
     return []

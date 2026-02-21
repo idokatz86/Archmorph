@@ -26,7 +26,7 @@ class AuditEventType(str, Enum):
     AUTH_LOGIN = "auth.login"
     AUTH_LOGOUT = "auth.logout"
     AUTH_FAILED = "auth.failed"
-    AUTH_TOKEN_REFRESH = "auth.token_refresh"
+    AUTH_TOKEN_REFRESH = "auth.token_refresh"  # nosec B105 - event type label, not a credential
     
     # API Access
     API_REQUEST = "api.request"

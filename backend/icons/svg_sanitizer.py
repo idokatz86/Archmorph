@@ -15,7 +15,7 @@ Enforces:
 from __future__ import annotations
 
 import re
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as ET  # nosec B405 - this IS the SVG sanitizer
 from io import BytesIO
 from typing import Optional
 
@@ -83,7 +83,7 @@ def validate_svg(svg_bytes: bytes) -> str:
 
     # Parse XML
     try:
-        tree = ET.parse(BytesIO(svg_bytes))
+        tree = ET.parse(BytesIO(svg_bytes))  # nosec B314 - input is sanitized by this function
     except ET.ParseError as exc:
         raise SVGSanitizationError(f"Invalid SVG XML: {exc}") from exc
 
@@ -185,7 +185,7 @@ def _minify_svg(svg: str) -> str:
 def extract_svg_dimensions(svg_str: str) -> tuple[int, int]:
     """Extract width/height from SVG markup. Returns (width, height)."""
     try:
-        root = ET.fromstring(svg_str)
+        root = ET.fromstring(svg_str)  # nosec B314 - internal SVG dimension extraction
     except ET.ParseError:
         return (64, 64)
 

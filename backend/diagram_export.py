@@ -11,7 +11,7 @@ import base64
 import hashlib
 import json
 import uuid
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as ET  # nosec B405 - generates XML, doesn't parse untrusted input
 from typing import Any
 
 # ---------------------------------------------------------------------------
@@ -222,7 +222,7 @@ def get_azure_stencil_id(service_name: str, target: str = "drawio") -> str:
         if icon_entry:
             # Return the canonical ID as a reference; callers can embed the SVG
             return icon_entry.meta.id
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001  # nosec B110 - falls through to default icon
         pass
 
     return "mxgraph.azure.general" if target == "drawio" else "Azure General"
@@ -240,7 +240,7 @@ def _resolve_icon_svg(azure_name: str) -> str | None:
         if entry and entry.svg:
             b64 = base64.b64encode(entry.svg.encode("utf-8")).decode("ascii")
             return f"data:image/svg+xml;base64,{b64}"
-    except Exception:
+    except Exception:  # nosec B110 - icon resolution is optional, falls through to None
         pass
     return None
 
@@ -558,7 +558,7 @@ def _generate_excalidraw(analysis: dict) -> dict:
 
             if icon_uri:
                 # Embed icon as an image element inside the service box
-                file_id = hashlib.md5(azure_name.encode()).hexdigest()[:20]
+                file_id = hashlib.md5(azure_name.encode()).hexdigest()[:20]  # nosec B324 - non-security ID generation for diagram icons
                 exc_files[file_id] = {
                     "mimeType": "image/svg+xml",
                     "id": file_id,
