@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from openai_client import get_openai_client, AZURE_OPENAI_DEPLOYMENT
+from openai_client import get_openai_client, AZURE_OPENAI_DEPLOYMENT, openai_retry
 
 logger = logging.getLogger(__name__)
 
@@ -167,7 +167,7 @@ def generate_iac_code(analysis: Optional[dict], iac_format: str = "terraform", p
 
     try:
         client = get_openai_client()
-        response = client.chat.completions.create(
+        response = openai_retry(client.chat.completions.create)(
             model=AZURE_OPENAI_DEPLOYMENT,
             messages=[
                 {

@@ -10,7 +10,7 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
-from openai_client import get_openai_client, AZURE_OPENAI_DEPLOYMENT
+from openai_client import get_openai_client, AZURE_OPENAI_DEPLOYMENT, openai_retry
 
 logger = logging.getLogger(__name__)
 
@@ -312,7 +312,7 @@ def generate_hld(
     logger.info("Generating HLD for %s (%d services)", diagram_type, len(unique_mappings))
 
     try:
-        response = client.chat.completions.create(
+        response = openai_retry(client.chat.completions.create)(
             model=AZURE_OPENAI_DEPLOYMENT,
             messages=[
                 {"role": "system", "content": HLD_SYSTEM_PROMPT},

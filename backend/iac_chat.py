@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional
 
 from cachetools import TTLCache
 
-from openai_client import get_openai_client, AZURE_OPENAI_DEPLOYMENT
+from openai_client import get_openai_client, AZURE_OPENAI_DEPLOYMENT, openai_retry
 
 logger = logging.getLogger(__name__)
 
@@ -152,7 +152,7 @@ def process_iac_chat(
     )
 
     try:
-        response = client.chat.completions.create(
+        response = openai_retry(client.chat.completions.create)(
             model=AZURE_OPENAI_DEPLOYMENT,
             messages=messages,
             max_tokens=16384,

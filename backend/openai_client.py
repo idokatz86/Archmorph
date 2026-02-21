@@ -9,8 +9,15 @@ import logging
 import os
 from typing import Optional
 
-from openai import AzureOpenAI
+from openai import AzureOpenAI, RateLimitError, APITimeoutError, APIConnectionError
 from azure.identity import DefaultAzureCredential, get_bearer_token_provider
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+    before_sleep_log,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +33,19 @@ AZURE_OPENAI_KEY = os.getenv("AZURE_OPENAI_KEY", "")
 
 # Singleton client (reused across requests for connection pooling)
 _client: Optional[AzureOpenAI] = None
+
+# ─────────────────────────────────────────────────────────────
+# Retry decorator — shared across all OpenAI callers
+# ─────────────────────────────────────────────────────────────
+RETRYABLE_EXCEPTIONS = (RateLimitError, APITimeoutError, APIConnectionError, TimeoutError)
+
+openai_retry = retry(
+    retry=retry_if_exception_type(RETRYABLE_EXCEPTIONS),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=2, min=2, max=30),
+    before_sleep=before_sleep_log(logger, logging.WARNING),
+    reraise=True,
+)
 
 
 def get_openai_client() -> AzureOpenAI:
