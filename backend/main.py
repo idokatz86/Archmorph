@@ -44,7 +44,7 @@ from observability import (  # noqa: E402
 from icons.routes import router as icon_router  # noqa: E402
 
 # Shared state — re-exported for backward compatibility (tests import these from main)
-from routers.shared import limiter  # noqa: E402
+from routers.shared import limiter, SESSION_STORE, IMAGE_STORE, SHARE_STORE  # noqa: E402, F401
 
 # Routers
 from routers.health import router as health_router  # noqa: E402
@@ -62,7 +62,7 @@ from routers.terraform import router as terraform_router  # noqa: E402
 from routers.feature_flags import router as feature_flags_router  # noqa: E402
 from routers.v1 import build_v1_router  # noqa: E402
 from api_versioning import VersionMiddleware  # noqa: E402
-from audit_logging import audit_logger  # noqa: E402
+from audit_logging import audit_logger, AuditEventType  # noqa: E402, F401
 
 logger = logging.getLogger(__name__)
 
