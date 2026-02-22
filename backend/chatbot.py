@@ -77,12 +77,12 @@ When users want to report a bug or request a feature, respond with a JSON action
 
 For bug reports, include in your response:
 ```json
-{"action": "create_bug", "title": "<bug title>", "description": "<details>"}
+{{"action": "create_bug", "title": "<bug title>", "description": "<details>"}}
 ```
 
 For feature requests:
 ```json
-{"action": "create_feature", "title": "<feature title>", "description": "<details>"}
+{{"action": "create_feature", "title": "<feature title>", "description": "<details>"}}
 ```
 
 ## Service Catalog
