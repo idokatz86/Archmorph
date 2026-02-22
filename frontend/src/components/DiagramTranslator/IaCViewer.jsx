@@ -1,5 +1,6 @@
 import React from 'react';
 import Prism from 'prismjs';
+import DOMPurify from 'dompurify';
 import 'prismjs/components/prism-hcl';
 import 'prismjs/components/prism-json';
 import {
@@ -67,7 +68,9 @@ export default function IaCViewer({
               {iacCode.split('\n').map((line, i) => {
                 const grammar = iacFormat === 'terraform' ? Prism.languages.hcl : Prism.languages.json;
                 const lang = iacFormat === 'terraform' ? 'hcl' : 'json';
-                const highlighted = grammar ? Prism.highlight(line || ' ', grammar, lang) : (line || ' ');
+                const rawHighlighted = grammar ? Prism.highlight(line || ' ', grammar, lang) : (line || ' ');
+                // Sanitize to prevent XSS from GPT-generated code (Issue #164)
+                const highlighted = DOMPurify.sanitize(rawHighlighted, { ALLOWED_TAGS: ['span'], ALLOWED_ATTR: ['class'] });
                 return (
                   <div key={i} className="flex">
                     <span className="inline-block w-10 text-right pr-4 text-text-muted select-none opacity-50">{i + 1}</span>

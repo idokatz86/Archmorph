@@ -88,7 +88,7 @@ class TestAdminAuth:
     def test_expired_token(self, monkeypatch):
         import admin_auth
         from datetime import datetime, timezone, timedelta
-        from jose import jwt
+        import jwt
 
         monkeypatch.setattr(admin_auth, "ADMIN_SECRET", "test-key")
         monkeypatch.setattr(admin_auth, "JWT_SECRET", "test-key:salt")

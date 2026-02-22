@@ -1,0 +1,6 @@
+# Staging environment variables
+# Copy to staging.tfvars and fill in actual values
+
+subscription_id = "your-subscription-id"
+location        = "westeurope"
+alert_email     = "staging-alerts@archmorph.io"

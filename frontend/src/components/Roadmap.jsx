@@ -390,7 +390,8 @@ export default function Roadmap() {
   const [toast, setToast] = useState(null);
 
   useEffect(() => {
-    fetch(`${API_BASE}/roadmap`)
+    const controller = new AbortController();
+    fetch(`${API_BASE}/roadmap`, { signal: controller.signal })
       .then(r => r.json())
       .then(data => {
         setRoadmap(data);
@@ -398,8 +399,11 @@ export default function Roadmap() {
         const inProgress = data.timeline?.in_progress?.map(r => r.version) || [];
         setExpandedVersions(new Set(inProgress));
       })
-      .catch(err => setError(err.message))
+      .catch(err => {
+        if (err.name !== 'AbortError') setError(err.message);
+      })
       .finally(() => setLoading(false));
+    return () => controller.abort();
   }, []);
 
   const toggleExpanded = (version) => {

@@ -27,7 +27,7 @@ terraform {
     storage_account_name = "archmorphtfstate"
     container_name       = "tfstate"
     key                  = "archmorph.tfstate"
-    subscription_id      = "152f2bd5-8f6b-48ba-a702-21a23172a224"
+    # subscription_id passed via -backend-config or ARM_SUBSCRIPTION_ID env var (#166)
     use_azuread_auth     = true
   }
 }
@@ -210,6 +210,33 @@ resource "azurerm_postgresql_flexible_server_firewall_rule" "allow_azure" {
 }
 
 # ─────────────────────────────────────────────────────────────
+# Azure Cache for Redis — session store & caching layer
+# ─────────────────────────────────────────────────────────────
+resource "azurerm_redis_cache" "main" {
+  name                          = "archmorph-redis-${local.name_suffix}"
+  resource_group_name           = azurerm_resource_group.main.name
+  location                      = azurerm_resource_group.main.location
+  capacity                      = var.redis_capacity
+  family                        = var.environment == "prod" ? "C" : "C"
+  sku_name                      = var.environment == "prod" ? "Standard" : "Basic"
+  non_ssl_port_enabled          = false        # TLS-only (port 6380)
+  minimum_tls_version           = "1.2"
+  public_network_access_enabled = var.environment == "prod" ? false : true
+
+  redis_configuration {
+    maxmemory_policy = "allkeys-lru"
+  }
+
+  # Patch schedule — apply patches during low-traffic hours
+  patch_schedule {
+    day_of_week    = "Sunday"
+    start_hour_utc = 2
+  }
+
+  tags = local.tags
+}
+
+# ─────────────────────────────────────────────────────────────
 # Key Vault (for secrets)
 # ─────────────────────────────────────────────────────────────
 data "azurerm_client_config" "current" {}
@@ -260,6 +287,12 @@ resource "azurerm_key_vault_secret" "db_connection" {
 resource "azurerm_key_vault_secret" "storage_connection" {
   name         = "storage-connection-string"
   value        = azurerm_storage_account.main.primary_connection_string
+  key_vault_id = azurerm_key_vault.main.id
+}
+
+resource "azurerm_key_vault_secret" "redis_connection" {
+  name         = "redis-connection-string"
+  value        = "rediss://:${azurerm_redis_cache.main.primary_access_key}@${azurerm_redis_cache.main.hostname}:${azurerm_redis_cache.main.ssl_port}/0"
   key_vault_id = azurerm_key_vault.main.id
 }
 
@@ -355,6 +388,11 @@ resource "azurerm_container_app" "backend" {
     value = azurerm_application_insights.main.connection_string
   }
 
+  secret {
+    name  = "redis-url"
+    value = "rediss://:${azurerm_redis_cache.main.primary_access_key}@${azurerm_redis_cache.main.hostname}:${azurerm_redis_cache.main.ssl_port}/0"
+  }
+
   ingress {
     external_enabled = true
     target_port      = 8000
@@ -369,6 +407,24 @@ resource "azurerm_container_app" "backend" {
   template {
     min_replicas = 1
     max_replicas = var.environment == "prod" ? 10 : 3
+
+    # ── Scaling rules (#180) ──
+    # HTTP concurrency: GPT vision calls block ~5-30s each, so keep
+    # concurrent_requests low to trigger scale-out before thread exhaustion.
+    http_scale_rule {
+      name                = "http-concurrency"
+      concurrent_requests = var.environment == "prod" ? "25" : "15"
+    }
+
+    # CPU-based scaling: scale out when sustained CPU > 70%
+    custom_scale_rule {
+      name             = "cpu-utilization"
+      custom_rule_type = "cpu"
+      metadata = {
+        type  = "Utilization"
+        value = "70"
+      }
+    }
 
     container {
       name   = "api"
@@ -409,6 +465,11 @@ resource "azurerm_container_app" "backend" {
       env {
         name  = "ENVIRONMENT"
         value = var.environment
+      }
+
+      env {
+        name        = "REDIS_URL"
+        secret_name = "redis-url"
       }
 
       env {
@@ -1045,7 +1106,7 @@ resource "azurerm_log_analytics_saved_search" "container_errors" {
 # Azure Monitor Workbook (Comprehensive Operations Dashboard)
 # ─────────────────────────────────────────────────────────────
 resource "azurerm_application_insights_workbook" "dashboard" {
-  name                = "archmorph-dashboard"
+  name                = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
   display_name        = "Archmorph Operations Dashboard"
@@ -1790,6 +1851,143 @@ resource "azurerm_security_center_subscription_pricing" "containers" {
   count         = var.environment == "prod" ? 1 : 0
   tier          = "Standard"
   resource_type = "Containers"
+}
+
+resource "azurerm_security_center_subscription_pricing" "databases" {
+  count         = var.environment == "prod" ? 1 : 0
+  tier          = "Standard"
+  resource_type = "OpenSourceRelationalDatabases"
+}
+
+resource "azurerm_security_center_subscription_pricing" "app_service" {
+  count         = var.environment == "prod" ? 1 : 0
+  tier          = "Standard"
+  resource_type = "AppServices"
+}
+
+# ─────────────────────────────────────────────────────────────
+# PostgreSQL Private Endpoint (Issue #110 — CISO-003)
+# ─────────────────────────────────────────────────────────────
+resource "azurerm_private_dns_zone" "postgresql" {
+  count               = var.environment == "prod" ? 1 : 0
+  name                = "privatelink.postgres.database.azure.com"
+  resource_group_name = azurerm_resource_group.main.name
+  tags                = local.tags
+}
+
+resource "azurerm_private_dns_zone_virtual_network_link" "postgresql" {
+  count                 = var.environment == "prod" ? 1 : 0
+  name                  = "archmorph-pg-dns-link"
+  resource_group_name   = azurerm_resource_group.main.name
+  private_dns_zone_name = azurerm_private_dns_zone.postgresql[0].name
+  virtual_network_id    = azurerm_virtual_network.main.id
+  registration_enabled  = false
+  tags                  = local.tags
+}
+
+resource "azurerm_private_endpoint" "postgresql" {
+  count               = var.environment == "prod" ? 1 : 0
+  name                = "archmorph-pg-pe-${local.name_suffix}"
+  resource_group_name = azurerm_resource_group.main.name
+  location            = azurerm_resource_group.main.location
+  subnet_id           = azurerm_subnet.database.id
+  tags                = local.tags
+
+  private_service_connection {
+    name                           = "archmorph-pg-psc"
+    private_connection_resource_id = azurerm_postgresql_flexible_server.main.id
+    is_manual_connection           = false
+    subresource_names              = ["postgresqlServer"]
+  }
+
+  private_dns_zone_group {
+    name                 = "archmorph-pg-dns"
+    private_dns_zone_ids = [azurerm_private_dns_zone.postgresql[0].id]
+  }
+}
+
+# ─────────────────────────────────────────────────────────────
+# Key Vault Private Endpoint (Issue #110 — CISO-004)
+# ─────────────────────────────────────────────────────────────
+resource "azurerm_subnet" "private_endpoints" {
+  name                 = "private-endpoints-subnet"
+  resource_group_name  = azurerm_resource_group.main.name
+  virtual_network_name = azurerm_virtual_network.main.name
+  address_prefixes     = ["10.0.3.0/24"]
+}
+
+resource "azurerm_private_dns_zone" "keyvault" {
+  count               = var.environment == "prod" ? 1 : 0
+  name                = "privatelink.vaultcore.azure.net"
+  resource_group_name = azurerm_resource_group.main.name
+  tags                = local.tags
+}
+
+resource "azurerm_private_dns_zone_virtual_network_link" "keyvault" {
+  count                 = var.environment == "prod" ? 1 : 0
+  name                  = "archmorph-kv-dns-link"
+  resource_group_name   = azurerm_resource_group.main.name
+  private_dns_zone_name = azurerm_private_dns_zone.keyvault[0].name
+  virtual_network_id    = azurerm_virtual_network.main.id
+  registration_enabled  = false
+  tags                  = local.tags
+}
+
+resource "azurerm_private_endpoint" "keyvault" {
+  count               = var.environment == "prod" ? 1 : 0
+  name                = "archmorph-kv-pe-${local.name_suffix}"
+  resource_group_name = azurerm_resource_group.main.name
+  location            = azurerm_resource_group.main.location
+  subnet_id           = azurerm_subnet.private_endpoints.id
+  tags                = local.tags
+
+  private_service_connection {
+    name                           = "archmorph-kv-psc"
+    private_connection_resource_id = azurerm_key_vault.main.id
+    is_manual_connection           = false
+    subresource_names              = ["vault"]
+  }
+
+  private_dns_zone_group {
+    name                 = "archmorph-kv-dns"
+    private_dns_zone_ids = [azurerm_private_dns_zone.keyvault[0].id]
+  }
+}
+
+# ─────────────────────────────────────────────────────────────
+# OpenAI Network Restrictions (Issue #110 — CISO-005)
+# ─────────────────────────────────────────────────────────────
+resource "azurerm_cognitive_account_customer_managed_key" "openai" {
+  count              = var.environment == "prod" ? 0 : 0  # Enable when CMK key is provisioned
+  cognitive_account_id = azurerm_cognitive_account.openai.id
+  key_vault_key_id     = ""  # Populate with CMK key ID
+}
+
+# ─────────────────────────────────────────────────────────────
+# Resource Locks (Issue #110 — CISO-006, prevent accidental deletion)
+# ─────────────────────────────────────────────────────────────
+resource "azurerm_management_lock" "database" {
+  count      = var.environment == "prod" ? 1 : 0
+  name       = "archmorph-db-lock"
+  scope      = azurerm_postgresql_flexible_server.main.id
+  lock_level = "CanNotDelete"
+  notes      = "Prevent accidental deletion of production database"
+}
+
+resource "azurerm_management_lock" "keyvault" {
+  count      = var.environment == "prod" ? 1 : 0
+  name       = "archmorph-kv-lock"
+  scope      = azurerm_key_vault.main.id
+  lock_level = "CanNotDelete"
+  notes      = "Prevent accidental deletion of production Key Vault"
+}
+
+resource "azurerm_management_lock" "storage" {
+  count      = var.environment == "prod" ? 1 : 0
+  name       = "archmorph-storage-lock"
+  scope      = azurerm_storage_account.main.id
+  lock_level = "CanNotDelete"
+  notes      = "Prevent accidental deletion of production storage"
 }
 
 # ─────────────────────────────────────────────────────────────

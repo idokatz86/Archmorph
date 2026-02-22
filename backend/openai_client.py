@@ -15,7 +15,7 @@ import os
 import threading
 from typing import Any, Dict, List, Optional
 
-from openai import AzureOpenAI, RateLimitError, APITimeoutError, APIConnectionError, BadRequestError, AuthenticationError
+from openai import AzureOpenAI, RateLimitError, APITimeoutError, APIConnectionError, BadRequestError, AuthenticationError, Timeout as OpenAITimeout
 from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 from cachetools import TTLCache
 from tenacity import (
@@ -98,6 +98,9 @@ AZURE_OPENAI_KEY = os.getenv("AZURE_OPENAI_API_KEY", "") or os.getenv("AZURE_OPE
 _client: Optional[AzureOpenAI] = None
 _client_lock = threading.Lock()
 
+# Default timeout for all OpenAI API calls (prevents thread pool starvation — #179)
+_OPENAI_TIMEOUT = OpenAITimeout(timeout=120.0, connect=10.0)
+
 # ─────────────────────────────────────────────────────────────
 # Retry decorator — shared across all OpenAI callers
 # ─────────────────────────────────────────────────────────────
@@ -135,6 +138,7 @@ def get_openai_client() -> AzureOpenAI:
                 azure_endpoint=AZURE_OPENAI_ENDPOINT,
                 api_key=AZURE_OPENAI_KEY,
                 api_version=AZURE_OPENAI_API_VERSION,
+                timeout=_OPENAI_TIMEOUT,
             )
         else:
             logger.info("Creating Azure OpenAI client with DefaultAzureCredential")
@@ -146,6 +150,7 @@ def get_openai_client() -> AzureOpenAI:
                 azure_endpoint=AZURE_OPENAI_ENDPOINT,
                 azure_ad_token_provider=token_provider,
                 api_version=AZURE_OPENAI_API_VERSION,
+                timeout=_OPENAI_TIMEOUT,
             )
 
     return _client
@@ -164,6 +169,7 @@ GPT_CACHE_TTL_SECONDS = int(os.getenv("GPT_CACHE_TTL_SECONDS", "3600"))
 GPT_CACHE_MAX_SIZE = int(os.getenv("GPT_CACHE_MAX_SIZE", "256"))
 
 _response_cache: TTLCache = TTLCache(maxsize=GPT_CACHE_MAX_SIZE, ttl=GPT_CACHE_TTL_SECONDS)
+_cache_lock = threading.Lock()   # guards _cache_hits, _cache_misses, and cache check+populate (#124/#125)
 _cache_hits = 0
 _cache_misses = 0
 
@@ -184,24 +190,26 @@ def _compute_cache_key(**kwargs) -> str:
 
 def get_cache_stats() -> Dict[str, Any]:
     """Return cache hit/miss statistics for observability."""
-    total = _cache_hits + _cache_misses
-    return {
-        "hits": _cache_hits,
-        "misses": _cache_misses,
-        "total": total,
-        "hit_rate": round(_cache_hits / total, 4) if total > 0 else 0.0,
-        "size": len(_response_cache),
-        "max_size": GPT_CACHE_MAX_SIZE,
-        "ttl_seconds": GPT_CACHE_TTL_SECONDS,
-    }
+    with _cache_lock:
+        total = _cache_hits + _cache_misses
+        return {
+            "hits": _cache_hits,
+            "misses": _cache_misses,
+            "total": total,
+            "hit_rate": round(_cache_hits / total, 4) if total > 0 else 0.0,
+            "size": len(_response_cache),
+            "max_size": GPT_CACHE_MAX_SIZE,
+            "ttl_seconds": GPT_CACHE_TTL_SECONDS,
+        }
 
 
 def reset_cache():
     """Clear the response cache and reset stats (useful for testing)."""
     global _cache_hits, _cache_misses
-    _response_cache.clear()
-    _cache_hits = 0
-    _cache_misses = 0
+    with _cache_lock:
+        _response_cache.clear()
+        _cache_hits = 0
+        _cache_misses = 0
 
 
 def cached_chat_completion(
@@ -249,23 +257,29 @@ def cached_chat_completion(
     # Compute cache key
     cache_key = _compute_cache_key(**api_kwargs)
 
-    # Check cache (unless bypassed)
-    if not bypass_cache and cache_key in _response_cache:
-        _cache_hits += 1
-        logger.debug("GPT cache HIT (key=%s…)", cache_key[:12])
-        _emit_cache_metric("hit")
-        return _response_cache[cache_key]
+    # Lock protects counters AND prevents thundering-herd duplicate
+    # API calls for the same cache key (#124, #125).
+    with _cache_lock:
+        # Check cache (unless bypassed)
+        if not bypass_cache and cache_key in _response_cache:
+            _cache_hits += 1
+            logger.debug("GPT cache HIT (key=%s…)", cache_key[:12])
+            _emit_cache_metric("hit")
+            return _response_cache[cache_key]
 
-    _cache_misses += 1
-    logger.debug("GPT cache MISS (key=%s…)", cache_key[:12])
-    _emit_cache_metric("miss")
+        _cache_misses += 1
+        logger.debug("GPT cache MISS (key=%s…)", cache_key[:12])
+        _emit_cache_metric("miss")
 
-    # Make the actual API call
+    # Make the actual API call OUTSIDE the lock to avoid blocking
+    # concurrent requests with different cache keys.
     client = get_openai_client()
-    response = client.chat.completions.create(**api_kwargs)
+    response = openai_retry(client.chat.completions.create)(**api_kwargs)
 
-    # Cache the result
-    _response_cache[cache_key] = response
+    # Store result under lock (safe even if two threads raced past
+    # the miss branch — last-write-wins is acceptable).
+    with _cache_lock:
+        _response_cache[cache_key] = response
 
     return response
 

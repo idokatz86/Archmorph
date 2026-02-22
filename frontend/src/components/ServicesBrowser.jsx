@@ -16,16 +16,18 @@ export default function ServicesBrowser() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const controller = new AbortController();
     Promise.all([
-      fetch(`${API_BASE}/services`).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }),
-      fetch(`${API_BASE}/services/stats`).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }),
-      fetch(`${API_BASE}/services/categories`).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }),
+      fetch(`${API_BASE}/services`, { signal: controller.signal }).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }),
+      fetch(`${API_BASE}/services/stats`, { signal: controller.signal }).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }),
+      fetch(`${API_BASE}/services/categories`, { signal: controller.signal }).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }),
     ]).then(([svc, st, cats]) => {
       setServices(svc.services || []);
       setStats(st);
       setCategories((cats.categories || []).map(c => typeof c === 'string' ? c : c.name));
       setLoading(false);
     }).catch(() => setLoading(false));
+    return () => controller.abort();
   }, []);
 
   const filtered = services.filter(s => {

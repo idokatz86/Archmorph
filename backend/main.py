@@ -12,11 +12,14 @@ configure_logging()
 from fastapi import FastAPI, Request  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from starlette.middleware.base import BaseHTTPMiddleware  # noqa: E402
+from starlette.middleware.gzip import GZipMiddleware  # noqa: E402
 from contextlib import asynccontextmanager  # noqa: E402
 import os  # noqa: E402
 import logging  # noqa: E402
 import time  # noqa: E402
 import uuid  # noqa: E402
+import concurrent.futures  # noqa: E402
+import asyncio  # noqa: E402
 
 from slowapi import _rate_limit_exceeded_handler  # noqa: E402
 from slowapi.errors import RateLimitExceeded  # noqa: E402
@@ -33,6 +36,7 @@ if APPLICATIONINSIGHTS_CONNECTION_STRING:
 else:
     logging.getLogger(__name__).info("APPLICATIONINSIGHTS_CONNECTION_STRING not set — telemetry disabled")
 
+from database import init_db  # noqa: E402
 from version import __version__  # noqa: E402
 from service_updater import start_scheduler, stop_scheduler  # noqa: E402
 from usage_metrics import flush_metrics  # noqa: E402
@@ -60,9 +64,19 @@ from routers.versioning import router as versioning_router  # noqa: E402
 from routers.migration import router as migration_router  # noqa: E402
 from routers.terraform import router as terraform_router  # noqa: E402
 from routers.feature_flags import router as feature_flags_router  # noqa: E402
+from routers.privacy import router as privacy_router  # noqa: E402
+from routers.billing import router as billing_router  # noqa: E402
+from routers.jobs import router as jobs_router  # noqa: E402
+from routers.organizations import router as organizations_router  # noqa: E402
+from routers.legal import router as legal_router  # noqa: E402
+from routers.webhooks import router as webhooks_router  # noqa: E402
+from routers.webhooks import integration_router  # noqa: E402
+from routers.marketplace import router as marketplace_router  # noqa: E402
+from routers.journey_analytics import router as journey_router  # noqa: E402
 from routers.v1 import build_v1_router  # noqa: E402
 from api_versioning import VersionMiddleware  # noqa: E402
 from audit_logging import audit_logger, AuditEventType  # noqa: E402, F401
+from error_envelope import register_error_handlers  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +99,25 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Archmorph API %s — production mode", __version__)
     start_scheduler()
 
+    # ── Database initialization (#168) ──
+    try:
+        init_db()
+        logger.info("Database layer initialized")
+    except Exception as exc:
+        logger.warning("Database init failed (non-fatal, in-memory stores used): %s", exc)
+
+    # ── Thread pool sizing (#177) ──
+    # GPT vision calls use asyncio.to_thread() which shares the default executor.
+    # Default pool is min(32, os.cpu_count()+4) — too low for I/O-bound GPT calls
+    # that can block 5-30s each.  Size for 4 workers × ~8 concurrent GPT calls.
+    _THREAD_POOL_SIZE = int(os.getenv("THREAD_POOL_SIZE", "40"))
+    _executor = concurrent.futures.ThreadPoolExecutor(
+        max_workers=_THREAD_POOL_SIZE,
+        thread_name_prefix="archmorph-worker",
+    )
+    asyncio.get_event_loop().set_default_executor(_executor)
+    logger.info("Thread pool configured: %d workers", _THREAD_POOL_SIZE)
+
     # Auto-load built-in icon packs from samples/
     try:
         from icons.registry import load_builtin_packs, _load_from_disk
@@ -101,6 +134,7 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down Archmorph API")
     stop_scheduler()
     flush_metrics()
+    _executor.shutdown(wait=False)
 
 
 app = FastAPI(
@@ -109,6 +143,9 @@ app = FastAPI(
     version=__version__,
     lifespan=lifespan,
 )
+
+# Issue #174 — Standardized error envelope for all 4xx/5xx responses
+register_error_handlers(app)
 
 # Rate limiter
 app.state.limiter = limiter
@@ -125,61 +162,52 @@ app.add_middleware(
 )
 
 
-# Security headers middleware
-class SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request, call_next):
-        response = await call_next(request)
+# ─────────────────────────────────────────────────────────────
+# Consolidated Request Middleware (#177 — perf: 4→1 ASGI layers)
+# Combines: security headers, correlation ID, latency tracking,
+# and audit logging into a single BaseHTTPMiddleware dispatch.
+# ─────────────────────────────────────────────────────────────
+class ArchmorphMiddleware(BaseHTTPMiddleware):
+    """Single middleware layer for cross-cutting concerns.
+
+    Eliminates 4× BaseHTTPMiddleware wrapping overhead by merging
+    SecurityHeaders, CorrelationId, LatencyTracking, and Audit into one.
+    """
+
+    _AUDIT_SKIP = frozenset({
+        "/health", "/api/health", "/favicon.ico",
+        "/openapi.json", "/docs", "/redoc",
+    })
+
+    async def dispatch(self, request: Request, call_next):
+        # ── Correlation ID ──
+        cid = request.headers.get("X-Correlation-ID") or str(uuid.uuid4())
+        token = correlation_id_var.set(cid)
+
+        start_time = time.perf_counter()
+        try:
+            response = await call_next(request)
+        finally:
+            correlation_id_var.reset(token)
+
+        duration_ms = (time.perf_counter() - start_time) * 1000
+
+        # ── Security Headers ──
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["X-XSS-Protection"] = "0"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
         response.headers["Content-Security-Policy"] = "default-src 'self'; frame-ancestors 'none'"
-        # Always set HSTS — behind Container Apps reverse proxy, scheme may report as HTTP
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-        return response
+        response.headers["X-Correlation-ID"] = cid
+        response.headers["X-Response-Time"] = f"{duration_ms:.2f}ms"
 
-
-app.add_middleware(SecurityHeadersMiddleware)
-
-
-# ─────────────────────────────────────────────────────────────
-# Correlation ID Middleware
-# ─────────────────────────────────────────────────────────────
-class CorrelationIdMiddleware(BaseHTTPMiddleware):
-    """Propagate or generate a correlation ID for every request."""
-
-    async def dispatch(self, request: Request, call_next):
-        cid = request.headers.get("X-Correlation-ID") or str(uuid.uuid4())
-        token = correlation_id_var.set(cid)
-        try:
-            response = await call_next(request)
-            response.headers["X-Correlation-ID"] = cid
-            return response
-        finally:
-            correlation_id_var.reset(token)
-
-
-app.add_middleware(CorrelationIdMiddleware)
-
-
-# ─────────────────────────────────────────────────────────────
-# Request Latency Tracking Middleware (v2.9.0)
-# ─────────────────────────────────────────────────────────────
-class LatencyTrackingMiddleware(BaseHTTPMiddleware):
-    """Track request latencies for performance monitoring and observability."""
-
-    async def dispatch(self, request, call_next):
-        start_time = time.perf_counter()
-
-        response = await call_next(request)
-
-        duration_ms = (time.perf_counter() - start_time) * 1000
-
-        # Structured latency log
+        # ── Latency Tracking ──
         endpoint = request.url.path
         method = request.method
         status = response.status_code
+
         logger.info(
             "request completed",
             extra={
@@ -190,83 +218,54 @@ class LatencyTrackingMiddleware(BaseHTTPMiddleware):
             },
         )
 
-        # Track latency
         try:
-            # Analytics tracking (feeds /api/admin/analytics/performance)
             track_request_latency(endpoint, method, duration_ms, status)
-            # Observability tracking (feeds /api/admin/monitoring + OTel export)
             obs_increment_counter(
                 "http.requests.total", tags={"method": method, "path": endpoint}
             )
             obs_record_histogram(
                 "http.request.duration_ms",
                 duration_ms,
-                tags={
-                    "method": method,
-                    "path": endpoint,
-                    "status": str(status),
-                },
+                tags={"method": method, "path": endpoint, "status": str(status)},
             )
             if status >= 400:
                 obs_increment_counter(
                     "http.errors.total",
-                    tags={
-                        "method": method,
-                        "path": endpoint,
-                        "status": str(status),
-                    },
+                    tags={"method": method, "path": endpoint, "status": str(status)},
                 )
         except Exception as exc:  # nosec B110 - analytics must never break request handling
             logger.debug("middleware error: %s", exc)
 
-        # Add timing header
-        response.headers["X-Response-Time"] = f"{duration_ms:.2f}ms"
+        # ── Audit Logging ──
+        if endpoint not in self._AUDIT_SKIP:
+            try:
+                ip = request.client.host if request.client else None
+                audit_logger.log_api_access(
+                    endpoint=endpoint,
+                    method=method,
+                    status_code=status,
+                    latency_ms=duration_ms,
+                    ip_address=ip,
+                )
+            except Exception as exc:  # nosec B110 - audit must never break request handling
+                logger.debug("audit error: %s", exc)
 
         return response
 
 
-app.add_middleware(LatencyTrackingMiddleware)
-
-
-# ─────────────────────────────────────────────────────────────
-# Audit Logging Middleware (v2.12.0)
-# ─────────────────────────────────────────────────────────────
-class AuditMiddleware(BaseHTTPMiddleware):
-    """Automatically audit-log every API request with latency and status."""
-
-    # Paths that generate high volume with negligible security value
-    _SKIP_PATHS = frozenset({"/health", "/api/health", "/favicon.ico", "/openapi.json", "/docs", "/redoc"})
-
-    async def dispatch(self, request: Request, call_next):
-        if request.url.path in self._SKIP_PATHS:
-            return await call_next(request)
-
-        start = time.perf_counter()
-        response = await call_next(request)
-        latency_ms = (time.perf_counter() - start) * 1000
-
-        try:
-            ip = request.client.host if request.client else None
-            audit_logger.log_api_access(
-                endpoint=request.url.path,
-                method=request.method,
-                status_code=response.status_code,
-                latency_ms=latency_ms,
-                ip_address=ip,
-            )
-        except Exception as exc:  # nosec B110 - audit must never break request handling
-            logger.debug("middleware error: %s", exc)
-
-        return response
-
-
-app.add_middleware(AuditMiddleware)
+app.add_middleware(ArchmorphMiddleware)
 
 
 # ─────────────────────────────────────────────────────────────
 # API Version Header Middleware
 # ─────────────────────────────────────────────────────────────
 app.add_middleware(VersionMiddleware)
+
+# ─────────────────────────────────────────────────────────────
+# GZip Response Compression (Issue #181)
+# Compress JSON responses > 1 KB — ~80-90% payload reduction
+# ─────────────────────────────────────────────────────────────
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # ─────────────────────────────────────────────────────────────
 # Include Routers
@@ -285,6 +284,15 @@ app.include_router(versioning_router)
 app.include_router(migration_router)
 app.include_router(terraform_router)
 app.include_router(feature_flags_router)
+app.include_router(privacy_router)
+app.include_router(billing_router)
+app.include_router(jobs_router)
+app.include_router(organizations_router)
+app.include_router(legal_router)
+app.include_router(webhooks_router)
+app.include_router(integration_router)
+app.include_router(marketplace_router)
+app.include_router(journey_router)
 
 # ─────────────────────────────────────────────────────────────
 # API v1 Versioned Routes (/api/v1/* mirrors /api/*)
@@ -304,6 +312,9 @@ _all_routers = [
     (migration_router, ""),
     (terraform_router, ""),
     (feature_flags_router, ""),
+    (privacy_router, ""),
+    (billing_router, ""),
+    (jobs_router, ""),
 ]
 v1_router = build_v1_router(_all_routers)
 app.include_router(v1_router)

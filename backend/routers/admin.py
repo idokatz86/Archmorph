@@ -52,7 +52,8 @@ async def admin_login(request: Request, body: AdminLoginRequest):
 
 
 @router.post("/api/admin/logout")
-async def admin_logout(authorization: Optional[str] = Header(None)):
+@limiter.limit("10/minute")
+async def admin_logout(request: Request, authorization: Optional[str] = Header(None)):
     """Revoke the current admin session token."""
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(400, "No token provided")
@@ -62,31 +63,36 @@ async def admin_logout(authorization: Optional[str] = Header(None)):
 
 
 @router.get("/api/admin/metrics")
-async def admin_metrics_summary(_admin=Depends(verify_admin_key)):
+@limiter.limit("30/minute")
+async def admin_metrics_summary(request: Request, _admin=Depends(verify_admin_key)):
     """Return aggregate usage metrics (admin only)."""
     return get_metrics_summary()
 
 
 @router.get("/api/admin/metrics/funnel")
-async def admin_funnel(_admin=Depends(verify_admin_key)):
+@limiter.limit("30/minute")
+async def admin_funnel(request: Request, _admin=Depends(verify_admin_key)):
     """Return conversion funnel data (admin only)."""
     return get_funnel_metrics()
 
 
 @router.get("/api/admin/metrics/daily")
-async def admin_metrics_daily(days: int = Query(30, ge=1, le=365), _admin=Depends(verify_admin_key)):
+@limiter.limit("30/minute")
+async def admin_metrics_daily(request: Request, days: int = Query(30, ge=1, le=365), _admin=Depends(verify_admin_key)):
     """Return daily metrics for the last N days (admin only)."""
     return {"days": days, "data": get_daily_metrics(days)}
 
 
 @router.get("/api/admin/metrics/recent")
-async def admin_metrics_recent(limit: int = Query(50, ge=1, le=200), _admin=Depends(verify_admin_key)):
+@limiter.limit("30/minute")
+async def admin_metrics_recent(request: Request, limit: int = Query(50, ge=1, le=200), _admin=Depends(verify_admin_key)):
     """Return the most recent usage events (admin only)."""
     return {"events": get_recent_events(limit)}
 
 
 @router.get("/api/admin/costs")
-async def admin_cost_dashboard(_admin=Depends(verify_admin_key)):
+@limiter.limit("30/minute")
+async def admin_cost_dashboard(request: Request, _admin=Depends(verify_admin_key)):
     """
     Return estimated monthly Azure costs for the Archmorph platform itself.
     Based on actual deployed resource SKUs (not user diagrams).
@@ -138,7 +144,8 @@ async def admin_cost_dashboard(_admin=Depends(verify_admin_key)):
 
 
 @router.get("/api/admin/monitoring")
-async def admin_monitoring_dashboard(_admin=Depends(verify_admin_key)):
+@limiter.limit("30/minute")
+async def admin_monitoring_dashboard(request: Request, _admin=Depends(verify_admin_key)):
     """
     Return real-time application monitoring data for the admin dashboard.
 
@@ -247,7 +254,9 @@ async def admin_monitoring_dashboard(_admin=Depends(verify_admin_key)):
 # Audit Logging (Admin)
 # ─────────────────────────────────────────────────────────────
 @router.get("/api/admin/audit")
+@limiter.limit("30/minute")
 async def admin_audit_logs(
+    request: Request,
     event_type: Optional[str] = None,
     user_id: Optional[str] = None,
     severity: Optional[str] = None,
@@ -270,13 +279,15 @@ async def admin_audit_logs(
 
 
 @router.get("/api/admin/audit/summary")
-async def admin_audit_summary(_admin=Depends(verify_admin_key)):
+@limiter.limit("30/minute")
+async def admin_audit_summary(request: Request, _admin=Depends(verify_admin_key)):
     """Get audit log summary statistics."""
     return get_audit_summary()
 
 
 @router.delete("/api/admin/audit")
-async def admin_clear_audit(_admin=Depends(verify_admin_key)):
+@limiter.limit("3/minute")
+async def admin_clear_audit(request: Request, _admin=Depends(verify_admin_key)):
     """Clear all audit logs (destructive operation)."""
     cleared = clear_audit_logs()
     log_audit_event(
@@ -291,7 +302,8 @@ async def admin_clear_audit(_admin=Depends(verify_admin_key)):
 # Observability & Metrics
 # ─────────────────────────────────────────────────────────────
 @router.get("/api/admin/observability")
-async def admin_observability(_admin=Depends(verify_admin_key)):
+@limiter.limit("30/minute")
+async def admin_observability(request: Request, _admin=Depends(verify_admin_key)):
     """
     Get observability metrics.
     
@@ -301,7 +313,8 @@ async def admin_observability(_admin=Depends(verify_admin_key)):
 
 
 @router.get("/api/admin/observability/spans")
-async def admin_span_metrics(_admin=Depends(verify_admin_key)):
+@limiter.limit("30/minute")
+async def admin_span_metrics(request: Request, _admin=Depends(verify_admin_key)):
     """Get span timing metrics for distributed tracing."""
     metrics = get_metrics()
     spans = {
@@ -315,7 +328,8 @@ async def admin_span_metrics(_admin=Depends(verify_admin_key)):
 # Feedback Summary (Admin)
 # ─────────────────────────────────────────────────────────────
 @router.get("/api/admin/feedback")
-async def get_feedback_summary_endpoint(_admin=Depends(verify_admin_key)):
+@limiter.limit("30/minute")
+async def get_feedback_summary_endpoint(request: Request, _admin=Depends(verify_admin_key)):
     """Get feedback summary (admin only)."""
     summary = get_feedback_summary()
     summary["nps_trend"] = get_nps_trend(30)
@@ -326,7 +340,8 @@ async def get_feedback_summary_endpoint(_admin=Depends(verify_admin_key)):
 # Leads Summary (Admin)
 # ─────────────────────────────────────────────────────────────
 @router.get("/api/admin/leads")
-async def get_leads_endpoint(_admin=Depends(verify_admin_key)):
+@limiter.limit("30/minute")
+async def get_leads_endpoint(request: Request, _admin=Depends(verify_admin_key)):
     """Get captured leads summary (admin only)."""
     return get_leads_summary()
 
@@ -335,7 +350,9 @@ async def get_leads_endpoint(_admin=Depends(verify_admin_key)):
 # Application Analytics (v2.9.0)
 # ─────────────────────────────────────────────────────────────
 @router.get("/api/admin/analytics")
+@limiter.limit("30/minute")
 async def get_analytics_summary_endpoint(
+    request: Request,
     hours: int = Query(24, ge=1, le=168),
     _admin=Depends(verify_admin_key),
 ):
@@ -344,18 +361,21 @@ async def get_analytics_summary_endpoint(
 
 
 @router.get("/api/admin/analytics/performance")
-async def get_performance_metrics_endpoint(_admin=Depends(verify_admin_key)):
+@limiter.limit("30/minute")
+async def get_performance_metrics_endpoint(request: Request, _admin=Depends(verify_admin_key)):
     """Get API performance metrics (admin only)."""
     return get_performance_metrics()
 
 
 @router.get("/api/admin/analytics/features")
-async def get_feature_metrics_endpoint(_admin=Depends(verify_admin_key)):
+@limiter.limit("30/minute")
+async def get_feature_metrics_endpoint(request: Request, _admin=Depends(verify_admin_key)):
     """Get feature usage metrics (admin only)."""
     return get_feature_metrics()
 
 
 @router.get("/api/admin/analytics/funnel")
-async def get_conversion_funnel_endpoint(_admin=Depends(verify_admin_key)):
+@limiter.limit("30/minute")
+async def get_conversion_funnel_endpoint(request: Request, _admin=Depends(verify_admin_key)):
     """Get conversion funnel metrics (admin only)."""
     return get_conversion_funnel()

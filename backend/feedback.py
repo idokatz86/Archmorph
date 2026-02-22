@@ -23,6 +23,12 @@ logger = logging.getLogger(__name__)
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 FEEDBACK_FILE = os.path.join(DATA_DIR, "feedback.json")
 
+# Maximum entries kept per feedback list to prevent unbounded memory growth (#163)
+_MAX_NPS_RESPONSES = 5000
+_MAX_FEATURE_FEEDBACK = 5000
+_MAX_BUG_REPORTS = 2000
+_MAX_GENERAL_COMMENTS = 2000
+
 _lock = Lock()
 
 
@@ -190,6 +196,10 @@ def submit_nps(
         }
         
         _feedback_store.setdefault("nps_responses", []).append(response)
+        # Cap to prevent unbounded growth (#163)
+        nps = _feedback_store["nps_responses"]
+        if len(nps) > _MAX_NPS_RESPONSES:
+            _feedback_store["nps_responses"] = nps[-_MAX_NPS_RESPONSES:]
         _recalculate_nps()
         _save_feedback_unlocked()
     
@@ -232,6 +242,10 @@ def submit_feature_feedback(
         }
         
         _feedback_store.setdefault("feature_feedback", []).append(feedback)
+        # Cap to prevent unbounded growth (#163)
+        ff = _feedback_store["feature_feedback"]
+        if len(ff) > _MAX_FEATURE_FEEDBACK:
+            _feedback_store["feature_feedback"] = ff[-_MAX_FEATURE_FEEDBACK:]
         
         # Update feature ratings aggregate
         ratings = _feedback_store["aggregates"].setdefault("feature_ratings", {})
@@ -294,6 +308,10 @@ def submit_bug_report(
         }
         
         _feedback_store.setdefault("bug_reports", []).append(report)
+        # Cap to prevent unbounded growth (#163)
+        bugs = _feedback_store["bug_reports"]
+        if len(bugs) > _MAX_BUG_REPORTS:
+            _feedback_store["bug_reports"] = bugs[-_MAX_BUG_REPORTS:]
         _save_feedback_unlocked()
     
     return {

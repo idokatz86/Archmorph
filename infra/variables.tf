@@ -54,3 +54,32 @@ variable "frontend_url" {
   type        = string
   # Must be set in terraform.tfvars - no default for security
 }
+
+# ─────────────────────────────────────────────────────────────
+# Azure Cache for Redis
+# ─────────────────────────────────────────────────────────────
+variable "redis_capacity" {
+  description = "Redis cache capacity (0 = 250MB, 1 = 1GB, 2 = 2.5GB). Basic C0 ~$16/mo, Standard C0 ~$40/mo."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.redis_capacity >= 0 && var.redis_capacity <= 6
+    error_message = "Redis capacity must be between 0 and 6."
+  }
+}
+
+# ─────────────────────────────────────────────────────────────
+# DR Configuration (Issue #147)
+# ─────────────────────────────────────────────────────────────
+variable "enable_dr" {
+  description = "Enable disaster recovery (secondary region, Traffic Manager). Additional cost applies."
+  type        = bool
+  default     = false
+}
+
+variable "dr_location" {
+  description = "Secondary Azure region for disaster recovery"
+  type        = string
+  default     = "northeurope"
+}

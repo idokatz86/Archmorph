@@ -227,6 +227,77 @@ jobs:
           VITE_API_BASE: ${{ env.API_URL }}
 
   # ============================================
+  # STAGING DEPLOY (Issue #147 — Pre-production validation)
+  # ============================================
+  deploy-staging:
+    needs: [backend-tests, frontend-build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: github.ref == 'refs/heads/staging'
+    environment: staging
+    env:
+      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_RESOURCE_GROUP: ${{ secrets.STAGING_RESOURCE_GROUP }}
+      ACR_NAME: ${{ secrets.ACR_NAME }}
+      ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}
+      CONTAINER_APP_NAME: ${{ secrets.STAGING_CONTAINER_APP_NAME }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Login to ACR
+        run: az acr login --name ${{ env.ACR_NAME }}
+
+      - name: Build and push staging image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: true
+          tags: |
+            ${{ env.ACR_LOGIN_SERVER }}/archmorph-api:staging-${{ github.sha }}
+            ${{ env.ACR_LOGIN_SERVER }}/archmorph-api:staging-latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Deploy to staging
+        run: |
+          SHORT_SHA="${{ github.sha }}"
+          SHORT_SHA="${SHORT_SHA:0:8}"
+          az containerapp update \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --image ${{ env.ACR_LOGIN_SERVER }}/archmorph-api:staging-${{ github.sha }} \
+            --set-env-vars ENVIRONMENT=staging \
+            --revision-suffix "stg-${SHORT_SHA}"
+
+      - name: Verify staging deployment
+        run: |
+          sleep 15
+          STAGING_URL=$(az containerapp show \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --query "properties.configuration.ingress.fqdn" -o tsv)
+          for i in 1 2 3; do
+            HEALTH=$(curl -s --max-time 30 "https://$STAGING_URL/api/health" | jq -r '.status' 2>/dev/null || echo 'failed')
+            if [ "$HEALTH" = "healthy" ]; then break; fi
+            echo "Staging health check attempt $i: $HEALTH — retrying..."
+            sleep 10
+          done
+          if [ "$HEALTH" != "healthy" ]; then
+            echo "::error::Staging deployment health check failed"
+            exit 1
+          fi
+          echo "Staging deployment verified: healthy"
+
+  # ============================================
   # BACKEND DEPLOY (Docker Build + Container Apps)
   # ============================================
   deploy-backend:

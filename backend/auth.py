@@ -15,7 +15,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 import httpx
-from jose import jwt, JWTError
+import jwt
+from jwt import PyJWK
+from jwt.exceptions import PyJWTError as JWTError
 from cachetools import TTLCache
 
 logger = logging.getLogger(__name__)
@@ -91,6 +93,16 @@ class UsageQuota:
             raise ValueError(f"Unknown user tier: {tier}")
 
 
+# Shared field mapping for quota operations (module-level to avoid dataclass mutable-default error)
+_QUOTA_FIELDS: Dict[str, str] = {
+    "analyze": "analyses_used",
+    "iac_download": "iac_downloads_used",
+    "hld_generation": "hld_generations_used",
+    "cost_estimate": "cost_estimates_used",
+    "share_link": "share_links_used",
+}
+
+
 @dataclass
 class User:
     """Authenticated user with quota tracking."""
@@ -111,26 +123,32 @@ class User:
     
     def get_quota(self) -> UsageQuota:
         return UsageQuota.for_tier(self.tier)
-    
+
     def check_quota(self, action: str) -> Dict[str, Any]:
-        """Check if user has remaining quota for an action."""
+        """Check if user has remaining quota for an action (thread-safe)."""
+        with _usage_lock:
+            return self._check_quota_unlocked(action)
+
+    def _check_quota_unlocked(self, action: str) -> Dict[str, Any]:
+        """Check quota WITHOUT acquiring the lock (caller must hold _usage_lock)."""
         quota = self.get_quota()
-        
-        quota_map = {
-            "analyze": ("analyses_used", quota.analyses_per_month),
-            "iac_download": ("iac_downloads_used", quota.iac_downloads_per_month),
-            "hld_generation": ("hld_generations_used", quota.hld_generations_per_month),
-            "cost_estimate": ("cost_estimates_used", quota.cost_estimates_per_month),
-            "share_link": ("share_links_used", quota.share_links_per_month),
+
+        quota_limits = {
+            "analyze": quota.analyses_per_month,
+            "iac_download": quota.iac_downloads_per_month,
+            "hld_generation": quota.hld_generations_per_month,
+            "cost_estimate": quota.cost_estimates_per_month,
+            "share_link": quota.share_links_per_month,
         }
-        
-        if action not in quota_map:
+
+        if action not in quota_limits:
             return {"allowed": True, "message": "No quota limit for this action"}
-        
-        field_name, limit = quota_map[action]
+
+        field_name = _QUOTA_FIELDS[action]
+        limit = quota_limits[action]
         used = getattr(self, field_name)
         remaining = max(0, limit - used)
-        
+
         return {
             "allowed": remaining > 0,
             "used": used,
@@ -139,27 +157,46 @@ class User:
             "message": f"{remaining} of {limit} {action.replace('_', ' ')}s remaining this month",
             "upgrade_prompt": remaining <= 1 and self.tier == UserTier.FREE,
         }
-    
+
+    def try_consume_quota(self, action: str) -> Dict[str, Any]:
+        """Atomically check and consume one unit of quota (Issue #136).
+
+        Returns the quota-check dict; if ``allowed`` is True the usage counter
+        has already been incremented.  This eliminates the TOCTOU race between
+        a separate check_quota() and increment_usage().
+        """
+        with _usage_lock:
+            result = self._check_quota_unlocked(action)
+            if result["allowed"] and action in _QUOTA_FIELDS:
+                field = _QUOTA_FIELDS[action]
+                setattr(self, field, getattr(self, field) + 1)
+                # Update result to reflect post-increment state
+                result["used"] += 1
+                result["remaining"] = max(0, result["remaining"] - 1)
+            return result
+
     def increment_usage(self, action: str) -> bool:
         """Increment usage counter for an action. Returns True if successful."""
-        with _usage_lock:
-            quota_check = self.check_quota(action)
-            if not quota_check["allowed"]:
-                return False
-            
-            field_map = {
-                "analyze": "analyses_used",
-                "iac_download": "iac_downloads_used",
-                "hld_generation": "hld_generations_used",
-                "cost_estimate": "cost_estimates_used",
-                "share_link": "share_links_used",
-            }
-            
-            if action in field_map:
-                setattr(self, field_map[action], getattr(self, field_map[action]) + 1)
-                return True
-            return True
+        result = self.try_consume_quota(action)
+        return result["allowed"]
     
+    def needs_monthly_reset(self) -> bool:
+        """Check if usage counters should be reset (Issue #141).
+
+        Uses calendar-month comparison instead of a naive 30-day diff so
+        that a user who signed up on Jan 31 resets on Feb 1, not Mar 2.
+        """
+        now = datetime.now(timezone.utc)
+        return (
+            now.year > self.usage_reset_date.year
+            or now.month > self.usage_reset_date.month
+        )
+
+    def maybe_reset_monthly_usage(self) -> None:
+        """Reset usage counters if the calendar month has rolled over."""
+        if self.needs_monthly_reset():
+            self.reset_monthly_usage()
+
     def reset_monthly_usage(self):
         """Reset usage counters for a new month."""
         self.analyses_used = 0
@@ -256,12 +293,15 @@ async def validate_azure_ad_b2c_token(token: str) -> User:
         if not rsa_key:
             raise ValueError("Unable to find matching key in JWKS")
         
+        # Convert JWK dict to a PyJWT key object (PyJWT requires this)
+        signing_key = PyJWK(rsa_key)
+        
         # Validate token
         issuer = f"https://{AZURE_AD_B2C_TENANT}.b2clogin.com/{AZURE_AD_B2C_TENANT}.onmicrosoft.com/{AZURE_AD_B2C_POLICY}/v2.0/"
         
         payload = jwt.decode(
             token,
-            rsa_key,
+            signing_key,
             algorithms=["RS256"],
             audience=AZURE_AD_B2C_CLIENT_ID,
             issuer=issuer,
@@ -284,10 +324,8 @@ async def validate_azure_ad_b2c_token(token: str) -> User:
             )
             USER_STORE[user_id] = user
         
-        # Check and reset monthly usage if needed
-        now = datetime.now(timezone.utc)
-        if (now - user.usage_reset_date).days >= 30:
-            user.reset_monthly_usage()
+        # Check and reset monthly usage if needed (Issue #141 — calendar month)
+        user.maybe_reset_monthly_usage()
         
         return user
         
@@ -364,10 +402,8 @@ async def exchange_github_code(code: str) -> User:
                 )
                 USER_STORE[user_id] = user
             
-            # Reset monthly usage if needed
-            now = datetime.now(timezone.utc)
-            if (now - user.usage_reset_date).days >= 30:
-                user.reset_monthly_usage()
+            # Reset monthly usage if needed (Issue #141 — calendar month)
+            user.maybe_reset_monthly_usage()
             
             return user
             
@@ -463,15 +499,28 @@ def capture_lead(
 
 
 def get_leads_summary() -> Dict[str, Any]:
-    """Get summary of captured leads."""
+    """Get summary of captured leads (Issue #142 — O(1) counters instead of O(n) scans)."""
+    # Count by action and marketing consent using a single pass
+    action_counts: Dict[str, int] = {}
+    marketing_count = 0
+    recent: list = []
+    for lead in LEAD_STORE:
+        action_counts[lead.action] = action_counts.get(lead.action, 0) + 1
+        if lead.marketing_consent:
+            marketing_count += 1
+
+    # Get the 10 most recent leads (deque is ordered, take from the end)
+    recent = [lead.to_dict() for lead in list(LEAD_STORE)[-10:]]
+    recent.reverse()
+
     return {
         "total_leads": len(LEAD_STORE),
         "by_action": {
-            action: len([lead for lead in LEAD_STORE if lead.action == action])
+            action: action_counts.get(action, 0)
             for action in ["iac_download", "hld_download", "share"]
         },
-        "with_marketing_consent": len([lead for lead in LEAD_STORE if lead.marketing_consent]),
-        "recent": [lead.to_dict() for lead in sorted(LEAD_STORE, key=lambda x: x.captured_at, reverse=True)[:10]],
+        "with_marketing_consent": marketing_count,
+        "recent": recent,
     }
 
 

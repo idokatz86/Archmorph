@@ -132,33 +132,37 @@ class FeatureFlags:
           3. User targeting (if user in allowlist, always enabled)
           4. Percentage rollout (deterministic hash of user+flag)
         """
+        # Snapshot all flag fields under lock to avoid TOCTOU race (#132)
         with self._lock:
             flag = self._flags.get(flag_name)
+            if flag is None:
+                return False
+            enabled = flag.enabled
+            target_envs = list(flag.target_environments)
+            target_users = list(flag.target_users)
+            rollout_pct = flag.rollout_percentage
 
-        if flag is None:
-            return False
-
-        if not flag.enabled:
+        if not enabled:
             return False
 
         # Environment targeting
-        if flag.target_environments and ENVIRONMENT not in flag.target_environments:
+        if target_envs and ENVIRONMENT not in target_envs:
             return False
 
         # User allowlist — always enabled for targeted users
-        if user and user in flag.target_users:
+        if user and user in target_users:
             return True
 
         # Percentage rollout
-        if flag.rollout_percentage < 100:
+        if rollout_pct < 100:
             if user is None:
                 # No user context: use flag-level probability (deterministic per flag)
                 bucket = int(hashlib.md5(flag_name.encode()).hexdigest()[:8], 16) % 100  # nosec B324  # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
-                return bucket < flag.rollout_percentage
+                return bucket < rollout_pct
             # Deterministic bucket from user+flag
             key = f"{user}:{flag_name}"
             bucket = int(hashlib.md5(key.encode()).hexdigest()[:8], 16) % 100  # nosec B324  # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
-            return bucket < flag.rollout_percentage
+            return bucket < rollout_pct
 
         return True
 

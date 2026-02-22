@@ -83,6 +83,9 @@ _RESPONSE_LEAK_PATTERNS: List[re.Pattern] = [
     re.compile(r"gho_[A-Za-z0-9]{36,}"),  # GitHub OAuth token
     re.compile(r"ghs_[A-Za-z0-9]{36,}"),  # GitHub server-to-server token
     re.compile(r"AKIA[0-9A-Z]{16}"),  # AWS access key ID
+    re.compile(r"sk_(?:live|test)_[A-Za-z0-9]{24,}"),  # Stripe secret key
+    re.compile(r"DefaultEndpointsProtocol=https?;AccountName=[^;]+;AccountKey=[A-Za-z0-9+/=]{40,}"),  # Azure Storage connection string
+    re.compile(r"[?&]sig=[A-Za-z0-9%+/=]{40,}"),  # Azure SAS token signature
     re.compile(r"(?:^|\s)(?:password|passwd|pwd|secret|token|api_key|apikey)\s*[:=]\s*\S{8,}", re.IGNORECASE),  # Explicit secret assignments
 ]
 
@@ -214,3 +217,66 @@ def validate_code_input(code: str, max_length: int = 100_000) -> Tuple[bool, Opt
     if len(code) > max_length:
         return False, f"Code exceeds maximum length of {max_length} characters."
     return True, None
+
+
+# ─────────────────────────────────────────────────────────────
+# IaC parameter sanitization (Issue #134)
+# ─────────────────────────────────────────────────────────────
+# Allowed characters for IaC params: alphanum, hyphens, underscores, dots, spaces.
+_IAC_PARAM_RE = re.compile(r"^[a-zA-Z0-9 _.\-]{1,128}$")
+
+_VALID_REGIONS = frozenset({
+    # Azure regions (common subset)
+    "westeurope", "eastus", "eastus2", "westus", "westus2", "westus3",
+    "northeurope", "centralus", "southcentralus", "northcentralus",
+    "westcentralus", "canadacentral", "canadaeast", "uksouth",
+    "ukwest", "francecentral", "francesouth", "germanywestcentral",
+    "norwayeast", "switzerlandnorth", "swedencentral",
+    "australiaeast", "australiasoutheast", "japaneast", "japanwest",
+    "koreacentral", "southeastasia", "eastasia", "centralindia",
+    "southindia", "westindia", "brazilsouth", "southafricanorth",
+    "uaenorth", "qatarcentral", "polandcentral", "italynorth",
+})
+
+_VALID_ENVIRONMENTS = frozenset({"dev", "staging", "prod", "production", "test", "qa", "uat", "sandbox"})
+_VALID_SKU_STRATEGIES = frozenset({"cost-optimized", "balanced", "performance"})
+
+
+def sanitize_iac_param(
+    value: str,
+    param_name: str,
+    *,
+    allowed_values: Optional[frozenset] = None,
+    default: str = "",
+) -> str:
+    """
+    Sanitize a user-supplied IaC parameter to prevent prompt/template injection.
+
+    If *allowed_values* is given, rejects values not in the set.
+    Otherwise falls back to a strict character-class whitelist.
+
+    Returns the sanitized value or *default* when the input is invalid.
+    """
+    stripped = value.strip() if value else ""
+    if not stripped:
+        return default
+
+    # If there's an enumerated allowlist, enforce it
+    if allowed_values is not None:
+        if stripped.lower() in allowed_values:
+            return stripped
+        logger.warning(
+            "Prompt guard [iac_param]: %s value '%s' not in allowlist",
+            param_name, stripped[:60],
+        )
+        return default
+
+    # Generic whitelist validation
+    if not _IAC_PARAM_RE.match(stripped):
+        logger.warning(
+            "Prompt guard [iac_param]: %s value '%s' contains disallowed characters",
+            param_name, stripped[:60],
+        )
+        return default
+
+    return stripped

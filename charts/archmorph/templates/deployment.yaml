@@ -73,6 +73,19 @@ spec:
           {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            # Writable dirs for readOnlyRootFilesystem (#162)
+            - name: tmp
+              mountPath: /tmp
+            - name: app-data
+              mountPath: /app/data
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 128Mi
+        - name: app-data
+          emptyDir:
+            sizeLimit: 256Mi
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

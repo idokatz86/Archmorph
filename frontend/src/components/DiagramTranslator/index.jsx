@@ -6,6 +6,7 @@ import {
 import { Button, Card } from '../ui';
 import { API_BASE } from '../../constants';
 import useWorkflow from './useWorkflow';
+import useSSE from '../../hooks/useSSE';
 import UploadStep from './UploadStep';
 import GuidedQuestions from './GuidedQuestions';
 import AnalysisResults from './AnalysisResults';
@@ -76,31 +77,13 @@ export default function DiagramTranslator() {
   const handleUpload = async (file) => {
     set({ error: null, step: 'analyzing', analyzeProgress: [] });
 
-    const addStep = async (msg, delay = 200 + Math.random() * 150) => {
-      await new Promise(r => setTimeout(r, delay));
-      addProgress(msg);
-    };
-
-    await addStep('Connecting to analysis engine...');
-
-    const waitingMessages = [
-      'Scanning diagram components...',
-      'Identifying cloud services and icons...',
-      'Detecting networking topology...',
-      'Analyzing compute and storage layers...',
-      'Evaluating security boundaries...',
-      'Mapping data flow connections...',
-      'Reviewing architecture patterns...',
-      'Cross-referencing service catalog...',
-      'Validating service dependencies...',
-      'Finalizing architecture analysis...',
-    ];
+    addProgress('Connecting to analysis engine...');
 
     try {
       const formData = new FormData();
       formData.append('file', file);
 
-      await addStep('Uploading diagram...');
+      addProgress('Uploading diagram...');
       const uploadRes = await fetch(`${API_BASE}/projects/demo-project/diagrams`, { method: 'POST', body: formData });
       if (!uploadRes.ok) {
         const errData = await uploadRes.json().catch(() => ({}));
@@ -109,56 +92,154 @@ export default function DiagramTranslator() {
       const { diagram_id } = await uploadRes.json();
       set({ diagramId: diagram_id });
 
-      await addStep('Analyzing architecture with GPT-4o Vision...');
+      addProgress('Starting architecture analysis...');
 
-      let msgIndex = 0;
-      const progressInterval = setInterval(() => {
-        if (msgIndex < waitingMessages.length) {
-          addProgress(waitingMessages[msgIndex]);
-          msgIndex++;
-        }
-      }, 2500 + Math.random() * 1500);
+      // Try async endpoint with SSE for real-time progress
+      let useAsyncEndpoint = true;
+      let asyncRes;
+      try {
+        asyncRes = await fetch(`${API_BASE}/diagrams/${diagram_id}/analyze-async`, { method: 'POST' });
+        if (!asyncRes.ok || asyncRes.status !== 202) useAsyncEndpoint = false;
+      } catch {
+        useAsyncEndpoint = false;
+      }
 
-      const analyzeRes = await fetch(`${API_BASE}/diagrams/${diagram_id}/analyze`, { method: 'POST' });
-      clearInterval(progressInterval);
-      const result = await analyzeRes.json();
+      if (useAsyncEndpoint) {
+        // ── SSE real-time progress path ──
+        const { job_id } = await asyncRes.json();
+        set({ jobId: job_id });
 
-      if (analyzeRes.status === 422 && result?.detail?.error === 'not_architecture_diagram') {
-        const msg = result.detail.message || 'The uploaded image is not a valid architecture diagram.';
-        const imageType = result.detail.classification?.image_type || 'unknown';
-        set({
-          error: `🚫 ${msg}\n\nDetected image type: "${imageType}". Please upload a cloud architecture diagram (AWS, GCP, or similar).`,
-          step: 'upload',
+        // Wait for SSE completion via a promise
+        const result = await new Promise((resolve, reject) => {
+          const url = `${API_BASE}/jobs/${job_id}/stream`;
+          const es = new EventSource(url);
+
+          es.addEventListener('progress', (e) => {
+            try {
+              const data = JSON.parse(e.data);
+              if (data.message) addProgress(data.message);
+            } catch { /* ignore */ }
+          });
+
+          es.addEventListener('complete', (e) => {
+            try {
+              const data = JSON.parse(e.data);
+              es.close();
+              resolve(data.result ?? data);
+            } catch (err) {
+              es.close();
+              reject(err);
+            }
+          });
+
+          es.addEventListener('error', (e) => {
+            try {
+              const data = JSON.parse(e.data);
+              es.close();
+              reject(new Error(data.error || data.message || 'Analysis failed'));
+            } catch {
+              // Connection error — SSE spec fires generic error
+              es.close();
+              reject(new Error('Connection to analysis stream lost'));
+            }
+          });
+
+          es.addEventListener('cancelled', () => {
+            es.close();
+            reject(new Error('Analysis was cancelled'));
+          });
+
+          // Timeout safety net (5 minutes)
+          setTimeout(() => { es.close(); reject(new Error('Analysis timed out')); }, 300000);
         });
-        return;
+
+        // Handle non-architecture diagram
+        if (result?.detail?.error === 'not_architecture_diagram') {
+          const msg = result.detail.message || 'Not an architecture diagram.';
+          const imageType = result.detail.classification?.image_type || 'unknown';
+          set({
+            error: `🚫 ${msg}\n\nDetected image type: "${imageType}". Please upload a cloud architecture diagram.`,
+            step: 'upload',
+          });
+          return;
+        }
+
+        addProgress('Analysis complete. ✓');
+        await new Promise(r => setTimeout(r, 400));
+
+        set({ analysis: result });
+
+        const qRes = await fetch(`${API_BASE}/diagrams/${diagram_id}/questions`, { method: 'POST' });
+        const qData = await qRes.json();
+        const questions = qData.questions || [];
+        const defaults = {};
+        questions.forEach(q => { defaults[q.id] = q.default; });
+        set({ questions, answers: defaults, step: 'questions' });
+      } else {
+        // ── Fallback: sync endpoint with simulated progress ──
+        addProgress('Analyzing architecture with GPT-4o Vision...');
+
+        const waitingMessages = [
+          'Scanning diagram components...',
+          'Identifying cloud services and icons...',
+          'Detecting networking topology...',
+          'Analyzing compute and storage layers...',
+          'Evaluating security boundaries...',
+          'Mapping data flow connections...',
+          'Reviewing architecture patterns...',
+          'Cross-referencing service catalog...',
+          'Validating service dependencies...',
+          'Finalizing architecture analysis...',
+        ];
+
+        let msgIndex = 0;
+        const progressInterval = setInterval(() => {
+          if (msgIndex < waitingMessages.length) {
+            addProgress(waitingMessages[msgIndex]);
+            msgIndex++;
+          }
+        }, 2500 + Math.random() * 1500);
+
+        const analyzeRes = await fetch(`${API_BASE}/diagrams/${diagram_id}/analyze`, { method: 'POST' });
+        clearInterval(progressInterval);
+        const result = await analyzeRes.json();
+
+        if (analyzeRes.status === 422 && result?.detail?.error === 'not_architecture_diagram') {
+          const msg = result.detail.message || 'The uploaded image is not a valid architecture diagram.';
+          const imageType = result.detail.classification?.image_type || 'unknown';
+          set({
+            error: `🚫 ${msg}\n\nDetected image type: "${imageType}". Please upload a cloud architecture diagram (AWS, GCP, or similar).`,
+            step: 'upload',
+          });
+          return;
+        }
+
+        if (!analyzeRes.ok) throw new Error(result?.detail || 'Analysis failed');
+
+        const provider = (result.source_provider || 'aws').toUpperCase();
+        for (const zone of (result.zones || [])) {
+          const svcNames = (zone.services || []).map(s => {
+            if (typeof s === 'string') return s;
+            return s.source || s.aws || s.gcp || s.source_service || s.name || '';
+          }).filter(Boolean).slice(0, 3);
+          const svcLabel = svcNames.length > 0 ? ` (${svcNames.join(', ')})` : '';
+          addProgress(`Zone ${zone.number || zone.id}: ${zone.name}${svcLabel}...`);
+          await new Promise(r => setTimeout(r, 200));
+        }
+
+        addProgress(`Mapping ${provider} services to Azure equivalents...`);
+        addProgress('Analysis complete. ✓');
+        await new Promise(r => setTimeout(r, 800));
+
+        set({ analysis: result });
+
+        const qRes = await fetch(`${API_BASE}/diagrams/${diagram_id}/questions`, { method: 'POST' });
+        const qData = await qRes.json();
+        const questions = qData.questions || [];
+        const defaults = {};
+        questions.forEach(q => { defaults[q.id] = q.default; });
+        set({ questions, answers: defaults, step: 'questions' });
       }
-
-      if (!analyzeRes.ok) throw new Error(result?.detail || 'Analysis failed');
-
-      const provider = (result.source_provider || 'aws').toUpperCase();
-      for (const zone of (result.zones || [])) {
-        const svcNames = (zone.services || []).map(s => {
-          if (typeof s === 'string') return s;
-          return s.source || s.aws || s.gcp || s.source_service || s.name || '';
-        }).filter(Boolean).slice(0, 3);
-        const svcLabel = svcNames.length > 0 ? ` (${svcNames.join(', ')})` : '';
-        await addStep(`Zone ${zone.number || zone.id}: ${zone.name}${svcLabel}...`);
-      }
-
-      await addStep(`Mapping ${provider} services to Azure equivalents...`);
-      await addStep('Calculating confidence scores...');
-      await addStep('Analysis complete. ✓', 600);
-
-      await new Promise(r => setTimeout(r, 800));
-
-      set({ analysis: result });
-
-      const qRes = await fetch(`${API_BASE}/diagrams/${diagram_id}/questions`, { method: 'POST' });
-      const qData = await qRes.json();
-      const questions = qData.questions || [];
-      const defaults = {};
-      questions.forEach(q => { defaults[q.id] = q.default; });
-      set({ questions, answers: defaults, step: 'questions' });
     } catch (err) {
       set({ error: err.message, step: 'upload' });
     }
@@ -202,7 +283,8 @@ export default function DiagramTranslator() {
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
         if (res.status === 404) {
-          throw new Error('Your session has expired (the backend was redeployed). Please re-upload your diagram.');
+          set({ error: 'Your session has expired (the backend was redeployed). Please re-upload your diagram.', step: 'upload', loading: false });
+          return;
         }
         throw new Error(errData.detail || `Failed to apply answers (${res.status})`);
       }
@@ -221,16 +303,16 @@ export default function DiagramTranslator() {
         fetch(`${API_BASE}/diagrams/${state.diagramId}/generate?format=${fmt}`, { method: 'POST' }),
         fetch(`${API_BASE}/diagrams/${state.diagramId}/cost-estimate`),
       ]);
+      if (iacRes.status === 404) {
+        set({ error: 'Your session has expired (the backend was redeployed). Please re-upload your diagram.', step: 'upload', loading: false });
+        return;
+      }
       if (!iacRes.ok) {
         const errData = await iacRes.json().catch(() => ({}));
         throw new Error(errData.detail || `IaC generation failed (${iacRes.status})`);
       }
-      if (!costRes.ok) {
-        const errData = await costRes.json().catch(() => ({}));
-        throw new Error(errData.detail || `Cost estimate failed (${costRes.status})`);
-      }
       const iacData = await iacRes.json();
-      const costData = await costRes.json();
+      const costData = costRes.ok ? await costRes.json() : null;
       set({ iacCode: iacData.code, costEstimate: costData, step: 'iac' });
     } catch (err) {
       set({ error: err.message });
@@ -246,6 +328,11 @@ export default function DiagramTranslator() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       });
+      if (res.status === 404) {
+        set({ error: 'Your session has expired (the backend was redeployed). Please re-upload your diagram.', step: 'upload' });
+        setHldExportLoading(fmt, false);
+        return;
+      }
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
         throw new Error(errData.detail || `Export failed (${res.status})`);
@@ -270,6 +357,11 @@ export default function DiagramTranslator() {
     setExportLoading(format, true);
     try {
       const res = await fetch(`${API_BASE}/diagrams/${state.diagramId}/export-diagram?format=${format}`, { method: 'POST' });
+      if (res.status === 404) {
+        set({ error: 'Your session has expired (the backend was redeployed). Please re-upload your diagram.', step: 'upload' });
+        setExportLoading(format, false);
+        return;
+      }
       const data = await res.json();
       const content = typeof data.content === 'string' ? data.content : JSON.stringify(data.content, null, 2);
       const blob = new Blob([content], { type: 'application/octet-stream' });
@@ -324,6 +416,10 @@ export default function DiagramTranslator() {
         signal: controller.signal,
       });
       clearTimeout(timeout);
+      if (res.status === 404) {
+        set({ error: 'Your session has expired (the backend was redeployed). Please re-upload your diagram.', step: 'upload', hldLoading: false });
+        return;
+      }
       const data = await res.json();
       if (!res.ok) throw new Error(data?.detail || `HLD generation failed (${res.status})`);
       if (data.hld) set({ hldData: data });

@@ -16,9 +16,10 @@ import json
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, UploadFile, File
+from fastapi import APIRouter, HTTPException, Query, Request, UploadFile, File
 from fastapi.responses import Response
 
+from routers.shared import limiter
 from icons import registry
 from icons.builders.drawio import build_drawio_library
 from icons.builders.excalidraw import build_excalidraw_library
@@ -34,7 +35,9 @@ router = APIRouter(prefix="/api", tags=["icons"])
 # ─────────────────────────────────────────────────────────────
 
 @router.post("/icon-packs")
+@limiter.limit("5/minute")
 async def upload_icon_pack(
+    request: Request,
     file: UploadFile = File(...),
     pack_id: Optional[str] = Query(None, description="Custom pack identifier"),
 ):
@@ -130,7 +133,8 @@ async def list_packs():
 
 
 @router.delete("/icon-packs/{pack_id}")
-async def delete_icon_pack(pack_id: str):
+@limiter.limit("5/minute")
+async def delete_icon_pack(request: Request, pack_id: str):
     """Remove an icon pack and all its icons from the registry."""
     result = registry.delete_pack(pack_id)
     if not result.get("deleted"):

@@ -74,7 +74,7 @@ def classify_image(image_bytes: bytes, content_type: str = "image/png") -> Dict[
     """
     # Compress for classification (low detail is fine)
     from vision_analyzer import compress_image
-    compressed_bytes, compressed_type = compress_image(image_bytes, content_type)
+    compressed_bytes, compressed_type, _w, _h = compress_image(image_bytes, content_type)
 
     b64_image = base64.b64encode(compressed_bytes).decode("utf-8")
     media_type = compressed_type

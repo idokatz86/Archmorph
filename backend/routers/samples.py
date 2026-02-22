@@ -195,20 +195,16 @@ async def list_sample_diagrams():
     ]}
 
 
-@router.post("/api/samples/{sample_id}/analyze")
-@limiter.limit("5/minute")
-async def analyze_sample_diagram(request: Request, sample_id: str):
-    """Generate a mock analysis for a sample diagram.
+def build_sample_analysis(sample_id: str, diagram_id: str) -> dict:
+    """Build a deterministic analysis dict for a sample diagram.
 
-    The returned structure mirrors the real vision-analysis output so that
-    every downstream endpoint (questions, apply-answers, export, IaC,
-    HLD, cost-estimate) works without special-casing.
+    Extracted so that expired sample sessions can be transparently
+    recreated by any downstream endpoint (apply-answers, export, etc.).
+    Returns the analysis dict or ``None`` if *sample_id* is unknown.
     """
     sample = next((s for s in SAMPLE_DIAGRAMS if s["id"] == sample_id), None)
     if not sample:
-        raise HTTPException(404, f"Sample '{sample_id}' not found")
-
-    diagram_id = f"sample-{sample_id}-{uuid.uuid4().hex[:6]}"
+        return None
 
     mappings = []
     zones_with_services = []
@@ -220,7 +216,6 @@ async def analyze_sample_diagram(request: Request, sample_id: str):
             svc_name = svc["name"]
             role = svc.get("role", "")
 
-            # Find the cross-cloud mapping for this service
             mapping = next(
                 (m for m in CROSS_CLOUD_MAPPINGS
                  if svc_name.lower() == m.get(provider_key, "").lower()
@@ -261,7 +256,7 @@ async def analyze_sample_diagram(request: Request, sample_id: str):
     low = len([m for m in mappings if m["confidence"] < 0.80])
     avg = round(sum(m["confidence"] for m in mappings) / max(len(mappings), 1), 2)
 
-    analysis = {
+    return {
         "diagram_id": diagram_id,
         "diagram_type": sample["name"],
         "source_provider": sample["provider"],
@@ -280,6 +275,53 @@ async def analyze_sample_diagram(request: Request, sample_id: str):
         },
         "is_sample": True,
     }
+
+
+import re as _re
+
+# Pattern: "sample-<sample_id>-<hex6>"
+_SAMPLE_ID_RE = _re.compile(r"^sample-(.+)-[0-9a-f]{6}$")
+
+
+def get_or_recreate_session(diagram_id: str):
+    """Return the session for *diagram_id*, auto-recreating sample sessions.
+
+    For sample diagrams (IDs like ``sample-aws-iaas-0af138``) the analysis
+    is deterministic, so we silently rebuild it when the in-memory store
+    has evicted or lost the entry (e.g. after a container restart).
+
+    Returns ``None`` only for non-sample diagrams that are genuinely missing.
+    """
+    session = SESSION_STORE.get(diagram_id)
+    if session is not None:
+        return session
+
+    m = _SAMPLE_ID_RE.match(diagram_id)
+    if not m:
+        return None  # not a sample — genuinely missing
+
+    sample_id = m.group(1)
+    analysis = build_sample_analysis(sample_id, diagram_id)
+    if analysis is None:
+        return None  # unknown sample name
+
+    SESSION_STORE[diagram_id] = analysis
+    return analysis
+
+
+@router.post("/api/samples/{sample_id}/analyze")
+@limiter.limit("5/minute")
+async def analyze_sample_diagram(request: Request, sample_id: str):
+    """Generate a mock analysis for a sample diagram.
+
+    The returned structure mirrors the real vision-analysis output so that
+    every downstream endpoint (questions, apply-answers, export, IaC,
+    HLD, cost-estimate) works without special-casing.
+    """
+    diagram_id = f"sample-{sample_id}-{uuid.uuid4().hex[:6]}"
+    analysis = build_sample_analysis(sample_id, diagram_id)
+    if analysis is None:
+        raise HTTPException(404, f"Sample '{sample_id}' not found")
 
     SESSION_STORE[diagram_id] = analysis
     record_funnel_step(diagram_id, "analyze")

@@ -330,7 +330,7 @@ class TestMarkdownGeneration:
 
     def test_markdown_has_footer(self):
         md = generate_hld_markdown(MOCK_HLD_RESPONSE)
-        assert "Archmorph v2.3.0-beta" in md
+        assert "Archmorph v" in md
 
 
 # ====================================================================
@@ -338,27 +338,27 @@ class TestMarkdownGeneration:
 # ====================================================================
 
 class TestHldGeneration:
-    @patch("hld_generator.get_openai_client")
-    def test_generate_hld_calls_gpt4o(self, mock_client):
+    @patch("hld_generator.cached_chat_completion")
+    def test_generate_hld_calls_gpt4o(self, mock_cached):
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = json.dumps(MOCK_HLD_RESPONSE)
-        mock_client.return_value.chat.completions.create.return_value = mock_response
+        mock_cached.return_value = mock_response
 
         generate_hld(MOCK_ANALYSIS)
 
-        # Should call Azure OpenAI
-        mock_client.return_value.chat.completions.create.assert_called_once()
-        call_args = mock_client.return_value.chat.completions.create.call_args
-        assert call_args.kwargs["model"] == "gpt-4o"
-        assert call_args.kwargs["response_format"] == {"type": "json_object"}
+        # Should call cached_chat_completion
+        mock_cached.assert_called_once()
+        call_kwargs = mock_cached.call_args.kwargs
+        assert call_kwargs["model"] == "gpt-4o"
+        assert call_kwargs["response_format"] == {"type": "json_object"}
 
-    @patch("hld_generator.get_openai_client")
-    def test_generate_hld_returns_dict(self, mock_client):
+    @patch("hld_generator.cached_chat_completion")
+    def test_generate_hld_returns_dict(self, mock_cached):
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = json.dumps(MOCK_HLD_RESPONSE)
-        mock_client.return_value.chat.completions.create.return_value = mock_response
+        mock_cached.return_value = mock_response
 
         hld = generate_hld(MOCK_ANALYSIS)
         assert isinstance(hld, dict)
@@ -366,25 +366,25 @@ class TestHldGeneration:
         assert "services" in hld
         assert "_metadata" in hld
 
-    @patch("hld_generator.get_openai_client")
-    def test_generate_hld_enriches_doc_links(self, mock_client):
+    @patch("hld_generator.cached_chat_completion")
+    def test_generate_hld_enriches_doc_links(self, mock_cached):
         response = copy.deepcopy(MOCK_HLD_RESPONSE)
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = json.dumps(response)
-        mock_client.return_value.chat.completions.create.return_value = mock_response
+        mock_cached.return_value = mock_response
 
         hld = generate_hld(MOCK_ANALYSIS)
         for svc in hld.get("services", []):
             assert svc.get("documentation_url"), f"Missing doc URL for {svc.get('azure_service')}"
             assert svc["documentation_url"].startswith("https://learn.microsoft.com")
 
-    @patch("hld_generator.get_openai_client")
-    def test_generate_hld_metadata(self, mock_client):
+    @patch("hld_generator.cached_chat_completion")
+    def test_generate_hld_metadata(self, mock_cached):
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = json.dumps(MOCK_HLD_RESPONSE)
-        mock_client.return_value.chat.completions.create.return_value = mock_response
+        mock_cached.return_value = mock_response
 
         hld = generate_hld(MOCK_ANALYSIS)
         meta = hld["_metadata"]
@@ -392,12 +392,12 @@ class TestHldGeneration:
         assert meta["services_count"] == 4
         assert meta["generated_by"] == "Archmorph HLD Generator v1.0"
 
-    @patch("hld_generator.get_openai_client")
-    def test_generate_hld_with_cost_estimate(self, mock_client):
+    @patch("hld_generator.cached_chat_completion")
+    def test_generate_hld_with_cost_estimate(self, mock_cached):
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = json.dumps(MOCK_HLD_RESPONSE)
-        mock_client.return_value.chat.completions.create.return_value = mock_response
+        mock_cached.return_value = mock_response
 
         cost = {
             "services": [
@@ -410,8 +410,8 @@ class TestHldGeneration:
         # Should succeed with cost data included in context
         assert isinstance(hld, dict)
 
-    @patch("hld_generator.get_openai_client")
-    def test_generate_hld_deduplicates_services(self, mock_client):
+    @patch("hld_generator.cached_chat_completion")
+    def test_generate_hld_deduplicates_services(self, mock_cached):
         # Analysis with duplicate azure services
         analysis = copy.deepcopy(MOCK_ANALYSIS)
         analysis["mappings"].append({
@@ -425,14 +425,14 @@ class TestHldGeneration:
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = json.dumps(MOCK_HLD_RESPONSE)
-        mock_client.return_value.chat.completions.create.return_value = mock_response
+        mock_cached.return_value = mock_response
 
         hld = generate_hld(analysis)
         # Metadata should show deduplicated count
         assert hld["_metadata"]["services_count"] == 4  # not 5
 
-    @patch("hld_generator.get_openai_client")
-    def test_generate_hld_skips_manual_mappings(self, mock_client):
+    @patch("hld_generator.cached_chat_completion")
+    def test_generate_hld_skips_manual_mappings(self, mock_cached):
         analysis = copy.deepcopy(MOCK_ANALYSIS)
         analysis["mappings"].append({
             "source_service": "Unknown",
@@ -443,30 +443,30 @@ class TestHldGeneration:
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = json.dumps(MOCK_HLD_RESPONSE)
-        mock_client.return_value.chat.completions.create.return_value = mock_response
+        mock_cached.return_value = mock_response
 
         hld = generate_hld(analysis)
         assert hld["_metadata"]["services_count"] == 4  # manual mapping excluded
 
-    @patch("hld_generator.get_openai_client")
-    def test_generate_hld_failure_raises(self, mock_client):
-        mock_client.return_value.chat.completions.create.side_effect = Exception("API error")
+    @patch("hld_generator.cached_chat_completion")
+    def test_generate_hld_failure_raises(self, mock_cached):
+        mock_cached.side_effect = Exception("API error")
 
         with pytest.raises(ValueError, match="HLD generation failed"):
             generate_hld(MOCK_ANALYSIS)
 
-    @patch("hld_generator.get_openai_client")
-    def test_generate_hld_includes_connections_in_context(self, mock_client):
+    @patch("hld_generator.cached_chat_completion")
+    def test_generate_hld_includes_connections_in_context(self, mock_cached):
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = json.dumps(MOCK_HLD_RESPONSE)
-        mock_client.return_value.chat.completions.create.return_value = mock_response
+        mock_cached.return_value = mock_response
 
         generate_hld(MOCK_ANALYSIS)
 
         # Verify the user message includes service connections
-        call_args = mock_client.return_value.chat.completions.create.call_args
-        messages = call_args.kwargs["messages"]
+        call_kwargs = mock_cached.call_args.kwargs
+        messages = call_kwargs["messages"]
         user_msg = messages[-1]["content"]
         assert "Service Connections" in user_msg
         assert "API Gateway" in user_msg
@@ -504,12 +504,12 @@ class TestHldEndpoints:
         SESSION_STORE.clear()
         IMAGE_STORE.clear()
 
-    @patch("hld_generator.get_openai_client")
-    def test_generate_hld_endpoint(self, mock_client, client, analyzed_diagram):
+    @patch("hld_generator.cached_chat_completion")
+    def test_generate_hld_endpoint(self, mock_cached, client, analyzed_diagram):
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = json.dumps(MOCK_HLD_RESPONSE)
-        mock_client.return_value.chat.completions.create.return_value = mock_response
+        mock_cached.return_value = mock_response
 
         resp = client.post(f"/api/diagrams/{analyzed_diagram}/generate-hld")
         assert resp.status_code == 200
@@ -523,12 +523,12 @@ class TestHldEndpoints:
         resp = client.post("/api/diagrams/nonexistent-diag/generate-hld")
         assert resp.status_code == 404
 
-    @patch("hld_generator.get_openai_client")
-    def test_get_hld_after_generation(self, mock_client, client, analyzed_diagram):
+    @patch("hld_generator.cached_chat_completion")
+    def test_get_hld_after_generation(self, mock_cached, client, analyzed_diagram):
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = json.dumps(MOCK_HLD_RESPONSE)
-        mock_client.return_value.chat.completions.create.return_value = mock_response
+        mock_cached.return_value = mock_response
 
         # Generate first
         client.post(f"/api/diagrams/{analyzed_diagram}/generate-hld")

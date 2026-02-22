@@ -43,19 +43,20 @@ async def get_auth_config():
 
 
 @router.post("/api/auth/login")
-async def login(request: LoginRequest):
+@limiter.limit("10/minute")
+async def login(request: Request, body: LoginRequest):
     """Login with Azure AD B2C or GitHub OAuth."""
     try:
-        if request.provider == "azure_ad_b2c":
-            if not request.token:
+        if body.provider == "azure_ad_b2c":
+            if not body.token:
                 raise HTTPException(400, "Token required for Azure AD B2C")
-            user = await validate_azure_ad_b2c_token(request.token)
-        elif request.provider == "github":
-            if not request.code:
+            user = await validate_azure_ad_b2c_token(body.token)
+        elif body.provider == "github":
+            if not body.code:
                 raise HTTPException(400, "Code required for GitHub OAuth")
-            user = await exchange_github_code(request.code)
+            user = await exchange_github_code(body.code)
         else:
-            raise HTTPException(400, f"Unknown provider: {request.provider}")
+            raise HTTPException(400, f"Unknown provider: {body.provider}")
         
         session_token = generate_session_token(user)
         
@@ -68,7 +69,8 @@ async def login(request: LoginRequest):
 
 
 @router.get("/api/auth/me")
-async def get_current_user(authorization: Optional[str] = Header(None)):
+@limiter.limit("30/minute")
+async def get_current_user(request: Request, authorization: Optional[str] = Header(None)):
     """Get current authenticated user."""
     if authorization and authorization.startswith("Bearer "):
         token = authorization[7:]
@@ -81,15 +83,21 @@ async def get_current_user(authorization: Optional[str] = Header(None)):
 
 
 @router.get("/api/auth/quota")
-async def check_quota(action: str = Query(...), authorization: Optional[str] = Header(None)):
+@limiter.limit("30/minute")
+async def check_quota(request: Request, action: str = Query(...), authorization: Optional[str] = Header(None)):
     """Check user quota for an action."""
     user = None
     if authorization and authorization.startswith("Bearer "):
         user = get_user_from_session(authorization[7:])
-    
+
     if not user:
-        user = get_anonymous_user("unknown")
-    
+        # Return minimal info for unauthenticated users (Issue #142 — no internal details)
+        return {
+            "allowed": True,
+            "message": "Login for detailed quota information",
+            "authenticated": False,
+        }
+
     return user.check_quota(action)
 
 

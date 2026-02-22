@@ -11,7 +11,7 @@ export default function ChatWidget() {
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [sessionId] = useState(() => `chat-${Date.now()}`);
+  const [sessionId] = useState(() => `chat-${crypto.randomUUID()}`);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
 

@@ -2,10 +2,10 @@
 Architecture Versioning routes (v2.9.0).
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from typing import Optional
 
-from routers.shared import SESSION_STORE
+from routers.shared import SESSION_STORE, limiter
 from versioning import (
     create_version, get_version_history, get_version,
     restore_version, compare_versions,
@@ -15,7 +15,8 @@ router = APIRouter()
 
 
 @router.post("/api/diagrams/{diagram_id}/versions")
-async def create_version_endpoint(diagram_id: str, message: Optional[str] = None):
+@limiter.limit("10/minute")
+async def create_version_endpoint(request: Request, diagram_id: str, message: Optional[str] = None):
     """Create a new version of an architecture analysis."""
     analysis = SESSION_STORE.get(diagram_id)
     if not analysis:
@@ -31,13 +32,15 @@ async def create_version_endpoint(diagram_id: str, message: Optional[str] = None
 
 
 @router.get("/api/diagrams/{diagram_id}/versions")
-async def get_version_history_endpoint(diagram_id: str):
+@limiter.limit("30/minute")
+async def get_version_history_endpoint(request: Request, diagram_id: str):
     """Get version history for a diagram."""
     return get_version_history(diagram_id)
 
 
 @router.get("/api/diagrams/{diagram_id}/versions/{version_number}")
-async def get_version_endpoint(diagram_id: str, version_number: int):
+@limiter.limit("30/minute")
+async def get_version_endpoint(request: Request, diagram_id: str, version_number: int):
     """Get a specific version of an architecture."""
     version = get_version(diagram_id, version_number)
     if not version:
@@ -47,7 +50,8 @@ async def get_version_endpoint(diagram_id: str, version_number: int):
 
 
 @router.post("/api/diagrams/{diagram_id}/versions/{version_number}/restore")
-async def restore_version_endpoint(diagram_id: str, version_number: int):
+@limiter.limit("10/minute")
+async def restore_version_endpoint(request: Request, diagram_id: str, version_number: int):
     """Restore a previous version, creating a new version from it."""
     snapshot = restore_version(diagram_id, version_number)
     if not snapshot:
@@ -60,7 +64,9 @@ async def restore_version_endpoint(diagram_id: str, version_number: int):
 
 
 @router.get("/api/diagrams/{diagram_id}/versions/compare")
+@limiter.limit("30/minute")
 async def compare_versions_endpoint(
+    request: Request,
     diagram_id: str,
     v1: int = Query(..., description="First version number"),
     v2: int = Query(..., description="Second version number"),

@@ -1,0 +1,46 @@
+# ─────────────────────────────────────────────────────────────
+# Archmorph — Local Development Stack (#176)
+# Usage: docker compose up --build
+# ─────────────────────────────────────────────────────────────
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    environment:
+      ENVIRONMENT: dev
+      ALLOWED_ORIGINS: "http://localhost:5173,http://localhost:3000"
+      RATE_LIMIT_ENABLED: "false"
+    volumes:
+      # Hot-reload: mount source but exclude venv / __pycache__
+      - ./backend:/app
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  frontend:
+    image: node:20-slim
+    working_dir: /app
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_BASE: "http://localhost:8000"
+    volumes:
+      - ./frontend:/app
+      - frontend_nm:/app/node_modules
+    command: ["sh", "-c", "npm ci && npm run dev -- --host 0.0.0.0"]
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  frontend_nm:

@@ -6,7 +6,9 @@ replicaCount: 1
 image:
   repository: archmorphacr.azurecr.io/archmorph-api
   pullPolicy: IfNotPresent
-  tag: "latest"
+  # Default tag uses Chart.AppVersion via the deployment template.
+  # Override with --set image.tag=<sha> in CI/CD.  Never use "latest" (#162).
+  tag: ""
 
 imagePullSecrets: []
 nameOverride: ""
@@ -27,12 +29,14 @@ podSecurityContext:
 
 securityContext:
   allowPrivilegeEscalation: false
-  readOnlyRootFilesystem: false
+  readOnlyRootFilesystem: true
   runAsNonRoot: true
   runAsUser: 1000
   capabilities:
     drop:
       - ALL
+  seccompProfile:
+    type: RuntimeDefault
 
 service:
   type: ClusterIP
@@ -51,19 +55,27 @@ ingress:
   tls: []
 
 resources:
+  # Sized for GPT-4o vision workloads: 4 Uvicorn workers, ~40 threads,
+  # each GPT call can consume 10-50 MB during image compression (#180)
   limits:
+    cpu: "1"
+    memory: 2Gi
+  requests:
     cpu: 500m
     memory: 1Gi
-  requests:
-    cpu: 250m
-    memory: 512Mi
 
 autoscaling:
   enabled: true
   minReplicas: 1
-  maxReplicas: 5
-  targetCPUUtilizationPercentage: 75
-  targetMemoryUtilizationPercentage: 80
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 75
+  # Custom metrics (requires KEDA or Prometheus Adapter)
+  # behavior:
+  #   scaleUp:
+  #     stabilizationWindowSeconds: 30
+  #   scaleDown:
+  #     stabilizationWindowSeconds: 120
 
 # Environment variables from ConfigMap
 env:

@@ -62,7 +62,11 @@ ALWAYS respond with a JSON object containing exactly these fields:
 3. Follow Azure naming conventions: `{resource-type}-{project}-{env}` (e.g. `vnet-myproject-dev`).
 4. Use `local.project`, `local.env`, `local.location`, and `local.tags` variables when they exist.
 5. Add proper `tags = local.tags` to every new resource.
-6. Use secure practices: no hardcoded secrets, use Key Vault references, managed identities.
+6. **CRITICAL credential security** — NEVER use inline/hardcoded passwords or credentials in ANY resource:
+   - For VMs: use SSH keys or `random_password` stored in `azurerm_key_vault_secret`
+   - For SQL/PostgreSQL/MySQL: use `azuread_administrator` blocks with Azure AD auth — NEVER use `administrator_login_password` inline
+   - For any other secret: use `random_password` → `azurerm_key_vault_secret` → data reference pattern
+   - If the code already contains inline passwords, refactor them to use Key Vault references
 7. For networking: use standard RFC 1918 ranges (10.0.0.0/16 default, /24 subnets).
 8. Keep comments consistent with the existing style.
 9. If the user asks to EXPLAIN something, set `code` to the current code unchanged and put the explanation in `message`.

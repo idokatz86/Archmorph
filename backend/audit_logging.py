@@ -408,11 +408,23 @@ class AuditLogger:
         cutoff = now - self._failed_login_window
 
         with self._failed_logins_lock:
+            # Evict stale IPs to prevent unbounded growth (#130)
+            if len(self._failed_logins) > 10_000:
+                stale_ips = [
+                    k for k, ts_list in self._failed_logins.items()
+                    if not ts_list or ts_list[-1] < cutoff
+                ]
+                for k in stale_ips:
+                    del self._failed_logins[k]
+
             attempts = self._failed_logins.setdefault(ip, [])
             attempts.append(now)
-            # Prune old entries
+            # Prune old entries for this IP
             self._failed_logins[ip] = [t for t in attempts if t > cutoff]
             count = len(self._failed_logins[ip])
+            # Remove IP entry entirely if no recent attempts remain
+            if count == 0:
+                del self._failed_logins[ip]
 
         if count >= self._failed_login_threshold:
             alert = {

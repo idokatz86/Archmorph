@@ -57,7 +57,7 @@ function MetricTile({ icon: Icon, label, value, sub, color = 'cta' }) {
   );
 }
 
-export default function MonitoringDashboard({ sessionToken }) {
+export default function MonitoringDashboard({ sessionToken, onAuthError }) {
   const [data, setData] = useState(null);
   const [health, setHealth] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -67,13 +67,30 @@ export default function MonitoringDashboard({ sessionToken }) {
 
   const authHeaders = sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {};
 
+  const abortRef = React.useRef(null);
+  const intervalRef = React.useRef(null);
+
   const fetchData = async (showRefreshing = false) => {
+    if (!sessionToken) return;
     if (showRefreshing) setRefreshing(true);
+    // Cancel any in-flight request before starting a new one
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
       const [monRes, healthRes] = await Promise.all([
-        fetch(`${API_BASE}/admin/monitoring`, { headers: authHeaders }),
-        fetch(`${API_BASE}/health`),
+        fetch(`${API_BASE}/admin/monitoring`, { headers: authHeaders, signal: controller.signal }),
+        fetch(`${API_BASE}/health`, { signal: controller.signal }),
       ]);
+      if (monRes.status === 401) {
+        // Token expired — stop polling and notify parent
+        if (intervalRef.current) clearInterval(intervalRef.current);
+        setError('Session expired. Please log in again.');
+        setLoading(false);
+        setRefreshing(false);
+        if (onAuthError) onAuthError();
+        return;
+      }
       if (!monRes.ok) throw new Error(`Monitoring API: ${monRes.status}`);
       const [mon, hlth] = await Promise.all([monRes.json(), healthRes.ok ? healthRes.json() : null]);
       setData(mon);
@@ -81,7 +98,7 @@ export default function MonitoringDashboard({ sessionToken }) {
       setError(null);
       setLastRefresh(new Date());
     } catch (err) {
-      setError(err.message);
+      if (err.name !== 'AbortError') setError(err.message);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -89,9 +106,16 @@ export default function MonitoringDashboard({ sessionToken }) {
   };
 
   useEffect(() => {
+    if (!sessionToken) {
+      setLoading(false);
+      return;
+    }
     fetchData();
-    const interval = setInterval(() => fetchData(), 30000); // Auto-refresh every 30s
-    return () => clearInterval(interval);
+    intervalRef.current = setInterval(() => fetchData(), 30000);
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      abortRef.current?.abort(); // Cancel in-flight fetch on unmount (#137)
+    };
   }, [sessionToken]);
 
   if (loading) {

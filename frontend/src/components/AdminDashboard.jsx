@@ -78,27 +78,39 @@ export default function AdminDashboard({ onClose }) {
   // ── Fetch dashboard data once authenticated ──
   useEffect(() => {
     if (!sessionToken) return;
+    const controller = new AbortController();
+    const opts = { headers: authHeaders, signal: controller.signal };
     setLoading(true);
-    Promise.all([
-      fetch(`${API_BASE}/admin/metrics/funnel`, { headers: authHeaders }).then(r => r.ok ? r.json() : null),
-      fetch(`${API_BASE}/admin/metrics`, { headers: authHeaders }).then(r => r.ok ? r.json() : null),
-      fetch(`${API_BASE}/admin/metrics/daily?days=14`, { headers: authHeaders }).then(r => r.ok ? r.json() : null),
-      fetch(`${API_BASE}/admin/metrics/recent?limit=30`, { headers: authHeaders }).then(r => r.ok ? r.json() : null),
-      fetch(`${API_BASE}/admin/costs`, { headers: authHeaders }).then(r => r.ok ? r.json() : null).catch(() => null),
-    ]).then(([f, m, d, r, c]) => {
-      if (!f && !m) {
-        // Token may have expired
-        setLoading(false);
-        setSessionToken(null);
-        return;
-      }
-      setFunnel(f);
-      setMetrics(m);
-      setDaily(d?.data || []);
-      setRecent(r?.events || []);
-      setCosts(c);
-      setLoading(false);
-    }).catch(() => setLoading(false));
+
+    // Validate token with a single request first to avoid 5 parallel 401s
+    fetch(`${API_BASE}/admin/metrics`, opts)
+      .then(r => {
+        if (r.status === 401) {
+          setSessionToken(null);
+          setLoading(false);
+          return null;
+        }
+        return r.ok ? r.json() : null;
+      })
+      .then(m => {
+        if (m === null || m === undefined) return;
+        setMetrics(m);
+        // Token is valid — fetch remaining data
+        return Promise.all([
+          fetch(`${API_BASE}/admin/metrics/funnel`, opts).then(r => r.ok ? r.json() : null),
+          fetch(`${API_BASE}/admin/metrics/daily?days=14`, opts).then(r => r.ok ? r.json() : null),
+          fetch(`${API_BASE}/admin/metrics/recent?limit=30`, opts).then(r => r.ok ? r.json() : null),
+          fetch(`${API_BASE}/admin/costs`, opts).then(r => r.ok ? r.json() : null).catch(() => null),
+        ]).then(([f, d, r, c]) => {
+          setFunnel(f);
+          setDaily(d?.data || []);
+          setRecent(r?.events || []);
+          setCosts(c);
+          setLoading(false);
+        });
+      })
+      .catch(() => setLoading(false));
+    return () => controller.abort();
   }, [sessionToken]);
 
   // Close on Escape key (#104 — F-009)
@@ -215,7 +227,7 @@ export default function AdminDashboard({ onClose }) {
 
       <div className="max-w-6xl mx-auto px-6 py-8 space-y-8">
         {/* Monitoring Tab */}
-        {activeTab === 'monitoring' && <MonitoringDashboard sessionToken={sessionToken} />}
+        {activeTab === 'monitoring' && <MonitoringDashboard sessionToken={sessionToken} onAuthError={() => setSessionToken(null)} />}
 
         {/* Analytics Tab */}
         {activeTab === 'analytics' && (<>

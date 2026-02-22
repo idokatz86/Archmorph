@@ -65,4 +65,38 @@ describe('CostPanel', () => {
     render(<CostPanel costEstimate={costEstimate} />)
     expect(screen.getByText('Azure Pricing Calculator')).toBeInTheDocument()
   })
+
+  it('shows pricing unavailable when all costs are zero', () => {
+    const costEstimate = {
+      total_monthly_estimate: { low: 0, high: 0 },
+      services: [
+        { service: 'Azure VM', monthly_low: 0, monthly_high: 0 },
+      ],
+    }
+    render(<CostPanel costEstimate={costEstimate} />)
+    expect(screen.getByText(/pricing data is not available/i)).toBeInTheDocument()
+  })
+
+  it('shows pricing unavailable when totals are null', () => {
+    const costEstimate = {
+      total_monthly_estimate: {},
+      services: [],
+    }
+    render(<CostPanel costEstimate={costEstimate} />)
+    expect(screen.getByText(/pricing data is not available/i)).toBeInTheDocument()
+  })
+
+  it('separates priced and unpriced services', () => {
+    const costEstimate = {
+      total_monthly_estimate: { low: 100, high: 300 },
+      services: [
+        { service: 'Azure VM', monthly_low: 50, monthly_high: 150 },
+        { service: 'Custom Service', monthly_low: 0, monthly_high: 0 },
+      ],
+    }
+    render(<CostPanel costEstimate={costEstimate} />)
+    expect(screen.getByText('Azure VM')).toBeInTheDocument()
+    expect(screen.getByText(/without pricing data/i)).toBeInTheDocument()
+    expect(screen.getByText(/Custom Service/)).toBeInTheDocument()
+  })
 })

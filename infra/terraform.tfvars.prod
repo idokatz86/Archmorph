@@ -1,0 +1,17 @@
+# Production Environment Terraform Variables
+# Copy to terraform.tfvars for production deployment
+
+subscription_id  = "152f2bd5-8f6b-48ba-a702-21a23172a224"
+environment      = "prod"
+location         = "westeurope"
+openai_location  = "eastus"
+
+db_admin_username = "archmorph_prod_admin"
+db_admin_password = "CHANGE_ME_PRODUCTION_PASSWORD_MIN16"
+
+alert_email  = "ops@archmorph.dev"
+frontend_url = "https://app.archmorph.dev"
+
+redis_capacity = 1  # Standard C1 for production (1GB)
+
+enable_dr = true  # Enable disaster recovery

@@ -25,3 +25,17 @@ resource rg 'Microsoft.Resources/resourceGroups@2023-07-01' = {
   location: location
   tags: tags
 }
+
+// ── Key Vault (central secret management) ──────────────────
+module keyVault 'br/public:avm/res/key-vault/vault:0.6.1' = {
+  name: 'kv-${project}-${env}'
+  scope: rg
+  params: {
+    name: 'kv-${project}-${env}'
+    location: location
+    enableRbacAuthorization: true
+    enableSoftDelete: true
+    softDeleteRetentionInDays: 7
+    tags: tags
+  }
+}

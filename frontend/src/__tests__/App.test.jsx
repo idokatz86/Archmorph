@@ -57,26 +57,29 @@ describe('App', () => {
     expect(screen.getByText(/Archmorph v/)).toBeInTheDocument()
   })
 
-  it('renders chat widget', () => {
+  it('renders chat widget', async () => {
     render(<App />)
-    expect(screen.getByTestId('chat-widget')).toBeInTheDocument()
+    expect(await screen.findByTestId('chat-widget')).toBeInTheDocument()
   })
 
   it('fetches service-updates status on mount', () => {
     render(<App />)
-    expect(fetch).toHaveBeenCalledWith(expect.stringContaining('/service-updates/status'))
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/service-updates/status'),
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    )
   })
 
   it('switches to services tab when nav triggers it', async () => {
     const { getByText } = render(<App />)
     await getByText('Services').click()
-    expect(screen.getByTestId('services')).toBeInTheDocument()
+    expect(await screen.findByTestId('services')).toBeInTheDocument()
     expect(screen.queryByTestId('translator')).not.toBeInTheDocument()
   })
 
   it('switches to roadmap tab', async () => {
     const { getByText } = render(<App />)
     await getByText('Roadmap').click()
-    expect(screen.getByTestId('roadmap')).toBeInTheDocument()
+    expect(await screen.findByTestId('roadmap')).toBeInTheDocument()
   })
 })

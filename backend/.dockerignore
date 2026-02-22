@@ -1,14 +1,51 @@
+# Issue #140 — Exclude non-runtime files from Docker image
+# Reduces image size and attack surface
+
+# Python artifacts
 __pycache__/
 *.pyc
 *.pyo
+*.egg-info/
 .pytest_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# Tests (not needed in production image)
 tests/
+pytest.ini
+
+# Virtual environments
+.venv/
+venv/
+
+# Git
 .git/
 .gitignore
+
+# Documentation / Markdown
+*.md
+docs/
+LICENSE
+
+# Docker (prevent recursive copy)
+Dockerfile
+.dockerignore
+docker-compose*.yml
+
+# Environment files (secrets must come from env vars / Key Vault)
 .env
 .env.*
+
+# Data & temp files
 data/
-.venv/
-*.md
-.dockerignore
-Dockerfile
+*.db
+*.log
+
+# IDE & editor
+.vscode/
+.idea/
+*.swp
+
+# OS files
+.DS_Store

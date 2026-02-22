@@ -16,9 +16,11 @@ import secrets
 import logging
 from datetime import datetime, timezone, timedelta
 from threading import Lock
-from typing import Dict, Optional
+from typing import Optional
 
-from jose import jwt, JWTError  # python-jose[cryptography] already in requirements
+import jwt
+from jwt.exceptions import PyJWTError as JWTError
+from cachetools import TTLCache
 
 logger = logging.getLogger(__name__)
 
@@ -32,19 +34,15 @@ JWT_SECRET = f"{ADMIN_SECRET}:{_JWT_SALT}" if ADMIN_SECRET else ""
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_MINUTES = int(os.getenv("ADMIN_SESSION_TTL_MINUTES", "60"))
 
-# ── Token revocation (in-memory blacklist) ───────────────────
-# Maps JTI → expiry timestamp (for cleanup)
-_revoked_tokens: Dict[str, float] = {}
+# ── Token revocation (TTLCache-backed blacklist — #138) ──────
+# Entries auto-expire after JWT_EXPIRE_MINUTES, preventing unbounded growth.
+_revoked_tokens: TTLCache = TTLCache(maxsize=10000, ttl=JWT_EXPIRE_MINUTES * 60)
 _revoke_lock = Lock()
 
 
 def _cleanup_revoked() -> None:
-    """Remove expired JTIs from the revocation dict (prevents unbounded growth)."""
-    now = datetime.now(timezone.utc).timestamp()
-    with _revoke_lock:
-        expired = [jti for jti, exp_ts in _revoked_tokens.items() if exp_ts < now]
-        for jti in expired:
-            del _revoked_tokens[jti]
+    """No-op — TTLCache auto-expires entries. Kept for backward compatibility."""
+    pass
 
 
 # ── Public API ───────────────────────────────────────────────
@@ -103,9 +101,6 @@ def revoke_token(token: str) -> bool:
     exp_ts = float(payload.get("exp", 0))
     with _revoke_lock:
         _revoked_tokens[jti] = exp_ts
-    # Periodic cleanup
-    if len(_revoked_tokens) > 100:
-        _cleanup_revoked()
     return True
 
 

@@ -98,4 +98,20 @@ describe('MonitoringDashboard', () => {
     render(<MonitoringDashboard sessionToken="tok" />)
     expect(await screen.findByText('Retry')).toBeInTheDocument()
   })
+
+  it('does not fetch when sessionToken is missing', () => {
+    fetch.mockReset()
+    render(<MonitoringDashboard sessionToken={null} />)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('calls onAuthError on 401 response', async () => {
+    fetch.mockReset()
+    const onAuthError = vi.fn()
+    fetch
+      .mockResolvedValueOnce({ ok: false, status: 401 })
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(mockHealth) })
+    render(<MonitoringDashboard sessionToken="tok" onAuthError={onAuthError} />)
+    await waitFor(() => expect(onAuthError).toHaveBeenCalled())
+  })
 })

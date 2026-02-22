@@ -157,7 +157,8 @@ class TestRedisUnavailable:
         """Full health check works when Redis is not configured."""
         resp = client.get("/api/health")
         assert resp.status_code == 200
-        assert resp.json()["status"] == "healthy"
+        # Status may be 'degraded' when OpenAI is not configured (test env)
+        assert resp.json()["status"] in ("healthy", "degraded")
 
 
 # =================================================================
@@ -372,19 +373,23 @@ class TestUnexpectedContentTypes:
 
 @pytest.mark.chaos
 class TestErrorResponseFormat:
-    """Verify that error responses have a consistent structure."""
+    """Verify that error responses use the standardized error envelope (#174)."""
 
     def test_404_has_detail(self, client):
         resp = client.get("/api/flags/nonexistent_flag_xyz")
         assert resp.status_code == 404
         data = resp.json()
-        assert "detail" in data
+        assert "error" in data
+        assert "code" in data["error"]
+        assert "message" in data["error"]
 
     def test_422_has_detail(self, client):
         resp = client.post("/api/chat", json={})
         assert resp.status_code == 422
         data = resp.json()
-        assert "detail" in data
+        assert "error" in data
+        assert data["error"]["code"] == "VALIDATION_ERROR"
+        assert "details" in data["error"]
 
     def test_400_has_detail(self, client):
         resp = client.post(
@@ -393,4 +398,5 @@ class TestErrorResponseFormat:
         )
         assert resp.status_code == 400
         data = resp.json()
-        assert "detail" in data
+        assert "error" in data
+        assert data["error"]["code"] == "BAD_REQUEST"

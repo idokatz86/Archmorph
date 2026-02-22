@@ -42,7 +42,8 @@ async def generate_runbook_endpoint(
 
 
 @router.get("/api/diagrams/{diagram_id}/runbook")
-async def get_runbook_endpoint(diagram_id: str):
+@limiter.limit("30/minute")
+async def get_runbook_endpoint(request: Request, diagram_id: str):
     """Get generated runbook for a diagram."""
     analysis = SESSION_STORE.get(diagram_id)
     if not analysis or "runbook" not in analysis:
@@ -52,7 +53,8 @@ async def get_runbook_endpoint(diagram_id: str):
 
 
 @router.get("/api/diagrams/{diagram_id}/runbook/markdown")
-async def get_runbook_markdown_endpoint(diagram_id: str):
+@limiter.limit("30/minute")
+async def get_runbook_markdown_endpoint(request: Request, diagram_id: str):
     """Get runbook as downloadable Markdown."""
     analysis = SESSION_STORE.get(diagram_id)
     if not analysis or "runbook" not in analysis:
@@ -82,7 +84,8 @@ async def get_runbook_markdown_endpoint(diagram_id: str):
 # Migration Complexity Assessment (Issue #65)
 # ─────────────────────────────────────────────────────────────
 @router.get("/api/diagrams/{diagram_id}/migration-assessment")
-async def migration_assessment_endpoint(diagram_id: str):
+@limiter.limit("30/minute")
+async def migration_assessment_endpoint(request: Request, diagram_id: str):
     """Assess migration complexity for all services in a diagram analysis."""
     analysis = SESSION_STORE.get(diagram_id)
     if not analysis:
@@ -108,7 +111,8 @@ async def migration_assessment_endpoint(diagram_id: str):
 # Multi-Cloud Cost Comparison (Issue #66)
 # ─────────────────────────────────────────────────────────────
 @router.get("/api/diagrams/{diagram_id}/cost-comparison")
-async def cost_comparison_endpoint(diagram_id: str):
+@limiter.limit("30/minute")
+async def cost_comparison_endpoint(request: Request, diagram_id: str):
     """Get multi-cloud cost comparison for services in a diagram analysis."""
     analysis = SESSION_STORE.get(diagram_id)
     if not analysis:

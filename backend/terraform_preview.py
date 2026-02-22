@@ -213,7 +213,22 @@ def preview_terraform_plan(
 
 
 def _run_actual_terraform_plan(hcl_content: str, plan_id: str) -> TerraformPlanResult:
-    """Run actual Terraform plan command."""
+    """Run actual Terraform plan command.
+    
+    SECURITY (Issue #122): This function is DISABLED in production.
+    User-controlled HCL passed to ``terraform init/plan`` is an RCE vector
+    because Terraform providers can execute arbitrary code during init.
+    Always use simulation mode instead.
+    """
+    # Hard-block: never execute real terraform on user-supplied HCL
+    import os
+    if os.getenv("ARCHMORPH_ALLOW_TERRAFORM_CLI", "").lower() != "true":
+        return TerraformPlanResult(
+            success=False,
+            plan_id=plan_id,
+            errors=["Real Terraform CLI execution is disabled for security. "
+                    "Set ARCHMORPH_ALLOW_TERRAFORM_CLI=true to enable (not recommended)."],
+        )
     
     # Check if Terraform is available
     terraform_cmd = shutil.which("terraform")

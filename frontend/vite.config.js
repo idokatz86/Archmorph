@@ -15,7 +15,20 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    sourcemap: 'hidden'  // Hidden source maps for error monitoring (#104 — F-013)
+    sourcemap: 'hidden',  // Hidden source maps for error monitoring (#104 — F-013)
+    // Issue #182 — Chunk splitting for better caching & smaller initial load
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom'],
+          'vendor-ui': ['lucide-react', 'prismjs'],
+        },
+      },
+    },
+    // Inline assets < 4 KB to reduce HTTP requests
+    assetsInlineLimit: 4096,
+    // Target modern browsers for smaller output
+    target: 'es2020',
   },
   test: {
     globals: true,

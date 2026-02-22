@@ -32,13 +32,15 @@ async def chat(request: Request, msg: ChatMessage, _auth=Depends(verify_api_key)
 
 
 @router.get("/api/chat/history/{session_id}")
-async def chat_history(session_id: str):
+@limiter.limit("30/minute")
+async def chat_history(request: Request, session_id: str):
     """Get chat history for a session."""
     return {"session_id": session_id, "messages": get_chat_history(session_id)}
 
 
 @router.delete("/api/chat/{session_id}")
-async def chat_clear(session_id: str):
+@limiter.limit("10/minute")
+async def chat_clear(request: Request, session_id: str):
     """Clear a chat session."""
     cleared = clear_chat_session(session_id)
     return {"cleared": cleared}

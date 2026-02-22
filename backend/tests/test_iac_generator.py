@@ -20,11 +20,9 @@ MOCK_ANALYSIS = {
 
 
 class TestGenerateIaCCode:
-    @patch("iac_generator.get_openai_client")
-    def test_generates_terraform(self, mock_get_client):
-        mock_client = MagicMock()
-        mock_get_client.return_value = mock_client
-        mock_client.chat.completions.create.return_value = MagicMock(
+    @patch("iac_generator.cached_chat_completion")
+    def test_generates_terraform(self, mock_cached):
+        mock_cached.return_value = MagicMock(
             choices=[MagicMock(message=MagicMock(content='resource "azurerm_resource_group" "main" {\n  name     = "rg-test"\n  location = "westeurope"\n}'))]
         )
 
@@ -35,11 +33,9 @@ class TestGenerateIaCCode:
         )
         assert "resource" in code or "azurerm" in code
 
-    @patch("iac_generator.get_openai_client")
-    def test_generates_bicep(self, mock_get_client):
-        mock_client = MagicMock()
-        mock_get_client.return_value = mock_client
-        mock_client.chat.completions.create.return_value = MagicMock(
+    @patch("iac_generator.cached_chat_completion")
+    def test_generates_bicep(self, mock_cached):
+        mock_cached.return_value = MagicMock(
             choices=[MagicMock(message=MagicMock(content='resource rg \'Microsoft.Resources/resourceGroups@2023-07-01\' = {\n  name: \'rg-test\'\n  location: \'westeurope\'\n}'))]
         )
 
@@ -50,11 +46,9 @@ class TestGenerateIaCCode:
         )
         assert code is not None and len(code) > 0
 
-    @patch("iac_generator.get_openai_client")
-    def test_fallback_on_empty_analysis(self, mock_get_client):
-        mock_client = MagicMock()
-        mock_get_client.return_value = mock_client
-        mock_client.chat.completions.create.return_value = MagicMock(
+    @patch("iac_generator.cached_chat_completion")
+    def test_fallback_on_empty_analysis(self, mock_cached):
+        mock_cached.return_value = MagicMock(
             choices=[MagicMock(message=MagicMock(content='provider "azurerm" {\n  features {}\n}'))]
         )
 

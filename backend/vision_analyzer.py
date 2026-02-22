@@ -11,7 +11,7 @@ import io
 import json
 import logging
 from difflib import SequenceMatcher
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from PIL import Image
 
@@ -23,14 +23,36 @@ from prompt_guard import PROMPT_ARMOR
 MAX_IMAGE_DIMENSION = 2048
 JPEG_QUALITY = 85
 
+# Adaptive detail thresholds (Issue #178 — token cost optimization)
+# Images smaller than this use "low" detail (fixed 85 tokens).
+# Larger images use "high" detail (variable, up to ~5x more tokens).
+_LOW_DETAIL_MAX_PIXELS = 512 * 512  # 262 144 px
+_LOW_DETAIL_MAX_BYTES = 150_000     # ~150 KB compressed
 
-def compress_image(image_bytes: bytes, content_type: str = "image/png") -> tuple[bytes, str]:
+
+def _pick_detail_level(image_bytes: bytes, width: int, height: int) -> str:
+    """Choose GPT-4o vision detail level adaptively (Issue #178).
+
+    * ``low``  — 512x512 fixed-token budget (85 tokens). Good for simple
+      diagrams with large, clearly-labelled icons.
+    * ``high`` — tile-based tokenisation, up to ~5x more tokens.  Needed for
+      complex multi-zone diagrams with small text/icons.
+
+    The heuristic uses *compressed* byte size and pixel count to decide.
+    """
+    total_pixels = width * height
+    if total_pixels <= _LOW_DETAIL_MAX_PIXELS and len(image_bytes) <= _LOW_DETAIL_MAX_BYTES:
+        return "low"
+    return "high"
+
+
+def compress_image(image_bytes: bytes, content_type: str = "image/png") -> Tuple[bytes, str, int, int]:
     """
     Resize & compress an image before sending to GPT-4o.
 
     - Caps the longest edge at MAX_IMAGE_DIMENSION px
     - Converts to JPEG (lossy, much smaller than PNG)
-    - Returns (compressed_bytes, new_content_type)
+    - Returns (compressed_bytes, new_content_type, width, height)
     """
     try:
         img = Image.open(io.BytesIO(image_bytes))
@@ -53,6 +75,7 @@ def compress_image(image_bytes: bytes, content_type: str = "image/png") -> tuple
             img = img.resize(new_size, Image.LANCZOS)
             logger.info("Resized image from %dx%d to %dx%d", w, h, *new_size)
 
+        final_w, final_h = img.size
         buf = io.BytesIO()
         img.save(buf, format="JPEG", quality=JPEG_QUALITY, optimize=True)
         compressed = buf.getvalue()
@@ -61,10 +84,10 @@ def compress_image(image_bytes: bytes, content_type: str = "image/png") -> tuple
             len(image_bytes), len(compressed),
             (1 - len(compressed) / max(len(image_bytes), 1)) * 100,
         )
-        return compressed, "image/jpeg"
+        return compressed, "image/jpeg", final_w, final_h
     except Exception as exc:
         logger.warning("Image compression failed (%s) — using original", exc)
-        return image_bytes, content_type
+        return image_bytes, content_type, 0, 0
 
 logger = logging.getLogger(__name__)
 
@@ -332,18 +355,17 @@ def _find_azure_mapping(
                 "notes": infra_map["notes"],
             }
 
-    # 3. Fuzzy semantic matching fallback — find best match by string similarity
-    best_match = None
-    best_ratio = 0.0
+    # 3. Fuzzy semantic matching fallback — O(n) but with early cutoff (Issue #143)
+    #    Use get_close_matches for built-in heap optimization instead of
+    #    manually scanning every key with SequenceMatcher.
+    from difflib import get_close_matches as _gcm
+
     all_mappings = _MAPPING_BY_AWS if source_provider == "aws" else _MAPPING_BY_GCP
-    for mapping_key, mapping in all_mappings.items():
-        ratio = SequenceMatcher(None, key, mapping_key).ratio()
-        if ratio > best_ratio:
-            best_ratio = ratio
-            best_match = mapping
-    # Accept fuzzy match if similarity ≥ 65%
-    if best_match and best_ratio >= 0.65:
-        result = dict(best_match)
+    close = _gcm(key, all_mappings.keys(), n=1, cutoff=0.65)
+    if close:
+        best_key = close[0]
+        best_ratio = SequenceMatcher(None, key, best_key).ratio()
+        result = dict(all_mappings[best_key])
         # Penalize confidence based on fuzzy match quality
         result["confidence"] = round(result["confidence"] * best_ratio, 2)
         result["notes"] = f"Fuzzy match ({best_ratio:.0%} similarity). " + result.get("notes", "")
@@ -364,7 +386,10 @@ def analyze_image(image_bytes: bytes, content_type: str = "image/png") -> Dict[s
         Full analysis result dict with mappings, zones, warnings, confidence_summary.
     """
     # Compress image to reduce tokens and latency
-    compressed_bytes, compressed_type = compress_image(image_bytes, content_type)
+    compressed_bytes, compressed_type, img_w, img_h = compress_image(image_bytes, content_type)
+
+    # Adaptive detail level — saves ~5x tokens for small/simple diagrams (Issue #178)
+    detail = _pick_detail_level(compressed_bytes, img_w, img_h)
 
     # Encode image to base64
     b64_image = base64.b64encode(compressed_bytes).decode("utf-8")
@@ -374,9 +399,12 @@ def analyze_image(image_bytes: bytes, content_type: str = "image/png") -> Dict[s
     client = get_openai_client()
 
     logger.info(
-        "Sending image to GPT-4o for analysis (%d bytes, %s)",
+        "Sending image to GPT-4o for analysis (%d bytes, %s, detail=%s, %dx%d)",
         len(compressed_bytes),
         media_type,
+        detail,
+        img_w,
+        img_h,
     )
 
     response = openai_retry(client.chat.completions.create)(
@@ -394,7 +422,7 @@ def analyze_image(image_bytes: bytes, content_type: str = "image/png") -> Dict[s
                         "type": "image_url",
                         "image_url": {
                             "url": f"data:{media_type};base64,{b64_image}",
-                            "detail": "high",
+                            "detail": detail,
                         },
                     },
                 ],

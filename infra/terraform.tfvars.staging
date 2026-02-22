@@ -1,0 +1,17 @@
+# Staging Environment Terraform Variables
+# Copy to terraform.tfvars for staging deployment
+
+subscription_id  = "152f2bd5-8f6b-48ba-a702-21a23172a224"
+environment      = "staging"
+location         = "westeurope"
+openai_location  = "eastus"
+
+db_admin_username = "archmorph_staging_admin"
+db_admin_password = "CHANGE_ME_STAGING_PASSWORD_MIN16"
+
+alert_email  = "alerts@archmorph.dev"
+frontend_url = "https://staging.archmorph.dev"
+
+redis_capacity = 0  # Basic C0 for staging
+
+enable_dr = false  # No DR for staging

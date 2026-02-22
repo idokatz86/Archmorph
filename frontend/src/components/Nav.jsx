@@ -1,5 +1,5 @@
 import React, { useRef } from 'react';
-import { CloudCog, Layers, Server, Rocket, MessageSquare } from 'lucide-react';
+import { CloudCog, Layers, Server, Rocket, MessageSquare, Shield, CreditCard, Home } from 'lucide-react';
 import { Badge } from './ui';
 import { APP_VERSION } from '../constants';
 import FeedbackWidget from './FeedbackWidget';
@@ -23,9 +23,12 @@ export default function Nav({ activeTab, setActiveTab, updateStatus }) {
             </div>
             <nav aria-label="Main navigation" className="flex items-center gap-1">
               {[
+                { id: 'landing', label: 'Home', icon: Home },
                 { id: 'translator', label: 'Translator', icon: Layers },
                 { id: 'services', label: 'Services', icon: Server },
                 { id: 'roadmap', label: 'Roadmap', icon: Rocket },
+                { id: 'pricing', label: 'Pricing', icon: CreditCard },
+                { id: 'legal', label: 'Legal', icon: Shield },
               ].map(tab => (
                 <button
                   key={tab.id}

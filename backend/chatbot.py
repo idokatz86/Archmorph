@@ -10,6 +10,7 @@ import os
 import re
 import json
 import logging
+import threading
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 
@@ -28,6 +29,35 @@ GITHUB_REPO = os.getenv("GITHUB_REPO", "idokatz86/Archmorph")
 
 # Conversation history per session (TTL: 2 hours, max 500 sessions)
 CHAT_SESSIONS: TTLCache = TTLCache(maxsize=500, ttl=7200)
+_session_lock = threading.Lock()       # protects CHAT_SESSIONS mutation (#127)
+_github_client_lock = threading.Lock() # protects _GITHUB_CLIENT init (#128)
+
+
+def _extract_balanced_json(raw: str) -> Optional[Dict[str, Any]]:
+    """Extract the first balanced JSON object from *raw*.
+
+    Handles nested braces correctly (Issue #126).  Falls back to a
+    simple ``json.loads`` attempt if brace-counting fails.
+    """
+    depth = 0
+    start = None
+    for i, ch in enumerate(raw):
+        if ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0 and start is not None:
+                try:
+                    return json.loads(raw[start : i + 1])
+                except json.JSONDecodeError:
+                    return None
+    # Fallback: try parsing the whole string
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return None
 
 
 # ─────────────────────────────────────────────────────────────
@@ -136,24 +166,22 @@ def _call_ai_assistant(
         reply_text = response.choices[0].message.content.strip()
         reply_text = sanitize_response(reply_text)
         
-        # Check for action JSON in response
+        # Check for action JSON in response (#126 — handle nested braces)
         action = None
         action_match = re.search(
-            r'```json\s*(\{[^}]*"action"[^}]*\})\s*```',
+            r'```json\s*(\{.*?"action".*?\})\s*```',
             reply_text,
-            re.DOTALL
+            re.DOTALL,
         )
         if action_match:
-            try:
-                action = json.loads(action_match.group(1))
+            raw_json = action_match.group(1)
+            # Greedy match may grab too much; find the balanced {} block
+            # starting from the first '{' that contains "action".
+            action = _extract_balanced_json(raw_json)
+            if action is not None:
                 # Remove the JSON block from visible reply
-                reply_text = re.sub(
-                    r'```json\s*\{[^}]*"action"[^}]*\}\s*```',
-                    '',
-                    reply_text
-                ).strip()
-            except json.JSONDecodeError:
-                pass
+                reply_text = reply_text[:action_match.start()] + reply_text[action_match.end():]
+                reply_text = reply_text.strip()
         
         return {
             "reply": reply_text,
@@ -183,8 +211,11 @@ def _create_github_issue(title: str, body: str, labels: List[str]) -> Dict[str, 
     try:
         from github import Github
 
+        # Double-checked locking for thread-safe lazy init (#128)
         if _GITHUB_CLIENT is None:
-            _GITHUB_CLIENT = Github(_GITHUB_TOKEN)
+            with _github_client_lock:
+                if _GITHUB_CLIENT is None:
+                    _GITHUB_CLIENT = Github(_GITHUB_TOKEN)
         g = _GITHUB_CLIENT
         repo = g.get_repo(GITHUB_REPO)
 
@@ -253,11 +284,13 @@ def process_chat_message(
             "ai_powered": False,
         }
 
-    # Initialize session
-    if session_id not in CHAT_SESSIONS:
-        CHAT_SESSIONS[session_id] = []
+    # Initialize session — use lock to prevent race conditions (#127)
+    with _session_lock:
+        if session_id not in CHAT_SESSIONS:
+            CHAT_SESSIONS[session_id] = []
+        # Copy the list to avoid mutating a shared reference
+        history = list(CHAT_SESSIONS[session_id])
 
-    history = CHAT_SESSIONS[session_id]
     history.append({
         "role": "user",
         "content": message,
@@ -308,6 +341,8 @@ def process_chat_message(
                     "content": reply,
                     "ts": datetime.now(timezone.utc).isoformat()
                 })
+                with _session_lock:
+                    CHAT_SESSIONS[session_id] = history
                 return {"reply": reply, "action": action_type, "data": result}
 
     # ── Call GPT-4o AI assistant ──
@@ -350,7 +385,8 @@ def process_chat_message(
         history_entry["pending_action"] = pending_action
     
     history.append(history_entry)
-    CHAT_SESSIONS[session_id] = history
+    with _session_lock:
+        CHAT_SESSIONS[session_id] = history
     
     return {
         "reply": reply,

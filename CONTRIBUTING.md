@@ -4,7 +4,24 @@ Thank you for your interest in contributing to Archmorph!
 
 ## Development Setup
 
-### Backend
+### Quick Start (recommended)
+
+```bash
+# One command — starts backend + frontend with hot-reload
+make dev
+
+# Or use Docker Compose
+docker compose up --build
+```
+
+### VS Code Dev Container
+
+Open the repo in VS Code and select **"Reopen in Container"** — Python 3.12, Node 20,
+and all extensions are pre-configured via `.devcontainer/devcontainer.json`.
+
+### Manual Setup
+
+#### Backend
 
 ```bash
 cd backend
@@ -15,7 +32,7 @@ cp .env.example .env  # Fill in your Azure OpenAI credentials
 uvicorn main:app --reload --port 8000
 ```
 
-### Frontend
+#### Frontend
 
 ```bash
 cd frontend
@@ -27,6 +44,9 @@ npm run dev
 ### Running Tests
 
 ```bash
+# All tests (backend + frontend)
+make test
+
 # Backend (1149 tests)
 cd backend && python -m pytest -v
 
@@ -37,6 +57,16 @@ cd backend && python -m pytest -m security   # Security tests only
 # Frontend (186 tests)
 cd frontend && npm test
 ```
+
+### Makefile Targets
+
+Run `make help` to see all available targets, including:
+- `make dev` — Start backend + frontend in parallel
+- `make test` — Run all tests
+- `make lint` — Run linters
+- `make build` — Build production frontend
+- `make docker-up` — Start Docker Compose stack
+- `make clean` — Remove build artifacts & caches
 
 ## Code Quality
 
@@ -58,13 +88,14 @@ cd backend && ruff check . && bandit -r . -x ./tests --skip B101
 
 ## Architecture
 
-- **Backend**: FastAPI (Python 3.11+), Azure OpenAI GPT-4o for vision/chat
+- **Backend**: FastAPI (Python 3.12), Azure OpenAI GPT-4o for vision/chat
 - **Frontend**: React 19.1, Vite 7.3, TailwindCSS 4.2
 - **Infrastructure**: Azure Container Apps, Azure Static Web Apps, ACR
 - **Auth**: JWT (HS256) with 1-hour TTL for admin endpoints
 - **CI/CD**: GitHub Actions with OIDC → ACR → Container Apps
 - **Security**: Semgrep SAST, Gitleaks, Trivy container scan, CycloneDX SBOM
-- **Testing**: pytest (747 tests, 30 files) + Playwright E2E
+- **Testing**: pytest (1149+ backend tests, 30+ files), Vitest (186 frontend tests), Playwright E2E
+- **DX**: Makefile, Docker Compose, VS Code Dev Container
 
 ## API Routes
 
