@@ -3,7 +3,15 @@ import { render, screen } from '@testing-library/react'
 import DiagramTranslator from '../../DiagramTranslator'
 
 // Mock Prism to avoid require issues
-vi.mock('prismjs', () => ({ default: { highlightAll: vi.fn() } }))
+vi.mock('prismjs', () => ({
+  default: {
+    highlightAll: vi.fn(),
+    highlight: vi.fn((code) => code),
+    languages: { hcl: {}, json: {} },
+  },
+}))
+vi.mock('prismjs/components/prism-hcl', () => ({}))
+vi.mock('prismjs/components/prism-json', () => ({}))
 
 describe('DiagramTranslator', () => {
   beforeEach(() => {

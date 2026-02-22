@@ -46,9 +46,9 @@ jobs:
       - name: Generate Python SBOM (CycloneDX)
         run: |
           cyclonedx-py requirements \
-            -i backend/requirements.txt \
-            -o backend-sbom.json
-        working-directory: .
+            -i requirements.txt \
+            -o ../backend-sbom.json
+        working-directory: backend
 
       - name: Upload Python SBOM artifact
         uses: actions/upload-artifact@v4
@@ -69,6 +69,7 @@ jobs:
       - name: Upload Python Grype SARIF to GitHub Security
         uses: github/codeql-action/upload-sarif@v3
         if: always()
+        continue-on-error: true
         with:
           sarif_file: python-grype-results.sarif
           category: grype-python
@@ -130,6 +131,7 @@ jobs:
       - name: Upload npm Grype SARIF to GitHub Security
         uses: github/codeql-action/upload-sarif@v3
         if: always()
+        continue-on-error: true
         with:
           sarif_file: npm-grype-results.sarif
           category: grype-npm
