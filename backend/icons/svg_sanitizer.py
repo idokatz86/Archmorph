@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import re
 import defusedxml.ElementTree as ET  # Secure XML parsing — prevents XXE and XML bomb attacks
-import xml.etree.ElementTree as _StdET  # Standard lib for register_namespace / tostring
+import xml.etree.ElementTree as _StdET  # nosemgrep: python.lang.security.use-defused-xml.use-defused-xml  — Standard lib for register_namespace / tostring only
 from io import BytesIO
 from typing import Optional
 

@@ -598,7 +598,7 @@ def export_hld_pptx(hld: Dict[str, Any], include_diagrams: bool = True,
                     diagram_b64: Optional[str] = None) -> bytes:
     """Export HLD to a PowerPoint (.pptx) presentation. Returns bytes."""
     from pptx import Presentation
-    from pptx.util import Inches, Pt, Emu
+    from pptx.util import Inches, Pt
     from pptx.dml.color import RGBColor as PptxRGB
     from pptx.enum.text import PP_ALIGN
 

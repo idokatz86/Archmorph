@@ -39,10 +39,12 @@ jobs:
 
       - name: Determine rollback revision
         id: revision
+        env:
+          INPUT_REVISION: ${{ github.event.inputs.revision_name }}
         run: |
-          if [ -n "${{ github.event.inputs.revision_name }}" ]; then
-            echo "target=${{ github.event.inputs.revision_name }}" >> $GITHUB_OUTPUT
-            echo "Using specified revision: ${{ github.event.inputs.revision_name }}"
+          if [ -n "$INPUT_REVISION" ]; then
+            echo "target=$INPUT_REVISION" >> $GITHUB_OUTPUT
+            echo "Using specified revision: $INPUT_REVISION"
           else
             # Get the list of revisions, pick the second one (previous active)
             REVISIONS=$(az containerapp revision list \
@@ -73,13 +75,15 @@ jobs:
             --revision ${{ steps.revision.outputs.target }}
 
       - name: Shift traffic to rollback revision
+        env:
+          INPUT_TRAFFIC: ${{ github.event.inputs.traffic_percentage || '100' }}
+          ROLLBACK_TARGET: ${{ steps.revision.outputs.target }}
         run: |
-          TRAFFIC=${{ github.event.inputs.traffic_percentage || '100' }}
           az containerapp ingress traffic set \
             --name ${{ env.CONTAINER_APP_NAME }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --revision-weight "${{ steps.revision.outputs.target }}=$TRAFFIC"
-          echo "Shifted ${TRAFFIC}% traffic to ${{ steps.revision.outputs.target }}"
+            --revision-weight "$ROLLBACK_TARGET=$INPUT_TRAFFIC"
+          echo "Shifted ${INPUT_TRAFFIC}% traffic to $ROLLBACK_TARGET"
 
       - name: Verify rollback health
         run: |

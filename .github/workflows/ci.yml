@@ -135,7 +135,7 @@ jobs:
       - name: Generate Python SBOM
         run: |
           pip install cyclonedx-bom
-          cyclonedx-py environment -o ../sbom-python.json --format json
+          cyclonedx-py requirements -i requirements.txt -o ../sbom-python.json
 
       - name: Generate npm SBOM
         working-directory: frontend
