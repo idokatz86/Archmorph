@@ -329,6 +329,8 @@ jobs:
             2>/dev/null || true
 
           # Create new revision (green) with 0% traffic
+          SHORT_SHA="${{ github.sha }}"
+          SHORT_SHA="${SHORT_SHA:0:8}"
           az containerapp update \
             --name ${{ env.CONTAINER_APP_NAME }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
@@ -336,7 +338,7 @@ jobs:
             --set-env-vars \
               ARCHMORPH_ADMIN_KEY=secretref:admin-key \
               AZURE_STORAGE_CONNECTION_STRING=secretref:storage-connection \
-            --revision-suffix "${{ github.sha }}" \
+            --revision-suffix "sha-${SHORT_SHA}" \
             --no-wait
 
           # Wait for green revision to be ready
