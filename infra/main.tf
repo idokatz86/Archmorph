@@ -81,7 +81,7 @@ resource "azurerm_log_analytics_workspace" "main" {
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
   sku                 = "PerGB2018"
-  retention_in_days   = 30
+  retention_in_days   = var.environment == "prod" ? 90 : 30  # 90 days for compliance (#105 — I-011)
   tags                = local.tags
 }
 
@@ -93,7 +93,7 @@ resource "azurerm_storage_account" "main" {
   resource_group_name             = azurerm_resource_group.main.name
   location                        = azurerm_resource_group.main.location
   account_tier                    = "Standard"
-  account_replication_type        = "LRS"
+  account_replication_type        = var.environment == "prod" ? "GRS" : "LRS"  # Geo-redundant in prod (#105 — I-012)
   min_tls_version                 = "TLS1_2"
   shared_access_key_enabled       = false  # Use RBAC instead of shared keys
   allow_nested_items_to_be_public = false
@@ -553,7 +553,7 @@ resource "azurerm_application_insights" "main" {
   location            = azurerm_resource_group.main.location
   workspace_id        = azurerm_log_analytics_workspace.main.id
   application_type    = "web"
-  retention_in_days   = 30
+  retention_in_days   = var.environment == "prod" ? 90 : 30  # 90 days in prod for compliance (#105 — I-011)
   sampling_percentage = var.environment == "prod" ? 50 : 100  # Sample 50% in prod to reduce costs
   
   # Enable distributed tracing
@@ -1774,23 +1774,23 @@ resource "azurerm_application_insights_workbook" "dashboard" {
 # Microsoft Defender for Cloud (Optional - for enterprise)
 # ─────────────────────────────────────────────────────────────
 # Uncomment to enable Defender for key resources in production
-# resource "azurerm_security_center_subscription_pricing" "storage" {
-#   count         = var.environment == "prod" ? 1 : 0
-#   tier          = "Standard"
-#   resource_type = "StorageAccounts"
-# }
-#
-# resource "azurerm_security_center_subscription_pricing" "keyvault" {
-#   count         = var.environment == "prod" ? 1 : 0
-#   tier          = "Standard"
-#   resource_type = "KeyVaults"
-# }
-#
-# resource "azurerm_security_center_subscription_pricing" "containers" {
-#   count         = var.environment == "prod" ? 1 : 0
-#   tier          = "Standard"
-#   resource_type = "Containers"
-# }
+resource "azurerm_security_center_subscription_pricing" "storage" {
+  count         = var.environment == "prod" ? 1 : 0
+  tier          = "Standard"
+  resource_type = "StorageAccounts"
+}
+
+resource "azurerm_security_center_subscription_pricing" "keyvault" {
+  count         = var.environment == "prod" ? 1 : 0
+  tier          = "Standard"
+  resource_type = "KeyVaults"
+}
+
+resource "azurerm_security_center_subscription_pricing" "containers" {
+  count         = var.environment == "prod" ? 1 : 0
+  tier          = "Standard"
+  resource_type = "Containers"
+}
 
 # ─────────────────────────────────────────────────────────────
 # Azure Front Door + WAF Policy (Issue #43 — Zero Trust)

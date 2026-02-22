@@ -1,0 +1,46 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "archmorph.fullname" . }}
+  labels:
+    {{- include "archmorph.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "archmorph.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.ingressNamespace | default "ingress-nginx" }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.service.port | default 8000 }}
+  egress:
+    # Allow DNS resolution
+    - to: []
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # Allow HTTPS outbound (Azure OpenAI, Azure Storage, external APIs)
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 443
+    # Allow PostgreSQL
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Allow Redis
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 6379
+{{- end }}

@@ -36,6 +36,11 @@ variable "db_admin_password" {
   description = "PostgreSQL administrator password"
   type        = string
   sensitive   = true
+
+  validation {
+    condition     = length(var.db_admin_password) >= 16
+    error_message = "Database password must be at least 16 characters for security compliance."
+  }
 }
 
 variable "alert_email" {

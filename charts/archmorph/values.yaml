@@ -120,3 +120,8 @@ startupProbe:
 nodeSelector: {}
 tolerations: []
 affinity: {}
+
+# Network policy — restrict pod-to-pod traffic (#105 — I-010)
+networkPolicy:
+  enabled: true
+  ingressNamespace: ingress-nginx
