@@ -8,6 +8,7 @@ Supports:
 - Analytics aggregation
 """
 
+import copy
 import json
 import os
 import logging
@@ -104,9 +105,9 @@ def _load_feedback_unlocked():
                 _feedback_store = json.load(f)
         except Exception as e:
             logger.warning("Failed to load feedback: %s", e)
-            _feedback_store = _DEFAULT_FEEDBACK.copy()
+            _feedback_store = copy.deepcopy(_DEFAULT_FEEDBACK)
     else:
-        _feedback_store = _DEFAULT_FEEDBACK.copy()
+        _feedback_store = copy.deepcopy(_DEFAULT_FEEDBACK)
     return _feedback_store
 
 

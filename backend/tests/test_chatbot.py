@@ -184,6 +184,7 @@ class TestGitHubIssueCreation:
         assert result["success"] is False
         assert "not configured" in result["error"].lower()
 
+    @patch("chatbot._GITHUB_CLIENT", None)
     @patch("chatbot._GITHUB_TOKEN", "fake-token")
     def test_creates_issue_successfully(self):
         """Should create issue with correct parameters."""
@@ -204,6 +205,7 @@ class TestGitHubIssueCreation:
             assert result["issue_number"] == 123
             mock_repo.create_issue.assert_called_once()
 
+    @patch("chatbot._GITHUB_CLIENT", None)
     @patch("chatbot._GITHUB_TOKEN", "fake-token")
     def test_handles_api_error(self):
         """Should handle GitHub API errors."""

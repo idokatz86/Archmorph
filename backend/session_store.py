@@ -146,6 +146,7 @@ class RedisStore(SessionStore):
         import redis as _redis  # optional import
         import json as _json
         self._redis = _redis.from_url(url, decode_responses=True)
+        self._redis.ping()  # Verify connectivity eagerly; raises on failure
         self._json = _json
         self._prefix = prefix
         self._ttl = ttl

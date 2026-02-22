@@ -222,12 +222,12 @@ def add_services_from_text(
         }
 
     # Validate and sanitize user input (#prompt-hardening)
-    validation = validate_message(user_text, max_length=2000, context="service_builder")
-    if not validation["valid"]:
+    is_safe, reason = validate_message(user_text, max_length=2000, context="service_builder")
+    if not is_safe:
         return {
             **analysis,
             "services_added": [],
-            "add_services_error": validation["reason"],
+            "add_services_error": reason,
         }
     user_text = sanitize_message(user_text)
     
