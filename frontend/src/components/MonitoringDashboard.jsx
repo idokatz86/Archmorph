@@ -92,7 +92,7 @@ export default function MonitoringDashboard({ sessionToken }) {
     fetchData();
     const interval = setInterval(() => fetchData(), 30000); // Auto-refresh every 30s
     return () => clearInterval(interval);
-  }, []);
+  }, [sessionToken]);
 
   if (loading) {
     return (

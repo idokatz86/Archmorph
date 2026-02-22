@@ -216,8 +216,8 @@ class LatencyTrackingMiddleware(BaseHTTPMiddleware):
                         "status": str(status),
                     },
                 )
-        except Exception:  # nosec B110 - analytics must never break request handling
-            pass
+        except Exception as exc:  # nosec B110 - analytics must never break request handling
+            logger.debug("middleware error: %s", exc)
 
         # Add timing header
         response.headers["X-Response-Time"] = f"{duration_ms:.2f}ms"
@@ -254,8 +254,8 @@ class AuditMiddleware(BaseHTTPMiddleware):
                 latency_ms=latency_ms,
                 ip_address=ip,
             )
-        except Exception:  # nosec B110 - audit must never break request handling
-            pass
+        except Exception as exc:  # nosec B110 - audit must never break request handling
+            logger.debug("middleware error: %s", exc)
 
         return response
 

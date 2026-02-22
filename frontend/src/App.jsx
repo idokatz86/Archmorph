@@ -24,6 +24,8 @@ export default function App() {
       .catch(() => {});
   }, []);
 
+  useEffect(() => () => clearTimeout(tapTimer.current), []);
+
   const handleVersionClick = () => {
     const next = tapCount + 1;
     setTapCount(next);

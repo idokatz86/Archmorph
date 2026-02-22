@@ -204,6 +204,6 @@ def generate_iac_code(analysis: Optional[dict], iac_format: str = "terraform", p
                 "{{ENVIRONMENT}}", params.get("environment", "dev")
             ).replace(
                 "{{REGION}}", params.get("region", "westeurope")
-            ) + f"\n\n# NOTE: Dynamic generation failed ({exc}). This is a base template.\n# Re-run after fixing the OpenAI configuration to get full IaC output.\n"
+            ) + "\n\n# NOTE: Dynamic generation was unavailable. This is a base template.\n# Re-run after fixing the OpenAI configuration to get full IaC output.\n"
         except FileNotFoundError:
             return f"# IaC generation failed: {exc}\n# Please check your OpenAI configuration.\n"

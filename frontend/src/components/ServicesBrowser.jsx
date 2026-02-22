@@ -17,9 +17,9 @@ export default function ServicesBrowser() {
 
   useEffect(() => {
     Promise.all([
-      fetch(`${API_BASE}/services`).then(r => r.json()),
-      fetch(`${API_BASE}/services/stats`).then(r => r.json()),
-      fetch(`${API_BASE}/services/categories`).then(r => r.json()),
+      fetch(`${API_BASE}/services`).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }),
+      fetch(`${API_BASE}/services/stats`).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }),
+      fetch(`${API_BASE}/services/categories`).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }),
     ]).then(([svc, st, cats]) => {
       setServices(svc.services || []);
       setStats(st);

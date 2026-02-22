@@ -13,6 +13,7 @@ without an external telemetry backend.
 
 import logging
 import time
+import threading
 from typing import Dict, Any, Optional, Callable
 from functools import wraps
 from contextlib import contextmanager
@@ -64,6 +65,7 @@ def _get_otel_histogram(name: str):
 
 
 # ── In-memory metrics (admin dashboard) ──────────────────────
+_metrics_lock = threading.Lock()
 _metrics: Dict[str, Any] = {
     "counters": {},
     "histograms": {},
@@ -221,9 +223,10 @@ def increment_counter(name: str, value: int = 1, tags: Optional[Dict[str, str]] 
     """
     # ── in-memory ──
     key = _make_metric_key(name, tags)
-    if key not in _metrics["counters"]:
-        _metrics["counters"][key] = {"name": name, "tags": tags or {}, "value": 0}
-    _metrics["counters"][key]["value"] += value
+    with _metrics_lock:
+        if key not in _metrics["counters"]:
+            _metrics["counters"][key] = {"name": name, "tags": tags or {}, "value": 0}
+        _metrics["counters"][key]["value"] += value
 
     # ── OTel ──
     otel_counter = _get_otel_counter(name)
@@ -240,27 +243,28 @@ def record_histogram(name: str, value: float, tags: Optional[Dict[str, str]] = N
     """
     # ── in-memory ──
     key = _make_metric_key(name, tags)
-    if key not in _metrics["histograms"]:
-        _metrics["histograms"][key] = {
-            "name": name,
-            "tags": tags or {},
-            "values": [],
-            "count": 0,
-            "sum": 0,
-            "min": float("inf"),
-            "max": float("-inf"),
-        }
+    with _metrics_lock:
+        if key not in _metrics["histograms"]:
+            _metrics["histograms"][key] = {
+                "name": name,
+                "tags": tags or {},
+                "values": [],
+                "count": 0,
+                "sum": 0,
+                "min": float("inf"),
+                "max": float("-inf"),
+            }
 
-    h = _metrics["histograms"][key]
-    h["values"].append(value)
-    h["count"] += 1
-    h["sum"] += value
-    h["min"] = min(h["min"], value)
-    h["max"] = max(h["max"], value)
+        h = _metrics["histograms"][key]
+        h["values"].append(value)
+        h["count"] += 1
+        h["sum"] += value
+        h["min"] = min(h["min"], value)
+        h["max"] = max(h["max"], value)
 
-    # Keep only last 1000 values for percentile calculation
-    if len(h["values"]) > 1000:
-        h["values"] = h["values"][-1000:]
+        # Keep only last 1000 values for percentile calculation
+        if len(h["values"]) > 1000:
+            h["values"] = h["values"][-1000:]
 
     # ── OTel ──
     otel_hist = _get_otel_histogram(name)
@@ -275,12 +279,13 @@ def set_gauge(name: str, value: float, tags: Optional[Dict[str, str]] = None):
     In-memory only — serves the admin monitoring dashboard.
     """
     key = _make_metric_key(name, tags)
-    _metrics["gauges"][key] = {
-        "name": name,
-        "tags": tags or {},
-        "value": value,
-        "timestamp": time.time(),
-    }
+    with _metrics_lock:
+        _metrics["gauges"][key] = {
+            "name": name,
+            "tags": tags or {},
+            "value": value,
+            "timestamp": time.time(),
+        }
 
 
 def get_metrics() -> Dict[str, Any]:
@@ -296,35 +301,36 @@ def get_metrics() -> Dict[str, Any]:
         "gauges": {},
     }
 
-    for key, counter in _metrics["counters"].items():
-        result["counters"][counter["name"]] = {
-            "value": counter["value"],
-            "tags": counter["tags"],
-        }
+    with _metrics_lock:
+        for key, counter in _metrics["counters"].items():
+            result["counters"][counter["name"]] = {
+                "value": counter["value"],
+                "tags": counter["tags"],
+            }
 
-    for key, hist in _metrics["histograms"].items():
-        avg = hist["sum"] / hist["count"] if hist["count"] > 0 else 0
-        p50 = _percentile(hist["values"], 50)
-        p95 = _percentile(hist["values"], 95)
-        p99 = _percentile(hist["values"], 99)
+        for key, hist in _metrics["histograms"].items():
+            avg = hist["sum"] / hist["count"] if hist["count"] > 0 else 0
+            p50 = _percentile(hist["values"], 50)
+            p95 = _percentile(hist["values"], 95)
+            p99 = _percentile(hist["values"], 99)
 
-        result["histograms"][hist["name"]] = {
-            "count": hist["count"],
-            "sum": hist["sum"],
-            "avg": avg,
-            "min": hist["min"] if hist["min"] != float("inf") else 0,
-            "max": hist["max"] if hist["max"] != float("-inf") else 0,
-            "p50": p50,
-            "p95": p95,
-            "p99": p99,
-            "tags": hist["tags"],
-        }
+            result["histograms"][hist["name"]] = {
+                "count": hist["count"],
+                "sum": hist["sum"],
+                "avg": avg,
+                "min": hist["min"] if hist["min"] != float("inf") else 0,
+                "max": hist["max"] if hist["max"] != float("-inf") else 0,
+                "p50": p50,
+                "p95": p95,
+                "p99": p99,
+                "tags": hist["tags"],
+            }
 
-    for key, gauge in _metrics["gauges"].items():
-        result["gauges"][gauge["name"]] = {
-            "value": gauge["value"],
-            "tags": gauge["tags"],
-        }
+        for key, gauge in _metrics["gauges"].items():
+            result["gauges"][gauge["name"]] = {
+                "value": gauge["value"],
+                "tags": gauge["tags"],
+            }
 
     return result
 

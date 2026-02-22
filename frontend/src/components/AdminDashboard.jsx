@@ -86,6 +86,7 @@ export default function AdminDashboard({ onClose }) {
     ]).then(([f, m, d, r, c]) => {
       if (!f && !m) {
         // Token may have expired
+        setLoading(false);
         setSessionToken(null);
         return;
       }

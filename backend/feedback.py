@@ -95,29 +95,35 @@ _DEFAULT_FEEDBACK: Dict[str, Any] = {
 _feedback_store: Dict[str, Any] = {}
 
 
-def _load_feedback():
+def _load_feedback_unlocked():
+    """Load feedback from disk without acquiring _lock (caller must hold it)."""
     global _feedback_store
-    with _lock:
-        if os.path.exists(FEEDBACK_FILE):
-            try:
-                with open(FEEDBACK_FILE, "r") as f:
-                    _feedback_store = json.load(f)
-            except Exception as e:
-                logger.warning("Failed to load feedback: %s", e)
-                _feedback_store = _DEFAULT_FEEDBACK.copy()
-        else:
+    if os.path.exists(FEEDBACK_FILE):
+        try:
+            with open(FEEDBACK_FILE, "r") as f:
+                _feedback_store = json.load(f)
+        except Exception as e:
+            logger.warning("Failed to load feedback: %s", e)
             _feedback_store = _DEFAULT_FEEDBACK.copy()
+    else:
+        _feedback_store = _DEFAULT_FEEDBACK.copy()
     return _feedback_store
 
 
-def _save_feedback():
+def _load_feedback():
+    global _feedback_store
     with _lock:
-        try:
-            os.makedirs(DATA_DIR, exist_ok=True)
-            with open(FEEDBACK_FILE, "w") as f:
-                json.dump(_feedback_store, f, indent=2)
-        except Exception as e:
-            logger.error("Failed to save feedback: %s", e)
+        return _load_feedback_unlocked()
+
+
+def _save_feedback_unlocked():
+    """Save feedback to disk without acquiring _lock (caller must hold it)."""
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        with open(FEEDBACK_FILE, "w") as f:
+            json.dump(_feedback_store, f, indent=2)
+    except Exception as e:
+        logger.error("Failed to save feedback: %s", e)
 
 
 def _recalculate_nps():
@@ -169,21 +175,22 @@ def submit_nps(
         raise ValueError("NPS score must be between 0 and 10")
     
     global _feedback_store
-    if not _feedback_store:
-        _load_feedback()
-    
-    response = {
-        "score": score,
-        "follow_up": follow_up,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "session_id": session_id,
-        "feature_context": feature_context,
-        "category": "promoter" if score >= 9 else "passive" if score >= 7 else "detractor"
-    }
-    
-    _feedback_store.setdefault("nps_responses", []).append(response)
-    _recalculate_nps()
-    _save_feedback()
+    with _lock:
+        if not _feedback_store:
+            _load_feedback_unlocked()
+        
+        response = {
+            "score": score,
+            "follow_up": follow_up,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "session_id": session_id,
+            "feature_context": feature_context,
+            "category": "promoter" if score >= 9 else "passive" if score >= 7 else "detractor"
+        }
+        
+        _feedback_store.setdefault("nps_responses", []).append(response)
+        _recalculate_nps()
+        _save_feedback_unlocked()
     
     return {
         "status": "recorded",
@@ -211,33 +218,34 @@ def submit_feature_feedback(
         Confirmation with feature rating summary
     """
     global _feedback_store
-    if not _feedback_store:
-        _load_feedback()
-    
-    feedback = {
-        "feature": feature,
-        "helpful": helpful,
-        "comment": comment,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "session_id": session_id
-    }
-    
-    _feedback_store.setdefault("feature_feedback", []).append(feedback)
-    
-    # Update feature ratings aggregate
-    ratings = _feedback_store["aggregates"].setdefault("feature_ratings", {})
-    if feature not in ratings:
-        ratings[feature] = {"positive": 0, "negative": 0}
-    
-    if helpful:
-        ratings[feature]["positive"] += 1
-    else:
-        ratings[feature]["negative"] += 1
-    
-    _save_feedback()
-    
-    total = ratings[feature]["positive"] + ratings[feature]["negative"]
-    satisfaction = (ratings[feature]["positive"] / total * 100) if total > 0 else 0
+    with _lock:
+        if not _feedback_store:
+            _load_feedback_unlocked()
+        
+        feedback = {
+            "feature": feature,
+            "helpful": helpful,
+            "comment": comment,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "session_id": session_id
+        }
+        
+        _feedback_store.setdefault("feature_feedback", []).append(feedback)
+        
+        # Update feature ratings aggregate
+        ratings = _feedback_store["aggregates"].setdefault("feature_ratings", {})
+        if feature not in ratings:
+            ratings[feature] = {"positive": 0, "negative": 0}
+        
+        if helpful:
+            ratings[feature]["positive"] += 1
+        else:
+            ratings[feature]["negative"] += 1
+        
+        _save_feedback_unlocked()
+        
+        total = ratings[feature]["positive"] + ratings[feature]["negative"]
+        satisfaction = (ratings[feature]["positive"] / total * 100) if total > 0 else 0
     
     return {
         "status": "recorded",
@@ -268,23 +276,24 @@ def submit_bug_report(
     import uuid
     
     global _feedback_store
-    if not _feedback_store:
-        _load_feedback()
-    
-    bug_id = f"BUG-{uuid.uuid4().hex[:8].upper()}"
-    
-    report = {
-        "id": bug_id,
-        "description": description,
-        "context": context or {},
-        "severity": severity,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "session_id": session_id,
-        "status": "new"
-    }
-    
-    _feedback_store.setdefault("bug_reports", []).append(report)
-    _save_feedback()
+    with _lock:
+        if not _feedback_store:
+            _load_feedback_unlocked()
+        
+        bug_id = f"BUG-{uuid.uuid4().hex[:8].upper()}"
+        
+        report = {
+            "id": bug_id,
+            "description": description,
+            "context": context or {},
+            "severity": severity,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "session_id": session_id,
+            "status": "new"
+        }
+        
+        _feedback_store.setdefault("bug_reports", []).append(report)
+        _save_feedback_unlocked()
     
     return {
         "status": "recorded",

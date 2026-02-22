@@ -7,6 +7,8 @@ import os
 import logging
 import hashlib
 import secrets
+import threading
+from collections import deque
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 from dataclasses import dataclass, field
@@ -140,22 +142,23 @@ class User:
     
     def increment_usage(self, action: str) -> bool:
         """Increment usage counter for an action. Returns True if successful."""
-        quota_check = self.check_quota(action)
-        if not quota_check["allowed"]:
-            return False
-        
-        field_map = {
-            "analyze": "analyses_used",
-            "iac_download": "iac_downloads_used",
-            "hld_generation": "hld_generations_used",
-            "cost_estimate": "cost_estimates_used",
-            "share_link": "share_links_used",
-        }
-        
-        if action in field_map:
-            setattr(self, field_map[action], getattr(self, field_map[action]) + 1)
+        with _usage_lock:
+            quota_check = self.check_quota(action)
+            if not quota_check["allowed"]:
+                return False
+            
+            field_map = {
+                "analyze": "analyses_used",
+                "iac_download": "iac_downloads_used",
+                "hld_generation": "hld_generations_used",
+                "cost_estimate": "cost_estimates_used",
+                "share_link": "share_links_used",
+            }
+            
+            if action in field_map:
+                setattr(self, field_map[action], getattr(self, field_map[action]) + 1)
+                return True
             return True
-        return True
     
     def reset_monthly_usage(self):
         """Reset usage counters for a new month."""
@@ -187,11 +190,14 @@ class User:
         }
 
 
-# In-memory user store (replace with database in production)
-USER_STORE: Dict[str, User] = {}
+# In-memory user store (bounded — Issue #94; replace with database in production)
+USER_STORE: TTLCache = TTLCache(maxsize=50000, ttl=86400)
 
 # Anonymous session tracking (IP-based for unauthenticated users)
 ANONYMOUS_USAGE: TTLCache = TTLCache(maxsize=10000, ttl=86400 * 30)  # 30 days
+
+# Lock for protecting usage counter increments (Issue #95)
+_usage_lock = threading.Lock()
 
 
 # ─────────────────────────────────────────────────────────────
@@ -426,8 +432,8 @@ class LeadCapture:
         }
 
 
-# Lead storage (replace with database in production)
-LEAD_STORE: list[LeadCapture] = []
+# Lead storage (bounded deque — Issue #94; replace with database in production)
+LEAD_STORE: deque = deque(maxlen=10000)
 
 
 def capture_lead(

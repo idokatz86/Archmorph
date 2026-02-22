@@ -20,7 +20,7 @@ from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
 from enum import Enum
 from collections import defaultdict
-from cachetools import TTLCache
+from cachetools import TTLCache, LRUCache
 import statistics
 
 # Forward metric primitives to the consolidated observability module
@@ -118,15 +118,32 @@ EVENTS_BUFFER: TTLCache = TTLCache(maxsize=100000, ttl=86400)
 # Sessions (TTL: 4 hours, max 10k)
 SESSIONS: TTLCache = TTLCache(maxsize=10000, ttl=14400)
 
-# Metrics counters
-COUNTERS: Dict[str, int] = defaultdict(int)
-GAUGES: Dict[str, float] = {}
-HISTOGRAMS: Dict[str, List[float]] = defaultdict(list)
-TIMERS: Dict[str, List[float]] = defaultdict(list)
+# Metrics counters (bounded to prevent unbounded memory growth — Issue #94)
+COUNTERS: LRUCache = LRUCache(maxsize=10000)
+GAUGES: LRUCache = LRUCache(maxsize=10000)
+HISTOGRAMS: LRUCache = LRUCache(maxsize=10000)
+TIMERS: LRUCache = LRUCache(maxsize=10000)
 
 # Performance tracking
-REQUEST_LATENCIES: Dict[str, List[float]] = defaultdict(list)
-ERROR_COUNTS: Dict[str, int] = defaultdict(int)
+REQUEST_LATENCIES: LRUCache = LRUCache(maxsize=10000)
+ERROR_COUNTS: LRUCache = LRUCache(maxsize=10000)
+
+
+def _safe_increment(cache: LRUCache, key: str, amount: int = 1) -> int:
+    """Increment a counter in an LRUCache, initializing to 0 if missing."""
+    val = cache.get(key, 0) + amount
+    cache[key] = val
+    return val
+
+
+def _safe_append(cache: LRUCache, key: str, value: float, max_items: int = 1000) -> list:
+    """Append a value to a list stored in an LRUCache, initializing if missing."""
+    lst = cache.get(key, [])
+    lst.append(value)
+    if len(lst) > max_items:
+        lst = lst[-max_items:]
+    cache[key] = lst
+    return lst
 
 
 # ─────────────────────────────────────────────────────────────
@@ -166,8 +183,8 @@ def track_event(
         session.last_activity = datetime.now(timezone.utc)
     
     # Increment counters
-    COUNTERS[f"events.{event_name}"] += 1
-    COUNTERS[f"events.{category.value}"] += 1
+    _safe_increment(COUNTERS, f"events.{event_name}")
+    _safe_increment(COUNTERS, f"events.{category.value}")
     
     logger.debug("Tracked event: %s (%s)", event_name, category.value)
     
@@ -189,7 +206,7 @@ def start_session(
     )
     
     SESSIONS[session_id] = session
-    COUNTERS["sessions.started"] += 1
+    _safe_increment(COUNTERS, "sessions.started")
     
     track_event(
         "session_started",
@@ -219,10 +236,10 @@ def end_session(session_id: str):
         },
     )
     
-    COUNTERS["sessions.ended"] += 1
+    _safe_increment(COUNTERS, "sessions.ended")
     
     if session.conversion_achieved:
-        COUNTERS["sessions.converted"] += 1
+        _safe_increment(COUNTERS, "sessions.converted")
 
 
 def track_page_view(session_id: str, page: str):
@@ -252,7 +269,7 @@ def track_conversion(session_id: str, conversion_type: str):
         properties={"conversion_type": conversion_type},
     )
     
-    COUNTERS[f"conversions.{conversion_type}"] += 1
+    _safe_increment(COUNTERS, f"conversions.{conversion_type}")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -266,7 +283,7 @@ def increment_counter(name: str, value: int = 1, tags: Optional[Dict[str, str]] 
     key = name
     if tags:
         key = f"{name}:{','.join(f'{k}={v}' for k, v in sorted(tags.items()))}"
-    COUNTERS[key] += value
+    _safe_increment(COUNTERS, key, value)
     # Forward to observability for OTel export
     _obs_increment_counter(name, value, tags)
 
@@ -279,7 +296,7 @@ def set_gauge(name: str, value: float, tags: Optional[Dict[str, str]] = None):
     key = name
     if tags:
         key = f"{name}:{','.join(f'{k}={v}' for k, v in sorted(tags.items()))}"
-    GAUGES[key] = value
+    GAUGES[key] = value  # LRUCache assignment (bounded)
     # Forward to observability for OTel export
     _obs_set_gauge(name, value, tags)
 
@@ -292,11 +309,7 @@ def record_histogram(name: str, value: float, tags: Optional[Dict[str, str]] = N
     key = name
     if tags:
         key = f"{name}:{','.join(f'{k}={v}' for k, v in sorted(tags.items()))}"
-    HISTOGRAMS[key].append(value)
-
-    # Keep only last 1000 values
-    if len(HISTOGRAMS[key]) > 1000:
-        HISTOGRAMS[key] = HISTOGRAMS[key][-1000:]
+    _safe_append(HISTOGRAMS, key, value, max_items=1000)
     # Forward to observability for OTel export
     _obs_record_histogram(name, value, tags)
 
@@ -306,11 +319,7 @@ def record_timing(name: str, duration_ms: float, tags: Optional[Dict[str, str]] 
     key = name
     if tags:
         key = f"{name}:{','.join(f'{k}={v}' for k, v in sorted(tags.items()))}"
-    TIMERS[key].append(duration_ms)
-    
-    # Keep only last 1000 values
-    if len(TIMERS[key]) > 1000:
-        TIMERS[key] = TIMERS[key][-1000:]
+    _safe_append(TIMERS, key, duration_ms, max_items=1000)
 
 
 class Timer:
@@ -336,14 +345,10 @@ class Timer:
 def track_request_latency(endpoint: str, method: str, latency_ms: float, status_code: int):
     """Track API request latency."""
     key = f"{method}:{endpoint}"
-    REQUEST_LATENCIES[key].append(latency_ms)
-    
-    # Keep only last 1000
-    if len(REQUEST_LATENCIES[key]) > 1000:
-        REQUEST_LATENCIES[key] = REQUEST_LATENCIES[key][-1000:]
+    _safe_append(REQUEST_LATENCIES, key, latency_ms, max_items=1000)
     
     if status_code >= 400:
-        ERROR_COUNTS[key] += 1
+        _safe_increment(ERROR_COUNTS, key)
         track_event(
             "api_error",
             EventCategory.ERROR,
@@ -375,7 +380,7 @@ def track_error(
         },
     )
     
-    ERROR_COUNTS[f"error:{error_type}"] += 1
+    _safe_increment(ERROR_COUNTS, f"error:{error_type}")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -394,7 +399,7 @@ def track_feature_usage(
         properties=properties or {},
     )
     
-    COUNTERS[f"feature.{feature_name}"] += 1
+    _safe_increment(COUNTERS, f"feature.{feature_name}")
 
 
 def track_analysis(
@@ -439,7 +444,7 @@ def track_export(
         },
     )
     
-    COUNTERS[f"exports.{export_format}"] += 1
+    _safe_increment(COUNTERS, f"exports.{export_format}")
 
 
 def track_iac_generation(

@@ -1,0 +1,13 @@
+{{- if and .Values.autoscaling.enabled (gt (int .Values.autoscaling.minReplicas) 1) }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "archmorph.fullname" . }}
+  labels:
+    {{- include "archmorph.labels" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "archmorph.selectorLabels" . | nindent 6 }}
+{{- end }}

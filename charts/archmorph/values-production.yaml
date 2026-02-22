@@ -2,7 +2,10 @@
 replicaCount: 3
 
 image:
-  tag: "latest"
+  # Tag MUST be set by CI/CD pipeline: --set image.tag=$GITHUB_SHA
+  # DO NOT use "latest" in production
+  tag: ""
+  pullPolicy: Always
 
 env:
   ENVIRONMENT: "prod"

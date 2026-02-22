@@ -15,9 +15,9 @@ describe('ServicesBrowser', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     fetch
-      .mockResolvedValueOnce({ json: () => Promise.resolve({ services: mockServices }) })
-      .mockResolvedValueOnce({ json: () => Promise.resolve(mockStats) })
-      .mockResolvedValueOnce({ json: () => Promise.resolve(mockCategories) })
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ services: mockServices }) })
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(mockStats) })
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(mockCategories) })
   })
 
   it('shows loading state initially', () => {

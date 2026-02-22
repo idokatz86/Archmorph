@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any
 from datetime import datetime, timezone
 import asyncio
+import secrets
 import uuid
 import logging
 
@@ -154,7 +155,7 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
 # Guided Questions
 # ─────────────────────────────────────────────────────────────
 @router.post("/api/diagrams/{diagram_id}/questions")
-async def get_guided_questions(diagram_id: str, smart_dedup: bool = True):
+async def get_guided_questions(diagram_id: str, smart_dedup: bool = True, _auth=Depends(verify_api_key)):
     """Generate guided questions based on detected AWS services.
     
     If smart_dedup=True, questions that have been implicitly answered
@@ -551,7 +552,7 @@ async def create_share_link(diagram_id: str):
     if not analysis:
         raise HTTPException(404, "Analysis not found")
     
-    share_id = f"share-{uuid.uuid4().hex[:10]}"
+    share_id = f"share-{secrets.token_urlsafe(24)}"
     
     # Store a read-only snapshot
     SHARE_STORE[share_id] = {

@@ -58,6 +58,8 @@ def verify_admin_secret(candidate: str) -> bool:
 
 def create_session_token() -> str:
     """Issue a short-lived JWT for an authenticated admin session."""
+    if not JWT_SECRET:
+        raise RuntimeError("Cannot create admin token: ARCHMORPH_ADMIN_KEY not configured")
     now = datetime.now(timezone.utc)
     payload = {
         "sub": "admin",

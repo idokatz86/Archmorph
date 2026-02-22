@@ -3,6 +3,7 @@ Shared state, dependencies, and models used across Archmorph API routers.
 """
 
 import os
+import logging
 import secrets
 from typing import Optional, List
 
@@ -33,10 +34,18 @@ limiter = Limiter(
 API_KEY = os.getenv("ARCHMORPH_API_KEY", "")  # Empty = auth disabled (dev mode)
 API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=False)
 
+logger = logging.getLogger(__name__)
+
+_api_key_warning_logged = False
+
 
 async def verify_api_key(api_key: Optional[str] = Security(API_KEY_HEADER)):
     """Verify API key if authentication is enabled."""
+    global _api_key_warning_logged
     if not API_KEY:
+        if not _api_key_warning_logged:
+            logger.warning("ARCHMORPH_API_KEY not set \u2014 API authentication is disabled")
+            _api_key_warning_logged = True
         return  # Auth disabled — dev mode
     if not secrets.compare_digest(api_key or "", API_KEY):
         raise HTTPException(status_code=401, detail="Invalid or missing API key")

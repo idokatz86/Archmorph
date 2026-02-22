@@ -16,6 +16,7 @@ Usage::
 
 import logging
 import os
+import threading
 from typing import Any, Iterator, List, Optional
 
 from cachetools import TTLCache
@@ -173,12 +174,23 @@ class RedisStore(SessionStore):
     def keys(self, pattern: str = "*") -> List[str]:
         full_pattern = f"{self._prefix}:{pattern}"
         prefix_len = len(self._prefix) + 1
-        return [k[prefix_len:] for k in self._redis.keys(full_pattern)]
+        result = []
+        cursor = 0
+        while True:
+            cursor, batch = self._redis.scan(cursor=cursor, match=full_pattern, count=100)
+            result.extend(k[prefix_len:] for k in batch)
+            if cursor == 0:
+                break
+        return result
 
     def clear(self) -> None:
-        keys = self._redis.keys(f"{self._prefix}:*")
-        if keys:
-            self._redis.delete(*keys)
+        cursor = 0
+        while True:
+            cursor, batch = self._redis.scan(cursor=cursor, match=f"{self._prefix}:*", count=100)
+            if batch:
+                self._redis.delete(*batch)
+            if cursor == 0:
+                break
 
     def __contains__(self, key: str) -> bool:
         return self._redis.exists(self._key(key)) > 0
@@ -194,6 +206,7 @@ class RedisStore(SessionStore):
 # ─────────────────────────────────────────────────────────────
 # Factory
 # ─────────────────────────────────────────────────────────────
+_stores_lock = threading.Lock()
 _stores: dict[str, SessionStore] = {}
 
 REDIS_URL = os.getenv("REDIS_URL", "")
@@ -216,18 +229,22 @@ def get_store(name: str, *, maxsize: int = 500, ttl: int = 7200) -> SessionStore
     if name in _stores:
         return _stores[name]
 
-    if REDIS_URL:
-        try:
-            store: SessionStore = RedisStore(
-                url=REDIS_URL, prefix=f"archmorph:{name}", maxsize=maxsize, ttl=ttl,
-            )
-        except Exception as exc:
-            logger.warning("Redis unavailable (%s) — falling back to in-memory for '%s'", exc, name)
-            store = InMemoryStore(maxsize=maxsize, ttl=ttl)
-    else:
-        store = InMemoryStore(maxsize=maxsize, ttl=ttl)
+    with _stores_lock:
+        if name in _stores:
+            return _stores[name]
 
-    _stores[name] = store
+        if REDIS_URL:
+            try:
+                store: SessionStore = RedisStore(
+                    url=REDIS_URL, prefix=f"archmorph:{name}", maxsize=maxsize, ttl=ttl,
+                )
+            except Exception as exc:
+                logger.warning("Redis unavailable (%s) — falling back to in-memory for '%s'", exc, name)
+                store = InMemoryStore(maxsize=maxsize, ttl=ttl)
+        else:
+            store = InMemoryStore(maxsize=maxsize, ttl=ttl)
+
+        _stores[name] = store
     return store
 
 

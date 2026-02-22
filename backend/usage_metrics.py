@@ -241,7 +241,14 @@ _flush_thread.start()
 # Register shutdown handlers
 atexit.register(_shutdown_flush)
 try:
-    signal.signal(signal.SIGTERM, _shutdown_flush)
+    _prev_sigterm_handler = signal.getsignal(signal.SIGTERM)
+
+    def _chained_sigterm_handler(*args):
+        _shutdown_flush(*args)
+        if callable(_prev_sigterm_handler) and _prev_sigterm_handler not in (signal.SIG_DFL, signal.SIG_IGN):
+            _prev_sigterm_handler(*args)
+
+    signal.signal(signal.SIGTERM, _chained_sigterm_handler)
 except (OSError, ValueError):
     # signal.signal fails if not called from main thread (e.g. in tests)
     pass

@@ -1,4 +1,4 @@
-import React, { useRef, useCallback } from 'react';
+import React, { useRef, useCallback, useEffect } from 'react';
 import Prism from 'prismjs';
 import {
   Upload, ChevronRight, CheckCircle, XCircle, X,
@@ -32,6 +32,13 @@ export default function DiagramTranslator() {
   const iacChatEndRef = useRef(null);
   const iacChatInputRef = useRef(null);
 
+  // ── Cleanup blob URLs on unmount ──
+  useEffect(() => {
+    return () => {
+      if (state.filePreviewUrl) URL.revokeObjectURL(state.filePreviewUrl);
+    };
+  }, []);
+
   // ── Drag & drop ──
   const handleDragOver = useCallback((e) => { e.preventDefault(); e.stopPropagation(); set({ dragOver: true }); }, [set]);
   const handleDragLeave = useCallback((e) => { e.preventDefault(); e.stopPropagation(); set({ dragOver: false }); }, [set]);
@@ -39,20 +46,32 @@ export default function DiagramTranslator() {
     e.preventDefault(); e.stopPropagation(); set({ dragOver: false });
     const file = e.dataTransfer?.files?.[0];
     if (file && (file.type.startsWith('image/') || file.name.match(/\.(svg|pdf)$/i))) {
+      const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+      if (file.size > MAX_FILE_SIZE) {
+        set({ error: 'File exceeds 10 MB limit. Please upload a smaller file.' });
+        return;
+      }
+      if (state.filePreviewUrl) URL.revokeObjectURL(state.filePreviewUrl);
       set({
         selectedFile: file,
         filePreviewUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : null,
       });
     }
-  }, [set]);
+  }, [set, state.filePreviewUrl]);
 
   const handleFileSelect = useCallback((file) => {
     if (!file) return;
+    const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+    if (file.size > MAX_FILE_SIZE) {
+      set({ error: 'File exceeds 10 MB limit. Please upload a smaller file.' });
+      return;
+    }
+    if (state.filePreviewUrl) URL.revokeObjectURL(state.filePreviewUrl);
     set({
       selectedFile: file,
       filePreviewUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : null,
     });
-  }, [set]);
+  }, [set, state.filePreviewUrl]);
 
   // ── Upload & Analyze ──
   const handleUpload = async (file) => {
@@ -84,6 +103,10 @@ export default function DiagramTranslator() {
 
       await addStep('Uploading diagram...');
       const uploadRes = await fetch(`${API_BASE}/projects/demo-project/diagrams`, { method: 'POST', body: formData });
+      if (!uploadRes.ok) {
+        const errData = await uploadRes.json().catch(() => ({}));
+        throw new Error(errData.detail || `Upload failed (${uploadRes.status})`);
+      }
       const { diagram_id } = await uploadRes.json();
       set({ diagramId: diagram_id });
 
@@ -192,6 +215,14 @@ export default function DiagramTranslator() {
         fetch(`${API_BASE}/diagrams/${state.diagramId}/generate?format=${fmt}`, { method: 'POST' }),
         fetch(`${API_BASE}/diagrams/${state.diagramId}/cost-estimate`),
       ]);
+      if (!iacRes.ok) {
+        const errData = await iacRes.json().catch(() => ({}));
+        throw new Error(errData.detail || `IaC generation failed (${iacRes.status})`);
+      }
+      if (!costRes.ok) {
+        const errData = await costRes.json().catch(() => ({}));
+        throw new Error(errData.detail || `Cost estimate failed (${costRes.status})`);
+      }
       const iacData = await iacRes.json();
       const costData = await costRes.json();
       set({ iacCode: iacData.code, costEstimate: costData, step: 'iac' });
@@ -294,7 +325,7 @@ export default function DiagramTranslator() {
 
   const handleResetChat = () => {
     set({ iacChatMessages: [{ role: 'assistant', content: 'Chat reset. What would you like to change in your IaC code?' }] });
-    if (state.diagramId) fetch(`${API_BASE}/diagrams/${state.diagramId}/iac-chat`, { method: 'DELETE' });
+    if (state.diagramId) fetch(`${API_BASE}/diagrams/${state.diagramId}/iac-chat`, { method: 'DELETE' }).catch(() => {});
   };
 
   const handleOpenChatWithMessage = (msg) => {
@@ -373,7 +404,10 @@ export default function DiagramTranslator() {
           onDrop={handleDrop}
           onFileSelect={handleFileSelect}
           onUpload={handleUpload}
-          onRemoveFile={() => set({ selectedFile: null, filePreviewUrl: null })}
+          onRemoveFile={() => {
+            if (state.filePreviewUrl) URL.revokeObjectURL(state.filePreviewUrl);
+            set({ selectedFile: null, filePreviewUrl: null });
+          }}
           onLoadSample={handleLoadSample}
         />
       )}

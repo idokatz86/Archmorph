@@ -20,10 +20,10 @@ terraform {
 provider "azurerm" {
   features {
     resource_group {
-      prevent_deletion_if_contains_resources = false
+      prevent_deletion_if_contains_resources = true
     }
     key_vault {
-      purge_soft_delete_on_destroy = true
+      purge_soft_delete_on_destroy = false
     }
   }
   subscription_id = var.subscription_id
@@ -110,6 +110,10 @@ resource "azurerm_storage_account" "main" {
     virtual_network_subnet_ids = []
   }
 
+  lifecycle {
+    prevent_destroy = true
+  }
+
   tags = local.tags
 }
 
@@ -169,6 +173,10 @@ resource "azurerm_postgresql_flexible_server" "main" {
   # Require SSL/TLS for all connections
   # Note: ssl_enforcement_enabled is not available - use connection string sslmode=require
 
+  lifecycle {
+    prevent_destroy = true
+  }
+
   tags = local.tags
 }
 
@@ -219,6 +227,10 @@ resource "azurerm_key_vault" "main" {
     key_permissions = [
       "Get", "List", "Create", "Delete", "Purge"
     ]
+  }
+
+  lifecycle {
+    prevent_destroy = true
   }
 
   tags = local.tags
