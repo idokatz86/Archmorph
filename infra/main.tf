@@ -15,6 +15,21 @@ terraform {
       version = "~> 3.6"
     }
   }
+
+  # Remote state backend — Azure Storage with locking (#98 — I-001)
+  # Prevents concurrent state corruption, removes secrets from local disk.
+  # Bootstrap: create the storage account + container first, then init.
+  #   az group create -n archmorph-tfstate-rg -l westeurope
+  #   az storage account create -n archmorphtfstate -g archmorph-tfstate-rg -l westeurope --sku Standard_LRS --allow-blob-public-access false
+  #   az storage container create -n tfstate --account-name archmorphtfstate
+  backend "azurerm" {
+    resource_group_name  = "archmorph-tfstate-rg"
+    storage_account_name = "archmorphtfstate"
+    container_name       = "tfstate"
+    key                  = "archmorph.tfstate"
+    subscription_id      = "152f2bd5-8f6b-48ba-a702-21a23172a224"
+    use_azuread_auth     = true
+  }
 }
 
 provider "azurerm" {
@@ -137,7 +152,7 @@ resource "azurerm_container_registry" "main" {
   resource_group_name           = azurerm_resource_group.main.name
   location                      = azurerm_resource_group.main.location
   sku                           = var.environment == "prod" ? "Standard" : "Basic"
-  admin_enabled                 = var.environment != "prod"  # Disable admin in production
+  admin_enabled                 = false  # Use managed identity — never admin credentials (#98 — I-002)
   public_network_access_enabled = true
   zone_redundancy_enabled       = var.environment == "prod"
   anonymous_pull_enabled        = false
@@ -292,6 +307,7 @@ resource "azurerm_container_app_environment" "main" {
   resource_group_name        = azurerm_resource_group.main.name
   location                   = var.location  # West Europe (same as other resources)
   log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
+  infrastructure_subnet_id   = azurerm_subnet.container_apps.id  # VNet integration (#98 — I-003)
 
   workload_profile {
     name                  = "Consumption"
@@ -318,14 +334,8 @@ resource "azurerm_container_app" "backend" {
   }
 
   registry {
-    server               = azurerm_container_registry.main.login_server
-    username             = azurerm_container_registry.main.admin_username
-    password_secret_name = "acr-password"
-  }
-
-  secret {
-    name  = "acr-password"
-    value = azurerm_container_registry.main.admin_password
+    server   = azurerm_container_registry.main.login_server
+    identity = azurerm_user_assigned_identity.container_app.id  # Managed identity auth (#98 — I-002)
   }
 
   secret {
