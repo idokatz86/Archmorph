@@ -17,6 +17,7 @@ from PIL import Image
 
 from services import AWS_SERVICES, GCP_SERVICES, CROSS_CLOUD_MAPPINGS
 from openai_client import get_openai_client, AZURE_OPENAI_DEPLOYMENT, openai_retry
+from prompt_guard import PROMPT_ARMOR
 
 # Maximum image dimension for GPT-4o vision (keeps quality while reducing tokens)
 MAX_IMAGE_DIMENSION = 2048
@@ -290,7 +291,8 @@ Respond ONLY with valid JSON in this exact format:
       ]
     }
   ]
-}"""
+}
+""" + PROMPT_ARMOR
 
 
 def _find_azure_mapping(
@@ -400,6 +402,7 @@ def analyze_image(image_bytes: bytes, content_type: str = "image/png") -> Dict[s
         ],
         max_tokens=16384,
         temperature=0.1,
+        response_format={"type": "json_object"},  # Enforce JSON output
     )
 
     raw_text = response.choices[0].message.content.strip()

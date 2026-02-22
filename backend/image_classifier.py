@@ -12,6 +12,7 @@ import logging
 from typing import Any, Dict
 
 from openai_client import get_openai_client, AZURE_OPENAI_DEPLOYMENT, openai_retry
+from prompt_guard import PROMPT_ARMOR
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,8 @@ Respond ONLY with valid JSON:
   "confidence": 0.0 to 1.0,
   "image_type": "<brief description of what the image actually shows>",
   "reason": "<one sentence explaining why it was accepted or rejected>"
-}"""
+}
+""" + PROMPT_ARMOR
 
 
 def classify_image(image_bytes: bytes, content_type: str = "image/png") -> Dict[str, Any]:

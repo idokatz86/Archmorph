@@ -29,6 +29,7 @@ from difflib import SequenceMatcher
 
 from services import AZURE_SERVICES
 from openai_client import get_openai_client, AZURE_OPENAI_DEPLOYMENT, openai_retry
+from prompt_guard import validate_message, sanitize_message, PROMPT_ARMOR
 
 logger = logging.getLogger(__name__)
 
@@ -188,7 +189,7 @@ Identify Azure services the user wants to add to their architecture. Return a JS
 - AI/ML: OpenAI Service, Cognitive Services, Machine Learning
 - Integration: Service Bus, Event Hubs, Event Grid, Logic Apps, API Management
 - Monitoring: Monitor, Application Insights, Log Analytics
-"""
+""" + PROMPT_ARMOR
 
 
 def add_services_from_text(
@@ -219,6 +220,16 @@ def add_services_from_text(
             "services_added": [],
             "add_services_error": "No input provided",
         }
+
+    # Validate and sanitize user input (#prompt-hardening)
+    validation = validate_message(user_text, max_length=2000, context="service_builder")
+    if not validation["valid"]:
+        return {
+            **analysis,
+            "services_added": [],
+            "add_services_error": validation["reason"],
+        }
+    user_text = sanitize_message(user_text)
     
     # Build context from existing services
     existing_services = set()

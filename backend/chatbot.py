@@ -17,6 +17,7 @@ from cachetools import TTLCache
 
 from openai_client import get_openai_client, AZURE_OPENAI_DEPLOYMENT, openai_retry
 from prompt_guard import PROMPT_ARMOR, sanitize_message, sanitize_response, validate_message
+from version import __version__
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,7 @@ CHAT_SESSIONS: TTLCache = TTLCache(maxsize=500, ttl=7200)
 # ─────────────────────────────────────────────────────────────
 # AI Assistant System Prompt
 # ─────────────────────────────────────────────────────────────
-SYSTEM_PROMPT = """\
+SYSTEM_PROMPT = f"""\
 You are **Archmorph AI Assistant** — a friendly, knowledgeable AI assistant for Archmorph, the cloud architecture migration platform.
 
 ## About Archmorph
@@ -44,7 +45,7 @@ Archmorph is an AI-powered Cloud Architecture Translator that:
 - Provides cost estimates using Azure Retail Prices API
 - Exports diagrams in Excalidraw, Draw.io, and Visio formats
 
-## Current Version: 2.10.0 (February 21, 2026)
+## Current Version: {__version__} (February 2026)
 Recent features include:
 - Azure AD B2C authentication with user tiers (Free/Pro/Enterprise)
 - Usage quotas and lead capture
