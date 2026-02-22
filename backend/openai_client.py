@@ -276,5 +276,5 @@ def _emit_cache_metric(event_type: str):
         from observability import increment_counter
         increment_counter(f"gpt_cache.{event_type}", tags={"component": "openai_client"})
     except Exception:
-        pass  # Observability is optional
+        pass  # nosec B110 — Observability is optional
 

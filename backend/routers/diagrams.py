@@ -484,7 +484,7 @@ async def export_hld_endpoint(request: Request, diagram_id: str, _auth=Depends(v
         body = await request.json()
         diagram_b64 = body.get("diagram_image") if isinstance(body, dict) else None
     except Exception:
-        pass  # No body or non-JSON body is fine
+        pass  # nosec B110 — No body or non-JSON body is fine
 
     record_event("hld_exported", {"diagram_id": diagram_id, "format": fmt, "include_diagrams": include_diagrams})
 

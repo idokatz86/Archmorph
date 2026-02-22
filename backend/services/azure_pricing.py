@@ -1083,7 +1083,7 @@ def invalidate_cache() -> None:
             blob.delete_blob()
             logger.info("Deleted pricing cache blob")
         except Exception:
-            pass  # Blob may not exist
+            pass  # nosec B110 — Blob may not exist
     logger.info("Azure pricing cache invalidated")
 
 
