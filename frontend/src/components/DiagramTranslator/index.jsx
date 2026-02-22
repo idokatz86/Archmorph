@@ -1,5 +1,4 @@
 import React, { useRef, useCallback, useEffect } from 'react';
-import Prism from 'prismjs';
 import {
   Upload, ChevronRight, CheckCircle, XCircle, X,
   Loader2, Eye,
@@ -226,7 +225,6 @@ export default function DiagramTranslator() {
       const iacData = await iacRes.json();
       const costData = await costRes.json();
       set({ iacCode: iacData.code, costEstimate: costData, step: 'iac' });
-      setTimeout(() => Prism.highlightAll(), 100);
     } catch (err) {
       set({ error: err.message });
     }
@@ -301,7 +299,6 @@ export default function DiagramTranslator() {
       });
       if (data.code && !data.error) {
         set({ iacCode: data.code });
-        setTimeout(() => Prism.highlightAll(), 100);
       }
     } catch {
       addChatMessage({ role: 'assistant', content: 'Sorry, couldn\'t connect to the IaC assistant.' });
@@ -313,12 +310,21 @@ export default function DiagramTranslator() {
   const handleGenerateHld = async () => {
     set({ hldLoading: true, error: null });
     try {
-      const res = await fetch(`${API_BASE}/diagrams/${state.diagramId}/generate-hld`, { method: 'POST' });
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 120_000);
+      const res = await fetch(`${API_BASE}/diagrams/${state.diagramId}/generate-hld`, {
+        method: 'POST',
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
       const data = await res.json();
       if (!res.ok) throw new Error(data?.detail || `HLD generation failed (${res.status})`);
       if (data.hld) set({ hldData: data });
     } catch (err) {
-      set({ error: 'HLD generation failed: ' + err.message });
+      const msg = err.name === 'AbortError'
+        ? 'HLD generation timed out. Please try again.'
+        : 'HLD generation failed: ' + err.message;
+      set({ error: msg });
     }
     set({ hldLoading: false });
   };

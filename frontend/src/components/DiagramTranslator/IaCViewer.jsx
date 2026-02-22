@@ -1,4 +1,7 @@
 import React from 'react';
+import Prism from 'prismjs';
+import 'prismjs/components/prism-hcl';
+import 'prismjs/components/prism-json';
 import {
   FileCode, FileText, Download, Check, Sparkles, Bot,
   Plus, RotateCcw, Send, Loader2, CheckCircle,
@@ -60,13 +63,18 @@ export default function IaCViewer({
         </div>
         <div className="bg-surface rounded-lg border border-border overflow-auto max-h-[600px]">
           <pre className="p-4 text-xs leading-relaxed">
-            <code className={`language-${iacFormat === 'terraform' ? 'hcl' : 'json'}`}>
-              {iacCode.split('\n').map((line, i) => (
-                <div key={i} className="flex">
-                  <span className="inline-block w-10 text-right pr-4 text-text-muted select-none opacity-50">{i + 1}</span>
-                  <span>{line || ' '}</span>
-                </div>
-              ))}
+            <code>
+              {iacCode.split('\n').map((line, i) => {
+                const grammar = iacFormat === 'terraform' ? Prism.languages.hcl : Prism.languages.json;
+                const lang = iacFormat === 'terraform' ? 'hcl' : 'json';
+                const highlighted = grammar ? Prism.highlight(line || ' ', grammar, lang) : (line || ' ');
+                return (
+                  <div key={i} className="flex">
+                    <span className="inline-block w-10 text-right pr-4 text-text-muted select-none opacity-50">{i + 1}</span>
+                    <span dangerouslySetInnerHTML={{ __html: highlighted }} />
+                  </div>
+                );
+              })}
             </code>
           </pre>
         </div>

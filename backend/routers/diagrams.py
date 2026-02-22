@@ -431,6 +431,9 @@ async def generate_hld_endpoint(request: Request, diagram_id: str, _auth=Depends
         markdown = generate_hld_markdown(hld)
     except ValueError as e:
         raise HTTPException(500, str(e))
+    except Exception as e:
+        logger.exception("HLD generation failed: %s", e)
+        raise HTTPException(500, f"HLD generation failed: {type(e).__name__}: {e}")
 
     # Store in session
     session["hld"] = hld
