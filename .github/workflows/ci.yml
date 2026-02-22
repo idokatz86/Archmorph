@@ -208,6 +208,9 @@ jobs:
       - name: npm audit
         run: npm audit --audit-level=high
 
+      - name: Run frontend tests
+        run: npx vitest run
+
       - name: Build
         run: npm run build
         env:
