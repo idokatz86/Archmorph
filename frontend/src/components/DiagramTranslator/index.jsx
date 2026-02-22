@@ -199,8 +199,15 @@ export default function DiagramTranslator() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(state.answers),
       });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        if (res.status === 404) {
+          throw new Error('Your session has expired (the backend was redeployed). Please re-upload your diagram.');
+        }
+        throw new Error(errData.detail || `Failed to apply answers (${res.status})`);
+      }
       const refined = await res.json();
-      set({ analysis: refined, step: 'results' });
+      set({ analysis: { ...state.analysis, ...refined }, step: 'results' });
     } catch (err) {
       set({ error: err.message });
     }
