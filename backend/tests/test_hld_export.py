@@ -12,8 +12,6 @@ Tests the hld_export.py module:
 """
 
 import base64
-import io
-import json
 import os
 import sys
 

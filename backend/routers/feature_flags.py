@@ -8,7 +8,7 @@ PUT  /api/flags/{name}    — update a flag (admin only)
 
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from routers.shared import verify_admin_key
 from feature_flags import get_feature_flags

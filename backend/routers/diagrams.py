@@ -3,9 +3,9 @@ Diagram routes — upload, analyze, questions, services, export, IaC, HLD,
 best-practices, cost-optimization, share, IaC-chat, terraform-preview.
 """
 
-from fastapi import APIRouter, HTTPException, UploadFile, File, Query, Response, Request, Depends
+from fastapi import APIRouter, HTTPException, UploadFile, File, Request, Depends
 from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 from datetime import datetime, timezone
 import asyncio
 import secrets

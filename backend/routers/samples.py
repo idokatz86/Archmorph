@@ -232,7 +232,7 @@ async def analyze_sample_diagram(request: Request, sample_id: str):
             base_conf = mapping["confidence"] if mapping else 0.80
             confidence = round(min(1.0, base_conf * 0.7 + 0.85 * 0.3), 2)
             notes_text = mapping.get("notes", "Suggested equivalent") if mapping else "Suggested equivalent"
-            category = mapping.get("category", "General") if mapping else "General"
+            _category = mapping.get("category", "General") if mapping else "General"
 
             mapping_entry = {
                 "source_service": svc_name,

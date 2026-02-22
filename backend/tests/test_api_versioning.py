@@ -16,7 +16,6 @@ from fastapi.testclient import TestClient
 from api_versioning import (
     get_api_versions, create_versioned_router,
     API_V1, CURRENT_VERSION, SUPPORTED_VERSIONS,
-    VersionMiddleware,
 )
 from main import app
 

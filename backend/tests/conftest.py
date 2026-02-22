@@ -9,11 +9,10 @@ Provides:
 """
 
 import copy
-import io
 import os
 import sys
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -24,7 +23,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 # Disable rate limiting for all tests
 os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
 
-from main import app, SESSION_STORE, IMAGE_STORE  # noqa: E402
+from main import app  # noqa: E402
 
 
 # ─────────────────────────────────────────────────────────────

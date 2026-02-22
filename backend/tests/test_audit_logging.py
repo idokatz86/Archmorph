@@ -13,10 +13,8 @@ Covers:
 import pytest
 import sys
 import os
-import time
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
-from datetime import datetime, timezone
+from unittest.mock import MagicMock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -26,7 +24,7 @@ from audit_logging import (
     RiskLevel, AuditEvent, AuditLogger,
     audit_logger,
     audit_admin_action, audit_export, audit_auth,
-    _audit_log, _audit_lock, _alerts,
+    _audit_lock, _alerts,
 )
 
 

@@ -18,8 +18,8 @@ import logging  # noqa: E402
 import time  # noqa: E402
 import uuid  # noqa: E402
 
-from slowapi import _rate_limit_exceeded_handler
-from slowapi.errors import RateLimitExceeded
+from slowapi import _rate_limit_exceeded_handler  # noqa: E402
+from slowapi.errors import RateLimitExceeded  # noqa: E402
 
 # ── Azure Monitor / Application Insights ──
 APPLICATIONINSIGHTS_CONNECTION_STRING = os.getenv("APPLICATIONINSIGHTS_CONNECTION_STRING", "")
@@ -44,7 +44,7 @@ from observability import (  # noqa: E402
 from icons.routes import router as icon_router  # noqa: E402
 
 # Shared state — re-exported for backward compatibility (tests import these from main)
-from routers.shared import limiter, SESSION_STORE, IMAGE_STORE, SHARE_STORE  # noqa: E402
+from routers.shared import limiter  # noqa: E402
 
 # Routers
 from routers.health import router as health_router  # noqa: E402
@@ -62,7 +62,7 @@ from routers.terraform import router as terraform_router  # noqa: E402
 from routers.feature_flags import router as feature_flags_router  # noqa: E402
 from routers.v1 import build_v1_router  # noqa: E402
 from api_versioning import VersionMiddleware  # noqa: E402
-from audit_logging import audit_logger, AuditEventType  # noqa: E402
+from audit_logging import audit_logger  # noqa: E402
 
 logger = logging.getLogger(__name__)
 

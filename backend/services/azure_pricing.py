@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────
 # Cache configuration
 # ─────────────────────────────────────────────────────────────
-import os
+import os  # noqa: E402
 
 CACHE_DIR = Path(__file__).parent.parent / "data"
 CACHE_FILE = CACHE_DIR / "azure_pricing_cache.json"

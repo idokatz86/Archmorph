@@ -17,11 +17,10 @@ Sprint refactoring coverage:
 
 import copy
 import io
-import json
 import os
 import sys
 import uuid
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -268,7 +267,7 @@ class TestSharedUtilities:
 
     def test_pydantic_models_importable(self):
         """Pydantic models from shared are importable."""
-        from routers.shared import Project, ServiceMapping, AnalysisResult
+        from routers.shared import Project, ServiceMapping
         p = Project(name="Test")
         assert p.name == "Test"
 

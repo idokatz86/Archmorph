@@ -15,10 +15,9 @@ Issue #37
 
 import copy
 import io
-import json
 import os
 import sys
-from unittest.mock import patch, MagicMock, PropertyMock
+from unittest.mock import patch, MagicMock
 
 import pytest
 from fastapi.testclient import TestClient

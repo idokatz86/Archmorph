@@ -16,9 +16,7 @@ import json
 import logging
 import os
 import sys
-import time
-from datetime import datetime, timezone
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pytest
 
@@ -282,7 +280,7 @@ class TestObservabilityEdgeCases:
         from observability import SpanContext
         span = SpanContext("double_end")
         span.end()
-        first_end = span.end_time
+        _first_end = span.end_time  # noqa: F841
         span.end()
         # Calling end twice should be safe
         assert span.end_time is not None

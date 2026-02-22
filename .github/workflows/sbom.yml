@@ -45,10 +45,9 @@ jobs:
 
       - name: Generate Python SBOM (CycloneDX)
         run: |
-          cyclonedx-py environment \
-            --output backend-sbom.json \
-            --output-format json \
-            --schema-version 1.5
+          cyclonedx-py requirements \
+            -i backend/requirements.txt \
+            -o backend-sbom.json
         working-directory: .
 
       - name: Upload Python SBOM artifact
@@ -59,13 +58,13 @@ jobs:
           retention-days: 90
 
       - name: Run Grype vulnerability scan on Python SBOM
-        uses: anchore/grype-action@v0
+        uses: anchore/scan-action@v6
         id: grype-python
         with:
           sbom: backend-sbom.json
           output-format: sarif
           output-file: python-grype-results.sarif
-          fail-build: false
+          fail-build: "false"
 
       - name: Upload Python Grype SARIF to GitHub Security
         uses: github/codeql-action/upload-sarif@v3
@@ -120,13 +119,13 @@ jobs:
           retention-days: 90
 
       - name: Run Grype vulnerability scan on npm SBOM
-        uses: anchore/grype-action@v0
+        uses: anchore/scan-action@v6
         id: grype-npm
         with:
           sbom: frontend-sbom.json
           output-format: sarif
           output-file: npm-grype-results.sarif
-          fail-build: false
+          fail-build: "false"
 
       - name: Upload npm Grype SARIF to GitHub Security
         uses: github/codeql-action/upload-sarif@v3

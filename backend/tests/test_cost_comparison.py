@@ -10,8 +10,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from cost_comparison import (
     AWS_BASE_PRICES,
-    AZURE_RATIO,
-    GCP_RATIO,
     _estimate_provider_cost,
     generate_cost_comparison,
 )
