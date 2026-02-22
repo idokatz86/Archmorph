@@ -112,20 +112,27 @@ function FeatureRequestModal({ onClose, onSubmit, loading }) {
   const [useCase, setUseCase] = useState('');
   const [email, setEmail] = useState('');
 
+  // Close on Escape key (#104 — F-009)
+  useEffect(() => {
+    const handleKeyDown = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
   const handleSubmit = (e) => {
     e.preventDefault();
     onSubmit({ title, description, use_case: useCase, email: email || undefined });
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="feature-modal-title" onClick={onClose} onKeyDown={e => { if (e.key === 'Escape') onClose(); }}>
       <div className="bg-primary border border-border rounded-2xl w-full max-w-lg shadow-2xl" onClick={e => e.stopPropagation()}>
         <div className="px-6 py-4 border-b border-border flex items-center gap-3">
           <div className="w-10 h-10 rounded-lg bg-cta/15 flex items-center justify-center">
             <Sparkles className="w-5 h-5 text-cta" />
           </div>
           <div>
-            <h2 className="text-lg font-semibold text-text-primary">Request a Feature</h2>
+            <h2 id="feature-modal-title" className="text-lg font-semibold text-text-primary">Request a Feature</h2>
             <p className="text-xs text-text-muted">Your request will be added to our backlog</p>
           </div>
         </div>
@@ -213,6 +220,13 @@ function BugReportModal({ onClose, onSubmit, loading }) {
   const [actual, setActual] = useState('');
   const [email, setEmail] = useState('');
 
+  // Close on Escape key (#104 — F-009)
+  useEffect(() => {
+    const handleKeyDown = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
   const handleSubmit = (e) => {
     e.preventDefault();
     onSubmit({
@@ -228,14 +242,14 @@ function BugReportModal({ onClose, onSubmit, loading }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="bug-modal-title" onClick={onClose} onKeyDown={e => { if (e.key === 'Escape') onClose(); }}>
       <div className="bg-primary border border-border rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-2xl" onClick={e => e.stopPropagation()}>
         <div className="px-6 py-4 border-b border-border flex items-center gap-3 sticky top-0 bg-primary">
           <div className="w-10 h-10 rounded-lg bg-error/15 flex items-center justify-center">
             <Bug className="w-5 h-5 text-error" />
           </div>
           <div>
-            <h2 className="text-lg font-semibold text-text-primary">Report a Bug</h2>
+            <h2 id="bug-modal-title" className="text-lg font-semibold text-text-primary">Report a Bug</h2>
             <p className="text-xs text-text-muted">Help us improve by reporting issues</p>
           </div>
         </div>

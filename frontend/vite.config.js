@@ -15,7 +15,7 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    sourcemap: false
+    sourcemap: 'hidden'  // Hidden source maps for error monitoring (#104 — F-013)
   },
   test: {
     globals: true,

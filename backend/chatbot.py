@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 # GitHub configuration — loaded lazily to avoid module-level secret exposure
 _GITHUB_TOKEN: Optional[str] = None
+_GITHUB_CLIENT: Optional[Any] = None  # Cached PyGithub client (#103 — S-018)
 GITHUB_REPO = os.getenv("GITHUB_REPO", "idokatz86/Archmorph")
 
 # Conversation history per session (TTL: 2 hours, max 500 sessions)
@@ -168,8 +169,8 @@ def _call_ai_assistant(
 
 
 def _create_github_issue(title: str, body: str, labels: List[str]) -> Dict[str, Any]:
-    """Create a GitHub issue using PyGithub."""
-    global _GITHUB_TOKEN
+    """Create a GitHub issue using PyGithub. Caches the client instance (#103 — S-018)."""
+    global _GITHUB_TOKEN, _GITHUB_CLIENT
     if _GITHUB_TOKEN is None:
         _GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
     if not _GITHUB_TOKEN:
@@ -181,7 +182,9 @@ def _create_github_issue(title: str, body: str, labels: List[str]) -> Dict[str, 
     try:
         from github import Github
 
-        g = Github(_GITHUB_TOKEN)
+        if _GITHUB_CLIENT is None:
+            _GITHUB_CLIENT = Github(_GITHUB_TOKEN)
+        g = _GITHUB_CLIENT
         repo = g.get_repo(GITHUB_REPO)
 
         # Filter labels to only existing ones

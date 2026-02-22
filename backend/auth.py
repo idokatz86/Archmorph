@@ -194,7 +194,9 @@ class User:
 USER_STORE: TTLCache = TTLCache(maxsize=50000, ttl=86400)
 
 # Anonymous session tracking (IP-based for unauthenticated users)
-ANONYMOUS_USAGE: TTLCache = TTLCache(maxsize=10000, ttl=86400 * 30)  # 30 days
+# TTL reduced to 24h to align with maxsize capacity — prevents premature
+# eviction resetting quotas (#103 — S-024)
+ANONYMOUS_USAGE: TTLCache = TTLCache(maxsize=10000, ttl=86400)  # 24 hours
 
 # Lock for protecting usage counter increments (Issue #95)
 _usage_lock = threading.Lock()

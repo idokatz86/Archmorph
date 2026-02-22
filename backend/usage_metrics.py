@@ -255,6 +255,24 @@ except (OSError, ValueError):
 
 
 # ─────────────────────────────────────────────────────────────
+# Daily metrics pruning (#103 — S-020)
+# ─────────────────────────────────────────────────────────────
+_MAX_DAILY_DAYS = 90
+
+
+def _prune_daily_metrics():
+    """Remove daily metric entries older than _MAX_DAILY_DAYS to prevent unbounded growth."""
+    if "daily" not in _metrics:
+        return
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=_MAX_DAILY_DAYS)).strftime("%Y-%m-%d")
+    stale = [d for d in _metrics["daily"] if d < cutoff]
+    for d in stale:
+        del _metrics["daily"][d]
+    if stale:
+        logger.debug("Pruned %d stale daily metric entries (before %s)", len(stale), cutoff)
+
+
+# ─────────────────────────────────────────────────────────────
 # Record events (simple counters)
 # ─────────────────────────────────────────────────────────────
 def record_event(event_type: str, details: Optional[Dict] = None):
@@ -279,6 +297,9 @@ def record_event(event_type: str, details: Optional[Dict] = None):
             _metrics["daily"][today] = {}
         daily = _metrics["daily"][today]
         daily[event_type] = daily.get(event_type, 0) + 1
+
+        # Prune daily metrics to last 90 days (#103 — S-020 fix)
+        _prune_daily_metrics()
 
         # Add to recent events (keep last 200)
         event = {

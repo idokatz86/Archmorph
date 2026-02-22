@@ -74,11 +74,16 @@ _INJECTION_PATTERNS: List[re.Pattern] = [
 ]
 
 # Token patterns that should never appear in AI responses
+# NOTE: Only match known secret formats — NOT generic base64-like strings,
+# which would cause false positives on Terraform resource IDs, Azure names,
+# SHA hashes, certificates, and UUIDs (#99 — S-010 fix).
 _RESPONSE_LEAK_PATTERNS: List[re.Pattern] = [
-    re.compile(r"[A-Za-z0-9+/]{40,}={0,2}"),  # Base64-like long strings
     re.compile(r"sk-[A-Za-z0-9]{20,}"),  # OpenAI API key pattern
     re.compile(r"ghp_[A-Za-z0-9]{36,}"),  # GitHub personal access token
+    re.compile(r"gho_[A-Za-z0-9]{36,}"),  # GitHub OAuth token
+    re.compile(r"ghs_[A-Za-z0-9]{36,}"),  # GitHub server-to-server token
     re.compile(r"AKIA[0-9A-Z]{16}"),  # AWS access key ID
+    re.compile(r"(?:^|\s)(?:password|passwd|pwd|secret|token|api_key|apikey)\s*[:=]\s*\S{8,}", re.IGNORECASE),  # Explicit secret assignments
 ]
 
 

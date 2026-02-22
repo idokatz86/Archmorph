@@ -99,6 +99,13 @@ export default function AdminDashboard({ onClose }) {
     }).catch(() => setLoading(false));
   }, [sessionToken]);
 
+  // Close on Escape key (#104 — F-009)
+  useEffect(() => {
+    const handleKeyDown = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
   // ── Login screen ──
   if (!sessionToken) {
     return (
