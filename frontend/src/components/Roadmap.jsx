@@ -4,6 +4,7 @@ import {
   Bug, Sparkles, Send, ExternalLink, GitBranch, Filter, Search, Code, Server, Layers,
 } from 'lucide-react';
 import { API_BASE } from '../constants';
+import useFocusTrap from '../hooks/useFocusTrap';
 
 const STATUS_CONFIG = {
   released: { label: 'Released', color: 'bg-cta', textColor: 'text-cta', icon: CheckCircle2 },
@@ -111,6 +112,7 @@ function FeatureRequestModal({ onClose, onSubmit, loading }) {
   const [description, setDescription] = useState('');
   const [useCase, setUseCase] = useState('');
   const [email, setEmail] = useState('');
+  const trapRef = useFocusTrap();  // Focus trap (#104 — F-010)
 
   // Close on Escape key (#104 — F-009)
   useEffect(() => {
@@ -125,7 +127,7 @@ function FeatureRequestModal({ onClose, onSubmit, loading }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="feature-modal-title" onClick={onClose} onKeyDown={e => { if (e.key === 'Escape') onClose(); }}>
+    <div ref={trapRef} className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="feature-modal-title" onClick={onClose} onKeyDown={e => { if (e.key === 'Escape') onClose(); }}>
       <div className="bg-primary border border-border rounded-2xl w-full max-w-lg shadow-2xl" onClick={e => e.stopPropagation()}>
         <div className="px-6 py-4 border-b border-border flex items-center gap-3">
           <div className="w-10 h-10 rounded-lg bg-cta/15 flex items-center justify-center">
@@ -219,6 +221,7 @@ function BugReportModal({ onClose, onSubmit, loading }) {
   const [expected, setExpected] = useState('');
   const [actual, setActual] = useState('');
   const [email, setEmail] = useState('');
+  const trapRef = useFocusTrap();  // Focus trap (#104 — F-010)
 
   // Close on Escape key (#104 — F-009)
   useEffect(() => {
@@ -242,7 +245,7 @@ function BugReportModal({ onClose, onSubmit, loading }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="bug-modal-title" onClick={onClose} onKeyDown={e => { if (e.key === 'Escape') onClose(); }}>
+    <div ref={trapRef} className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="bug-modal-title" onClick={onClose} onKeyDown={e => { if (e.key === 'Escape') onClose(); }}>
       <div className="bg-primary border border-border rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-2xl" onClick={e => e.stopPropagation()}>
         <div className="px-6 py-4 border-b border-border flex items-center gap-3 sticky top-0 bg-primary">
           <div className="w-10 h-10 rounded-lg bg-error/15 flex items-center justify-center">

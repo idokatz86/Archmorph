@@ -6,6 +6,7 @@ import {
 import { Badge, Button, Card } from './ui';
 import { API_BASE } from '../constants';
 import MonitoringDashboard from './MonitoringDashboard';
+import useFocusTrap from '../hooks/useFocusTrap';
 
 const STEP_COLORS = ['#22C55E', '#3B82F6', '#A855F7', '#F59E0B', '#EF4444', '#06B6D4'];
 const TABS = [
@@ -21,6 +22,7 @@ export default function AdminDashboard({ onClose }) {
   const [recent, setRecent] = useState([]);
   const [costs, setCosts] = useState(null);
   const [loading, setLoading] = useState(false);
+  const trapRef = useFocusTrap();  // Focus trap (#104 — F-010)
 
   // ── Auth state (memory-only — never persisted) ──
   const [sessionToken, setSessionToken] = useState(null);
@@ -109,7 +111,7 @@ export default function AdminDashboard({ onClose }) {
   // ── Login screen ──
   if (!sessionToken) {
     return (
-      <div className="fixed inset-0 z-[100] bg-surface flex items-center justify-center">
+      <div ref={trapRef} className="fixed inset-0 z-[100] bg-surface flex items-center justify-center">
         <div className="absolute top-4 right-4">
           <Button variant="ghost" size="sm" icon={X} onClick={onClose}>Close</Button>
         </div>
@@ -168,7 +170,7 @@ export default function AdminDashboard({ onClose }) {
   const maxDaily = Math.max(...daily.map(d => d.total), 1);
 
   return (
-    <div className="fixed inset-0 z-[100] bg-surface overflow-y-auto">
+    <div ref={trapRef} className="fixed inset-0 z-[100] bg-surface overflow-y-auto">
       <div className="sticky top-0 z-10 bg-surface/90 backdrop-blur-xl border-b border-border">
         <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
