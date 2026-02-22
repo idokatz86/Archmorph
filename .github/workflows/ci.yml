@@ -371,23 +371,21 @@ jobs:
 
           echo "Running smoke tests against: $TEST_URL"
 
-          # Health check
-          HEALTH=$(curl -s --max-time 30 "$TEST_URL/health" | jq -r '.status' 2>/dev/null || echo 'failed')
+          # Health check (with retry — container may still be starting)
+          for i in 1 2 3; do
+            HEALTH=$(curl -s --max-time 30 "$TEST_URL/api/health" | jq -r '.status' 2>/dev/null || echo 'failed')
+            if [ "$HEALTH" = "healthy" ]; then break; fi
+            echo "Health check attempt $i returned: $HEALTH — retrying in 15s..."
+            sleep 15
+          done
           if [ "$HEALTH" != "healthy" ]; then
             echo "::error::Green revision health check failed: $HEALTH"
             exit 1
           fi
 
           # Version check
-          VERSION=$(curl -s --max-time 30 "$TEST_URL/health" | jq -r '.version' 2>/dev/null || echo 'unknown')
+          VERSION=$(curl -s --max-time 30 "$TEST_URL/api/health" | jq -r '.version' 2>/dev/null || echo 'unknown')
           echo "Green revision version: $VERSION"
-
-          # API endpoint test
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "$TEST_URL/api/health")
-          if [ "$STATUS" != "200" ]; then
-            echo "::error::Green revision /api/health returned $STATUS"
-            exit 1
-          fi
 
           echo "All smoke tests passed on green revision"
 
