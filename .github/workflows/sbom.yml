@@ -16,6 +16,10 @@ permissions:
   contents: read
   security-events: write   # For uploading SARIF results
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   # ───────────────────────────────────────────────────────────
   # Python SBOM (backend)
@@ -23,6 +27,7 @@ jobs:
   python-sbom:
     name: Python SBOM
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -83,6 +88,7 @@ jobs:
   npm-sbom:
     name: npm SBOM
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -145,6 +151,7 @@ jobs:
     if: github.event_name == 'release'
     needs: [python-sbom, npm-sbom]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:

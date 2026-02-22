@@ -28,6 +28,7 @@ env:
 jobs:
   rollback:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Azure Login (OIDC)
         uses: azure/login@v2

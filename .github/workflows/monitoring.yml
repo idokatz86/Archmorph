@@ -21,9 +21,14 @@ env:
   API_URL: ${{ secrets.API_URL }}
   FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
 
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
 jobs:
   api-health-check:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       health_status: ${{ steps.health.outputs.status }}
       api_version: ${{ steps.health.outputs.version }}
@@ -80,6 +85,7 @@ jobs:
 
   azure-monitor-check:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     if: always()
     needs: api-health-check
     outputs:
@@ -148,6 +154,7 @@ jobs:
 
   application-insights-check:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     if: always()
     needs: api-health-check
     outputs:
@@ -252,6 +259,7 @@ jobs:
 
   create-issue-if-needed:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs: [api-health-check, azure-monitor-check, application-insights-check]
     if: |
       always() && (
@@ -261,7 +269,7 @@ jobs:
       )
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Check for existing open issue
         id: check_issue
@@ -355,6 +363,7 @@ jobs:
 
   notify-success:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs: [api-health-check, azure-monitor-check, application-insights-check]
     if: |
       always() && 

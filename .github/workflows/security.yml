@@ -20,6 +20,10 @@ permissions:
   security-events: write   # SARIF upload
   actions: read             # CodeQL needs this
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   # ───────────────────────────────────────────────────────────
   # SAST: Semgrep
@@ -27,6 +31,7 @@ jobs:
   semgrep:
     name: "SAST — Semgrep"
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     container:
       image: semgrep/semgrep
     steps:
@@ -40,8 +45,7 @@ jobs:
             --config p/owasp-top-ten \
             --sarif \
             --output semgrep-results.sarif \
-            --error \
-            || true
+            --error
         env:
           SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
 
@@ -66,6 +70,7 @@ jobs:
   bandit:
     name: "SAST — Bandit"
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -108,6 +113,7 @@ jobs:
   codeql:
     name: "SAST — CodeQL"
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -136,6 +142,7 @@ jobs:
   pip-audit:
     name: "SCA — pip-audit"
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -191,6 +198,7 @@ jobs:
   npm-audit:
     name: "SCA — npm audit"
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -239,6 +247,7 @@ jobs:
   gitleaks:
     name: "Secrets — Gitleaks"
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -257,6 +266,7 @@ jobs:
   trivy:
     name: "Container — Trivy"
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -295,6 +305,7 @@ jobs:
   security-summary:
     name: "Security Summary"
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     if: always()
     needs: [semgrep, bandit, codeql, pip-audit, npm-audit, gitleaks, trivy]
     steps:

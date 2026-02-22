@@ -27,14 +27,14 @@ npm run dev
 ### Running Tests
 
 ```bash
-# Backend (747 tests)
+# Backend (1149 tests)
 cd backend && python -m pytest -v
 
 # Backend with markers
 cd backend && python -m pytest -m fast      # Quick tests only
 cd backend && python -m pytest -m security   # Security tests only
 
-# Frontend
+# Frontend (186 tests)
 cd frontend && npm test
 ```
 
