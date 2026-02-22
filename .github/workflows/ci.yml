@@ -348,7 +348,7 @@ jobs:
           GREEN_REV=$(az containerapp revision list \
             --name ${{ env.CONTAINER_APP_NAME }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --query "[?contains(name, '${{ github.sha }}')].name" -o tsv | head -1)
+            --query "[?contains(name, 'sha-${SHORT_SHA}')].name" -o tsv | head -1)
 
           echo "green_revision=$GREEN_REV" >> $GITHUB_OUTPUT
           echo "Green revision: $GREEN_REV"
@@ -383,9 +383,9 @@ jobs:
           echo "Green revision version: $VERSION"
 
           # API endpoint test
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "$TEST_URL/api/versions")
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "$TEST_URL/api/health")
           if [ "$STATUS" != "200" ]; then
-            echo "::error::Green revision /api/versions returned $STATUS"
+            echo "::error::Green revision /api/health returned $STATUS"
             exit 1
           fi
 
