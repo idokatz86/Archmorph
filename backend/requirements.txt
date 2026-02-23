@@ -9,7 +9,7 @@ openai==2.21.0
 psycopg2-binary==2.9.11
 sqlalchemy==2.0.36
 alembic==1.16.5
-python-dotenv==1.0.1
+python-dotenv==1.2.1
 pillow>=11.3.0  # 12.1.1 requires Python 3.10+ and fixes GHSA-cfh3-3jmp-rvhc
 apscheduler==3.10.4
 PyGithub==2.8.1
