@@ -11,7 +11,7 @@ sqlalchemy==2.0.36
 alembic==1.16.5
 python-dotenv==1.0.1
 pillow>=11.3.0  # 12.1.1 requires Python 3.10+ and fixes GHSA-cfh3-3jmp-rvhc
-apscheduler==3.10.4
+apscheduler==3.11.2
 PyGithub==2.8.1
 slowapi==0.1.9
 cachetools==6.2.6
