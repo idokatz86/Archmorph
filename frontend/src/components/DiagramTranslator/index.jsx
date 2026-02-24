@@ -32,10 +32,35 @@ export default function DiagramTranslator() {
   const iacChatEndRef = useRef(null);
   const iacChatInputRef = useRef(null);
 
-  // ── Cleanup blob URLs on unmount ──
+  // Refs for cleanup of async resources
+  const activeEsRef = useRef(null);        // current EventSource
+  const activeIntervalRef = useRef(null);  // current setInterval
+  const activeTimeoutsRef = useRef([]);    // pending setTimeout IDs
+  const filePreviewUrlRef = useRef(null);  // latest blob URL
+
+  // Keep blob URL ref in sync
+  useEffect(() => {
+    filePreviewUrlRef.current = state.filePreviewUrl;
+  }, [state.filePreviewUrl]);
+
+  // ── Cleanup all async resources on unmount ──
   useEffect(() => {
     return () => {
-      if (state.filePreviewUrl) URL.revokeObjectURL(state.filePreviewUrl);
+      // Close any active EventSource
+      if (activeEsRef.current) {
+        activeEsRef.current.close();
+        activeEsRef.current = null;
+      }
+      // Clear any active interval
+      if (activeIntervalRef.current) {
+        clearInterval(activeIntervalRef.current);
+        activeIntervalRef.current = null;
+      }
+      // Clear any pending timeouts
+      activeTimeoutsRef.current.forEach(id => clearTimeout(id));
+      activeTimeoutsRef.current = [];
+      // Revoke blob URL
+      if (filePreviewUrlRef.current) URL.revokeObjectURL(filePreviewUrlRef.current);
     };
   }, []);
 
@@ -109,10 +134,16 @@ export default function DiagramTranslator() {
         const { job_id } = await asyncRes.json();
         set({ jobId: job_id });
 
-        // Wait for SSE completion via a promise
+        // Wait for SSE completion via a promise (with ref-tracked cleanup)
         const result = await new Promise((resolve, reject) => {
           const url = `${API_BASE}/jobs/${job_id}/stream`;
           const es = new EventSource(url);
+          activeEsRef.current = es;
+
+          const cleanup = () => {
+            es.close();
+            if (activeEsRef.current === es) activeEsRef.current = null;
+          };
 
           es.addEventListener('progress', (e) => {
             try {
@@ -124,10 +155,10 @@ export default function DiagramTranslator() {
           es.addEventListener('complete', (e) => {
             try {
               const data = JSON.parse(e.data);
-              es.close();
+              cleanup();
               resolve(data.result ?? data);
             } catch (err) {
-              es.close();
+              cleanup();
               reject(err);
             }
           });
@@ -135,22 +166,23 @@ export default function DiagramTranslator() {
           es.addEventListener('error', (e) => {
             try {
               const data = JSON.parse(e.data);
-              es.close();
+              cleanup();
               reject(new Error(data.error || data.message || 'Analysis failed'));
             } catch {
               // Connection error — SSE spec fires generic error
-              es.close();
+              cleanup();
               reject(new Error('Connection to analysis stream lost'));
             }
           });
 
           es.addEventListener('cancelled', () => {
-            es.close();
+            cleanup();
             reject(new Error('Analysis was cancelled'));
           });
 
           // Timeout safety net (5 minutes)
-          setTimeout(() => { es.close(); reject(new Error('Analysis timed out')); }, 300000);
+          const tid = setTimeout(() => { cleanup(); reject(new Error('Analysis timed out')); }, 300000);
+          activeTimeoutsRef.current.push(tid);
         });
 
         // Handle non-architecture diagram
@@ -199,9 +231,11 @@ export default function DiagramTranslator() {
             msgIndex++;
           }
         }, 2500 + Math.random() * 1500);
+        activeIntervalRef.current = progressInterval;
 
         const analyzeRes = await fetch(`${API_BASE}/diagrams/${diagram_id}/analyze`, { method: 'POST' });
         clearInterval(progressInterval);
+        if (activeIntervalRef.current === progressInterval) activeIntervalRef.current = null;
         const result = await analyzeRes.json();
 
         if (analyzeRes.status === 422 && result?.detail?.error === 'not_architecture_diagram') {
@@ -411,11 +445,13 @@ export default function DiagramTranslator() {
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 120_000);
+      activeTimeoutsRef.current.push(timeout);
       const res = await fetch(`${API_BASE}/diagrams/${state.diagramId}/generate-hld`, {
         method: 'POST',
         signal: controller.signal,
       });
       clearTimeout(timeout);
+      activeTimeoutsRef.current = activeTimeoutsRef.current.filter(id => id !== timeout);
       if (res.status === 404) {
         set({ error: 'Your session has expired (the backend was redeployed). Please re-upload your diagram.', step: 'upload', hldLoading: false });
         return;

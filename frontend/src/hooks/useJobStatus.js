@@ -1,15 +1,15 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { API_BASE } from '../constants';
 
 /**
  * Hook for polling job status as a fallback when SSE is unavailable.
  *
  * Usage:
- *   const { status, progress, result, error, poll, cancel } = useJobStatus();
+ *   const { status, progress, result, error, poll, cancel, stop } = useJobStatus();
  *   // After starting a job:
  *   poll(jobId);
  *
- * @returns {{ status, progress, message, result, error, loading, poll, cancel }}
+ * @returns {{ status, progress, message, result, error, loading, poll, cancel, stop }}
  */
 export default function useJobStatus() {
   const [status, setStatus] = useState(null);
@@ -19,19 +19,47 @@ export default function useJobStatus() {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
 
+  const timeoutRef = useRef(null);
+  const stoppedRef = useRef(false);
+
+  // Clear any pending timeout on unmount
+  useEffect(() => {
+    return () => {
+      stoppedRef.current = true;
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+    };
+  }, []);
+
+  const stop = useCallback(() => {
+    stoppedRef.current = true;
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+    setLoading(false);
+  }, []);
+
   const poll = useCallback(async (jobId, interval = 2000) => {
     if (!jobId) return;
 
+    stoppedRef.current = false;
     setLoading(true);
     setError(null);
     setResult(null);
     setStatus('queued');
 
     const tick = async () => {
+      if (stoppedRef.current) return;
       try {
         const res = await fetch(`${API_BASE}/jobs/${jobId}`);
+        if (stoppedRef.current) return;
         if (!res.ok) throw new Error(`Job status request failed (${res.status})`);
         const data = await res.json();
+
+        if (stoppedRef.current) return;
 
         setStatus(data.status);
         setProgress(data.progress ?? 0);
@@ -55,11 +83,13 @@ export default function useJobStatus() {
           return;
         }
 
-        // Still running — schedule next poll
-        setTimeout(tick, interval);
+        // Still running — schedule next poll (tracked via ref)
+        timeoutRef.current = setTimeout(tick, interval);
       } catch (err) {
-        setError(err.message);
-        setLoading(false);
+        if (!stoppedRef.current) {
+          setError(err.message);
+          setLoading(false);
+        }
       }
     };
 
@@ -68,6 +98,7 @@ export default function useJobStatus() {
 
   const cancel = useCallback(async (jobId) => {
     if (!jobId) return;
+    stop();
     try {
       await fetch(`${API_BASE}/jobs/${jobId}/cancel`, { method: 'POST' });
       setStatus('cancelled');
@@ -75,7 +106,7 @@ export default function useJobStatus() {
     } catch (err) {
       setError(err.message);
     }
-  }, []);
+  }, [stop]);
 
-  return { status, progress, message, result, error, loading, poll, cancel };
+  return { status, progress, message, result, error, loading, poll, cancel, stop };
 }
