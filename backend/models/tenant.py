@@ -4,7 +4,7 @@ Provides Organization, TeamMember, and Invitation models for
 tenant isolation, RBAC, and data scoping.
 """
 
-from sqlalchemy import Column, String, Integer, Text, DateTime, Boolean, ForeignKey, Enum as SAEnum
+from sqlalchemy import Column, String, Integer, Text, DateTime, Boolean, ForeignKey
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base

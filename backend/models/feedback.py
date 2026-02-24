@@ -1,6 +1,6 @@
 """Feedback & NPS database models (Issue #168)."""
 
-from sqlalchemy import Column, String, Integer, Float, Text, DateTime, Boolean
+from sqlalchemy import Column, String, Integer, Text, DateTime, Boolean
 from sqlalchemy.sql import func
 from database import Base
 

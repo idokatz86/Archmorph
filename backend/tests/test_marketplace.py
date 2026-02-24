@@ -21,7 +21,6 @@ from marketplace import (
     SECURITY_QUESTIONNAIRE,
     COSELL_MATERIALS,
     SubscriptionStatus,
-    MarketplacePlan,
 )
 
 

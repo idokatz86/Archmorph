@@ -11,7 +11,7 @@ import logging
 import threading
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from services.mappings import CROSS_CLOUD_MAPPINGS
 from openai_client import (
@@ -19,7 +19,6 @@ from openai_client import (
     AZURE_OPENAI_DEPLOYMENT,
     openai_retry,
     handle_openai_error,
-    OpenAIServiceError,
 )
 
 logger = logging.getLogger(__name__)

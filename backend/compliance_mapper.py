@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Set
 
 logger = logging.getLogger(__name__)
 
@@ -369,7 +369,6 @@ def _compute_compliance_score(
 ) -> Dict[str, Any]:
     """Compute compliance score for a specific framework (0-100)."""
     applicable_gaps: List[Dict[str, Any]] = []
-    addressed_count = 0
     total_count = 0
 
     for gap_id, gap_def in COMMON_GAPS.items():

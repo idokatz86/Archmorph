@@ -15,7 +15,7 @@ import uuid
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import httpx
 
@@ -352,12 +352,12 @@ def get_delivery_logs(
         logs = list(_delivery_logs)
 
     if webhook_id:
-        logs = [l for l in logs if l.webhook_id == webhook_id]
+        logs = [entry for entry in logs if entry.webhook_id == webhook_id]
     if event_type:
-        logs = [l for l in logs if l.event_type == event_type]
+        logs = [entry for entry in logs if entry.event_type == event_type]
 
-    logs = sorted(logs, key=lambda l: l.created_at, reverse=True)[:limit]
-    return [l.to_dict() for l in logs]
+    logs = sorted(logs, key=lambda entry: entry.created_at, reverse=True)[:limit]
+    return [entry.to_dict() for entry in logs]
 
 
 def get_delivery_stats() -> Dict[str, Any]:
@@ -366,7 +366,7 @@ def get_delivery_stats() -> Dict[str, Any]:
         logs = list(_delivery_logs)
 
     total = len(logs)
-    delivered = sum(1 for l in logs if l.delivered)
+    delivered = sum(1 for entry in logs if entry.delivered)
     failed = total - delivered
 
     by_event: Dict[str, Dict[str, int]] = {}
@@ -686,7 +686,7 @@ def emit_event(event_type: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "event_type": event_type,
         "webhook_deliveries": len(webhook_logs),
-        "webhook_successes": sum(1 for l in webhook_logs if l.delivered),
+        "webhook_successes": sum(1 for entry in webhook_logs if entry.delivered),
         "integration_deliveries": len(integration_results),
         "integration_successes": sum(1 for r in integration_results if r.get("success")),
     }

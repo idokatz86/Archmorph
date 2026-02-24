@@ -25,7 +25,6 @@ class VersionRecord(Base):
     )
 
     def to_dict(self):
-        import json as _json
         return {
             "version_id": self.version_id,
             "version_number": self.version_number,

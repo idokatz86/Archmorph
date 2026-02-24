@@ -1,6 +1,6 @@
 """Comprehensive tests for webhooks.py and routers/webhooks.py — Sprint 9 #175."""
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from webhooks import (
     register_webhook,
@@ -15,18 +15,12 @@ from webhooks import (
     list_integrations,
     delete_integration,
     get_integration,
-    dispatch_to_integrations,
     emit_event,
     compute_signature,
     verify_signature,
     clear_all,
     ALL_EVENT_TYPES,
     INTEGRATION_REQUIREMENTS,
-    IntegrationType,
-    WebhookEventType,
-    _webhooks,
-    _delivery_logs,
-    _integrations,
 )
 
 

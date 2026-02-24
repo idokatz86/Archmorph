@@ -1,6 +1,6 @@
 """Usage metrics database models (Issue #168)."""
 
-from sqlalchemy import Column, String, Integer, Text, DateTime, Index
+from sqlalchemy import Column, String, Integer, DateTime, Index
 from sqlalchemy.sql import func
 from database import Base
 

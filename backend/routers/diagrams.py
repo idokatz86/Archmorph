@@ -5,7 +5,7 @@ best-practices, cost-optimization, share, IaC-chat, terraform-preview.
 
 from fastapi import APIRouter, HTTPException, UploadFile, File, Request, Depends
 from pydantic import BaseModel, Field
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional
 from datetime import datetime, timezone
 import asyncio
 import secrets

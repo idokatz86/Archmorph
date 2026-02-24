@@ -3,6 +3,7 @@ Sample Diagrams routes — onboarding samples with mock analysis.
 """
 
 from fastapi import APIRouter, HTTPException, Request
+import re as _re
 import uuid
 
 from routers.shared import SESSION_STORE, limiter
@@ -276,8 +277,6 @@ def build_sample_analysis(sample_id: str, diagram_id: str) -> dict:
         "is_sample": True,
     }
 
-
-import re as _re
 
 # Pattern: "sample-<sample_id>-<hex6>"
 _SAMPLE_ID_RE = _re.compile(r"^sample-(.+)-[0-9a-f]{6}$")

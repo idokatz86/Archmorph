@@ -7,16 +7,14 @@ and supports A/B testing experiments.
 """
 
 import hashlib
-import json
 import logging
 import threading
-import time
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field, asdict
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("journey_analytics")
 
@@ -433,7 +431,7 @@ def assign_variant(experiment_id: str, user_id: str) -> Optional[str]:
             return None
 
     # Deterministic assignment using hash
-    hash_val = int(hashlib.md5(f"{experiment_id}:{user_id}".encode()).hexdigest(), 16)
+    hash_val = int(hashlib.sha256(f"{experiment_id}:{user_id}".encode()).hexdigest(), 16)
     normalized = (hash_val % 10000) / 10000.0
 
     cumulative = 0.0
