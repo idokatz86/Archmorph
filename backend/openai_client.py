@@ -159,7 +159,8 @@ def get_openai_client() -> AzureOpenAI:
 def reset_client():
     """Reset the singleton client (useful for testing)."""
     global _client
-    _client = None
+    with _client_lock:
+        _client = None
 
 
 # ─────────────────────────────────────────────────────────────

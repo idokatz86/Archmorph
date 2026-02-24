@@ -114,7 +114,13 @@ def init_db() -> None:
             os.makedirs(db_dir, exist_ok=True)
 
     Base.metadata.create_all(bind=engine)
-    logger.info("Database initialized: %s (%d tables)", DATABASE_URL, len(Base.metadata.tables))
+    # Avoid logging credentials from DATABASE_URL
+    safe_url = DATABASE_URL
+    if "://" in DATABASE_URL and "@" in DATABASE_URL:
+        from urllib.parse import urlparse
+        _p = urlparse(DATABASE_URL)
+        safe_url = f"{_p.scheme}://{_p.hostname}/{_p.path.lstrip('/')}"
+    logger.info("Database initialized: %s (%d tables)", safe_url, len(Base.metadata.tables))
 
 
 def drop_all() -> None:

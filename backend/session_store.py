@@ -164,9 +164,14 @@ class FileStore(SessionStore):
         logger.info("File-backed session store: %s (ttl=%ds)", self._base, ttl)
 
     def _path(self, key: str) -> Path:
-        # Sanitize key to filesystem-safe name
-        safe = key.replace("/", "_").replace("..", "_")
-        return self._base / f"{safe}.json"
+        # Sanitize key to filesystem-safe name using strict allowlist
+        import re
+        safe = re.sub(r'[^a-zA-Z0-9_\-]', '_', key)[:255]
+        result = self._base / f"{safe}.json"
+        # Verify the resolved path is under the base directory
+        if not str(result.resolve()).startswith(str(self._base.resolve())):
+            raise ValueError(f"Invalid session key: {key}")
+        return result
 
     def _read(self, path: Path) -> Any:
         """Read a file, return value if not expired, else None."""

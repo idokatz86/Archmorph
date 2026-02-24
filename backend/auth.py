@@ -309,7 +309,8 @@ async def validate_azure_ad_b2c_token(token: str) -> User:
         
         # Extract user info
         user_id = payload.get("sub", payload.get("oid", ""))
-        email = payload.get("emails", [None])[0] or payload.get("email")
+        emails_list = payload.get("emails") or [None]
+        email = (emails_list[0] if emails_list else None) or payload.get("email")
         name = payload.get("name", payload.get("given_name", ""))
         
         # Get or create user
@@ -415,7 +416,8 @@ async def exchange_github_code(code: str) -> User:
 def get_anonymous_user(client_ip: str) -> User:
     """Get or create anonymous user based on client IP."""
     # Hash IP for privacy
-    ip_hash = hashlib.sha256(client_ip.encode()).hexdigest()[:16]
+    _IP_SALT = os.getenv("IP_HASH_SALT", "archmorph-default-ip-salt")
+    ip_hash = hashlib.sha256(f"{_IP_SALT}:{client_ip}".encode()).hexdigest()[:16]
     user_id = f"anon_{ip_hash}"
     
     if user_id in ANONYMOUS_USAGE:
@@ -494,7 +496,8 @@ def capture_lead(
         marketing_consent=marketing_consent,
     )
     LEAD_STORE.append(lead)
-    logger.info("Lead captured: %s for action %s", email, action)
+    masked = email[:3] + "***@" + email.split("@")[-1] if "@" in email else "***"
+    logger.info("Lead captured: %s for action %s", masked, action)
     return lead
 
 

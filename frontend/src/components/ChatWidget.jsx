@@ -36,6 +36,7 @@ export default function ChatWidget() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: text, session_id: sessionId }),
       });
+      if (!res.ok) throw new Error(`Server error (${res.status})`);
       const data = await res.json();
       setMessages(prev => [...prev, {
         role: 'assistant',
@@ -63,7 +64,12 @@ export default function ChatWidget() {
           const boldMatch = part.match(/^\*\*(.*?)\*\*$/);
           if (boldMatch) return <strong key={j} className="font-semibold">{boldMatch[1]}</strong>;
           const linkMatch = part.match(/^\[(.*?)\]\((.*?)\)$/);
-          if (linkMatch) return <a key={j} href={linkMatch[2]} target="_blank" rel="noopener noreferrer" className="text-cta underline cursor-pointer">{linkMatch[1]}</a>;
+          if (linkMatch) {
+            const url = linkMatch[2];
+            const isSafe = /^https?:\/\//.test(url);
+            if (isSafe) return <a key={j} href={url} target="_blank" rel="noopener noreferrer" className="text-cta underline cursor-pointer">{linkMatch[1]}</a>;
+            return linkMatch[1];
+          }
           return part;
         })}
       </p>
