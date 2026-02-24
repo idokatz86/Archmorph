@@ -1,0 +1,74 @@
+{
+  "nav": {
+    "home": "Inicio",
+    "dashboard": "Panel",
+    "translator": "Traductor",
+    "templates": "Plantillas",
+    "services": "Servicios",
+    "roadmap": "Hoja de Ruta",
+    "pricing": "Precios",
+    "legal": "Legal"
+  },
+  "landing": {
+    "hero_title": "Transforma Tu Arquitectura en la Nube",
+    "hero_subtitle": "Análisis de diagramas impulsado por IA que mapea tus servicios de AWS y GCP a equivalentes de Azure en segundos",
+    "cta_start": "Comenzar Gratis",
+    "cta_pricing": "Ver Precios",
+    "features_title": "Todo Lo Que Necesitas",
+    "how_it_works": "Cómo Funciona",
+    "faq_title": "Preguntas Frecuentes"
+  },
+  "dashboard": {
+    "title": "Panel",
+    "subtitle": "Tu historial de análisis, diagramas guardados y métricas de uso",
+    "new_analysis": "Nuevo Análisis",
+    "total_analyses": "Total de Análisis",
+    "this_month": "Este Mes",
+    "iac_generated": "IaC Generado",
+    "hld_docs": "Documentos HLD",
+    "cost_estimates": "Estimaciones de Costos",
+    "saved": "Guardados",
+    "analysis_history": "Historial de Análisis",
+    "all_providers": "Todos los Proveedores",
+    "loading": "Cargando historial…",
+    "no_analyses": "Sin análisis aún",
+    "no_analyses_hint": "Sube un diagrama de arquitectura en la nube para comenzar",
+    "start_first": "Iniciar Primer Análisis",
+    "load_more": "Cargar Más"
+  },
+  "translator": {
+    "upload_title": "Subir Diagrama de Arquitectura",
+    "upload_hint": "Arrastra tu diagrama de arquitectura aquí o haz clic para buscar",
+    "supported_formats": "Soporta PNG, JPEG, SVG, PDF y Visio (.vsdx)",
+    "analyzing": "Analizando tu diagrama…",
+    "generate_terraform": "Generar Terraform",
+    "generate_bicep": "Generar Bicep",
+    "generate_cloudformation": "CloudFormation",
+    "generate_hld": "Generar HLD",
+    "back_to_questions": "Volver a Preguntas"
+  },
+  "templates": {
+    "title": "Plantillas de Arquitectura",
+    "subtitle": "Comienza desde patrones de arquitectura probados",
+    "search": "Buscar plantillas…",
+    "use_template": "Usar Plantilla",
+    "no_results": "Ninguna plantilla coincide con tu búsqueda"
+  },
+  "common": {
+    "loading": "Cargando…",
+    "error": "Ocurrió un error",
+    "try_again": "Intentar de Nuevo",
+    "cancel": "Cancelar",
+    "save": "Guardar",
+    "delete": "Eliminar",
+    "confirm": "Confirmar",
+    "close": "Cerrar",
+    "beta_warning": "Vista Previa Beta — Esta aplicación está actualmente en beta. Las funciones y resultados pueden cambiar."
+  },
+  "footer": {
+    "powered_by": "Traductor de Arquitectura Cloud impulsado por IA",
+    "github": "GitHub",
+    "buy_coffee": "Invítame un café",
+    "legal_privacy": "Legal y Privacidad"
+  }
+}

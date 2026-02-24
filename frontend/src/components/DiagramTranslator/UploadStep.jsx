@@ -83,7 +83,7 @@ export default function UploadStep({
           )}
         </div>
 
-        <input ref={fileInputRef} type="file" accept="image/*,.pdf,.svg" onChange={e => e.target.files[0] && onFileSelect(e.target.files[0])} className="hidden" aria-label="Select architecture diagram file" />
+        <input ref={fileInputRef} type="file" accept="image/*,.pdf,.svg,.vsdx" onChange={e => e.target.files[0] && onFileSelect(e.target.files[0])} className="hidden" aria-label="Select architecture diagram file" />
 
         {/* Sample Diagrams */}
         <div className="mt-6 pt-6 border-t border-border">

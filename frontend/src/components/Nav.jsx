@@ -1,8 +1,9 @@
 import React, { useRef, useState } from 'react';
-import { CloudCog, Layers, Server, Rocket, MessageSquare, Shield, CreditCard, Home, Menu, X } from 'lucide-react';
+import { CloudCog, Layers, Server, Rocket, MessageSquare, Shield, CreditCard, Home, LayoutDashboard, Sparkles, Menu, X } from 'lucide-react';
 import { Badge } from './ui';
 import { APP_VERSION } from '../constants';
 import FeedbackWidget from './FeedbackWidget';
+import LanguageSelector from './LanguageSelector';
 
 export default function Nav({ activeTab, setActiveTab, updateStatus }) {
   const feedbackRef = useRef(null);
@@ -10,7 +11,9 @@ export default function Nav({ activeTab, setActiveTab, updateStatus }) {
 
   const NAV_ITEMS = [
     { id: 'landing', label: 'Home', icon: Home },
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'translator', label: 'Translator', icon: Layers },
+    { id: 'templates', label: 'Templates', icon: Sparkles },
     { id: 'services', label: 'Services', icon: Server },
     { id: 'roadmap', label: 'Roadmap', icon: Rocket },
     { id: 'pricing', label: 'Pricing', icon: CreditCard },
@@ -64,6 +67,7 @@ export default function Nav({ activeTab, setActiveTab, updateStatus }) {
                 <MessageSquare className="w-4 h-4 text-text-secondary hover:text-text-primary" />
               </button>
               <Badge variant="azure" className="hidden sm:inline-flex">v{APP_VERSION}</Badge>
+              <LanguageSelector />
               {/* Mobile hamburger */}
               <button
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}

@@ -16,6 +16,8 @@ const LegalPages = lazy(() => import('./components/LegalPages'));
 const CookieBanner = lazy(() => import('./components/CookieBanner'));
 const PricingPage = lazy(() => import('./components/PricingPage'));
 const LandingPage = lazy(() => import('./components/LandingPage'));
+const UserDashboard = lazy(() => import('./components/UserDashboard'));
+const TemplateGallery = lazy(() => import('./components/TemplateGallery'));
 
 function TabFallback() {
   return (
@@ -81,6 +83,8 @@ export default function App() {
         <ErrorBoundary>
           <Suspense fallback={<TabFallback />}>
             {activeTab === 'landing' && <LandingPage onGetStarted={() => setActiveTab('translator')} onViewPricing={() => setActiveTab('pricing')} />}
+            {activeTab === 'dashboard' && <UserDashboard onNavigate={setActiveTab} />}
+            {activeTab === 'templates' && <TemplateGallery onUseTemplate={() => setActiveTab('translator')} />}
             {activeTab === 'translator' && <DiagramTranslator />}
             {activeTab === 'services' && <ServicesBrowser />}
             {activeTab === 'roadmap' && <Roadmap />}

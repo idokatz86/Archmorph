@@ -26,6 +26,7 @@ from iac_generator import generate_iac_code
 from hld_generator import generate_hld, generate_hld_markdown
 from image_classifier import classify_image
 from vision_analyzer import analyze_image, compress_image
+from visio_parser import parse_vsdx, is_vsdx
 from service_builder import deduplicate_questions, get_smart_defaults_from_analysis, add_services_from_text
 from services.azure_pricing import estimate_services_cost
 from hld_export import export_hld, SUPPORTED_FORMATS
@@ -73,8 +74,15 @@ class TerraformValidateRequest(BaseModel):
 @limiter.limit("10/minute")
 async def upload_diagram(request: Request, project_id: str, file: UploadFile = File(...), _auth=Depends(verify_api_key)):
     # Validate file type
-    allowed_types = ["image/png", "image/jpeg", "image/svg+xml", "application/pdf"]
-    if file.content_type not in allowed_types:
+    allowed_types = [
+        "image/png", "image/jpeg", "image/svg+xml", "application/pdf",
+        "application/vnd.ms-visio.drawing.main+xml",  # .vsdx
+        "application/vnd.visio",  # legacy alias
+        "application/octet-stream",  # browsers may send .vsdx as octet-stream
+    ]
+    # Also allow by file extension for .vsdx
+    is_visio = file.filename and file.filename.lower().endswith('.vsdx')
+    if file.content_type not in allowed_types and not is_visio:
         raise HTTPException(400, f"File type {file.content_type} not supported")
 
     # Generate unique diagram ID and store image bytes

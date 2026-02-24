@@ -73,6 +73,11 @@ from routers.webhooks import router as webhooks_router  # noqa: E402
 from routers.webhooks import integration_router  # noqa: E402
 from routers.marketplace import router as marketplace_router  # noqa: E402
 from routers.journey_analytics import router as journey_router  # noqa: E402
+from routers.dashboard import router as dashboard_router
+from routers.templates import router as templates_router
+from living_architecture import router as living_arch_router  # noqa: E402
+from migration_intelligence import router as migration_intel_router  # noqa: E402
+from whitelabel import router as whitelabel_router  # noqa: E402
 from routers.v1 import build_v1_router  # noqa: E402
 from api_versioning import VersionMiddleware  # noqa: E402
 from audit_logging import audit_logger, AuditEventType  # noqa: E402, F401
@@ -293,6 +298,11 @@ app.include_router(webhooks_router)
 app.include_router(integration_router)
 app.include_router(marketplace_router)
 app.include_router(journey_router)
+app.include_router(dashboard_router)
+app.include_router(templates_router)
+app.include_router(living_arch_router)
+app.include_router(migration_intel_router)
+app.include_router(whitelabel_router)
 
 # ─────────────────────────────────────────────────────────────
 # API v1 Versioned Routes (/api/v1/* mirrors /api/*)

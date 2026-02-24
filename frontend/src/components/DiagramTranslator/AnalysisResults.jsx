@@ -27,7 +27,7 @@ export default function AnalysisResults({
           <div className="flex items-center gap-2">
             <Badge variant={analysis.source_provider || 'aws'}>{(analysis.source_provider || 'aws').toUpperCase()}</Badge>
             <ArrowRight className="w-4 h-4 text-text-muted" />
-            <Badge variant="azure">Azure</Badge>
+            <Badge variant={analysis.target_provider || 'azure'}>{(analysis.target_provider || 'azure').toUpperCase()}</Badge>
           </div>
         </div>
 
@@ -111,6 +111,7 @@ export default function AnalysisResults({
         <div className="flex items-center gap-2">
           <Button onClick={() => onGenerateIac('terraform')} loading={loading && iacFormat === 'terraform'} icon={FileCode}>Generate Terraform</Button>
           <Button onClick={() => onGenerateIac('bicep')} variant="secondary" loading={loading && iacFormat === 'bicep'} icon={FileCode}>Generate Bicep</Button>
+          <Button onClick={() => onGenerateIac('cloudformation')} variant="secondary" loading={loading && iacFormat === 'cloudformation'} icon={FileCode}>CloudFormation</Button>
           <Button onClick={onGenerateHld} loading={hldLoading} variant="secondary" icon={Sparkles}>Generate HLD</Button>
         </div>
       </div>

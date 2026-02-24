@@ -1,0 +1,74 @@
+{
+  "nav": {
+    "home": "Home",
+    "dashboard": "Dashboard",
+    "translator": "Translator",
+    "templates": "Templates",
+    "services": "Services",
+    "roadmap": "Roadmap",
+    "pricing": "Pricing",
+    "legal": "Legal"
+  },
+  "landing": {
+    "hero_title": "Transform Your Cloud Architecture",
+    "hero_subtitle": "AI-powered diagram analysis that maps your AWS & GCP services to Azure equivalents in seconds",
+    "cta_start": "Get Started Free",
+    "cta_pricing": "View Pricing",
+    "features_title": "Everything You Need",
+    "how_it_works": "How It Works",
+    "faq_title": "Frequently Asked Questions"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "subtitle": "Your analysis history, saved diagrams, and usage metrics",
+    "new_analysis": "New Analysis",
+    "total_analyses": "Total Analyses",
+    "this_month": "This Month",
+    "iac_generated": "IaC Generated",
+    "hld_docs": "HLD Docs",
+    "cost_estimates": "Cost Estimates",
+    "saved": "Saved",
+    "analysis_history": "Analysis History",
+    "all_providers": "All Providers",
+    "loading": "Loading history…",
+    "no_analyses": "No analyses yet",
+    "no_analyses_hint": "Upload a cloud architecture diagram to get started",
+    "start_first": "Start First Analysis",
+    "load_more": "Load More"
+  },
+  "translator": {
+    "upload_title": "Upload Architecture Diagram",
+    "upload_hint": "Drop your cloud architecture diagram here or click to browse",
+    "supported_formats": "Supports PNG, JPEG, SVG, PDF, and Visio (.vsdx)",
+    "analyzing": "Analyzing your diagram…",
+    "generate_terraform": "Generate Terraform",
+    "generate_bicep": "Generate Bicep",
+    "generate_cloudformation": "CloudFormation",
+    "generate_hld": "Generate HLD",
+    "back_to_questions": "Back to Questions"
+  },
+  "templates": {
+    "title": "Architecture Templates",
+    "subtitle": "Start from proven architecture patterns — click \"Use Template\" to load into the translator",
+    "search": "Search templates…",
+    "use_template": "Use Template",
+    "no_results": "No templates match your search"
+  },
+  "common": {
+    "loading": "Loading…",
+    "error": "An error occurred",
+    "try_again": "Try Again",
+    "cancel": "Cancel",
+    "save": "Save",
+    "delete": "Delete",
+    "confirm": "Confirm",
+    "close": "Close",
+    "beta_warning": "Beta Preview — This application is currently in beta. Features and outputs may change."
+  },
+  "footer": {
+    "powered_by": "AI-powered Cloud Architecture Translator",
+    "github": "GitHub",
+    "buy_coffee": "Buy me a coffee",
+    "legal_privacy": "Legal & Privacy"
+  }
+}

@@ -1,0 +1,74 @@
+{
+  "nav": {
+    "home": "Accueil",
+    "dashboard": "Tableau de Bord",
+    "translator": "Traducteur",
+    "templates": "Modèles",
+    "services": "Services",
+    "roadmap": "Feuille de Route",
+    "pricing": "Tarifs",
+    "legal": "Mentions Légales"
+  },
+  "landing": {
+    "hero_title": "Transformez Votre Architecture Cloud",
+    "hero_subtitle": "Analyse de diagrammes alimentée par l'IA qui mappe vos services AWS et GCP vers des équivalents Azure en quelques secondes",
+    "cta_start": "Commencer Gratuitement",
+    "cta_pricing": "Voir les Tarifs",
+    "features_title": "Tout Ce Dont Vous Avez Besoin",
+    "how_it_works": "Comment Ça Marche",
+    "faq_title": "Questions Fréquentes"
+  },
+  "dashboard": {
+    "title": "Tableau de Bord",
+    "subtitle": "Votre historique d'analyses, diagrammes sauvegardés et métriques d'utilisation",
+    "new_analysis": "Nouvelle Analyse",
+    "total_analyses": "Total des Analyses",
+    "this_month": "Ce Mois",
+    "iac_generated": "IaC Générés",
+    "hld_docs": "Documents HLD",
+    "cost_estimates": "Estimations de Coûts",
+    "saved": "Sauvegardés",
+    "analysis_history": "Historique des Analyses",
+    "all_providers": "Tous les Fournisseurs",
+    "loading": "Chargement de l'historique…",
+    "no_analyses": "Aucune analyse pour le moment",
+    "no_analyses_hint": "Téléchargez un diagramme d'architecture cloud pour commencer",
+    "start_first": "Démarrer la Première Analyse",
+    "load_more": "Charger Plus"
+  },
+  "translator": {
+    "upload_title": "Télécharger un Diagramme d'Architecture",
+    "upload_hint": "Déposez votre diagramme d'architecture ici ou cliquez pour parcourir",
+    "supported_formats": "Supporte PNG, JPEG, SVG, PDF et Visio (.vsdx)",
+    "analyzing": "Analyse de votre diagramme en cours…",
+    "generate_terraform": "Générer Terraform",
+    "generate_bicep": "Générer Bicep",
+    "generate_cloudformation": "CloudFormation",
+    "generate_hld": "Générer HLD",
+    "back_to_questions": "Retour aux Questions"
+  },
+  "templates": {
+    "title": "Modèles d'Architecture",
+    "subtitle": "Partez de patrons d'architecture éprouvés",
+    "search": "Rechercher des modèles…",
+    "use_template": "Utiliser le Modèle",
+    "no_results": "Aucun modèle ne correspond à votre recherche"
+  },
+  "common": {
+    "loading": "Chargement…",
+    "error": "Une erreur s'est produite",
+    "try_again": "Réessayer",
+    "cancel": "Annuler",
+    "save": "Enregistrer",
+    "delete": "Supprimer",
+    "confirm": "Confirmer",
+    "close": "Fermer",
+    "beta_warning": "Aperçu Beta — Cette application est en version bêta. Les fonctionnalités et résultats peuvent changer."
+  },
+  "footer": {
+    "powered_by": "Traducteur d'Architecture Cloud alimenté par l'IA",
+    "github": "GitHub",
+    "buy_coffee": "Offrez-moi un café",
+    "legal_privacy": "Mentions Légales et Confidentialité"
+  }
+}

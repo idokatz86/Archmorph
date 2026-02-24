@@ -77,7 +77,7 @@ export default function DiagramTranslator() {
   const handleDrop = useCallback((e) => {
     e.preventDefault(); e.stopPropagation(); set({ dragOver: false });
     const file = e.dataTransfer?.files?.[0];
-    if (file && (file.type.startsWith('image/') || file.name.match(/\.(svg|pdf)$/i))) {
+    if (file && (file.type.startsWith('image/') || file.name.match(/\.(svg|pdf|vsdx)$/i))) {
       const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
       if (file.size > MAX_FILE_SIZE) {
         set({ error: 'File exceeds 10 MB limit. Please upload a smaller file.' });

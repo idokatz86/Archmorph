@@ -111,7 +111,7 @@ for svc in GCP_SERVICES:
         if svc["fullName"].startswith(prefix):
             _GCP_NAME_INDEX[svc["fullName"][len(prefix):].lower()] = svc
 
-# Mapping index by AWS / GCP short name
+# Mapping index by AWS / GCP / Azure short name
 _MAPPING_BY_AWS: Dict[str, Dict] = {}
 for m in CROSS_CLOUD_MAPPINGS:
     _MAPPING_BY_AWS[m["aws"].lower()] = m
@@ -120,6 +120,25 @@ _MAPPING_BY_GCP: Dict[str, Dict] = {}
 for m in CROSS_CLOUD_MAPPINGS:
     if m.get("gcp"):
         _MAPPING_BY_GCP[m["gcp"].lower()] = m
+
+_MAPPING_BY_AZURE: Dict[str, Dict] = {}
+for m in CROSS_CLOUD_MAPPINGS:
+    if m.get("azure"):
+        _MAPPING_BY_AZURE[m["azure"].lower()] = m
+
+_MAPPING_INDEX = {
+    "aws": _MAPPING_BY_AWS,
+    "gcp": _MAPPING_BY_GCP,
+    "azure": _MAPPING_BY_AZURE,
+}
+
+# Supported target providers
+SUPPORTED_TARGETS = ("azure", "aws", "gcp")
+
+
+def _get_target_field(target_provider: str) -> str:
+    """Return the CROSS_CLOUD_MAPPINGS field name for the given target cloud."""
+    return target_provider.lower()  # "aws", "azure", or "gcp"
 
 # ─────────────────────────────────────────────────────────────
 # Infrastructure element mappings (not full "services" but common
@@ -319,29 +338,35 @@ Respond ONLY with valid JSON in this exact format:
 
 
 def _find_azure_mapping(
-    short_name: str, source_provider: str
+    short_name: str, source_provider: str, target_provider: str = "azure"
 ) -> Optional[Dict]:
-    """Find the cross-cloud mapping for a service short name."""
+    """Find the cross-cloud mapping for a service short name.
+
+    Args:
+        short_name: The source service short name (e.g. "EC2", "Cloud Run").
+        source_provider: The source cloud ("aws", "gcp", "azure").
+        target_provider: The target cloud to map to ("azure", "aws", "gcp").
+    """
     key = short_name.lower().strip()
 
     # 1. Check synonyms first to canonicalize the name
     if key in _SYNONYMS:
         key = _SYNONYMS[key]
 
-    if source_provider == "aws":
-        # Direct match
-        if key in _MAPPING_BY_AWS:
-            return _MAPPING_BY_AWS[key]
-        # Try partial match — e.g. "RDS PostgreSQL" → "RDS"
-        for mapping_key, mapping in _MAPPING_BY_AWS.items():
-            if mapping_key in key or key in mapping_key:
-                return mapping
-    elif source_provider == "gcp":
-        if key in _MAPPING_BY_GCP:
-            return _MAPPING_BY_GCP[key]
-        for mapping_key, mapping in _MAPPING_BY_GCP.items():
-            if mapping_key in key or key in mapping_key:
-                return mapping
+    target_field = _get_target_field(target_provider)
+
+    # Get the mapping index for the source provider
+    source_index = _MAPPING_INDEX.get(source_provider, _MAPPING_BY_AWS)
+
+    # Direct or partial match against source provider mappings
+    if key in source_index:
+        m = source_index[key]
+        if m.get(target_field):
+            return m
+    # Try partial match
+    for mapping_key, mapping in source_index.items():
+        if (mapping_key in key or key in mapping_key) and mapping.get(target_field):
+            return mapping
 
     # 2. Check infrastructure element mappings
     for infra_key, infra_map in _INFRA_MAPPINGS.items():
@@ -360,12 +385,11 @@ def _find_azure_mapping(
     #    manually scanning every key with SequenceMatcher.
     from difflib import get_close_matches as _gcm
 
-    all_mappings = _MAPPING_BY_AWS if source_provider == "aws" else _MAPPING_BY_GCP
-    close = _gcm(key, all_mappings.keys(), n=1, cutoff=0.65)
+    close = _gcm(key, source_index.keys(), n=1, cutoff=0.65)
     if close:
         best_key = close[0]
         best_ratio = SequenceMatcher(None, key, best_key).ratio()
-        result = dict(all_mappings[best_key])
+        result = dict(source_index[best_key])
         # Penalize confidence based on fuzzy match quality
         result["confidence"] = round(result["confidence"] * best_ratio, 2)
         result["notes"] = f"Fuzzy match ({best_ratio:.0%} similarity). " + result.get("notes", "")
@@ -454,16 +478,22 @@ def analyze_image(image_bytes: bytes, content_type: str = "image/png") -> Dict[s
     return _build_analysis_result(vision_result)
 
 
-def _build_analysis_result(vision_result: Dict[str, Any]) -> Dict[str, Any]:
+def _build_analysis_result(vision_result: Dict[str, Any], target_provider: str = "azure") -> Dict[str, Any]:
     """
     Convert the GPT-4o vision output into the full analysis result
-    with ServiceMapping objects and Azure equivalents.
+    with ServiceMapping objects and target cloud equivalents.
+
+    Args:
+        vision_result: Raw GPT-4o parsed output.
+        target_provider: Target cloud to map to ("azure", "aws", "gcp").
     """
     source_provider = vision_result.get("source_provider", "aws")
     diagram_type = vision_result.get("diagram_type", "Cloud Architecture")
     patterns = vision_result.get("architecture_patterns", [])
     compliance = vision_result.get("compliance_hints", [])
     zones_data = vision_result.get("zones", [])
+
+    target_field = _get_target_field(target_provider)
 
     mappings = []
     warnings = []
@@ -483,11 +513,11 @@ def _build_analysis_result(vision_result: Dict[str, Any]) -> Dict[str, Any]:
             # GPT-4o detection confidence (how sure it is about identifying this service)
             detection_conf = svc.get("detection_confidence", 0.85)
 
-            # Find Azure mapping
-            mapping = _find_azure_mapping(short_name, source_provider)
+            # Find target cloud mapping
+            mapping = _find_azure_mapping(short_name, source_provider, target_provider)
 
             if mapping:
-                azure_service = mapping["azure"]
+                target_service = mapping.get(target_field, mapping.get("azure", ""))
                 # Blend mapping confidence with GPT-4o detection confidence
                 mapping_conf = mapping["confidence"]
                 confidence = round(mapping_conf * 0.7 + detection_conf * 0.3, 2)
@@ -496,18 +526,20 @@ def _build_analysis_result(vision_result: Dict[str, Any]) -> Dict[str, Any]:
                 mapping.get("category", "General")
             else:
                 # No direct mapping found — flag it
-                azure_service = f"[Manual mapping needed] {full_name}"
+                target_service = f"[Manual mapping needed] {full_name}"
                 confidence = round(0.30 * 0.7 + detection_conf * 0.3, 2)
                 notes = f"No direct cross-cloud mapping found for {full_name}"
                 warnings.append(
-                    f"{full_name} — no automatic Azure mapping found; manual review required"
+                    f"{full_name} — no automatic {target_provider.upper()} mapping found; manual review required"
                 )
 
-            # Build mapping entry
+            # Build mapping entry (keep azure_service key for backward compat)
             mapping_entry = {
                 "source_service": full_name,
                 "source_provider": source_provider,
-                "azure_service": azure_service,
+                "azure_service": target_service,
+                "target_service": target_service,
+                "target_provider": target_provider,
                 "confidence": confidence,
                 "notes": f"Zone {zone_number} – {zone_name}: {role}. {notes}".strip(),
             }
@@ -516,7 +548,8 @@ def _build_analysis_result(vision_result: Dict[str, Any]) -> Dict[str, Any]:
             zone_services.append({
                 "source": full_name,
                 "source_provider": source_provider,
-                "azure": azure_service,
+                "azure": target_service,
+                "target": target_service,
                 "confidence": confidence,
             })
 
@@ -563,7 +596,7 @@ def _build_analysis_result(vision_result: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "diagram_type": diagram_type,
         "source_provider": source_provider,
-        "target_provider": "azure",
+        "target_provider": target_provider,
         "architecture_patterns": patterns,
         "services_detected": len(mappings),
         "zones": zones_with_services,
