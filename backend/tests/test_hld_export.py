@@ -157,7 +157,7 @@ MOCK_HLD = {
     "_metadata": {
         "generated_at": "2026-02-21T12:00:00Z",
         "model": "gpt-4o",
-        "version": "2.12.0",
+        "version": "3.0.0",
     },
 }
 

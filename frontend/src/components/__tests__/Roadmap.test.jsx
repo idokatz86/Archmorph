@@ -9,11 +9,11 @@ describe('Roadmap', () => {
       total_releases: 5,
       features_shipped: 30,
       days_since_launch: 100,
-      current_version: 'v2.12.0',
+      current_version: 'v3.0.0',
     },
     timeline: {
       released: [
-        { version: 'v2.12.0', name: 'Latest Release', status: 'released', date: '2026-02-01', highlights: ['Feature A'] },
+        { version: 'v3.0.0', name: 'Latest Release', status: 'released', date: '2026-02-24', highlights: ['Feature A'] },
         { version: 'v2.11.0', name: 'Previous Release', status: 'released', date: '2026-01-15', highlights: ['Feature B'] },
       ],
       in_progress: [
@@ -50,7 +50,7 @@ describe('Roadmap', () => {
     expect(await screen.findByText('5')).toBeInTheDocument()
     expect(screen.getByText('Releases Shipped')).toBeInTheDocument()
     expect(screen.getByText('30')).toBeInTheDocument()
-    const versionElements = screen.getAllByText('v2.12.0')
+    const versionElements = screen.getAllByText('v3.0.0')
     expect(versionElements.length).toBeGreaterThan(0)
   })
 

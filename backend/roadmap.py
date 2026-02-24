@@ -282,13 +282,13 @@ RELEASE_TIMELINE: List[Dict[str, Any]] = [
         "metrics": {"services": 405, "mappings": 122, "api_endpoints": 82},
     },
     # ═══════════════════════════════════════════════════════════
-    # v2.12.0 - Multi-Cloud & Enterprise (Next Sprint)
+    # v3.0.0 - Multi-Cloud & Enterprise (Released)
     # ═══════════════════════════════════════════════════════════
     {
-        "version": "2.12.0",
-        "name": "Multi-Cloud & Enterprise Foundation",
-        "date": "2026-03-07",
-        "status": ReleaseStatus.PLANNED,
+        "version": "3.0.0",
+        "name": "Multi-Cloud & Enterprise",
+        "date": "2026-02-24",
+        "status": ReleaseStatus.RELEASED,
         "highlights": [
             "Multi-cloud target support (AWS, GCP, Azure)",
             "Reverse migration & cloud repatriation",

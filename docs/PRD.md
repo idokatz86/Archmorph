@@ -1,6 +1,6 @@
 # Archmorph — Cloud Architecture Translator to Azure
 ## Product Requirements Document (PRD)
-**Version:** 2.12.0
+**Version:** 3.0.0
 **Date:** June 22, 2025
 **Author:** Ido Katz
 

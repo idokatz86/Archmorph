@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-02-24
+
+### Added
+- **Multi-cloud target support** — parameterized target_provider (aws/azure/gcp) across vision_analyzer and IaC generator (#156, #31)
+- **CloudFormation IaC generation** — AWS-specific prompts, region validation, base template (#31)
+- **User Dashboard** — stat cards, analysis history, bookmarks, pagination, provider filtering (#151)
+- **Template Gallery** — 10 architecture patterns, 8 categories, search, difficulty badges (#27)
+- **Visio (.vsdx) import** — Open XML parser with shape/connection/cloud-service identification (#150)
+- **i18n** — react-i18next with 3 locales (en/es/fr), LanguageSelector component, 70+ translation keys (#171)
+- **Living Architecture engine** — health scoring (5 weighted dimensions), drift detection, cost anomaly alerts (#157)
+- **Migration Intelligence** — anonymous event pipeline, community confidence scoring, pattern library, trending migrations (#159)
+- **White-Label SDK** — config-driven branding (colors, fonts, logos, features), partner API key management, embeddable widget snippets (#29)
+- **Dashboard API** — analysis history, stats, bookmarks endpoints (#111)
+- **Multi-tenant foundation** — Alembic migration 002 with organizations, team_members, invitations tables (#113)
+- **Enhanced PR template** — comprehensive Definition of Done checklist (#152)
+
 ## [2.12.0] - 2026-02-22
 
 ### Added
@@ -86,7 +102,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Architecture diagram upload and analysis (PNG, JPG, SVG, PDF, Draw.io)
 - AWS/GCP service detection with 405+ service catalog
 
-[Unreleased]: https://github.com/idokatz86/Archmorph/compare/v2.12.0...HEAD
+[Unreleased]: https://github.com/idokatz86/Archmorph/compare/v3.0.0...HEAD
+[3.0.0]: https://github.com/idokatz86/Archmorph/compare/v2.12.0...v3.0.0
 [2.12.0]: https://github.com/idokatz86/Archmorph/compare/v2.11.0...v2.12.0
 [2.11.0]: https://github.com/idokatz86/Archmorph/compare/v2.10.0...v2.11.0
 [2.10.0]: https://github.com/idokatz86/Archmorph/compare/v2.9.0...v2.10.0

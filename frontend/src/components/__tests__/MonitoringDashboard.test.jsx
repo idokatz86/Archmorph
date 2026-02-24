@@ -26,7 +26,7 @@ describe('MonitoringDashboard', () => {
       { endpoint: '/api/chat', requests: 200, errors: 0, avg_ms: 200, p95_ms: 400 },
     ],
   }
-  const mockHealth = { status: 'healthy', version: '2.12.0' }
+  const mockHealth = { status: 'healthy', version: '3.0.0' }
 
   beforeEach(() => {
     vi.clearAllMocks()

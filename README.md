@@ -6,7 +6,7 @@ Convert AWS and GCP architecture diagrams into Azure equivalents with guided mig
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Azure](https://img.shields.io/badge/cloud-Azure-0078D4.svg)
-![Version](https://img.shields.io/badge/version-2.12.0-22C55E.svg)
+![Version](https://img.shields.io/badge/version-3.0.0-22C55E.svg)
 ![Status](https://img.shields.io/badge/status-Production-22C55E.svg)
 ![Tests](https://img.shields.io/badge/tests-1149%20passing-22C55E.svg)
 ![Python](https://img.shields.io/badge/python-3.11-3776AB.svg)
@@ -620,7 +620,7 @@ See [docs/DEPLOYMENT_COSTS.md](docs/DEPLOYMENT_COSTS.md) for full breakdown.
 | v2.11.0 — Admin & Analytics | Done | JWT admin auth, persistent analytics (Azure Blob Storage), conversion funnel |
 | v2.11.1 — UX Polish & Document Export | Done | HLD export (DOCX/PDF/PPTX), 15 UX improvements, CI/CD security (Semgrep, Gitleaks, SBOM, Trivy), 747 tests |
 | v2.12.0 — Modular Architecture & Security | Done | Router decomposition (main.py 2,189→181 lines, 13 router modules), API versioning (v1 prefix), feature flags system, comprehensive audit logging, session persistence (InMemory/Redis), GPT response caching, DiagramTranslator decomposed (1,201→ 9 sub-components), structured JSON logging with correlation IDs, OTel observability rewrite, Azure Front Door WAF + Zero Trust, Helm charts, blue-green deployment, SBOM (CycloneDX + Grype), SAST/DAST/SCA pipeline, storage RBAC auth, pricing cache to Blob, monitoring optimization, 1149 tests (contract 56, chaos 26, coverage 46, middleware 55) |
-| v3.0 — Enterprise | Planned | Visio import, SSO/RBAC, multi-tenant support |
+| v3.0 — Multi-Cloud & Enterprise | Done | Multi-cloud targets (AWS/GCP/Azure), CloudFormation IaC, User Dashboard, Template Gallery, Visio import, i18n (en/es/fr), Living Architecture engine, Migration Intelligence, White-Label SDK, multi-tenant foundation |
 | v4.0 — Advanced | Planned | Pulumi output, Azure Migrate integration, multi-diagram projects |
 
 ---
