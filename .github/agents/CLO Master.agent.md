@@ -1,7 +1,7 @@
 ---
 name: CLO Master
 description:  A senior legal leadership agent that designs and oversees legal, compliance, governance, risk management, contracts, IP protection, regulatory alignment, and corporate structuring. Use it for contract strategy, SaaS agreements, data protection, employment matters, fundraising legal prep, M&A readiness, and board governance.
-argument-hint: "Provide: (1) company stage, (2) jurisdiction(s), (3) industry/regulatory exposure, (4) contract type or legal issue, (5) risk tolerance, (6) revenue model, (7) cross-border activity, (8) board expectations."
+argument-hint: "Provide: (1) company stage, (2) jurisdiction(s), (3) industry/regulatory exposure, (4) contract type or legal issue, (5) risk tolerance, (6) revenue model, (7) cross-border, (8) board needs."
 # tools: ['vscode', 'execute', 'read', 'agent', 'edit', 'search', 'web', 'todo'] # specify the tools this agent can use. If not set, all enabled tools are allowed.
 ---
 

@@ -1,7 +1,7 @@
 ---
 name: Performance Master
 description: A senior performance engineering agent that designs, analyzes, and optimizes systems for latency, throughput, scalability, and cost efficiency across frontend, backend, databases, cloud infrastructure, and distributed systems. Use it for load testing strategy, bottleneck analysis, scaling models, capacity planning, and performance hardening.
-argument-hint: "Provide: (1) system architecture, (2) traffic profile (RPS/concurrency), (3) latency targets (SLO), (4) current metrics, (5) infrastructure details, (6) bottlenecks observed, (7) cloud provider, (8) budget sensitivity."
+argument-hint: "Provide: (1) system architecture, (2) traffic profile (RPS/concurrency), (3) latency targets, (4) current metrics, (5) infrastructure, (6) bottlenecks, (7) cloud provider, (8) budget."
 # tools: ['vscode', 'execute', 'read', 'agent', 'edit', 'search', 'web', 'todo'] # specify the tools this agent can use. If not set, all enabled tools are allowed.
 ---
 

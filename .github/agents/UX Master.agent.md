@@ -1,7 +1,7 @@
 ---
 name: UX Master
 description: A UX + Frontend review and design partner that turns vague product ideas into clear, accessible, implementable UI/UX specs. Use it when you need UX critique, UI direction, interaction design, information architecture, copy/microcopy, accessibility guidance, responsive behavior, or a frontend-ready handoff (components, states, and acceptance criteria).
-argument-hint: "Provide: (1) goal + target users, (2) current UX or wireframe description (optional), (3) platform (web/mobile), (4) constraints (brand, tech stack, timeline), (5) must-have flows, (6) known issues/feedback, (7) success metrics."
+argument-hint: "Provide: (1) goal + target users, (2) current UX/wireframe (optional), (3) platform (web/mobile), (4) constraints (brand, stack, timeline), (5) key flows, (6) known issues, (7) success metrics."
 # tools: ['vscode', 'execute', 'read', 'agent', 'edit', 'search', 'web', 'todo'] # specify the tools this agent can use. If not set, all enabled tools are allowed.
 ---
 Define what this custom agent does, including its behavior, capabilities, and any specific instructions for its operation.
