@@ -33,4 +33,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 # Use 2*CPU+1 formula; 4 workers for 2 vCPU Container Apps
 # Issue #121: WEB_CONCURRENCY tells session store to use FileStore when no Redis
 ENV WEB_CONCURRENCY=4
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port 8000 --workers ${WEB_CONCURRENCY}"]

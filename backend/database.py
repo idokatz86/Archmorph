@@ -43,6 +43,7 @@ _IS_SQLITE = DATABASE_URL.startswith("sqlite")
 _POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "10"))
 _MAX_OVERFLOW = int(os.getenv("DB_MAX_OVERFLOW", "20"))
 _POOL_TIMEOUT = int(os.getenv("DB_POOL_TIMEOUT", "30"))
+_POOL_RECYCLE = int(os.getenv("DB_POOL_RECYCLE", "3600"))  # Recycle stale connections (#116)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -65,6 +66,7 @@ else:
         "pool_size": _POOL_SIZE,
         "max_overflow": _MAX_OVERFLOW,
         "pool_timeout": _POOL_TIMEOUT,
+        "pool_recycle": _POOL_RECYCLE,
         "pool_pre_ping": True,
     })
 

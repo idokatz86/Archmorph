@@ -224,18 +224,29 @@ class FileStore(SessionStore):
         return self._read(self._path(key)) is not None
 
     def __len__(self) -> int:
-        return sum(1 for p in self._base.glob("*.json") if self._read(p) is not None)
+        # Count files on disk without reading/parsing each one (avoids O(n) I/O).
+        # Returns an upper-bound: expired files are lazily cleaned on read/evict,
+        # so the count may include expired entries.  Callers use this for capacity
+        # warnings (diagrams.py) and eviction triggers — an overcount is safe
+        # (triggers warnings/eviction slightly early, never late).
+        return sum(1 for _ in self._base.glob("*.json"))
 
     @property
     def maxsize(self) -> int:
         return self._maxsize
 
     def _evict_if_full(self) -> None:
-        """Remove oldest expired entries when store exceeds maxsize."""
+        """Remove oldest entries when store exceeds maxsize.
+
+        Uses a single sorted pass and deletes from the front of the
+        pre-sorted list to avoid O(n²) repeated ``pop(0)`` on a list.
+        """
         files = sorted(self._base.glob("*.json"), key=lambda p: p.stat().st_mtime)
-        while len(files) >= self._maxsize:
-            oldest = files.pop(0)
-            oldest.unlink(missing_ok=True)
+        if len(files) < self._maxsize:
+            return
+        to_remove = len(files) - self._maxsize + 1  # free at least one slot
+        for p in files[:to_remove]:
+            p.unlink(missing_ok=True)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -303,7 +314,17 @@ class RedisStore(SessionStore):
         return self._redis.exists(self._key(key)) > 0
 
     def __len__(self) -> int:
-        return len(self.keys())
+        # Count keys via SCAN without materializing a full list.
+        count = 0
+        cursor = 0
+        while True:
+            cursor, batch = self._redis.scan(
+                cursor=cursor, match=f"{self._prefix}:*", count=100,
+            )
+            count += len(batch)
+            if cursor == 0:
+                break
+        return count
 
     @property
     def maxsize(self) -> int:
