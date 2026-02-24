@@ -280,7 +280,7 @@ class TestObservabilityEdgeCases:
         from observability import SpanContext
         span = SpanContext("double_end")
         span.end()
-        _first_end = span.end_time  # noqa: F841
+        _first_end = span.end_time  # noqa: F841 — assigned for debugging span timing in test assertions
         span.end()
         # Calling end twice should be safe
         assert span.end_time is not None

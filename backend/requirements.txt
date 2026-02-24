@@ -1,7 +1,7 @@
 fastapi==0.131.0
 uvicorn[standard]==0.39.0
 pydantic==2.12.5
-python-multipart>=0.0.20  # 0.0.22+ requires Python 3.10+ and fixes GHSA-wp53-j4wj-2cfg
+python-multipart==0.0.20  # 0.0.22+ requires Python 3.10+ and fixes GHSA-wp53-j4wj-2cfg
 httpx==0.28.1
 azure-storage-blob==12.24.1
 azure-identity==1.25.2
@@ -10,20 +10,20 @@ psycopg2-binary==2.9.11
 sqlalchemy==2.0.36
 alembic==1.16.5
 python-dotenv==1.2.1
-pillow>=11.3.0  # 12.1.1 requires Python 3.10+ and fixes GHSA-cfh3-3jmp-rvhc
+pillow==11.3.0  # 12.1.1 requires Python 3.10+ and fixes GHSA-cfh3-3jmp-rvhc
 apscheduler==3.11.2
 PyGithub==2.8.1
 slowapi==0.1.9
 cachetools==6.2.6
-defusedxml>=0.7.1
+defusedxml==0.7.1
 azure-monitor-opentelemetry==1.6.4
 tenacity==9.1.4
 psutil==7.2.2
-python-json-logger>=2.0.7
-PyJWT[crypto]>=2.8.0
+python-json-logger==3.3.0  # logging_config.py handles both 2.x and 3.x import paths
+PyJWT[crypto]==2.11.0
 email-validator==2.3.0
-redis>=5.0.0,<6.0.0  # Required for RedisStore session backend (#118)
-stripe>=8.0.0  # Stripe billing integration (#144)
+redis==5.3.1  # Required for RedisStore session backend (#118)
+stripe==14.3.0  # Stripe billing integration (#144)
 
 # Document export dependencies
 python-docx==1.2.0
@@ -33,3 +33,4 @@ python-pptx==1.0.2
 # Test dependencies
 pytest==9.0.2
 pytest-asyncio==0.26.0
+pytest-cov==6.2.1

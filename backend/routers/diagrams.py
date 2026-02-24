@@ -456,7 +456,7 @@ async def generate_hld_endpoint(request: Request, diagram_id: str, _auth=Depends
             strategy = iac_params.get("sku_strategy", "balanced")
             cost_estimate = estimate_services_cost(analysis.get("mappings", []), region=region, sku_strategy=strategy)
             session["_cached_cost_estimate"] = cost_estimate
-        except Exception:  # nosec B110
+        except Exception:  # nosec B110 — session cleanup is optional, must not break response
             logger.debug("Cost estimation unavailable, proceeding without it")
 
     try:

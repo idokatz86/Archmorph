@@ -221,7 +221,7 @@ async def admin_monitoring_dashboard(request: Request, _admin=Depends(verify_adm
 
     # ── Uptime (process) ──
     try:
-        import psutil  # noqa: E402
+        import psutil  # noqa: E402 — lazy import, psutil only needed for system-info endpoint
         process = psutil.Process()
         uptime_seconds = int(time.time() - process.create_time())
         memory_mb = round(process.memory_info().rss / (1024 * 1024), 1)

@@ -347,7 +347,7 @@ def _save_to_disk() -> None:
             encoding="utf-8",
         )
         logger.debug("Registry persisted to %s (%d icons)", _PERSIST_FILE, len(snapshot["icons"]))
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 — icon pack loading is best-effort
         logger.warning("Failed to persist registry: %s", exc)
 
 
@@ -365,7 +365,7 @@ def _load_from_disk() -> bool:
                 _PACK_INDEX[pid] = ids
         logger.info("Registry loaded from disk: %d icons, %d packs", len(_ICON_STORE), len(_PACK_INDEX))
         return True
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 — icon metadata parsing is best-effort
         logger.warning("Failed to load registry from disk: %s", exc)
         return False
 
@@ -405,7 +405,7 @@ def load_builtin_packs() -> int:
                 items.append(IconPackItem(**item_data))
             ingest_icon_pack(pack_manifest, files, items=items, pack_id=provider_name)
             loaded += 1
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 — icon resolution is best-effort
             logger.warning("Failed to load builtin pack '%s': %s", provider_name, exc)
     return loaded
 

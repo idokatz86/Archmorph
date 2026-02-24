@@ -1,0 +1,23 @@
+[run]
+source = .
+omit =
+    tests/*
+    alembic/*
+    */migrations/*
+    */__pycache__/*
+    generate_icon_packs.py
+
+[report]
+show_missing = true
+precision = 1
+fail_under = 0
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    if __name__ == .__main__
+    raise NotImplementedError
+    pass
+    except ImportError
+
+[html]
+directory = htmlcov
