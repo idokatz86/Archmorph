@@ -1,0 +1,34 @@
+changelog:
+  exclude:
+    labels:
+      - dependencies
+      - automated
+    authors:
+      - dependabot
+      - dependabot[bot]
+  categories:
+    - title: "🚀 New Features"
+      labels:
+        - enhancement
+        - feature
+    - title: "🐛 Bug Fixes"
+      labels:
+        - bug
+        - bugfix
+    - title: "🔒 Security"
+      labels:
+        - security
+    - title: "🏗️ Infrastructure"
+      labels:
+        - infrastructure
+        - terraform
+        - ci
+    - title: "📖 Documentation"
+      labels:
+        - documentation
+    - title: "🧪 Testing"
+      labels:
+        - testing
+    - title: "🔧 Other Changes"
+      labels:
+        - "*"
