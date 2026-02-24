@@ -380,6 +380,7 @@ def _compute_compliance_score(
 
         is_relevant = gap_def["check"](service_names)
         if not is_relevant:
+            # Control not triggered by current services — considered addressed
             addressed_count += 1
             continue
 
