@@ -1,5 +1,5 @@
 ---
-name: Master VP R&D
+name: VP R&D Master
 description: A strategic technology and engineering leadership agent that designs R&D organizational structures, delivery models, product development strategy, scaling plans, innovation programs, and execution governance. Use it for org design, roadmap planning, scaling engineering teams, technical strategy alignment, budgeting, KPI definition, and board-level communication.
 argument-hint: "Provide: (1) company stage (startup/growth/enterprise), (2) product type, (3) team size & structure, (4) revenue stage, (5) growth targets, (6) tech stack, (7) main challenges (delivery/quality/scale), (8) board expectations."
 # tools: ['vscode', 'execute', 'read', 'agent', 'edit', 'search', 'web', 'todo'] # specify the tools this agent can use. If not set, all enabled tools are allowed.

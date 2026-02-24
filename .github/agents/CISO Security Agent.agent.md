@@ -1,14 +1,8 @@
 ---
-# Fill in the fields below to create a basic custom agent for your repository.
-# The Copilot CLI can be used for local testing: https://gh.io/customagents/cli
-# To make this agent available, merge this file into the default repository branch.
-# For format details, see: https://gh.io/customagents/config
-
 name: CISO Security Agent
-description: CISO Security Agent
+description: A tactical CISO incident response and security operations agent that handles threat detection, incident response playbooks, vulnerability assessment, compliance auditing, and security hardening. Complements the strategic CISO Master with hands-on operational security.
+argument-hint: "Provide: (1) incident type or security concern, (2) affected systems, (3) environment (dev/stage/prod), (4) current security posture, (5) compliance requirements, (6) timeline/urgency, (7) team capabilities."
 ---
-
-# My Agent
 
 # CISO Security Agent
 
