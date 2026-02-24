@@ -6,6 +6,7 @@ import {
 import { Button, Card } from '../ui';
 import { API_BASE } from '../../constants';
 import api from '../../services/apiClient';
+import { saveSession, loadSession, clearSession } from '../../services/sessionCache';
 import useWorkflow from './useWorkflow';
 import useSSE from '../../hooks/useSSE';
 import UploadStep from './UploadStep';
@@ -70,6 +71,19 @@ export default function DiagramTranslator() {
       if (filePreviewUrlRef.current) URL.revokeObjectURL(filePreviewUrlRef.current);
     };
   }, []);
+
+  // ── Drag & drop ──
+  // ── Session auto-recovery: push cached analysis back to backend on 404 ──
+  const tryRestoreSession = async (diagramId) => {
+    const cached = loadSession();
+    if (!cached || cached.diagramId !== diagramId) return false;
+    try {
+      await api.post(`/diagrams/${diagramId}/restore-session`, { analysis: cached.analysis });
+      return true;
+    } catch {
+      return false;
+    }
+  };
 
   // ── Drag & drop ──
   const handleDragOver = useCallback((e) => { e.preventDefault(); e.stopPropagation(); set({ dragOver: true }); }, [set]);
@@ -219,6 +233,7 @@ export default function DiagramTranslator() {
         const questions = qData.questions || [];
         const defaults = {};
         questions.forEach(q => { defaults[q.id] = q.default; });
+        saveSession(diagram_id, result, questions, defaults);
         set({ questions, answers: defaults, step: 'questions' });
       } else {
         // ── Fallback: sync endpoint with simulated progress ──
@@ -274,6 +289,7 @@ export default function DiagramTranslator() {
         const questions = qData.questions || [];
         const defaults = {};
         questions.forEach(q => { defaults[q.id] = q.default; });
+        saveSession(diagram_id, result, questions, defaults);
         set({ questions, answers: defaults, step: 'questions' });
       }
     } catch (err) {
@@ -310,6 +326,7 @@ export default function DiagramTranslator() {
       const questions = qData.questions || [];
       const defaults = {};
       questions.forEach(q => { defaults[q.id] = q.default; });
+      saveSession(result.diagram_id, result, questions, defaults);
       set({ questions, answers: defaults, step: 'questions' });
     } catch (err) {
       set({ error: 'Failed to load sample: ' + err.message, step: 'upload' });
@@ -323,7 +340,16 @@ export default function DiagramTranslator() {
       set({ analysis: { ...state.analysis, ...refined }, step: 'results' });
     } catch (err) {
       if (err.status === 404) {
-        set({ error: 'Your session has expired (the backend was redeployed). Please re-upload your diagram.', step: 'upload', loading: false });
+        const restored = await tryRestoreSession(state.diagramId);
+        if (restored) {
+          try {
+            const refined = await api.post(`/diagrams/${state.diagramId}/apply-answers`, state.answers);
+            set({ analysis: { ...state.analysis, ...refined }, step: 'results', loading: false });
+            return;
+          } catch { /* fall through to error */ }
+        }
+        set({ error: 'Your session has expired. Please re-upload your diagram to continue.', step: 'upload', loading: false });
+        clearSession();
         return;
       }
       set({ error: err.message });
@@ -341,7 +367,19 @@ export default function DiagramTranslator() {
       set({ iacCode: iacData.code, costEstimate: costData, step: 'iac' });
     } catch (err) {
       if (err.status === 404) {
-        set({ error: 'Your session has expired (the backend was redeployed). Please re-upload your diagram.', step: 'upload', loading: false });
+        const restored = await tryRestoreSession(state.diagramId);
+        if (restored) {
+          try {
+            const [iacData, costData] = await Promise.all([
+              api.post(`/diagrams/${state.diagramId}/generate?format=${fmt}`),
+              api.get(`/diagrams/${state.diagramId}/cost-estimate`).catch(() => null),
+            ]);
+            set({ iacCode: iacData.code, costEstimate: costData, step: 'iac', loading: false });
+            return;
+          } catch { /* fall through */ }
+        }
+        set({ error: 'Your session has expired. Please re-upload your diagram to continue.', step: 'upload', loading: false });
+        clearSession();
         return;
       }
       set({ error: err.message });
@@ -364,7 +402,30 @@ export default function DiagramTranslator() {
       copyWithFeedback('', `hld-${fmt}`);
     } catch (err) {
       if (err.status === 404) {
-        set({ error: 'Your session has expired (the backend was redeployed). Please re-upload your diagram.', step: 'upload' });
+        const restored = await tryRestoreSession(state.diagramId);
+        if (!restored) {
+          set({ error: 'Your session has expired. Please re-upload your diagram to continue.', step: 'upload' });
+          clearSession();
+          setHldExportLoading(fmt, false);
+          return;
+        }
+        // Retry after restore
+        try {
+          const data = await api.post(`/diagrams/${state.diagramId}/export-hld?format=${fmt}&include_diagrams=${state.hldIncludeDiagrams}`, {});
+          const bytes = Uint8Array.from(atob(data.content_b64), c => c.charCodeAt(0));
+          const blob = new Blob([bytes], { type: data.content_type });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = data.filename;
+          a.click();
+          URL.revokeObjectURL(url);
+          copyWithFeedback('', `hld-${fmt}`);
+          setHldExportLoading(fmt, false);
+          return;
+        } catch { /* fall through */ }
+        set({ error: 'Your session has expired. Please re-upload your diagram to continue.', step: 'upload' });
+        clearSession();
         setHldExportLoading(fmt, false);
         return;
       }
@@ -387,7 +448,15 @@ export default function DiagramTranslator() {
       URL.revokeObjectURL(url);
     } catch (err) {
       if (err.status === 404) {
-        set({ error: 'Your session has expired (the backend was redeployed). Please re-upload your diagram.', step: 'upload' });
+        const restored = await tryRestoreSession(state.diagramId);
+        if (!restored) {
+          set({ error: 'Your session has expired. Please re-upload your diagram to continue.', step: 'upload' });
+          clearSession();
+          setExportLoading(format, false);
+          return;
+        }
+        set({ error: 'Your session has expired. Please re-upload your diagram to continue.', step: 'upload' });
+        clearSession();
         setExportLoading(format, false);
         return;
       }
@@ -426,7 +495,7 @@ export default function DiagramTranslator() {
     set({ hldLoading: true, error: null });
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 120_000);
+      const timeout = setTimeout(() => controller.abort(), 180_000);
       activeTimeoutsRef.current.push(timeout);
       const data = await api.post(`/diagrams/${state.diagramId}/generate-hld`, undefined, controller.signal);
       clearTimeout(timeout);
@@ -434,7 +503,20 @@ export default function DiagramTranslator() {
       if (data.hld) set({ hldData: data });
     } catch (err) {
       if (err.status === 404) {
-        set({ error: 'Your session has expired (the backend was redeployed). Please re-upload your diagram.', step: 'upload', hldLoading: false });
+        const restored = await tryRestoreSession(state.diagramId);
+        if (restored) {
+          try {
+            const controller2 = new AbortController();
+            const timeout2 = setTimeout(() => controller2.abort(), 180_000);
+            activeTimeoutsRef.current.push(timeout2);
+            const data = await api.post(`/diagrams/${state.diagramId}/generate-hld`, undefined, controller2.signal);
+            clearTimeout(timeout2);
+            if (data.hld) set({ hldData: data, hldLoading: false });
+            return;
+          } catch { /* fall through */ }
+        }
+        set({ error: 'Your session has expired. Please re-upload your diagram to continue.', step: 'upload', hldLoading: false });
+        clearSession();
         return;
       }
       const msg = err.name === 'AbortError'

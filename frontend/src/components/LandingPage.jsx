@@ -65,10 +65,7 @@ const FAQS = [
     q: 'Can I use the generated Terraform code in production?',
     a: 'The generated code follows Azure best practices and is production-ready for most scenarios. We recommend reviewing all generated configurations with your cloud team before deploying to production.',
   },
-  {
-    q: 'Do you offer enterprise plans?',
-    a: 'Yes! Our Enterprise plan includes unlimited analyses, SSO integration, custom service mappings, dedicated support with SLA, audit logging, and multi-tenant isolation. Contact us for pricing.',
-  },
+
 ];
 
 function FAQItem({ q, a }) {
@@ -95,7 +92,7 @@ function FAQItem({ q, a }) {
   );
 }
 
-export default function LandingPage({ onGetStarted, onViewPricing }) {
+export default function LandingPage({ onGetStarted }) {
   return (
     <div className="min-h-screen" data-testid="landing-page">
       {/* Hero */}
@@ -123,12 +120,7 @@ export default function LandingPage({ onGetStarted, onViewPricing }) {
               Start Translating — Free
               <ArrowRight className="w-4 h-4" />
             </button>
-            <button
-              onClick={onViewPricing}
-              className="flex items-center gap-2 px-6 py-3 border border-border text-text-secondary rounded-xl font-medium hover:bg-secondary transition-colors text-sm"
-            >
-              View Pricing
-            </button>
+
           </div>
           <div className="flex items-center justify-center gap-6 mt-8 text-xs text-text-muted">
             <span className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-cta" /> No credit card required</span>

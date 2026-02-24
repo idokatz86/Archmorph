@@ -124,6 +124,34 @@ async def upload_diagram(request: Request, project_id: str, file: UploadFile = F
     }
 
 
+# ─────────────────────────────────────────────────────────────
+# Session Restore — re-inject cached analysis after backend restart
+# ─────────────────────────────────────────────────────────────
+class RestoreSessionRequest(BaseModel):
+    analysis: Dict[str, Any]
+
+@router.post("/api/diagrams/{diagram_id}/restore-session")
+@limiter.limit("10/minute")
+async def restore_session(request: Request, diagram_id: str, body: RestoreSessionRequest):
+    """Re-inject a cached analysis result into the session store.
+
+    The frontend caches analysis data in sessionStorage.  When the backend
+    restarts and the in-memory store is wiped, the frontend can push its
+    cached copy here to transparently restore the session.
+    """
+    analysis = body.analysis
+    if not analysis or not isinstance(analysis, dict):
+        raise HTTPException(400, "Invalid analysis payload")
+
+    # Ensure diagram_id matches
+    analysis["diagram_id"] = diagram_id
+
+    SESSION_STORE[diagram_id] = analysis
+    logger.info("Session restored for %s via client cache", diagram_id)
+    record_event("sessions_restored", {"diagram_id": diagram_id})
+    return {"status": "restored", "diagram_id": diagram_id}
+
+
 @router.post("/api/diagrams/{diagram_id}/analyze")
 @limiter.limit("5/minute")
 async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
@@ -359,7 +387,9 @@ async def generate_iac(request: Request, diagram_id: str, format: str = "terrafo
 async def estimate_cost(request: Request, diagram_id: str):
     record_event("cost_estimates", {"diagram_id": diagram_id})
 
-    session = SESSION_STORE.get(diagram_id, {})
+    session = get_or_recreate_session(diagram_id)
+    if not session:
+        raise HTTPException(404, "No analysis found. Analyze a diagram first.")
     # The analysis result is stored directly in SESSION_STORE (not nested under "analysis")
     mappings = session.get("mappings", [])
     iac_params = session.get("iac_parameters", {})

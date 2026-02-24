@@ -39,9 +39,7 @@ vi.mock('../components/LegalPages', () => ({
 vi.mock('../components/CookieBanner', () => ({
   default: () => null,
 }))
-vi.mock('../components/PricingPage', () => ({
-  default: () => <div data-testid="pricing">PricingPage</div>,
-}))
+// PricingPage removed — feature temporarily disabled
 
 describe('App', () => {
   beforeEach(() => {

@@ -1,4 +1,5 @@
 import { useReducer, useCallback } from 'react';
+import { clearSession } from '../../services/sessionCache';
 
 export const DEFAULT_CHAT_MESSAGE = {
   role: 'assistant',
@@ -70,7 +71,7 @@ export default function useWorkflow() {
   const setExportLoading = useCallback((key, value) => dispatch({ type: 'SET_EXPORT_LOADING', key, value }), []);
   const setHldExportLoading = useCallback((key, value) => dispatch({ type: 'SET_HLD_EXPORT_LOADING', key, value }), []);
   const updateAnswer = useCallback((key, value) => dispatch({ type: 'UPDATE_ANSWER', key, value }), []);
-  const reset = useCallback(() => dispatch({ type: 'RESET' }), []);
+  const reset = useCallback(() => { clearSession(); dispatch({ type: 'RESET' }); }, []);
 
   const copyWithFeedback = useCallback((text, key) => {
     navigator.clipboard.writeText(text);

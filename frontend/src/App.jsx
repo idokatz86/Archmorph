@@ -14,7 +14,7 @@ const ChatWidget = lazy(() => import('./components/ChatWidget'));
 const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
 const LegalPages = lazy(() => import('./components/LegalPages'));
 const CookieBanner = lazy(() => import('./components/CookieBanner'));
-const PricingPage = lazy(() => import('./components/PricingPage'));
+// PricingPage removed — feature temporarily disabled
 const LandingPage = lazy(() => import('./components/LandingPage'));
 const UserDashboard = lazy(() => import('./components/UserDashboard'));
 const TemplateGallery = lazy(() => import('./components/TemplateGallery'));
@@ -82,14 +82,14 @@ export default function App() {
       <main id="main-content" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <ErrorBoundary>
           <Suspense fallback={<TabFallback />}>
-            {activeTab === 'landing' && <LandingPage onGetStarted={() => setActiveTab('translator')} onViewPricing={() => setActiveTab('pricing')} />}
+            {activeTab === 'landing' && <LandingPage onGetStarted={() => setActiveTab('translator')} />}
             {activeTab === 'dashboard' && <UserDashboard onNavigate={setActiveTab} />}
             {activeTab === 'templates' && <TemplateGallery onUseTemplate={() => setActiveTab('translator')} />}
             {activeTab === 'translator' && <DiagramTranslator />}
             {activeTab === 'services' && <ServicesBrowser />}
             {activeTab === 'roadmap' && <Roadmap />}
             {activeTab === 'legal' && <LegalPages onBack={() => setActiveTab('translator')} />}
-            {activeTab === 'pricing' && <PricingPage onBack={() => setActiveTab('translator')} />}
+
           </Suspense>
         </ErrorBoundary>
       </main>

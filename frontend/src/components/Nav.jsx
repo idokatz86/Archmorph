@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { CloudCog, Layers, Server, Rocket, MessageSquare, Shield, CreditCard, Home, LayoutDashboard, Sparkles, Menu, X } from 'lucide-react';
+import { CloudCog, Layers, Server, Rocket, MessageSquare, Shield, Home, LayoutDashboard, Sparkles, Menu, X } from 'lucide-react';
 import { Badge } from './ui';
 import { APP_VERSION } from '../constants';
 import FeedbackWidget from './FeedbackWidget';
@@ -16,7 +16,6 @@ export default function Nav({ activeTab, setActiveTab, updateStatus }) {
     { id: 'templates', label: 'Templates', icon: Sparkles },
     { id: 'services', label: 'Services', icon: Server },
     { id: 'roadmap', label: 'Roadmap', icon: Rocket },
-    { id: 'pricing', label: 'Pricing', icon: CreditCard },
     { id: 'legal', label: 'Legal', icon: Shield },
   ];
 

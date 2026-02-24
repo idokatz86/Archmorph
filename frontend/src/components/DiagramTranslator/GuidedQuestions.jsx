@@ -1,116 +1,237 @@
-import React from 'react';
-import { HelpCircle, ChevronRight, Check } from 'lucide-react';
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { HelpCircle, ChevronRight, ChevronLeft, Check, Sparkles, ToggleLeft, ToggleRight } from 'lucide-react';
 import { Badge, Button, Card } from '../ui';
+
+/* ── Toggle Switch ── */
+function Toggle({ checked, onChange, label }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!checked)}
+      className="flex items-center gap-3 w-full p-3 rounded-xl border border-border/50 hover:border-cta/30 bg-secondary/10 hover:bg-secondary/20 transition-all cursor-pointer group"
+      role="switch"
+      aria-checked={checked}
+    >
+      {checked ? (
+        <ToggleRight className="w-7 h-7 text-cta shrink-0 transition-colors" />
+      ) : (
+        <ToggleLeft className="w-7 h-7 text-text-muted shrink-0 transition-colors group-hover:text-text-secondary" />
+      )}
+      <span className={`text-sm font-medium transition-colors ${checked ? 'text-cta' : 'text-text-secondary'}`}>{label}</span>
+    </button>
+  );
+}
+
+/* ── Selectable Option Card ── */
+function OptionCard({ selected, onClick, label, description, multi }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`relative flex items-start gap-3 p-4 rounded-xl border-2 text-left transition-all duration-200 cursor-pointer w-full ${
+        selected
+          ? 'border-cta bg-cta/5 shadow-[0_0_0_1px_rgba(var(--color-cta-rgb,59,130,246),0.2)]'
+          : 'border-border/50 bg-secondary/5 hover:border-cta/30 hover:bg-secondary/15'
+      }`}
+    >
+      {/* Selection indicator */}
+      <div className={`mt-0.5 shrink-0 w-5 h-5 rounded-${multi ? 'md' : 'full'} border-2 flex items-center justify-center transition-all duration-200 ${
+        selected ? 'border-cta bg-cta' : 'border-text-muted/40'
+      }`}>
+        {selected && <Check className="w-3 h-3 text-white" />}
+      </div>
+      <div className="min-w-0">
+        <span className={`text-sm font-medium ${selected ? 'text-cta' : 'text-text-primary'}`}>{label}</span>
+        {description && <p className="text-xs text-text-muted mt-0.5 leading-relaxed">{description}</p>}
+      </div>
+    </button>
+  );
+}
 
 export default function GuidedQuestions({
   analysis, questions, answers, loading,
   onUpdateAnswer, onApplyAnswers, onSkip,
 }) {
-  const answered = Object.keys(answers).filter(k => answers[k] !== undefined && answers[k] !== null && answers[k] !== '');
-  const categories = [...new Set(questions.map(q => q.category || 'General'))];
+  const categories = useMemo(() => [...new Set(questions.map(q => q.category || 'General'))], [questions]);
+  const [activeCatIdx, setActiveCatIdx] = useState(0);
+  const contentRef = useRef(null);
+
+  const activeCat = categories[activeCatIdx] || categories[0];
+  const catQuestions = useMemo(() => questions.filter(q => (q.category || 'General') === activeCat), [questions, activeCat]);
+
+  const answered = useMemo(() => Object.keys(answers).filter(k => answers[k] !== undefined && answers[k] !== null && answers[k] !== ''), [answers]);
+  const totalProgress = Math.round((answered.length / Math.max(questions.length, 1)) * 100);
+
+  // Scroll to top of content when switching categories
+  useEffect(() => {
+    contentRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [activeCatIdx]);
+
+  const goNext = useCallback(() => {
+    if (activeCatIdx < categories.length - 1) setActiveCatIdx(i => i + 1);
+    else onApplyAnswers();
+  }, [activeCatIdx, categories.length, onApplyAnswers]);
+
+  const goPrev = useCallback(() => {
+    if (activeCatIdx > 0) setActiveCatIdx(i => i - 1);
+  }, [activeCatIdx]);
+
+  const isLast = activeCatIdx === categories.length - 1;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
+      {/* Header Card */}
       <Card className="p-6">
         <div className="flex items-center gap-3 mb-2">
-          <HelpCircle className="w-6 h-6 text-cta" />
-          <h2 className="text-xl font-bold text-text-primary">Customize Your Azure Architecture</h2>
+          <div className="w-10 h-10 rounded-xl bg-cta/10 flex items-center justify-center">
+            <HelpCircle className="w-5 h-5 text-cta" />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold text-text-primary">Customize Your Azure Architecture</h2>
+            <p className="text-sm text-text-secondary mt-0.5">
+              {analysis?.services_detected || 0} {(analysis?.source_provider || 'aws').toUpperCase()} services detected across {analysis?.zones?.length || 0} zones
+            </p>
+          </div>
         </div>
-        <p className="text-sm text-text-secondary">
-          We detected {analysis?.services_detected || 0} {(analysis?.source_provider || 'aws').toUpperCase()} services across {analysis?.zones?.length || 0} zones.
-          Answer these questions to tailor the Azure translation to your needs.
-        </p>
-        {/* Progress Bar with category breakdown */}
+
+        {/* Overall progress */}
         <div className="mt-4">
-          <div className="flex items-center justify-between text-xs text-text-muted mb-1">
-            <span>{answered.length} of {questions.length} answered</span>
-            <span>{Math.round((answered.length / Math.max(questions.length, 1)) * 100)}%</span>
+          <div className="flex items-center justify-between text-xs mb-1.5">
+            <span className="text-text-muted">{answered.length} of {questions.length} answered</span>
+            <span className="font-medium text-cta">{totalProgress}%</span>
           </div>
           <div className="h-2 bg-secondary rounded-full overflow-hidden">
-            <div className="h-full bg-cta transition-all duration-300" style={{ width: `${(answered.length / Math.max(questions.length, 1)) * 100}%` }} />
+            <div
+              className="h-full bg-gradient-to-r from-cta to-cta/70 rounded-full transition-all duration-500 ease-out"
+              style={{ width: `${totalProgress}%` }}
+            />
           </div>
-          <div className="flex flex-wrap gap-2 mt-2">
-            {categories.map(cat => {
-              const catQs = questions.filter(q => (q.category || 'General') === cat);
-              const catAnswered = catQs.filter(q => answered.includes(q.id)).length;
-              return (
-                <span key={cat} className={`text-[10px] px-2 py-0.5 rounded-full border ${
-                  catAnswered === catQs.length ? 'border-cta/40 text-cta bg-cta/10' : 'border-border text-text-muted'
-                }`}>
-                  {cat.replace(/_/g, ' ')} {catAnswered}/{catQs.length}
-                </span>
-              );
-            })}
-          </div>
+        </div>
+
+        {/* Category stepper pills */}
+        <div className="flex flex-wrap gap-2 mt-4">
+          {categories.map((cat, idx) => {
+            const catQs = questions.filter(q => (q.category || 'General') === cat);
+            const catAnswered = catQs.filter(q => answered.includes(q.id)).length;
+            const isActive = idx === activeCatIdx;
+            const isDone = catAnswered === catQs.length;
+            return (
+              <button
+                key={cat}
+                onClick={() => setActiveCatIdx(idx)}
+                className={`text-xs px-3 py-1.5 rounded-full border transition-all duration-200 cursor-pointer font-medium ${
+                  isActive
+                    ? 'border-cta bg-cta/15 text-cta shadow-sm'
+                    : isDone
+                      ? 'border-cta/30 text-cta/80 bg-cta/5'
+                      : 'border-border/50 text-text-muted hover:border-cta/20 hover:text-text-secondary'
+                }`}
+              >
+                {isDone && <Check className="w-3 h-3 inline mr-1 -mt-px" />}
+                {cat.replace(/_/g, ' ')} {catAnswered}/{catQs.length}
+              </button>
+            );
+          })}
         </div>
       </Card>
 
-      {/* Questions grouped by category */}
-      {categories.map(cat => (
-        <div key={cat} className="space-y-3">
-          <h3 className="text-sm font-semibold text-text-secondary uppercase tracking-wider px-1 flex items-center gap-2">
-            <span className="w-1.5 h-1.5 rounded-full bg-cta" />
-            {cat.replace(/_/g, ' ')}
-          </h3>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {questions.filter(q => (q.category || 'General') === cat).map(q => (
-              <Card key={q.id} className="p-4 space-y-3">
-                <div className="flex items-start gap-2">
-                  <Badge>{q.category?.replace(/_/g, ' ')}</Badge>
-                  {q.impact && <span className="text-[10px] text-text-muted uppercase">{q.impact}</span>}
-                </div>
-                <p className="text-sm font-medium text-text-primary">{q.question}</p>
-                {q.type === 'single_choice' && (
-                  <div className="space-y-1.5">
-                    {q.options?.map(raw => {
-                      const opt = typeof raw === 'string' ? { value: raw, label: raw } : raw;
-                      return (
-                        <label key={opt.value} className="flex items-center gap-3 p-2 rounded-lg hover:bg-secondary cursor-pointer transition-colors">
-                          <input type="radio" name={q.id} value={opt.value} checked={answers[q.id] === opt.value} onChange={() => onUpdateAnswer(q.id, opt.value)} className="w-4 h-4 accent-cta cursor-pointer" />
-                          <div>
-                            <span className="text-sm text-text-primary">{opt.label}</span>
-                            {opt.description && <p className="text-xs text-text-muted">{opt.description}</p>}
-                          </div>
-                        </label>
-                      );
-                    })}
-                  </div>
-                )}
-                {(q.type === 'multi_choice' || q.type === 'multiple_choice') && (
-                  <div className="space-y-1.5">
-                    {q.options?.map(raw => {
-                      const opt = typeof raw === 'string' ? { value: raw, label: raw } : raw;
-                      return (
-                        <label key={opt.value} className="flex items-center gap-3 p-2 rounded-lg hover:bg-secondary cursor-pointer transition-colors">
-                          <input type="checkbox" checked={(answers[q.id] || []).includes(opt.value)} onChange={e => {
-                            const current = answers[q.id] || [];
-                            onUpdateAnswer(q.id, e.target.checked ? [...current, opt.value] : current.filter(v => v !== opt.value));
-                          }} className="w-4 h-4 accent-cta cursor-pointer" />
-                          <span className="text-sm text-text-primary">{opt.label}</span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                )}
-                {(q.type === 'boolean' || q.type === 'yes_no') && (
-                  <div className="flex items-center gap-3">
-                    {['yes', 'no'].map(v => (
-                      <label key={v} className="flex items-center gap-2 p-2 rounded-lg hover:bg-secondary cursor-pointer transition-colors">
-                        <input type="radio" name={q.id} value={v} checked={answers[q.id] === v} onChange={() => onUpdateAnswer(q.id, v)} className="w-4 h-4 accent-cta cursor-pointer" />
-                        <span className="text-sm text-text-primary capitalize">{v}</span>
-                      </label>
-                    ))}
-                  </div>
-                )}
-              </Card>
-            ))}
+      {/* Active category questions */}
+      <Card className="overflow-hidden">
+        <div className="px-6 py-4 border-b border-border/50 bg-secondary/10">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-cta" />
+            <h3 className="text-sm font-semibold text-text-primary">{activeCat.replace(/_/g, ' ')}</h3>
+            <span className="text-xs text-text-muted ml-auto">{activeCatIdx + 1} of {categories.length}</span>
           </div>
         </div>
-      ))}
+        <div ref={contentRef} className="p-6 space-y-6 max-h-[60vh] overflow-y-auto">
+          {catQuestions.map((q, qi) => (
+            <div key={q.id} className="space-y-3">
+              <div className="flex items-start gap-2">
+                <span className="text-xs font-bold text-cta/60 mt-0.5">{qi + 1}.</span>
+                <div>
+                  <p className="text-sm font-medium text-text-primary leading-snug">{q.question}</p>
+                  {q.impact && (
+                    <Badge className="mt-1.5" variant="outline">{q.impact}</Badge>
+                  )}
+                </div>
+              </div>
 
+              {/* Single choice → selectable cards */}
+              {q.type === 'single_choice' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pl-5">
+                  {q.options?.map(raw => {
+                    const opt = typeof raw === 'string' ? { value: raw, label: raw } : raw;
+                    return (
+                      <OptionCard
+                        key={opt.value}
+                        selected={answers[q.id] === opt.value}
+                        onClick={() => onUpdateAnswer(q.id, opt.value)}
+                        label={opt.label}
+                        description={opt.description}
+                      />
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Multi choice → selectable cards with checkmarks */}
+              {(q.type === 'multi_choice' || q.type === 'multiple_choice') && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pl-5">
+                  {q.options?.map(raw => {
+                    const opt = typeof raw === 'string' ? { value: raw, label: raw } : raw;
+                    const current = answers[q.id] || [];
+                    const isSelected = current.includes(opt.value);
+                    return (
+                      <OptionCard
+                        key={opt.value}
+                        selected={isSelected}
+                        multi
+                        onClick={() => {
+                          onUpdateAnswer(q.id, isSelected
+                            ? current.filter(v => v !== opt.value)
+                            : [...current, opt.value]);
+                        }}
+                        label={opt.label}
+                        description={opt.description}
+                      />
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Boolean → toggle switch */}
+              {(q.type === 'boolean' || q.type === 'yes_no') && (
+                <div className="pl-5 max-w-sm">
+                  <Toggle
+                    checked={answers[q.id] === 'yes'}
+                    onChange={(v) => onUpdateAnswer(q.id, v ? 'yes' : 'no')}
+                    label={answers[q.id] === 'yes' ? 'Yes — Enabled' : 'No — Disabled'}
+                  />
+                </div>
+              )}
+
+              {qi < catQuestions.length - 1 && <hr className="border-border/30 ml-5" />}
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      {/* Navigation footer */}
       <div className="flex items-center justify-between">
-        <Button onClick={onSkip} variant="ghost" icon={ChevronRight}>Skip Customization</Button>
-        <Button onClick={onApplyAnswers} loading={loading} icon={Check}>Apply and View Results</Button>
+        <div className="flex items-center gap-2">
+          {activeCatIdx > 0 && (
+            <Button onClick={goPrev} variant="ghost" icon={ChevronLeft}>Previous</Button>
+          )}
+          <Button onClick={onSkip} variant="ghost" icon={ChevronRight}>Skip All</Button>
+        </div>
+        <Button
+          onClick={goNext}
+          loading={isLast && loading}
+          icon={isLast ? Check : ChevronRight}
+        >
+          {isLast ? 'Apply and View Results' : 'Next Category'}
+        </Button>
       </div>
     </div>
   );
