@@ -294,7 +294,7 @@ def analyze_cost_optimizations(
         "top_3_quick_wins": [
             asdict(o) for o in sorted(
                 no_commitment,
-                key=lambda x: ("low", "medium", "high").index(x.effort)
+                key=lambda x: {"low": 0, "medium": 1, "high": 2}.get(x.effort, 3)
             )[:3]
         ]
     }

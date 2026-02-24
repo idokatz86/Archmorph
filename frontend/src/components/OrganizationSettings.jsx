@@ -93,7 +93,7 @@ function InviteForm({ orgId, onInvited }) {
     setError(null);
     setSuccess(null);
     try {
-      const data = await api.post(`/api/organizations/${orgId}/invitations`, { email, role });
+      const data = await api.post(`/organizations/${orgId}/invitations`, { email, role });
       setSuccess(`Invitation sent to ${email}`);
       setEmail('');
       if (onInvited) onInvited(data);
@@ -151,7 +151,7 @@ export default function OrganizationSettings() {
   const fetchOrgs = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await api.get('/api/organizations');
+      const data = await api.get('/organizations');
       setOrgs(data.organizations || []);
       if (!selectedOrg && data.organizations?.length > 0) {
         setSelectedOrg(data.organizations[0]);
@@ -166,7 +166,7 @@ export default function OrganizationSettings() {
   const fetchMembers = useCallback(async () => {
     if (!selectedOrg) return;
     try {
-      const data = await api.get(`/api/organizations/${selectedOrg.org_id}/members`);
+      const data = await api.get(`/organizations/${selectedOrg.org_id}/members`);
       setMembers(data.members || []);
     } catch {
       // Non-critical
@@ -181,7 +181,7 @@ export default function OrganizationSettings() {
     if (!newOrgName.trim()) return;
     setCreating(true);
     try {
-      const data = await api.post('/api/organizations', { name: newOrgName });
+      const data = await api.post('/organizations', { name: newOrgName });
       setOrgs((prev) => [...prev, data]);
       setSelectedOrg(data);
       setNewOrgName('');
@@ -196,7 +196,7 @@ export default function OrganizationSettings() {
   const handleRoleChange = async (userId, newRole) => {
     if (!selectedOrg) return;
     try {
-      await api.patch(`/api/organizations/${selectedOrg.org_id}/members/${userId}/role`, { role: newRole });
+      await api.patch(`/organizations/${selectedOrg.org_id}/members/${userId}/role`, { role: newRole });
       await fetchMembers();
     } catch (err) {
       setError(err.message);
@@ -206,7 +206,7 @@ export default function OrganizationSettings() {
   const handleRemove = async (userId) => {
     if (!selectedOrg) return;
     try {
-      await api.delete(`/api/organizations/${selectedOrg.org_id}/members/${userId}`);
+      await api.delete(`/organizations/${selectedOrg.org_id}/members/${userId}`);
       await fetchMembers();
     } catch (err) {
       setError(err.message);

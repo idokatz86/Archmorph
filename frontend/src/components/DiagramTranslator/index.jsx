@@ -202,6 +202,7 @@ export default function DiagramTranslator() {
         set({ analysis: result });
 
         const qRes = await fetch(`${API_BASE}/diagrams/${diagram_id}/questions`, { method: 'POST' });
+        if (!qRes.ok) throw new Error('Failed to load guided questions');
         const qData = await qRes.json();
         const questions = qData.questions || [];
         const defaults = {};
@@ -268,6 +269,7 @@ export default function DiagramTranslator() {
         set({ analysis: result });
 
         const qRes = await fetch(`${API_BASE}/diagrams/${diagram_id}/questions`, { method: 'POST' });
+        if (!qRes.ok) throw new Error('Failed to load guided questions');
         const qData = await qRes.json();
         const questions = qData.questions || [];
         const defaults = {};
@@ -296,6 +298,7 @@ export default function DiagramTranslator() {
       addProgress('Sample loaded successfully \u2713');
       await new Promise(r => setTimeout(r, 600));
       const qRes = await fetch(`${API_BASE}/diagrams/${result.diagram_id}/questions`, { method: 'POST' });
+      if (!qRes.ok) throw new Error('Failed to load guided questions');
       const qData = await qRes.json();
       const questions = qData.questions || [];
       const defaults = {};

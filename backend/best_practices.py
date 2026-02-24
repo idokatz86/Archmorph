@@ -9,7 +9,7 @@ Analyzes detected architecture and provides recommendations based on:
 
 import logging
 from typing import Dict, Any, List, Optional
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from enum import Enum
 
 logger = logging.getLogger(__name__)
@@ -40,11 +40,7 @@ class Recommendation:
     category: str
     action: str
     azure_doc_link: Optional[str] = None
-    services_affected: List[str] = None
-    
-    def __post_init__(self):
-        if self.services_affected is None:
-            self.services_affected = []
+    services_affected: List[str] = field(default_factory=list)
 
 
 # ─────────────────────────────────────────────────────────────

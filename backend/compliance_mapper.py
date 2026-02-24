@@ -376,11 +376,13 @@ def _compute_compliance_score(
         if framework_id not in gap_def["frameworks"]:
             continue
 
+        total_count += 1
+
         is_relevant = gap_def["check"](service_names)
         if not is_relevant:
+            addressed_count += 1
             continue
 
-        total_count += 1
         # For imported architectures, assume gaps exist (conservative)
         applicable_gaps.append({
             "id": gap_id,
@@ -402,6 +404,7 @@ def _compute_compliance_score(
     return {
         "score": score,
         "total_controls": total_count,
+        "addressed_count": addressed_count,
         "gaps": applicable_gaps,
         "gap_count": len(applicable_gaps),
     }
