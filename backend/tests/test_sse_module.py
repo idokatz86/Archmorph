@@ -106,8 +106,9 @@ class TestHeartbeatWrapper:
     @pytest.mark.asyncio
     async def test_empty_generator(self):
         async def gen():
-            return
-            yield  # noqa: unreachable
+            # Empty async generator — yields nothing
+            if False:
+                yield  # pragma: no cover
 
         events = []
         async for event in heartbeat_wrapper(gen()):

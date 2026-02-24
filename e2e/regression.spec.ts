@@ -57,9 +57,9 @@ test.describe('Navigation Regression', () => {
 test.describe('Cookie Banner Regression', () => {
   test('cookie banner appears on first visit', async ({ page }) => {
     await page.goto('/');
-    // Cookie banner should be visible (or may have already been accepted)
-    const banner = page.getByText('cookies', { exact: false });
-    // This is a soft assertion - banner may or may not appear depending on prior state
-    await page.waitForTimeout(2000);
+    // Cookie banner should be visible on first visit — wait for page to load
+    await expect(page.locator('[data-testid="landing-page"]')).toBeVisible({ timeout: 30000 });
+    // Cookie banner presence depends on prior state; verify page loads without crash
+    await expect(page.locator('body')).toBeVisible();
   });
 });

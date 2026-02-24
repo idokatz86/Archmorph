@@ -113,7 +113,7 @@ class TestContactEndpoint:
         resp = client.get("/api/contact")
         data = resp.json()
         assert "github" in data
-        assert "github.com" in data["github"]
+        assert data["github"].startswith("https://github.com/")
 
     def test_contact_has_issues_link(self, client):
         resp = client.get("/api/contact")

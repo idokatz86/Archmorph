@@ -29,6 +29,9 @@ class TestVersionModule:
         for part in parts:
             assert part.isdigit(), f"Version part '{part}' is not a digit"
 
-    def test_version_matches_expected(self):
-        # Current version as of writing
-        assert __version__ == "2.12.0"
+    def test_version_is_current(self):
+        # Verify version is a valid semver — specific value may change
+        parts = __version__.split(".")
+        assert len(parts) == 3
+        major = int(parts[0])
+        assert major >= 2, "Expected major version >= 2"
