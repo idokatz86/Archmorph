@@ -30,12 +30,22 @@ function formatNumber(n) {
   return String(n);
 }
 
+const COLOR_BG_MAP = {
+  cta: 'bg-cta', warning: 'bg-warning', danger: 'bg-danger', info: 'bg-info',
+};
+const COLOR_BG10_MAP = {
+  cta: 'bg-cta/10', warning: 'bg-warning/10', danger: 'bg-danger/10', info: 'bg-info/10',
+};
+const COLOR_TEXT_MAP = {
+  cta: 'text-cta', warning: 'text-warning', danger: 'text-danger', info: 'text-info',
+};
+
 function ProgressBar({ value, max, color = 'cta', height = 'h-2' }) {
   const pct = max > 0 ? Math.min((value / max) * 100, 100) : 0;
   return (
     <div className={`${height} bg-surface rounded-full overflow-hidden`}>
       <div
-        className={`h-full rounded-full bg-${color} transition-all duration-500`}
+        className={`h-full rounded-full ${COLOR_BG_MAP[color] || 'bg-cta'} transition-all duration-500`}
         style={{ width: `${Math.max(pct, 1)}%` }}
       />
     </div>
@@ -45,8 +55,8 @@ function ProgressBar({ value, max, color = 'cta', height = 'h-2' }) {
 function MetricTile({ icon: Icon, label, value, sub, color = 'cta' }) {
   return (
     <div className="flex items-center gap-3 p-3 bg-surface rounded-lg">
-      <div className={`w-9 h-9 rounded-lg bg-${color}/10 flex items-center justify-center shrink-0`}>
-        <Icon className={`w-[18px] h-[18px] text-${color}`} />
+      <div className={`w-9 h-9 rounded-lg ${COLOR_BG10_MAP[color] || 'bg-cta/10'} flex items-center justify-center shrink-0`}>
+        <Icon className={`w-[18px] h-[18px] ${COLOR_TEXT_MAP[color] || 'text-cta'}`} />
       </div>
       <div className="min-w-0">
         <p className="text-lg font-bold text-text-primary leading-tight truncate">{value}</p>
@@ -272,7 +282,7 @@ export default function MonitoringDashboard({ sessionToken, onAuthError }) {
                   const codeColor = code.startsWith('4') ? 'warning' : 'danger';
                   return (
                     <div key={code} className="flex items-center gap-3 py-1.5">
-                      <span className={`text-xs font-mono font-bold text-${codeColor} w-8`}>{code}</span>
+                      <span className={`text-xs font-mono font-bold ${COLOR_TEXT_MAP[codeColor]} w-8`}>{code}</span>
                       <div className="flex-1">
                         <ProgressBar value={count} max={totalStatusCounted} color={codeColor} height="h-5" />
                       </div>

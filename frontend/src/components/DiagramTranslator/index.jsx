@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { Button, Card } from '../ui';
 import { API_BASE } from '../../constants';
+import api from '../../services/apiClient';
 import useWorkflow from './useWorkflow';
 import useSSE from '../../hooks/useSSE';
 import UploadStep from './UploadStep';
@@ -37,6 +38,7 @@ export default function DiagramTranslator() {
   const activeIntervalRef = useRef(null);  // current setInterval
   const activeTimeoutsRef = useRef([]);    // pending setTimeout IDs
   const filePreviewUrlRef = useRef(null);  // latest blob URL
+  const abortRef = useRef(null);           // AbortController for fetch calls
 
   // Keep blob URL ref in sync
   useEffect(() => {
@@ -46,6 +48,11 @@ export default function DiagramTranslator() {
   // ── Cleanup all async resources on unmount ──
   useEffect(() => {
     return () => {
+      // Abort any in-flight fetch requests
+      if (abortRef.current) {
+        abortRef.current.abort();
+        abortRef.current = null;
+      }
       // Close any active EventSource
       if (activeEsRef.current) {
         activeEsRef.current.close();
@@ -101,6 +108,11 @@ export default function DiagramTranslator() {
   // ── Upload & Analyze ──
   const handleUpload = async (file) => {
     set({ error: null, step: 'analyzing', analyzeProgress: [] });
+    // Create a new AbortController for this upload flow
+    if (abortRef.current) abortRef.current.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const { signal } = controller;
 
     addProgress('Connecting to analysis engine...');
 
@@ -109,29 +121,26 @@ export default function DiagramTranslator() {
       formData.append('file', file);
 
       addProgress('Uploading diagram...');
-      const uploadRes = await fetch(`${API_BASE}/projects/demo-project/diagrams`, { method: 'POST', body: formData });
-      if (!uploadRes.ok) {
-        const errData = await uploadRes.json().catch(() => ({}));
-        throw new Error(errData.detail || `Upload failed (${uploadRes.status})`);
-      }
-      const { diagram_id } = await uploadRes.json();
+      const uploadData = await api.post('/projects/demo-project/diagrams', formData, signal);
+      const { diagram_id } = uploadData;
       set({ diagramId: diagram_id });
 
       addProgress('Starting architecture analysis...');
 
       // Try async endpoint with SSE for real-time progress
       let useAsyncEndpoint = true;
-      let asyncRes;
+      let asyncData;
       try {
-        asyncRes = await fetch(`${API_BASE}/diagrams/${diagram_id}/analyze-async`, { method: 'POST' });
-        if (!asyncRes.ok || asyncRes.status !== 202) useAsyncEndpoint = false;
+        asyncData = await api.post(`/diagrams/${diagram_id}/analyze-async`, undefined, signal);
+        // apiClient throws on non-2xx, so if we get here it's ok
+        // But we still need to check for 202-specific behavior; apiClient resolves JSON body
       } catch {
         useAsyncEndpoint = false;
       }
 
       if (useAsyncEndpoint) {
         // ── SSE real-time progress path ──
-        const { job_id } = await asyncRes.json();
+        const { job_id } = asyncData;
         set({ jobId: job_id });
 
         // Wait for SSE completion via a promise (with ref-tracked cleanup)
@@ -164,12 +173,17 @@ export default function DiagramTranslator() {
           });
 
           es.addEventListener('error', (e) => {
-            try {
-              const data = JSON.parse(e.data);
-              cleanup();
-              reject(new Error(data.error || data.message || 'Analysis failed'));
-            } catch {
-              // Connection error — SSE spec fires generic error
+            if (e.data) {
+              try {
+                const data = JSON.parse(e.data);
+                cleanup();
+                reject(new Error(data.error || data.message || 'Analysis failed'));
+              } catch {
+                cleanup();
+                reject(new Error('Connection to analysis stream lost'));
+              }
+            } else {
+              // Connection error — SSE spec fires generic error with no data
               cleanup();
               reject(new Error('Connection to analysis stream lost'));
             }
@@ -201,8 +215,7 @@ export default function DiagramTranslator() {
 
         set({ analysis: result });
 
-        const qRes = await fetch(`${API_BASE}/diagrams/${diagram_id}/questions`, { method: 'POST' });
-        const qData = await qRes.json();
+        const qData = await api.post(`/diagrams/${diagram_id}/questions`, undefined, signal);
         const questions = qData.questions || [];
         const defaults = {};
         questions.forEach(q => { defaults[q.id] = q.default; });
@@ -233,22 +246,12 @@ export default function DiagramTranslator() {
         }, 2500 + Math.random() * 1500);
         activeIntervalRef.current = progressInterval;
 
-        const analyzeRes = await fetch(`${API_BASE}/diagrams/${diagram_id}/analyze`, { method: 'POST' });
+        const result = await api.post(`/diagrams/${diagram_id}/analyze`, undefined, signal);
         clearInterval(progressInterval);
         if (activeIntervalRef.current === progressInterval) activeIntervalRef.current = null;
-        const result = await analyzeRes.json();
 
-        if (analyzeRes.status === 422 && result?.detail?.error === 'not_architecture_diagram') {
-          const msg = result.detail.message || 'The uploaded image is not a valid architecture diagram.';
-          const imageType = result.detail.classification?.image_type || 'unknown';
-          set({
-            error: `🚫 ${msg}\n\nDetected image type: "${imageType}". Please upload a cloud architecture diagram (AWS, GCP, or similar).`,
-            step: 'upload',
-          });
-          return;
-        }
-
-        if (!analyzeRes.ok) throw new Error(result?.detail || 'Analysis failed');
+        // apiClient throws on non-2xx (including 422), so not_architecture_diagram
+        // is caught in the catch block below.
 
         const provider = (result.source_provider || 'aws').toUpperCase();
         for (const zone of (result.zones || [])) {
@@ -267,14 +270,24 @@ export default function DiagramTranslator() {
 
         set({ analysis: result });
 
-        const qRes = await fetch(`${API_BASE}/diagrams/${diagram_id}/questions`, { method: 'POST' });
-        const qData = await qRes.json();
+        const qData = await api.post(`/diagrams/${diagram_id}/questions`, undefined, signal);
         const questions = qData.questions || [];
         const defaults = {};
         questions.forEach(q => { defaults[q.id] = q.default; });
         set({ questions, answers: defaults, step: 'questions' });
       }
     } catch (err) {
+      // Handle not_architecture_diagram errors from apiClient
+      if (err.status === 422 && err.body?.detail?.error === 'not_architecture_diagram') {
+        const msg = err.body.detail.message || 'The uploaded image is not a valid architecture diagram.';
+        const imageType = err.body.detail.classification?.image_type || 'unknown';
+        set({
+          error: `🚫 ${msg}\n\nDetected image type: "${imageType}". Please upload a cloud architecture diagram (AWS, GCP, or similar).`,
+          step: 'upload',
+        });
+        return;
+      }
+      if (err.name === 'AbortError') return; // Component unmounted
       set({ error: err.message, step: 'upload' });
     }
   };
@@ -282,9 +295,7 @@ export default function DiagramTranslator() {
   const handleLoadSample = async (sample) => {
     set({ step: 'analyzing', analyzeProgress: ['Loading sample diagram...'] });
     try {
-      const res = await fetch(`${API_BASE}/samples/${sample.id}/analyze`, { method: 'POST' });
-      if (!res.ok) throw new Error('Sample analysis failed');
-      const result = await res.json();
+      const result = await api.post(`/samples/${sample.id}/analyze`);
       set({ diagramId: result.diagram_id, analysis: result });
       for (const zone of (result.zones || [])) {
         const svcNames = (zone.services || []).map(s => s.source || s.name || '').filter(Boolean).slice(0, 3);
@@ -295,8 +306,7 @@ export default function DiagramTranslator() {
       await new Promise(r => setTimeout(r, 400));
       addProgress('Sample loaded successfully \u2713');
       await new Promise(r => setTimeout(r, 600));
-      const qRes = await fetch(`${API_BASE}/diagrams/${result.diagram_id}/questions`, { method: 'POST' });
-      const qData = await qRes.json();
+      const qData = await api.post(`/diagrams/${result.diagram_id}/questions`);
       const questions = qData.questions || [];
       const defaults = {};
       questions.forEach(q => { defaults[q.id] = q.default; });
@@ -309,22 +319,13 @@ export default function DiagramTranslator() {
   const handleApplyAnswers = async () => {
     set({ loading: true });
     try {
-      const res = await fetch(`${API_BASE}/diagrams/${state.diagramId}/apply-answers`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(state.answers),
-      });
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        if (res.status === 404) {
-          set({ error: 'Your session has expired (the backend was redeployed). Please re-upload your diagram.', step: 'upload', loading: false });
-          return;
-        }
-        throw new Error(errData.detail || `Failed to apply answers (${res.status})`);
-      }
-      const refined = await res.json();
+      const refined = await api.post(`/diagrams/${state.diagramId}/apply-answers`, state.answers);
       set({ analysis: { ...state.analysis, ...refined }, step: 'results' });
     } catch (err) {
+      if (err.status === 404) {
+        set({ error: 'Your session has expired (the backend was redeployed). Please re-upload your diagram.', step: 'upload', loading: false });
+        return;
+      }
       set({ error: err.message });
     }
     set({ loading: false });
@@ -333,22 +334,16 @@ export default function DiagramTranslator() {
   const handleGenerateIac = async (fmt) => {
     set({ loading: true, iacFormat: fmt });
     try {
-      const [iacRes, costRes] = await Promise.all([
-        fetch(`${API_BASE}/diagrams/${state.diagramId}/generate?format=${fmt}`, { method: 'POST' }),
-        fetch(`${API_BASE}/diagrams/${state.diagramId}/cost-estimate`),
+      const [iacData, costData] = await Promise.all([
+        api.post(`/diagrams/${state.diagramId}/generate?format=${fmt}`),
+        api.get(`/diagrams/${state.diagramId}/cost-estimate`).catch(() => null),
       ]);
-      if (iacRes.status === 404) {
+      set({ iacCode: iacData.code, costEstimate: costData, step: 'iac' });
+    } catch (err) {
+      if (err.status === 404) {
         set({ error: 'Your session has expired (the backend was redeployed). Please re-upload your diagram.', step: 'upload', loading: false });
         return;
       }
-      if (!iacRes.ok) {
-        const errData = await iacRes.json().catch(() => ({}));
-        throw new Error(errData.detail || `IaC generation failed (${iacRes.status})`);
-      }
-      const iacData = await iacRes.json();
-      const costData = costRes.ok ? await costRes.json() : null;
-      set({ iacCode: iacData.code, costEstimate: costData, step: 'iac' });
-    } catch (err) {
       set({ error: err.message });
     }
     set({ loading: false });
@@ -357,21 +352,7 @@ export default function DiagramTranslator() {
   const handleHldExport = async (fmt) => {
     setHldExportLoading(fmt, true);
     try {
-      const res = await fetch(`${API_BASE}/diagrams/${state.diagramId}/export-hld?format=${fmt}&include_diagrams=${state.hldIncludeDiagrams}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      if (res.status === 404) {
-        set({ error: 'Your session has expired (the backend was redeployed). Please re-upload your diagram.', step: 'upload' });
-        setHldExportLoading(fmt, false);
-        return;
-      }
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.detail || `Export failed (${res.status})`);
-      }
-      const data = await res.json();
+      const data = await api.post(`/diagrams/${state.diagramId}/export-hld?format=${fmt}&include_diagrams=${state.hldIncludeDiagrams}`, {});
       const bytes = Uint8Array.from(atob(data.content_b64), c => c.charCodeAt(0));
       const blob = new Blob([bytes], { type: data.content_type });
       const url = URL.createObjectURL(blob);
@@ -382,6 +363,11 @@ export default function DiagramTranslator() {
       URL.revokeObjectURL(url);
       copyWithFeedback('', `hld-${fmt}`);
     } catch (err) {
+      if (err.status === 404) {
+        set({ error: 'Your session has expired (the backend was redeployed). Please re-upload your diagram.', step: 'upload' });
+        setHldExportLoading(fmt, false);
+        return;
+      }
       set({ error: `HLD export failed: ${err.message}` });
     }
     setHldExportLoading(fmt, false);
@@ -390,13 +376,7 @@ export default function DiagramTranslator() {
   const handleExportDiagram = async (format) => {
     setExportLoading(format, true);
     try {
-      const res = await fetch(`${API_BASE}/diagrams/${state.diagramId}/export-diagram?format=${format}`, { method: 'POST' });
-      if (res.status === 404) {
-        set({ error: 'Your session has expired (the backend was redeployed). Please re-upload your diagram.', step: 'upload' });
-        setExportLoading(format, false);
-        return;
-      }
-      const data = await res.json();
+      const data = await api.post(`/diagrams/${state.diagramId}/export-diagram?format=${format}`);
       const content = typeof data.content === 'string' ? data.content : JSON.stringify(data.content, null, 2);
       const blob = new Blob([content], { type: 'application/octet-stream' });
       const url = URL.createObjectURL(blob);
@@ -406,6 +386,11 @@ export default function DiagramTranslator() {
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
+      if (err.status === 404) {
+        set({ error: 'Your session has expired (the backend was redeployed). Please re-upload your diagram.', step: 'upload' });
+        setExportLoading(format, false);
+        return;
+      }
       set({ error: `Export failed: ${err.message}` });
     }
     setExportLoading(format, false);
@@ -418,12 +403,9 @@ export default function DiagramTranslator() {
     addChatMessage({ role: 'user', content: text });
     set({ iacChatLoading: true });
     try {
-      const res = await fetch(`${API_BASE}/diagrams/${state.diagramId}/iac-chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, code: state.iacCode || '', format: state.iacFormat }),
+      const data = await api.post(`/diagrams/${state.diagramId}/iac-chat`, {
+        message: text, code: state.iacCode || '', format: state.iacFormat,
       });
-      const data = await res.json();
       addChatMessage({
         role: 'assistant',
         content: data.reply || data.message || 'Done.',
@@ -446,20 +428,15 @@ export default function DiagramTranslator() {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 120_000);
       activeTimeoutsRef.current.push(timeout);
-      const res = await fetch(`${API_BASE}/diagrams/${state.diagramId}/generate-hld`, {
-        method: 'POST',
-        signal: controller.signal,
-      });
+      const data = await api.post(`/diagrams/${state.diagramId}/generate-hld`, undefined, controller.signal);
       clearTimeout(timeout);
       activeTimeoutsRef.current = activeTimeoutsRef.current.filter(id => id !== timeout);
-      if (res.status === 404) {
+      if (data.hld) set({ hldData: data });
+    } catch (err) {
+      if (err.status === 404) {
         set({ error: 'Your session has expired (the backend was redeployed). Please re-upload your diagram.', step: 'upload', hldLoading: false });
         return;
       }
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.detail || `HLD generation failed (${res.status})`);
-      if (data.hld) set({ hldData: data });
-    } catch (err) {
       const msg = err.name === 'AbortError'
         ? 'HLD generation timed out. Please try again.'
         : 'HLD generation failed: ' + err.message;
@@ -470,7 +447,7 @@ export default function DiagramTranslator() {
 
   const handleResetChat = () => {
     set({ iacChatMessages: [{ role: 'assistant', content: 'Chat reset. What would you like to change in your IaC code?' }] });
-    if (state.diagramId) fetch(`${API_BASE}/diagrams/${state.diagramId}/iac-chat`, { method: 'DELETE' }).catch(() => {});
+    if (state.diagramId) api.delete(`/diagrams/${state.diagramId}/iac-chat`).catch(() => {});
   };
 
   const handleOpenChatWithMessage = (msg) => {

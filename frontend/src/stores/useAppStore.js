@@ -12,7 +12,7 @@ import api from '../services/apiClient';
 
 const useAppStore = create((set) => ({
   // ── UI state ──
-  activeTab: 'translator',
+  activeTab: 'landing',
   adminOpen: false,
   updateStatus: null,
 

@@ -1,7 +1,8 @@
-import React, { useState, forwardRef, useImperativeHandle } from 'react';
-import { X, ThumbsUp, ThumbsDown, Send, MessageSquare, Bug } from 'lucide-react';
+import React, { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
+import { X, ThumbsUp, ThumbsDown, Send, MessageSquare, Bug, AlertTriangle } from 'lucide-react';
 import { Button, Card } from './ui';
 import { API_BASE } from '../constants';
+import useFocusTrap from '../hooks/useFocusTrap';
 
 const FeedbackWidget = forwardRef(function FeedbackWidget({ position = 'bottom' }, ref) {
   const [isOpen, setIsOpen] = useState(false);
@@ -12,6 +13,16 @@ const FeedbackWidget = forwardRef(function FeedbackWidget({ position = 'bottom' 
   const [bugDescription, setBugDescription] = useState('');
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const trapRef = useFocusTrap(isOpen);
+
+  // Close on Escape key (#214)
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e) => { if (e.key === 'Escape') { setIsOpen(false); reset(); } };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen]);
 
   // Expose open method to parent
   useImperativeHandle(ref, () => ({
@@ -34,13 +45,14 @@ const FeedbackWidget = forwardRef(function FeedbackWidget({ position = 'bottom' 
       });
       setSubmitted(true);
     } catch {
-      // Silently fail
+      setError('Failed to submit feedback. Please try again.');
     }
     setLoading(false);
   };
 
   const handleSubmitFeature = async (helpful) => {
     setLoading(true);
+    setError(null);
     try {
       await fetch(`${API_BASE}/feedback/feature`, {
         method: 'POST',
@@ -53,7 +65,7 @@ const FeedbackWidget = forwardRef(function FeedbackWidget({ position = 'bottom' 
       });
       setSubmitted(true);
     } catch {
-      // Silently fail
+      setError('Failed to submit feedback. Please try again.');
     }
     setLoading(false);
   };
@@ -61,6 +73,7 @@ const FeedbackWidget = forwardRef(function FeedbackWidget({ position = 'bottom' 
   const handleSubmitBug = async () => {
     if (!bugDescription.trim()) return;
     setLoading(true);
+    setError(null);
     try {
       await fetch(`${API_BASE}/feedback/bug`, {
         method: 'POST',
@@ -76,7 +89,7 @@ const FeedbackWidget = forwardRef(function FeedbackWidget({ position = 'bottom' 
       });
       setSubmitted(true);
     } catch {
-      // Silently fail
+      setError('Failed to report bug. Please try again.');
     }
     setLoading(false);
   };
@@ -87,6 +100,7 @@ const FeedbackWidget = forwardRef(function FeedbackWidget({ position = 'bottom' 
     setFeatureContext('');
     setBugDescription('');
     setSubmitted(false);
+    setError(null);
     setMode('nps');
   };
 
@@ -100,7 +114,7 @@ const FeedbackWidget = forwardRef(function FeedbackWidget({ position = 'bottom' 
   }
 
   return (
-    <div className={positionClasses}>
+    <div ref={trapRef} className={positionClasses}>
       <Card className="p-4 shadow-xl border-cta/30">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-semibold text-text-primary">Feedback</h3>
@@ -174,6 +188,12 @@ const FeedbackWidget = forwardRef(function FeedbackWidget({ position = 'bottom' 
                   className="w-full p-2 rounded bg-secondary border border-border text-sm text-text-primary placeholder:text-text-muted resize-none"
                   rows={2}
                 />
+                {error && (
+                  <div className="flex items-center gap-2 text-xs text-danger">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                    {error}
+                  </div>
+                )}
                 <Button onClick={handleSubmitNPS} loading={loading} disabled={npsScore === null} icon={Send} className="w-full">
                   Submit
                 </Button>
@@ -225,6 +245,12 @@ const FeedbackWidget = forwardRef(function FeedbackWidget({ position = 'bottom' 
                   className="w-full p-2 rounded bg-secondary border border-border text-sm text-text-primary placeholder:text-text-muted resize-none"
                   rows={4}
                 />
+                {error && (
+                  <div className="flex items-center gap-2 text-xs text-danger">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                    {error}
+                  </div>
+                )}
                 <Button onClick={handleSubmitBug} loading={loading} disabled={!bugDescription.trim()} icon={Bug} className="w-full">
                   Report Bug
                 </Button>

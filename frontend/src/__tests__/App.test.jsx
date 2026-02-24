@@ -30,6 +30,18 @@ vi.mock('../components/AdminDashboard', () => ({
 vi.mock('../components/ErrorBoundary', () => ({
   default: ({ children }) => <div data-testid="error-boundary">{children}</div>,
 }))
+vi.mock('../components/LandingPage', () => ({
+  default: ({ onGetStarted }) => <div data-testid="landing"><button onClick={onGetStarted}>Get Started</button></div>,
+}))
+vi.mock('../components/LegalPages', () => ({
+  default: () => <div data-testid="legal">LegalPages</div>,
+}))
+vi.mock('../components/CookieBanner', () => ({
+  default: () => null,
+}))
+vi.mock('../components/PricingPage', () => ({
+  default: () => <div data-testid="pricing">PricingPage</div>,
+}))
 
 describe('App', () => {
   beforeEach(() => {
@@ -42,9 +54,10 @@ describe('App', () => {
     expect(screen.getByTestId('nav')).toBeInTheDocument()
   })
 
-  it('shows translator tab by default', () => {
+  it('shows landing page by default', () => {
     render(<App />)
-    expect(screen.getByTestId('translator')).toBeInTheDocument()
+    // Default tab is now 'landing' (#211)
+    expect(screen.queryByTestId('translator')).not.toBeInTheDocument()
   })
 
   it('renders the beta preview banner', () => {

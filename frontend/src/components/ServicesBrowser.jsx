@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Search, Filter, BarChart3, Server, Layers, Box, FileText, Loader2,
+  AlertTriangle, RefreshCw,
 } from 'lucide-react';
 import { Badge, Card } from './ui';
-import { API_BASE, getCategoryIcon } from '../constants';
+import { getCategoryIcon } from '../constants';
+import api from '../services/apiClient';
 
 export default function ServicesBrowser() {
   const [services, setServices] = useState([]);
@@ -14,21 +16,33 @@ export default function ServicesBrowser() {
   const [categories, setCategories] = useState([]);
   const [view, setView] = useState('grid');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [visibleCount, setVisibleCount] = useState(60);
 
-  useEffect(() => {
-    const controller = new AbortController();
+  const fetchData = useCallback((signal) => {
+    setLoading(true);
+    setError(null);
     Promise.all([
-      fetch(`${API_BASE}/services`, { signal: controller.signal }).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }),
-      fetch(`${API_BASE}/services/stats`, { signal: controller.signal }).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }),
-      fetch(`${API_BASE}/services/categories`, { signal: controller.signal }).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }),
+      api.get('/services', signal),
+      api.get('/services/stats', signal),
+      api.get('/services/categories', signal),
     ]).then(([svc, st, cats]) => {
       setServices(svc.services || []);
       setStats(st);
       setCategories((cats.categories || []).map(c => typeof c === 'string' ? c : c.name));
       setLoading(false);
-    }).catch(() => setLoading(false));
-    return () => controller.abort();
+    }).catch((err) => {
+      if (err.name === 'AbortError') return;
+      setError(err.message || 'Failed to load services');
+      setLoading(false);
+    });
   }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchData(controller.signal);
+    return () => controller.abort();
+  }, [fetchData]);
 
   const filtered = services.filter(s => {
     if (provider !== 'all' && s.provider !== provider) return false;
@@ -41,6 +55,25 @@ export default function ServicesBrowser() {
     <div className="flex items-center justify-center h-64">
       <Loader2 className="w-8 h-8 text-cta animate-spin" />
     </div>
+  );
+
+  if (error) return (
+    <Card className="p-8">
+      <div className="flex flex-col items-center justify-center gap-4 text-center">
+        <AlertTriangle className="w-10 h-10 text-danger" />
+        <div>
+          <h3 className="text-lg font-semibold text-text-primary mb-1">Failed to load services</h3>
+          <p className="text-sm text-text-muted">{error}</p>
+        </div>
+        <button
+          onClick={() => fetchData()}
+          className="flex items-center gap-2 px-4 py-2 bg-cta hover:bg-cta-hover text-surface rounded-lg text-sm font-medium transition-colors cursor-pointer"
+        >
+          <RefreshCw className="w-4 h-4" />
+          Try Again
+        </button>
+      </div>
+    </Card>
   );
 
   return (
@@ -105,7 +138,7 @@ export default function ServicesBrowser() {
 
       {/* Service Grid/List */}
       <div className={view === 'grid' ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4' : 'space-y-2'}>
-        {filtered.slice(0, 60).map((s, i) => {
+        {filtered.slice(0, visibleCount).map((s, i) => {
           const Icon = getCategoryIcon(s.category);
           return view === 'grid' ? (
             <Card key={i} hover className="p-4">
@@ -135,8 +168,16 @@ export default function ServicesBrowser() {
           );
         })}
       </div>
-      {filtered.length > 60 && (
-        <p className="text-center text-sm text-text-muted">Showing 60 of {filtered.length} services</p>
+      {filtered.length > visibleCount && (
+        <div className="text-center space-y-2">
+          <p className="text-sm text-text-muted">Showing {visibleCount} of {filtered.length} services</p>
+          <button
+            onClick={() => setVisibleCount(prev => prev + 60)}
+            className="px-4 py-2 bg-secondary hover:bg-secondary/80 border border-border rounded-lg text-sm text-text-primary font-medium transition-colors cursor-pointer"
+          >
+            Load More
+          </button>
+        </div>
       )}
     </div>
   );

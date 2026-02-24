@@ -238,11 +238,19 @@ export default function AdminDashboard({ onClose }) {
             { label: 'Completion Rate', value: `${funnel?.completion_rate || 0}%`, icon: TrendingUp, color: 'cta' },
             { label: 'Bottleneck', value: funnel?.bottleneck || 'None', icon: AlertTriangle, color: 'warning' },
             { label: 'Events Today', value: metrics?.today?.events || 0, icon: Zap, color: 'cta' },
-          ].map(s => (
+          ].map(s => {
+            const colorMap = {
+              cta: 'bg-cta/10 text-cta',
+              warning: 'bg-warning/10 text-warning',
+              danger: 'bg-danger/10 text-danger',
+              info: 'bg-info/10 text-info',
+            };
+            const [bgClass, textClass] = (colorMap[s.color] || colorMap.cta).split(' ');
+            return (
             <Card key={s.label} className="p-4">
               <div className="flex items-center gap-3">
-                <div className={`w-10 h-10 rounded-lg bg-${s.color}/10 flex items-center justify-center`}>
-                  <s.icon className={`w-5 h-5 text-${s.color}`} />
+                <div className={`w-10 h-10 rounded-lg ${bgClass} flex items-center justify-center`}>
+                  <s.icon className={`w-5 h-5 ${textClass}`} />
                 </div>
                 <div>
                   <p className="text-xl font-bold text-text-primary truncate">{s.value}</p>
@@ -250,7 +258,8 @@ export default function AdminDashboard({ onClose }) {
                 </div>
               </div>
             </Card>
-          ))}
+          );
+          })}
         </div>
 
         {/* Conversion Funnel */}

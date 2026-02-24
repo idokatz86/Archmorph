@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import Prism from 'prismjs';
 import DOMPurify from 'dompurify';
 import 'prismjs/components/prism-hcl';
@@ -35,6 +35,16 @@ export default function IaCViewer({
   onCopyWithFeedback, onToggleChat, onOpenChatWithMessage,
   onResetChat, onSendChat, onSetChatInput,
 }) {
+  // Memoize syntax highlighting — avoids per-line Prism.highlight + DOMPurify on every render (#219)
+  const highlightedLines = useMemo(() => {
+    const grammar = iacFormat === 'terraform' ? Prism.languages.hcl : Prism.languages.json;
+    const lang = iacFormat === 'terraform' ? 'hcl' : 'json';
+    return iacCode.split('\n').map((line) => {
+      const rawHighlighted = grammar ? Prism.highlight(line || ' ', grammar, lang) : (line || ' ');
+      return DOMPurify.sanitize(rawHighlighted, { ALLOWED_TAGS: ['span'], ALLOWED_ATTR: ['class'] });
+    });
+  }, [iacCode, iacFormat]);
+
   return (
     <>
       {/* IaC Code */}
@@ -46,7 +56,7 @@ export default function IaCViewer({
               <h2 className="text-xl font-bold text-text-primary">
                 {iacFormat === 'terraform' ? 'Terraform' : 'Bicep'} Code
               </h2>
-              <p className="text-xs text-text-muted">{iacCode.split('\n').length} lines generated</p>
+              <p className="text-xs text-text-muted">{highlightedLines.length} lines generated</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -65,19 +75,12 @@ export default function IaCViewer({
         <div className="bg-surface rounded-lg border border-border overflow-auto max-h-[600px]">
           <pre className="p-4 text-xs leading-relaxed">
             <code>
-              {iacCode.split('\n').map((line, i) => {
-                const grammar = iacFormat === 'terraform' ? Prism.languages.hcl : Prism.languages.json;
-                const lang = iacFormat === 'terraform' ? 'hcl' : 'json';
-                const rawHighlighted = grammar ? Prism.highlight(line || ' ', grammar, lang) : (line || ' ');
-                // Sanitize to prevent XSS from GPT-generated code (Issue #164)
-                const highlighted = DOMPurify.sanitize(rawHighlighted, { ALLOWED_TAGS: ['span'], ALLOWED_ATTR: ['class'] });
-                return (
-                  <div key={i} className="flex">
-                    <span className="inline-block w-10 text-right pr-4 text-text-muted select-none opacity-50">{i + 1}</span>
-                    <span dangerouslySetInnerHTML={{ __html: highlighted }} />
-                  </div>
-                );
-              })}
+              {highlightedLines.map((html, i) => (
+                <div key={i} className="flex">
+                  <span className="inline-block w-10 text-right pr-4 text-text-muted select-none opacity-50">{i + 1}</span>
+                  <span dangerouslySetInnerHTML={{ __html: html }} />
+                </div>
+              ))}
             </code>
           </pre>
         </div>

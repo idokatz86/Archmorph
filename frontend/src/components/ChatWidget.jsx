@@ -3,6 +3,7 @@ import {
   MessageSquare, X, FileText, Loader2, Send, CheckCircle,
 } from 'lucide-react';
 import { API_BASE } from '../constants';
+import useAppStore from '../stores/useAppStore';
 
 export default function ChatWidget() {
   const [open, setOpen] = useState(false);
@@ -14,6 +15,22 @@ export default function ChatWidget() {
   const [sessionId] = useState(() => `chat-${crypto.randomUUID()}`);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
+  // Offset chat button when cookie banner is visible (#215)
+  const [cookieBannerVisible, setCookieBannerVisible] = useState(false);
+
+  useEffect(() => {
+    // Check cookie consent on mount and after storage changes
+    const checkConsent = () => {
+      const stored = localStorage.getItem('archmorph_cookie_consent');
+      setCookieBannerVisible(!stored);
+    };
+    checkConsent();
+    // Listen for storage changes (banner dismissed)
+    window.addEventListener('storage', checkConsent);
+    // Also re-check periodically (same-window storage writes don't fire 'storage' events)
+    const interval = setInterval(checkConsent, 2000);
+    return () => { window.removeEventListener('storage', checkConsent); clearInterval(interval); };
+  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -63,7 +80,12 @@ export default function ChatWidget() {
           const boldMatch = part.match(/^\*\*(.*?)\*\*$/);
           if (boldMatch) return <strong key={j} className="font-semibold">{boldMatch[1]}</strong>;
           const linkMatch = part.match(/^\[(.*?)\]\((.*?)\)$/);
-          if (linkMatch) return <a key={j} href={linkMatch[2]} target="_blank" rel="noopener noreferrer" className="text-cta underline cursor-pointer">{linkMatch[1]}</a>;
+          if (linkMatch) {
+            // Sanitize URL: only allow http/https protocols (#213 — XSS prevention)
+            let href = linkMatch[2];
+            try { const url = new URL(href, window.location.origin); if (!['http:', 'https:'].includes(url.protocol)) href = '#'; } catch { href = '#'; }
+            return <a key={j} href={href} target="_blank" rel="noopener noreferrer" className="text-cta underline cursor-pointer">{linkMatch[1]}</a>;
+          }
           return part;
         })}
       </p>
@@ -74,7 +96,7 @@ export default function ChatWidget() {
     <>
       <button
         onClick={() => setOpen(!open)}
-        className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full bg-cta hover:bg-cta-hover text-surface shadow-lg shadow-cta/30 flex items-center justify-center transition-all duration-200 cursor-pointer"
+        className={`fixed right-6 z-50 w-14 h-14 rounded-full bg-cta hover:bg-cta-hover text-surface shadow-lg shadow-cta/30 flex items-center justify-center transition-all duration-200 cursor-pointer ${cookieBannerVisible ? 'bottom-36' : 'bottom-6'}`}
         aria-label={open ? 'Close chat' : 'Open chat'}
       >
         {open ? <X className="w-6 h-6" /> : <MessageSquare className="w-6 h-6" />}

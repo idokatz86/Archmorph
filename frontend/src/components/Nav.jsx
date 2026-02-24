@@ -1,11 +1,21 @@
-import React, { useRef } from 'react';
-import { CloudCog, Layers, Server, Rocket, MessageSquare, Shield, CreditCard, Home } from 'lucide-react';
+import React, { useRef, useState } from 'react';
+import { CloudCog, Layers, Server, Rocket, MessageSquare, Shield, CreditCard, Home, Menu, X } from 'lucide-react';
 import { Badge } from './ui';
 import { APP_VERSION } from '../constants';
 import FeedbackWidget from './FeedbackWidget';
 
 export default function Nav({ activeTab, setActiveTab, updateStatus }) {
   const feedbackRef = useRef(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  const NAV_ITEMS = [
+    { id: 'landing', label: 'Home', icon: Home },
+    { id: 'translator', label: 'Translator', icon: Layers },
+    { id: 'services', label: 'Services', icon: Server },
+    { id: 'roadmap', label: 'Roadmap', icon: Rocket },
+    { id: 'pricing', label: 'Pricing', icon: CreditCard },
+    { id: 'legal', label: 'Legal', icon: Shield },
+  ];
 
   return (
     <>
@@ -21,15 +31,9 @@ export default function Nav({ activeTab, setActiveTab, updateStatus }) {
                 <p className="text-[10px] text-text-muted font-medium uppercase tracking-wider">Cloud Translator</p>
               </div>
             </div>
-            <nav aria-label="Main navigation" className="flex items-center gap-1">
-              {[
-                { id: 'landing', label: 'Home', icon: Home },
-                { id: 'translator', label: 'Translator', icon: Layers },
-                { id: 'services', label: 'Services', icon: Server },
-                { id: 'roadmap', label: 'Roadmap', icon: Rocket },
-                { id: 'pricing', label: 'Pricing', icon: CreditCard },
-                { id: 'legal', label: 'Legal', icon: Shield },
-              ].map(tab => (
+            {/* Desktop navigation */}
+            <nav aria-label="Main navigation" className="hidden md:flex items-center gap-1">
+              {NAV_ITEMS.map(tab => (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
@@ -47,7 +51,7 @@ export default function Nav({ activeTab, setActiveTab, updateStatus }) {
             </nav>
             <div className="flex items-center gap-3">
               {updateStatus && (
-                <div className="flex items-center gap-2 text-xs text-text-muted">
+                <div className="hidden sm:flex items-center gap-2 text-xs text-text-muted">
                   <div className={`w-2 h-2 rounded-full ${updateStatus.scheduler_running ? 'bg-cta animate-pulse' : 'bg-text-muted'}`} role="status" aria-label={updateStatus.scheduler_running ? 'Catalog live' : 'Catalog idle'} />
                   <span>Catalog {updateStatus.scheduler_running ? 'Live' : 'Idle'}</span>
                 </div>
@@ -59,10 +63,41 @@ export default function Nav({ activeTab, setActiveTab, updateStatus }) {
               >
                 <MessageSquare className="w-4 h-4 text-text-secondary hover:text-text-primary" />
               </button>
-              <Badge variant="azure">v{APP_VERSION}</Badge>
+              <Badge variant="azure" className="hidden sm:inline-flex">v{APP_VERSION}</Badge>
+              {/* Mobile hamburger */}
+              <button
+                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                className="md:hidden p-2 rounded-lg hover:bg-secondary transition-colors cursor-pointer"
+                aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
+                aria-expanded={mobileMenuOpen}
+              >
+                {mobileMenuOpen ? <X className="w-5 h-5 text-text-primary" /> : <Menu className="w-5 h-5 text-text-primary" />}
+              </button>
             </div>
           </div>
         </div>
+        {/* Mobile menu dropdown */}
+        {mobileMenuOpen && (
+          <nav className="md:hidden border-t border-border bg-surface/95 backdrop-blur-xl" aria-label="Mobile navigation">
+            <div className="max-w-7xl mx-auto px-4 py-3 space-y-1">
+              {NAV_ITEMS.map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => { setActiveTab(tab.id); setMobileMenuOpen(false); }}
+                  aria-current={activeTab === tab.id ? 'page' : undefined}
+                  className={`flex items-center gap-3 w-full px-4 py-2.5 text-sm font-medium rounded-lg transition-colors cursor-pointer ${
+                    activeTab === tab.id
+                      ? 'bg-cta/10 text-cta'
+                      : 'text-text-secondary hover:text-text-primary hover:bg-secondary'
+                  }`}
+                >
+                  <tab.icon className="w-4 h-4" />
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          </nav>
+        )}
       </header>
       <FeedbackWidget ref={feedbackRef} position="top" />
     </>

@@ -19,6 +19,16 @@ export default function UploadStep({
 
         {/* Drag & Drop Zone */}
         <div
+          role="button"
+          tabIndex={0}
+          aria-label={selectedFile ? `Selected file: ${selectedFile.name}. Press Enter to upload or browse for a new file.` : 'Upload architecture diagram. Press Enter to browse files.'}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              if (selectedFile) onUpload(selectedFile);
+              else fileInputRef.current?.click();
+            }
+          }}
           onDragOver={onDragOver}
           onDragLeave={onDragLeave}
           onDrop={onDrop}

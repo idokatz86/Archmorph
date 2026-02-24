@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Cookie, X, ChevronDown, ChevronUp } from 'lucide-react';
+import useAppStore from '../stores/useAppStore';
 
 const CONSENT_STORAGE_KEY = 'archmorph_cookie_consent';
 
@@ -81,7 +82,13 @@ export default function CookieBanner() {
             <p className="text-xs text-text-muted mt-1">
               We use cookies to ensure the best experience. Necessary cookies are required for site
               functionality. You can customize your preferences below.{' '}
-              <a href="/legal/cookies" className="text-cta hover:underline">Cookie Policy</a>
+              <a
+                href="#"
+                onClick={(e) => { e.preventDefault(); useAppStore.getState().setActiveTab('legal'); setVisible(false); }}
+                className="text-cta hover:underline"
+              >
+                Cookie Policy
+              </a>
             </p>
 
             {expanded && (

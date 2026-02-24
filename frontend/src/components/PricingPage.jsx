@@ -38,7 +38,7 @@ export default function PricingPage({ onBack }) {
         window.open(data.url, '_blank', 'noopener');
       }
     } catch {
-      // Silently fail — user can retry
+      alert('Checkout failed. Please try again or contact support.');
     } finally {
       setCheckoutLoading(null);
     }

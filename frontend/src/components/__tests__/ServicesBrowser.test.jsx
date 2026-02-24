@@ -3,6 +3,16 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import ServicesBrowser from '../ServicesBrowser'
 
+// Helper: create a fetch-like response compatible with apiClient
+function mockJsonResponse(data) {
+  return {
+    ok: true,
+    status: 200,
+    headers: { get: () => 'application/json' },
+    json: () => Promise.resolve(data),
+  };
+}
+
 describe('ServicesBrowser', () => {
   const mockServices = [
     { name: 'EC2', description: 'Virtual servers', provider: 'aws', category: 'Compute' },
@@ -15,9 +25,9 @@ describe('ServicesBrowser', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     fetch
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ services: mockServices }) })
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(mockStats) })
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve(mockCategories) })
+      .mockResolvedValueOnce(mockJsonResponse({ services: mockServices }))
+      .mockResolvedValueOnce(mockJsonResponse(mockStats))
+      .mockResolvedValueOnce(mockJsonResponse(mockCategories))
   })
 
   it('shows loading state initially', () => {
@@ -66,8 +76,8 @@ describe('ServicesBrowser', () => {
     fetch.mockReset()
     fetch.mockRejectedValue(new Error('API Error'))
     render(<ServicesBrowser />)
-    await waitFor(() => {
-      expect(document.querySelector('.animate-spin')).not.toBeInTheDocument()
-    })
+    // Should show error state with retry button
+    expect(await screen.findByText('Failed to load services')).toBeInTheDocument()
+    expect(screen.getByText('Try Again')).toBeInTheDocument()
   })
 })
