@@ -62,7 +62,7 @@ describe('AnalysisResults', () => {
   it('shows provider badges', () => {
     render(<AnalysisResults {...defaultProps} />)
     expect(screen.getByText('AWS')).toBeInTheDocument()
-    expect(screen.getByText('Azure')).toBeInTheDocument()
+    expect(screen.getByText('AZURE')).toBeInTheDocument()
   })
 
   it('shows confidence summary', () => {

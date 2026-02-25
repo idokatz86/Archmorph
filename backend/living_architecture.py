@@ -18,7 +18,7 @@ import logging
 import random
 import uuid
 from datetime import datetime, timezone, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
@@ -130,7 +130,7 @@ def _compute_health(arch_id: str) -> ArchitectureHealthResponse:
             name="Performance",
             score=performance_score,
             status=_score_to_status(performance_score),
-            details=f"P95 latency within SLO targets",
+            details="P95 latency within SLO targets",
         ),
         HealthDimension(
             name="Security",

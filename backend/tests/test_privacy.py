@@ -9,7 +9,8 @@ from fastapi.testclient import TestClient
 @pytest.fixture
 def client():
     """Create a test client for the Archmorph API."""
-    import sys, os
+    import sys
+    import os
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
     from main import app
     return TestClient(app, raise_server_exceptions=False)

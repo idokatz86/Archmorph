@@ -10,8 +10,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from ai_suggestion import (
     lookup_mapping,
-    suggest_mapping,
-    suggest_batch,
     build_dependency_graph,
     COMMON_DEPENDENCIES,
     _enqueue_review,

@@ -15,7 +15,6 @@ import copy
 import os
 import sys
 import time
-import json
 from unittest.mock import patch, MagicMock
 
 import pytest
@@ -26,11 +25,10 @@ from session_store import (
     InMemoryStore,
     FileStore,
     RedisStore,
-    SessionStore,
     get_store,
     reset_stores,
 )
-from routers.shared import SESSION_STORE, IMAGE_STORE, SHARE_STORE
+from routers.shared import SESSION_STORE
 
 
 # ─────────────────────────────────────────────────────────────
@@ -279,20 +277,20 @@ class TestSessionCapacityEviction:
         assert store.get("k1", "fallback") == "fallback"
 
     def test_high_traffic_eviction_scenario(self):
-        """Simulate concurrent sessions causing evictions at capacity."""
+        """Simulate concurrent sessions causing evictions at capacity (LRU)."""
         store = InMemoryStore(maxsize=5, ttl=7200)
 
         # Fill to capacity
         for i in range(5):
             store[f"session-{i}"] = f"data-{i}"
 
-        # Session 0 should still exist
-        assert store.get("session-0") is not None
-
-        # Add one more — evicts session-0 (oldest/LRU)
-        store["session-5"] = "new-session"
-        assert store.get("session-0") is None
         assert len(store) == 5
+
+        # Add one more — evicts the LRU item (session-0, never accessed since insert)
+        store["session-5"] = "new-session"
+        assert len(store) == 5
+        assert store.get("session-0") is None  # evicted as LRU
+        assert store.get("session-5") == "new-session"
 
 
 # ─────────────────────────────────────────────────────────────
@@ -463,12 +461,12 @@ class TestFileStore:
 # ─────────────────────────────────────────────────────────────
 
 
-class TestRedisStoreMocked:
-    """Test RedisStore behavior via mocks (no real Redis needed)."""
+def _make_mock_redis_module():
+    """Create a fake ``redis`` module so RedisStore can be tested without installing redis."""
+    mock_module = MagicMock()
 
-    def _make_mock_redis(self):
-        """Create a mock redis client with in-memory dict backing."""
-        mock = MagicMock()
+    def _make_client():
+        client = MagicMock()
         data = {}
 
         def mock_get(key):
@@ -498,80 +496,83 @@ class TestRedisStoreMocked:
             matched = [k for k in data if fnmatch.fnmatch(k, match)]
             return (0, matched)
 
-        def mock_ping():
-            return True
+        client.get = MagicMock(side_effect=mock_get)
+        client.setex = MagicMock(side_effect=mock_setex)
+        client.delete = MagicMock(side_effect=mock_delete)
+        client.exists = MagicMock(side_effect=mock_exists)
+        client.scan = MagicMock(side_effect=mock_scan)
+        client.ping = MagicMock(return_value=True)
+        client._data = data  # expose for assertions
+        return client
 
-        mock.get = MagicMock(side_effect=mock_get)
-        mock.setex = MagicMock(side_effect=mock_setex)
-        mock.delete = MagicMock(side_effect=mock_delete)
-        mock.exists = MagicMock(side_effect=mock_exists)
-        mock.scan = MagicMock(side_effect=mock_scan)
-        mock.ping = MagicMock(side_effect=mock_ping)
+    mock_module.from_url = MagicMock(side_effect=lambda *a, **kw: _make_client())
+    return mock_module
 
-        return mock
+
+class TestRedisStoreMocked:
+    """Test RedisStore behavior via mocks (no real Redis needed)."""
+
+    @pytest.fixture(autouse=True)
+    def _inject_redis_module(self):
+        """Inject a fake redis module into sys.modules so ``import redis`` succeeds."""
+        fake_redis = _make_mock_redis_module()
+        with patch.dict(sys.modules, {"redis": fake_redis}):
+            yield fake_redis
+
+    def _build_store(self, **overrides):
+        """Helper to instantiate a RedisStore with mocked redis."""
+        defaults = {"url": "redis://mock:6379", "prefix": "test", "ttl": 7200}
+        defaults.update(overrides)
+        return RedisStore(**defaults)
 
     def test_redis_store_set_and_get(self):
         """RedisStore stores and retrieves JSON-serialized values."""
-        mock_redis = self._make_mock_redis()
-        with patch("redis.from_url", return_value=mock_redis):
-            store = RedisStore(url="redis://mock:6379", prefix="test", ttl=7200)
-            store.set("session-1", {"analysis": "data"})
-            result = store.get("session-1")
-            assert result == {"analysis": "data"}
+        store = self._build_store()
+        store.set("session-1", {"analysis": "data"})
+        result = store.get("session-1")
+        assert result == {"analysis": "data"}
 
     def test_redis_store_ttl_used(self):
         """RedisStore should call setex with correct TTL."""
-        mock_redis = self._make_mock_redis()
-        with patch("redis.from_url", return_value=mock_redis):
-            store = RedisStore(url="redis://mock:6379", prefix="test", ttl=7200)
-            store.set("key", "value")
-            mock_redis.setex.assert_called_once()
-            call_args = mock_redis.setex.call_args
-            assert call_args[0][1] == 7200  # TTL
+        store = self._build_store()
+        store.set("key", "value")
+        store._redis.setex.assert_called_once()
+        call_args = store._redis.setex.call_args
+        assert call_args[0][1] == 7200  # TTL
 
     def test_redis_store_per_key_ttl(self):
         """RedisStore supports per-key TTL override."""
-        mock_redis = self._make_mock_redis()
-        with patch("redis.from_url", return_value=mock_redis):
-            store = RedisStore(url="redis://mock:6379", prefix="test", ttl=7200)
-            store.set("key", "value", ttl=60)
-            call_args = mock_redis.setex.call_args
-            assert call_args[0][1] == 60
+        store = self._build_store()
+        store.set("key", "value", ttl=60)
+        call_args = store._redis.setex.call_args
+        assert call_args[0][1] == 60
 
     def test_redis_store_delete(self):
-        mock_redis = self._make_mock_redis()
-        with patch("redis.from_url", return_value=mock_redis):
-            store = RedisStore(url="redis://mock:6379", prefix="test", ttl=7200)
-            store.set("k", "v")
-            store.delete("k")
-            assert store.get("k") is None
+        store = self._build_store()
+        store.set("k", "v")
+        store.delete("k")
+        assert store.get("k") is None
 
     def test_redis_store_contains(self):
-        mock_redis = self._make_mock_redis()
-        with patch("redis.from_url", return_value=mock_redis):
-            store = RedisStore(url="redis://mock:6379", prefix="test", ttl=7200)
-            store.set("exists", "yes")
-            assert "exists" in store
-            assert "missing" not in store
+        store = self._build_store()
+        store.set("exists", "yes")
+        assert "exists" in store
+        assert "missing" not in store
 
     def test_redis_store_keys_uses_scan(self):
         """RedisStore should use SCAN instead of KEYS (Issue #94)."""
-        mock_redis = self._make_mock_redis()
-        with patch("redis.from_url", return_value=mock_redis):
-            store = RedisStore(url="redis://mock:6379", prefix="test", ttl=7200)
-            store.set("a", 1)
-            store.set("b", 2)
-            keys = store.keys()
-            mock_redis.scan.assert_called()
-            assert len(keys) == 2
+        store = self._build_store()
+        store.set("a", 1)
+        store.set("b", 2)
+        keys = store.keys()
+        store._redis.scan.assert_called()
+        assert len(keys) == 2
 
     def test_redis_store_clear(self):
-        mock_redis = self._make_mock_redis()
-        with patch("redis.from_url", return_value=mock_redis):
-            store = RedisStore(url="redis://mock:6379", prefix="test", ttl=7200)
-            store.set("k1", 1)
-            store.set("k2", 2)
-            store.clear()
+        store = self._build_store()
+        store.set("k1", 1)
+        store.set("k2", 2)
+        store.clear()
 
 
 # ─────────────────────────────────────────────────────────────

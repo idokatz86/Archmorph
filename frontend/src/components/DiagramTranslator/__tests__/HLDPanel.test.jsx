@@ -45,8 +45,8 @@ describe('HLDPanel', () => {
     expect(screen.getByText('Services')).toBeInTheDocument()
     expect(screen.getByText('Networking')).toBeInTheDocument()
     expect(screen.getByText('Security')).toBeInTheDocument()
-    expect(screen.getByText('FinOps')).toBeInTheDocument()
     expect(screen.getByText('Migration')).toBeInTheDocument()
+    expect(screen.getByText('WAF')).toBeInTheDocument()
   })
 
   it('shows export document formats', () => {

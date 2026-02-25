@@ -14,7 +14,7 @@ Usage::
 
 import json
 import logging
-from typing import Any, AsyncGenerator, Dict
+from typing import Any, AsyncGenerator
 
 from starlette.responses import StreamingResponse
 

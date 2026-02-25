@@ -6,7 +6,7 @@ create / get / list / delete operations for free.
 """
 
 import logging
-from typing import Any, Dict, List, Optional, Type, TypeVar
+from typing import Any, List, Optional, Type, TypeVar
 
 from sqlalchemy.orm import Session
 

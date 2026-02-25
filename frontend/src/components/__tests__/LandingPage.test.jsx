@@ -84,8 +84,8 @@ describe('LandingPage', () => {
 
   it('renders trust badges (no credit card, free analyses, GDPR)', () => {
     render(<LandingPage {...defaultProps} />);
-    expect(screen.getByText('No credit card required')).toBeInTheDocument();
-    expect(screen.getByText('5 free analyses/month')).toBeInTheDocument();
+    expect(screen.getByText('Free during beta')).toBeInTheDocument()
+    expect(screen.getByText('Unlimited analyses')).toBeInTheDocument()
     expect(screen.getByText('GDPR compliant')).toBeInTheDocument();
   });
 });

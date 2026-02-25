@@ -19,8 +19,9 @@ import io
 import logging
 import re
 import zipfile
-from typing import Any, Dict, List, Optional, Tuple
-from xml.etree import ElementTree as ET
+from typing import Any, Dict, List, Optional
+from xml.etree.ElementTree import Element  # nosec B405  # nosemgrep: python.lang.security.use-defused-xml.use-defused-xml
+import defusedxml.ElementTree as ET  # Secure XML parsing - prevents XXE on uploaded .vsdx files
 
 logger = logging.getLogger(__name__)
 
@@ -275,7 +276,7 @@ def parse_vsdx(file_bytes: bytes) -> Dict[str, Any]:
     }
 
 
-def _safe_float(element: Optional[ET.Element]) -> float:
+def _safe_float(element: Optional[Element]) -> float:
     """Safely extract a float from an XML element."""
     if element is not None and element.text:
         try:

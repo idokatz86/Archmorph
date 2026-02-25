@@ -33,7 +33,7 @@ describe('Nav', () => {
 
   it('renders Cloud Translator subtitle', () => {
     render(<Nav {...defaultProps} />)
-    expect(screen.getByText('Cloud Translator')).toBeInTheDocument()
+    expect(screen.getByText('Modernize Any Cloud')).toBeInTheDocument()
   })
 
   it('renders navigation tabs', () => {

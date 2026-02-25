@@ -277,7 +277,7 @@ def build_sample_analysis(sample_id: str, diagram_id: str) -> dict:
     }
 
 
-import re as _re
+import re as _re  # noqa: E402
 
 # Pattern: "sample-<sample_id>-<hex6>"
 _SAMPLE_ID_RE = _re.compile(r"^sample-(.+)-[0-9a-f]{6}$")

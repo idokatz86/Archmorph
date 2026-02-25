@@ -12,7 +12,7 @@ Provides:
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, Any
 
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel, Field

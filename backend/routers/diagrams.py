@@ -5,7 +5,7 @@ best-practices, cost-optimization, share, IaC-chat, terraform-preview.
 
 from fastapi import APIRouter, HTTPException, UploadFile, File, Request, Depends
 from pydantic import BaseModel, Field
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional
 from datetime import datetime, timezone
 import asyncio
 import secrets
@@ -26,7 +26,6 @@ from iac_generator import generate_iac_code
 from hld_generator import generate_hld, generate_hld_markdown
 from image_classifier import classify_image
 from vision_analyzer import analyze_image, compress_image
-from visio_parser import parse_vsdx, is_vsdx
 from service_builder import deduplicate_questions, get_smart_defaults_from_analysis, add_services_from_text
 from services.azure_pricing import estimate_services_cost
 from hld_export import export_hld, SUPPORTED_FORMATS

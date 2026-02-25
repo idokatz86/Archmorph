@@ -3,7 +3,6 @@
 import logging
 from typing import List, Optional
 
-from sqlalchemy.orm import Session
 
 from repositories.base import BaseRepository
 from models.tenant import Organization, TeamMember, Invitation

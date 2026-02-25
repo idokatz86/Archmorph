@@ -1,7 +1,11 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeAll } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import GuidedQuestions from '../../DiagramTranslator/GuidedQuestions'
+
+beforeAll(() => {
+  Element.prototype.scrollTo = vi.fn()
+})
 
 describe('GuidedQuestions', () => {
   const mockAnalysis = {
@@ -59,7 +63,7 @@ describe('GuidedQuestions', () => {
 
   it('shows services detected info', () => {
     render(<GuidedQuestions {...defaultProps} />)
-    expect(screen.getByText(/5 AWS services across 2 zones/)).toBeInTheDocument()
+    expect(screen.getByText(/5 AWS services detected across 2 zones/)).toBeInTheDocument()
   })
 
   it('shows progress bar', () => {
@@ -67,11 +71,13 @@ describe('GuidedQuestions', () => {
     expect(screen.getByText('2 of 3 answered')).toBeInTheDocument()
   })
 
-  it('renders questions', () => {
+  it('renders questions for the active category', () => {
     render(<GuidedQuestions {...defaultProps} />)
+    // Only infrastructure category questions are visible on initial render
     expect(screen.getByText('What region do you prefer?')).toBeInTheDocument()
-    expect(screen.getByText('Enable monitoring?')).toBeInTheDocument()
     expect(screen.getByText('Select features')).toBeInTheDocument()
+    // q2 (operations category) is on a different tab
+    expect(screen.queryByText('Enable monitoring?')).not.toBeInTheDocument()
   })
 
   it('renders single_choice radio options', () => {
@@ -80,10 +86,13 @@ describe('GuidedQuestions', () => {
     expect(screen.getByText('West US')).toBeInTheDocument()
   })
 
-  it('renders boolean yes/no options', () => {
+  it('renders boolean toggle on operations tab', async () => {
+    const user = userEvent.setup()
     render(<GuidedQuestions {...defaultProps} />)
-    const yesOptions = screen.getAllByText(/^yes$/i)
-    expect(yesOptions.length).toBeGreaterThan(0)
+    // Navigate to operations category tab
+    await user.click(screen.getByText(/operations/))
+    // Boolean questions use a toggle showing "Yes — Enabled" / "No — Disabled"
+    expect(screen.getByText(/Yes — Enabled|No — Disabled/)).toBeInTheDocument()
   })
 
   it('renders multi_choice checkboxes', () => {
@@ -99,35 +108,40 @@ describe('GuidedQuestions', () => {
     expect(defaultProps.onUpdateAnswer).toHaveBeenCalledWith('q1', 'westus')
   })
 
-  it('renders Skip Customization button', () => {
+  it('renders Skip All button', () => {
     render(<GuidedQuestions {...defaultProps} />)
-    expect(screen.getByText('Skip Customization')).toBeInTheDocument()
+    expect(screen.getByText('Skip All')).toBeInTheDocument()
   })
 
-  it('renders Apply and View Results button', () => {
+  it('renders Next Category button on first tab', () => {
     render(<GuidedQuestions {...defaultProps} />)
-    expect(screen.getByText('Apply and View Results')).toBeInTheDocument()
+    // On the first category tab, button says "Next Category"; "Apply and View Results" appears on the last tab
+    expect(screen.getByText('Next Category')).toBeInTheDocument()
   })
 
   it('calls onSkip when skip button clicked', async () => {
     const user = userEvent.setup()
     render(<GuidedQuestions {...defaultProps} />)
-    await user.click(screen.getByText('Skip Customization'))
+    await user.click(screen.getByText('Skip All'))
     expect(defaultProps.onSkip).toHaveBeenCalledTimes(1)
   })
 
-  it('calls onApplyAnswers when apply button clicked', async () => {
+  it('calls onApplyAnswers when apply button clicked on last tab', async () => {
     const user = userEvent.setup()
     render(<GuidedQuestions {...defaultProps} />)
+    // Navigate to the last category (operations)
+    await user.click(screen.getByText(/operations/))
+    // On the last tab, the button says "Apply and View Results"
     await user.click(screen.getByText('Apply and View Results'))
     expect(defaultProps.onApplyAnswers).toHaveBeenCalledTimes(1)
   })
 
   it('shows category headers', () => {
     render(<GuidedQuestions {...defaultProps} />)
-    const infraElements = screen.getAllByText('infrastructure')
+    // Category names include answer count suffix e.g. "infrastructure 1/2"
+    const infraElements = screen.getAllByText(/infrastructure/)
     expect(infraElements.length).toBeGreaterThan(0)
-    const opsElements = screen.getAllByText('operations')
+    const opsElements = screen.getAllByText(/operations/)
     expect(opsElements.length).toBeGreaterThan(0)
   })
 })

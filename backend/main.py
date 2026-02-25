@@ -73,8 +73,8 @@ from routers.webhooks import router as webhooks_router  # noqa: E402
 from routers.webhooks import integration_router  # noqa: E402
 from routers.marketplace import router as marketplace_router  # noqa: E402
 from routers.journey_analytics import router as journey_router  # noqa: E402
-from routers.dashboard import router as dashboard_router
-from routers.templates import router as templates_router
+from routers.dashboard import router as dashboard_router  # noqa: E402
+from routers.templates import router as templates_router  # noqa: E402
 from living_architecture import router as living_arch_router  # noqa: E402
 from migration_intelligence import router as migration_intel_router  # noqa: E402
 from whitelabel import router as whitelabel_router  # noqa: E402

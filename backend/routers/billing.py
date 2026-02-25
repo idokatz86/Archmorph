@@ -198,7 +198,7 @@ async def create_checkout_session(request: Request, data: CheckoutRequest) -> Di
 
     if not _stripe_available:
         # Mock response for development
-        mock_id = f"cs_mock_{data.tier}_{hashlib.md5((data.email or 'anon').encode()).hexdigest()[:8]}"
+        mock_id = f"cs_mock_{data.tier}_{hashlib.md5((data.email or 'anon').encode()).hexdigest()[:8]}"  # nosec B324  # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
         return {
             "session_id": mock_id,
             "url": f"{STRIPE_SUCCESS_URL.replace('{CHECKOUT_SESSION_ID}', mock_id)}",

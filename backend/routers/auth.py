@@ -13,7 +13,6 @@ from auth import (
     exchange_github_code,
     generate_session_token,
     get_user_from_session,
-    get_anonymous_user,
     capture_lead,
 )
 

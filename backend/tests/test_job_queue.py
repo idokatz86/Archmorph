@@ -12,10 +12,8 @@ Covers:
 
 import os
 import sys
-import asyncio
 import json
 
-import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -97,7 +95,7 @@ class TestJobManager:
     def test_list_jobs_with_status_filter(self):
         mgr = self._make_manager()
         j1 = mgr.submit("analyze")
-        j2 = mgr.submit("analyze")
+        mgr.submit("analyze")  # second job, unused reference
         mgr.start(j1.job_id)
         mgr.complete(j1.job_id, result={})
         completed = mgr.list_jobs(status="completed")
@@ -167,7 +165,7 @@ class TestSSEHelpers:
         assert "data:" in result
         assert result.endswith("\n\n")
         assert "event: progress" in result
-        data_line = [l for l in result.split("\n") if l.startswith("data:")][0]
+        data_line = [line for line in result.split("\n") if line.startswith("data:")][0]
         payload = json.loads(data_line.split("data:", 1)[1].strip())
         assert payload["msg"] == "hello"
 

@@ -5,7 +5,7 @@ and RBAC-checked access patterns.
 """
 
 import logging
-from typing import Dict, Any, Optional, List
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request, Depends
 from pydantic import BaseModel, Field

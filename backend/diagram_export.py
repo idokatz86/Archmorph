@@ -11,7 +11,7 @@ import base64
 import hashlib
 import json
 import uuid
-import xml.etree.ElementTree as ET  # nosec B405  # nosemgrep: python.lang.security.use-defused-xml.use-defused-xml  — generates XML, no untrusted parsing
+import xml.etree.ElementTree as ET  # nosec B405  # nosemgrep: python.lang.security.use-defused-xml.use-defused-xml
 from typing import Any
 
 # ---------------------------------------------------------------------------
@@ -558,7 +558,7 @@ def _generate_excalidraw(analysis: dict) -> dict:
 
             if icon_uri:
                 # Embed icon as an image element inside the service box
-                file_id = hashlib.md5(azure_name.encode()).hexdigest()[:20]  # nosec B324  # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5  — non-security ID
+                file_id = hashlib.md5(azure_name.encode()).hexdigest()[:20]  # nosec B324  # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
                 exc_files[file_id] = {
                     "mimeType": "image/svg+xml",
                     "id": file_id,
