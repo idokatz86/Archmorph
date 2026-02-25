@@ -13,7 +13,8 @@ import UploadStep from './UploadStep';
 import GuidedQuestions from './GuidedQuestions';
 import AnalysisResults from './AnalysisResults';
 import IaCViewer from './IaCViewer';
-import CostPanel from './CostPanel';
+// CostPanel hidden during beta — no money-related UI
+// import CostPanel from './CostPanel';
 
 const STEPS = [
   { id: 'upload', label: 'Upload', canNav: true },
@@ -360,21 +361,15 @@ export default function DiagramTranslator() {
   const handleGenerateIac = async (fmt) => {
     set({ loading: true, iacFormat: fmt });
     try {
-      const [iacData, costData] = await Promise.all([
-        api.post(`/diagrams/${state.diagramId}/generate?format=${fmt}`),
-        api.get(`/diagrams/${state.diagramId}/cost-estimate`).catch(() => null),
-      ]);
-      set({ iacCode: iacData.code, costEstimate: costData, step: 'iac' });
+      const iacData = await api.post(`/diagrams/${state.diagramId}/generate?format=${fmt}`);
+      set({ iacCode: iacData.code, costEstimate: null, step: 'iac' });
     } catch (err) {
       if (err.status === 404) {
         const restored = await tryRestoreSession(state.diagramId);
         if (restored) {
           try {
-            const [iacData, costData] = await Promise.all([
-              api.post(`/diagrams/${state.diagramId}/generate?format=${fmt}`),
-              api.get(`/diagrams/${state.diagramId}/cost-estimate`).catch(() => null),
-            ]);
-            set({ iacCode: iacData.code, costEstimate: costData, step: 'iac', loading: false });
+            const iacData = await api.post(`/diagrams/${state.diagramId}/generate?format=${fmt}`);
+            set({ iacCode: iacData.code, costEstimate: null, step: 'iac', loading: false });
             return;
           } catch { /* fall through */ }
         }
@@ -676,7 +671,7 @@ export default function DiagramTranslator() {
       {/* Step: IaC Code */}
       {state.step === 'iac' && state.iacCode && (
         <div className="space-y-6">
-          <CostPanel costEstimate={state.costEstimate} />
+          {/* CostPanel hidden during beta — no money-related UI */}
           <IaCViewer
             iacCode={state.iacCode}
             iacFormat={state.iacFormat}

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Boxes, Globe, Zap, Activity, Brain, Shield, Cpu, Workflow, Globe2, Loader2,
-  ArrowRight, Tag, DollarSign, Filter, Search, Sparkles, ChevronRight,
+  ArrowRight, Tag, Filter, Search, Sparkles, ChevronRight,
 } from 'lucide-react';
 import { Card, Button, Badge } from './ui';
 import api from '../services/apiClient';
@@ -148,11 +148,7 @@ export default function TemplateGallery({ onUseTemplate }) {
                 </div>
 
                 {/* Footer */}
-                <div className="px-4 py-3 border-t border-border flex items-center justify-between">
-                  <div className="flex items-center gap-1 text-xs text-text-muted">
-                    <DollarSign className="w-3 h-3" />
-                    {template.estimated_monthly_cost}
-                  </div>
+                <div className="px-4 py-3 border-t border-border flex items-center justify-end">
                   <Button
                     size="sm"
                     variant="primary"

@@ -22,8 +22,8 @@ const FEATURES = [
   },
   {
     icon: BarChart3,
-    title: 'Cost Estimation',
-    desc: 'Compare costs across cloud providers and get Azure pricing estimates before you migrate.',
+    title: 'Smart Analysis',
+    desc: 'Get detailed service mappings with confidence scores, architecture patterns, and migration complexity assessment.',
   },
   {
     icon: Shield,
@@ -41,7 +41,7 @@ const HOW_IT_WORKS = [
   { step: '1', title: 'Upload', desc: 'Drop your existing cloud architecture diagram (PNG, JPG, or SVG)' },
   { step: '2', title: 'Analyze', desc: 'AI identifies services, dependencies, and architecture patterns' },
   { step: '3', title: 'Translate', desc: 'Get Azure service mappings with confidence scores and alternatives' },
-  { step: '4', title: 'Export', desc: 'Download Terraform/Bicep code, HLD documents, and cost estimates' },
+  { step: '4', title: 'Export', desc: 'Download Terraform/Bicep code, HLD documents, and migration roadmaps' },
 ];
 
 const FAQS = [
@@ -59,7 +59,7 @@ const FAQS = [
   },
   {
     q: 'What output formats are available?',
-    a: 'You can export Infrastructure as Code (Terraform & Bicep), High-Level Design documents (Word, PDF, PPTX), cost comparison reports, and migration roadmaps.',
+    a: 'You can export Infrastructure as Code (Terraform & Bicep), High-Level Design documents (Word, PDF, PPTX), and migration roadmaps.',
   },
   {
     q: 'Can I use the generated Terraform code in production?',
@@ -109,7 +109,7 @@ export default function LandingPage({ onGetStarted }) {
           </h1>
           <p className="text-lg text-text-secondary max-w-2xl mx-auto mb-8">
             Upload your AWS or GCP architecture diagrams and instantly get Azure equivalents
-            with production-ready Terraform code, cost estimates, and migration roadmaps.
+            with production-ready Terraform code, HLD documents, and migration roadmaps.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <button
@@ -123,8 +123,8 @@ export default function LandingPage({ onGetStarted }) {
 
           </div>
           <div className="flex items-center justify-center gap-6 mt-8 text-xs text-text-muted">
-            <span className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-cta" /> No credit card required</span>
-            <span className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-cta" /> 5 free analyses/month</span>
+            <span className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-cta" /> Free during beta</span>
+            <span className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-cta" /> Unlimited analyses</span>
             <span className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-cta" /> GDPR compliant</span>
           </div>
         </div>
@@ -223,7 +223,7 @@ export default function LandingPage({ onGetStarted }) {
             Ready to translate your architecture?
           </h2>
           <p className="text-text-muted mb-6">
-            Start with 5 free analyses per month. No credit card required.
+            Join the beta — completely free while we shape the future of cloud migration.
           </p>
           <button
             onClick={onGetStarted}

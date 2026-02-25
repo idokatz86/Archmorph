@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   LayoutDashboard, FileSearch, Download, BarChart3, Clock, Bookmark,
   BookmarkCheck, ChevronRight, RefreshCw, Loader2, AlertTriangle,
-  Code, FileText, DollarSign, ArrowUpRight, Filter, TrendingUp,
+  Code, FileText, ArrowUpRight, Filter, TrendingUp,
 } from 'lucide-react';
 import { Card, Button, Badge } from './ui';
 import api from '../services/apiClient';
@@ -71,9 +71,7 @@ function AnalysisRow({ analysis, onReanalyze, onToggleSave }) {
         {analysis.hld_generated && (
           <span className="text-xs px-1.5 py-0.5 rounded bg-info/10 text-info"><FileText className="w-3 h-3 inline" /> HLD</span>
         )}
-        {analysis.cost_estimated && (
-          <span className="text-xs px-1.5 py-0.5 rounded bg-warning/10 text-warning"><DollarSign className="w-3 h-3 inline" /> Cost</span>
-        )}
+        {/* Cost badge hidden during beta */}
       </div>
 
       {/* Actions */}
@@ -190,7 +188,7 @@ export default function UserDashboard({ onNavigate }) {
           <StatCard icon={TrendingUp} label="This Month" value={stats.analyses_this_month} color="text-info" />
           <StatCard icon={Code} label="IaC Generated" value={stats.iac_generated} color="text-cta" />
           <StatCard icon={FileText} label="HLD Docs" value={stats.hld_generated} color="text-info" />
-          <StatCard icon={DollarSign} label="Cost Estimates" value={stats.cost_estimated} color="text-warning" />
+          {/* Cost Estimates stat hidden during beta */}
           <StatCard icon={Bookmark} label="Saved" value={stats.saved_diagrams} color="text-cta" />
         </div>
       )}

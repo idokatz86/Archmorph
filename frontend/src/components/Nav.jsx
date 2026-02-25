@@ -30,7 +30,7 @@ export default function Nav({ activeTab, setActiveTab, updateStatus }) {
               </div>
               <div>
                 <h1 className="text-lg font-bold text-text-primary tracking-tight">Archmorph</h1>
-                <p className="text-[10px] text-text-muted font-medium uppercase tracking-wider">Cloud Translator</p>
+                <p className="text-[10px] text-text-muted font-medium uppercase tracking-wider">Modernize Any Cloud</p>
               </div>
             </div>
             {/* Desktop navigation */}

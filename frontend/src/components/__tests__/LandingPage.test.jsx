@@ -6,7 +6,6 @@ import LandingPage from '../LandingPage';
 describe('LandingPage', () => {
   const defaultProps = {
     onGetStarted: vi.fn(),
-    onViewPricing: vi.fn(),
   };
 
   beforeEach(() => {
@@ -30,10 +29,8 @@ describe('LandingPage', () => {
     expect(defaultProps.onGetStarted).toHaveBeenCalledTimes(1);
   });
 
-  it('view pricing button calls onViewPricing', () => {
-    render(<LandingPage {...defaultProps} />);
-    fireEvent.click(screen.getByText('View Pricing'));
-    expect(defaultProps.onViewPricing).toHaveBeenCalledTimes(1);
+  it('view pricing button calls onViewPricing — SKIPPED (pricing removed for beta)', () => {
+    // Pricing removed for beta launch
   });
 
   it('renders all 6 feature cards', () => {
@@ -41,7 +38,7 @@ describe('LandingPage', () => {
     expect(screen.getByText('AI-Powered Translation')).toBeInTheDocument();
     expect(screen.getByText('Infrastructure as Code')).toBeInTheDocument();
     expect(screen.getByText('High-Level Design Docs')).toBeInTheDocument();
-    expect(screen.getByText('Cost Estimation')).toBeInTheDocument();
+    expect(screen.getByText('Smart Analysis')).toBeInTheDocument();
     expect(screen.getByText('Enterprise Security')).toBeInTheDocument();
     expect(screen.getByText('Multi-Cloud Support')).toBeInTheDocument();
   });

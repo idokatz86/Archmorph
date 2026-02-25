@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import 'prismjs/themes/prism-tomorrow.css';
-import { AlertTriangle, Code, Coffee, Loader2, Shield } from 'lucide-react';
+import { AlertTriangle, Code, Loader2, Shield } from 'lucide-react';
 import ErrorBoundary from './components/ErrorBoundary';
 import Nav from './components/Nav';
 import DiagramTranslator from './components/DiagramTranslator';
@@ -100,17 +100,14 @@ export default function App() {
               className="text-xs text-text-muted select-none cursor-default"
               onClick={handleVersionClick}
             >
-              Archmorph v{APP_VERSION} — AI-powered Cloud Architecture Translator to Azure
+              Archmorph v{APP_VERSION} — Modernize Any Cloud. Land on Azure.
             </p>
             <div className="flex items-center gap-4">
               <a href="https://github.com/idokatz86/Archmorph" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-cta transition-colors cursor-pointer">
                 <Code className="w-3.5 h-3.5" />
                 GitHub
               </a>
-              <a href="https://buymeacoffee.com/idokatz" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-amber-400 transition-colors cursor-pointer">
-                <Coffee className="w-3.5 h-3.5" />
-                Buy me a coffee
-              </a>
+
               <button
                 onClick={() => setActiveTab('legal')}
                 className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-cta transition-colors cursor-pointer"

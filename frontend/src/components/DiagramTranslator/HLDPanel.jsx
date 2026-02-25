@@ -1,7 +1,7 @@
 import React from 'react';
 import {
   Sparkles, Download, Check, FileText, Eye, Layers,
-  Network, Shield, DollarSign, ArrowRight, Wrench,
+  Network, Shield, ArrowRight, Wrench,
 } from 'lucide-react';
 import { Button, Card } from '../ui';
 
@@ -10,7 +10,8 @@ const HLD_TABS = [
   { id: 'services', label: 'Services', icon: Layers },
   { id: 'networking', label: 'Networking', icon: Network },
   { id: 'security', label: 'Security', icon: Shield },
-  { id: 'finops', label: 'FinOps', icon: DollarSign },
+  // FinOps tab hidden during beta — no money-related UI
+  // { id: 'finops', label: 'FinOps', icon: DollarSign },
   { id: 'migration', label: 'Migration', icon: ArrowRight },
   { id: 'waf', label: 'WAF', icon: Wrench },
 ];
@@ -143,7 +144,7 @@ export default function HLDPanel({
                 <div className="flex flex-wrap gap-2 text-[10px] text-text-muted">
                   {svc.tier_recommendation && <span>Tier: {svc.tier_recommendation}</span>}
                   {svc.sla && <span>SLA: {svc.sla}</span>}
-                  {svc.estimated_monthly_cost && <span>Cost: {svc.estimated_monthly_cost}</span>}
+                  {/* estimated_monthly_cost hidden during beta */}
                 </div>
                 {svc.documentation_url && (
                   <a href={svc.documentation_url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-cta hover:underline mt-1 inline-block">Documentation →</a>
@@ -173,17 +174,7 @@ export default function HLDPanel({
           </div>
         )}
 
-        {hldTab === 'finops' && hldData.hld?.finops && (
-          <div className="space-y-2 p-4 bg-surface rounded-xl border border-border">
-            <p className="text-xs font-semibold text-cta">Total: {hldData.hld.finops.total_estimated_monthly_cost}</p>
-            {hldData.hld.finops.cost_optimization_recommendations?.map((r, i) => (
-              <p key={i} className="text-xs flex items-start gap-1"><span className="text-cta">•</span> {r}</p>
-            ))}
-            {hldData.hld.finops.reserved_instances_candidates?.length > 0 && (
-              <p className="text-xs"><strong>RI Candidates:</strong> {hldData.hld.finops.reserved_instances_candidates.join(', ')}</p>
-            )}
-          </div>
-        )}
+        {/* FinOps tab content hidden during beta — no money-related UI */}
 
         {hldTab === 'migration' && hldData.hld?.migration_approach && (
           <div className="space-y-3">
