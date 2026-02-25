@@ -50,7 +50,7 @@ jobs:
           SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
 
       - name: Upload Semgrep SARIF
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always()
         continue-on-error: true   # Code scanning may not be enabled
         with:
@@ -94,7 +94,7 @@ jobs:
             || true
 
       - name: Upload Bandit SARIF
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always()
         continue-on-error: true   # Code scanning may not be enabled
         with:
@@ -125,17 +125,19 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
+        continue-on-error: true   # Code scanning requires GHAS on private repos
         with:
           languages: ${{ matrix.language }}
           queries: security-extended
 
       - name: Autobuild
-        uses: github/codeql-action/autobuild@v3
+        uses: github/codeql-action/autobuild@v4
+        continue-on-error: true   # Code scanning requires GHAS on private repos
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
-        continue-on-error: true   # Code scanning may not be enabled
+        uses: github/codeql-action/analyze@v4
+        continue-on-error: true   # Code scanning requires GHAS on private repos
         with:
           category: codeql-${{ matrix.language }}
 
@@ -288,7 +290,7 @@ jobs:
           exit-code: "0"    # Report but don't fail — findings tracked via SARIF/artifacts
 
       - name: Upload Trivy SARIF to GitHub Security
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always()
         continue-on-error: true   # Code scanning may not be enabled
         with:
