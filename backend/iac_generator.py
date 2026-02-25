@@ -30,144 +30,6 @@ def _load_template(name: str) -> str:
     return path.read_text()
 
 
-def _build_terraform_prompt(analysis: dict, params: dict) -> str:
-    """Build the GPT-4o prompt for Terraform generation."""
-    mappings = analysis.get("mappings", [])
-    services_detected = analysis.get("services_detected", 0)
-    source_provider = analysis.get("source_provider", "AWS")
-    project_name = sanitize_iac_param(
-        params.get("project_name", "cloud-migration"), "project_name", default="cloud-migration",
-    )
-    region = sanitize_iac_param(
-        params.get("region", "westeurope"), "region",
-        allowed_values=_VALID_REGIONS, default="westeurope",
-    )
-    env = sanitize_iac_param(
-        params.get("environment", "dev"), "environment",
-        allowed_values=_VALID_ENVIRONMENTS, default="dev",
-    )
-    sku_strategy = sanitize_iac_param(
-        params.get("sku_strategy", "balanced"), "sku_strategy",
-        allowed_values=_VALID_SKU_STRATEGIES, default="balanced",
-    )
-
-    mapping_lines = []
-    for m in mappings:
-        src = m.get("source_service", "unknown")
-        tgt = m.get("azure_service", "unknown")
-        cat = m.get("category", "")
-        conf = m.get("confidence", 0)
-        mapping_lines.append(f"  - {src} → {tgt} (category: {cat}, confidence: {conf})")
-
-    mapping_text = "\n".join(mapping_lines) if mapping_lines else "  (no specific mappings available)"
-
-    return f"""You are an expert Azure infrastructure engineer. Generate production-ready Terraform code 
-to deploy the Azure architecture described below.
-
-## Source Architecture
-- Provider: {source_provider}
-- Services detected: {services_detected}
-- Service mappings (source → Azure):
-{mapping_text}
-
-## Parameters
-- Project name: {project_name}
-- Environment: {env}
-- Region: {region}
-- SKU strategy: {sku_strategy} (cost-optimized | balanced | performance)
-
-## Requirements
-1. Use azurerm provider ~> 3.85
-2. Follow Azure naming conventions (e.g., rg-, st, kv-, etc.)
-3. Use locals for project, env, location, and tags
-4. Include a resource group as the foundation
-5. Generate EVERY Azure resource from the mappings above
-6. Group resources by logical zone/function with clear comments
-7. Use appropriate SKUs based on the strategy ({sku_strategy})
-8. Include managed identities where applicable
-9. **CRITICAL — Credential Handling:**
-   - ALWAYS include an Azure Key Vault resource (azurerm_key_vault) in every deployment
-   - NEVER use inline/hardcoded passwords, admin credentials, or connection strings in ANY resource
-   - For VMs: use admin_ssh_key blocks with azurerm_key_vault_secret data sources, or reference random_password stored in Key Vault
-   - For SQL/PostgreSQL/MySQL: use azuread_administrator blocks with Azure AD authentication — NEVER use administrator_login_password inline
-   - For any resource needing a secret: generate with random_password, store in azurerm_key_vault_secret, and reference from there
-   - Use the pattern: random_password → azurerm_key_vault_secret → data reference
-10. Include meaningful outputs (endpoints, hostnames, URLs) — NEVER output secrets
-11. Do NOT include any markdown formatting — return ONLY valid Terraform HCL code
-12. Add comments explaining which source service each resource replaces
-
-Return ONLY the Terraform code, no markdown fences, no explanations."""
-
-
-def _build_bicep_prompt(analysis: dict, params: dict) -> str:
-    """Build the GPT-4o prompt for Bicep generation."""
-    mappings = analysis.get("mappings", [])
-    services_detected = analysis.get("services_detected", 0)
-    source_provider = analysis.get("source_provider", "AWS")
-    project_name = sanitize_iac_param(
-        params.get("project_name", "cloud-migration"), "project_name", default="cloud-migration",
-    )
-    region = sanitize_iac_param(
-        params.get("region", "westeurope"), "region",
-        allowed_values=_VALID_REGIONS, default="westeurope",
-    )
-    env = sanitize_iac_param(
-        params.get("environment", "dev"), "environment",
-        allowed_values=_VALID_ENVIRONMENTS, default="dev",
-    )
-    sku_strategy = sanitize_iac_param(
-        params.get("sku_strategy", "balanced"), "sku_strategy",
-        allowed_values=_VALID_SKU_STRATEGIES, default="balanced",
-    )
-
-    mapping_lines = []
-    for m in mappings:
-        src = m.get("source_service", "unknown")
-        tgt = m.get("azure_service", "unknown")
-        cat = m.get("category", "")
-        conf = m.get("confidence", 0)
-        mapping_lines.append(f"  - {src} → {tgt} (category: {cat}, confidence: {conf})")
-
-    mapping_text = "\n".join(mapping_lines) if mapping_lines else "  (no specific mappings available)"
-
-    return f"""You are an expert Azure infrastructure engineer. Generate production-ready Bicep code 
-to deploy the Azure architecture described below.
-
-## Source Architecture
-- Provider: {source_provider}
-- Services detected: {services_detected}
-- Service mappings (source → Azure):
-{mapping_text}
-
-## Parameters
-- Project name: {project_name}
-- Environment: {env}
-- Region: {region}
-- SKU strategy: {sku_strategy} (cost-optimized | balanced | performance)
-
-## Requirements
-1. Use targetScope = 'subscription'
-2. Follow Azure naming conventions
-3. Use parameters for env, location, and any secrets
-4. Include a resource group as the foundation
-5. Generate EVERY Azure resource from the mappings above
-6. Group resources by logical zone/function with clear comments
-7. Use appropriate SKUs based on the strategy ({sku_strategy})
-8. Include managed identities where applicable
-9. **CRITICAL — Credential Handling:**
-   - ALWAYS include an Azure Key Vault resource in every deployment
-   - NEVER use inline/hardcoded passwords, admin credentials, or connection strings
-   - For VMs: use SSH keys or reference Key Vault secrets via @secure() parameters
-   - For SQL/PostgreSQL/MySQL: use Azure AD authentication — NEVER inline administrator passwords
-   - For any resource needing a secret: use @secure() param decorator and Key Vault references
-   - Mark secret parameters with @secure() — never output them
-10. Include meaningful outputs — NEVER output secrets
-11. Do NOT include any markdown formatting — return ONLY valid Bicep code
-12. Add comments explaining which source service each resource replaces
-
-Return ONLY the Bicep code, no markdown fences, no explanations."""
-
-
 # ─────────────────────────────────────────────────────────────
 # Valid AWS regions for CloudFormation
 # ─────────────────────────────────────────────────────────────
@@ -179,17 +41,122 @@ _VALID_AWS_REGIONS = {
 }
 
 
-def _build_cloudformation_prompt(analysis: dict, params: dict) -> str:
-    """Build the GPT-4o prompt for AWS CloudFormation YAML generation."""
+# ─────────────────────────────────────────────────────────────
+# Shared prompt builder — DRY refactor (#314)
+# ─────────────────────────────────────────────────────────────
+# Format-specific configuration for each IaC format
+_FORMAT_CONFIG = {
+    "terraform": {
+        "expert_role": "Azure infrastructure engineer",
+        "code_type": "Terraform code",
+        "target_field": "azure_service",
+        "target_label": "Azure",
+        "use_azure_region": True,
+        "requirements": (
+            "1. Use azurerm provider ~> 4.0\n"
+            "2. Follow Azure naming conventions (e.g., rg-, st, kv-, etc.)\n"
+            "3. Use locals for project, env, location, and tags\n"
+            "4. Include a resource group as the foundation\n"
+            "5. Generate EVERY Azure resource from the mappings above\n"
+            "6. Group resources by logical zone/function with clear comments\n"
+            "7. Use appropriate SKUs based on the strategy ({sku_strategy})\n"
+            "8. Include managed identities where applicable\n"
+            "9. **CRITICAL — Credential Handling:**\n"
+            "   - ALWAYS include an Azure Key Vault resource (azurerm_key_vault) in every deployment\n"
+            "   - NEVER use inline/hardcoded passwords, admin credentials, or connection strings in ANY resource\n"
+            "   - For VMs: use admin_ssh_key blocks with azurerm_key_vault_secret data sources, or reference random_password stored in Key Vault\n"
+            "   - For SQL/PostgreSQL/MySQL: use azuread_administrator blocks with Azure AD authentication — NEVER use administrator_login_password inline\n"
+            "   - For any resource needing a secret: generate with random_password, store in azurerm_key_vault_secret, and reference from there\n"
+            "   - Use the pattern: random_password → azurerm_key_vault_secret → data reference\n"
+            "10. Include meaningful outputs (endpoints, hostnames, URLs) — NEVER output secrets\n"
+            "11. Do NOT include any markdown formatting — return ONLY valid Terraform HCL code\n"
+            "12. Add comments explaining which source service each resource replaces"
+        ),
+        "return_instruction": "Return ONLY the Terraform code, no markdown fences, no explanations.",
+    },
+    "bicep": {
+        "expert_role": "Azure infrastructure engineer",
+        "code_type": "Bicep code",
+        "target_field": "azure_service",
+        "target_label": "Azure",
+        "use_azure_region": True,
+        "requirements": (
+            "1. Use targetScope = 'subscription'\n"
+            "2. Follow Azure naming conventions\n"
+            "3. Use parameters for env, location, and any secrets\n"
+            "4. Include a resource group as the foundation\n"
+            "5. Generate EVERY Azure resource from the mappings above\n"
+            "6. Group resources by logical zone/function with clear comments\n"
+            "7. Use appropriate SKUs based on the strategy ({sku_strategy})\n"
+            "8. Include managed identities where applicable\n"
+            "9. **CRITICAL — Credential Handling:**\n"
+            "   - ALWAYS include an Azure Key Vault resource in every deployment\n"
+            "   - NEVER use inline/hardcoded passwords, admin credentials, or connection strings\n"
+            "   - For VMs: use SSH keys or reference Key Vault secrets via @secure() parameters\n"
+            "   - For SQL/PostgreSQL/MySQL: use Azure AD authentication — NEVER inline administrator passwords\n"
+            "   - For any resource needing a secret: use @secure() param decorator and Key Vault references\n"
+            "   - Mark secret parameters with @secure() — never output them\n"
+            "10. Include meaningful outputs — NEVER output secrets\n"
+            "11. Do NOT include any markdown formatting — return ONLY valid Bicep code\n"
+            "12. Add comments explaining which source service each resource replaces"
+        ),
+        "return_instruction": "Return ONLY the Bicep code, no markdown fences, no explanations.",
+    },
+    "cloudformation": {
+        "expert_role": "AWS infrastructure engineer",
+        "code_type": "AWS CloudFormation YAML",
+        "target_field": "target_service",
+        "target_label": "AWS",
+        "use_azure_region": False,
+        "requirements": (
+            "1. Use AWSTemplateFormatVersion: '2010-09-09'\n"
+            "2. Follow AWS naming conventions and tagging best practices\n"
+            "3. Use Parameters for environment, region, and any secrets\n"
+            "4. Include all AWS resources from the mappings above\n"
+            "5. Group resources by logical function with clear comments\n"
+            "6. Use appropriate instance types based on the strategy ({sku_strategy})\n"
+            "7. Include IAM roles and policies with least-privilege principle\n"
+            "8. **CRITICAL — Credential Handling:**\n"
+            "   - ALWAYS use AWS Secrets Manager or SSM Parameter Store for secrets\n"
+            "   - NEVER use inline/hardcoded passwords, credentials, or API keys\n"
+            "   - For RDS: use ManageMasterUserPassword with Secrets Manager integration\n"
+            "   - For EC2: use IAM instance profiles instead of access keys\n"
+            "   - Mark secret parameters with NoEcho: true\n"
+            "9. Include meaningful Outputs (endpoints, ARNs, URLs) — NEVER output secrets\n"
+            "10. Do NOT include any markdown formatting — return ONLY valid CloudFormation YAML\n"
+            "11. Add comments explaining which source service each resource replaces\n"
+            "12. Use !Ref, !Sub, !GetAtt, and !Join for dynamic values"
+        ),
+        "return_instruction": "Return ONLY the CloudFormation YAML, no markdown fences, no explanations.",
+    },
+}
+
+
+def _build_iac_prompt(iac_format: str, analysis: dict, params: dict) -> str:
+    """Build a GPT-4o prompt for the given IaC format.
+
+    Shared logic for Terraform, Bicep, and CloudFormation  — DRY refactor (#314).
+    """
+    config = _FORMAT_CONFIG[iac_format]
+
     mappings = analysis.get("mappings", [])
     services_detected = analysis.get("services_detected", 0)
-    source_provider = analysis.get("source_provider", "unknown")
+    source_provider = analysis.get("source_provider", "AWS" if config["use_azure_region"] else "unknown")
     project_name = sanitize_iac_param(
         params.get("project_name", "cloud-migration"), "project_name", default="cloud-migration",
     )
-    region = params.get("region", "us-east-1")
-    if region not in _VALID_AWS_REGIONS:
-        region = "us-east-1"
+
+    # Region handling differs between Azure and AWS formats
+    if config["use_azure_region"]:
+        region = sanitize_iac_param(
+            params.get("region", "westeurope"), "region",
+            allowed_values=_VALID_REGIONS, default="westeurope",
+        )
+    else:
+        region = params.get("region", "us-east-1")
+        if region not in _VALID_AWS_REGIONS:
+            region = "us-east-1"
+
     env = sanitize_iac_param(
         params.get("environment", "dev"), "environment",
         allowed_values=_VALID_ENVIRONMENTS, default="dev",
@@ -199,23 +166,28 @@ def _build_cloudformation_prompt(analysis: dict, params: dict) -> str:
         allowed_values=_VALID_SKU_STRATEGIES, default="balanced",
     )
 
+    # Build mapping lines using format-specific target field
+    target_field = config["target_field"]
+    fallback_field = "azure_service" if target_field != "azure_service" else "target_service"
     mapping_lines = []
     for m in mappings:
         src = m.get("source_service", "unknown")
-        tgt = m.get("target_service", m.get("azure_service", "unknown"))
+        tgt = m.get(target_field, m.get(fallback_field, "unknown"))
         cat = m.get("category", "")
         conf = m.get("confidence", 0)
         mapping_lines.append(f"  - {src} → {tgt} (category: {cat}, confidence: {conf})")
 
     mapping_text = "\n".join(mapping_lines) if mapping_lines else "  (no specific mappings available)"
+    target_label = config["target_label"]
+    requirements = config["requirements"].format(sku_strategy=sku_strategy)
 
-    return f"""You are an expert AWS infrastructure engineer. Generate production-ready AWS CloudFormation YAML
-to deploy the AWS architecture described below.
+    return f"""You are an expert {config['expert_role']}. Generate production-ready {config['code_type']}
+to deploy the {target_label} architecture described below.
 
 ## Source Architecture
 - Provider: {source_provider}
 - Services detected: {services_detected}
-- Service mappings (source → AWS):
+- Service mappings (source → {target_label}):
 {mapping_text}
 
 ## Parameters
@@ -225,25 +197,22 @@ to deploy the AWS architecture described below.
 - SKU strategy: {sku_strategy} (cost-optimized | balanced | performance)
 
 ## Requirements
-1. Use AWSTemplateFormatVersion: '2010-09-09'
-2. Follow AWS naming conventions and tagging best practices
-3. Use Parameters for environment, region, and any secrets
-4. Include all AWS resources from the mappings above
-5. Group resources by logical function with clear comments
-6. Use appropriate instance types based on the strategy ({sku_strategy})
-7. Include IAM roles and policies with least-privilege principle
-8. **CRITICAL — Credential Handling:**
-   - ALWAYS use AWS Secrets Manager or SSM Parameter Store for secrets
-   - NEVER use inline/hardcoded passwords, credentials, or API keys
-   - For RDS: use ManageMasterUserPassword with Secrets Manager integration
-   - For EC2: use IAM instance profiles instead of access keys
-   - Mark secret parameters with NoEcho: true
-9. Include meaningful Outputs (endpoints, ARNs, URLs) — NEVER output secrets
-10. Do NOT include any markdown formatting — return ONLY valid CloudFormation YAML
-11. Add comments explaining which source service each resource replaces
-12. Use !Ref, !Sub, !GetAtt, and !Join for dynamic values
+{requirements}
 
-Return ONLY the CloudFormation YAML, no markdown fences, no explanations."""
+{config['return_instruction']}"""
+
+
+# Backwards-compatible wrappers (kept for tests and internal callers)
+def _build_terraform_prompt(analysis: dict, params: dict) -> str:
+    return _build_iac_prompt("terraform", analysis, params)
+
+
+def _build_bicep_prompt(analysis: dict, params: dict) -> str:
+    return _build_iac_prompt("bicep", analysis, params)
+
+
+def _build_cloudformation_prompt(analysis: dict, params: dict) -> str:
+    return _build_iac_prompt("cloudformation", analysis, params)
 
 
 # ─────────────────────────────────────────────────────────────

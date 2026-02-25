@@ -3,7 +3,6 @@ import { CloudCog, Layers, Server, Rocket, MessageSquare, Shield, Home, LayoutDa
 import { Badge } from './ui';
 import { APP_VERSION } from '../constants';
 import FeedbackWidget from './FeedbackWidget';
-import LanguageSelector from './LanguageSelector';
 
 export default function Nav({ activeTab, setActiveTab, updateStatus }) {
   const feedbackRef = useRef(null);
@@ -66,7 +65,6 @@ export default function Nav({ activeTab, setActiveTab, updateStatus }) {
                 <MessageSquare className="w-4 h-4 text-text-secondary hover:text-text-primary" />
               </button>
               <Badge variant="azure" className="hidden sm:inline-flex">v{APP_VERSION}</Badge>
-              <LanguageSelector />
               {/* Mobile hamburger */}
               <button
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}

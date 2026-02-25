@@ -1,14 +1,14 @@
 import React from 'react';
 import {
   ArrowRight, AlertTriangle, Info, HelpCircle,
-  FileCode, Sparkles,
+  FileCode, Sparkles, Loader2,
 } from 'lucide-react';
 import { Badge, Button, Card } from '../ui';
 import ExportPanel from './ExportPanel';
 import HLDPanel from './HLDPanel';
 
 export default function AnalysisResults({
-  analysis, loading, iacFormat, exportLoading, hldLoading,
+  analysis, loading, generatingIac, iacFormat, exportLoading, hldLoading,
   hldData, hldTab, hldExportLoading, hldIncludeDiagrams, copyFeedback,
   onSetStep, onGenerateIac, onGenerateHld, onExportDiagram,
   onSetHldTab, onSetHldIncludeDiagrams, onHldExport, onCopyWithFeedback,
@@ -104,6 +104,20 @@ export default function AnalysisResults({
 
       {/* Export Diagram */}
       <ExportPanel exportLoading={exportLoading} onExportDiagram={onExportDiagram} />
+
+      {/* Generation Progress Indicator (#311) */}
+      {(generatingIac || hldLoading) && (
+        <Card className="p-4 border-cta/30 bg-cta/5" role="status" aria-live="polite">
+          <div className="flex items-center gap-3">
+            <Loader2 className="w-5 h-5 text-cta animate-spin shrink-0" aria-hidden="true" />
+            <p className="text-sm text-text-primary font-medium">
+              {generatingIac
+                ? `Generating ${iacFormat === 'terraform' ? 'Terraform' : iacFormat === 'bicep' ? 'Bicep' : 'CloudFormation'} code...`
+                : 'Generating High-Level Design document...'}
+            </p>
+          </div>
+        </Card>
+      )}
 
       {/* Generate Buttons — responsive wrap for mobile (#306) */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">

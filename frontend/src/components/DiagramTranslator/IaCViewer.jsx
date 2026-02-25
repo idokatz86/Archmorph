@@ -3,6 +3,7 @@ import Prism from 'prismjs';
 import DOMPurify from 'dompurify';
 import 'prismjs/components/prism-hcl';
 import 'prismjs/components/prism-json';
+import 'prismjs/components/prism-yaml';
 import {
   FileCode, FileText, Download, Check, Sparkles, Bot,
   Plus, RotateCcw, Send, Loader2, CheckCircle,
@@ -37,8 +38,12 @@ export default function IaCViewer({
 }) {
   // Memoize syntax highlighting — avoids per-line Prism.highlight + DOMPurify on every render (#219)
   const highlightedLines = useMemo(() => {
-    const grammar = iacFormat === 'terraform' ? Prism.languages.hcl : Prism.languages.json;
-    const lang = iacFormat === 'terraform' ? 'hcl' : 'json';
+    const grammar = iacFormat === 'terraform' ? Prism.languages.hcl
+      : iacFormat === 'cloudformation' ? Prism.languages.yaml
+      : Prism.languages.json;
+    const lang = iacFormat === 'terraform' ? 'hcl'
+      : iacFormat === 'cloudformation' ? 'yaml'
+      : 'json';
     return iacCode.split('\n').map((line) => {
       const rawHighlighted = grammar ? Prism.highlight(line || ' ', grammar, lang) : (line || ' ');
       return DOMPurify.sanitize(rawHighlighted, { ALLOWED_TAGS: ['span'], ALLOWED_ATTR: ['class'] });
@@ -54,7 +59,7 @@ export default function IaCViewer({
             <FileCode className="w-6 h-6 text-cta" />
             <div>
               <h2 className="text-xl font-bold text-text-primary">
-                {iacFormat === 'terraform' ? 'Terraform' : 'Bicep'} Code
+                {iacFormat === 'terraform' ? 'Terraform' : iacFormat === 'cloudformation' ? 'CloudFormation' : 'Bicep'} Code
               </h2>
               <p className="text-xs text-text-muted">{highlightedLines.length} lines generated</p>
             </div>
@@ -67,7 +72,7 @@ export default function IaCViewer({
               const blob = new Blob([iacCode], { type: 'text/plain' });
               const url = URL.createObjectURL(blob);
               const a = document.createElement('a');
-              a.href = url; a.download = iacFormat === 'terraform' ? 'main.tf' : 'main.bicep'; a.click();
+              a.href = url; a.download = iacFormat === 'terraform' ? 'main.tf' : iacFormat === 'cloudformation' ? 'template.yaml' : 'main.bicep'; a.click();
               URL.revokeObjectURL(url);
             }} variant="secondary" size="sm" icon={Download}>Download</Button>
           </div>
@@ -125,8 +130,8 @@ export default function IaCViewer({
         )}
 
         {iacChatOpen && (
-          <div className="border border-border rounded-xl overflow-hidden bg-primary">
-            <div className="h-80 overflow-y-auto px-4 py-3 space-y-3">
+          <div className="border border-border rounded-xl overflow-hidden bg-primary" role="region" aria-label="IaC Chat Assistant">
+            <div className="h-80 overflow-y-auto px-4 py-3 space-y-3" role="log" aria-live="polite">
               {iacChatMessages.map((msg, i) => (
                 <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                   <div className={`max-w-[88%] px-3 py-2 rounded-xl text-sm ${
@@ -188,9 +193,11 @@ export default function IaCViewer({
                   onChange={e => onSetChatInput(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSendChat(); } }}
                   placeholder="Ask to add VNet, storage, IPs, naming conventions..."
+                  aria-label="IaC chat message"
                   className="flex-1 px-3 py-2 bg-surface border border-border rounded-lg text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-cta/50 transition-colors"
                 />
                 <button onClick={onSendChat} disabled={!iacChatInput.trim() || iacChatLoading}
+                  aria-label="Send message"
                   className="p-2 rounded-lg bg-cta hover:bg-cta-hover text-surface disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors">
                   <Send className="w-4 h-4" />
                 </button>

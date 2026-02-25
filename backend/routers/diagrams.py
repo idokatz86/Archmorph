@@ -59,7 +59,7 @@ class AddServicesRequest(BaseModel):
 class IaCChatMessage(BaseModel):
     message: str = Field(..., min_length=1, max_length=5000)
     code: str = Field(..., max_length=100000)
-    format: str = Field(default="terraform", pattern="^(terraform|bicep)$")
+    format: str = Field(default="terraform", pattern="^(terraform|bicep|cloudformation)$")
 
 
 class TerraformValidateRequest(BaseModel):
@@ -355,8 +355,8 @@ async def export_architecture_diagram(request: Request, diagram_id: str, format:
 @router.post("/api/diagrams/{diagram_id}/generate")
 @limiter.limit("5/minute")
 async def generate_iac(request: Request, diagram_id: str, format: str = "terraform", _auth=Depends(verify_api_key)):
-    if format not in ["terraform", "bicep"]:
-        raise HTTPException(400, "Format must be 'terraform' or 'bicep'")
+    if format not in ["terraform", "bicep", "cloudformation"]:
+        raise HTTPException(400, "Format must be 'terraform', 'bicep', or 'cloudformation'")
 
     # Get analysis from session (may be None for base template)
     session = SESSION_STORE.get(diagram_id, {})
@@ -935,8 +935,8 @@ async def generate_iac_async(
     request: Request, diagram_id: str, format: str = "terraform", _auth=Depends(verify_api_key),
 ):
     """Start async IaC code generation. Returns 202 with job_id."""
-    if format not in ["terraform", "bicep"]:
-        raise HTTPException(400, "Format must be 'terraform' or 'bicep'")
+    if format not in ["terraform", "bicep", "cloudformation"]:
+        raise HTTPException(400, "Format must be 'terraform', 'bicep', or 'cloudformation'")
 
     job = job_manager.submit("generate_iac", diagram_id=diagram_id)
     asyncio.create_task(_run_iac_job(job.job_id, diagram_id, format))

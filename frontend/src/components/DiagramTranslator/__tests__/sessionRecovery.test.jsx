@@ -60,14 +60,6 @@ vi.mock('../../../services/apiClient', () => ({
   },
 }))
 
-// Mock react-i18next
-vi.mock('react-i18next', () => ({
-  useTranslation: () => ({
-    t: (key, fallback) => (typeof fallback === 'string' ? fallback : key),
-    i18n: { language: 'en', changeLanguage: vi.fn() },
-  }),
-}))
-
 describe('DiagramTranslator — Session UX Tests', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -82,18 +74,18 @@ describe('DiagramTranslator — Session UX Tests', () => {
     expect(screen.getByText('Upload Architecture Diagram')).toBeInTheDocument()
   })
 
-  it('starts at upload step even with cached session (no auto-restore on mount)', () => {
+  it('auto-restores cached session on mount (#269)', () => {
     mockLoadSession.mockReturnValue({
       diagramId: 'cached-123',
-      analysis: { zones: [], mappings: [] },
+      analysis: { zones: [], mappings: [], diagram_type: 'AWS Architecture', services_detected: 5 },
       questions: [],
       answers: {},
       ts: Date.now(),
     })
 
     render(<DiagramTranslator />)
-    // Currently, there is NO auto-restore on mount — this is a UX issue
-    expect(screen.getByText('Upload Architecture Diagram')).toBeInTheDocument()
+    // With auto-restore (#269), cached session is loaded and step advances to results
+    expect(screen.queryByText('Upload Architecture Diagram')).not.toBeInTheDocument()
   })
 
   // ── Session expiry error display ──

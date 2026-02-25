@@ -282,7 +282,22 @@ class FileStore(SessionStore):
         return self._read(self._path(key)) is not None
 
     def __len__(self) -> int:
-        return sum(1 for p in self._base.glob("*.json") if self._read(p) is not None)
+        # Count non-expired files without full JSON parse (#297 — was O(n) parse).
+        # Only check mtime + stat, read expiry cheaply via _read for expired items.
+        now = _time.time()
+        count = 0
+        for p in self._base.glob("*.json"):
+            try:
+                # Quick stat-based age check: if file is younger than TTL, count it
+                if now - p.stat().st_mtime < self._ttl:
+                    count += 1
+                else:
+                    # File older than TTL — check actual expires_at (may have been refreshed)
+                    if self._read(p) is not None:
+                        count += 1
+            except OSError:
+                continue
+        return count
 
     @property
     def maxsize(self) -> int:

@@ -40,6 +40,35 @@ export default function ChatWidget() {
     if (open) inputRef.current?.focus();
   }, [open]);
 
+  // Focus trap: Escape closes chat, Tab cycles within panel (#308)
+  const handlePanelKeyDown = (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      setOpen(false);
+      return;
+    }
+    if (e.key === 'Tab') {
+      const panel = e.currentTarget;
+      const focusable = panel.querySelectorAll(
+        'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey) {
+        if (document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    }
+  };
+
   const sendMessage = async () => {
     const text = input.trim();
     if (!text || loading) return;
@@ -103,7 +132,14 @@ export default function ChatWidget() {
       </button>
 
       {open && (
-        <div className="fixed bottom-24 right-6 z-50 w-96 max-w-[calc(100vw-2rem)] bg-primary border border-border rounded-2xl shadow-2xl shadow-black/40 flex flex-col overflow-hidden animate-slide-up" style={{ height: '500px' }}>
+        <div
+          className="fixed bottom-24 right-6 z-50 w-96 max-w-[calc(100vw-2rem)] bg-primary border border-border rounded-2xl shadow-2xl shadow-black/40 flex flex-col overflow-hidden animate-slide-up"
+          style={{ height: '500px' }}
+          role="dialog"
+          aria-label="Archmorph AI Assistant chat"
+          aria-modal="true"
+          onKeyDown={handlePanelKeyDown}
+        >
           <div className="px-4 py-3 bg-secondary border-b border-border flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-cta/15 flex items-center justify-center">
               <MessageSquare className="w-4 h-4 text-cta" />

@@ -146,11 +146,14 @@ async function request(path, options = {}, signal) {
       }
 
       // Network errors are retryable
-      if (err instanceof TypeError && attempt < MAX_RETRIES) {
-        lastError = new ApiError(0, { detail: 'Network error — check your connection.' });
-        const delay = BACKOFF_BASE_MS * Math.pow(2, attempt) + Math.random() * 500;
-        await sleep(delay);
-        continue;
+      if (err instanceof TypeError) {
+        lastError = new ApiError(0, { detail: 'Network error \u2014 check your connection.' });
+        if (attempt < MAX_RETRIES) {
+          const delay = BACKOFF_BASE_MS * Math.pow(2, attempt) + Math.random() * 500;
+          await sleep(delay);
+          continue;
+        }
+        throw lastError;
       }
 
       throw err;

@@ -1,6 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import api, { ApiError } from '../../services/apiClient'
 
+/**
+ * apiClient tests — #270
+ *
+ * NOTE: apiClient has retry logic for transient failures (429, 500, 502, 503, 504)
+ * and network TypeErrors. Tests that don't specifically test retry behavior use
+ * non-retryable status codes to avoid backoff delays.
+ */
+
 describe('apiClient', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -33,12 +41,6 @@ describe('apiClient', () => {
     })
 
     await expect(api.get('/missing')).rejects.toThrow(ApiError)
-
-    try {
-      await api.get('/missing')
-    } catch (err) {
-      // Catch the second call that will also throw
-    }
   })
 
   it('GET handles 404 status correctly', async () => {
@@ -54,7 +56,8 @@ describe('apiClient', () => {
     } catch (err) {
       expect(err).toBeInstanceOf(ApiError)
       expect(err.status).toBe(404)
-      expect(err.message).toContain('Session not found')
+      // 404 has a user-friendly message; rawMessage preserves the API detail
+      expect(err.rawMessage).toBe('Session not found')
     }
   })
 
@@ -127,10 +130,11 @@ describe('apiClient', () => {
   })
 
   it('throws ApiError for non-JSON error responses', async () => {
+    // Use 400 (non-retryable) to avoid retry backoff delays
     fetch.mockResolvedValueOnce({
       ok: false,
-      status: 500,
-      statusText: 'Internal Server Error',
+      status: 400,
+      statusText: 'Bad Request',
       headers: new Headers({ 'content-type': 'text/plain' }),
     })
 
@@ -140,9 +144,10 @@ describe('apiClient', () => {
   // ── Error structure ──
 
   it('ApiError includes status and body', async () => {
+    // Use 400 (non-retryable, no user-friendly mapping) so rawMessage is used as-is
     fetch.mockResolvedValueOnce({
       ok: false,
-      status: 429,
+      status: 400,
       headers: new Headers({ 'content-type': 'application/json' }),
       json: () =>
         Promise.resolve({
@@ -158,7 +163,7 @@ describe('apiClient', () => {
       expect.fail('Should have thrown')
     } catch (err) {
       expect(err).toBeInstanceOf(ApiError)
-      expect(err.status).toBe(429)
+      expect(err.status).toBe(400)
       expect(err.message).toContain('Rate limit')
       expect(err.correlationId).toBe('abc-123')
     }
@@ -181,9 +186,10 @@ describe('apiClient', () => {
   })
 
   it('ApiError falls back to HTTP status when no message', async () => {
+    // Use 422 (non-retryable, no user-friendly mapping) so fallback to "HTTP 422"
     fetch.mockResolvedValueOnce({
       ok: false,
-      status: 503,
+      status: 422,
       headers: new Headers({ 'content-type': 'application/json' }),
       json: () => Promise.resolve({}),
     })
@@ -192,13 +198,13 @@ describe('apiClient', () => {
       await api.get('/unavailable')
       expect.fail('Should have thrown')
     } catch (err) {
-      expect(err.message).toContain('503')
+      expect(err.message).toContain('422')
     }
   })
 
   // ── AbortSignal support ──
 
-  it('passes abort signal to fetch', async () => {
+  it('passes abort signal to fetch via timeout controller', async () => {
     const controller = new AbortController()
     fetch.mockResolvedValueOnce({
       ok: true,
@@ -208,28 +214,38 @@ describe('apiClient', () => {
     })
 
     await api.get('/health', controller.signal)
+    // apiClient wraps caller signals in a timeout controller — verify an AbortSignal is used
     expect(fetch).toHaveBeenCalledWith(
       expect.any(String),
-      expect.objectContaining({ signal: controller.signal }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     )
   })
 
-  it('abort signal triggers AbortError', async () => {
+  it('pre-aborted signal throws AbortError without calling fetch', async () => {
     const controller = new AbortController()
     controller.abort()
 
-    fetch.mockRejectedValueOnce(new DOMException('Aborted', 'AbortError'))
-
-    await expect(api.get('/health', controller.signal)).rejects.toThrow('Aborted')
+    // apiClient detects pre-aborted signal and throws before calling fetch
+    await expect(api.get('/health', controller.signal)).rejects.toThrow('The operation was aborted.')
+    expect(fetch).not.toHaveBeenCalled()
   })
 
   // ── Network errors ──
 
-  it('propagates network errors', async () => {
-    fetch.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+  it('wraps network TypeError as ApiError after retries exhausted', async () => {
+    // TypeError triggers retry (4 total attempts); after exhaustion wraps as ApiError
+    for (let i = 0; i < 4; i++) {
+      fetch.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    }
 
-    await expect(api.get('/health')).rejects.toThrow('Failed to fetch')
-  })
+    try {
+      await api.get('/health')
+      expect.fail('Should have thrown')
+    } catch (err) {
+      expect(err).toBeInstanceOf(ApiError)
+      expect(err.status).toBe(0)
+    }
+  }, 30_000)
 
   // ── Auth requests ──
 
@@ -295,11 +311,12 @@ describe('apiClient', () => {
         headers: new Headers({ 'content-type': 'application/json' }),
         json: () => Promise.resolve({ endpoint: 'health' }),
       })
+      // Use 400 (non-retryable) to avoid retry delays in concurrent test
       .mockResolvedValueOnce({
         ok: false,
-        status: 500,
+        status: 400,
         headers: new Headers({ 'content-type': 'application/json' }),
-        json: () => Promise.resolve({ detail: 'Server error' }),
+        json: () => Promise.resolve({ detail: 'Bad request' }),
       })
 
     const [healthResult, errorResult] = await Promise.allSettled([
@@ -310,6 +327,6 @@ describe('apiClient', () => {
     expect(healthResult.status).toBe('fulfilled')
     expect(healthResult.value.endpoint).toBe('health')
     expect(errorResult.status).toBe('rejected')
-    expect(errorResult.reason.status).toBe(500)
+    expect(errorResult.reason.status).toBe(400)
   })
 })

@@ -15,7 +15,8 @@ describe('sessionCache', () => {
 
   it('saveSession stores data to sessionStorage', () => {
     saveSession('diagram-1', { services: 3 }, [{ id: 'q1' }], { q1: 'yes' })
-    const raw = sessionStorage.getItem('archmorph_session')
+    // Multi-tab support (#265): per-diagram key
+    const raw = sessionStorage.getItem('archmorph_session_diagram-1')
     expect(raw).not.toBeNull()
     const data = JSON.parse(raw)
     expect(data.diagramId).toBe('diagram-1')
@@ -38,7 +39,7 @@ describe('sessionCache', () => {
     saveSession('d1', {}, [], {})
     clearSession()
     expect(loadSession()).toBeNull()
-    expect(sessionStorage.getItem('archmorph_session')).toBeNull()
+    expect(sessionStorage.getItem('archmorph_session_d1')).toBeNull()
   })
 
   // ── TTL expiry ──
@@ -52,7 +53,7 @@ describe('sessionCache', () => {
     const result = loadSession()
     expect(result).toBeNull()
     // Should also clean up sessionStorage
-    expect(sessionStorage.getItem('archmorph_session')).toBeNull()
+    expect(sessionStorage.getItem('archmorph_session_d1')).toBeNull()
   })
 
   it('loadSession returns data when cache is under 2 hours old', () => {
@@ -104,7 +105,9 @@ describe('sessionCache', () => {
   // ── Error handling ──
 
   it('loadSession returns null on corrupt JSON', () => {
-    sessionStorage.setItem('archmorph_session', 'not-valid-json{{{')
+    // Corrupt data at a per-diagram key
+    sessionStorage.setItem('archmorph_session_bad', 'not-valid-json{{{')
+    sessionStorage.setItem('archmorph_active_diagram', 'bad')
     expect(loadSession()).toBeNull()
   })
 

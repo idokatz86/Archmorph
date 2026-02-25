@@ -84,6 +84,24 @@ export default function DiagramTranslator() {
     };
   }, []);
 
+  // ── Auto-restore session on mount (#269) ──
+  useEffect(() => {
+    const cached = loadSession();
+    if (cached && cached.diagramId && cached.analysis) {
+      set({
+        diagramId: cached.diagramId,
+        analysis: cached.analysis,
+        questions: cached.questions || [],
+        answers: cached.answers || {},
+        iacCode: cached.iacCode || null,
+        iacFormat: cached.iacFormat || 'terraform',
+        hldData: cached.hldData || null,
+        step: cached.iacCode ? 'iac' : 'results',
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // ── Drag & drop ──
   // ── Session auto-recovery: push cached analysis back to backend on 404 ──
   const tryRestoreSession = async (diagramId) => {
@@ -372,10 +390,10 @@ export default function DiagramTranslator() {
   };
 
   const handleGenerateIac = async (fmt) => {
-    set({ loading: true, iacFormat: fmt });
+    set({ loading: true, iacFormat: fmt, generatingIac: true });
     try {
       const iacData = await api.post(`/diagrams/${state.diagramId}/generate?format=${fmt}`);
-      set({ iacCode: iacData.code, costEstimate: null, step: 'iac' });
+      set({ iacCode: iacData.code, costEstimate: null, step: 'iac', generatingIac: false });
       updateSessionCache({ iacCode: iacData.code, iacFormat: fmt }); // #263
     } catch (err) {
       if (err.status === 404) {
@@ -383,18 +401,18 @@ export default function DiagramTranslator() {
         if (restored) {
           try {
             const iacData = await api.post(`/diagrams/${state.diagramId}/generate?format=${fmt}`);
-            set({ iacCode: iacData.code, costEstimate: null, step: 'iac', loading: false });
+            set({ iacCode: iacData.code, costEstimate: null, step: 'iac', loading: false, generatingIac: false });
             updateSessionCache({ iacCode: iacData.code, iacFormat: fmt }); // #263
             return;
           } catch { /* fall through */ }
         }
-        set({ error: 'Your session has expired. Please re-upload your diagram to continue.', step: 'upload', loading: false });
+        set({ error: 'Your session has expired. Please re-upload your diagram to continue.', step: 'upload', loading: false, generatingIac: false });
         clearSession();
         return;
       }
-      set({ error: err.message });
+      set({ error: err.message, generatingIac: false });
     }
-    set({ loading: false });
+    set({ loading: false, generatingIac: false });
   };
 
   const handleHldExport = async (fmt) => {
@@ -465,7 +483,21 @@ export default function DiagramTranslator() {
           setExportLoading(format, false);
           return;
         }
-        set({ error: 'Your session has expired. Please re-upload your diagram to continue.', step: 'upload' });
+        // Retry export after successful session restore (#267)
+        try {
+          const data = await api.post(`/diagrams/${state.diagramId}/export-diagram?format=${format}`);
+          const content = typeof data.content === 'string' ? data.content : JSON.stringify(data.content, null, 2);
+          const blob = new Blob([content], { type: 'application/octet-stream' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = data.filename || `archmorph-diagram.${format === 'excalidraw' ? 'excalidraw' : format === 'drawio' ? 'drawio' : 'vdx'}`;
+          a.click();
+          URL.revokeObjectURL(url);
+          setExportLoading(format, false);
+          return;
+        } catch { /* fall through */ }
+        set({ error: 'Export failed after session restore. Please try again.', step: 'upload' });
         clearSession();
         setExportLoading(format, false);
         return;
@@ -691,6 +723,7 @@ export default function DiagramTranslator() {
         <AnalysisResults
           analysis={state.analysis}
           loading={state.loading}
+          generatingIac={state.generatingIac}
           iacFormat={state.iacFormat}
           exportLoading={state.exportLoading}
           hldLoading={state.hldLoading}

@@ -307,10 +307,9 @@ class TestAuthTokenExpiry:
     """Auth token cache has 5-min TTL with no refresh mechanism."""
 
     def test_user_cache_ttl(self):
-        """USER_CACHE drops entries after 5 minutes."""
-        from auth import USER_CACHE
-        # The TTL of USER_CACHE is 300 seconds (5 minutes)
-        assert USER_CACHE.ttl == 300
+        """USER_CACHE drops entries after configured TTL (default 1 hour)."""
+        from auth import USER_CACHE, USER_CACHE_TTL
+        assert USER_CACHE.ttl == USER_CACHE_TTL
 
     def test_generate_session_token_stores_user(self):
         """generate_session_token should store user in USER_CACHE."""
@@ -346,8 +345,8 @@ class TestAuthTokenExpiry:
 
         token = generate_session_token(user)
         # We can't easily wait 5 minutes, so we verify the TTL config
-        from auth import USER_CACHE
-        assert USER_CACHE.ttl == 300  # 5 min TTL confirmed
+        from auth import USER_CACHE, USER_CACHE_TTL
+        assert USER_CACHE.ttl == USER_CACHE_TTL  # TTL confirmed
 
         # Verify token works immediately
         assert get_user_from_session(token) is not None

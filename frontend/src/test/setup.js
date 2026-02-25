@@ -1,4 +1,8 @@
 import '@testing-library/jest-dom'
+import Prism from 'prismjs'
+
+// Make Prism available globally for language component plugins (prism-yaml, etc.)
+global.Prism = Prism
 
 // Mock fetch globally
 global.fetch = vi.fn()

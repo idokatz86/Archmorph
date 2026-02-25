@@ -153,7 +153,7 @@ resource "azurerm_container_registry" "main" {
   location                      = azurerm_resource_group.main.location
   sku                           = var.environment == "prod" ? "Standard" : "Basic"
   admin_enabled                 = false  # Use managed identity — never admin credentials (#98 — I-002)
-  public_network_access_enabled = true
+  public_network_access_enabled = var.environment == "prod" ? false : true  # Disable public access in prod (#289)
   zone_redundancy_enabled       = var.environment == "prod"
   anonymous_pull_enabled        = false
   data_endpoint_enabled         = var.environment == "prod"
@@ -203,6 +203,7 @@ resource "azurerm_postgresql_flexible_server_database" "main" {
 }
 
 resource "azurerm_postgresql_flexible_server_firewall_rule" "allow_azure" {
+  count            = var.environment == "prod" ? 0 : 1  # Disable in prod — use VNet/Private Endpoint instead (#289)
   name             = "AllowAzureServices"
   server_id        = azurerm_postgresql_flexible_server.main.id
   start_ip_address = "0.0.0.0"
@@ -1863,6 +1864,20 @@ resource "azurerm_security_center_subscription_pricing" "app_service" {
   count         = var.environment == "prod" ? 1 : 0
   tier          = "Standard"
   resource_type = "AppServices"
+}
+
+# Defender for Azure Resource Manager — detects suspicious management operations (#289)
+resource "azurerm_security_center_subscription_pricing" "arm" {
+  count         = var.environment == "prod" ? 1 : 0
+  tier          = "Standard"
+  resource_type = "Arm"
+}
+
+# Defender for DNS — detects malicious DNS queries (#289)
+resource "azurerm_security_center_subscription_pricing" "dns" {
+  count         = var.environment == "prod" ? 1 : 0
+  tier          = "Standard"
+  resource_type = "Dns"
 }
 
 # ─────────────────────────────────────────────────────────────
