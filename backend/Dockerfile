@@ -1,12 +1,13 @@
 # ── Stage 1: Build — install dependencies in a throwaway layer ──
-FROM python:3.12-slim AS builder
+# Use MCR Oryx images to avoid Docker Hub rate limits in ACR Tasks builds
+FROM mcr.microsoft.com/oryx/python:3.12-debian-bookworm AS builder
 
 WORKDIR /build
 COPY requirements.txt .
 RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
 # ── Stage 2: Runtime — slim image with only what's needed ──
-FROM python:3.12-slim
+FROM mcr.microsoft.com/oryx/python:3.12-debian-bookworm
 
 WORKDIR /app
 
