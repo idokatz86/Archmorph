@@ -19,7 +19,7 @@ from routers.shared import (
 from routers.samples import get_or_recreate_session
 from job_queue import job_manager
 from usage_metrics import record_event, record_funnel_step
-from guided_questions import generate_questions, apply_answers
+from guided_questions import generate_questions, apply_answers, get_question_constraints
 from diagram_export import generate_diagram
 from iac_chat import process_iac_chat, get_iac_chat_history, clear_iac_chat
 from iac_generator import generate_iac_code
@@ -251,6 +251,7 @@ async def get_guided_questions(request: Request, diagram_id: str, smart_dedup: b
         "total": len(questions),
         "inferred_answers": inferred_answers,
         "questions_skipped": len(inferred_answers),
+        **get_question_constraints(),
     }
 
 

@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
-import { HelpCircle, ChevronRight, ChevronLeft, Check, Sparkles, ToggleLeft, ToggleRight } from 'lucide-react';
+import { HelpCircle, ChevronRight, ChevronLeft, Check, Sparkles, ToggleLeft, ToggleRight, AlertTriangle } from 'lucide-react';
 import { Badge, Button, Card } from '../ui';
 
 /* ── Toggle Switch ── */
@@ -51,16 +51,81 @@ function OptionCard({ selected, onClick, label, description, multi }) {
 export default function GuidedQuestions({
   analysis, questions, answers, loading,
   onUpdateAnswer, onApplyAnswers, onSkip,
+  constraints = [], regionGroups = {},
 }) {
-  const categories = useMemo(() => [...new Set(questions.map(q => q.category || 'General'))], [questions]);
+  /* ── Apply inter-question constraints ── */
+  const constrainedQuestions = useMemo(() => {
+    if (!constraints.length) return questions;
+
+    // Deep-copy questions so we don't mutate the original
+    const result = questions.map(q => ({ ...q, options: [...(q.options || [])], constraintReasons: [] }));
+
+    for (const rule of constraints) {
+      const sourceAnswer = answers[rule.source];
+      if (sourceAnswer === undefined || sourceAnswer === null || sourceAnswer === '') continue;
+
+      // Check if the constraint matches the current answer
+      const match = rule.match;
+      let matched = false;
+      if (match.type === 'value') {
+        matched = sourceAnswer === match.value;
+      } else if (match.type === 'contains') {
+        matched = Array.isArray(sourceAnswer)
+          ? sourceAnswer.includes(match.value)
+          : sourceAnswer === match.value;
+      }
+      if (!matched) continue;
+
+      // Apply the filter to the target question
+      const target = result.find(q => q.id === rule.target);
+      if (!target) continue;
+
+      const filter = rule.filter;
+      if (filter.type === 'region_group') {
+        const allowed = regionGroups[filter.group] || [];
+        target.options = target.options.filter(o => allowed.includes(typeof o === 'string' ? o : o.value));
+      } else if (filter.type === 'allowed') {
+        target.options = target.options.filter(o => filter.values.includes(typeof o === 'string' ? o : o.value));
+      } else if (filter.type === 'excluded') {
+        target.options = target.options.filter(o => !filter.values.includes(typeof o === 'string' ? o : o.value));
+      }
+      target.constraintReasons.push(rule.reason);
+    }
+    return result;
+  }, [questions, answers, constraints, regionGroups]);
+
+  /* ── Auto-clear answers that are no longer valid after constraint filtering ── */
+  useEffect(() => {
+    for (const q of constrainedQuestions) {
+      const currentAnswer = answers[q.id];
+      if (currentAnswer === undefined || currentAnswer === null || currentAnswer === '') continue;
+
+      const validValues = (q.options || []).map(o => typeof o === 'string' ? o : o.value);
+
+      if (q.type === 'single_choice') {
+        if (!validValues.includes(currentAnswer)) {
+          onUpdateAnswer(q.id, q.options.length > 0 ? (typeof q.options[0] === 'string' ? q.options[0] : q.options[0].value) : '');
+        }
+      } else if (q.type === 'multiple_choice' || q.type === 'multi_choice') {
+        if (Array.isArray(currentAnswer)) {
+          const filtered = currentAnswer.filter(v => validValues.includes(v));
+          if (filtered.length !== currentAnswer.length) {
+            onUpdateAnswer(q.id, filtered);
+          }
+        }
+      }
+    }
+  }, [constrainedQuestions]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const categories = useMemo(() => [...new Set(constrainedQuestions.map(q => q.category || 'General'))], [constrainedQuestions]);
   const [activeCatIdx, setActiveCatIdx] = useState(0);
   const contentRef = useRef(null);
 
   const activeCat = categories[activeCatIdx] || categories[0];
-  const catQuestions = useMemo(() => questions.filter(q => (q.category || 'General') === activeCat), [questions, activeCat]);
+  const catQuestions = useMemo(() => constrainedQuestions.filter(q => (q.category || 'General') === activeCat), [constrainedQuestions, activeCat]);
 
   const answered = useMemo(() => Object.keys(answers).filter(k => answers[k] !== undefined && answers[k] !== null && answers[k] !== ''), [answers]);
-  const totalProgress = Math.round((answered.length / Math.max(questions.length, 1)) * 100);
+  const totalProgress = Math.round((answered.length / Math.max(constrainedQuestions.length, 1)) * 100);
 
   // Scroll to top of content when switching categories
   useEffect(() => {
@@ -97,7 +162,7 @@ export default function GuidedQuestions({
         {/* Overall progress */}
         <div className="mt-4">
           <div className="flex items-center justify-between text-xs mb-1.5">
-            <span className="text-text-muted">{answered.length} of {questions.length} answered</span>
+            <span className="text-text-muted">{answered.length} of {constrainedQuestions.length} answered</span>
             <span className="font-medium text-cta">{totalProgress}%</span>
           </div>
           <div className="h-2 bg-secondary rounded-full overflow-hidden">
@@ -111,7 +176,7 @@ export default function GuidedQuestions({
         {/* Category stepper pills */}
         <div className="flex flex-wrap gap-2 mt-4">
           {categories.map((cat, idx) => {
-            const catQs = questions.filter(q => (q.category || 'General') === cat);
+            const catQs = constrainedQuestions.filter(q => (q.category || 'General') === cat);
             const catAnswered = catQs.filter(q => answered.includes(q.id)).length;
             const isActive = idx === activeCatIdx;
             const isDone = catAnswered === catQs.length;
@@ -153,6 +218,16 @@ export default function GuidedQuestions({
                   <p className="text-sm font-medium text-text-primary leading-snug">{q.question}</p>
                   {q.impact && (
                     <Badge className="mt-1.5" variant="outline">{q.impact}</Badge>
+                  )}
+                  {q.constraintReasons?.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {q.constraintReasons.map((reason, ri) => (
+                        <span key={ri} className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                          <AlertTriangle className="w-3 h-3 shrink-0" />
+                          {reason}
+                        </span>
+                      ))}
+                    </div>
                   )}
                 </div>
               </div>

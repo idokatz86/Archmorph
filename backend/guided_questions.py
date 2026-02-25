@@ -860,6 +860,103 @@ def _flatten_questions() -> list[Question]:
 
 
 # ═════════════════════════════════════════════════════════════
+# QUESTION CONSTRAINTS — inter-question dependency rules
+# ═════════════════════════════════════════════════════════════
+# Region groups used for constraint-based option filtering.
+REGION_GROUPS: dict[str, list[str]] = {
+    "EU": [
+        "West Europe", "North Europe", "UK South", "France Central",
+        "Germany West Central", "Switzerland North", "Sweden Central",
+    ],
+    "US": [
+        "East US", "East US 2", "West US 2", "Central US",
+    ],
+}
+
+# Each constraint rule:
+#   source  – question id whose answer triggers this constraint
+#   match   – how to test the source answer
+#              type "value"    → exact match (single_choice)
+#              type "contains" → answer list includes value (multiple_choice)
+#   target  – question id whose options get filtered
+#   filter  – how to filter target options
+#              type "region_group" → restrict to REGION_GROUPS[group]
+#              type "allowed"      → whitelist of allowed option values
+#              type "excluded"     → blacklist of excluded option values
+#   reason  – human-readable explanation shown to the user
+QUESTION_CONSTRAINTS: list[dict[str, Any]] = [
+    # ── Data residency → deploy region ────────────────────
+    {
+        "source": "sec_data_residency",
+        "match": {"type": "value", "value": "EU only"},
+        "target": "arch_deploy_region",
+        "filter": {"type": "region_group", "group": "EU"},
+        "reason": "Data residency requirement restricts deployment to EU regions",
+    },
+    {
+        "source": "sec_data_residency",
+        "match": {"type": "value", "value": "US only"},
+        "target": "arch_deploy_region",
+        "filter": {"type": "region_group", "group": "US"},
+        "reason": "Data residency requirement restricts deployment to US regions",
+    },
+    # ── GDPR → deploy region & residency ─────────────────
+    {
+        "source": "sec_compliance",
+        "match": {"type": "contains", "value": "GDPR"},
+        "target": "arch_deploy_region",
+        "filter": {"type": "region_group", "group": "EU"},
+        "reason": "GDPR compliance requires deployment within the EU",
+    },
+    {
+        "source": "sec_compliance",
+        "match": {"type": "contains", "value": "GDPR"},
+        "target": "sec_data_residency",
+        "filter": {"type": "allowed", "values": [
+            "EU only", "Specific country", "Multi-region with data sovereignty",
+        ]},
+        "reason": "GDPR requires data to remain within EU boundaries",
+    },
+    # ── FedRAMP → deploy region & residency ──────────────
+    {
+        "source": "sec_compliance",
+        "match": {"type": "contains", "value": "FedRAMP"},
+        "target": "arch_deploy_region",
+        "filter": {"type": "region_group", "group": "US"},
+        "reason": "FedRAMP compliance requires US-based deployments",
+    },
+    {
+        "source": "sec_compliance",
+        "match": {"type": "contains", "value": "FedRAMP"},
+        "target": "sec_data_residency",
+        "filter": {"type": "allowed", "values": ["US only"]},
+        "reason": "FedRAMP requires data residency within the US",
+    },
+    # ── HIPAA → deploy region ────────────────────────────
+    {
+        "source": "sec_compliance",
+        "match": {"type": "contains", "value": "HIPAA"},
+        "target": "arch_deploy_region",
+        "filter": {"type": "region_group", "group": "US"},
+        "reason": "HIPAA compliance typically requires US-based deployments",
+    },
+]
+
+
+def get_question_constraints() -> dict[str, Any]:
+    """Return constraint metadata for the frontend to apply in real-time.
+
+    Returns a dict with:
+      - ``constraints``: the list of constraint rules
+      - ``region_groups``: mapping of group name → list of Azure region names
+    """
+    return {
+        "constraints": QUESTION_CONSTRAINTS,
+        "region_groups": REGION_GROUPS,
+    }
+
+
+# ═════════════════════════════════════════════════════════════
 # PUBLIC API
 # ═════════════════════════════════════════════════════════════
 

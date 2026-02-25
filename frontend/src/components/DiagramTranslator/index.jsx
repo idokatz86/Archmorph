@@ -235,7 +235,7 @@ export default function DiagramTranslator() {
         const defaults = {};
         questions.forEach(q => { defaults[q.id] = q.default; });
         saveSession(diagram_id, result, questions, defaults);
-        set({ questions, answers: defaults, step: 'questions' });
+        set({ questions, answers: defaults, step: 'questions', questionConstraints: qData.constraints || [], regionGroups: qData.region_groups || {} });
       } else {
         // ── Fallback: sync endpoint with simulated progress ──
         addProgress('Analyzing architecture with GPT-4o Vision...');
@@ -291,7 +291,7 @@ export default function DiagramTranslator() {
         const defaults = {};
         questions.forEach(q => { defaults[q.id] = q.default; });
         saveSession(diagram_id, result, questions, defaults);
-        set({ questions, answers: defaults, step: 'questions' });
+        set({ questions, answers: defaults, step: 'questions', questionConstraints: qData.constraints || [], regionGroups: qData.region_groups || {} });
       }
     } catch (err) {
       // Handle not_architecture_diagram errors from apiClient
@@ -328,7 +328,7 @@ export default function DiagramTranslator() {
       const defaults = {};
       questions.forEach(q => { defaults[q.id] = q.default; });
       saveSession(result.diagram_id, result, questions, defaults);
-      set({ questions, answers: defaults, step: 'questions' });
+      set({ questions, answers: defaults, step: 'questions', questionConstraints: qData.constraints || [], regionGroups: qData.region_groups || {} });
     } catch (err) {
       set({ error: 'Failed to load sample: ' + err.message, step: 'upload' });
     }
@@ -641,6 +641,8 @@ export default function DiagramTranslator() {
           onUpdateAnswer={updateAnswer}
           onApplyAnswers={handleApplyAnswers}
           onSkip={() => set({ step: 'results' })}
+          constraints={state.questionConstraints || []}
+          regionGroups={state.regionGroups || {}}
         />
       )}
 
