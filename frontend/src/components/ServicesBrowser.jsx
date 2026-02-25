@@ -23,7 +23,7 @@ export default function ServicesBrowser() {
     setLoading(true);
     setError(null);
     Promise.all([
-      api.get('/services', signal),
+      api.get('/services?page_size=1000', signal),
       api.get('/services/stats', signal),
       api.get('/services/categories', signal),
     ]).then(([svc, st, cats]) => {
