@@ -84,7 +84,7 @@ export default function App() {
         <ErrorBoundary>
           <Suspense fallback={<TabFallback />}>
             {activeTab === 'landing' && <LandingPage onGetStarted={() => setActiveTab('translator')} />}
-            {activeTab === 'dashboard' && <UserDashboard onNavigate={setActiveTab} />}
+            {/* UserDashboard hidden for beta launch */}
             {/* TemplateGallery removed for beta launch */}
             {activeTab === 'translator' && <DiagramTranslator />}
             {activeTab === 'services' && <ServicesBrowser />}

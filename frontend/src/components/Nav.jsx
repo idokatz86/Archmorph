@@ -11,7 +11,7 @@ export default function Nav({ activeTab, setActiveTab, updateStatus }) {
 
   const NAV_ITEMS = [
     { id: 'landing', label: 'Home', icon: Home },
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    // { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard }, // Hidden for beta
     { id: 'translator', label: 'Translator', icon: Layers },
     // { id: 'templates', label: 'Templates', icon: Sparkles }, // Hidden for beta
     { id: 'services', label: 'Services', icon: Server },
