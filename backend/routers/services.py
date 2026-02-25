@@ -19,7 +19,7 @@ async def list_all_services(
     category: Optional[str] = Query(None, description="Filter by category"),
     search: Optional[str] = Query(None, description="Search services by name/description"),
     page: int = Query(1, ge=1, description="Page number (1-based)"),
-    page_size: int = Query(50, ge=1, le=200, description="Items per page (max 200)"),
+    page_size: int = Query(50, ge=1, le=1000, description="Items per page (max 1000)"),
 ):
     """List cloud services from all providers, with optional filters and pagination."""
     response.headers["Cache-Control"] = "public, max-age=300"
