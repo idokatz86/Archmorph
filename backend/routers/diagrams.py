@@ -128,6 +128,10 @@ async def upload_diagram(request: Request, project_id: str, file: UploadFile = F
 # ─────────────────────────────────────────────────────────────
 class RestoreSessionRequest(BaseModel):
     analysis: Dict[str, Any]
+    hld: Optional[Dict[str, Any]] = None
+    hld_markdown: Optional[str] = None
+    iac_code: Optional[str] = None
+    iac_format: Optional[str] = None
 
 @router.post("/api/diagrams/{diagram_id}/restore-session")
 @limiter.limit("10/minute")
@@ -137,6 +141,10 @@ async def restore_session(request: Request, diagram_id: str, body: RestoreSessio
     The frontend caches analysis data in sessionStorage.  When the backend
     restarts and the in-memory store is wiped, the frontend can push its
     cached copy here to transparently restore the session.
+
+    Accepts optional ``hld``, ``hld_markdown``, ``iac_code`` and
+    ``iac_format`` fields so that previously generated artefacts survive
+    a backend restart without forcing the user to re-generate them.
     """
     analysis = body.analysis
     if not analysis or not isinstance(analysis, dict):
@@ -145,10 +153,25 @@ async def restore_session(request: Request, diagram_id: str, body: RestoreSessio
     # Ensure diagram_id matches
     analysis["diagram_id"] = diagram_id
 
+    # Merge back HLD / IaC artefacts that the frontend cached
+    if body.hld:
+        analysis["hld"] = body.hld
+    if body.hld_markdown:
+        analysis["hld_markdown"] = body.hld_markdown
+    if body.iac_code:
+        analysis["_cached_iac_code"] = body.iac_code
+    if body.iac_format:
+        analysis["_cached_iac_format"] = body.iac_format
+
     SESSION_STORE[diagram_id] = analysis
-    logger.info("Session restored for %s via client cache", diagram_id)
-    record_event("sessions_restored", {"diagram_id": diagram_id})
-    return {"status": "restored", "diagram_id": diagram_id}
+    restored_parts = ["analysis"]
+    if body.hld:
+        restored_parts.append("hld")
+    if body.iac_code:
+        restored_parts.append("iac")
+    logger.info("Session restored for %s via client cache (%s)", diagram_id, ", ".join(restored_parts))
+    record_event("sessions_restored", {"diagram_id": diagram_id, "parts": restored_parts})
+    return {"status": "restored", "diagram_id": diagram_id, "restored": restored_parts}
 
 
 @router.post("/api/diagrams/{diagram_id}/analyze")

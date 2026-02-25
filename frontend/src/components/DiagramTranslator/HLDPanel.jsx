@@ -144,7 +144,7 @@ export default function HLDPanel({
                 <div className="flex flex-wrap gap-2 text-[10px] text-text-muted">
                   {svc.tier_recommendation && <span>Tier: {svc.tier_recommendation}</span>}
                   {svc.sla && <span>SLA: {svc.sla}</span>}
-                  {/* estimated_monthly_cost hidden during beta */}
+                  {svc.estimated_monthly_cost && <span>~${svc.estimated_monthly_cost}/mo</span>}
                 </div>
                 {svc.documentation_url && (
                   <a href={svc.documentation_url} target="_blank" rel="noopener noreferrer" className="text-[10px] text-cta hover:underline mt-1 inline-block">Documentation →</a>

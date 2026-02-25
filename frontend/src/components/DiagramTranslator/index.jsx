@@ -14,8 +14,7 @@ import UploadStep from './UploadStep';
 import GuidedQuestions from './GuidedQuestions';
 import AnalysisResults from './AnalysisResults';
 import IaCViewer from './IaCViewer';
-// CostPanel hidden during beta — no money-related UI
-// import CostPanel from './CostPanel';
+import CostPanel from './CostPanel';
 
 const STEPS = [
   { id: 'upload', label: 'Upload', canNav: true },
@@ -108,7 +107,17 @@ export default function DiagramTranslator() {
     const cached = loadSession();
     if (!cached || cached.diagramId !== diagramId) return false;
     try {
-      await api.post(`/diagrams/${diagramId}/restore-session`, { analysis: cached.analysis });
+      const payload = { analysis: cached.analysis };
+      // Include HLD and IaC artefacts so export/download survives a backend restart
+      if (cached.hldData?.hld) {
+        payload.hld = cached.hldData.hld;
+        payload.hld_markdown = cached.hldData.markdown || null;
+      }
+      if (cached.iacCode) {
+        payload.iac_code = cached.iacCode;
+        payload.iac_format = cached.iacFormat || null;
+      }
+      await api.post(`/diagrams/${diagramId}/restore-session`, payload);
       return true;
     } catch {
       return false;
@@ -393,16 +402,19 @@ export default function DiagramTranslator() {
     set({ loading: true, iacFormat: fmt, generatingIac: true });
     try {
       const iacData = await api.post(`/diagrams/${state.diagramId}/generate?format=${fmt}`);
-      set({ iacCode: iacData.code, costEstimate: null, step: 'iac', generatingIac: false });
+      set({ iacCode: iacData.code, step: 'iac', generatingIac: false });
       updateSessionCache({ iacCode: iacData.code, iacFormat: fmt }); // #263
+      // Fetch cost estimate in parallel (non-blocking)
+      api.get(`/diagrams/${state.diagramId}/cost-estimate`).then(cost => set({ costEstimate: cost })).catch(() => {});
     } catch (err) {
       if (err.status === 404) {
         const restored = await tryRestoreSession(state.diagramId);
         if (restored) {
           try {
             const iacData = await api.post(`/diagrams/${state.diagramId}/generate?format=${fmt}`);
-            set({ iacCode: iacData.code, costEstimate: null, step: 'iac', loading: false, generatingIac: false });
+            set({ iacCode: iacData.code, step: 'iac', loading: false, generatingIac: false });
             updateSessionCache({ iacCode: iacData.code, iacFormat: fmt }); // #263
+            api.get(`/diagrams/${state.diagramId}/cost-estimate`).then(cost => set({ costEstimate: cost })).catch(() => {});
             return;
           } catch { /* fall through */ }
         }
@@ -746,7 +758,7 @@ export default function DiagramTranslator() {
       {/* Step: IaC Code */}
       {state.step === 'iac' && state.iacCode && (
         <div className="space-y-6">
-          {/* CostPanel hidden during beta — no money-related UI */}
+          <CostPanel costEstimate={state.costEstimate} />
           <IaCViewer
             iacCode={state.iacCode}
             iacFormat={state.iacFormat}
