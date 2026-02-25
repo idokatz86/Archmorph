@@ -357,7 +357,7 @@ RELEASE_TIMELINE: List[Dict[str, Any]] = [
         ],
     },
     {
-        "version": "3.0.0",
+        "version": "3.1.0",
         "name": "Enterprise Platform",
         "date": "2026-04-30",
         "status": ReleaseStatus.PLANNED,

@@ -425,12 +425,9 @@ class TestCostEstimate:
         assert len(priced) >= 1, "Expected at least one service with non-zero cost"
 
     def test_cost_estimate_fallback(self, client):
-        """No analysis → returns empty / zero estimate."""
+        """No analysis → returns 404 for unknown diagram."""
         resp = client.get("/api/diagrams/nonexistent-id/cost-estimate")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["service_count"] == 0
-        assert data["total_monthly_estimate"]["low"] == 0
+        assert resp.status_code == 404
 
 
 # ====================================================================
