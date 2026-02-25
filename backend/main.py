@@ -1,5 +1,5 @@
 """
-Archmorph Backend API v2.11.1
+Archmorph Backend API v3.0.0
 Cloud Architecture Translator to Azure — Full Services Catalog
 Enterprise-ready with Authentication, Analytics, AI Assistant, Roadmap, and Observability
 """

@@ -95,26 +95,31 @@ class TestSessionExpiryMidWorkflow:
         assert "diagram-1" not in store
         assert store.get("diagram-1") is None
 
-    def test_session_read_does_not_refresh_ttl(self):
-        """CRITICAL BUG: Reading a session does NOT extend its TTL.
+    def test_session_read_refreshes_ttl(self):
+        """FIX (Issue #260): Reading a session now EXTENDS its TTL.
 
         A user browsing cost-estimate, best-practices, etc. (read-only
-        endpoints) does NOT keep their session alive.  The TTL countdown
-        continues from the last write.
+        endpoints) keeps their session alive.  Each .get() re-inserts the
+        value, resetting the TTL countdown.
         """
         store = InMemoryStore(maxsize=10, ttl=2)
         store["diagram-1"] = {"data": "analysis"}
 
-        # Read at 1s — session still alive
+        # Read at 1s — session still alive and TTL refreshed
         time.sleep(1.0)
         assert store.get("diagram-1") is not None
 
-        # Read again at ~1.5s — still alive
+        # Read again at ~1.5s — still alive, TTL refreshed again
         time.sleep(0.5)
         assert store.get("diagram-1") is not None
 
-        # But it expires at 2s from the WRITE, not from last read
+        # At 0.6s after last read (total 2.1s), session STILL alive
+        # because last read at 1.5s refreshed TTL for another 2s
         time.sleep(0.6)
+        assert store.get("diagram-1") is not None
+
+        # Without any reads for full TTL duration it finally expires
+        time.sleep(2.1)
         assert store.get("diagram-1") is None
 
     def test_session_write_resets_ttl(self):
@@ -787,6 +792,6 @@ class TestStoreTTLConfiguration:
         assert store.maxsize == 500
 
     def test_image_store_maxsize(self):
-        """IMAGE_STORE maxsize should be 200."""
-        store = InMemoryStore(maxsize=200, ttl=3600)
-        assert store.maxsize == 200
+        """IMAGE_STORE maxsize should be 50 (Issue #294 — reduced from 200)."""
+        store = InMemoryStore(maxsize=50, ttl=3600)
+        assert store.maxsize == 50

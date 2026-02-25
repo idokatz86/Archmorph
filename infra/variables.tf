@@ -15,6 +15,17 @@ variable "openai_location" {
   default     = "eastus" # GPT-4 Vision available, Sweden blocked by policy
 }
 
+variable "openai_capacity" {
+  description = "Azure OpenAI deployment capacity in thousands of tokens per minute (TPM). 10 = ~1 concurrent call; 80+ recommended for production (Issue #296)."
+  type        = number
+  default     = 80
+
+  validation {
+    condition     = var.openai_capacity >= 10 && var.openai_capacity <= 1000
+    error_message = "OpenAI capacity must be between 10 and 1000 TPM."
+  }
+}
+
 variable "environment" {
   description = "Environment name (dev, staging, prod)"
   type        = string

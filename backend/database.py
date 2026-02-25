@@ -38,6 +38,24 @@ DATABASE_URL = os.getenv(
 
 # SQLite-specific: enable WAL mode for concurrent reads + write-ahead logging
 _IS_SQLITE = DATABASE_URL.startswith("sqlite")
+_ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
+
+# Issue #287 — Warn loudly / fail if SQLite is used in production.
+# SQLite DB files are ephemeral in containerized deployments.
+if _IS_SQLITE and _ENVIRONMENT in ("production", "prod", "staging"):
+    logger.error(
+        "🚨 CRITICAL: SQLite is configured in %s environment! "
+        "Database file will be LOST on every container restart/deploy. "
+        "Set DATABASE_URL to a PostgreSQL connection string immediately. "
+        "Example: DATABASE_URL=postgresql://user:pass@host:5432/archmorph (Issue #287)",
+        _ENVIRONMENT,
+    )
+    # In strict mode, refuse to start with SQLite in production
+    if os.getenv("ENFORCE_POSTGRES", "").lower() in ("1", "true", "yes"):
+        raise RuntimeError(
+            "ENFORCE_POSTGRES is set but DATABASE_URL points to SQLite. "
+            "Set DATABASE_URL to a PostgreSQL connection string."
+        )
 
 # Connection pool settings (PostgreSQL)
 _POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "10"))

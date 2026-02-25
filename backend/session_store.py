@@ -95,22 +95,57 @@ class SessionStore:
 class InMemoryStore(SessionStore):
     """In-memory TTLCache backend — identical behaviour to the old raw TTLCache."""
 
+    # Maximum total memory budget for a single store (default 512MB)
+    MAX_MEMORY_BYTES = int(os.getenv("SESSION_STORE_MAX_MEMORY_MB", "512")) * 1024 * 1024
+
     def __init__(self, maxsize: int = 500, ttl: int = 7200):
         self._cache: TTLCache = TTLCache(maxsize=maxsize, ttl=ttl)
         self._maxsize = maxsize
         self._ttl = ttl
+        self._total_bytes = 0  # approximate memory tracking (Issue #294)
 
     # ── public API ────────────────────────────────────────
 
     def get(self, key: str, default: Any = None) -> Any:
-        return self._cache.get(key, default)
+        val = self._cache.get(key)
+        if val is None:
+            return default
+        # Refresh TTL by re-inserting the value (Issue #260)
+        self._cache[key] = val
+        return val
 
     def set(self, key: str, value: Any, ttl: Optional[int] = None) -> None:
+        # Estimate entry size and enforce memory budget (Issue #294)
+        import sys
+        entry_size = sys.getsizeof(value) if value is not None else 0
+        if isinstance(value, (bytes, bytearray)):
+            entry_size = len(value)
+        elif isinstance(value, tuple) and len(value) == 2 and isinstance(value[0], bytes):
+            # IMAGE_STORE stores (bytes, content_type) tuples
+            entry_size = len(value[0])
+
+        # Evict oldest if adding this would exceed memory budget
+        if self._total_bytes + entry_size > self.MAX_MEMORY_BYTES:
+            logger.warning(
+                "InMemoryStore memory budget exceeded (%d + %d > %d bytes) — rejecting entry",
+                self._total_bytes, entry_size, self.MAX_MEMORY_BYTES,
+            )
+            return  # Silently drop — caller can retry
+
         # TTLCache doesn't support per-key TTL; use the store-wide TTL
         self._cache[key] = value
+        self._total_bytes += entry_size
 
     def delete(self, key: str) -> None:
-        self._cache.pop(key, None)
+        val = self._cache.pop(key, None)
+        if val is not None:
+            import sys
+            if isinstance(val, (bytes, bytearray)):
+                self._total_bytes -= len(val)
+            elif isinstance(val, tuple) and len(val) == 2 and isinstance(val[0], bytes):
+                self._total_bytes -= len(val[0])
+            else:
+                self._total_bytes -= sys.getsizeof(val)
 
     def keys(self, pattern: str = "*") -> List[str]:
         if pattern == "*":
@@ -187,8 +222,31 @@ class FileStore(SessionStore):
             return None
 
     def get(self, key: str, default: Any = None) -> Any:
-        val = self._read(self._path(key))
-        return val if val is not None else default
+        path = self._path(key)
+        val = self._read(path)
+        if val is None:
+            return default
+        # Refresh TTL on read to keep active sessions alive (Issue #260)
+        self._touch_ttl(path)
+        return val
+
+    def _touch_ttl(self, path: Path) -> None:
+        """Refresh the expiry timestamp of a file-backed entry."""
+        if not path.exists():
+            return
+        try:
+            with open(path, "r+") as f:
+                fcntl.flock(f, fcntl.LOCK_EX)
+                try:
+                    data = _json.load(f)
+                    data["expires_at"] = _time.time() + self._ttl
+                    f.seek(0)
+                    f.truncate()
+                    _json.dump(data, f, default=str)
+                finally:
+                    fcntl.flock(f, fcntl.LOCK_UN)
+        except (ValueError, OSError):
+            pass  # Best-effort TTL refresh
 
     def set(self, key: str, value: Any, ttl: Optional[int] = None) -> None:
         self._evict_if_full()
@@ -266,6 +324,8 @@ class RedisStore(SessionStore):
         raw = self._redis.get(self._key(key))
         if raw is None:
             return default
+        # Refresh TTL on read to keep active sessions alive (Issue #260)
+        self._redis.expire(self._key(key), self._ttl)
         try:
             return self._json.loads(raw)
         except (self._json.JSONDecodeError, TypeError):
@@ -318,6 +378,7 @@ _stores: dict[str, SessionStore] = {}
 
 REDIS_URL = os.getenv("REDIS_URL", "")
 WORKER_COUNT = int(os.getenv("WEB_CONCURRENCY", os.getenv("UVICORN_WORKERS", "1")))
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
 
 
 def _is_multi_worker() -> bool:
@@ -325,13 +386,19 @@ def _is_multi_worker() -> bool:
     return WORKER_COUNT > 1
 
 
+def _is_production() -> bool:
+    """Detect if the application is running in a production-like environment."""
+    return ENVIRONMENT in ("production", "prod", "staging")
+
+
 def get_store(name: str, *, maxsize: int = 500, ttl: int = 7200) -> SessionStore:
     """Return a named ``SessionStore`` instance (singleton per name).
 
-    Backend selection (Issue #121 — multi-worker safety):
-      1. ``REDIS_URL`` set → Redis
-      2. Multi-worker (``--workers > 1``) → FileStore (shared via filesystem)
-      3. Single worker → InMemoryStore
+    Backend selection (Issues #121, #262, #286):
+      1. ``REDIS_URL`` set → Redis (recommended for all environments)
+      2. Production/staging without Redis → FileStore + loud warning
+      3. Multi-worker without Redis → FileStore
+      4. Dev single-worker → InMemoryStore
 
     Args:
         name: Logical store name (e.g. ``"sessions"``, ``"images"``).
@@ -355,15 +422,25 @@ def get_store(name: str, *, maxsize: int = 500, ttl: int = 7200) -> SessionStore
                 )
             except Exception as exc:
                 logger.warning("Redis unavailable (%s) — falling back for '%s'", exc, name)
-                if _is_multi_worker():
+                if _is_production() or _is_multi_worker():
                     logger.warning(
-                        "Multi-worker mode detected without Redis — using FileStore for '%s'. "
-                        "Set REDIS_URL for production deployments.",
+                        "⚠️  PRODUCTION/MULTI-WORKER without Redis — using FileStore for '%s'. "
+                        "Set REDIS_URL for production deployments. (Issues #262, #286)",
                         name,
                     )
                     store = FileStore(name=name, maxsize=maxsize, ttl=ttl)
                 else:
                     store = InMemoryStore(maxsize=maxsize, ttl=ttl)
+        elif _is_production():
+            # Issue #262/#286 — In production, NEVER use InMemoryStore.
+            # Data is lost on every deploy/restart.
+            logger.error(
+                "🚨 PRODUCTION without REDIS_URL — using FileStore for '%s'. "
+                "ALL session data will be lost on container restart! "
+                "Set REDIS_URL immediately. (Issues #262, #286)",
+                name,
+            )
+            store = FileStore(name=name, maxsize=maxsize, ttl=ttl)
         elif _is_multi_worker():
             logger.warning(
                 "⚠️  MULTI-WORKER MODE without REDIS_URL — using FileStore for '%s'. "
@@ -372,6 +449,11 @@ def get_store(name: str, *, maxsize: int = 500, ttl: int = 7200) -> SessionStore
             )
             store = FileStore(name=name, maxsize=maxsize, ttl=ttl)
         else:
+            logger.info(
+                "Development mode: using InMemoryStore for '%s' (data lost on restart). "
+                "Set REDIS_URL for persistent sessions.",
+                name,
+            )
             store = InMemoryStore(maxsize=maxsize, ttl=ttl)
 
         _stores[name] = store

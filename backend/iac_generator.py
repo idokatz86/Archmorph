@@ -5,8 +5,9 @@ Falls back to base templates when no analysis is available.
 """
 
 import logging
+import re
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List, Tuple
 
 from openai_client import cached_chat_completion, AZURE_OPENAI_DEPLOYMENT
 from prompt_guard import (
@@ -245,6 +246,152 @@ to deploy the AWS architecture described below.
 Return ONLY the CloudFormation YAML, no markdown fences, no explanations."""
 
 
+# ─────────────────────────────────────────────────────────────
+# IaC Output Validation (Issues #273, #274)
+# ─────────────────────────────────────────────────────────────
+
+def _validate_terraform(code: str) -> List[Tuple[str, str]]:
+    """Validate generated Terraform HCL at the syntax / structure level.
+
+    Returns a list of (severity, message) tuples.
+    Severity is 'error' or 'warning'.
+    """
+    issues: List[Tuple[str, str]] = []
+
+    # 1. Must contain at least one resource or data block
+    if not re.search(r'\b(resource|data)\s+"', code):
+        issues.append(("error", "No resource or data blocks found in generated Terraform"))
+
+    # 2. Check balanced braces
+    opens = code.count("{")
+    closes = code.count("}")
+    if opens != closes:
+        issues.append(("error", f"Unbalanced braces: {opens} opening vs {closes} closing"))
+
+    # 3. Check for inline credentials (hardcoded passwords)
+    cred_patterns = [
+        (r'(?:password|secret|api_key)\s*=\s*"[^"]{4,}"', "Hardcoded credential detected in Terraform output"),
+        (r'admin_password\s*=\s*"', "Hardcoded admin_password found — must use Key Vault"),
+    ]
+    for pat, msg in cred_patterns:
+        if re.search(pat, code, re.IGNORECASE):
+            issues.append(("error", msg))
+
+    # 4. Check for leftover markdown fences
+    if "```" in code:
+        issues.append(("warning", "Markdown code fences found in Terraform output — stripping"))
+
+    # 5. Basic HCL structure check — at least one '=' assignment
+    if "=" not in code:
+        issues.append(("error", "No attribute assignments found — output may not be valid HCL"))
+
+    # 6. Provider block presence
+    if "provider" not in code and "terraform" not in code:
+        issues.append(("warning", "No provider or terraform block — may be incomplete"))
+
+    return issues
+
+
+def _validate_bicep(code: str) -> List[Tuple[str, str]]:
+    """Validate generated Bicep code at the syntax / structure level.
+
+    Returns a list of (severity, message) tuples.
+    """
+    issues: List[Tuple[str, str]] = []
+
+    # 1. Must contain at least one resource declaration
+    if not re.search(r'\bresource\s+\w+', code):
+        issues.append(("error", "No resource declarations found in generated Bicep"))
+
+    # 2. Check balanced braces
+    opens = code.count("{")
+    closes = code.count("}")
+    if opens != closes:
+        issues.append(("error", f"Unbalanced braces: {opens} opening vs {closes} closing"))
+
+    # 3. Check for inline credentials
+    cred_patterns = [
+        (r"(?:password|secret|apiKey)\s*:\s*'[^']{4,}'", "Hardcoded credential detected in Bicep output"),
+        (r'administratorLoginPassword\s*:\s*\'', "Hardcoded admin password found — must use @secure() + Key Vault"),
+    ]
+    for pat, msg in cred_patterns:
+        if re.search(pat, code, re.IGNORECASE):
+            issues.append(("error", msg))
+
+    # 4. Check for leftover markdown fences
+    if "```" in code:
+        issues.append(("warning", "Markdown code fences found in Bicep output — stripping"))
+
+    # 5. Check for module/param/var declarations (structure)
+    if "param " not in code and "var " not in code and "module " not in code:
+        issues.append(("warning", "No param/var/module declarations — Bicep may be incomplete"))
+
+    return issues
+
+
+def _validate_cloudformation(code: str) -> List[Tuple[str, str]]:
+    """Validate generated CloudFormation YAML at the structure level."""
+    issues: List[Tuple[str, str]] = []
+
+    if "AWSTemplateFormatVersion" not in code:
+        issues.append(("error", "Missing AWSTemplateFormatVersion header"))
+
+    if "Resources:" not in code and "Resources :" not in code:
+        issues.append(("error", "No Resources section found"))
+
+    # Check for hardcoded secrets
+    if re.search(r'Default:\s*["\'][^"\']{8,}["\']', code) and re.search(r'(?:Password|Secret|Key)', code, re.IGNORECASE):
+        issues.append(("warning", "Possible hardcoded secret in Parameters Default value"))
+
+    return issues
+
+
+def _apply_validation(code: str, iac_format: str) -> str:
+    """Run format-specific validation and log issues. Returns code with inline warnings.
+
+    Always returns code (better to show imperfect code with warnings than nothing).
+    """
+    validators = {
+        "terraform": _validate_terraform,
+        "bicep": _validate_bicep,
+        "cloudformation": _validate_cloudformation,
+    }
+
+    validator = validators.get(iac_format)
+    if not validator:
+        return code
+
+    issues = validator(code)
+    errors = [(s, m) for s, m in issues if s == "error"]
+    warnings = [(s, m) for s, m in issues if s == "warning"]
+
+    for _, msg in warnings:
+        logger.warning("IaC validation [%s] WARNING: %s", iac_format, msg)
+
+    for _, msg in errors:
+        logger.error("IaC validation [%s] ERROR: %s", iac_format, msg)
+
+    # Append validation warnings as comments in the output
+    comment_char = "#"
+    if warnings:
+        warning_block = "\n".join(
+            f"{comment_char} ⚠️  VALIDATION WARNING: {msg}" for _, msg in warnings
+        )
+        code = code + "\n\n" + warning_block + "\n"
+
+    if errors:
+        error_block = "\n".join(
+            f"{comment_char} ❌ VALIDATION ERROR: {msg}" for _, msg in errors
+        )
+        code = code + "\n\n" + error_block + "\n"
+        logger.error(
+            "IaC generation produced %d validation error(s) for %s — code returned with inline warnings",
+            len(errors), iac_format,
+        )
+
+    return code
+
+
 def generate_iac_code(analysis: Optional[dict], iac_format: str = "terraform", params: Optional[dict] = None) -> str:
     """
     Generate IaC code from analysis results using GPT-4o.
@@ -340,6 +487,9 @@ def generate_iac_code(analysis: Optional[dict], iac_format: str = "terraform", p
             else:
                 lines = lines[1:]
             code = "\n".join(lines)
+
+        # Validate generated output (Issues #273, #274)
+        code = _apply_validation(code, iac_format)
 
         return code
 

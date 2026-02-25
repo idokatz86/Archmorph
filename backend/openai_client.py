@@ -169,9 +169,13 @@ GPT_CACHE_TTL_SECONDS = int(os.getenv("GPT_CACHE_TTL_SECONDS", "3600"))
 GPT_CACHE_MAX_SIZE = int(os.getenv("GPT_CACHE_MAX_SIZE", "256"))
 
 _response_cache: TTLCache = TTLCache(maxsize=GPT_CACHE_MAX_SIZE, ttl=GPT_CACHE_TTL_SECONDS)
-_cache_lock = threading.Lock()   # guards _cache_hits, _cache_misses, and cache check+populate (#124/#125)
+_cache_lock = threading.Lock()   # guards _cache_hits, _cache_misses, and cache reads/writes
 _cache_hits = 0
 _cache_misses = 0
+# Per-key locks prevent thundering-herd for the SAME cache key
+# without blocking requests for DIFFERENT keys (Issue #293)
+_key_locks: dict[str, threading.Lock] = {}
+_key_locks_lock = threading.Lock()
 
 
 def _compute_cache_key(**kwargs) -> str:
@@ -210,6 +214,8 @@ def reset_cache():
         _response_cache.clear()
         _cache_hits = 0
         _cache_misses = 0
+    with _key_locks_lock:
+        _key_locks.clear()
 
 
 def cached_chat_completion(
@@ -257,29 +263,45 @@ def cached_chat_completion(
     # Compute cache key
     cache_key = _compute_cache_key(**api_kwargs)
 
-    # Lock protects counters AND prevents thundering-herd duplicate
-    # API calls for the same cache key (#124, #125).
-    with _cache_lock:
-        # Check cache (unless bypassed)
-        if not bypass_cache and cache_key in _response_cache:
-            _cache_hits += 1
-            logger.debug("GPT cache HIT (key=%s…)", cache_key[:12])
-            _emit_cache_metric("hit")
-            return _response_cache[cache_key]
+    # Fast-path: check cache under a brief lock (Issue #293 — no contention
+    # between different keys).
+    if not bypass_cache:
+        with _cache_lock:
+            if cache_key in _response_cache:
+                _cache_hits += 1
+                logger.debug("GPT cache HIT (key=%s…)", cache_key[:12])
+                _emit_cache_metric("hit")
+                return _response_cache[cache_key]
 
-        _cache_misses += 1
+    # Acquire per-key lock to prevent thundering-herd for the SAME prompt
+    # while allowing different prompts to proceed concurrently (#293).
+    with _key_locks_lock:
+        key_lock = _key_locks.setdefault(cache_key, threading.Lock())
+
+    with key_lock:
+        # Double-check cache after acquiring per-key lock (another thread
+        # may have populated it while we waited).
+        if not bypass_cache:
+            with _cache_lock:
+                if cache_key in _response_cache:
+                    _cache_hits += 1
+                    logger.debug("GPT cache HIT (key=%s…, after lock)", cache_key[:12])
+                    _emit_cache_metric("hit")
+                    return _response_cache[cache_key]
+
+        with _cache_lock:
+            _cache_misses += 1
         logger.debug("GPT cache MISS (key=%s…)", cache_key[:12])
         _emit_cache_metric("miss")
 
-    # Make the actual API call OUTSIDE the lock to avoid blocking
-    # concurrent requests with different cache keys.
-    client = get_openai_client()
-    response = openai_retry(client.chat.completions.create)(**api_kwargs)
+        # Make the actual API call (outside cache lock — different keys
+        # are fully concurrent now).
+        client = get_openai_client()
+        response = openai_retry(client.chat.completions.create)(**api_kwargs)
 
-    # Store result under lock (safe even if two threads raced past
-    # the miss branch — last-write-wins is acceptable).
-    with _cache_lock:
-        _response_cache[cache_key] = response
+        # Store result
+        with _cache_lock:
+            _response_cache[cache_key] = response
 
     return response
 

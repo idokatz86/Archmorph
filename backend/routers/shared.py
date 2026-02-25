@@ -78,8 +78,9 @@ async def verify_admin_key(
 # Session store for analysis results (TTL: 2 hours, max 500 sessions)
 SESSION_STORE = get_store("sessions", maxsize=500, ttl=7200)
 
-# Image store keyed by diagram_id → (image_bytes, content_type) (TTL: 1 hour, max 200)
-IMAGE_STORE = get_store("images", maxsize=200, ttl=3600)
+# Image store keyed by diagram_id → (image_bytes, content_type) (TTL: 1 hour)
+# Reduced from 200→50 to limit memory ceiling (50×10MB=500MB vs 2GB) — Issue #294
+IMAGE_STORE = get_store("images", maxsize=int(os.getenv("IMAGE_STORE_MAXSIZE", "50")), ttl=3600)
 
 # Share links store (TTL: 24 hours, max 100)
 SHARE_STORE = get_store("shares", maxsize=100, ttl=86400)

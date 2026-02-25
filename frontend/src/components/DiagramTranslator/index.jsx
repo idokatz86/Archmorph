@@ -582,9 +582,9 @@ export default function DiagramTranslator() {
 
       {/* Error */}
       {state.error && (
-        <Card className="p-4 border-danger/30">
+        <Card className="p-4 border-danger/30" role="alert" aria-live="assertive">
           <div className="flex items-center gap-3">
-            <XCircle className="w-5 h-5 text-danger shrink-0" />
+            <XCircle className="w-5 h-5 text-danger shrink-0" aria-hidden="true" />
             <p className="text-sm text-danger">{state.error}</p>
             <button onClick={() => set({ error: null })} className="ml-auto cursor-pointer hover:bg-secondary rounded-lg p-1 transition-colors" aria-label="Dismiss error" title="Dismiss"><X className="w-4 h-4 text-text-muted" /></button>
           </div>

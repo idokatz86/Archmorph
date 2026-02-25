@@ -322,7 +322,7 @@ resource "azurerm_cognitive_deployment" "gpt4_vision" {
 
   sku {
     name     = "Standard"
-    capacity = 10
+    capacity = var.openai_capacity  # Issue #296 — was hardcoded to 10 (≈1 concurrent call)
   }
 }
 
