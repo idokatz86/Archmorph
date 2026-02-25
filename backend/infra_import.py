@@ -496,7 +496,7 @@ def _parse_cloudformation(content: str) -> Dict[str, Any]:
         try:
             import yaml
             template = yaml.safe_load(content)
-        except Exception:
+        except Exception:  # nosec B110 - fallback after JSON parse attempt
             pass
 
     if template is None:

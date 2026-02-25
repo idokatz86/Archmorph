@@ -59,8 +59,9 @@ jobs:
         run: |
           SECONDS=0
           # B101 (assert_used) is skipped globally since tests use assertions
+          # B311 (random) is skipped — all random usage is for simulation/demo data, not security
           # All other findings use inline # nosec comments for precise documentation
-          bandit -r . -x ./tests,./.venv --skip B101
+          bandit -r . -x ./tests,./.venv --skip B101,B311
           echo "::notice::Bandit scan took ${SECONDS}s"
 
       - name: pip-audit

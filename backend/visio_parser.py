@@ -251,7 +251,7 @@ def parse_vsdx(file_bytes: bytes) -> Dict[str, Any]:
                 metadata["title"] = title.text if title is not None and title.text else ""
                 metadata["creator"] = creator.text if creator is not None and creator.text else ""
                 metadata["last_modified_by"] = modified.text if modified is not None and modified.text else ""
-            except Exception:
+            except Exception:  # nosec B110 - metadata extraction is best-effort
                 pass
 
     # 4. Classify cloud services from shape text + master names

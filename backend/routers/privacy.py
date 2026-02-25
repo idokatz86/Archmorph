@@ -290,7 +290,7 @@ async def request_data_deletion(request: Request, data: DeletionRequest) -> Dict
             if entry and isinstance(entry, dict) and entry.get("email") == data.email:
                 SESSION_STORE.delete(key)
                 sessions_cleared += 1
-        except Exception:  # noqa: BLE001 — GDPR data export is best-effort per field
+        except Exception:  # noqa: BLE001  # nosec B110 - GDPR data deletion is best-effort per session
             pass
 
     record["status"] = "completed"
