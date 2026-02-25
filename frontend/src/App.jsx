@@ -17,7 +17,8 @@ const CookieBanner = lazy(() => import('./components/CookieBanner'));
 // PricingPage removed — feature temporarily disabled
 const LandingPage = lazy(() => import('./components/LandingPage'));
 const UserDashboard = lazy(() => import('./components/UserDashboard'));
-const TemplateGallery = lazy(() => import('./components/TemplateGallery'));
+// TemplateGallery removed for beta launch
+// const TemplateGallery = lazy(() => import('./components/TemplateGallery'));
 
 function TabFallback() {
   return (
@@ -84,7 +85,7 @@ export default function App() {
           <Suspense fallback={<TabFallback />}>
             {activeTab === 'landing' && <LandingPage onGetStarted={() => setActiveTab('translator')} />}
             {activeTab === 'dashboard' && <UserDashboard onNavigate={setActiveTab} />}
-            {activeTab === 'templates' && <TemplateGallery onUseTemplate={() => setActiveTab('translator')} />}
+            {/* TemplateGallery removed for beta launch */}
             {activeTab === 'translator' && <DiagramTranslator />}
             {activeTab === 'services' && <ServicesBrowser />}
             {activeTab === 'roadmap' && <Roadmap />}

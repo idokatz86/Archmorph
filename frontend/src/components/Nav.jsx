@@ -13,7 +13,7 @@ export default function Nav({ activeTab, setActiveTab, updateStatus }) {
     { id: 'landing', label: 'Home', icon: Home },
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'translator', label: 'Translator', icon: Layers },
-    { id: 'templates', label: 'Templates', icon: Sparkles },
+    // { id: 'templates', label: 'Templates', icon: Sparkles }, // Hidden for beta
     { id: 'services', label: 'Services', icon: Server },
     { id: 'roadmap', label: 'Roadmap', icon: Rocket },
     { id: 'legal', label: 'Legal', icon: Shield },
