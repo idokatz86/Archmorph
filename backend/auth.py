@@ -34,8 +34,10 @@ GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET", "")
 # JWKS cache (refresh every hour)
 JWKS_CACHE: TTLCache = TTLCache(maxsize=10, ttl=3600)
 
-# User session cache (5 min TTL for validated tokens)
-USER_CACHE: TTLCache = TTLCache(maxsize=1000, ttl=300)
+# User session cache — configurable TTL (default 1 hour).
+# Previously 300s (5 min) which caused frequent 401 errors mid-workflow (Issue #266).
+USER_CACHE_TTL = int(os.getenv("USER_CACHE_TTL", "3600"))
+USER_CACHE: TTLCache = TTLCache(maxsize=1000, ttl=USER_CACHE_TTL)
 
 
 # ─────────────────────────────────────────────────────────────

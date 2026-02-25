@@ -94,12 +94,19 @@ AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
 AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-10-21")
 AZURE_OPENAI_KEY = os.getenv("AZURE_OPENAI_API_KEY", "") or os.getenv("AZURE_OPENAI_KEY", "")
 
+# Fallback model deployment — used when the primary model fails (Issue #285).
+# Set to a lighter/cheaper model (e.g. gpt-4o-mini) for resilience.
+AZURE_OPENAI_FALLBACK_DEPLOYMENT = os.getenv("AZURE_OPENAI_FALLBACK_DEPLOYMENT", "")
+
 # Singleton client (reused across requests for connection pooling)
 _client: Optional[AzureOpenAI] = None
 _client_lock = threading.Lock()
 
-# Default timeout for all OpenAI API calls (prevents thread pool starvation — #179)
-_OPENAI_TIMEOUT = OpenAITimeout(timeout=120.0, connect=10.0)
+# Default timeout for all OpenAI API calls — configurable to prevent
+# thread pool starvation (Issue #298).  Reduced from 120s to 60s.
+_OPENAI_TIMEOUT_SECONDS = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "60"))
+_OPENAI_CONNECT_TIMEOUT = float(os.getenv("OPENAI_CONNECT_TIMEOUT", "10"))
+_OPENAI_TIMEOUT = OpenAITimeout(timeout=_OPENAI_TIMEOUT_SECONDS, connect=_OPENAI_CONNECT_TIMEOUT)
 
 # ─────────────────────────────────────────────────────────────
 # Retry decorator — shared across all OpenAI callers
@@ -297,7 +304,33 @@ def cached_chat_completion(
         # Make the actual API call (outside cache lock — different keys
         # are fully concurrent now).
         client = get_openai_client()
-        response = openai_retry(client.chat.completions.create)(**api_kwargs)
+        try:
+            response = openai_retry(client.chat.completions.create)(**api_kwargs)
+        except RETRYABLE_EXCEPTIONS as primary_exc:
+            # If a fallback model is configured, try it before giving up (#285)
+            if AZURE_OPENAI_FALLBACK_DEPLOYMENT and AZURE_OPENAI_FALLBACK_DEPLOYMENT != deployment:
+                logger.warning(
+                    "Primary model %s failed (%s), falling back to %s",
+                    deployment, primary_exc, AZURE_OPENAI_FALLBACK_DEPLOYMENT,
+                )
+                fallback_kwargs = {**api_kwargs, "model": AZURE_OPENAI_FALLBACK_DEPLOYMENT}
+                response = openai_retry(client.chat.completions.create)(**fallback_kwargs)
+            else:
+                raise
+
+        # Detect GPT output truncation — finish_reason "length" means the
+        # response was cut off at max_tokens (Issue #278).
+        if response.choices and response.choices[0].finish_reason == "length":
+            logger.warning(
+                "GPT output TRUNCATED (finish_reason=length, model=%s, max_tokens=%s). "
+                "Response may be incomplete — consider increasing max_tokens.",
+                deployment,
+                api_kwargs.get("max_tokens", "default"),
+            )
+            # Attach truncation flag so callers can detect & handle it
+            response._truncated = True
+        else:
+            response._truncated = False
 
         # Store result
         with _cache_lock:

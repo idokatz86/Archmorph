@@ -5,6 +5,36 @@
 version: "3.9"
 
 services:
+  # ── PostgreSQL (Issue #283) ──
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: archmorph
+      POSTGRES_PASSWORD: archmorph_dev
+      POSTGRES_DB: archmorph
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U archmorph"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis (Issue #283) ──
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   backend:
     build:
       context: ./backend
@@ -17,10 +47,17 @@ services:
       ENVIRONMENT: dev
       ALLOWED_ORIGINS: "http://localhost:5173,http://localhost:3000"
       RATE_LIMIT_ENABLED: "false"
+      DATABASE_URL: "postgresql://archmorph:archmorph_dev@postgres:5432/archmorph"
+      REDIS_URL: "redis://redis:6379/0"
     volumes:
       # Hot-reload: mount source but exclude venv / __pycache__
       - ./backend:/app
     command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
       interval: 30s
@@ -43,4 +80,6 @@ services:
         condition: service_healthy
 
 volumes:
+  pgdata:
+  redisdata:
   frontend_nm:

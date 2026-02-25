@@ -7,9 +7,12 @@ the cross-cloud service catalog.
 """
 
 import base64
+import hashlib
 import io
 import json
 import logging
+import os
+import threading
 from difflib import SequenceMatcher
 from typing import Any, Dict, Optional, Tuple
 
@@ -18,6 +21,8 @@ from PIL import Image
 from services import AWS_SERVICES, GCP_SERVICES, CROSS_CLOUD_MAPPINGS
 from openai_client import get_openai_client, AZURE_OPENAI_DEPLOYMENT, openai_retry
 from prompt_guard import PROMPT_ARMOR
+
+from cachetools import TTLCache
 
 # Maximum image dimension for GPT-4o vision (keeps quality while reducing tokens)
 MAX_IMAGE_DIMENSION = 2048
@@ -90,6 +95,15 @@ def compress_image(image_bytes: bytes, content_type: str = "image/png") -> Tuple
         return image_bytes, content_type, 0, 0
 
 logger = logging.getLogger(__name__)
+
+# ─────────────────────────────────────────────────────────────
+# Vision analysis cache — avoids redundant GPT-4o calls for
+# the same image (Issue #295).  Keyed by SHA-256 of compressed bytes.
+# ─────────────────────────────────────────────────────────────
+_VISION_CACHE_TTL = int(os.getenv("VISION_CACHE_TTL", "3600"))
+_VISION_CACHE_MAX = int(os.getenv("VISION_CACHE_MAX", "64"))
+_vision_cache: TTLCache = TTLCache(maxsize=_VISION_CACHE_MAX, ttl=_VISION_CACHE_TTL)
+_vision_cache_lock = threading.Lock()
 
 # ─────────────────────────────────────────────────────────────
 # Build service name lookup indexes
@@ -412,6 +426,14 @@ def analyze_image(image_bytes: bytes, content_type: str = "image/png") -> Dict[s
     # Compress image to reduce tokens and latency
     compressed_bytes, compressed_type, img_w, img_h = compress_image(image_bytes, content_type)
 
+    # Check vision cache before calling GPT-4o (Issue #295)
+    cache_key = hashlib.sha256(compressed_bytes).hexdigest()
+    with _vision_cache_lock:
+        cached = _vision_cache.get(cache_key)
+    if cached is not None:
+        logger.info("Vision cache HIT (key=%s…)", cache_key[:12])
+        return cached
+
     # Adaptive detail level — saves ~5x tokens for small/simple diagrams (Issue #178)
     detail = _pick_detail_level(compressed_bytes, img_w, img_h)
 
@@ -460,6 +482,13 @@ def analyze_image(image_bytes: bytes, content_type: str = "image/png") -> Dict[s
     raw_text = response.choices[0].message.content.strip()
     logger.info("GPT-4o response received (%d chars)", len(raw_text))
 
+    # Detect GPT output truncation (Issue #278)
+    if response.choices[0].finish_reason == "length":
+        logger.warning(
+            "Vision analysis output TRUNCATED (finish_reason=length). "
+            "JSON may be invalid or incomplete — some services may be missing."
+        )
+
     # Parse JSON from response (handle ```json blocks)
     json_text = raw_text
     if "```json" in json_text:
@@ -475,7 +504,14 @@ def analyze_image(image_bytes: bytes, content_type: str = "image/png") -> Dict[s
         logger.error("Failed to parse GPT-4o JSON: %s\nRaw: %s", exc, raw_text[:500])
         raise ValueError(f"GPT-4o returned invalid JSON: {exc}") from exc
 
-    return _build_analysis_result(vision_result)
+    result = _build_analysis_result(vision_result)
+
+    # Store in vision cache (Issue #295)
+    with _vision_cache_lock:
+        _vision_cache[cache_key] = result
+    logger.info("Vision cache STORE (key=%s…)", cache_key[:12])
+
+    return result
 
 
 def _build_analysis_result(vision_result: Dict[str, Any], target_provider: str = "azure") -> Dict[str, Any]:

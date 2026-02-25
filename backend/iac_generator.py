@@ -346,8 +346,58 @@ def _validate_cloudformation(code: str) -> List[Tuple[str, str]]:
     return issues
 
 
+def _scan_security(code: str, iac_format: str) -> List[Tuple[str, str]]:
+    """Scan IaC code for common security anti-patterns (Issue #276).
+
+    Checks for insecure defaults that static analysis tools like checkov
+    and tfsec would flag.  Returns (severity, message) tuples.
+    """
+    issues: List[Tuple[str, str]] = []
+    code_lower = code.lower()
+
+    # ── Universal security checks (all formats) ──
+
+    # 1. Publicly exposed storage / S3 buckets
+    if re.search(r'(?:public_access|public_network_access|acl)\s*[=:]\s*["\']?(?:true|enabled|public-read)', code, re.IGNORECASE):
+        issues.append(("warning", "SEC: Public access enabled — review if intentional"))
+
+    # 2. No encryption at rest
+    if any(svc in code_lower for svc in ["storage_account", "aws_s3_bucket", "aws_db_instance", "microsoft.storage"]):
+        if not re.search(r'(?:encryption|kms_key|customer_managed_key|sse_algorithm|encrypt)', code, re.IGNORECASE):
+            issues.append(("warning", "SEC: No encryption configuration found for storage/database resources"))
+
+    # 3. Overly permissive network rules (0.0.0.0/0 ingress)
+    if re.search(r'(?:cidr_block|source_address_prefix|ip_range)\s*[=:]\s*["\']0\.0\.0\.0/0["\']', code, re.IGNORECASE):
+        issues.append(("warning", "SEC: Ingress from 0.0.0.0/0 detected — restrict to specific CIDR ranges"))
+
+    # 4. SSH/RDP open to the world (port 22 or 3389 with 0.0.0.0/0)
+    if re.search(r'(?:22|3389)', code) and '0.0.0.0/0' in code:
+        issues.append(("warning", "SEC: SSH/RDP port open to 0.0.0.0/0 — restrict access via bastion or VPN"))
+
+    # 5. HTTP instead of HTTPS
+    if re.search(r'(?:protocol|scheme)\s*[=:]\s*["\']?http["\']?\s', code, re.IGNORECASE) and 'https' not in code_lower:
+        issues.append(("warning", "SEC: HTTP protocol used — consider enforcing HTTPS"))
+
+    # 6. No logging / monitoring configured
+    if any(res in code_lower for res in ["virtual_machine", "aws_instance", "compute_engine"]):
+        if not re.search(r'(?:logging|monitoring|diagnostic|cloudwatch|log_analytics)', code, re.IGNORECASE):
+            issues.append(("warning", "SEC: No logging/monitoring configured for compute resources"))
+
+    # 7. Disabled TLS / minimum TLS version too low
+    if re.search(r'min(?:imum)?_tls_version\s*[=:]\s*["\']?(?:1\.0|1\.1|TLS10|TLS11)', code, re.IGNORECASE):
+        issues.append(("warning", "SEC: TLS version below 1.2 — upgrade to TLS 1.2+"))
+
+    # 8. No managed identity (Azure-specific)
+    if 'azurerm_' in code_lower or 'microsoft.' in code_lower:
+        if not re.search(r'(?:identity|managed_identity|system_assigned|user_assigned)', code, re.IGNORECASE):
+            issues.append(("warning", "SEC: No managed identity configured — prefer identity-based auth over keys"))
+
+    return issues
+
+
 def _apply_validation(code: str, iac_format: str) -> str:
-    """Run format-specific validation and log issues. Returns code with inline warnings.
+    """Run format-specific validation and security scanning, then log issues.
+    Returns code with inline warnings.
 
     Always returns code (better to show imperfect code with warnings than nothing).
     """
@@ -362,6 +412,10 @@ def _apply_validation(code: str, iac_format: str) -> str:
         return code
 
     issues = validator(code)
+
+    # Security scanning (Issue #276) — check for common insecure patterns
+    issues.extend(_scan_security(code, iac_format))
+
     errors = [(s, m) for s, m in issues if s == "error"]
     warnings = [(s, m) for s, m in issues if s == "warning"]
 
@@ -477,6 +531,16 @@ def generate_iac_code(analysis: Optional[dict], iac_format: str = "terraform", p
         )
 
         code = response.choices[0].message.content.strip()
+
+        # Detect GPT output truncation (Issue #278)
+        if getattr(response, '_truncated', False):
+            logger.warning("IaC output was truncated — appending warning comment")
+            truncation_warning = {
+                "terraform": "\n\n# ⚠️ WARNING: This output was truncated by the AI model.\n# Some resources may be incomplete. Please review and regenerate if needed.\n",
+                "bicep": "\n\n// ⚠️ WARNING: This output was truncated by the AI model.\n// Some resources may be incomplete. Please review and regenerate if needed.\n",
+                "cloudformation": "\n\n# ⚠️ WARNING: This output was truncated by the AI model.\n# Some resources may be incomplete. Please review and regenerate if needed.\n",
+            }
+            code += truncation_warning.get(iac_format, "\n# ⚠️ Output was truncated.\n")
 
         # Strip markdown code fences if GPT accidentally includes them
         if code.startswith("```"):

@@ -1,14 +1,15 @@
 import React, { useRef, useCallback, useEffect } from 'react';
 import {
   Upload, ChevronRight, CheckCircle, XCircle, X,
-  Loader2, Eye,
+  Loader2, Eye, Clock,
 } from 'lucide-react';
 import { Button, Card } from '../ui';
 import { API_BASE } from '../../constants';
 import api from '../../services/apiClient';
-import { saveSession, loadSession, clearSession } from '../../services/sessionCache';
+import { saveSession, loadSession, clearSession, updateSessionCache } from '../../services/sessionCache';
 import useWorkflow from './useWorkflow';
 import useSSE from '../../hooks/useSSE';
+import useSessionExpiry from '../../hooks/useSessionExpiry';
 import UploadStep from './UploadStep';
 import GuidedQuestions from './GuidedQuestions';
 import AnalysisResults from './AnalysisResults';
@@ -41,6 +42,16 @@ export default function DiagramTranslator() {
   const activeTimeoutsRef = useRef([]);    // pending setTimeout IDs
   const filePreviewUrlRef = useRef(null);  // latest blob URL
   const abortRef = useRef(null);           // AbortController for fetch calls
+
+  // Session expiry warning countdown (#261) + auto-reset on expiry (#227)
+  const handleSessionExpired = useCallback(() => {
+    set({ error: 'Your session has expired. Please re-upload your diagram to continue.', step: 'upload' });
+    clearSession();
+  }, [set]);
+  const { expiryWarning, dismissWarning } = useSessionExpiry({
+    diagramId: state.diagramId,
+    onExpired: handleSessionExpired,
+  });
 
   // Keep blob URL ref in sync
   useEffect(() => {
@@ -114,9 +125,11 @@ export default function DiagramTranslator() {
       return;
     }
     if (state.filePreviewUrl) URL.revokeObjectURL(state.filePreviewUrl);
+    // Clear stale errors when user selects a new file (#227)
     set({
       selectedFile: file,
       filePreviewUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : null,
+      error: null,
     });
   }, [set, state.filePreviewUrl]);
 
@@ -363,6 +376,7 @@ export default function DiagramTranslator() {
     try {
       const iacData = await api.post(`/diagrams/${state.diagramId}/generate?format=${fmt}`);
       set({ iacCode: iacData.code, costEstimate: null, step: 'iac' });
+      updateSessionCache({ iacCode: iacData.code, iacFormat: fmt }); // #263
     } catch (err) {
       if (err.status === 404) {
         const restored = await tryRestoreSession(state.diagramId);
@@ -370,6 +384,7 @@ export default function DiagramTranslator() {
           try {
             const iacData = await api.post(`/diagrams/${state.diagramId}/generate?format=${fmt}`);
             set({ iacCode: iacData.code, costEstimate: null, step: 'iac', loading: false });
+            updateSessionCache({ iacCode: iacData.code, iacFormat: fmt }); // #263
             return;
           } catch { /* fall through */ }
         }
@@ -495,7 +510,7 @@ export default function DiagramTranslator() {
       const data = await api.post(`/diagrams/${state.diagramId}/generate-hld`, undefined, controller.signal);
       clearTimeout(timeout);
       activeTimeoutsRef.current = activeTimeoutsRef.current.filter(id => id !== timeout);
-      if (data.hld) set({ hldData: data });
+      if (data.hld) { set({ hldData: data }); updateSessionCache({ hldData: data }); } // #263
     } catch (err) {
       if (err.status === 404) {
         const restored = await tryRestoreSession(state.diagramId);
@@ -506,7 +521,7 @@ export default function DiagramTranslator() {
             activeTimeoutsRef.current.push(timeout2);
             const data = await api.post(`/diagrams/${state.diagramId}/generate-hld`, undefined, controller2.signal);
             clearTimeout(timeout2);
-            if (data.hld) set({ hldData: data, hldLoading: false });
+            if (data.hld) { set({ hldData: data, hldLoading: false }); updateSessionCache({ hldData: data }); } // #263
             return;
           } catch { /* fall through */ }
         }
@@ -591,6 +606,17 @@ export default function DiagramTranslator() {
         </Card>
       )}
 
+      {/* Session expiry warning (#261) */}
+      {expiryWarning && (
+        <Card className="p-3 border-warning/30 bg-warning/5" role="status" aria-live="polite">
+          <div className="flex items-center gap-3">
+            <Clock className="w-5 h-5 text-warning shrink-0" aria-hidden="true" />
+            <p className="text-sm text-warning">{expiryWarning}</p>
+            <button onClick={dismissWarning} className="ml-auto cursor-pointer hover:bg-secondary rounded-lg p-1 transition-colors" aria-label="Dismiss warning" title="Dismiss"><X className="w-4 h-4 text-text-muted" /></button>
+          </div>
+        </Card>
+      )}
+
       {/* Step: Upload */}
       {state.step === 'upload' && (
         <UploadStep
@@ -626,6 +652,20 @@ export default function DiagramTranslator() {
                   <span>{msg}</span>
                 </div>
               ))}
+            </div>
+            {/* Cancel button (#304) */}
+            <div className="mt-6 flex justify-end">
+              <Button
+                variant="ghost"
+                icon={X}
+                onClick={() => {
+                  if (abortRef.current) { abortRef.current.abort(); abortRef.current = null; }
+                  if (activeEsRef.current) { activeEsRef.current.close(); activeEsRef.current = null; }
+                  set({ step: 'upload', error: null, analyzeProgress: [] });
+                }}
+              >
+                Cancel Analysis
+              </Button>
             </div>
           </div>
         </Card>
