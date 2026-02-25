@@ -587,7 +587,9 @@ class TestRedisStoreMocked:
 class TestGetStoreFactory:
     """Test the get_store factory function with various configurations."""
 
+    @patch("session_store.REDIS_URL", "")
     def test_default_returns_inmemory(self):
+        reset_stores()
         store = get_store("test_factory")
         assert isinstance(store, InMemoryStore)
 
@@ -623,8 +625,10 @@ class TestGetStoreFactory:
             finally:
                 session_store._is_multi_worker = old_multi
 
+    @patch("session_store.REDIS_URL", "")
     def test_custom_ttl_and_maxsize(self):
         """Custom TTL and maxsize should be applied."""
+        reset_stores()
         store = get_store("custom_params", maxsize=100, ttl=60)
         assert isinstance(store, InMemoryStore)
         assert store.maxsize == 100

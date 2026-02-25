@@ -517,6 +517,7 @@ async def generate_hld_endpoint(request: Request, diagram_id: str, _auth=Depends
             strategy = iac_params.get("sku_strategy", "balanced")
             cost_estimate = estimate_services_cost(analysis.get("mappings", []), region=region, sku_strategy=strategy)
             session["_cached_cost_estimate"] = cost_estimate
+            SESSION_STORE[diagram_id] = session
         except Exception:  # nosec B110 — session cleanup is optional, must not break response
             logger.debug("Cost estimation unavailable, proceeding without it")
 
@@ -534,9 +535,10 @@ async def generate_hld_endpoint(request: Request, diagram_id: str, _auth=Depends
         logger.exception("HLD generation failed: %s", e)
         raise HTTPException(500, f"HLD generation failed: {type(e).__name__}: {e}")
 
-    # Store in session
+    # Store in session — must write back to store for Redis compatibility
     session["hld"] = hld
     session["hld_markdown"] = markdown
+    SESSION_STORE[diagram_id] = session
 
     return {
         "diagram_id": diagram_id,
@@ -1063,6 +1065,7 @@ async def _run_hld_job(job_id: str, diagram_id: str) -> None:
                 strategy = iac_params.get("sku_strategy", "balanced")
                 cost_estimate = estimate_services_cost(session.get("mappings", []), region=region, sku_strategy=strategy)
                 session["_cached_cost_estimate"] = cost_estimate
+                SESSION_STORE[diagram_id] = session
             except Exception:
                 logger.debug("Cost estimation unavailable")
 
@@ -1083,6 +1086,7 @@ async def _run_hld_job(job_id: str, diagram_id: str) -> None:
 
         session["hld"] = hld
         session["hld_markdown"] = markdown
+        SESSION_STORE[diagram_id] = session
 
         record_event("hld_generated", {"diagram_id": diagram_id})
         job_manager.complete(job_id, result={"diagram_id": diagram_id, "hld": hld, "markdown": markdown})
