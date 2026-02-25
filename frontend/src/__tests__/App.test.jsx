@@ -58,9 +58,9 @@ describe('App', () => {
     expect(screen.queryByTestId('translator')).not.toBeInTheDocument()
   })
 
-  it('renders the beta preview banner', () => {
+  it('does not render a beta preview banner', () => {
     render(<App />)
-    expect(screen.getByText(/Beta Preview/)).toBeInTheDocument()
+    expect(screen.queryByText(/Beta Preview/)).not.toBeInTheDocument()
   })
 
   it('renders footer with version info', () => {

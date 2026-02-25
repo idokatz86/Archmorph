@@ -19,7 +19,7 @@ describe('LandingPage', () => {
 
   it('renders hero headline', () => {
     render(<LandingPage {...defaultProps} />);
-    expect(screen.getByText(/Translate Any Cloud Architecture/)).toBeInTheDocument();
+    expect(screen.getByText(/Modernize Any Cloud/)).toBeInTheDocument();
     expect(screen.getByText('to Azure')).toBeInTheDocument();
   });
 
@@ -29,18 +29,24 @@ describe('LandingPage', () => {
     expect(defaultProps.onGetStarted).toHaveBeenCalledTimes(1);
   });
 
-  it('view pricing button calls onViewPricing — SKIPPED (pricing removed for beta)', () => {
-    // Pricing removed for beta launch
-  });
-
-  it('renders all 6 feature cards', () => {
+  it('renders all 9 feature cards', () => {
     render(<LandingPage {...defaultProps} />);
     expect(screen.getByText('AI-Powered Translation')).toBeInTheDocument();
-    expect(screen.getByText('Infrastructure as Code')).toBeInTheDocument();
-    expect(screen.getByText('High-Level Design Docs')).toBeInTheDocument();
-    expect(screen.getByText('Smart Analysis')).toBeInTheDocument();
+    expect(screen.getByText('Terraform, Bicep & CloudFormation')).toBeInTheDocument();
+    expect(screen.getByText('HLD Documents & Runbooks')).toBeInTheDocument();
+    expect(screen.getByText('Architecture Versioning')).toBeInTheDocument();
+    expect(screen.getByText('Cost Estimates & Optimization')).toBeInTheDocument();
+    expect(screen.getByText('Living Architecture')).toBeInTheDocument();
     expect(screen.getByText('Enterprise Security')).toBeInTheDocument();
-    expect(screen.getByText('Multi-Cloud Support')).toBeInTheDocument();
+    expect(screen.getByText('AI Assistant & Community')).toBeInTheDocument();
+    expect(screen.getByText('Multi-Cloud, Any Direction')).toBeInTheDocument();
+  });
+
+  it('renders stats bar with key metrics', () => {
+    render(<LandingPage {...defaultProps} />);
+    expect(screen.getByText('405+')).toBeInTheDocument();
+    expect(screen.getByText('120+')).toBeInTheDocument();
+    expect(screen.getByText('100%')).toBeInTheDocument();
   });
 
   it('renders how-it-works section with 4 steps', () => {
@@ -48,7 +54,7 @@ describe('LandingPage', () => {
     expect(screen.getByText('How it works')).toBeInTheDocument();
     expect(screen.getByText('Upload')).toBeInTheDocument();
     expect(screen.getByText('Analyze')).toBeInTheDocument();
-    expect(screen.getByText('Translate')).toBeInTheDocument();
+    expect(screen.getByText('Refine')).toBeInTheDocument();
     expect(screen.getByText('Export')).toBeInTheDocument();
   });
 
@@ -57,23 +63,18 @@ describe('LandingPage', () => {
     expect(screen.getByText('Frequently asked questions')).toBeInTheDocument();
     expect(screen.getByText('What cloud platforms do you support?')).toBeInTheDocument();
     expect(screen.getByText('How accurate are the translations?')).toBeInTheDocument();
+    expect(screen.getByText('Is Archmorph really free?')).toBeInTheDocument();
     // Answers should not be visible until expanded
-    expect(screen.queryByText(/currently translates architectures from AWS/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/translates between AWS/)).not.toBeInTheDocument();
   });
 
   it('FAQ accordion toggles on click', () => {
     render(<LandingPage {...defaultProps} />);
     const question = screen.getByText('What cloud platforms do you support?');
     fireEvent.click(question);
-    expect(screen.getByText(/currently translates architectures from AWS/)).toBeInTheDocument();
+    expect(screen.getByText(/translates between AWS/)).toBeInTheDocument();
     fireEvent.click(question);
-    expect(screen.queryByText(/currently translates architectures from AWS/)).not.toBeInTheDocument();
-  });
-
-  it('renders social proof section', () => {
-    render(<LandingPage {...defaultProps} />);
-    expect(screen.getByText(/Trusted by cloud architects/)).toBeInTheDocument();
-    expect(screen.getByText('200+ Azure services mapped')).toBeInTheDocument();
+    expect(screen.queryByText(/translates between AWS/)).not.toBeInTheDocument();
   });
 
   it('bottom CTA calls onGetStarted', () => {
@@ -82,10 +83,10 @@ describe('LandingPage', () => {
     expect(defaultProps.onGetStarted).toHaveBeenCalledTimes(1);
   });
 
-  it('renders trust badges (no credit card, free analyses, GDPR)', () => {
+  it('renders trust badges (100% free, no account, GDPR)', () => {
     render(<LandingPage {...defaultProps} />);
-    expect(screen.getByText('Free during beta')).toBeInTheDocument()
-    expect(screen.getByText('Unlimited analyses')).toBeInTheDocument()
+    expect(screen.getByText('100% free forever')).toBeInTheDocument();
+    expect(screen.getByText('No account required')).toBeInTheDocument();
     expect(screen.getByText('GDPR compliant')).toBeInTheDocument();
   });
 });

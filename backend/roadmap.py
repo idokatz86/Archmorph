@@ -256,13 +256,13 @@ RELEASE_TIMELINE: List[Dict[str, Any]] = [
         "metrics": {"services": 405, "mappings": 122, "api_endpoints": 81},
     },
     # ═══════════════════════════════════════════════════════════
-    # v2.11.1 - UX Polish & Document Export (Current)
+    # v2.11.1 - UX Polish & Document Export (Released)
     # ═══════════════════════════════════════════════════════════
     {
         "version": "2.11.1",
         "name": "UX Polish & Document Export",
         "date": "2026-02-21",
-        "status": ReleaseStatus.IN_PROGRESS,
+        "status": ReleaseStatus.RELEASED,
         "highlights": [
             "Drag & drop upload zone with file preview",
             "HLD export to Word, PDF, and PowerPoint",
@@ -300,10 +300,113 @@ RELEASE_TIMELINE: List[Dict[str, Any]] = [
             "Background job queue (Redis + Celery)",
             "OpenTelemetry observability stack",
             "API versioning (/v1/ prefix)",
+            "Inter-question constraint system for guided questions",
+            "Compliance/data-residency filters for region selection",
         ],
+        "metrics": {"services": 405, "mappings": 122, "api_endpoints": 85},
     },
+    # ═══════════════════════════════════════════════════════════
+    # Sprint 1 — Production Critical (Released)
+    # ═══════════════════════════════════════════════════════════
     {
-        "version": "2.13.0",
+        "version": "3.0.1",
+        "name": "Sprint 1 — Production Critical",
+        "date": "2026-02-25",
+        "status": ReleaseStatus.RELEASED,
+        "highlights": [
+            "Error envelope middleware with correlation IDs (#260)",
+            "Visio (.vsdx) import parser (#262)",
+            "White-label theming engine with custom branding (#273)",
+            "Session restore & UX improvements (#274, #279)",
+            "API versioning with /v1/ prefix (#291)",
+            "Best-practice validation engine (#287)",
+            "Cost optimizer engine (#293)",
+            "Migration assessment scoring (#294)",
+            "Compliance mapper (GDPR/HIPAA/SOC2/PCI DSS) (#296)",
+            "Living architecture health monitoring (#286)",
+            "AI-powered service suggestions (#303)",
+            "Migration risk scoring (#294)",
+        ],
+        "metrics": {"services": 405, "mappings": 122, "api_endpoints": 90},
+    },
+    # ═══════════════════════════════════════════════════════════
+    # Sprint 2 — Reliability & DX (Released)
+    # ═══════════════════════════════════════════════════════════
+    {
+        "version": "3.0.2",
+        "name": "Sprint 2 — Reliability & Developer Experience",
+        "date": "2026-02-25",
+        "status": ReleaseStatus.RELEASED,
+        "highlights": [
+            "API client rewrite with retry/backoff/timeout (#268, #305)",
+            "User-friendly error messages for all HTTP codes (#305)",
+            "Configurable OpenAI timeout & fallback model (#278, #285, #298)",
+            "GPT output truncation detection (#278)",
+            "Vision analysis cache layer with TTLCache (#295)",
+            "IaC security scanning (8 rules) (#276)",
+            "Session cache for IaC/HLD persistence (#263)",
+            "Session expiry countdown warning (#261)",
+            "Cancel analysis button (#227)",
+            "Error clearing on new file upload (#304)",
+            "Mobile responsive button layout (#306)",
+            "Docker Compose with PostgreSQL 16 & Redis 7 (#283)",
+            "Configurable user cache TTL (#266)",
+            "Image store TTL aligned to session store (#264)",
+        ],
+        "metrics": {"services": 405, "mappings": 122, "api_endpoints": 90},
+    },
+    # ═══════════════════════════════════════════════════════════
+    # Sprint 3 — Advanced Features (Released)
+    # ═══════════════════════════════════════════════════════════
+    {
+        "version": "3.0.3",
+        "name": "Sprint 3 — Advanced Features & Polish",
+        "date": "2026-02-25",
+        "status": ReleaseStatus.RELEASED,
+        "highlights": [
+            "Azure/GCP services pagination fix (#265)",
+            "Prompt guard for IaC chat (#267)",
+            "Migration runbook generator (#269)",
+            "CloudFormation IaC format (#270)",
+            "Terraform plan preview (#275)",
+            "Architecture versioning with diff (#277)",
+            "Migration intelligence with community data (#280)",
+            "Infrastructure import from live cloud (#281)",
+            "Organization & team management (#289)",
+            "Journey analytics tracking (#297)",
+            "Dependency graph visualization (#307)",
+            "Risk score & compliance panels (#308, #309)",
+            "URL hash sync for tab navigation (#310)",
+            "Feature flags system (#311)",
+            "Admin dashboard with analytics (#314)",
+        ],
+        "metrics": {"services": 405, "mappings": 122, "api_endpoints": 95},
+    },
+    # ═══════════════════════════════════════════════════════════
+    # v3.1.0 — Current Release
+    # ═══════════════════════════════════════════════════════════
+    {
+        "version": "3.1.0",
+        "name": "Landing Page Redesign & GA",
+        "date": "2026-02-25",
+        "status": ReleaseStatus.RELEASED,
+        "highlights": [
+            "Complete landing page redesign with 9 feature cards",
+            "Stats bar (405+ services, 120+ mappings, 3 IaC formats)",
+            "100% free forever — removed all beta language",
+            "Buy Me a Coffee link restored in footer",
+            "Updated FAQs with accurate feature descriptions",
+            "Removed beta preview banner",
+            "Roadmap updated with complete release history",
+            "1,900+ tests (274 frontend, 1,653 backend)",
+        ],
+        "metrics": {"services": 405, "mappings": 122, "api_endpoints": 95},
+    },
+    # ═══════════════════════════════════════════════════════════
+    # Planned Releases
+    # ═══════════════════════════════════════════════════════════
+    {
+        "version": "3.2.0",
         "name": "QA & Testing Excellence",
         "date": "2026-03-14",
         "status": ReleaseStatus.PLANNED,
@@ -317,21 +420,20 @@ RELEASE_TIMELINE: List[Dict[str, Any]] = [
         ],
     },
     {
-        "version": "2.14.0",
+        "version": "3.3.0",
         "name": "DevOps & Platform",
         "date": "2026-03-21",
         "status": ReleaseStatus.PLANNED,
         "highlights": [
             "Blue-green deployments",
             "Canary release support",
-            "Feature flags system",
             "Auto-rollback on failure",
             "Multi-region deployment",
             "Helm charts for Kubernetes",
         ],
     },
     {
-        "version": "2.15.0",
+        "version": "3.4.0",
         "name": "Security Hardening",
         "date": "2026-03-28",
         "status": ReleaseStatus.PLANNED,
@@ -345,7 +447,7 @@ RELEASE_TIMELINE: List[Dict[str, Any]] = [
         ],
     },
     {
-        "version": "2.16.0",
+        "version": "3.5.0",
         "name": "Team Collaboration",
         "date": "2026-04-04",
         "status": ReleaseStatus.PLANNED,
@@ -357,7 +459,7 @@ RELEASE_TIMELINE: List[Dict[str, Any]] = [
         ],
     },
     {
-        "version": "3.1.0",
+        "version": "4.0.0",
         "name": "Enterprise Platform",
         "date": "2026-04-30",
         "status": ReleaseStatus.PLANNED,

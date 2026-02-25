@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import 'prismjs/themes/prism-tomorrow.css';
-import { AlertTriangle, Code, Loader2, Shield } from 'lucide-react';
+import { Code, Coffee, Loader2, Shield } from 'lucide-react';
 import ErrorBoundary from './components/ErrorBoundary';
 import Nav from './components/Nav';
 import DiagramTranslator from './components/DiagramTranslator';
@@ -17,8 +17,7 @@ const CookieBanner = lazy(() => import('./components/CookieBanner'));
 // PricingPage removed — feature temporarily disabled
 const LandingPage = lazy(() => import('./components/LandingPage'));
 const UserDashboard = lazy(() => import('./components/UserDashboard'));
-// TemplateGallery removed for beta launch
-// const TemplateGallery = lazy(() => import('./components/TemplateGallery'));
+
 
 function TabFallback() {
   return (
@@ -72,20 +71,10 @@ export default function App() {
         Skip to main content
       </a>
       <Nav activeTab={activeTab} setActiveTab={setActiveTab} updateStatus={updateStatus} />
-      <div className="bg-amber-500/10 border-b border-amber-500/20">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2 flex items-center justify-center gap-2">
-          <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-          <p className="text-xs text-amber-300">
-            <span className="font-semibold">Beta Preview</span> — This application is currently in beta. Features and outputs may change. Please review all results before using in production environments.
-          </p>
-        </div>
-      </div>
       <main id="main-content" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <ErrorBoundary>
           <Suspense fallback={<TabFallback />}>
             {activeTab === 'landing' && <LandingPage onGetStarted={() => setActiveTab('translator')} />}
-            {/* UserDashboard hidden for beta launch */}
-            {/* TemplateGallery removed for beta launch */}
             {activeTab === 'translator' && <DiagramTranslator />}
             {activeTab === 'services' && <ServicesBrowser />}
             {activeTab === 'roadmap' && <Roadmap />}
@@ -108,7 +97,10 @@ export default function App() {
                 <Code className="w-3.5 h-3.5" />
                 GitHub
               </a>
-
+              <a href="https://buymeacoffee.com/idokatz" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-amber-400 transition-colors cursor-pointer">
+                <Coffee className="w-3.5 h-3.5" />
+                Buy me a coffee
+              </a>
               <button
                 onClick={() => setActiveTab('legal')}
                 className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-cta transition-colors cursor-pointer"
