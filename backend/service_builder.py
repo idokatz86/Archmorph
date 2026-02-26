@@ -314,6 +314,10 @@ def add_services_from_text(
             "source_provider": "user",
             "azure_service": azure_name,
             "confidence": 1.0,  # User explicitly requested
+            "confidence_explanation": [
+                "Service manually added by user via natural language — confidence set to 100%",
+                f"Mapped to {azure_name} based on service name matching",
+            ],
             "notes": f"Zone {user_zone['number']} – {user_zone['name']} (via natural language)",
         }
         updated_analysis.setdefault("mappings", []).append(new_mapping)
@@ -348,6 +352,11 @@ def add_services_from_text(
             "medium": sum(1 for c in confidences if 0.7 <= c < 0.85),
             "low": sum(1 for c in confidences if c < 0.7),
             "average": round(sum(confidences) / len(confidences), 2),
+            "methodology": (
+                "Confidence scores for services added via natural language are based on "
+                "our curated cross-cloud mapping database. User-described services are matched "
+                "against known equivalents with pre-assigned confidence reflecting feature parity."
+            ),
         }
     
     logger.info(

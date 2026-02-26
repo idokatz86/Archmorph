@@ -563,15 +563,36 @@ def _build_analysis_result(vision_result: Dict[str, Any], target_provider: str =
                 confidence = round(mapping_conf * 0.7 + detection_conf * 0.3, 2)
                 confidence = min(1.0, max(0.0, confidence))
                 notes = mapping.get("notes", "")
-                mapping.get("category", "General")
+                category = mapping.get("category", "General")
+
+                # Build human-readable confidence explanation
+                confidence_reasons = []
+                confidence_reasons.append(
+                    f"Curated mapping confidence: {int(mapping_conf * 100)}% — "
+                    f"{notes or 'verified cross-cloud service equivalence'}"
+                )
+                confidence_reasons.append(
+                    f"Diagram detection confidence: {int(detection_conf * 100)}% — "
+                    f"how clearly this service was identified in the uploaded diagram"
+                )
+                confidence_reasons.append(
+                    f"Blended score: 70% mapping ({int(mapping_conf * 100)}%) "
+                    f"+ 30% detection ({int(detection_conf * 100)}%) = {int(confidence * 100)}%"
+                )
             else:
                 # No direct mapping found — flag it
                 target_service = f"[Manual mapping needed] {full_name}"
                 confidence = round(0.30 * 0.7 + detection_conf * 0.3, 2)
                 notes = f"No direct cross-cloud mapping found for {full_name}"
+                category = "General"
                 warnings.append(
                     f"{full_name} — no automatic {target_provider.upper()} mapping found; manual review required"
                 )
+                confidence_reasons = [
+                    f"No curated mapping found for {full_name} — base mapping score set to 30%",
+                    f"Diagram detection confidence: {int(detection_conf * 100)}%",
+                    "Manual review recommended to confirm the best target service",
+                ]
 
             # Build mapping entry (keep azure_service key for backward compat)
             mapping_entry = {
@@ -581,6 +602,7 @@ def _build_analysis_result(vision_result: Dict[str, Any], target_provider: str =
                 "target_service": target_service,
                 "target_provider": target_provider,
                 "confidence": confidence,
+                "confidence_explanation": confidence_reasons,
                 "notes": f"Zone {zone_number} – {zone_name}: {role}. {notes}".strip(),
             }
             mappings.append(mapping_entry)
@@ -648,5 +670,14 @@ def _build_analysis_result(vision_result: Dict[str, Any], target_provider: str =
             "medium": medium,
             "low": low,
             "average": avg,
+            "methodology": (
+                "Each confidence score is calculated by blending two factors: "
+                "(1) a curated mapping confidence from our verified cross-cloud service database (weighted 70%), "
+                "reflecting how closely the source and target services match in features and capabilities; and "
+                "(2) an AI detection confidence (weighted 30%), representing how clearly the service was identified "
+                "in your uploaded diagram. Scores above 90% indicate a direct, well-established equivalent. "
+                "Scores between 80-90% indicate a strong match with minor feature differences. "
+                "Scores below 80% indicate significant differences that may require architectural adjustments."
+            ),
         },
     }

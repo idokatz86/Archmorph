@@ -229,11 +229,26 @@ def build_sample_analysis(sample_id: str, diagram_id: str) -> dict:
             notes_text = mapping.get("notes", "Suggested equivalent") if mapping else "Suggested equivalent"
             _category = mapping.get("category", "General") if mapping else "General"
 
+            # Build confidence explanation for transparency
+            if mapping:
+                conf_explanation = [
+                    f"Curated mapping confidence: {int(base_conf * 100)}% — {notes_text}",
+                    "Sample diagram detection confidence: 85% (pre-verified sample)",
+                    f"Blended score: 70% mapping ({int(base_conf * 100)}%) + 30% detection (85%) = {int(confidence * 100)}%",
+                ]
+            else:
+                conf_explanation = [
+                    f"No curated mapping found for {svc_name} — base mapping score set to 80%",
+                    "Sample diagram detection confidence: 85% (pre-verified sample)",
+                    "Manual review recommended to confirm best target service",
+                ]
+
             mapping_entry = {
                 "source_service": svc_name,
                 "source_provider": sample["provider"],
                 "azure_service": azure_svc,
                 "confidence": confidence,
+                "confidence_explanation": conf_explanation,
                 "notes": f"Zone {zone_idx} \u2013 {zone_def['name']}: {role}. {notes_text}".strip(),
             }
             mappings.append(mapping_entry)
@@ -272,6 +287,13 @@ def build_sample_analysis(sample_id: str, diagram_id: str) -> dict:
             "medium": medium,
             "low": low,
             "average": avg,
+            "methodology": (
+                "Each confidence score is calculated by blending two factors: "
+                "(1) a curated mapping confidence from our verified cross-cloud service database (weighted 70%), "
+                "reflecting how closely the source and target services match in features and capabilities; and "
+                "(2) a detection confidence (weighted 30%), representing identification certainty. "
+                "Sample diagrams use a fixed 85% detection confidence since services are pre-verified."
+            ),
         },
         "is_sample": True,
     }

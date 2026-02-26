@@ -581,11 +581,26 @@ def _build_analysis(
         azure_info = SERVICE_TO_AZURE.get(svc_name, ("Manual mapping required", 0.5))
         azure_service, confidence = azure_info
 
+        # Build confidence explanation
+        if svc_name in SERVICE_TO_AZURE:
+            conf_explanation = [
+                f"Curated mapping confidence: {int(confidence * 100)}% — based on verified cross-cloud service equivalence",
+                f"Source: infrastructure-as-code import ({source_format})",
+                f"Instance count: {svc_info['instance_count']} resource(s) detected",
+            ]
+        else:
+            conf_explanation = [
+                "No curated mapping found — default confidence 50%",
+                "Manual review recommended to select the best Azure equivalent",
+                f"Source: infrastructure-as-code import ({source_format})",
+            ]
+
         mappings.append({
             "source_service": svc_name,
             "source_provider": svc_info["provider"],
             "azure_service": azure_service,
             "confidence": confidence,
+            "confidence_explanation": conf_explanation,
             "category": svc_info["category"],
             "notes": f"Imported from {source_format}: {svc_info['instance_count']} instance(s)",
         })
@@ -634,6 +649,13 @@ def _build_analysis(
             "medium": sum(1 for c in confidences if 0.75 <= c < 0.90),
             "low": sum(1 for c in confidences if c < 0.75),
             "average": round(avg_conf, 3),
+            "methodology": (
+                "Confidence scores for imported infrastructure are based on our curated "
+                "cross-cloud service mapping database. Each source service is matched against known "
+                "equivalents with pre-assigned confidence reflecting feature parity and migration "
+                "complexity. Services without a known mapping default to 50% confidence and require "
+                "manual review."
+            ),
         },
         "import_metadata": {
             "source_format": source_format,

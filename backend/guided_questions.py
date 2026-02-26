@@ -1076,6 +1076,13 @@ def apply_answers(analysis_result: dict, answers: dict) -> dict:
         "medium": medium,
         "low": low,
         "average": avg,
+        "methodology": (
+            "Confidence scores are initially set from our curated cross-cloud mapping database "
+            "and AI diagram analysis, then adjusted based on your answers to the guided questions. "
+            "Factors like target environment, SKU strategy, compliance requirements, HA/DR configuration, "
+            "and specific service selections can increase or decrease confidence. "
+            "Each mapping includes a detailed breakdown of all factors that influenced its score."
+        ),
     }
 
     return result
@@ -1115,12 +1122,25 @@ def _swap_azure_service(
                 m["notes"] = f"{m.get('notes', '')} | {note_suffix}"
             if confidence_delta:
                 m["confidence"] = min(1.0, max(0.0, m.get("confidence", 0.8) + confidence_delta))
+                _add_confidence_reason(
+                    m, f"Service swap to {new_azure}: confidence adjusted by {confidence_delta:+.0%}"
+                )
 
 
-def _boost_confidence(mappings: list[dict], delta: float) -> None:
+def _add_confidence_reason(mapping: dict, reason: str) -> None:
+    """Append a human-readable reason to a mapping's confidence_explanation list."""
+    if "confidence_explanation" not in mapping:
+        mapping["confidence_explanation"] = []
+    mapping["confidence_explanation"].append(reason)
+
+
+def _boost_confidence(mappings: list[dict], delta: float, reason: str = "") -> None:
     """Raise confidence on all mappings by *delta* (user confirmed preferences)."""
     for m in mappings:
         m["confidence"] = min(1.0, m.get("confidence", 0.8) + delta)
+        _add_confidence_reason(
+            m, reason or f"User preferences confirmed: confidence boosted by {delta:+.0%}"
+        )
 
 
 # ── Individual rule implementations ───────────────────────
@@ -1143,6 +1163,9 @@ def _apply_environment(
         )
         for m in mappings:
             m["confidence"] = min(1.0, m.get("confidence", 0.8) + 0.05)
+            _add_confidence_reason(
+                m, "Development environment selected — simpler config increases mapping confidence (+5%)"
+            )
     elif env == "Multi-environment":
         iac["deploy_environments"] = ["dev", "staging", "prod"]
         warnings.append(
@@ -1179,6 +1202,9 @@ def _apply_sku_strategy(
             if "Standard" in azure:
                 m["azure_service"] = azure.replace("Standard", "Premium")
             m["confidence"] = min(1.0, m.get("confidence", 0.8) + 0.03)
+            _add_confidence_reason(
+                m, "Enterprise SKU strategy — premium tier has well-documented migration paths (+3%)"
+            )
 
     elif tier == "basic":
         warnings.append(
@@ -1216,6 +1242,9 @@ def _apply_ha_and_dr(
             if "Cosmos DB" in azure and "multi-region" not in azure.lower():
                 m["azure_service"] = f"{azure} (multi-region writes)"
                 m["confidence"] = min(1.0, m.get("confidence", 0.8) + 0.05)
+                _add_confidence_reason(
+                    m, "Active-active HA with multi-region writes — well-supported by Cosmos DB (+5%)"
+                )
 
     elif "active-passive" in ha:
         iac["geo_replication"] = True
@@ -1340,8 +1369,9 @@ def _apply_network_isolation(
                 "Container", "Event Hubs", "Service Bus",
             ]):
                 m["confidence"] = min(1.0, m.get("confidence", 0.8) + 0.02)
-
-    elif level == "VNet integration":
+                _add_confidence_reason(
+                    m, "Private endpoint compatible service — well-documented Private Link support (+2%)"
+                )
         iac["vnet_integration"] = True
         iac["service_endpoints"] = True
         iac["public_network_access"] = True
@@ -1375,6 +1405,9 @@ def _apply_storage_redundancy(
             m["notes"] = f"{m.get('notes', '')} | Redundancy: {redundancy}"
             if redundancy in ("GRS", "RA-GRS", "GZRS"):
                 m["confidence"] = min(1.0, m.get("confidence", 0.8) + 0.03)
+                _add_confidence_reason(
+                    m, f"Geo-redundant storage ({redundancy}) selected — mature Azure feature (+3%)"
+                )
 
 
 def _apply_spark_runtime(
@@ -1398,6 +1431,9 @@ def _apply_spark_runtime(
                 m["azure_service"] = target
                 m["notes"] = f"{m.get('notes', '')} | User selected: {runtime}"
                 m["confidence"] = min(1.0, m.get("confidence", 0.8) + 0.05)
+                _add_confidence_reason(
+                    m, f"User confirmed Spark runtime: {runtime} — explicit selection increases confidence (+5%)"
+                )
 
     if target == "Azure Databricks":
         warnings.append(
@@ -1431,6 +1467,9 @@ def _apply_functions_plan(
             m["notes"] = f"{m.get('notes', '')} | Plan: {plan_key}"
             if plan_key == "premium":
                 m["confidence"] = min(1.0, m.get("confidence", 0.8) + 0.03)
+                _add_confidence_reason(
+                    m, "Premium Functions plan — VNet support and pre-warmed instances improve migration fidelity (+3%)"
+                )
 
 
 def _apply_cosmosdb(
@@ -1577,6 +1616,9 @@ def _apply_iot(
             if "TwinMaker" in src:
                 m["azure_service"] = "Azure Digital Twins"
                 m["confidence"] = min(1.0, m.get("confidence", 0.8) + 0.05)
+                _add_confidence_reason(
+                    m, "User confirmed Digital Twins usage — direct mapping to Azure Digital Twins (+5%)"
+                )
                 m["notes"] = f"{m.get('notes', '')} | User confirmed digital twins"
 
 

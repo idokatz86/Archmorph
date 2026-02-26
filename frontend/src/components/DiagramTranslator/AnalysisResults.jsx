@@ -1,11 +1,62 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   ArrowRight, AlertTriangle, Info, HelpCircle,
-  FileCode, Sparkles, Loader2,
+  FileCode, Sparkles, Loader2, ChevronDown, ChevronUp, ShieldCheck,
 } from 'lucide-react';
 import { Badge, Button, Card } from '../ui';
 import ExportPanel from './ExportPanel';
 import HLDPanel from './HLDPanel';
+
+/* ── Confidence Explanation Row ──────────────────────────── */
+function MappingRow({ m, sourceProvider }) {
+  const [open, setOpen] = useState(false);
+  const hasExplanation = m.confidence_explanation?.length > 0;
+
+  return (
+    <div className="px-4 py-3">
+      <div className="flex items-center gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className={`text-sm font-medium ${sourceProvider === 'gcp' ? 'text-[#EA4335]' : 'text-[#FF9900]'}`}>{m.source_service}</span>
+            <ArrowRight className="w-3.5 h-3.5 text-text-muted shrink-0" />
+            <span className="text-sm text-info font-medium">{m.azure_service}</span>
+          </div>
+        </div>
+        <button
+          onClick={() => hasExplanation && setOpen(!open)}
+          className={`flex items-center gap-1.5 ${hasExplanation ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}
+          title={hasExplanation ? 'Click to see why this confidence score was assigned' : ''}
+          aria-expanded={open}
+        >
+          <Badge variant={m.confidence >= 0.9 ? 'high' : m.confidence >= 0.8 ? 'medium' : 'low'}>
+            {(m.confidence * 100).toFixed(0)}%
+          </Badge>
+          {hasExplanation && (
+            open
+              ? <ChevronUp className="w-3.5 h-3.5 text-text-muted" />
+              : <ChevronDown className="w-3.5 h-3.5 text-text-muted" />
+          )}
+        </button>
+      </div>
+
+      {/* Confidence Explanation Panel */}
+      {open && hasExplanation && (
+        <div className="mt-2.5 ml-1 pl-3 border-l-2 border-cta/30 space-y-1.5 animate-in fade-in slide-in-from-top-1">
+          <p className="text-xs font-semibold text-text-secondary flex items-center gap-1.5">
+            <ShieldCheck className="w-3.5 h-3.5 text-cta" />
+            Why this confidence score?
+          </p>
+          {m.confidence_explanation.map((reason, idx) => (
+            <div key={idx} className="flex items-start gap-2 text-xs text-text-muted">
+              <span className="text-cta/60 mt-0.5 shrink-0">•</span>
+              <span>{reason}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function AnalysisResults({
   analysis, loading, generatingIac, iacFormat, exportLoading, hldLoading,
@@ -32,19 +83,39 @@ export default function AnalysisResults({
         </div>
 
         {analysis.confidence_summary && (
-          <div className="grid grid-cols-4 gap-3 mt-4">
-            {[
-              { label: 'High', value: analysis.confidence_summary.high, color: 'text-cta' },
-              { label: 'Medium', value: analysis.confidence_summary.medium, color: 'text-warning' },
-              { label: 'Low', value: analysis.confidence_summary.low, color: 'text-danger' },
-              { label: 'Average', value: `${(analysis.confidence_summary.average * 100).toFixed(0)}%`, color: 'text-info' },
-            ].map(c => (
-              <div key={c.label} className="bg-surface rounded-lg p-3 text-center">
-                <p className={`text-2xl font-bold ${c.color}`}>{c.value}</p>
-                <p className="text-xs text-text-muted mt-1">{c.label} Confidence</p>
+          <>
+            <div className="grid grid-cols-4 gap-3 mt-4">
+              {[
+                { label: 'High', value: analysis.confidence_summary.high, color: 'text-cta' },
+                { label: 'Medium', value: analysis.confidence_summary.medium, color: 'text-warning' },
+                { label: 'Low', value: analysis.confidence_summary.low, color: 'text-danger' },
+                { label: 'Average', value: `${(analysis.confidence_summary.average * 100).toFixed(0)}%`, color: 'text-info' },
+              ].map(c => (
+                <div key={c.label} className="bg-surface rounded-lg p-3 text-center">
+                  <p className={`text-2xl font-bold ${c.color}`}>{c.value}</p>
+                  <p className="text-xs text-text-muted mt-1">{c.label} Confidence</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Confidence Methodology — Transparency Panel */}
+            {analysis.confidence_summary.methodology && (
+              <div className="mt-3 px-3.5 py-2.5 rounded-lg bg-info/5 border border-info/20">
+                <div className="flex items-start gap-2">
+                  <ShieldCheck className="w-4 h-4 text-info shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-xs font-semibold text-info mb-1">How we calculate confidence</p>
+                    <p className="text-xs text-text-secondary leading-relaxed">
+                      {analysis.confidence_summary.methodology}
+                    </p>
+                    <p className="text-xs text-text-muted mt-1.5 italic">
+                      Click any mapping's confidence badge below to see the detailed breakdown for that specific service.
+                    </p>
+                  </div>
+                </div>
               </div>
-            ))}
-          </div>
+            )}
+          </>
         )}
       </Card>
 
@@ -64,18 +135,7 @@ export default function AnalysisResults({
               {zoneMappings.length > 0 && (
                 <div className="divide-y divide-border">
                   {zoneMappings.map((m, i) => (
-                    <div key={i} className="px-4 py-3 flex items-center gap-3">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className={`text-sm font-medium ${analysis.source_provider === 'gcp' ? 'text-[#EA4335]' : 'text-[#FF9900]'}`}>{m.source_service}</span>
-                          <ArrowRight className="w-3.5 h-3.5 text-text-muted shrink-0" />
-                          <span className="text-sm text-info font-medium">{m.azure_service}</span>
-                        </div>
-                      </div>
-                      <Badge variant={m.confidence >= 0.9 ? 'high' : m.confidence >= 0.8 ? 'medium' : 'low'}>
-                        {(m.confidence * 100).toFixed(0)}%
-                      </Badge>
-                    </div>
+                    <MappingRow key={i} m={m} sourceProvider={analysis.source_provider} />
                   ))}
                 </div>
               )}
