@@ -336,22 +336,35 @@ class RedisStore(SessionStore):
         return f"{self._prefix}:{key}"
 
     def get(self, key: str, default: Any = None) -> Any:
-        raw = self._redis.get(self._key(key))
+        try:
+            raw = self._redis.get(self._key(key))
+        except Exception as exc:
+            logger.warning("Redis GET failed for '%s': %s — returning default", key, exc)
+            return default
         if raw is None:
             return default
         # Refresh TTL on read to keep active sessions alive (Issue #260)
-        self._redis.expire(self._key(key), self._ttl)
+        try:
+            self._redis.expire(self._key(key), self._ttl)
+        except Exception:
+            pass  # Non-critical — TTL refresh is best-effort
         try:
             return self._json.loads(raw)
         except (self._json.JSONDecodeError, TypeError):
             return raw
 
     def set(self, key: str, value: Any, ttl: Optional[int] = None) -> None:
-        payload = self._json.dumps(value, default=str)
-        self._redis.setex(self._key(key), ttl or self._ttl, payload)
+        try:
+            payload = self._json.dumps(value, default=str)
+            self._redis.setex(self._key(key), ttl or self._ttl, payload)
+        except Exception as exc:
+            logger.warning("Redis SET failed for '%s': %s — data not persisted", key, exc)
 
     def delete(self, key: str) -> None:
-        self._redis.delete(self._key(key))
+        try:
+            self._redis.delete(self._key(key))
+        except Exception as exc:
+            logger.warning("Redis DELETE failed for '%s': %s", key, exc)
 
     def keys(self, pattern: str = "*") -> List[str]:
         full_pattern = f"{self._prefix}:{pattern}"

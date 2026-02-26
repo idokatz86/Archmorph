@@ -214,15 +214,16 @@ resource "azurerm_postgresql_flexible_server_firewall_rule" "allow_azure" {
 # Azure Cache for Redis — session store & caching layer
 # ─────────────────────────────────────────────────────────────
 resource "azurerm_redis_cache" "main" {
-  name                          = "archmorph-redis-${local.name_suffix}"
-  resource_group_name           = azurerm_resource_group.main.name
-  location                      = azurerm_resource_group.main.location
-  capacity                      = var.redis_capacity
-  family                        = var.environment == "prod" ? "C" : "C"
-  sku_name                      = var.environment == "prod" ? "Standard" : "Basic"
-  non_ssl_port_enabled          = false # TLS-only (port 6380)
-  minimum_tls_version           = "1.2"
-  public_network_access_enabled = var.environment == "prod" ? false : true
+  name                               = "archmorph-redis-${local.name_suffix}"
+  resource_group_name                = azurerm_resource_group.main.name
+  location                           = azurerm_resource_group.main.location
+  capacity                           = var.redis_capacity
+  family                             = var.environment == "prod" ? "C" : "C"
+  sku_name                           = var.environment == "prod" ? "Standard" : "Basic"
+  non_ssl_port_enabled               = false # TLS-only (port 6380)
+  minimum_tls_version                = "1.2"
+  public_network_access_enabled      = var.environment == "prod" ? false : true
+  access_key_authentication_disabled = false # Required for REDIS_URL access key auth (#320)
 
   redis_configuration {
     maxmemory_policy = "allkeys-lru"
@@ -293,7 +294,7 @@ resource "azurerm_key_vault_secret" "storage_connection" {
 
 resource "azurerm_key_vault_secret" "redis_connection" {
   name         = "redis-connection-string"
-  value        = "rediss://:${azurerm_redis_cache.main.primary_access_key}@${azurerm_redis_cache.main.hostname}:${azurerm_redis_cache.main.ssl_port}/0"
+  value        = "rediss://default:${azurerm_redis_cache.main.primary_access_key}@${azurerm_redis_cache.main.hostname}:${azurerm_redis_cache.main.ssl_port}/0"
   key_vault_id = azurerm_key_vault.main.id
 }
 
@@ -391,7 +392,7 @@ resource "azurerm_container_app" "backend" {
 
   secret {
     name  = "redis-url"
-    value = "rediss://:${azurerm_redis_cache.main.primary_access_key}@${azurerm_redis_cache.main.hostname}:${azurerm_redis_cache.main.ssl_port}/0"
+    value = "rediss://default:${azurerm_redis_cache.main.primary_access_key}@${azurerm_redis_cache.main.hostname}:${azurerm_redis_cache.main.ssl_port}/0"
   }
 
   ingress {
