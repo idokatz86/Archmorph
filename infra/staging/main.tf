@@ -63,6 +63,12 @@ variable "alert_email" {
   type        = string
 }
 
+variable "staging_frontend_url" {
+  description = "Staging frontend URL for CORS configuration"
+  type        = string
+  default     = "https://archmorph-staging.azurestaticapps.net"
+}
+
 # ─────────────────────────────────────────────────────────────
 # Random suffix
 # ─────────────────────────────────────────────────────────────
@@ -141,6 +147,15 @@ resource "azurerm_container_app" "staging_backend" {
       percentage      = 100
       latest_revision = true
     }
+
+    cors_policy {
+      allowed_origins   = [var.staging_frontend_url]
+      allowed_methods   = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"]
+      allowed_headers   = ["Content-Type", "Authorization", "X-API-Key", "X-Correlation-ID"]
+      expose_headers    = ["X-Correlation-ID", "X-Response-Time"]
+      max_age           = 3600
+      allow_credentials = false
+    }
   }
 
   template {
@@ -161,6 +176,11 @@ resource "azurerm_container_app" "staging_backend" {
       env {
         name  = "ENVIRONMENT"
         value = "staging"
+      }
+
+      env {
+        name  = "ALLOWED_ORIGINS"
+        value = var.staging_frontend_url
       }
 
       env {

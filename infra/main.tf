@@ -28,7 +28,7 @@ terraform {
     container_name       = "tfstate"
     key                  = "archmorph.tfstate"
     # subscription_id passed via -backend-config or ARM_SUBSCRIPTION_ID env var (#166)
-    use_azuread_auth     = true
+    use_azuread_auth = true
   }
 }
 
@@ -81,7 +81,7 @@ resource "azurerm_log_analytics_workspace" "main" {
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
   sku                 = "PerGB2018"
-  retention_in_days   = var.environment == "prod" ? 90 : 30  # 90 days for compliance (#105 — I-011)
+  retention_in_days   = var.environment == "prod" ? 90 : 30 # 90 days for compliance (#105 — I-011)
   tags                = local.tags
 }
 
@@ -89,17 +89,17 @@ resource "azurerm_log_analytics_workspace" "main" {
 # Storage Account (Blob Storage for diagrams & IaC files)
 # ─────────────────────────────────────────────────────────────
 resource "azurerm_storage_account" "main" {
-  name                            = "archmorph${local.name_suffix}"
-  resource_group_name             = azurerm_resource_group.main.name
-  location                        = azurerm_resource_group.main.location
-  account_tier                    = "Standard"
-  account_replication_type        = var.environment == "prod" ? "GRS" : "LRS"  # Geo-redundant in prod (#105 — I-012)
-  min_tls_version                 = "TLS1_2"
-  shared_access_key_enabled       = false  # Use RBAC instead of shared keys
-  allow_nested_items_to_be_public = false
-  public_network_access_enabled   = true   # Disable in prod with VNet integration
-  https_traffic_only_enabled      = true
-  infrastructure_encryption_enabled = true  # Double encryption at rest
+  name                              = "archmorph${local.name_suffix}"
+  resource_group_name               = azurerm_resource_group.main.name
+  location                          = azurerm_resource_group.main.location
+  account_tier                      = "Standard"
+  account_replication_type          = var.environment == "prod" ? "GRS" : "LRS" # Geo-redundant in prod (#105 — I-012)
+  min_tls_version                   = "TLS1_2"
+  shared_access_key_enabled         = false # Use RBAC instead of shared keys
+  allow_nested_items_to_be_public   = false
+  public_network_access_enabled     = true # Disable in prod with VNet integration
+  https_traffic_only_enabled        = true
+  infrastructure_encryption_enabled = true # Double encryption at rest
 
   blob_properties {
     cors_rule {
@@ -121,7 +121,7 @@ resource "azurerm_storage_account" "main" {
   network_rules {
     default_action             = var.environment == "prod" ? "Deny" : "Allow"
     bypass                     = ["AzureServices"]
-    ip_rules                   = []  # Add trusted IPs in production
+    ip_rules                   = [] # Add trusted IPs in production
     virtual_network_subnet_ids = []
   }
 
@@ -152,8 +152,8 @@ resource "azurerm_container_registry" "main" {
   resource_group_name           = azurerm_resource_group.main.name
   location                      = azurerm_resource_group.main.location
   sku                           = var.environment == "prod" ? "Standard" : "Basic"
-  admin_enabled                 = false  # Use managed identity — never admin credentials (#98 — I-002)
-  public_network_access_enabled = var.environment == "prod" ? false : true  # Disable public access in prod (#289)
+  admin_enabled                 = false                                    # Use managed identity — never admin credentials (#98 — I-002)
+  public_network_access_enabled = var.environment == "prod" ? false : true # Disable public access in prod (#289)
   zone_redundancy_enabled       = var.environment == "prod"
   anonymous_pull_enabled        = false
   data_endpoint_enabled         = var.environment == "prod"
@@ -168,21 +168,21 @@ resource "azurerm_container_registry" "main" {
 # Azure Database for PostgreSQL Flexible Server
 # ─────────────────────────────────────────────────────────────
 resource "azurerm_postgresql_flexible_server" "main" {
-  name                   = "archmorph-db-${local.name_suffix}"
-  resource_group_name    = azurerm_resource_group.main.name
-  location               = azurerm_resource_group.main.location
-  version                = "15"
-  administrator_login    = var.db_admin_username
-  administrator_password = var.db_admin_password
-  storage_mb             = 32768
-  sku_name               = var.environment == "prod" ? "GP_Standard_D2s_v3" : "B_Standard_B1ms"
-  zone                   = "1"
-  backup_retention_days  = var.environment == "prod" ? 35 : 7
+  name                         = "archmorph-db-${local.name_suffix}"
+  resource_group_name          = azurerm_resource_group.main.name
+  location                     = azurerm_resource_group.main.location
+  version                      = "15"
+  administrator_login          = var.db_admin_username
+  administrator_password       = var.db_admin_password
+  storage_mb                   = 32768
+  sku_name                     = var.environment == "prod" ? "GP_Standard_D2s_v3" : "B_Standard_B1ms"
+  zone                         = "1"
+  backup_retention_days        = var.environment == "prod" ? 35 : 7
   geo_redundant_backup_enabled = var.environment == "prod"
 
   authentication {
     password_auth_enabled         = true
-    active_directory_auth_enabled = var.environment == "prod"  # Enable AAD auth in prod
+    active_directory_auth_enabled = var.environment == "prod" # Enable AAD auth in prod
   }
 
   # Require SSL/TLS for all connections
@@ -203,7 +203,7 @@ resource "azurerm_postgresql_flexible_server_database" "main" {
 }
 
 resource "azurerm_postgresql_flexible_server_firewall_rule" "allow_azure" {
-  count            = var.environment == "prod" ? 0 : 1  # Disable in prod — use VNet/Private Endpoint instead (#289)
+  count            = var.environment == "prod" ? 0 : 1 # Disable in prod — use VNet/Private Endpoint instead (#289)
   name             = "AllowAzureServices"
   server_id        = azurerm_postgresql_flexible_server.main.id
   start_ip_address = "0.0.0.0"
@@ -220,7 +220,7 @@ resource "azurerm_redis_cache" "main" {
   capacity                      = var.redis_capacity
   family                        = var.environment == "prod" ? "C" : "C"
   sku_name                      = var.environment == "prod" ? "Standard" : "Basic"
-  non_ssl_port_enabled          = false        # TLS-only (port 6380)
+  non_ssl_port_enabled          = false # TLS-only (port 6380)
   minimum_tls_version           = "1.2"
   public_network_access_enabled = var.environment == "prod" ? false : true
 
@@ -248,9 +248,9 @@ resource "azurerm_key_vault" "main" {
   location                   = azurerm_resource_group.main.location
   tenant_id                  = data.azurerm_client_config.current.tenant_id
   sku_name                   = "standard"
-  soft_delete_retention_days  = var.environment == "prod" ? 90 : 7
-  purge_protection_enabled    = var.environment == "prod"  # Enable in production
-  rbac_authorization_enabled  = var.environment == "prod"  # Use RBAC in production
+  soft_delete_retention_days = var.environment == "prod" ? 90 : 7
+  purge_protection_enabled   = var.environment == "prod" # Enable in production
+  rbac_authorization_enabled = var.environment == "prod" # Use RBAC in production
 
   # Network ACLs - restrict in production
   network_acls {
@@ -323,7 +323,7 @@ resource "azurerm_cognitive_deployment" "gpt4_vision" {
 
   sku {
     name     = "Standard"
-    capacity = var.openai_capacity  # Issue #296 — was hardcoded to 10 (≈1 concurrent call)
+    capacity = var.openai_capacity # Issue #296 — was hardcoded to 10 (≈1 concurrent call)
   }
 }
 
@@ -339,9 +339,9 @@ resource "azurerm_key_vault_secret" "openai_key" {
 resource "azurerm_container_app_environment" "main" {
   name                       = "archmorph-cae-${var.environment}"
   resource_group_name        = azurerm_resource_group.main.name
-  location                   = var.location  # West Europe (same as other resources)
+  location                   = var.location # West Europe (same as other resources)
   log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
-  infrastructure_subnet_id   = azurerm_subnet.container_apps.id  # VNet integration (#98 — I-003)
+  infrastructure_subnet_id   = azurerm_subnet.container_apps.id # VNet integration (#98 — I-003)
 
   workload_profile {
     name                  = "Consumption"
@@ -358,7 +358,7 @@ resource "azurerm_container_app" "backend" {
   name                         = "archmorph-api"
   resource_group_name          = azurerm_resource_group.main.name
   container_app_environment_id = azurerm_container_app_environment.main.id
-  revision_mode                = "Multiple"  # Blue-green deployments (#38)
+  revision_mode                = "Multiple" # Blue-green deployments (#38)
   tags                         = local.tags
 
   # Managed identity for secure access to Azure resources
@@ -369,7 +369,7 @@ resource "azurerm_container_app" "backend" {
 
   registry {
     server   = azurerm_container_registry.main.login_server
-    identity = azurerm_user_assigned_identity.container_app.id  # Managed identity auth (#98 — I-002)
+    identity = azurerm_user_assigned_identity.container_app.id # Managed identity auth (#98 — I-002)
   }
 
   secret {
@@ -402,6 +402,18 @@ resource "azurerm_container_app" "backend" {
     traffic_weight {
       percentage      = 100
       latest_revision = true
+    }
+
+    # Platform-level CORS — ensures headers are present even when the
+    # app itself 502s/503s or times out (Container Apps returns its own
+    # error page which would otherwise strip application-level CORS).
+    cors_policy {
+      allowed_origins   = [var.frontend_url]
+      allowed_methods   = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"]
+      allowed_headers   = ["Content-Type", "Authorization", "X-API-Key", "X-Correlation-ID"]
+      expose_headers    = ["X-Correlation-ID", "X-Response-Time"]
+      max_age           = 3600
+      allow_credentials = false
     }
   }
 
@@ -469,6 +481,11 @@ resource "azurerm_container_app" "backend" {
       }
 
       env {
+        name  = "ALLOWED_ORIGINS"
+        value = var.frontend_url
+      }
+
+      env {
         name        = "REDIS_URL"
         secret_name = "redis-url"
       }
@@ -479,27 +496,27 @@ resource "azurerm_container_app" "backend" {
       }
 
       liveness_probe {
-        path              = "/api/health"
-        port              = 8000
-        transport         = "HTTP"
-        initial_delay     = 10
-        interval_seconds  = 30
+        path                    = "/api/health"
+        port                    = 8000
+        transport               = "HTTP"
+        initial_delay           = 10
+        interval_seconds        = 30
         failure_count_threshold = 3
       }
 
       readiness_probe {
-        path              = "/api/health"
-        port              = 8000
-        transport         = "HTTP"
-        interval_seconds  = 10
+        path                    = "/api/health"
+        port                    = 8000
+        transport               = "HTTP"
+        interval_seconds        = 10
         failure_count_threshold = 3
       }
 
       startup_probe {
-        path              = "/api/health"
-        port              = 8000
-        transport         = "HTTP"
-        interval_seconds  = 5
+        path                    = "/api/health"
+        port                    = 8000
+        transport               = "HTTP"
+        interval_seconds        = 5
         failure_count_threshold = 10
       }
     }
@@ -616,11 +633,11 @@ resource "azurerm_application_insights" "main" {
   workspace_id        = azurerm_log_analytics_workspace.main.id
   application_type    = "web"
   retention_in_days   = var.environment == "prod" ? 90 : 30  # 90 days in prod for compliance (#105 — I-011)
-  sampling_percentage = var.environment == "prod" ? 50 : 100  # Sample 50% in prod to reduce costs
-  
+  sampling_percentage = var.environment == "prod" ? 50 : 100 # Sample 50% in prod to reduce costs
+
   # Enable distributed tracing
-  disable_ip_masking = false  # GDPR compliance
-  
+  disable_ip_masking = false # GDPR compliance
+
   tags = local.tags
 }
 
@@ -631,13 +648,13 @@ resource "azurerm_monitor_action_group" "critical" {
   name                = "archmorph-critical-alerts"
   resource_group_name = azurerm_resource_group.main.name
   short_name          = "archcrit"
-  
+
   email_receiver {
     name                    = "admin"
-    email_address          = var.alert_email
+    email_address           = var.alert_email
     use_common_alert_schema = true
   }
-  
+
   tags = local.tags
 }
 
@@ -654,7 +671,7 @@ resource "azurerm_monitor_metric_alert" "high_error_rate" {
   severity            = 1
   frequency           = "PT5M"
   window_size         = "PT15M"
-  
+
   criteria {
     metric_namespace = "microsoft.insights/components"
     metric_name      = "requests/failed"
@@ -662,11 +679,11 @@ resource "azurerm_monitor_metric_alert" "high_error_rate" {
     operator         = "GreaterThan"
     threshold        = 50
   }
-  
+
   action {
     action_group_id = azurerm_monitor_action_group.critical.id
   }
-  
+
   tags = local.tags
 }
 
@@ -679,19 +696,19 @@ resource "azurerm_monitor_metric_alert" "high_response_time" {
   severity            = 2
   frequency           = "PT5M"
   window_size         = "PT15M"
-  
+
   criteria {
     metric_namespace = "microsoft.insights/components"
     metric_name      = "requests/duration"
     aggregation      = "Average"
     operator         = "GreaterThan"
-    threshold        = 5000  # 5 seconds in milliseconds
+    threshold        = 5000 # 5 seconds in milliseconds
   }
-  
+
   action {
     action_group_id = azurerm_monitor_action_group.critical.id
   }
-  
+
   tags = local.tags
 }
 
@@ -704,19 +721,19 @@ resource "azurerm_monitor_metric_alert" "high_cpu" {
   severity            = 2
   frequency           = "PT5M"
   window_size         = "PT15M"
-  
+
   criteria {
     metric_namespace = "Microsoft.App/containerApps"
     metric_name      = "UsageNanoCores"
     aggregation      = "Average"
     operator         = "GreaterThan"
-    threshold        = 800000000  # 80% of 1 core in nanocores
+    threshold        = 800000000 # 80% of 1 core in nanocores
   }
-  
+
   action {
     action_group_id = azurerm_monitor_action_group.critical.id
   }
-  
+
   tags = local.tags
 }
 
@@ -729,19 +746,19 @@ resource "azurerm_monitor_metric_alert" "db_connections" {
   severity            = 2
   frequency           = "PT5M"
   window_size         = "PT15M"
-  
+
   criteria {
     metric_namespace = "Microsoft.DBforPostgreSQL/flexibleServers"
     metric_name      = "active_connections"
     aggregation      = "Average"
     operator         = "GreaterThan"
-    threshold        = 80  # Percent of max connections
+    threshold        = 80 # Percent of max connections
   }
-  
+
   action {
     action_group_id = azurerm_monitor_action_group.critical.id
   }
-  
+
   tags = local.tags
 }
 
@@ -754,7 +771,7 @@ resource "azurerm_monitor_metric_alert" "storage_availability" {
   severity            = 1
   frequency           = "PT5M"
   window_size         = "PT15M"
-  
+
   criteria {
     metric_namespace = "Microsoft.Storage/storageAccounts"
     metric_name      = "Availability"
@@ -762,11 +779,11 @@ resource "azurerm_monitor_metric_alert" "storage_availability" {
     operator         = "LessThan"
     threshold        = 99
   }
-  
+
   action {
     action_group_id = azurerm_monitor_action_group.critical.id
   }
-  
+
   tags = local.tags
 }
 
@@ -784,7 +801,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "openai_failures" {
   window_duration      = "PT15M"
 
   criteria {
-    query = <<-KQL
+    query                   = <<-KQL
       AppDependencies
       | where Type == "HTTP" and (Target has "openai" or Name has "openai")
       | where Success == false
@@ -820,7 +837,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "container_restarts" {
   window_duration      = "PT15M"
 
   criteria {
-    query = <<-KQL
+    query                   = <<-KQL
       ContainerAppSystemLogs_CL
       | where ContainerAppName_s == "archmorph-api"
       | where Reason_s has_any ("BackOff", "CrashLoopBackOff", "OOMKilled", "Error")
@@ -856,7 +873,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "slow_endpoints" {
   window_duration      = "PT30M"
 
   criteria {
-    query = <<-KQL
+    query                   = <<-KQL
       AppRequests
       | where Name !has "health"
       | summarize P95 = percentile(DurationMs, 95), Count = count() by Name
@@ -892,7 +909,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "exception_spike" {
   window_duration      = "PT15M"
 
   criteria {
-    query = <<-KQL
+    query                   = <<-KQL
       AppExceptions
       | summarize ExceptionCount = count() by bin(TimeGenerated, 5m)
     KQL
@@ -919,8 +936,8 @@ resource "azurerm_application_insights_standard_web_test" "health_check" {
   location                = azurerm_resource_group.main.location
   application_insights_id = azurerm_application_insights.main.id
   geo_locations           = ["emea-nl-ams-azr", "emea-gb-db3-azr", "emea-fr-pra-edge"]
-  frequency               = 300  # Every 5 minutes
-  timeout                 = 30   # 30 seconds
+  frequency               = 300 # Every 5 minutes
+  timeout                 = 30  # 30 seconds
   enabled                 = true
 
   request {
@@ -967,22 +984,22 @@ resource "azurerm_log_analytics_saved_search" "error_logs" {
   name                       = "ArchmorphErrorLogs"
   log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
   category                   = "Archmorph"
-  display_name              = "Error Logs"
-  query                     = <<-QUERY
+  display_name               = "Error Logs"
+  query                      = <<-QUERY
     AppExceptions
     | where TimeGenerated > ago(24h)
     | summarize count() by ExceptionType, bin(TimeGenerated, 1h)
     | order by TimeGenerated desc
   QUERY
-  function_alias            = "ArchmorphErrors"
+  function_alias             = "ArchmorphErrors"
 }
 
 resource "azurerm_log_analytics_saved_search" "api_latency" {
   name                       = "ArchmorphApiLatency"
   log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
   category                   = "Archmorph"
-  display_name              = "API Latency by Endpoint"
-  query                     = <<-QUERY
+  display_name               = "API Latency by Endpoint"
+  query                      = <<-QUERY
     AppRequests
     | where TimeGenerated > ago(24h)
     | summarize 
@@ -993,15 +1010,15 @@ resource "azurerm_log_analytics_saved_search" "api_latency" {
       by Name, bin(TimeGenerated, 1h)
     | order by TimeGenerated desc
   QUERY
-  function_alias            = "ArchmorphLatency"
+  function_alias             = "ArchmorphLatency"
 }
 
 resource "azurerm_log_analytics_saved_search" "user_analytics" {
   name                       = "ArchmorphUserAnalytics"
   log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
   category                   = "Archmorph"
-  display_name              = "User Analytics"
-  query                     = <<-QUERY
+  display_name               = "User Analytics"
+  query                      = <<-QUERY
     AppRequests
     | where TimeGenerated > ago(7d)
     | where Name startswith "/api/diagrams"
@@ -1012,15 +1029,15 @@ resource "azurerm_log_analytics_saved_search" "user_analytics" {
       by bin(TimeGenerated, 1d)
     | order by TimeGenerated desc
   QUERY
-  function_alias            = "ArchmorphUserAnalytics"
+  function_alias             = "ArchmorphUserAnalytics"
 }
 
 resource "azurerm_log_analytics_saved_search" "dependency_health" {
   name                       = "ArchmorphDependencyHealth"
   log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
   category                   = "Archmorph"
-  display_name              = "External Dependency Health"
-  query                     = <<-QUERY
+  display_name               = "External Dependency Health"
+  query                      = <<-QUERY
     AppDependencies
     | where TimeGenerated > ago(24h)
     | summarize
@@ -1030,15 +1047,15 @@ resource "azurerm_log_analytics_saved_search" "dependency_health" {
       by Type, Target
     | order by Calls desc
   QUERY
-  function_alias            = "ArchmorphDependencies"
+  function_alias             = "ArchmorphDependencies"
 }
 
 resource "azurerm_log_analytics_saved_search" "openai_usage" {
   name                       = "ArchmorphOpenAIUsage"
   log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
   category                   = "Archmorph"
-  display_name              = "OpenAI API Usage & Latency"
-  query                     = <<-QUERY
+  display_name               = "OpenAI API Usage & Latency"
+  query                      = <<-QUERY
     AppDependencies
     | where TimeGenerated > ago(24h)
     | where Type == "HTTP" and (Target has "openai" or Name has "openai")
@@ -1050,15 +1067,15 @@ resource "azurerm_log_analytics_saved_search" "openai_usage" {
       by bin(TimeGenerated, 1h)
     | order by TimeGenerated desc
   QUERY
-  function_alias            = "ArchmorphOpenAI"
+  function_alias             = "ArchmorphOpenAI"
 }
 
 resource "azurerm_log_analytics_saved_search" "slow_requests" {
   name                       = "ArchmorphSlowRequests"
   log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
   category                   = "Archmorph"
-  display_name              = "Slow Requests (>5s)"
-  query                     = <<-QUERY
+  display_name               = "Slow Requests (>5s)"
+  query                      = <<-QUERY
     AppRequests
     | where TimeGenerated > ago(24h)
     | where DurationMs > 5000
@@ -1066,15 +1083,15 @@ resource "azurerm_log_analytics_saved_search" "slow_requests" {
     | order by DurationSec desc
     | take 50
   QUERY
-  function_alias            = "ArchmorphSlowRequests"
+  function_alias             = "ArchmorphSlowRequests"
 }
 
 resource "azurerm_log_analytics_saved_search" "security_events" {
   name                       = "ArchmorphSecurityEvents"
   log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
   category                   = "Archmorph"
-  display_name              = "Security Events (401/403/429)"
-  query                     = <<-QUERY
+  display_name               = "Security Events (401/403/429)"
+  query                      = <<-QUERY
     AppRequests
     | where TimeGenerated > ago(24h)
     | where ResultCode in ("401", "403", "429")
@@ -1083,15 +1100,15 @@ resource "azurerm_log_analytics_saved_search" "security_events" {
       by ResultCode, ClientIP, Name
     | order by Count desc
   QUERY
-  function_alias            = "ArchmorphSecurityEvents"
+  function_alias             = "ArchmorphSecurityEvents"
 }
 
 resource "azurerm_log_analytics_saved_search" "container_errors" {
   name                       = "ArchmorphContainerErrors"
   log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
   category                   = "Archmorph"
-  display_name              = "Container App Error Logs"
-  query                     = <<-QUERY
+  display_name               = "Container App Error Logs"
+  query                      = <<-QUERY
     ContainerAppConsoleLogs_CL
     | where TimeGenerated > ago(24h)
     | where ContainerAppName_s == "archmorph-api"
@@ -1100,7 +1117,7 @@ resource "azurerm_log_analytics_saved_search" "container_errors" {
     | order by TimeGenerated desc
     | take 100
   QUERY
-  function_alias            = "ArchmorphContainerErrors"
+  function_alias             = "ArchmorphContainerErrors"
 }
 
 # ─────────────────────────────────────────────────────────────
@@ -1113,7 +1130,7 @@ resource "azurerm_application_insights_workbook" "dashboard" {
   display_name        = "Archmorph Operations Dashboard"
   source_id           = azurerm_application_insights.main.id
   category            = "workbook"
-  
+
   data_json = jsonencode({
     version = "Notebook/1.0"
     items = [
@@ -1132,18 +1149,18 @@ resource "azurerm_application_insights_workbook" "dashboard" {
           version = "KqlParameterItem/1.0"
           parameters = [
             {
-              id          = "time-range"
-              version     = "KqlParameterItem/1.0"
-              name        = "TimeRange"
-              type        = 4
-              isRequired  = true
-              value       = { durationMs = 86400000 }
+              id         = "time-range"
+              version    = "KqlParameterItem/1.0"
+              name       = "TimeRange"
+              type       = 4
+              isRequired = true
+              value      = { durationMs = 86400000 }
               typeSettings = {
                 selectableValues = [
-                  { durationMs = 3600000,   displayText = "Last 1 hour" },
-                  { durationMs = 14400000,  displayText = "Last 4 hours" },
-                  { durationMs = 43200000,  displayText = "Last 12 hours" },
-                  { durationMs = 86400000,  displayText = "Last 24 hours" },
+                  { durationMs = 3600000, displayText = "Last 1 hour" },
+                  { durationMs = 14400000, displayText = "Last 4 hours" },
+                  { durationMs = 43200000, displayText = "Last 12 hours" },
+                  { durationMs = 86400000, displayText = "Last 24 hours" },
                   { durationMs = 259200000, displayText = "Last 3 days" },
                   { durationMs = 604800000, displayText = "Last 7 days" }
                 ]
@@ -1158,16 +1175,16 @@ resource "azurerm_application_insights_workbook" "dashboard" {
       # SECTION 1: Health Overview (KPIs)
       # ══════════════════════════════════════════════════════════
       {
-        type = 1
+        type    = 1
         content = { json = "## 🟢 Health Overview" }
-        name = "section-health"
+        name    = "section-health"
       },
       # Availability / Success Rate
       {
         type = 3
         content = {
-          version      = "KqlItem/1.0"
-          query        = <<-KQL
+          version       = "KqlItem/1.0"
+          query         = <<-KQL
             AppRequests
             | where TimeGenerated {TimeRange}
             | summarize
@@ -1177,13 +1194,13 @@ resource "azurerm_application_insights_workbook" "dashboard" {
             | extend AvailabilityPct = round(100.0 * SuccessfulRequests / TotalRequests, 2)
             | project AvailabilityPct, TotalRequests, SuccessfulRequests, FailedRequests
           KQL
-          size         = 4
-          title        = "Service Availability"
-          queryType    = 0
-          resourceType = "microsoft.insights/components"
+          size          = 4
+          title         = "Service Availability"
+          queryType     = 0
+          resourceType  = "microsoft.insights/components"
           visualization = "tiles"
           tileSettings = {
-            titleContent   = { columnMatch = "AvailabilityPct", formatter = 12, formatOptions = { palette = "greenRed" } }
+            titleContent    = { columnMatch = "AvailabilityPct", formatter = 12, formatOptions = { palette = "greenRed" } }
             subtitleContent = { columnMatch = "TotalRequests" }
           }
         }
@@ -1193,8 +1210,8 @@ resource "azurerm_application_insights_workbook" "dashboard" {
       {
         type = 3
         content = {
-          version      = "KqlItem/1.0"
-          query        = <<-KQL
+          version       = "KqlItem/1.0"
+          query         = <<-KQL
             AppRequests
             | where TimeGenerated {TimeRange}
             | summarize
@@ -1210,10 +1227,10 @@ resource "azurerm_application_insights_workbook" "dashboard" {
                 ["P99 (ms)"] = P99,
                 ["Total Requests"] = Requests
           KQL
-          size         = 4
-          title        = "Response Time Summary"
-          queryType    = 0
-          resourceType = "microsoft.insights/components"
+          size          = 4
+          title         = "Response Time Summary"
+          queryType     = 0
+          resourceType  = "microsoft.insights/components"
           visualization = "tiles"
         }
         name = "latency-tiles"
@@ -1223,16 +1240,16 @@ resource "azurerm_application_insights_workbook" "dashboard" {
       # SECTION 2: Request Traffic & Performance
       # ══════════════════════════════════════════════════════════
       {
-        type = 1
+        type    = 1
         content = { json = "## 📊 Request Traffic & Performance" }
-        name = "section-traffic"
+        name    = "section-traffic"
       },
       # Requests over time (success vs failure)
       {
         type = 3
         content = {
-          version      = "KqlItem/1.0"
-          query        = <<-KQL
+          version       = "KqlItem/1.0"
+          query         = <<-KQL
             AppRequests
             | where TimeGenerated {TimeRange}
             | summarize
@@ -1241,21 +1258,21 @@ resource "azurerm_application_insights_workbook" "dashboard" {
               by bin(TimeGenerated, {TimeRange:grain})
             | render timechart
           KQL
-          size         = 0
-          title        = "Requests Over Time (Success vs Failed)"
-          queryType    = 0
-          resourceType = "microsoft.insights/components"
+          size          = 0
+          title         = "Requests Over Time (Success vs Failed)"
+          queryType     = 0
+          resourceType  = "microsoft.insights/components"
           visualization = "timechart"
         }
         customWidth = "50"
-        name = "requests-timechart"
+        name        = "requests-timechart"
       },
       # Response time percentiles over time
       {
         type = 3
         content = {
-          version      = "KqlItem/1.0"
-          query        = <<-KQL
+          version       = "KqlItem/1.0"
+          query         = <<-KQL
             AppRequests
             | where TimeGenerated {TimeRange}
             | summarize
@@ -1265,21 +1282,21 @@ resource "azurerm_application_insights_workbook" "dashboard" {
               by bin(TimeGenerated, {TimeRange:grain})
             | render timechart
           KQL
-          size         = 0
-          title        = "Response Time Percentiles (ms)"
-          queryType    = 0
-          resourceType = "microsoft.insights/components"
+          size          = 0
+          title         = "Response Time Percentiles (ms)"
+          queryType     = 0
+          resourceType  = "microsoft.insights/components"
           visualization = "timechart"
         }
         customWidth = "50"
-        name = "latency-timechart"
+        name        = "latency-timechart"
       },
       # Response codes breakdown
       {
         type = 3
         content = {
-          version      = "KqlItem/1.0"
-          query        = <<-KQL
+          version       = "KqlItem/1.0"
+          query         = <<-KQL
             AppRequests
             | where TimeGenerated {TimeRange}
             | extend StatusBucket = case(
@@ -1291,21 +1308,21 @@ resource "azurerm_application_insights_workbook" "dashboard" {
             | summarize Count = count() by StatusBucket
             | order by StatusBucket asc
           KQL
-          size         = 3
-          title        = "HTTP Status Code Distribution"
-          queryType    = 0
-          resourceType = "microsoft.insights/components"
+          size          = 3
+          title         = "HTTP Status Code Distribution"
+          queryType     = 0
+          resourceType  = "microsoft.insights/components"
           visualization = "piechart"
         }
         customWidth = "33"
-        name = "status-codes-pie"
+        name        = "status-codes-pie"
       },
       # Top endpoints by volume
       {
         type = 3
         content = {
-          version      = "KqlItem/1.0"
-          query        = <<-KQL
+          version       = "KqlItem/1.0"
+          query         = <<-KQL
             AppRequests
             | where TimeGenerated {TimeRange}
             | summarize
@@ -1317,10 +1334,10 @@ resource "azurerm_application_insights_workbook" "dashboard" {
             | top 15 by Requests desc
             | project Endpoint = Name, Requests, ["Avg (ms)"] = AvgDuration, ["P95 (ms)"] = P95Duration, ["Error %"] = ErrorRate
           KQL
-          size         = 1
-          title        = "Top 15 Endpoints by Volume"
-          queryType    = 0
-          resourceType = "microsoft.insights/components"
+          size          = 1
+          title         = "Top 15 Endpoints by Volume"
+          queryType     = 0
+          resourceType  = "microsoft.insights/components"
           visualization = "table"
           gridSettings = {
             formatters = [
@@ -1333,23 +1350,23 @@ resource "azurerm_application_insights_workbook" "dashboard" {
           }
         }
         customWidth = "67"
-        name = "top-endpoints"
+        name        = "top-endpoints"
       },
 
       # ══════════════════════════════════════════════════════════
       # SECTION 3: Core Workflow Metrics
       # ══════════════════════════════════════════════════════════
       {
-        type = 1
+        type    = 1
         content = { json = "## 🔄 Core Workflow Metrics\nArchitecture analysis → HLD generation → IaC generation → Export" }
-        name = "section-workflow"
+        name    = "section-workflow"
       },
       # Architecture Analysis pipeline
       {
         type = 3
         content = {
-          version      = "KqlItem/1.0"
-          query        = <<-KQL
+          version       = "KqlItem/1.0"
+          query         = <<-KQL
             AppRequests
             | where TimeGenerated {TimeRange}
             | where Name has_any ("analyze", "generate-hld", "generate", "export", "terraform-preview")
@@ -1368,21 +1385,21 @@ resource "azurerm_application_insights_workbook" "dashboard" {
             | order by Workflow asc
             | project Workflow, Count, ["Avg (s)"] = AvgDuration, ["Success %"] = SuccessRate
           KQL
-          size         = 1
-          title        = "Workflow Pipeline Stats"
-          queryType    = 0
-          resourceType = "microsoft.insights/components"
+          size          = 1
+          title         = "Workflow Pipeline Stats"
+          queryType     = 0
+          resourceType  = "microsoft.insights/components"
           visualization = "table"
         }
         customWidth = "50"
-        name = "workflow-table"
+        name        = "workflow-table"
       },
       # Workflow volume over time
       {
         type = 3
         content = {
-          version      = "KqlItem/1.0"
-          query        = <<-KQL
+          version       = "KqlItem/1.0"
+          query         = <<-KQL
             AppRequests
             | where TimeGenerated {TimeRange}
             | where Name has_any ("analyze", "generate-hld", "generate", "export")
@@ -1395,30 +1412,30 @@ resource "azurerm_application_insights_workbook" "dashboard" {
             | summarize Count = count() by Step, bin(TimeGenerated, {TimeRange:grain})
             | render timechart
           KQL
-          size         = 0
-          title        = "Workflow Steps Over Time"
-          queryType    = 0
-          resourceType = "microsoft.insights/components"
+          size          = 0
+          title         = "Workflow Steps Over Time"
+          queryType     = 0
+          resourceType  = "microsoft.insights/components"
           visualization = "timechart"
         }
         customWidth = "50"
-        name = "workflow-timechart"
+        name        = "workflow-timechart"
       },
 
       # ══════════════════════════════════════════════════════════
       # SECTION 4: Errors & Exceptions
       # ══════════════════════════════════════════════════════════
       {
-        type = 1
+        type    = 1
         content = { json = "## 🔴 Errors & Exceptions" }
-        name = "section-errors"
+        name    = "section-errors"
       },
       # Error rate over time
       {
         type = 3
         content = {
-          version      = "KqlItem/1.0"
-          query        = <<-KQL
+          version       = "KqlItem/1.0"
+          query         = <<-KQL
             AppRequests
             | where TimeGenerated {TimeRange}
             | summarize
@@ -1426,31 +1443,31 @@ resource "azurerm_application_insights_workbook" "dashboard" {
               by bin(TimeGenerated, {TimeRange:grain})
             | render timechart
           KQL
-          size         = 0
-          title        = "Error Rate % Over Time"
-          queryType    = 0
-          resourceType = "microsoft.insights/components"
+          size          = 0
+          title         = "Error Rate % Over Time"
+          queryType     = 0
+          resourceType  = "microsoft.insights/components"
           visualization = "timechart"
         }
         customWidth = "50"
-        name = "error-rate-chart"
+        name        = "error-rate-chart"
       },
       # Top exceptions
       {
         type = 3
         content = {
-          version      = "KqlItem/1.0"
-          query        = <<-KQL
+          version       = "KqlItem/1.0"
+          query         = <<-KQL
             AppExceptions
             | where TimeGenerated {TimeRange}
             | summarize Count = count() by ExceptionType, OuterMessage
             | top 10 by Count desc
             | project Exception = ExceptionType, Message = substring(OuterMessage, 0, 80), Count
           KQL
-          size         = 1
-          title        = "Top 10 Exceptions"
-          queryType    = 0
-          resourceType = "microsoft.insights/components"
+          size          = 1
+          title         = "Top 10 Exceptions"
+          queryType     = 0
+          resourceType  = "microsoft.insights/components"
           visualization = "table"
           gridSettings = {
             formatters = [
@@ -1459,14 +1476,14 @@ resource "azurerm_application_insights_workbook" "dashboard" {
           }
         }
         customWidth = "50"
-        name = "top-exceptions"
+        name        = "top-exceptions"
       },
       # Failed requests detail
       {
         type = 3
         content = {
-          version      = "KqlItem/1.0"
-          query        = <<-KQL
+          version       = "KqlItem/1.0"
+          query         = <<-KQL
             AppRequests
             | where TimeGenerated {TimeRange}
             | where Success == false
@@ -1477,10 +1494,10 @@ resource "azurerm_application_insights_workbook" "dashboard" {
             | top 15 by Count desc
             | project Endpoint = Name, Status = ResultCode, Count, ["Avg (ms)"] = AvgDuration
           KQL
-          size         = 1
-          title        = "Top Failed Endpoints"
-          queryType    = 0
-          resourceType = "microsoft.insights/components"
+          size          = 1
+          title         = "Top Failed Endpoints"
+          queryType     = 0
+          resourceType  = "microsoft.insights/components"
           visualization = "table"
         }
         name = "failed-endpoints-table"
@@ -1490,16 +1507,16 @@ resource "azurerm_application_insights_workbook" "dashboard" {
       # SECTION 5: Dependencies (OpenAI, PostgreSQL, Storage)
       # ══════════════════════════════════════════════════════════
       {
-        type = 1
+        type    = 1
         content = { json = "## 🔗 External Dependencies (OpenAI, DB, Storage)" }
-        name = "section-dependencies"
+        name    = "section-dependencies"
       },
       # Dependency call volume and latency
       {
         type = 3
         content = {
-          version      = "KqlItem/1.0"
-          query        = <<-KQL
+          version       = "KqlItem/1.0"
+          query         = <<-KQL
             AppDependencies
             | where TimeGenerated {TimeRange}
             | summarize
@@ -1510,10 +1527,10 @@ resource "azurerm_application_insights_workbook" "dashboard" {
             | top 10 by Calls desc
             | project DependencyType, Target, Calls, ["Avg (ms)"] = AvgDuration, ["Fail %"] = FailureRate
           KQL
-          size         = 1
-          title        = "Dependency Health"
-          queryType    = 0
-          resourceType = "microsoft.insights/components"
+          size          = 1
+          title         = "Dependency Health"
+          queryType     = 0
+          resourceType  = "microsoft.insights/components"
           visualization = "table"
           gridSettings = {
             formatters = [
@@ -1526,34 +1543,34 @@ resource "azurerm_application_insights_workbook" "dashboard" {
           }
         }
         customWidth = "50"
-        name = "dependency-health"
+        name        = "dependency-health"
       },
       # Dependency latency over time
       {
         type = 3
         content = {
-          version      = "KqlItem/1.0"
-          query        = <<-KQL
+          version       = "KqlItem/1.0"
+          query         = <<-KQL
             AppDependencies
             | where TimeGenerated {TimeRange}
             | summarize AvgDuration = avg(DurationMs) by Type, bin(TimeGenerated, {TimeRange:grain})
             | render timechart
           KQL
-          size         = 0
-          title        = "Dependency Latency Over Time (ms)"
-          queryType    = 0
-          resourceType = "microsoft.insights/components"
+          size          = 0
+          title         = "Dependency Latency Over Time (ms)"
+          queryType     = 0
+          resourceType  = "microsoft.insights/components"
           visualization = "timechart"
         }
         customWidth = "50"
-        name = "dependency-latency-chart"
+        name        = "dependency-latency-chart"
       },
       # OpenAI specific metrics
       {
         type = 3
         content = {
-          version      = "KqlItem/1.0"
-          query        = <<-KQL
+          version       = "KqlItem/1.0"
+          query         = <<-KQL
             AppDependencies
             | where TimeGenerated {TimeRange}
             | where Type == "HTTP" and (Target has "openai" or Name has "openai")
@@ -1565,10 +1582,10 @@ resource "azurerm_application_insights_workbook" "dashboard" {
               by bin(TimeGenerated, {TimeRange:grain})
             | render timechart
           KQL
-          size         = 0
-          title        = "OpenAI API Calls & Latency (seconds)"
-          queryType    = 0
-          resourceType = "microsoft.insights/components"
+          size          = 0
+          title         = "OpenAI API Calls & Latency (seconds)"
+          queryType     = 0
+          resourceType  = "microsoft.insights/components"
           visualization = "timechart"
         }
         name = "openai-metrics"
@@ -1578,16 +1595,16 @@ resource "azurerm_application_insights_workbook" "dashboard" {
       # SECTION 6: Infrastructure Metrics
       # ══════════════════════════════════════════════════════════
       {
-        type = 1
+        type    = 1
         content = { json = "## 🖥️ Infrastructure\nContainer App, PostgreSQL, Storage Account" }
-        name = "section-infra"
+        name    = "section-infra"
       },
       # Container App – Replica count & restarts
       {
         type = 3
         content = {
-          version      = "KqlItem/1.0"
-          query        = <<-KQL
+          version       = "KqlItem/1.0"
+          query         = <<-KQL
             ContainerAppConsoleLogs_CL
             | where TimeGenerated {TimeRange}
             | where ContainerAppName_s == "archmorph-api"
@@ -1595,42 +1612,42 @@ resource "azurerm_application_insights_workbook" "dashboard" {
             | summarize Count = count() by bin(TimeGenerated, {TimeRange:grain})
             | render timechart
           KQL
-          size         = 0
-          title        = "Container App Error Logs"
-          queryType    = 0
-          resourceType = "microsoft.operationalinsights/workspaces"
+          size          = 0
+          title         = "Container App Error Logs"
+          queryType     = 0
+          resourceType  = "microsoft.operationalinsights/workspaces"
           visualization = "timechart"
         }
         customWidth = "50"
-        name = "container-errors"
+        name        = "container-errors"
       },
       # Container App system logs
       {
         type = 3
         content = {
-          version      = "KqlItem/1.0"
-          query        = <<-KQL
+          version       = "KqlItem/1.0"
+          query         = <<-KQL
             ContainerAppSystemLogs_CL
             | where TimeGenerated {TimeRange}
             | where ContainerAppName_s == "archmorph-api"
             | summarize Count = count() by Type_s, Reason_s
             | top 10 by Count desc
           KQL
-          size         = 1
-          title        = "Container App System Events"
-          queryType    = 0
-          resourceType = "microsoft.operationalinsights/workspaces"
+          size          = 1
+          title         = "Container App System Events"
+          queryType     = 0
+          resourceType  = "microsoft.operationalinsights/workspaces"
           visualization = "table"
         }
         customWidth = "50"
-        name = "container-system-events"
+        name        = "container-system-events"
       },
       # PostgreSQL metrics
       {
         type = 3
         content = {
-          version      = "KqlItem/1.0"
-          query        = <<-KQL
+          version       = "KqlItem/1.0"
+          query         = <<-KQL
             AzureDiagnostics
             | where TimeGenerated {TimeRange}
             | where ResourceProvider == "MICROSOFT.DBFORPOSTGRESQL"
@@ -1639,51 +1656,51 @@ resource "azurerm_application_insights_workbook" "dashboard" {
             | summarize Count = count() by Severity = errorLevel_s, bin(TimeGenerated, {TimeRange:grain})
             | render timechart
           KQL
-          size         = 0
-          title        = "PostgreSQL Errors Over Time"
-          queryType    = 0
-          resourceType = "microsoft.operationalinsights/workspaces"
+          size          = 0
+          title         = "PostgreSQL Errors Over Time"
+          queryType     = 0
+          resourceType  = "microsoft.operationalinsights/workspaces"
           visualization = "timechart"
         }
         customWidth = "50"
-        name = "pg-errors"
+        name        = "pg-errors"
       },
       # Key Vault audit
       {
         type = 3
         content = {
-          version      = "KqlItem/1.0"
-          query        = <<-KQL
+          version       = "KqlItem/1.0"
+          query         = <<-KQL
             AzureDiagnostics
             | where TimeGenerated {TimeRange}
             | where ResourceProvider == "MICROSOFT.KEYVAULT"
             | summarize Operations = count() by OperationName, ResultType
             | top 10 by Operations desc
           KQL
-          size         = 1
-          title        = "Key Vault Operations"
-          queryType    = 0
-          resourceType = "microsoft.operationalinsights/workspaces"
+          size          = 1
+          title         = "Key Vault Operations"
+          queryType     = 0
+          resourceType  = "microsoft.operationalinsights/workspaces"
           visualization = "table"
         }
         customWidth = "50"
-        name = "keyvault-audit"
+        name        = "keyvault-audit"
       },
 
       # ══════════════════════════════════════════════════════════
       # SECTION 7: User Analytics & Adoption
       # ══════════════════════════════════════════════════════════
       {
-        type = 1
+        type    = 1
         content = { json = "## 👥 User Analytics & Adoption" }
-        name = "section-users"
+        name    = "section-users"
       },
       # Unique users over time
       {
         type = 3
         content = {
-          version      = "KqlItem/1.0"
-          query        = <<-KQL
+          version       = "KqlItem/1.0"
+          query         = <<-KQL
             AppRequests
             | where TimeGenerated {TimeRange}
             | where ClientIP != "0.0.0.0"
@@ -1693,21 +1710,21 @@ resource "azurerm_application_insights_workbook" "dashboard" {
               by bin(TimeGenerated, {TimeRange:grain})
             | render timechart
           KQL
-          size         = 0
-          title        = "Unique Users & Sessions"
-          queryType    = 0
-          resourceType = "microsoft.insights/components"
+          size          = 0
+          title         = "Unique Users & Sessions"
+          queryType     = 0
+          resourceType  = "microsoft.insights/components"
           visualization = "timechart"
         }
         customWidth = "50"
-        name = "user-sessions"
+        name        = "user-sessions"
       },
       # Feature adoption funnel
       {
         type = 3
         content = {
-          version      = "KqlItem/1.0"
-          query        = <<-KQL
+          version       = "KqlItem/1.0"
+          query         = <<-KQL
             AppRequests
             | where TimeGenerated {TimeRange}
             | summarize
@@ -1720,30 +1737,30 @@ resource "azurerm_application_insights_workbook" "dashboard" {
                 TFPreviews = countif(Name has "terraform-preview"),
                 Feedback = countif(Name has "feedback" or Name has "nps")
           KQL
-          size         = 4
-          title        = "Feature Adoption (Count)"
-          queryType    = 0
-          resourceType = "microsoft.insights/components"
+          size          = 4
+          title         = "Feature Adoption (Count)"
+          queryType     = 0
+          resourceType  = "microsoft.insights/components"
           visualization = "tiles"
         }
         customWidth = "50"
-        name = "feature-adoption"
+        name        = "feature-adoption"
       },
 
       # ══════════════════════════════════════════════════════════
       # SECTION 8: Security & Compliance
       # ══════════════════════════════════════════════════════════
       {
-        type = 1
+        type    = 1
         content = { json = "## 🔒 Security & Compliance" }
-        name = "section-security"
+        name    = "section-security"
       },
       # Auth events
       {
         type = 3
         content = {
-          version      = "KqlItem/1.0"
-          query        = <<-KQL
+          version       = "KqlItem/1.0"
+          query         = <<-KQL
             AppRequests
             | where TimeGenerated {TimeRange}
             | where Name has "auth"
@@ -1754,21 +1771,21 @@ resource "azurerm_application_insights_workbook" "dashboard" {
               by bin(TimeGenerated, {TimeRange:grain})
             | render timechart
           KQL
-          size         = 0
-          title        = "Auth Events (Login / Failures / Quota)"
-          queryType    = 0
-          resourceType = "microsoft.insights/components"
+          size          = 0
+          title         = "Auth Events (Login / Failures / Quota)"
+          queryType     = 0
+          resourceType  = "microsoft.insights/components"
           visualization = "timechart"
         }
         customWidth = "50"
-        name = "auth-events"
+        name        = "auth-events"
       },
       # Suspicious activity
       {
         type = 3
         content = {
-          version      = "KqlItem/1.0"
-          query        = <<-KQL
+          version       = "KqlItem/1.0"
+          query         = <<-KQL
             AppRequests
             | where TimeGenerated {TimeRange}
             | where ResultCode in ("401", "403", "429")
@@ -1776,10 +1793,10 @@ resource "azurerm_application_insights_workbook" "dashboard" {
             | top 15 by Count desc
             | project Status = ResultCode, ClientIP, Endpoint, Count
           KQL
-          size         = 1
-          title        = "Blocked / Rate-Limited Requests"
-          queryType    = 0
-          resourceType = "microsoft.insights/components"
+          size          = 1
+          title         = "Blocked / Rate-Limited Requests"
+          queryType     = 0
+          resourceType  = "microsoft.insights/components"
           visualization = "table"
           gridSettings = {
             formatters = [
@@ -1788,22 +1805,22 @@ resource "azurerm_application_insights_workbook" "dashboard" {
           }
         }
         customWidth = "50"
-        name = "security-blocks"
+        name        = "security-blocks"
       },
 
       # ══════════════════════════════════════════════════════════
       # SECTION 9: Alerts Summary
       # ══════════════════════════════════════════════════════════
       {
-        type = 1
+        type    = 1
         content = { json = "## 🔔 Recent Alerts" }
-        name = "section-alerts"
+        name    = "section-alerts"
       },
       {
         type = 3
         content = {
-          version      = "KqlItem/1.0"
-          query        = <<-KQL
+          version                 = "KqlItem/1.0"
+          query                   = <<-KQL
             AlertsManagementResources
             | where type == "microsoft.alertsmanagement/alerts"
             | where properties.essentials.targetResourceGroup has "archmorph"
@@ -1815,20 +1832,20 @@ resource "azurerm_application_insights_workbook" "dashboard" {
             | project FiredTime, AlertName, Severity, State
             | top 20 by FiredTime desc
           KQL
-          size         = 1
-          title        = "Recent Alert History"
-          queryType    = 1
-          resourceType = "microsoft.resourcegraph/resources"
+          size                    = 1
+          title                   = "Recent Alert History"
+          queryType               = 1
+          resourceType            = "microsoft.resourcegraph/resources"
           crossComponentResources = ["value::all"]
-          visualization = "table"
+          visualization           = "table"
         }
         name = "alert-history"
       }
     ]
-    isLocked = false
+    isLocked            = false
     fallbackResourceIds = [azurerm_application_insights.main.id]
   })
-  
+
   tags = local.tags
 }
 
@@ -1973,9 +1990,9 @@ resource "azurerm_private_endpoint" "keyvault" {
 # OpenAI Network Restrictions (Issue #110 — CISO-005)
 # ─────────────────────────────────────────────────────────────
 resource "azurerm_cognitive_account_customer_managed_key" "openai" {
-  count              = var.environment == "prod" ? 0 : 0  # Enable when CMK key is provisioned
+  count                = var.environment == "prod" ? 0 : 0 # Enable when CMK key is provisioned
   cognitive_account_id = azurerm_cognitive_account.openai.id
-  key_vault_key_id     = ""  # Populate with CMK key ID
+  key_vault_key_id     = "" # Populate with CMK key ID
 }
 
 # ─────────────────────────────────────────────────────────────
@@ -2048,7 +2065,7 @@ resource "azurerm_cdn_frontdoor_firewall_policy" "waf" {
       match_variable     = "RemoteAddr"
       operator           = "IPMatch"
       negation_condition = true
-      match_values       = ["0.0.0.0/0"]  # Match all (rate-limit everyone equally)
+      match_values       = ["0.0.0.0/0"] # Match all (rate-limit everyone equally)
     }
   }
 

@@ -40,6 +40,12 @@ variable "primary_resource_group" {
   default     = "archmorph-rg-prod"
 }
 
+variable "frontend_url" {
+  description = "Frontend URL for CORS (same SWA origin used by production)"
+  type        = string
+  default     = "https://agreeable-ground-01012c003.2.azurestaticapps.net"
+}
+
 # ─────────────────────────────────────────────────────────────
 # DR Resource Group
 # ─────────────────────────────────────────────────────────────
@@ -119,6 +125,15 @@ resource "azurerm_container_app" "dr_backend" {
       percentage      = 100
       latest_revision = true
     }
+
+    cors_policy {
+      allowed_origins   = [var.frontend_url]
+      allowed_methods   = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"]
+      allowed_headers   = ["Content-Type", "Authorization", "X-API-Key", "X-Correlation-ID"]
+      expose_headers    = ["X-Correlation-ID", "X-Response-Time"]
+      max_age           = 3600
+      allow_credentials = false
+    }
   }
 
   template {
@@ -134,6 +149,11 @@ resource "azurerm_container_app" "dr_backend" {
       env {
         name  = "ENVIRONMENT"
         value = "dr"
+      }
+
+      env {
+        name  = "ALLOWED_ORIGINS"
+        value = var.frontend_url
       }
     }
   }
