@@ -104,12 +104,26 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Archmorph API %s — production mode", __version__)
     start_scheduler()
 
-    # ── Database initialization (#168) ──
-    try:
-        init_db()
-        logger.info("Database layer initialized")
-    except Exception as exc:
-        logger.warning("Database init failed (non-fatal, in-memory stores used): %s", exc)
+    # ── Parallel startup tasks: DB init + icon loading (#337 cold-start) ──
+    async def _init_database():
+        try:
+            await asyncio.to_thread(init_db)
+            logger.info("Database layer initialized")
+        except Exception as exc:
+            logger.warning("Database init failed (non-fatal, in-memory stores used): %s", exc)
+
+    async def _init_icons():
+        try:
+            from icons.registry import load_builtin_packs, _load_from_disk
+            if not await asyncio.to_thread(_load_from_disk):
+                loaded = await asyncio.to_thread(load_builtin_packs)
+                logger.info("Auto-loaded %d built-in icon packs", loaded)
+            else:
+                logger.info("Icon registry restored from disk")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Icon auto-load skipped: %s", exc)
+
+    await asyncio.gather(_init_database(), _init_icons())
 
     # ── Thread pool sizing (#177) ──
     # GPT vision calls use asyncio.to_thread() which shares the default executor.
@@ -122,18 +136,6 @@ async def lifespan(app: FastAPI):
     )
     asyncio.get_event_loop().set_default_executor(_executor)
     logger.info("Thread pool configured: %d workers", _THREAD_POOL_SIZE)
-
-    # Auto-load built-in icon packs from samples/
-    try:
-        from icons.registry import load_builtin_packs, _load_from_disk
-
-        if not _load_from_disk():
-            loaded = load_builtin_packs()
-            logger.info("Auto-loaded %d built-in icon packs", loaded)
-        else:
-            logger.info("Icon registry restored from disk")
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Icon auto-load skipped: %s", exc)
 
     yield
     logger.info("Shutting down Archmorph API")

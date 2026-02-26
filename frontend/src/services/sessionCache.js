@@ -99,10 +99,33 @@ export function loadSession(diagramId) {
 export function clearSession(diagramId) {
   try {
     const id = diagramId || _getActiveDiagram();
-    if (id) sessionStorage.removeItem(_cacheKey(id));
+    if (id) {
+      sessionStorage.removeItem(_cacheKey(id));
+      sessionStorage.removeItem(`archmorph_img_${id}`);
+    }
     sessionStorage.removeItem(LEGACY_CACHE_KEY);
     sessionStorage.removeItem('archmorph_active_diagram');
   } catch {
     // ignored
   }
+}
+
+/**
+ * Cache the uploaded diagram image for session restore (#333).
+ * Only images under 1 MB (base64) are cached to avoid exceeding the
+ * sessionStorage quota.
+ */
+export function cacheImage(diagramId, base64, contentType) {
+  try {
+    if (!base64 || base64.length > 1_400_000) return; // ~1 MB limit
+    sessionStorage.setItem(`archmorph_img_${diagramId}`, JSON.stringify({ base64, contentType }));
+  } catch { /* quota exceeded — non-critical */ }
+}
+
+/** Retrieve cached image data for session restore (#333). */
+export function loadCachedImage(diagramId) {
+  try {
+    const raw = sessionStorage.getItem(`archmorph_img_${diagramId}`);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
 }

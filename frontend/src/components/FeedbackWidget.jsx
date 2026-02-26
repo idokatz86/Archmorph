@@ -1,7 +1,7 @@
 import React, { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { X, ThumbsUp, ThumbsDown, Send, MessageSquare, Bug, AlertTriangle } from 'lucide-react';
 import { Button, Card } from './ui';
-import { API_BASE } from '../constants';
+import api from '../services/apiClient';
 import useFocusTrap from '../hooks/useFocusTrap';
 
 const FeedbackWidget = forwardRef(function FeedbackWidget({ position = 'bottom' }, ref) {
@@ -34,14 +34,10 @@ const FeedbackWidget = forwardRef(function FeedbackWidget({ position = 'bottom' 
     if (npsScore === null) return;
     setLoading(true);
     try {
-      await fetch(`${API_BASE}/feedback/nps`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          score: npsScore,
-          follow_up: followUp || null,
-          feature_context: featureContext || null,
-        }),
+      await api.post('/feedback/nps', {
+        score: npsScore,
+        follow_up: followUp || null,
+        feature_context: featureContext || null,
       });
       setSubmitted(true);
     } catch {
@@ -54,14 +50,10 @@ const FeedbackWidget = forwardRef(function FeedbackWidget({ position = 'bottom' 
     setLoading(true);
     setError(null);
     try {
-      await fetch(`${API_BASE}/feedback/feature`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          feature: featureContext || 'general',
-          helpful,
-          comment: followUp || null,
-        }),
+      await api.post('/feedback/feature', {
+        feature: featureContext || 'general',
+        helpful,
+        comment: followUp || null,
       });
       setSubmitted(true);
     } catch {
@@ -75,17 +67,13 @@ const FeedbackWidget = forwardRef(function FeedbackWidget({ position = 'bottom' 
     setLoading(true);
     setError(null);
     try {
-      await fetch(`${API_BASE}/feedback/bug`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          description: bugDescription,
-          severity: 'medium',
-          context: {
-            url: window.location.href,
-            userAgent: navigator.userAgent,
-          },
-        }),
+      await api.post('/feedback/bug', {
+        description: bugDescription,
+        severity: 'medium',
+        context: {
+          url: window.location.href,
+          userAgent: navigator.userAgent,
+        },
       });
       setSubmitted(true);
     } catch {

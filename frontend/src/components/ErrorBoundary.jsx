@@ -35,6 +35,7 @@ export default class ErrorBoundary extends React.Component {
             </p>
             <button
               onClick={this.handleReset}
+              aria-label="Retry after error"
               className="inline-flex items-center gap-2 px-4 py-2 bg-cta hover:bg-cta-hover text-white text-sm font-medium rounded-lg transition-colors"
             >
               <RefreshCw className="w-4 h-4" />

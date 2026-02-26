@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { API_BASE } from '../constants';
+import api from '../services/apiClient';
 
 /**
  * Hook for polling job status as a fallback when SSE is unavailable.
@@ -54,11 +54,7 @@ export default function useJobStatus() {
     const tick = async () => {
       if (stoppedRef.current) return;
       try {
-        const res = await fetch(`${API_BASE}/jobs/${jobId}`);
-        if (stoppedRef.current) return;
-        if (!res.ok) throw new Error(`Job status request failed (${res.status})`);
-        const data = await res.json();
-
+        const data = await api.get(`/jobs/${jobId}`);
         if (stoppedRef.current) return;
 
         setStatus(data.status);
@@ -100,7 +96,7 @@ export default function useJobStatus() {
     if (!jobId) return;
     stop();
     try {
-      await fetch(`${API_BASE}/jobs/${jobId}/cancel`, { method: 'POST' });
+      await api.post(`/jobs/${jobId}/cancel`);
       setStatus('cancelled');
       setLoading(false);
     } catch (err) {

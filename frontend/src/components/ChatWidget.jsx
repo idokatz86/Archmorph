@@ -3,6 +3,7 @@ import {
   MessageSquare, X, FileText, Loader2, Send, CheckCircle,
 } from 'lucide-react';
 import { API_BASE } from '../constants';
+import api from '../services/apiClient';
 import useAppStore from '../stores/useAppStore';
 
 export default function ChatWidget() {
@@ -77,12 +78,7 @@ export default function ChatWidget() {
     setLoading(true);
 
     try {
-      const res = await fetch(`${API_BASE}/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, session_id: sessionId }),
-      });
-      const data = await res.json();
+      const data = await api.post('/chat', { message: text, session_id: sessionId });
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: data.reply,

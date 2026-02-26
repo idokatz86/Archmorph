@@ -2,9 +2,11 @@
 Shared state, dependencies, and models used across Archmorph API routers.
 """
 
+import asyncio
 import os
 import logging
 import secrets
+from collections import OrderedDict
 from typing import Optional, List
 
 from fastapi import HTTPException, Security, Header
@@ -91,6 +93,29 @@ SHARE_STORE = get_store("shares", maxsize=100, ttl=86400)
 # ─────────────────────────────────────────────────────────────
 ENVIRONMENT = os.getenv("ENVIRONMENT", "production")
 MAX_UPLOAD_SIZE = int(os.getenv("MAX_UPLOAD_SIZE", str(10 * 1024 * 1024)))
+
+
+# ─────────────────────────────────────────────────────────────
+# Per-session asyncio lock (#336) — prevents concurrent writes
+# from corrupting session data in the store.
+# ─────────────────────────────────────────────────────────────
+_MAX_SESSION_LOCKS = 1024
+_session_locks: OrderedDict[str, asyncio.Lock] = OrderedDict()
+_session_locks_guard = asyncio.Lock()
+
+
+async def get_session_lock(session_id: str) -> asyncio.Lock:
+    """Return an asyncio.Lock for *session_id*, bounded to _MAX_SESSION_LOCKS."""
+    async with _session_locks_guard:
+        if session_id in _session_locks:
+            _session_locks.move_to_end(session_id)
+            return _session_locks[session_id]
+        # Evict oldest if at capacity
+        while len(_session_locks) >= _MAX_SESSION_LOCKS:
+            _session_locks.popitem(last=False)
+        lock = asyncio.Lock()
+        _session_locks[session_id] = lock
+        return lock
 
 
 # ─────────────────────────────────────────────────────────────

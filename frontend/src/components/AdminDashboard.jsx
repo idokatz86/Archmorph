@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { Badge, Button, Card } from './ui';
 import { API_BASE } from '../constants';
+import api from '../services/apiClient';
 import MonitoringDashboard from './MonitoringDashboard';
 import useFocusTrap from '../hooks/useFocusTrap';
 
@@ -30,30 +31,21 @@ export default function AdminDashboard({ onClose }) {
   const [loginError, setLoginError] = useState(null);
   const [loginLoading, setLoginLoading] = useState(false);
 
-  const authHeaders = sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {};
-
   // ── Login handler ──
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoginLoading(true);
     setLoginError(null);
     try {
-      const resp = await fetch(`${API_BASE}/admin/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: loginKey }),
-      });
-      if (resp.status === 503) {
+      const data = await api.post('/admin/login', { key: loginKey });
+      setSessionToken(data.token);
+      setLoginKey(''); // clear from memory immediately
+    } catch (err) {
+      if (err.status === 503) {
         setLoginError('Admin API not configured on server');
-      } else if (!resp.ok) {
-        setLoginError('Invalid admin key');
       } else {
-        const data = await resp.json();
-        setSessionToken(data.token);
-        setLoginKey(''); // clear from memory immediately
+        setLoginError(err.rawMessage || 'Invalid admin key');
       }
-    } catch {
-      setLoginError('Unable to reach server');
     } finally {
       setLoginLoading(false);
     }
@@ -62,10 +54,7 @@ export default function AdminDashboard({ onClose }) {
   // ── Logout handler ──
   const handleLogout = async () => {
     if (sessionToken) {
-      fetch(`${API_BASE}/admin/logout`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${sessionToken}` },
-      }).catch(() => {}); // fire-and-forget
+      api.auth('POST', '/admin/logout', { token: sessionToken }).catch(() => {}); // fire-and-forget
     }
     setSessionToken(null);
     setFunnel(null);
@@ -79,28 +68,19 @@ export default function AdminDashboard({ onClose }) {
   useEffect(() => {
     if (!sessionToken) return;
     const controller = new AbortController();
-    const opts = { headers: authHeaders, signal: controller.signal };
     setLoading(true);
 
     // Validate token with a single request first to avoid 5 parallel 401s
-    fetch(`${API_BASE}/admin/metrics`, opts)
-      .then(r => {
-        if (r.status === 401) {
-          setSessionToken(null);
-          setLoading(false);
-          return null;
-        }
-        return r.ok ? r.json() : null;
-      })
+    api.auth('GET', '/admin/metrics', { token: sessionToken, signal: controller.signal })
       .then(m => {
         if (m === null || m === undefined) return;
         setMetrics(m);
         // Token is valid — fetch remaining data
         return Promise.all([
-          fetch(`${API_BASE}/admin/metrics/funnel`, opts).then(r => r.ok ? r.json() : null),
-          fetch(`${API_BASE}/admin/metrics/daily?days=14`, opts).then(r => r.ok ? r.json() : null),
-          fetch(`${API_BASE}/admin/metrics/recent?limit=30`, opts).then(r => r.ok ? r.json() : null),
-          fetch(`${API_BASE}/admin/costs`, opts).then(r => r.ok ? r.json() : null).catch(() => null),
+          api.auth('GET', '/admin/metrics/funnel', { token: sessionToken, signal: controller.signal }).catch(() => null),
+          api.auth('GET', '/admin/metrics/daily?days=14', { token: sessionToken, signal: controller.signal }).catch(() => null),
+          api.auth('GET', '/admin/metrics/recent?limit=30', { token: sessionToken, signal: controller.signal }).catch(() => null),
+          api.auth('GET', '/admin/costs', { token: sessionToken, signal: controller.signal }).catch(() => null),
         ]).then(([f, d, r, c]) => {
           setFunnel(f);
           setDaily(d?.data || []);
@@ -109,7 +89,10 @@ export default function AdminDashboard({ onClose }) {
           setLoading(false);
         });
       })
-      .catch(() => setLoading(false));
+      .catch(err => {
+        if (err.status === 401) setSessionToken(null);
+        setLoading(false);
+      });
     return () => controller.abort();
   }, [sessionToken]);
 

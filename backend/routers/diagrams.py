@@ -134,6 +134,8 @@ class RestoreSessionRequest(BaseModel):
     hld_markdown: Optional[str] = None
     iac_code: Optional[str] = None
     iac_format: Optional[str] = None
+    image_base64: Optional[str] = None
+    image_content_type: Optional[str] = None
 
 @router.post("/api/diagrams/{diagram_id}/restore-session")
 @limiter.limit("10/minute")
@@ -171,6 +173,9 @@ async def restore_session(request: Request, diagram_id: str, body: RestoreSessio
         restored_parts.append("hld")
     if body.iac_code:
         restored_parts.append("iac")
+    if body.image_base64:
+        IMAGE_STORE[diagram_id] = (body.image_base64, body.image_content_type or "image/png")
+        restored_parts.append("image")
     logger.info("Session restored for %s via client cache (%s)", diagram_id, ", ".join(restored_parts))
     record_event("sessions_restored", {"diagram_id": diagram_id, "parts": restored_parts})
     return {"status": "restored", "diagram_id": diagram_id, "restored": restored_parts}

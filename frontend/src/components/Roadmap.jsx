@@ -4,6 +4,7 @@ import {
   Bug, Sparkles, Send, ExternalLink, GitBranch, Filter, Search, Code, Server, Layers,
 } from 'lucide-react';
 import { API_BASE } from '../constants';
+import api from '../services/apiClient';
 import useFocusTrap from '../hooks/useFocusTrap';
 
 const STATUS_CONFIG = {
@@ -391,8 +392,7 @@ export default function Roadmap() {
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch(`${API_BASE}/roadmap`, { signal: controller.signal })
-      .then(r => r.json())
+    api.get('/roadmap', controller.signal)
       .then(data => {
         setRoadmap(data);
         // Auto-expand in-progress versions
@@ -467,12 +467,7 @@ export default function Roadmap() {
   const handleFeatureSubmit = async (data) => {
     setSubmitting(true);
     try {
-      const res = await fetch(`${API_BASE}/roadmap/feature-request`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
-      const result = await res.json();
+      const result = await api.post('/roadmap/feature-request', data);
       if (result.success) {
         setToast({ message: 'Feature request submitted!', issueUrl: result.issue_url });
         setFeatureModalOpen(false);
@@ -488,12 +483,7 @@ export default function Roadmap() {
   const handleBugSubmit = async (data) => {
     setSubmitting(true);
     try {
-      const res = await fetch(`${API_BASE}/roadmap/bug-report`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
-      const result = await res.json();
+      const result = await api.post('/roadmap/bug-report', data);
       if (result.success) {
         setToast({ message: 'Bug report submitted!', issueUrl: result.issue_url });
         setBugModalOpen(false);

@@ -6,7 +6,7 @@ import {
 import { Button, Card } from '../ui';
 import { API_BASE } from '../../constants';
 import api from '../../services/apiClient';
-import { saveSession, loadSession, clearSession, updateSessionCache } from '../../services/sessionCache';
+import { saveSession, loadSession, clearSession, updateSessionCache, cacheImage, loadCachedImage } from '../../services/sessionCache';
 import useWorkflow from './useWorkflow';
 import useSSE from '../../hooks/useSSE';
 import useSessionExpiry from '../../hooks/useSessionExpiry';
@@ -117,10 +117,40 @@ export default function DiagramTranslator() {
         payload.iac_code = cached.iacCode;
         payload.iac_format = cached.iacFormat || null;
       }
+      // Include cached diagram image so IMAGE_STORE is also restored (#333)
+      const cachedImg = loadCachedImage(diagramId);
+      if (cachedImg) {
+        payload.image_base64 = cachedImg.base64;
+        payload.image_content_type = cachedImg.contentType;
+      }
       await api.post(`/diagrams/${diagramId}/restore-session`, payload);
       return true;
     } catch {
       return false;
+    }
+  };
+
+  /**
+   * Execute an async action with automatic session-restore-and-retry on 404.
+   * Collapses the duplicated try/restore/retry pattern used across handlers (#327).
+   * @param {Function} action - async fn to execute (and retry after restore)
+   * @param {Object} [opts] - { onExpired: fn, cleanup: fn }
+   */
+  const withRestore = async (action, opts = {}) => {
+    try {
+      return await action();
+    } catch (err) {
+      if (err.status === 404 && state.diagramId) {
+        const restored = await tryRestoreSession(state.diagramId);
+        if (restored) {
+          try { return await action(); } catch { /* fall through */ }
+        }
+        set({ error: 'Your session has expired. Please re-upload your diagram to continue.', step: 'upload' });
+        clearSession();
+        if (opts.cleanup) opts.cleanup();
+        return null;
+      }
+      throw err;
     }
   };
 
@@ -179,6 +209,16 @@ export default function DiagramTranslator() {
       const uploadData = await api.post('/projects/demo-project/diagrams', formData, signal);
       const { diagram_id } = uploadData;
       set({ diagramId: diagram_id });
+
+      // Cache uploaded image for session restore (#333)
+      if (file.type.startsWith('image/') && file.size < 1_000_000) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const b64 = reader.result.split(',')[1];
+          cacheImage(diagram_id, b64, file.type);
+        };
+        reader.readAsDataURL(file);
+      }
 
       addProgress('Starting architecture analysis...');
 
@@ -377,22 +417,12 @@ export default function DiagramTranslator() {
   const handleApplyAnswers = async () => {
     set({ loading: true });
     try {
-      const refined = await api.post(`/diagrams/${state.diagramId}/apply-answers`, state.answers);
-      set({ analysis: { ...state.analysis, ...refined }, step: 'results' });
+      const refined = await withRestore(
+        () => api.post(`/diagrams/${state.diagramId}/apply-answers`, state.answers),
+        { cleanup: () => set({ loading: false }) },
+      );
+      if (refined) set({ analysis: { ...state.analysis, ...refined }, step: 'results' });
     } catch (err) {
-      if (err.status === 404) {
-        const restored = await tryRestoreSession(state.diagramId);
-        if (restored) {
-          try {
-            const refined = await api.post(`/diagrams/${state.diagramId}/apply-answers`, state.answers);
-            set({ analysis: { ...state.analysis, ...refined }, step: 'results', loading: false });
-            return;
-          } catch { /* fall through to error */ }
-        }
-        set({ error: 'Your session has expired. Please re-upload your diagram to continue.', step: 'upload', loading: false });
-        clearSession();
-        return;
-      }
       set({ error: err.message });
     }
     set({ loading: false });
@@ -401,27 +431,17 @@ export default function DiagramTranslator() {
   const handleGenerateIac = async (fmt) => {
     set({ loading: true, iacFormat: fmt, generatingIac: true });
     try {
-      const iacData = await api.post(`/diagrams/${state.diagramId}/generate?format=${fmt}`);
-      set({ iacCode: iacData.code, step: 'iac', generatingIac: false });
-      updateSessionCache({ iacCode: iacData.code, iacFormat: fmt }); // #263
-      // Fetch cost estimate in parallel (non-blocking)
-      api.get(`/diagrams/${state.diagramId}/cost-estimate`).then(cost => set({ costEstimate: cost })).catch(() => {});
-    } catch (err) {
-      if (err.status === 404) {
-        const restored = await tryRestoreSession(state.diagramId);
-        if (restored) {
-          try {
-            const iacData = await api.post(`/diagrams/${state.diagramId}/generate?format=${fmt}`);
-            set({ iacCode: iacData.code, step: 'iac', loading: false, generatingIac: false });
-            updateSessionCache({ iacCode: iacData.code, iacFormat: fmt }); // #263
-            api.get(`/diagrams/${state.diagramId}/cost-estimate`).then(cost => set({ costEstimate: cost })).catch(() => {});
-            return;
-          } catch { /* fall through */ }
-        }
-        set({ error: 'Your session has expired. Please re-upload your diagram to continue.', step: 'upload', loading: false, generatingIac: false });
-        clearSession();
-        return;
+      const iacData = await withRestore(
+        () => api.post(`/diagrams/${state.diagramId}/generate?format=${fmt}`),
+        { cleanup: () => set({ loading: false, generatingIac: false }) },
+      );
+      if (iacData) {
+        set({ iacCode: iacData.code, step: 'iac', generatingIac: false });
+        updateSessionCache({ iacCode: iacData.code, iacFormat: fmt }); // #263
+        // Fetch cost estimate in parallel (non-blocking)
+        api.get(`/diagrams/${state.diagramId}/cost-estimate`).then(cost => set({ costEstimate: cost })).catch(() => {});
       }
+    } catch (err) {
       set({ error: err.message, generatingIac: false });
     }
     set({ loading: false, generatingIac: false });
@@ -430,45 +450,22 @@ export default function DiagramTranslator() {
   const handleHldExport = async (fmt) => {
     setHldExportLoading(fmt, true);
     try {
-      const data = await api.post(`/diagrams/${state.diagramId}/export-hld?format=${fmt}&include_diagrams=${state.hldIncludeDiagrams}`, {});
-      const bytes = Uint8Array.from(atob(data.content_b64), c => c.charCodeAt(0));
-      const blob = new Blob([bytes], { type: data.content_type });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = data.filename;
-      a.click();
-      URL.revokeObjectURL(url);
-      copyWithFeedback('', `hld-${fmt}`);
-    } catch (err) {
-      if (err.status === 404) {
-        const restored = await tryRestoreSession(state.diagramId);
-        if (!restored) {
-          set({ error: 'Your session has expired. Please re-upload your diagram to continue.', step: 'upload' });
-          clearSession();
-          setHldExportLoading(fmt, false);
-          return;
-        }
-        // Retry after restore
-        try {
-          const data = await api.post(`/diagrams/${state.diagramId}/export-hld?format=${fmt}&include_diagrams=${state.hldIncludeDiagrams}`, {});
-          const bytes = Uint8Array.from(atob(data.content_b64), c => c.charCodeAt(0));
-          const blob = new Blob([bytes], { type: data.content_type });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = data.filename;
-          a.click();
-          URL.revokeObjectURL(url);
-          copyWithFeedback('', `hld-${fmt}`);
-          setHldExportLoading(fmt, false);
-          return;
-        } catch { /* fall through */ }
-        set({ error: 'Your session has expired. Please re-upload your diagram to continue.', step: 'upload' });
-        clearSession();
-        setHldExportLoading(fmt, false);
-        return;
+      const data = await withRestore(
+        () => api.post(`/diagrams/${state.diagramId}/export-hld?format=${fmt}&include_diagrams=${state.hldIncludeDiagrams}`, {}),
+        { cleanup: () => setHldExportLoading(fmt, false) },
+      );
+      if (data) {
+        const bytes = Uint8Array.from(atob(data.content_b64), c => c.charCodeAt(0));
+        const blob = new Blob([bytes], { type: data.content_type });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = data.filename;
+        a.click();
+        URL.revokeObjectURL(url);
+        copyWithFeedback('', `hld-${fmt}`);
       }
+    } catch (err) {
       set({ error: `HLD export failed: ${err.message}` });
     }
     setHldExportLoading(fmt, false);
@@ -477,43 +474,21 @@ export default function DiagramTranslator() {
   const handleExportDiagram = async (format) => {
     setExportLoading(format, true);
     try {
-      const data = await api.post(`/diagrams/${state.diagramId}/export-diagram?format=${format}`);
-      const content = typeof data.content === 'string' ? data.content : JSON.stringify(data.content, null, 2);
-      const blob = new Blob([content], { type: 'application/octet-stream' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = data.filename || `archmorph-diagram.${format === 'excalidraw' ? 'excalidraw' : format === 'drawio' ? 'drawio' : 'vdx'}`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      if (err.status === 404) {
-        const restored = await tryRestoreSession(state.diagramId);
-        if (!restored) {
-          set({ error: 'Your session has expired. Please re-upload your diagram to continue.', step: 'upload' });
-          clearSession();
-          setExportLoading(format, false);
-          return;
-        }
-        // Retry export after successful session restore (#267)
-        try {
-          const data = await api.post(`/diagrams/${state.diagramId}/export-diagram?format=${format}`);
-          const content = typeof data.content === 'string' ? data.content : JSON.stringify(data.content, null, 2);
-          const blob = new Blob([content], { type: 'application/octet-stream' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = data.filename || `archmorph-diagram.${format === 'excalidraw' ? 'excalidraw' : format === 'drawio' ? 'drawio' : 'vdx'}`;
-          a.click();
-          URL.revokeObjectURL(url);
-          setExportLoading(format, false);
-          return;
-        } catch { /* fall through */ }
-        set({ error: 'Export failed after session restore. Please try again.', step: 'upload' });
-        clearSession();
-        setExportLoading(format, false);
-        return;
+      const data = await withRestore(
+        () => api.post(`/diagrams/${state.diagramId}/export-diagram?format=${format}`),
+        { cleanup: () => setExportLoading(format, false) },
+      );
+      if (data) {
+        const content = typeof data.content === 'string' ? data.content : JSON.stringify(data.content, null, 2);
+        const blob = new Blob([content], { type: 'application/octet-stream' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = data.filename || `archmorph-diagram.${format === 'excalidraw' ? 'excalidraw' : format === 'drawio' ? 'drawio' : 'vdx'}`;
+        a.click();
+        URL.revokeObjectURL(url);
       }
+    } catch (err) {
       set({ error: `Export failed: ${err.message}` });
     }
     setExportLoading(format, false);
@@ -551,28 +526,14 @@ export default function DiagramTranslator() {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 180_000);
       activeTimeoutsRef.current.push(timeout);
-      const data = await api.post(`/diagrams/${state.diagramId}/generate-hld`, undefined, controller.signal);
+      const data = await withRestore(
+        () => api.post(`/diagrams/${state.diagramId}/generate-hld`, undefined, controller.signal),
+        { cleanup: () => set({ hldLoading: false }) },
+      );
       clearTimeout(timeout);
       activeTimeoutsRef.current = activeTimeoutsRef.current.filter(id => id !== timeout);
-      if (data.hld) { set({ hldData: data }); updateSessionCache({ hldData: data }); } // #263
+      if (data?.hld) { set({ hldData: data }); updateSessionCache({ hldData: data }); } // #263
     } catch (err) {
-      if (err.status === 404) {
-        const restored = await tryRestoreSession(state.diagramId);
-        if (restored) {
-          try {
-            const controller2 = new AbortController();
-            const timeout2 = setTimeout(() => controller2.abort(), 180_000);
-            activeTimeoutsRef.current.push(timeout2);
-            const data = await api.post(`/diagrams/${state.diagramId}/generate-hld`, undefined, controller2.signal);
-            clearTimeout(timeout2);
-            if (data.hld) { set({ hldData: data, hldLoading: false }); updateSessionCache({ hldData: data }); } // #263
-            return;
-          } catch { /* fall through */ }
-        }
-        set({ error: 'Your session has expired. Please re-upload your diagram to continue.', step: 'upload', hldLoading: false });
-        clearSession();
-        return;
-      }
       const msg = err.name === 'AbortError'
         ? 'HLD generation timed out. Please try again.'
         : 'HLD generation failed: ' + err.message;

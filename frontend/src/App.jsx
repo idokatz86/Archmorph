@@ -3,11 +3,11 @@ import 'prismjs/themes/prism-tomorrow.css';
 import { Code, Coffee, Loader2, Shield } from 'lucide-react';
 import ErrorBoundary from './components/ErrorBoundary';
 import Nav from './components/Nav';
-import DiagramTranslator from './components/DiagramTranslator';
 import { APP_VERSION } from './constants';
 import useAppStore from './stores/useAppStore';
 
 // Lazy-loaded tab components — only fetched when the user switches tabs (#173)
+const DiagramTranslator = lazy(() => import('./components/DiagramTranslator'));
 const ServicesBrowser = lazy(() => import('./components/ServicesBrowser'));
 const Roadmap = lazy(() => import('./components/Roadmap'));
 const ChatWidget = lazy(() => import('./components/ChatWidget'));
@@ -16,7 +16,6 @@ const LegalPages = lazy(() => import('./components/LegalPages'));
 const CookieBanner = lazy(() => import('./components/CookieBanner'));
 // PricingPage removed — feature temporarily disabled
 const LandingPage = lazy(() => import('./components/LandingPage'));
-const UserDashboard = lazy(() => import('./components/UserDashboard'));
 
 
 function TabFallback() {
@@ -113,14 +112,20 @@ export default function App() {
         </div>
       </footer>
       <Suspense fallback={null}>
-        <ChatWidget />
+        <ErrorBoundary>
+          <ChatWidget />
+        </ErrorBoundary>
       </Suspense>
       <Suspense fallback={null}>
-        <CookieBanner />
+        <ErrorBoundary>
+          <CookieBanner />
+        </ErrorBoundary>
       </Suspense>
       {adminOpen && (
         <Suspense fallback={<TabFallback />}>
-          <AdminDashboard onClose={() => setAdminOpen(false)} />
+          <ErrorBoundary>
+            <AdminDashboard onClose={() => setAdminOpen(false)} />
+          </ErrorBoundary>
         </Suspense>
       )}
     </div>

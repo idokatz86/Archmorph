@@ -5,6 +5,7 @@ Provides webhook registration, HMAC-signed delivery with retries,
 delivery logging, and built-in integrations (Slack, Teams, Azure DevOps).
 """
 
+import asyncio
 import hashlib
 import hmac
 import json
@@ -216,28 +217,29 @@ def update_webhook(
 # Delivery engine
 # ---------------------------------------------------------------------------
 
-def _deliver_payload(
+async def _deliver_payload(
     url: str,
     payload_bytes: bytes,
     signature: str,
     event_type: str,
     delivery_id: str,
 ) -> DeliveryAttempt:
-    """Attempt a single HTTP POST delivery."""
+    """Attempt a single HTTP POST delivery (async)."""
     start = time.monotonic()
     try:
-        resp = httpx.post(
-            url,
-            content=payload_bytes,
-            headers={
-                "Content-Type": "application/json",
-                "X-Archmorph-Signature": f"sha256={signature}",
-                "X-Archmorph-Event": event_type,
-                "X-Archmorph-Delivery": delivery_id,
-                "User-Agent": "Archmorph-Webhooks/1.0",
-            },
-            timeout=DELIVERY_TIMEOUT,
-        )
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                url,
+                content=payload_bytes,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Archmorph-Signature": f"sha256={signature}",
+                    "X-Archmorph-Event": event_type,
+                    "X-Archmorph-Delivery": delivery_id,
+                    "User-Agent": "Archmorph-Webhooks/1.0",
+                },
+                timeout=DELIVERY_TIMEOUT,
+            )
         latency = (time.monotonic() - start) * 1000
         success = 200 <= resp.status_code < 300
         return DeliveryAttempt(
@@ -258,7 +260,7 @@ def _deliver_payload(
         )
 
 
-def _dispatch_single(wh: WebhookRegistration, event_type: str, payload: Dict[str, Any]) -> DeliveryLog:
+async def _dispatch_single(wh: WebhookRegistration, event_type: str, payload: Dict[str, Any]) -> DeliveryLog:
     """Deliver a webhook with retries and logging."""
     delivery_id = f"dlv-{uuid.uuid4().hex[:12]}"
     envelope = {
@@ -280,7 +282,7 @@ def _dispatch_single(wh: WebhookRegistration, event_type: str, payload: Dict[str
     )
 
     for attempt_num in range(1, MAX_RETRIES + 1):
-        result = _deliver_payload(wh.url, payload_bytes, signature, event_type, delivery_id)
+        result = await _deliver_payload(wh.url, payload_bytes, signature, event_type, delivery_id)
         result.attempt = attempt_num
         log.attempts.append(result)
 
@@ -296,7 +298,7 @@ def _dispatch_single(wh: WebhookRegistration, event_type: str, payload: Dict[str
                 "Webhook %s delivery attempt %d failed (%s), retrying in %ds",
                 delivery_id, attempt_num, result.error or f"HTTP {result.status_code}", wait,
             )
-            time.sleep(wait)
+            await asyncio.sleep(wait)
 
     if not log.delivered:
         log.final_status = "failed"
@@ -309,8 +311,8 @@ def _dispatch_single(wh: WebhookRegistration, event_type: str, payload: Dict[str
     return log
 
 
-def dispatch_event(event_type: str, payload: Dict[str, Any]) -> List[DeliveryLog]:
-    """Dispatch an event to all subscribed webhooks (async via threads)."""
+async def dispatch_event(event_type: str, payload: Dict[str, Any]) -> List[DeliveryLog]:
+    """Dispatch an event to all subscribed webhooks (async, non-blocking)."""
     if event_type not in ALL_EVENT_TYPES:
         logger.warning("Unknown event type: %s", event_type)
         return []
@@ -324,21 +326,16 @@ def dispatch_event(event_type: str, payload: Dict[str, Any]) -> List[DeliveryLog
     if not subscribers:
         return []
 
-    logs: List[DeliveryLog] = []
-    threads: List[threading.Thread] = []
-
-    for wh in subscribers:
-        t = threading.Thread(
-            target=lambda w=wh: logs.append(_dispatch_single(w, event_type, payload)),
-            daemon=True,
-        )
-        threads.append(t)
-        t.start()
-
-    for t in threads:
-        t.join(timeout=DELIVERY_TIMEOUT * MAX_RETRIES + 30)
-
-    return logs
+    tasks = [_dispatch_single(wh, event_type, payload) for wh in subscribers]
+    logs = await asyncio.gather(*tasks, return_exceptions=True)
+    # Filter out exceptions, log them
+    result: List[DeliveryLog] = []
+    for log in logs:
+        if isinstance(log, Exception):
+            logger.error("Webhook dispatch error: %s", log)
+        else:
+            result.append(log)
+    return result
 
 
 def get_delivery_logs(
@@ -673,13 +670,13 @@ def dispatch_to_integrations(event_type: str, data: Dict[str, Any]) -> List[Dict
 # Convenience: dispatch to both webhooks AND integrations
 # ---------------------------------------------------------------------------
 
-def emit_event(event_type: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+async def emit_event(event_type: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     """
     Emit an event to all subscribers (webhooks + integrations).
 
     This is the primary API for other modules to trigger webhook delivery.
     """
-    webhook_logs = dispatch_event(event_type, payload)
+    webhook_logs = await dispatch_event(event_type, payload)
     integration_results = dispatch_to_integrations(event_type, payload)
 
     return {
