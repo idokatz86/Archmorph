@@ -550,12 +550,57 @@ async def generate_hld_endpoint(request: Request, diagram_id: str, _auth=Depends
     }
 
 
+async def _ensure_hld(session: dict, diagram_id: str) -> dict:
+    """Auto-generate HLD if session exists but HLD is missing.
+
+    This transparently handles the case where a sample session was
+    recreated (or an older session restored) without HLD data.
+    Returns the updated session with HLD populated.
+    """
+    if "hld" in session:
+        return session
+
+    # Only auto-generate if we have analysis data (mappings)
+    if not session.get("mappings"):
+        return session
+
+    try:
+        cost_estimate = session.get("_cached_cost_estimate")
+        if cost_estimate is None:
+            iac_params = session.get("iac_parameters", {})
+            region = iac_params.get("region", "westeurope")
+            strategy = iac_params.get("sku_strategy", "balanced")
+            cost_estimate = estimate_services_cost(
+                session.get("mappings", []), region=region, sku_strategy=strategy
+            )
+            session["_cached_cost_estimate"] = cost_estimate
+
+        hld = await asyncio.to_thread(
+            generate_hld,
+            analysis=session,
+            cost_estimate=cost_estimate,
+            iac_params=session.get("iac_parameters"),
+        )
+        markdown = generate_hld_markdown(hld)
+        session["hld"] = hld
+        session["hld_markdown"] = markdown
+        SESSION_STORE[diagram_id] = session
+        logger.info("Auto-generated HLD for session %s", diagram_id)
+    except Exception as e:
+        logger.warning("Auto-HLD generation failed for %s: %s", diagram_id, e)
+
+    return session
+
+
 @router.get("/api/diagrams/{diagram_id}/hld")
 @limiter.limit("30/minute")
 async def get_hld(request: Request, diagram_id: str):
     """Get previously generated HLD document."""
     session = get_or_recreate_session(diagram_id)
-    if not session or "hld" not in session:
+    if not session:
+        raise HTTPException(404, "No HLD found. Generate one first.")
+    session = await _ensure_hld(session, diagram_id)
+    if "hld" not in session:
         raise HTTPException(404, "No HLD found. Generate one first.")
     return {
         "diagram_id": diagram_id,
@@ -583,7 +628,10 @@ async def export_hld_endpoint(request: Request, diagram_id: str, _auth=Depends(v
     include_diagrams = request.query_params.get("include_diagrams", "true").lower() == "true"
 
     session = get_or_recreate_session(diagram_id)
-    if not session or "hld" not in session:
+    if not session:
+        raise HTTPException(404, "No HLD found. Generate one first.")
+    session = await _ensure_hld(session, diagram_id)
+    if "hld" not in session:
         raise HTTPException(404, "No HLD found. Generate one first.")
 
     # Optional diagram image from request body

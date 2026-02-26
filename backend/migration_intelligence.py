@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from collections import defaultdict
+from collections import defaultdict, deque
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 
@@ -34,7 +34,8 @@ router = APIRouter(prefix="/migration-intelligence", tags=["migration-intelligen
 # In-memory anonymous event store
 # (Production: persistent store with TTL and aggregation jobs)
 # ─────────────────────────────────────────────────────────────
-_MIGRATION_EVENTS: List[Dict[str, Any]] = []
+_MAX_MIGRATION_EVENTS = 10_000
+_MIGRATION_EVENTS: deque = deque(maxlen=_MAX_MIGRATION_EVENTS)
 _PATTERN_STATS: Dict[str, Dict[str, Any]] = defaultdict(lambda: {
     "count": 0,
     "success_count": 0,

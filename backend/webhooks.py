@@ -12,6 +12,7 @@ import logging
 import threading
 import time
 import uuid
+from collections import deque
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from enum import Enum
@@ -108,8 +109,8 @@ def verify_signature(payload_bytes: bytes, secret: str, signature: str) -> bool:
 
 _lock = threading.Lock()
 _webhooks: Dict[str, WebhookRegistration] = {}
-_delivery_logs: List[DeliveryLog] = []
 _MAX_LOGS = 10000
+_delivery_logs: deque = deque(maxlen=_MAX_LOGS)
 
 # Retry config
 MAX_RETRIES = 3
@@ -304,8 +305,6 @@ def _dispatch_single(wh: WebhookRegistration, event_type: str, payload: Dict[str
     # Store delivery log
     with _lock:
         _delivery_logs.append(log)
-        if len(_delivery_logs) > _MAX_LOGS:
-            _delivery_logs.pop(0)
 
     return log
 

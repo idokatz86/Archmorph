@@ -42,7 +42,7 @@ async def get_flag(name: str):
     return flag
 
 
-@router.put("/api/flags/{name}", dependencies=[Depends(verify_admin_key)])
+@router.patch("/api/flags/{name}", dependencies=[Depends(verify_admin_key)])
 async def update_flag(name: str, data: FlagUpdateRequest):
     """Update a feature flag (admin only)."""
     ff = get_feature_flags()

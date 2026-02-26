@@ -181,6 +181,8 @@ _cache_hits = 0
 _cache_misses = 0
 # Per-key locks prevent thundering-herd for the SAME cache key
 # without blocking requests for DIFFERENT keys (Issue #293)
+# Bounded to prevent unbounded growth — evicts oldest entries.
+_MAX_KEY_LOCKS = 512
 _key_locks: dict[str, threading.Lock] = {}
 _key_locks_lock = threading.Lock()
 
@@ -284,6 +286,11 @@ def cached_chat_completion(
     # while allowing different prompts to proceed concurrently (#293).
     with _key_locks_lock:
         key_lock = _key_locks.setdefault(cache_key, threading.Lock())
+        # Evict oldest entries when the lock dict grows too large
+        if len(_key_locks) > _MAX_KEY_LOCKS:
+            excess = len(_key_locks) - _MAX_KEY_LOCKS
+            for old_key in list(_key_locks)[:excess]:
+                _key_locks.pop(old_key, None)
 
     with key_lock:
         # Double-check cache after acquiring per-key lock (another thread
