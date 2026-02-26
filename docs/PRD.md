@@ -1,18 +1,18 @@
 # Archmorph — Cloud Architecture Translator to Azure
 ## Product Requirements Document (PRD)
-**Version:** 3.0.0
-**Date:** February 24, 2026
+**Version:** 3.4.0
+**Date:** February 26, 2026
 **Author:** Ido Katz
 
 ---
 
 ## 1. Executive Summary
 
-Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams into any target cloud (Azure, AWS, or GCP). It analyzes uploaded diagrams — including Visio (.vsdx) files — using GPT-4o vision, identifies cloud services, allows users to add services via natural language, asks guided migration questions with smart deduplication to refine the translation, maps services to target cloud counterparts with confidence scores enhanced by community migration intelligence, exports translated architecture diagrams in multiple formats, generates ready-to-deploy Terraform/Bicep/CloudFormation infrastructure code, provides dynamic cost estimates based on the Azure Retail Prices API with 134 service pricing entries, automatically discovers and integrates new cloud services into its catalog, generates comprehensive AI-powered High-Level Design (HLD) documents, provides an interactive IaC chat assistant, analyzes architecture against Azure Well-Architected Framework (WAF), provides cost optimization recommendations, includes sample diagrams for onboarding, collects NPS feedback, supports shareable analysis links, provides user authentication with Azure AD B2C and GitHub OAuth, implements usage quotas and lead capture, generates migration runbooks with step-by-step task tracking, supports architecture versioning with change history, provides Terraform plan previews, comprehensive application analytics, includes E2E monitoring with automatic GitHub issue creation, features a modular router architecture (13 FastAPI router modules), API versioning with v1 prefix, a feature flags system with percentage rollout and user targeting, comprehensive audit logging with risk levels and compliance queries, pluggable session persistence (InMemory/Redis), GPT-4o response caching, Zero Trust WAF via Azure Front Door, a user dashboard with analysis history and bookmarks, a template gallery with 10 pre-built architecture patterns, internationalization (en/es/fr), living architecture health monitoring with drift detection, migration intelligence with community confidence scoring, and a white-label SDK for partner branding.
+Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams into any target cloud (Azure, AWS, or GCP). It analyzes uploaded diagrams — including Visio (.vsdx) files — using GPT-4o vision, identifies cloud services, allows users to add services via natural language, asks guided migration questions with smart deduplication and inter-question constraints to refine the translation, maps services to target cloud counterparts with confidence scores enhanced by community migration intelligence and confidence transparency explanations, exports translated architecture diagrams in multiple formats, generates ready-to-deploy Terraform/Bicep/CloudFormation infrastructure code with IaC security scanning, provides dynamic cost estimates based on the Azure Retail Prices API with 134 service pricing entries, automatically discovers and integrates new cloud services into its catalog, generates comprehensive AI-powered High-Level Design (HLD) documents with DOCX/PDF/PPTX export, provides an interactive IaC chat assistant with prompt guard, analyzes architecture against Azure Well-Architected Framework (WAF), provides cost optimization recommendations, includes sample diagrams for onboarding, collects NPS feedback, supports shareable analysis links, provides user authentication with Azure AD B2C and GitHub OAuth, implements usage quotas and lead capture, generates migration runbooks with step-by-step task tracking, supports architecture versioning with change history, provides Terraform plan previews, comprehensive application analytics, includes E2E monitoring with automatic GitHub issue creation, features a modular router architecture (13 FastAPI router modules), API versioning with v1 prefix, a feature flags system with percentage rollout and user targeting, comprehensive audit logging with risk levels and compliance queries, pluggable session persistence (InMemory/Redis), GPT-4o response caching with vision analysis cache, Zero Trust WAF via Azure Front Door, a user dashboard with analysis history and bookmarks, a template gallery with 10 pre-built architecture patterns, internationalization (en/es/fr), living architecture health monitoring with drift detection, migration intelligence with community confidence scoring, a white-label SDK for partner branding, a global toast notification system, browser close protection, gunicorn process management with worker recycling, async CPU-bound handler offloading, speculative parallel vision analysis, and WCAG accessibility improvements.
 
 **Problem:** Organizations migrating to Azure spend weeks manually mapping source architecture to Azure services. This process is error-prone, requires deep multi-cloud expertise, and lacks tooling for interactive refinement.
 
-**Solution:** Automated diagram analysis and service translation with multi-cloud target support (Azure/AWS/GCP), natural language service addition, smart question deduplication, confidence-scored mappings enhanced by community migration intelligence, multi-format diagram export, Visio (.vsdx) import, self-updating service catalog with auto-integration, generated IaC with Terraform/Bicep/CloudFormation and secure credential handling, region-aware pricing with optimized targeted queries, AI-powered HLD generation, interactive IaC chat assistant, WAF best practices linting, cost optimization tips, sample diagram onboarding, NPS feedback collection, shareable links, user authentication with quotas, migration runbook generation, architecture versioning, Terraform plan preview, comprehensive analytics, Azure Monitor integration with alerts, an integrated chatbot assistant, modular router architecture with API versioning, feature flags, comprehensive audit logging, session persistence, GPT response caching, Zero Trust WAF, user dashboard with bookmarks, template gallery, i18n (en/es/fr), living architecture health monitoring, and white-label partner SDK.
+**Solution:** Automated diagram analysis and service translation with multi-cloud target support (Azure/AWS/GCP), natural language service addition, smart question deduplication with inter-question constraints, confidence-scored mappings enhanced by community migration intelligence with transparency explanations, multi-format diagram export, Visio (.vsdx) import, self-updating service catalog with auto-integration, generated IaC with Terraform/Bicep/CloudFormation with IaC security scanning and secure credential handling, region-aware pricing with optimized targeted queries, AI-powered HLD generation with DOCX/PDF/PPTX export, interactive IaC chat assistant with prompt guard, WAF best practices linting, cost optimization tips, sample diagram onboarding, NPS feedback collection, shareable links, user authentication with quotas, migration runbook generation, architecture versioning, Terraform plan preview, comprehensive analytics, Azure Monitor integration with alerts, an integrated chatbot assistant, modular router architecture with API versioning, feature flags, comprehensive audit logging, session persistence, GPT response caching with vision analysis cache, Zero Trust WAF, user dashboard with bookmarks, template gallery, i18n (en/es/fr), living architecture health monitoring, white-label partner SDK, global toast notification system, beforeunload protection for active sessions, gunicorn process management with worker recycling, and WCAG accessibility improvements.
 
 ---
 
@@ -283,6 +283,80 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 - **User analysis history** — per-user tracking with source/target provider, service count, confidence scores
 - **Saved diagrams** — user bookmarks with diagram_data JSON storage
 
+### 3.41 Error Envelope Middleware (v3.0.1)
+- **Structured error responses** — all API errors wrapped in consistent JSON envelope with correlation IDs
+- **Error categories** — validation, authentication, authorization, not_found, rate_limit, internal
+- **Correlation ID propagation** — unique request ID in every response header and error body for debugging
+- **Client-friendly messages** — user-facing messages separated from technical details
+
+### 3.42 Compliance Mapper (v3.0.1)
+- **4 framework support** — GDPR, HIPAA, SOC2, PCI DSS compliance mapping
+- **Azure service alignment** — maps detected architecture services to compliance requirements
+- **Gap analysis** — identifies missing compliance controls in the architecture
+- **Remediation suggestions** — actionable recommendations for each compliance gap
+
+### 3.43 AI-Powered Service Suggestions (v3.0.1)
+- **Context-aware recommendations** — GPT-4o suggests additional Azure services based on architecture patterns
+- **Pattern detection** — identifies common architecture patterns and suggests missing components
+- **Confidence scoring** — each suggestion includes relevance confidence
+- **Fuzzy Azure service matching** — maps suggestions to canonical service catalog entries
+
+### 3.44 API Client Rewrite (v3.0.2)
+- **Retry with exponential backoff** — automatic retry for transient failures (429, 500, 502, 503)
+- **AbortController-based timeouts** — configurable per-request timeouts with cleanup
+- **User-friendly error messages** — HTTP status codes mapped to human-readable messages
+- **Centralized error handling** — all API calls go through single client with consistent behavior
+
+### 3.45 IaC Security Scanning (v3.0.2)
+- **8-rule security scanner** — checks generated IaC for common security issues
+- **Rule categories** — hardcoded passwords, missing encryption, overly permissive access, missing tags, public endpoints, missing logging, default credentials, unencrypted storage
+- **Inline warnings** — security issues flagged as comments in generated code
+- **Integration** — runs automatically during IaC validation step
+
+### 3.46 Vision Analysis Cache (v3.0.2)
+- **TTLCache layer** — caches GPT-4o vision analysis results by content hash
+- **Configurable TTL** — tunable cache duration (default: 1 hour)
+- **Cost reduction** — prevents duplicate API calls for re-analyzed diagrams
+- **Truncation detection** — detects when GPT-4o output is truncated (finish_reason=length)
+
+### 3.47 Inter-Question Constraint System (v3.0.0 / v3.0.3)
+- **QUESTION_CONSTRAINTS mapping** — compliance and data residency answers filter available deploy regions
+- **REGION_GROUPS** — geographic groupings (EU, US, APAC) for constraint resolution
+- **Real-time filtering** — frontend applies constraints dynamically as users answer questions
+- **Auto-clear invalid selections** — previously selected options that violate new constraints are cleared
+- **Constraint badges** — amber badges explain why certain options are restricted
+
+### 3.48 Confidence Transparency (v3.2.0)
+- **Confidence explanations** — each confidence score includes a human-readable explanation of why that level was assigned
+- **Visual confidence badges** — color-coded badges (green/yellow/orange/red) with tooltips
+- **Factor breakdown** — shows mapping strength, community data, fuzzy match quality contributing to score
+- **Recalculation on answers** — confidence explanations update after guided question answers are applied
+
+### 3.49 Toast Notification System (v3.4.0)
+- **Global ToastProvider** — React Context-based notification system wrapped around entire app
+- **useToast() hook** — returns `{success, error, info, dismiss}` functions for any component
+- **Auto-dismiss** — 5s default, 8s for errors, max 5 visible simultaneously
+- **Accessibility** — `aria-live="polite"`, `role="alert"` per toast, dismiss button with `aria-label`
+- **Slide-in animation** — CSS `@keyframes slideInRight` for smooth entry
+
+### 3.50 Browser Close Protection (v3.4.0)
+- **useBeforeUnload hook** — warns users before closing browser tab during active work
+- **Conditional activation** — only triggers when user has active analysis (step !== 'upload' && diagramId exists)
+- **Standard browser dialog** — uses native `beforeunload` event for consistent UX across browsers
+
+### 3.51 Accessibility Improvements (v3.4.0)
+- **ARIA labels** — icon-only buttons throughout the app now have descriptive `aria-label` attributes
+- **Keyboard navigation** — footer version easter egg accessible via Enter/Space keys with `role="button"` and `tabIndex`
+- **ARIA pressed state** — ServicesBrowser view toggle buttons expose selected state via `aria-pressed`
+- **Role groups** — related controls wrapped in `role="group"` with `aria-label` for screen readers
+- **Components fixed** — ServicesBrowser, CompliancePanel, FeedbackWidget, Nav, App footer
+
+### 3.52 Performance Optimizations (v3.4.0)
+- **Gunicorn process manager** — Dockerfile switched from uvicorn to gunicorn with UvicornWorker, `--max-requests 1000` for worker recycling, `--preload` for memory efficiency
+- **asyncio.to_thread** — CPU-bound handlers (`analyze_architecture()`, `analyze_cost_optimizations()`, `get_quick_wins()`) offloaded from event loop
+- **Speculative parallel analysis** — `classify_image()` and `analyze_image()` fire simultaneously via `asyncio.gather()`, classification gates result usage; saves 10–30s per upload
+- **Pre-commit hooks** — `.pre-commit-config.yaml` with ruff (lint+format), eslint, prettier, and file hygiene hooks
+
 ### 3.15 Security Hardening (v2.6 + v2.11.1)
 - **Security headers middleware** — X-Content-Type-Options, X-Frame-Options, Referrer-Policy, HSTS, Permissions-Policy
 - **Timing-safe key comparison** — `secrets.compare_digest()` for API key and admin key verification
@@ -545,7 +619,7 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | Layer | Technology |
 |-------|------------|
 | Frontend | React 19.1, Vite 7.3, TailwindCSS 4.2, Lucide React (icons), Prism.js (syntax highlighting), react-i18next (i18n) |
-| Backend | Python 3.11, FastAPI |
+| Backend | Python 3.12, FastAPI, Gunicorn (UvicornWorker) |
 | AI | Azure OpenAI GPT-4o (deployment `gpt-4o`, model 2024-05-13) |
 | Database | PostgreSQL (Azure Flexible Server) |
 | Storage | Azure Blob Storage |
@@ -556,7 +630,7 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | Diagram Export | In-process engine (Excalidraw, Draw.io, Visio with 36 Azure stencils + 405-icon registry fallback) |
 | Pricing | Azure Retail Prices API with 30-day disk cache (134 service entries, 56 aliases, targeted queries) |
 | IaC | Terraform (infra), Bicep + CloudFormation support in-app |
-| Testing | pytest (backend, 1149 tests in 35+ files), E2E flow test (65 steps across 5 diagrams), Playwright (35+ browser tests), integration tests, contract tests (56), chaos tests (26), coverage gap tests (46), middleware tests (55) |
+| Testing | pytest (backend, 1653+ tests in 35+ files), E2E flow test (65 steps across 5 diagrams), Playwright (35+ browser tests), integration tests, contract tests (56), chaos tests (26), coverage gap tests (46), middleware tests (55), pre-commit hooks (ruff, eslint, prettier) |
 | Best Practices | In-process WAF linter (5 pillars, 15+ rules, quick wins, pillar scores) |
 | Cost Optimizer | In-process engine (7 categories, RI/Spot/tiering/auto-shutdown recommendations) |
 | Feedback | In-process NPS/feature/bug collection (30-day trend, admin dashboard) |
@@ -582,7 +656,7 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | Application Analytics | Persistent metrics via Azure Blob Storage (background flush, crash-safe shutdown, event tracking, sessions, funnels) |
 | Azure Monitoring | Application Insights + Azure Monitor (alerts, workbooks, Log Analytics queries) |
 
-### 8.2 API Endpoints (~118 total)
+### 8.2 API Endpoints (~118+ total)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
@@ -723,8 +797,18 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | **v2.11.0 — Admin & Analytics** | Done | JWT admin auth (HS256, 1h TTL, in-memory revocation), persistent analytics (Azure Blob Storage with background flush), conversion funnel, security headers middleware |
 | **v2.11.1 — UX Polish & Document Export** | Done | HLD export (DOCX/PDF/PPTX), 15 UX improvements, CI/CD security (Semgrep SAST, Gitleaks secret detection, Trivy container scan, CycloneDX SBOM), Python 3.11+3.12 matrix testing, 747 tests in 30 files across 82 endpoints |
 | **v2.12.0 — Modular Architecture & Security** | Done | Router decomposition (main.py 2,189→181 lines, 13 router modules), API versioning (v1 prefix), feature flags system (% rollout + user targeting), comprehensive audit logging (risk levels, alerting rules, compliance queries), session persistence (InMemory/Redis), GPT-4o response caching (content-hash TTLCache), DiagramTranslator decomposed (1,201→ 9 sub-components with useReducer), structured JSON logging with correlation IDs, OTel observability rewrite, Azure Front Door WAF + Zero Trust, Helm charts for self-hosted K8s, blue-green deployment with instant rollback, SBOM (CycloneDX + Grype), SAST/DAST/SCA pipeline (Semgrep, Bandit, CodeQL, Trivy, Gitleaks), storage RBAC auth (DefaultAzureCredential), pricing cache persisted to Blob Storage, monitoring reduced to hourly, "None" alerting option, service_updater JSON output, 1149 tests (contract 56, chaos 26, coverage 46, middleware 55) in 35+ files |
-| **v3.0.0 — Multi-Cloud & Enterprise** | Done | Multi-cloud target support (AWS/GCP/Azure as target), CloudFormation IaC generation, User Dashboard (stats, history, bookmarks), Template Gallery (10 patterns, 8 categories), Visio (.vsdx) import with Open XML parser, i18n (en/es/fr with react-i18next), Living Architecture engine (health scoring, drift detection, cost anomalies), Migration Intelligence (community confidence, pattern library, trending), White-Label SDK (branding, partner API keys, embeddable widgets), multi-tenant foundation (organizations, teams, invitations), enhanced PR template with DoD checklist |
-| **v4.0 — Advanced** | Planned | Pulumi output, Azure Migrate integration, multi-diagram projects |
+| **v3.0.0 — Multi-Cloud & Enterprise** | Done | Multi-cloud target support (AWS/GCP/Azure as target), CloudFormation IaC generation, User Dashboard (stats, history, bookmarks), Template Gallery (10 patterns, 8 categories), Visio (.vsdx) import with Open XML parser, i18n (en/es/fr with react-i18next), Living Architecture engine (health scoring, drift detection, cost anomalies), Migration Intelligence (community confidence, pattern library, trending), White-Label SDK (branding, partner API keys, embeddable widgets), multi-tenant foundation (organizations, teams, invitations), inter-question constraint system, enhanced PR template with DoD checklist |
+| **v3.0.1 — Sprint 1: Production Critical** | Done | Error envelope middleware with correlation IDs, Visio import parser, white-label theming engine, session restore & UX improvements, API versioning with /v1/ prefix, best-practice validation engine, cost optimizer engine, migration assessment & risk scoring, compliance mapper (GDPR/HIPAA/SOC2/PCI DSS), living architecture health monitoring, AI-powered service suggestions |
+| **v3.0.2 — Sprint 2: Reliability & DX** | Done | API client rewrite with retry/backoff/timeout, user-friendly error messages, configurable OpenAI timeout & fallback model, GPT output truncation detection, vision analysis cache (TTLCache), IaC security scanning (8 rules), session cache for IaC/HLD persistence, session expiry countdown warning, cancel analysis button, error clearing on new file, mobile responsive buttons, Docker Compose (PostgreSQL 16 + Redis 7), configurable user cache TTL |
+| **v3.0.3 — Sprint 3: Advanced Features** | Done | Azure/GCP services pagination fix, prompt guard for IaC chat, migration runbook generator, CloudFormation IaC format, Terraform plan preview, architecture versioning with diff, migration intelligence with community data, infrastructure import from live cloud, organization & team management, journey analytics, dependency graph visualization, risk score & compliance panels, URL hash sync, feature flags system, admin dashboard with analytics |
+| **v3.1.0 — Landing Page Redesign** | Done | Complete landing page redesign with 9 feature cards, stats bar (405+ services), 100% free forever messaging, updated FAQs, removed beta language, 1,900+ tests |
+| **v3.2.0 — Confidence Transparency** | Done | Confidence score transparency with human-readable explanations, visual confidence badges, tooltip explanations, critical stabilization fixes (HLD 404, memory leaks, CORS, version sync) |
+| **v3.3.0 — Stabilization & Quality** | Done | 13 stability issues closed, DiagramTranslator lazy-loaded, ChatWidget migrated to apiClient, dead components removed, HLD export fixed, SSE deduplication, AbortController cleanup, session leak prevention |
+| **v3.4.0 — Performance & Accessibility** | Done | Gunicorn process manager with worker recycling, asyncio.to_thread for CPU-bound handlers, speculative parallel classify+analyze (saves 10-30s), toast notification system, beforeunload guard, accessibility fixes (ARIA labels, keyboard nav), pre-commit hooks (ruff, eslint, prettier), roadmap data updated, dead code removed |
+| **v3.5.0 — Developer Experience** | Planned | Service dependency graph visualization, cost estimate drill-down, full analysis PDF report, CLI tool for automation, split diagrams.py god router, code coverage gate, Template Gallery re-enable |
+| **v3.6.0 — Intelligence & Identity** | Planned | Redis-backed session persistence, AI cross-cloud mapping auto-suggestion, migration timeline generator, social authentication (Microsoft, Google, GitHub), user profiles with persistent history |
+| **v3.7.0 — Enterprise Readiness** | Planned | RBAC & multi-tenant isolation, collaboration (shared projects, comments, review workflow), compliance framework mapping & gap analysis |
+| **v4.0 — Platform Maturity** | Planned | Multi-diagram project support, Pulumi & CDK IaC output, VS Code extension, real infrastructure scanning via cloud SDKs, end-to-end migration wizard, interactive before/after architecture visualization, one-click Deploy to Azure |
 
 ---
 
@@ -744,25 +828,46 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 
 ## 11. Open Items & Suggestions
 
-| Item | Decision | Owner | Priority |
-|------|----------|-------|----------|
-| Pricing model | Usage-based (per diagram) with 5 free/month | PM | High |
-| Pulumi support | Phase 4 | Engineering | Medium |
-| Azure Migrate partnership | Phase 4, requires BD | PM | Low |
-| Visio import support | v3.0 Done | Engineering | High |
-| Multi-diagram project support | Phase 4 | Engineering | Medium |
-| **Cost estimate drill-down** | Add per-service config (instance count, storage size) for refined pricing | Engineering | Medium |
-| **PDF report export** | Export full analysis as branded PDF (mappings, diagram, IaC, cost) | Engineering | Medium |
-| **Migration timeline generator** | Auto-generate phased migration plan with dependencies | Engineering | High |
-| **Service dependency graph** | Visualize detected service connections and data flows | Engineering | Medium |
-| **Collaboration features** | Share projects, comments, review workflow | Engineering | Medium |
-| **Terraform plan validation** | Preview `terraform plan` output against an Azure subscription | Engineering | High |
-| **Historical pricing trends** | Track cost estimates over time for the same architecture | Engineering | Low |
-| **Multi-language IaC** | CloudFormation added in v3.0; ARM Templates (JSON) and Pulumi for Phase 4 | Engineering | Low |
-| **Compliance mapping** | Auto-detect regulatory requirements and map to Azure compliance services | Engineering | Medium |
-| **Auto-discovered service review UI** | Admin dashboard panel to review, approve, or reject auto-added services with metadata editing | Engineering | Medium |
-| **Cross-cloud mapping auto-suggestion** | Use AI to suggest Azure equivalents for newly discovered AWS/GCP services | Engineering | High |
-| **Webhook notifications** | Notify via Slack/Teams/email when new services are auto-discovered and added | Engineering | Low |
+| Item | Decision | Owner | Priority | Issue |
+|------|----------|-------|----------|-------|
+| **Split diagrams.py god router** | 1,173 LOC → focused sub-routers (upload, export, IaC, HLD) | Engineering | Medium | #284 |
+| **Code coverage gate in CI** | Blocked by #320 (GitHub Actions billing); add pytest --cov-fail-under=70 once CI restored | Engineering | Medium | #288 |
+| **Load testing** | SLA targets in performance_config.py untested; k6/Locust benchmark needed | Engineering | Medium | #290 |
+| **Cyclomatic complexity gate** | 8 deeply nested functions, 5 over 100 lines; add radon/xenon | Engineering | Low | #315 |
+| **Magic numbers & docstrings** | 138 missing docstrings; extract hardcoded constants | Engineering | Low | #317 |
+| **Re-enable Template Gallery** | Disabled during stabilization; needs loading states and data verification | Engineering | Medium | #244 |
+| **Redis-backed session persistence** | Production-ready session store for multi-instance deployments | Engineering | P0 | #232 |
+| **Service dependency graph** | Visualize detected service connections and data flows | Engineering | P1 | #233 |
+| **Cost estimate drill-down** | Per-service configuration (instance count, storage size) for refined pricing | Engineering | P2 | #234 |
+| **CLI tool for automation** | CLI for CI/CD integration and headless diagram analysis | Engineering | P2 | #235 |
+| **Full analysis PDF report** | Branded PDF with mappings, diagram, IaC, cost, HLD | Engineering | P2 | #236 |
+| **AI cross-cloud mapping auto-suggestion** | AI suggests Azure equivalents for newly discovered services | Engineering | P1 | #230 |
+| **Migration timeline generator** | Auto-generate phased migration plan with dependencies | Engineering | P1 | #231 |
+| **Social authentication** | Microsoft, Google, GitHub sign-in via OAuth | Engineering | P1 | #246 |
+| **User profiles** | Personal details, preferences, avatar, persistent history | Engineering | P1 | #247 |
+| **Persistent analysis history** | Analysis history tied to user accounts | Engineering | P2 | #245 |
+| **RBAC & multi-tenant isolation** | Enforce role-based access control on organizational boundaries | Engineering | P1 | #238 |
+| **Collaboration features** | Shared projects, comments, review workflow | Engineering | P2 | #237 |
+| **Compliance framework mapping** | Auto-detect regulatory requirements, map to Azure compliance services | Engineering | P2 | #239 |
+| **Pulumi & CDK IaC output** | Additional IaC formats beyond Terraform/Bicep/CloudFormation | Engineering | P2 | #242 |
+| **Multi-diagram project support** | Multiple diagrams per project with unified analysis | Engineering | P2 | #241 |
+| **VS Code extension** | In-editor architecture translation and IaC generation | Engineering | P2 | #240 |
+| **Real infrastructure scanning** | Live cloud scanning via provider SDKs (AWS/Azure/GCP) | Engineering | P3 | #243 |
+| **One-click Deploy to Azure** | Deploy generated IaC directly to Azure subscription | Engineering | P1 | #248 |
+| **Migration risk scorecard** | Comprehensive readiness assessment with risk factors | Engineering | P1 | #249 |
+| **Interactive before/after visualization** | Side-by-side source vs target architecture view | Engineering | P1 | #250 |
+| **End-to-end migration wizard** | Full migration package export with step-by-step flow | Engineering | P1 | #252 |
+| **AI Architecture Advisor** | Proactive optimization suggestions based on architecture patterns | Engineering | P1 | #255 |
+| **Guided onboarding tour** | Interactive walkthrough with achievement badges | Engineering | P2 | #257 |
+| **Contextual migration Q&A** | Chat on analysis results with migration-specific context | Engineering | P1 | #258 |
+| **Real-time collaborative workspace** | Multi-user simultaneous editing of migration projects | Engineering | P2 | #251 |
+| **Built-in diagram editor** | Canvas-based architecture diagram editor | Engineering | P2 | #253 |
+| **Migration replay** | Animated analysis timeline for presentations | Engineering | P3 | #254 |
+| **Migration Gallery** | Public anonymized success stories from community | Engineering | P2 | #256 |
+| **Public API & webhooks** | Enterprise integrations (Slack, Teams, Jira) | Engineering | P2 | #259 |
+| **AI Agent PaaS** | Control/Runtime design with routing/memory/policy | Engineering | P1 | #319 |
+| **Live Cloud Discovery & Auto-Deploy** | End-to-end migration execution platform | Engineering | P1 | #321 |
+| **GitHub Actions billing** | All CI workflows blocked since Feb 25; requires billing fix | DevOps | Urgent | #320 |
 
 ---
 
