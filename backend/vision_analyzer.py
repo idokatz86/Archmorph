@@ -426,6 +426,10 @@ def analyze_image(image_bytes: bytes, content_type: str = "image/png") -> Dict[s
     # Compress image to reduce tokens and latency
     compressed_bytes, compressed_type, img_w, img_h = compress_image(image_bytes, content_type)
 
+    # Ensure bytes for hashing (guard against str from Redis/JSON round-trip)
+    if isinstance(compressed_bytes, str):
+        compressed_bytes = compressed_bytes.encode("utf-8")
+
     # Check vision cache before calling GPT-4o (Issue #295)
     cache_key = hashlib.sha256(compressed_bytes).hexdigest()
     with _vision_cache_lock:

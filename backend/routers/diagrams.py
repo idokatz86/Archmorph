@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from typing import Dict, Any, Optional
 from datetime import datetime, timezone
 import asyncio
+import base64
 import secrets
 import uuid
 import logging
@@ -102,7 +103,8 @@ async def upload_diagram(request: Request, project_id: str, file: UploadFile = F
         chunks.append(chunk)
     image_bytes = b"".join(chunks)
 
-    IMAGE_STORE[diagram_id] = (image_bytes, file.content_type)
+    # Base64-encode image bytes so the value is JSON-safe for Redis/FileStore.
+    IMAGE_STORE[diagram_id] = (base64.b64encode(image_bytes).decode("ascii"), file.content_type)
     logger.info("Stored image for %s (%d bytes, %s)", diagram_id, len(image_bytes), file.content_type)
 
     # Proactive capacity warning — mirrors SESSION_STORE check (#177)
@@ -186,7 +188,8 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
     if diagram_id not in IMAGE_STORE:
         raise HTTPException(404, f"No uploaded image found for diagram {diagram_id}. Upload first.")
 
-    image_bytes, content_type = IMAGE_STORE[diagram_id]
+    image_b64, content_type = IMAGE_STORE[diagram_id]
+    image_bytes = base64.b64decode(image_b64) if isinstance(image_b64, str) else image_b64
     logger.info("Analyzing diagram %s (%d bytes)", diagram_id, len(image_bytes))
 
     # ── Pre-compress once to avoid double compression (#177) ──
@@ -886,7 +889,8 @@ async def _run_analysis_job(job_id: str, diagram_id: str) -> None:
     try:
         job_manager.start(job_id)
 
-        image_bytes, content_type = IMAGE_STORE[diagram_id]
+        image_b64, content_type = IMAGE_STORE[diagram_id]
+        image_bytes = base64.b64decode(image_b64) if isinstance(image_b64, str) else image_b64
         job_manager.update_progress(job_id, 5, "Pre-compressing image...")
 
         # Check for cancellation between steps
