@@ -106,7 +106,7 @@ const FeedbackWidget = forwardRef(function FeedbackWidget({ position = 'bottom' 
       <Card className="p-4 shadow-xl border-cta/30">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-semibold text-text-primary">Feedback</h3>
-          <button onClick={() => { setIsOpen(false); reset(); }} className="cursor-pointer">
+          <button onClick={() => { setIsOpen(false); reset(); }} aria-label="Close feedback" className="cursor-pointer">
             <X className="w-4 h-4 text-text-muted" />
           </button>
         </div>

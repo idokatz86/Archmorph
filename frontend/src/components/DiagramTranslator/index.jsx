@@ -10,6 +10,7 @@ import { saveSession, loadSession, clearSession, updateSessionCache, cacheImage,
 import useWorkflow from './useWorkflow';
 import useSSE from '../../hooks/useSSE';
 import useSessionExpiry from '../../hooks/useSessionExpiry';
+import useBeforeUnload from '../../hooks/useBeforeUnload';
 import UploadStep from './UploadStep';
 import GuidedQuestions from './GuidedQuestions';
 import AnalysisResults from './AnalysisResults';
@@ -51,6 +52,9 @@ export default function DiagramTranslator() {
     diagramId: state.diagramId,
     onExpired: handleSessionExpired,
   });
+
+  // Warn before closing tab if user has an active analysis (#312)
+  useBeforeUnload(state.step !== 'upload' && state.diagramId);
 
   // Keep blob URL ref in sync
   useEffect(() => {

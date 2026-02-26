@@ -22,9 +22,19 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')" || exit 1
 
-# Run
-# Production: multiple workers for concurrency (#103-S015)
-# Use 2*CPU+1 formula; 4 workers for 2 vCPU Container Apps
-# Issue #121: WEB_CONCURRENCY tells session store to use FileStore when no Redis
+# Run with gunicorn + UvicornWorker for production (#301)
+# Benefits: worker recycling (max-requests), graceful restarts, preload
+# Uses performance_config.py settings via env vars
 ENV WEB_CONCURRENCY=4
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+CMD ["gunicorn", "main:app", \
+     "--bind", "0.0.0.0:8000", \
+     "--workers", "4", \
+     "--worker-class", "uvicorn.workers.UvicornWorker", \
+     "--timeout", "120", \
+     "--graceful-timeout", "30", \
+     "--keep-alive", "5", \
+     "--max-requests", "1000", \
+     "--max-requests-jitter", "100", \
+     "--access-logfile", "-", \
+     "--error-logfile", "-", \
+     "--preload"]

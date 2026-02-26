@@ -3,6 +3,7 @@ import 'prismjs/themes/prism-tomorrow.css';
 import { Code, Coffee, Loader2, Shield } from 'lucide-react';
 import ErrorBoundary from './components/ErrorBoundary';
 import Nav from './components/Nav';
+import { ToastProvider } from './components/Toast';
 import { APP_VERSION } from './constants';
 import useAppStore from './stores/useAppStore';
 
@@ -61,6 +62,7 @@ export default function App() {
   };
 
   return (
+    <ToastProvider>
     <div className="min-h-screen bg-surface text-text-primary font-sans">
       {/* Skip to main content link for keyboard/screen-reader users (#220) */}
       <a
@@ -87,7 +89,11 @@ export default function App() {
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
             <p
               className="text-xs text-text-muted select-none cursor-default"
+              role="button"
+              tabIndex={0}
+              aria-label="Version info"
               onClick={handleVersionClick}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleVersionClick(); }}
             >
               Archmorph v{APP_VERSION} — Modernize Any Cloud. Land on Azure.
             </p>
@@ -129,5 +135,6 @@ export default function App() {
         </Suspense>
       )}
     </div>
+    </ToastProvider>
   );
 }

@@ -89,14 +89,20 @@ def _register_architecture(analysis_id: str, analysis: Dict[str, Any]) -> str:
 
 
 def _compute_health(arch_id: str) -> ArchitectureHealthResponse:
-    """Compute the architecture health score with all dimensions."""
+    """Compute the architecture health score with all dimensions.
+
+    NOTE: All scores are currently **simulated** using random values.
+    Production implementation requires integration with Azure Monitor,
+    AWS CloudWatch, or GCP Cloud Monitoring SDKs (see issue #243).
+    """
     arch = _ARCHITECTURE_REGISTRY.get(arch_id)
     if not arch:
         raise ValueError(f"Architecture {arch_id} not found")
 
     now = datetime.now(timezone.utc)
+    logger.debug("Computing simulated health for architecture %s", arch_id)
 
-    # ── Availability dimension ──
+    # ── Availability dimension (SIMULATED — #243) ──
     availability_score = round(random.uniform(0.85, 1.0), 2)
     # ── Cost efficiency dimension ──
     cost_score = round(random.uniform(0.65, 0.95), 2)
@@ -175,7 +181,11 @@ def _score_to_status(score: float) -> str:
 
 
 def _generate_drift_items(arch: Dict) -> List[DriftItem]:
-    """Generate simulated drift items based on architecture services."""
+    """Generate **simulated** drift items based on architecture services.
+
+    Production: integrate with Azure Resource Graph / Terraform state
+    to detect real infrastructure drift (see issue #243).
+    """
     services = arch.get("services", [])
     drifts = []
     now = datetime.now(timezone.utc)
@@ -207,7 +217,11 @@ def _generate_drift_items(arch: Dict) -> List[DriftItem]:
 
 
 def _generate_cost_anomalies(arch: Dict) -> List[CostAnomaly]:
-    """Generate simulated cost anomalies."""
+    """Generate **simulated** cost anomalies.
+
+    Production: integrate with Azure Cost Management API to detect
+    real spending anomalies (see issue #243).
+    """
     services = arch.get("services", [])
     anomalies = []
     now = datetime.now(timezone.utc)

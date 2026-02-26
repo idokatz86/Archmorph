@@ -12,9 +12,12 @@ Usage:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import html
+
+logger = logging.getLogger(__name__)
 
 # ─── Provider colour palettes ────────────────────────────────
 # Each category maps to (fill, stroke, accent)
@@ -417,16 +420,16 @@ def main():
 
     for provider, catalog_path in providers.items():
         if not os.path.exists(catalog_path):
-            print(f"  SKIP {provider}: {catalog_path} not found")
+            logger.warning("SKIP %s: %s not found", provider, catalog_path)
             continue
 
         services = _load_services(catalog_path)
         output_dir = os.path.join(base, "samples", provider)
 
         manifest = generate_pack(provider, services, output_dir)
-        print(f"  {provider.upper()}: {len(manifest['icons'])} icons → {output_dir}")
+        logger.info("%s: %d icons → %s", provider.upper(), len(manifest["icons"]), output_dir)
 
-    print("\nDone! Icon packs generated in backend/samples/")
+    logger.info("Done! Icon packs generated in backend/samples/")
 
 
 if __name__ == "__main__":

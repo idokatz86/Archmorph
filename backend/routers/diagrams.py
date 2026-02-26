@@ -206,12 +206,25 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
     except Exception:
         compressed_bytes, compressed_type = image_bytes, content_type
 
-    # ── Image classification pre-check (async) ──
-    try:
-        classification = await asyncio.to_thread(classify_image, compressed_bytes, compressed_type)
-    except Exception as exc:
-        logger.warning("Image classification failed for %s: %s — proceeding with analysis", diagram_id, exc)
-        classification = {"is_architecture_diagram": True, "confidence": 0.5, "image_type": "unknown", "reason": "Classification unavailable"}
+    # ── Speculative parallel: classify + analyze concurrently (#299) ──
+    # Fire both GPT-4o calls simultaneously. If classification rejects the
+    # image, we discard the analysis result. On the happy path this saves
+    # 10-30s of sequential latency.
+    async def _classify():
+        try:
+            return await asyncio.to_thread(classify_image, compressed_bytes, compressed_type)
+        except Exception as exc:
+            logger.warning("Image classification failed for %s: %s — proceeding with analysis", diagram_id, exc)
+            return {"is_architecture_diagram": True, "confidence": 0.5, "image_type": "unknown", "reason": "Classification unavailable"}
+
+    async def _analyze():
+        return await asyncio.to_thread(analyze_image, compressed_bytes, compressed_type)
+
+    classification, analysis_result_or_exc = await asyncio.gather(
+        _classify(),
+        _analyze(),
+        return_exceptions=True,
+    )
 
     if not classification["is_architecture_diagram"]:
         logger.info("Image rejected for %s: %s (confidence: %.2f)", diagram_id, classification["reason"], classification["confidence"])
@@ -227,11 +240,11 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
 
     logger.info("Image classified as architecture diagram for %s (confidence: %.2f)", diagram_id, classification["confidence"])
 
-    try:
-        result = await asyncio.to_thread(analyze_image, compressed_bytes, compressed_type)
-    except Exception as exc:
-        logger.error("Vision analysis failed for %s: %s", diagram_id, exc, exc_info=True)
+    if isinstance(analysis_result_or_exc, Exception):
+        logger.error("Vision analysis failed for %s: %s", diagram_id, analysis_result_or_exc, exc_info=True)
         raise HTTPException(500, "Vision analysis failed. Please try again with a different image.")
+
+    result = analysis_result_or_exc
 
     # Inject diagram_id and classification metadata into result
     result["diagram_id"] = diagram_id
@@ -680,8 +693,8 @@ async def get_best_practices(request: Request, diagram_id: str):
     # Get user answers if available
     answers = analysis.get("applied_answers", {})
     
-    result = analyze_architecture(analysis, answers)
-    result["quick_wins"] = get_quick_wins(result["recommendations"])
+    result = await asyncio.to_thread(analyze_architecture, analysis, answers)
+    result["quick_wins"] = await asyncio.to_thread(get_quick_wins, result["recommendations"])
     
     return result
 
@@ -702,7 +715,7 @@ async def get_cost_optimization(request: Request, diagram_id: str):
     # Try to get cost estimate if available
     cost_estimate = analysis.get("cost_estimate")
     
-    return analyze_cost_optimizations(analysis, answers, cost_estimate)
+    return await asyncio.to_thread(analyze_cost_optimizations, analysis, answers, cost_estimate)
 
 
 # ─────────────────────────────────────────────────────────────

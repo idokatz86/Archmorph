@@ -125,9 +125,9 @@ export default function ServicesBrowser() {
             <option value="all">All Categories</option>
             {categories.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
-          <div className="flex items-center gap-1 border border-border rounded-lg p-0.5">
+          <div className="flex items-center gap-1 border border-border rounded-lg p-0.5" role="group" aria-label="View mode">
             {['grid', 'list'].map(v => (
-              <button key={v} onClick={() => setView(v)} className={`p-1.5 rounded cursor-pointer transition-colors ${view === v ? 'bg-cta/15 text-cta' : 'text-text-muted hover:text-text-primary'}`}>
+              <button key={v} onClick={() => setView(v)} aria-label={`${v} view`} aria-pressed={view === v} className={`p-1.5 rounded cursor-pointer transition-colors ${view === v ? 'bg-cta/15 text-cta' : 'text-text-muted hover:text-text-primary'}`}>
                 {v === 'grid' ? <Box className="w-4 h-4" /> : <FileText className="w-4 h-4" />}
               </button>
             ))}

@@ -1,5 +1,6 @@
 fastapi==0.131.0
 uvicorn[standard]==0.39.0
+gunicorn==23.0.0  # Production process manager with worker recycling (#301)
 pydantic==2.12.5
 python-multipart==0.0.22  # fixes GHSA-wp53-j4wj-2cfg
 httpx==0.28.1

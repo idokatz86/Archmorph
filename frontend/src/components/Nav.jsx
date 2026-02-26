@@ -60,6 +60,7 @@ export default function Nav({ activeTab, setActiveTab, updateStatus }) {
               <button
                 onClick={() => feedbackRef.current?.open()}
                 className="p-2 rounded-lg hover:bg-secondary transition-colors cursor-pointer"
+                aria-label="Give Feedback"
                 title="Give Feedback"
               >
                 <MessageSquare className="w-4 h-4 text-text-secondary hover:text-text-primary" />

@@ -68,7 +68,7 @@ function FrameworkCard({ framework }) {
           </p>
         </div>
         {gapCount > 0 && (
-          <button onClick={() => setOpen(!open)} className="text-text-muted hover:text-text-primary cursor-pointer">
+          <button onClick={() => setOpen(!open)} aria-label={open ? 'Collapse compliance gaps' : 'Expand compliance gaps'} className="text-text-muted hover:text-text-primary cursor-pointer">
             {open ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
           </button>
         )}
