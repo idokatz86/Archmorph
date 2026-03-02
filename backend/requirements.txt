@@ -8,7 +8,7 @@ azure-storage-blob==12.24.1
 azure-identity==1.25.2
 openai==2.21.0
 psycopg2-binary==2.9.11
-sqlalchemy==2.0.36
+sqlalchemy==2.0.47
 alembic==1.16.5
 python-dotenv==1.2.1
 pillow==12.1.1  # fixes GHSA-cfh3-3jmp-rvhc
