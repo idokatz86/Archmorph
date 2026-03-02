@@ -28,7 +28,7 @@ stripe==14.3.0  # Stripe billing integration (#144)
 
 # Document export dependencies
 python-docx==1.2.0
-fpdf2==2.8.6
+fpdf2==2.8.7
 python-pptx==1.0.2
 
 # Test dependencies
