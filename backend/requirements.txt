@@ -23,7 +23,7 @@ psutil==7.2.2
 python-json-logger==3.3.0  # logging_config.py handles both 2.x and 3.x import paths
 PyJWT[crypto]==2.11.0
 email-validator==2.3.0
-redis==5.3.1  # Required for RedisStore session backend (#118)
+redis==7.2.1  # Required for RedisStore session backend (#118)
 stripe==14.3.0  # Stripe billing integration (#144)
 
 # Document export dependencies
