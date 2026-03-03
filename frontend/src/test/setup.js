@@ -8,8 +8,15 @@ configure({ asyncUtilTimeout: 5000 })
 // Make Prism available globally for language component plugins (prism-yaml, etc.)
 global.Prism = Prism
 
-// Mock fetch globally
-global.fetch = vi.fn()
+// Mock fetch globally with a safe default response
+global.fetch = vi.fn().mockResolvedValue({
+  ok: true,
+  status: 200,
+  json: () => Promise.resolve({}),
+  text: () => Promise.resolve(''),
+  headers: new Headers(),
+  clone: function() { return this },
+})
 
 // Mock IntersectionObserver
 global.IntersectionObserver = vi.fn().mockImplementation(() => ({

@@ -152,7 +152,7 @@ describe('useSSE', () => {
 describe('useJobStatus', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.useFakeTimers();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
   });
 
   afterEach(() => {

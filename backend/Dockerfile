@@ -5,7 +5,7 @@
 # ══════════════════════════════════════════════════════════════
 
 # ── Stage 1: Builder ──
-FROM mcr.microsoft.com/oryx/python:3.12-debian-bookworm AS builder
+FROM python:3.13-slim-bookworm AS builder
 
 WORKDIR /build
 
@@ -14,7 +14,7 @@ RUN pip install --no-cache-dir --upgrade setuptools>=78.1.1 wheel>=0.46.2 && \
     pip install --no-cache-dir --prefix=/install -r requirements.txt
 
 # ── Stage 2: Runtime ──
-FROM mcr.microsoft.com/oryx/python:3.12-debian-bookworm
+FROM python:3.13-slim-bookworm
 
 WORKDIR /app
 

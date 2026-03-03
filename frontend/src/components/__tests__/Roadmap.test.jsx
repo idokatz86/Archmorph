@@ -31,6 +31,8 @@ describe('Roadmap', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     fetch.mockResolvedValue({
+      ok: true,
+      status: 200,
       json: () => Promise.resolve(mockRoadmap),
     })
   })
