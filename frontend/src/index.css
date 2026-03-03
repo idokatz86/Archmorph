@@ -2,6 +2,7 @@
 
 @import "tailwindcss";
 
+/* ── Dark theme (default) ── */
 @theme {
   --color-primary: #0F172A;
   --color-secondary: #1E293B;
@@ -23,6 +24,35 @@
   --animate-fade-in: fadeIn 0.3s ease-out;
   --animate-slide-up: slideUp 0.3s ease-out;
   --animate-pulse-slow: pulse 3s infinite;
+}
+
+/* ── Light theme (#372) ── */
+[data-theme="light"] {
+  --color-primary: #F8FAFC;
+  --color-secondary: #E2E8F0;
+  --color-surface: #FFFFFF;
+  --color-surface-light: #F1F5F9;
+  --color-text-primary: #0F172A;
+  --color-text-secondary: #475569;
+  --color-text-muted: #94A3B8;
+  --color-border: #E2E8F0;
+  --color-border-light: #CBD5E1;
+}
+
+/* ── Skip to main content for a11y (#372) ── */
+.skip-to-main {
+  position: absolute;
+  top: -100%;
+  left: 0;
+  z-index: 9999;
+  padding: 0.5rem 1rem;
+  background: var(--color-cta);
+  color: #fff;
+  font-weight: 600;
+  text-decoration: none;
+}
+.skip-to-main:focus {
+  top: 0;
 }
 
 @keyframes fadeIn {

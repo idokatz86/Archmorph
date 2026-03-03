@@ -1294,6 +1294,7 @@ def estimate_services_cost(
 
     service_costs: list[dict[str, Any]] = []
     seen_services: set[str] = set()
+    region_display = ARM_TO_DISPLAY.get(region, region)  # Moved up for cost rationale (#354)
 
     for m in mappings:
         azure_svc = m.get("azure_service", "")
@@ -1314,6 +1315,13 @@ def estimate_services_cost(
             "monthly_high": high,
             "monthly_estimate": adjusted,
             "zone": m.get("notes", "").split("Zone ")[-1].split(" ")[0] if "Zone" in m.get("notes", "") else "",
+            # ── Cost rationale (#354) ──
+            "price_source": "Azure Retail Prices API" if HAS_HTTPX and base_price > 0 else "built-in estimate",
+            "base_price_usd": base_price,
+            "sku_multiplier": multiplier,
+            "assumptions": f"Based on {sku_strategy} tier in {region_display}; "
+                           f"range reflects 0.7x-1.4x variance for usage patterns.",
+            "formula": f"${base_price:.2f} x {multiplier:.1f} (strategy) = ${adjusted:.2f}/mo",
         })
 
     # Sort by estimated cost descending
@@ -1321,8 +1329,6 @@ def estimate_services_cost(
 
     total_low = sum(s["monthly_low"] for s in service_costs)
     total_high = sum(s["monthly_high"] for s in service_costs)
-
-    region_display = ARM_TO_DISPLAY.get(region, region)
 
     return {
         "total_monthly_estimate": {

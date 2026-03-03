@@ -35,3 +35,4 @@ python-pptx==1.0.2
 pytest==8.3.5
 pytest-asyncio==0.26.0
 pytest-cov==6.2.1
+pytest-xdist==3.5.0  # Parallel test execution (#369)

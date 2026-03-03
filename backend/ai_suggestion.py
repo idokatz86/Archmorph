@@ -85,6 +85,112 @@ Rules:
 """
 
 
+def _build_confidence_factors(suggestion: Dict[str, Any], source_service: str) -> list:
+    """Build human-readable confidence factor breakdown (#353).
+
+    Returns a list of dicts, each with:
+      - factor: str (name of the signal)
+      - weight: float (0-1)
+      - signal: str ("positive" | "negative" | "neutral")
+      - explanation: str (plain-language explanation)
+    """
+    confidence = float(suggestion.get("confidence", 0.5))
+    factors = []
+
+    # 1. Catalog match — did we find it in the service catalog?
+    if suggestion.get("source") == "catalog" or confidence >= 0.9:
+        factors.append({
+            "factor": "catalog_match",
+            "weight": 0.35,
+            "signal": "positive",
+            "explanation": f"'{source_service}' has a direct match in the Archmorph service catalog.",
+        })
+    else:
+        factors.append({
+            "factor": "catalog_match",
+            "weight": 0.35,
+            "signal": "negative",
+            "explanation": f"'{source_service}' was not found in the catalog; AI inference was used.",
+        })
+
+    # 2. Feature parity
+    gaps = suggestion.get("feature_gaps", [])
+    if not gaps:
+        factors.append({
+            "factor": "feature_parity",
+            "weight": 0.25,
+            "signal": "positive",
+            "explanation": "No significant feature gaps detected between source and target service.",
+        })
+    else:
+        factors.append({
+            "factor": "feature_parity",
+            "weight": 0.25,
+            "signal": "negative",
+            "explanation": f"{len(gaps)} feature gap(s) identified: {', '.join(gaps[:3])}.",
+        })
+
+    # 3. Migration effort
+    effort = suggestion.get("migration_effort", "medium")
+    if effort == "low":
+        factors.append({
+            "factor": "migration_effort",
+            "weight": 0.20,
+            "signal": "positive",
+            "explanation": "Low migration effort — near drop-in replacement.",
+        })
+    elif effort == "high":
+        factors.append({
+            "factor": "migration_effort",
+            "weight": 0.20,
+            "signal": "negative",
+            "explanation": "High migration effort — significant rearchitecture required.",
+        })
+    else:
+        factors.append({
+            "factor": "migration_effort",
+            "weight": 0.20,
+            "signal": "neutral",
+            "explanation": "Moderate migration effort — some adaptation needed.",
+        })
+
+    # 4. Alternatives available
+    alts = suggestion.get("alternatives", [])
+    if len(alts) >= 2:
+        factors.append({
+            "factor": "alternatives_available",
+            "weight": 0.10,
+            "signal": "neutral",
+            "explanation": f"{len(alts)} alternative Azure services considered; best match selected.",
+        })
+    else:
+        factors.append({
+            "factor": "alternatives_available",
+            "weight": 0.10,
+            "signal": "positive",
+            "explanation": "Strong single-best match with few viable alternatives.",
+        })
+
+    # 5. Confidence threshold summary
+    if confidence >= 0.85:
+        level, label = "positive", "High"
+    elif confidence >= 0.6:
+        level, label = "neutral", "Medium"
+    else:
+        level, label = "negative", "Low"
+    factors.append({
+        "factor": "overall_assessment",
+        "weight": 0.10,
+        "signal": level,
+        "explanation": f"{label} confidence ({confidence:.0%}). "
+                       + ("Mapping is reliable for production use." if confidence >= 0.85
+                          else "Consider reviewing before finalizing." if confidence >= 0.6
+                          else "Manual review strongly recommended."),
+    })
+
+    return factors
+
+
 @openai_retry
 def _call_gpt_suggest(
     source_service: str,
@@ -185,6 +291,8 @@ def suggest_mapping(
         "dependencies": suggestion.get("dependencies", []),
         "source": "ai",
         "review_status": "pending" if suggestion.get("confidence", 0.5) < 0.7 else "auto_approved",
+        # ── Confidence explainability (#353) ──
+        "confidence_factors": _build_confidence_factors(suggestion, source_service),
     }
 
     # Queue low-confidence for review

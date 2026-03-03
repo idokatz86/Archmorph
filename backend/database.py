@@ -58,9 +58,10 @@ if _IS_SQLITE and _ENVIRONMENT in ("production", "prod", "staging"):
         )
 
 # Connection pool settings (PostgreSQL)
-_POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "10"))
-_MAX_OVERFLOW = int(os.getenv("DB_MAX_OVERFLOW", "20"))
+_POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "20"))  # Increased from 10 (#376)
+_MAX_OVERFLOW = int(os.getenv("DB_MAX_OVERFLOW", "10"))
 _POOL_TIMEOUT = int(os.getenv("DB_POOL_TIMEOUT", "30"))
+_POOL_RECYCLE = int(os.getenv("DB_POOL_RECYCLE", "3600"))  # Recycle stale connections (#376)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -83,6 +84,7 @@ else:
         "pool_size": _POOL_SIZE,
         "max_overflow": _MAX_OVERFLOW,
         "pool_timeout": _POOL_TIMEOUT,
+        "pool_recycle": _POOL_RECYCLE,
         "pool_pre_ping": True,
     })
 
