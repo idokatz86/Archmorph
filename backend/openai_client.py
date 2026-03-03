@@ -328,7 +328,7 @@ def cached_chat_completion(
         # Detect GPT output truncation — finish_reason "length" means the
         # response was cut off at max_tokens (Issue #278).
         if response.choices and response.choices[0].finish_reason == "length":
-            logger.warning(
+            logger.warning(  # nosemgrep: python-logger-credential-disclosure — no secrets in this message
                 "GPT output TRUNCATED (finish_reason=length, model=%s, max_tokens=%s). "
                 "Response may be incomplete — consider increasing max_tokens.",
                 deployment,
