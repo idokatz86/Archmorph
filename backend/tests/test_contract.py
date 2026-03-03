@@ -361,7 +361,7 @@ class TestFlagsContract:
         assert resp.status_code == 404
 
     def test_flags_update_requires_admin(self, client):
-        resp = client.put("/api/flags/dark_mode", json={"enabled": False})
+        resp = client.patch("/api/flags/dark_mode", json={"enabled": False})
         # Should fail with 401 or 503 (admin not configured)
         assert resp.status_code in (401, 503)
 

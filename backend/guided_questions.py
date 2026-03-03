@@ -1372,6 +1372,7 @@ def _apply_network_isolation(
                 _add_confidence_reason(
                     m, "Private endpoint compatible service — well-documented Private Link support (+2%)"
                 )
+    elif level == "VNet integration":
         iac["vnet_integration"] = True
         iac["service_endpoints"] = True
         iac["public_network_access"] = True

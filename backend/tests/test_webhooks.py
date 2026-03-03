@@ -1,4 +1,5 @@
 """Comprehensive tests for webhooks.py and routers/webhooks.py — Sprint 9 #175."""
+import asyncio
 import pytest
 from unittest.mock import patch
 
@@ -146,14 +147,14 @@ class TestDispatch:
             attempt=1, timestamp="t", status_code=200, success=True, latency_ms=50
         )
         register_webhook(url="https://example.com/hook", events=["analysis.completed"])
-        logs = dispatch_event("analysis.completed", {"result": "ok"})
+        logs = asyncio.run(dispatch_event("analysis.completed", {"result": "ok"}))
         assert len(logs) == 1
         assert logs[0].delivered is True
 
     @patch("webhooks._deliver_payload")
     def test_dispatch_event_no_match(self, mock_deliver):
         register_webhook(url="https://example.com/hook", events=["iac.generated"])
-        logs = dispatch_event("analysis.completed", {"result": "ok"})
+        logs = asyncio.run(dispatch_event("analysis.completed", {"result": "ok"}))
         assert len(logs) == 0
         mock_deliver.assert_not_called()
 
@@ -161,7 +162,7 @@ class TestDispatch:
     def test_dispatch_inactive_webhook_skipped(self, mock_deliver):
         wh = register_webhook(url="https://example.com/hook", events=["analysis.completed"])
         update_webhook(wh.id, active=False)
-        logs = dispatch_event("analysis.completed", {"result": "ok"})
+        logs = asyncio.run(dispatch_event("analysis.completed", {"result": "ok"}))
         assert len(logs) == 0
 
     def test_delivery_logs_empty(self):
@@ -242,7 +243,7 @@ class TestEmitEvent:
             attempt=1, timestamp="t", status_code=200, success=True, latency_ms=10
         )
         register_webhook(url="https://a.com/hook", events=["analysis.completed"])
-        result = emit_event("analysis.completed", {"status": "done"})
+        result = asyncio.run(emit_event("analysis.completed", {"status": "done"}))
         assert "webhook_deliveries" in result
         assert "integration_deliveries" in result
 

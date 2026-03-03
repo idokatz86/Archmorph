@@ -175,7 +175,7 @@ class TestFeatureFlagsAPI:
         assert resp.status_code == 404
 
     def test_update_flag_requires_auth(self):
-        resp = self.client.put("/api/flags/dark_mode", json={"enabled": False})
+        resp = self.client.patch("/api/flags/dark_mode", json={"enabled": False})
         # Should require admin auth (401 or 503 if not configured)
         assert resp.status_code in (401, 403, 503)
 

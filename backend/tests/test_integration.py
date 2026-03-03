@@ -569,7 +569,7 @@ class TestFeatureFlagsIntegration:
 
     def test_update_flag_requires_auth(self, client, clean_session):
         """PUT /api/flags/<name> without admin auth is rejected."""
-        resp = client.put("/api/flags/dark_mode", json={"enabled": False})
+        resp = client.patch("/api/flags/dark_mode", json={"enabled": False})
         assert resp.status_code in (401, 403, 503)
 
     def test_flags_available_via_v1(self, client, clean_session):

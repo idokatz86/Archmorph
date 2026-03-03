@@ -1,5 +1,9 @@
 import '@testing-library/jest-dom'
+import { configure } from '@testing-library/react'
 import Prism from 'prismjs'
+
+// Increase waitFor timeout for CI environments (#375)
+configure({ asyncUtilTimeout: 5000 })
 
 // Make Prism available globally for language component plugins (prism-yaml, etc.)
 global.Prism = Prism

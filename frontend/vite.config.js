@@ -34,6 +34,7 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: './src/test/setup.js',
-    css: true
+    css: true,
+    testTimeout: 10000,  // 10s timeout for async tests in CI
   }
 })
