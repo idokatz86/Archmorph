@@ -1,6 +1,4 @@
 """Tests for SSE utilities (#281)."""
-import asyncio
-import pytest
 from sse import format_sse, sse_response
 
 

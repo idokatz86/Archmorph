@@ -1,5 +1,4 @@
 """Tests for usage_metrics module (#281)."""
-import pytest
 from usage_metrics import record_event, get_metrics_summary, get_funnel_metrics, record_funnel_step
 
 

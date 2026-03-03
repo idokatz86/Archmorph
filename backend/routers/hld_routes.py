@@ -170,12 +170,11 @@ async def export_hld_endpoint(request: Request, diagram_id: str, _auth=Depends(v
 
     # Parse optional diagram images from request body
     diagram_b64 = None
-    app_flow_b64 = None
     try:
         body = await request.json()
         if isinstance(body, dict):
             diagram_b64 = body.get("diagram_image")
-            app_flow_b64 = body.get("app_flow_image")
+            _app_flow_b64 = body.get("app_flow_image")  # noqa: F841 reserved for future use
     except Exception:
         pass  # nosec B110 — No body or non-JSON body is fine
 

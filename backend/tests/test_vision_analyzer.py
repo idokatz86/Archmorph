@@ -1,13 +1,12 @@
 """Tests for vision_analyzer module (#281)."""
-import pytest
-from unittest.mock import patch, MagicMock
 
 
 class TestCompressImage:
     def test_compress_small_png(self):
         from vision_analyzer import compress_image
         # Create a minimal valid PNG (1x1 red pixel)
-        import struct, zlib
+        import struct
+        import zlib
         def _make_png():
             sig = b'\x89PNG\r\n\x1a\n'
             ihdr_data = struct.pack('>IIBBBBB', 1, 1, 8, 2, 0, 0, 0)

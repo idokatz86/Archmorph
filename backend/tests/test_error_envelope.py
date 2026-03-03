@@ -1,9 +1,5 @@
 """Tests for error_envelope module (#281)."""
-import pytest
-from unittest.mock import MagicMock, AsyncMock
 from fastapi import FastAPI, HTTPException
-from fastapi.exceptions import RequestValidationError
-from pydantic import ValidationError
 
 from error_envelope import _build_envelope, register_error_handlers, ErrorEnvelope
 

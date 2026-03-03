@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Request, Depends
 import asyncio
 import logging
 
-from routers.shared import SESSION_STORE, limiter, verify_api_key
+from routers.shared import limiter, verify_api_key
 from routers.samples import get_or_recreate_session
 from usage_metrics import record_event
 from best_practices import analyze_architecture, get_quick_wins

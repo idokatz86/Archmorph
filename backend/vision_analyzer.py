@@ -563,7 +563,7 @@ def _build_analysis_result(vision_result: Dict[str, Any], target_provider: str =
                 confidence = round(mapping_conf * 0.7 + detection_conf * 0.3, 2)
                 confidence = min(1.0, max(0.0, confidence))
                 notes = mapping.get("notes", "")
-                category = mapping.get("category", "General")
+                _ = mapping.get("category", "General")  # reserved for service categorization
 
                 # Build human-readable confidence explanation
                 confidence_reasons = []
@@ -584,7 +584,7 @@ def _build_analysis_result(vision_result: Dict[str, Any], target_provider: str =
                 target_service = f"[Manual mapping needed] {full_name}"
                 confidence = round(0.30 * 0.7 + detection_conf * 0.3, 2)
                 notes = f"No direct cross-cloud mapping found for {full_name}"
-                category = "General"
+                _category = "General"  # noqa: F841 kept for future service-level categorization
                 warnings.append(
                     f"{full_name} — no automatic {target_provider.upper()} mapping found; manual review required"
                 )

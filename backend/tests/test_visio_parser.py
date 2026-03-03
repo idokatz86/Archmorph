@@ -1,7 +1,6 @@
 """Tests for visio_parser module (#281)."""
 import io
 import zipfile
-import pytest
 
 from visio_parser import is_vsdx, VisioShape, VisioConnection
 
