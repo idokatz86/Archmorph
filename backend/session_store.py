@@ -347,7 +347,7 @@ class RedisStore(SessionStore):
         try:
             self._redis.expire(self._key(key), self._ttl)
         except Exception:
-            pass  # Non-critical — TTL refresh is best-effort
+            pass  # nosec B110 — Non-critical TTL refresh is best-effort
         try:
             return self._json.loads(raw)
         except (self._json.JSONDecodeError, TypeError):
