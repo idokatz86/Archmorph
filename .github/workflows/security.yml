@@ -285,9 +285,10 @@ jobs:
           python-version: "3.12"
 
       - name: Generate Python SBOM
+        working-directory: backend
         run: |
-          pip install -r backend/requirements.txt cyclonedx-bom
-          cyclonedx-py requirements -i backend/requirements.txt -o backend-sbom.json
+          pip install -r requirements.txt cyclonedx-bom
+          cyclonedx-py requirements -i requirements.txt -o ../backend-sbom.json
 
       - name: Grype scan (Python)
         uses: anchore/scan-action@v6
