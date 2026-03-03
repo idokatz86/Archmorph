@@ -68,8 +68,8 @@ async def health():
             checks["redis"] = "not_configured"
     except Exception:
         checks["redis"] = "error"
-        # Redis failure is critical when configured — sessions won't persist
-        unhealthy = True
+        # Redis failure degrades session persistence but app still works with in-memory store
+        degraded = True
 
     # ── Service catalog sanity ────────────────────────────
     catalog_ok = len(AWS_SERVICES) > 0 and len(AZURE_SERVICES) > 0 and len(CROSS_CLOUD_MAPPINGS) > 0

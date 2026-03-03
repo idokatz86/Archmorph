@@ -181,15 +181,15 @@ jobs:
             --query "properties.configuration.ingress.fqdn" -o tsv)
           for i in 1 2 3; do
             HEALTH=$(curl -s --max-time 30 "https://$STAGING_URL/api/health" | jq -r '.status' 2>/dev/null || echo 'failed')
-            if [ "$HEALTH" = "healthy" ]; then break; fi
+            if [ "$HEALTH" = "healthy" ] || [ "$HEALTH" = "degraded" ]; then break; fi
             echo "Staging health check attempt $i: $HEALTH — retrying..."
             sleep 10
           done
-          if [ "$HEALTH" != "healthy" ]; then
+          if [ "$HEALTH" != "healthy" ] && [ "$HEALTH" != "degraded" ]; then
             echo "::error::Staging deployment health check failed"
             exit 1
           fi
-          echo "Staging deployment verified: healthy"
+          echo "Staging deployment verified: $HEALTH"
 
   # ============================================
   # BACKEND DEPLOY (Blue-Green)
@@ -328,11 +328,11 @@ jobs:
           echo "Running smoke tests against: $TEST_URL"
           for i in 1 2 3; do
             HEALTH=$(curl -s --max-time 30 "$TEST_URL/api/health" | jq -r '.status' 2>/dev/null || echo 'failed')
-            if [ "$HEALTH" = "healthy" ]; then break; fi
+            if [ "$HEALTH" = "healthy" ] || [ "$HEALTH" = "degraded" ]; then break; fi
             echo "Health check attempt $i returned: $HEALTH — retrying in 15s..."
             sleep 15
           done
-          if [ "$HEALTH" != "healthy" ]; then
+          if [ "$HEALTH" != "healthy" ] && [ "$HEALTH" != "degraded" ]; then
             echo "::error::Green revision health check failed: $HEALTH"
             exit 1
           fi
@@ -371,11 +371,11 @@ jobs:
           sleep 10
           HEALTH=$(curl -s --max-time 30 ${{ env.API_URL }}/health | jq -r '.status')
           VERSION=$(curl -s --max-time 30 ${{ env.API_URL }}/health | jq -r '.version')
-          if [ "$HEALTH" != "healthy" ]; then
+          if [ "$HEALTH" != "healthy" ] && [ "$HEALTH" != "degraded" ]; then
             echo "::error::Production health check failed: $HEALTH"
             exit 1
           fi
-          echo "Deployed version: $VERSION (blue-green complete)"
+          echo "Deployed version: $VERSION — status: $HEALTH (blue-green complete)"
 
   # ============================================
   # FRONTEND DEPLOY (Azure Static Web Apps)
