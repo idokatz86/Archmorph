@@ -8,10 +8,6 @@ on:
       - 'docs/**'
       - 'LICENSE'
       - '.gitignore'
-      - 'CHANGELOG.md'
-      - 'CODE_OF_CONDUCT.md'
-      - 'CONTRIBUTING.md'
-      - 'SECURITY.md'
   pull_request:
     branches: [main]
     paths-ignore:
@@ -20,14 +16,11 @@ on:
       - 'LICENSE'
       - '.gitignore'
 
-# OIDC permissions for Azure login
+# OIDC for Azure deploy; no security-events needed (security.yml handles SARIF)
 permissions:
   id-token: write
   contents: read
-  security-events: write
 
-# All sensitive values come from GitHub Secrets - no hardcoded credentials
-# NOTE: Deployment secrets are scoped to deployment jobs only (least privilege)
 env:
   API_URL: ${{ secrets.API_URL }}
 
@@ -37,11 +30,11 @@ concurrency:
 
 jobs:
   # ============================================
-  # BACKEND LINT & SECURITY (Parallel)
+  # BACKEND LINT (Ruff only — Bandit/pip-audit in security.yml)
   # ============================================
   backend-lint:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: backend
@@ -55,79 +48,18 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements.txt
 
-      - name: Install linters
-        run: |
-          echo "::group::Installing linters"
-          SECONDS=0
-          pip install ruff bandit pip-audit
-          echo "::endgroup::"
-          echo "::notice::Linter install took ${SECONDS}s"
-
       - name: Ruff lint
         run: |
-          SECONDS=0
+          pip install ruff
           ruff check .
-          echo "::notice::Ruff lint took ${SECONDS}s"
-
-      - name: Bandit security scan
-        run: |
-          SECONDS=0
-          # B101 (assert_used) is skipped globally since tests use assertions
-          # B311 (random) is skipped — all random usage is for simulation/demo data, not security
-          # All other findings use inline # nosec comments for precise documentation
-          bandit -r . -x ./tests,./.venv --skip B101,B311
-          echo "::notice::Bandit scan took ${SECONDS}s"
-
-      - name: pip-audit
-        run: |
-          echo "::group::pip-audit"
-          SECONDS=0
-          pip install -r requirements.txt
-          pip-audit --ignore-vuln GHSA-wj6h-64fc-37mp
-          echo "::endgroup::"
-          echo "::notice::pip-audit took ${SECONDS}s"
-        # Note: GHSA-wj6h-64fc-37mp (ecdsa timing attack) has no fix available yet
 
   # ============================================
-  # SAST - Semgrep Security Analysis (#45)
+  # BACKEND TESTS (3.12 only — production version)
   # ============================================
-  sast-semgrep:
+  backend-tests:
+    needs: backend-lint
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
-    container:
-      image: semgrep/semgrep
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Semgrep SAST Scan
-        run: semgrep scan --config p/security-audit --config p/owasp-top-ten --config p/python --error
-        env:
-          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
-
-  # ============================================
-  # SECRET DETECTION - Gitleaks (#45)
-  # ============================================
-  secret-detection:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Gitleaks Secret Detection
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # ============================================
-  # SBOM Generation - CycloneDX (#42)
-  # ============================================
-  sbom:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    if: github.ref == 'refs/heads/main'
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: backend
@@ -144,69 +76,13 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Generate Python SBOM
-        run: |
-          pip install cyclonedx-bom
-          cyclonedx-py requirements -i requirements.txt -o ../sbom-python.json
-
-      - name: Generate npm SBOM
-        working-directory: frontend
-        run: |
-          npm ci
-          npx @cyclonedx/cyclonedx-npm --output-file ../sbom-frontend.json
-
-      - name: Upload SBOM artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: sbom-${{ github.sha }}
-          path: |
-            sbom-python.json
-            sbom-frontend.json
-          retention-days: 90
-
-  # ============================================
-  # BACKEND TESTS (Parallel with pytest-xdist) (#36)
-  # ============================================
-  backend-tests:
-    needs: backend-lint
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ['3.11', '3.12']
-    defaults:
-      run:
-        working-directory: backend
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-          cache: pip
-          cache-dependency-path: backend/requirements.txt
-
-      - name: Install dependencies
-        run: |
-          echo "::group::Installing dependencies"
-          SECONDS=0
-          pip install -r requirements.txt
-          echo "::endgroup::"
-          echo "::notice::Dependency install took ${SECONDS}s"
-
       - name: Run tests with coverage
-        run: |
-          SECONDS=0
-          python -m pytest --tb=short -q --cov=. --cov-report=term-missing --cov-config=.coveragerc
-          echo "::notice::Tests (Python ${{ matrix.python-version }}) took ${SECONDS}s"
+        run: python -m pytest --tb=short -q --cov=. --cov-report=term-missing --cov-config=.coveragerc
         env:
           AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
           AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
 
       - name: Upload coverage report
-        if: matrix.python-version == '3.12'
         uses: actions/upload-artifact@v4
         with:
           name: coverage-report
@@ -214,7 +90,7 @@ jobs:
           retention-days: 30
 
   # ============================================
-  # FRONTEND BUILD & TEST
+  # FRONTEND BUILD & TEST (npm audit in security.yml)
   # ============================================
   frontend-build:
     runs-on: ubuntu-latest
@@ -235,9 +111,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: npm audit
-        run: npm audit --audit-level=high
-
       - name: Run frontend tests
         run: npx vitest run
 
@@ -247,7 +120,7 @@ jobs:
           VITE_API_BASE: ${{ env.API_URL }}
 
   # ============================================
-  # STAGING DEPLOY (Issue #147 — Pre-production validation)
+  # STAGING DEPLOY
   # ============================================
   deploy-staging:
     needs: [backend-tests, frontend-build]
@@ -318,7 +191,7 @@ jobs:
           echo "Staging deployment verified: healthy"
 
   # ============================================
-  # BACKEND DEPLOY (Docker Build + Container Apps)
+  # BACKEND DEPLOY (Blue-Green)
   # ============================================
   deploy-backend:
     needs: [backend-tests, frontend-build]
@@ -364,7 +237,7 @@ jobs:
           build-args: |
             BUILDKIT_INLINE_CACHE=1
 
-      - name: Trivy Container Security Scan (#45)
+      - name: Trivy container security gate
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ env.ACR_LOGIN_SERVER }}/archmorph-api:${{ github.sha }}
@@ -376,8 +249,6 @@ jobs:
       - name: Provision metrics storage
         run: |
           STORAGE_NAME="archmorphmetrics"
-          # Create storage account (idempotent — no-op if it already exists)
-          echo "Creating storage account $STORAGE_NAME..."
           az storage account create \
             --name "$STORAGE_NAME" \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
@@ -387,20 +258,17 @@ jobs:
             --https-only true \
             --allow-blob-public-access false \
             --only-show-errors
-          # Get connection string
           STORAGE_CONN=$(az storage account show-connection-string \
             --name "$STORAGE_NAME" \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --query connectionString -o tsv)
           echo "STORAGE_CONN=$STORAGE_CONN" >> "$GITHUB_ENV"
-          # Create metrics blob container (idempotent)
           az storage container create \
             --name metrics \
             --account-name "$STORAGE_NAME" \
             --connection-string "$STORAGE_CONN" \
             --only-show-errors || true
 
-      # ── Blue-Green Deployment (#38) ──
       - name: Enable multiple revisions
         run: |
           az containerapp revision set-mode \
@@ -419,7 +287,6 @@ jobs:
               storage-connection="${{ env.STORAGE_CONN }}" \
             2>/dev/null || true
 
-          # Create new revision (green) with 0% traffic
           SHORT_SHA="${{ github.sha }}"
           SHORT_SHA="${SHORT_SHA:0:8}"
           az containerapp update \
@@ -432,7 +299,6 @@ jobs:
             --revision-suffix "sha-${SHORT_SHA}" \
             --no-wait
 
-          # Wait for green revision to be ready
           echo "Waiting for green revision to provision..."
           sleep 45
 
@@ -446,23 +312,16 @@ jobs:
 
       - name: Smoke test green revision
         run: |
-          # Get the green revision FQDN
           GREEN_FQDN=$(az containerapp revision show \
             --name ${{ env.CONTAINER_APP_NAME }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --revision "${{ steps.green.outputs.green_revision }}" \
             --query "properties.fqdn" -o tsv 2>/dev/null || echo "")
 
-          # If revision FQDN not available, use main app URL
-          if [ -z "$GREEN_FQDN" ]; then
-            TEST_URL="${{ env.API_URL }}"
-          else
-            TEST_URL="https://$GREEN_FQDN"
-          fi
+          TEST_URL="${GREEN_FQDN:+https://$GREEN_FQDN}"
+          TEST_URL="${TEST_URL:-${{ env.API_URL }}}"
 
           echo "Running smoke tests against: $TEST_URL"
-
-          # Health check (with retry — container may still be starting)
           for i in 1 2 3; do
             HEALTH=$(curl -s --max-time 30 "$TEST_URL/api/health" | jq -r '.status' 2>/dev/null || echo 'failed')
             if [ "$HEALTH" = "healthy" ]; then break; fi
@@ -473,12 +332,8 @@ jobs:
             echo "::error::Green revision health check failed: $HEALTH"
             exit 1
           fi
-
-          # Version check
           VERSION=$(curl -s --max-time 30 "$TEST_URL/api/health" | jq -r '.version' 2>/dev/null || echo 'unknown')
-          echo "Green revision version: $VERSION"
-
-          echo "All smoke tests passed on green revision"
+          echo "Green revision version: $VERSION — all smoke tests passed"
 
       - name: Shift traffic to green (100%)
         run: |
@@ -486,23 +341,18 @@ jobs:
             --name ${{ env.CONTAINER_APP_NAME }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --revision-weight "${{ steps.green.outputs.green_revision }}=100"
-          echo "100% traffic shifted to green revision: ${{ steps.green.outputs.green_revision }}"
 
       - name: Deactivate old revisions (keep blue for rollback)
         run: |
-          # List all active revisions except the new green one
           OLD_REVS=$(az containerapp revision list \
             --name ${{ env.CONTAINER_APP_NAME }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --query "[?properties.active && name != '${{ steps.green.outputs.green_revision }}'].name" -o tsv)
 
-          # Keep only the most recent old revision (blue) active for rollback
           KEEP_BLUE=$(echo "$OLD_REVS" | head -1)
           DEACTIVATE=$(echo "$OLD_REVS" | tail -n +2)
 
-          if [ -n "$KEEP_BLUE" ]; then
-            echo "Keeping blue revision for rollback: $KEEP_BLUE"
-          fi
+          [ -n "$KEEP_BLUE" ] && echo "Keeping blue revision for rollback: $KEEP_BLUE"
 
           for rev in $DEACTIVATE; do
             echo "Deactivating old revision: $rev"
@@ -516,11 +366,11 @@ jobs:
         run: |
           sleep 10
           HEALTH=$(curl -s --max-time 30 ${{ env.API_URL }}/health | jq -r '.status')
+          VERSION=$(curl -s --max-time 30 ${{ env.API_URL }}/health | jq -r '.version')
           if [ "$HEALTH" != "healthy" ]; then
-            echo "::error::Production health check failed after traffic shift: $HEALTH"
+            echo "::error::Production health check failed: $HEALTH"
             exit 1
           fi
-          VERSION=$(curl -s --max-time 30 ${{ env.API_URL }}/health | jq -r '.version')
           echo "Deployed version: $VERSION (blue-green complete)"
 
   # ============================================

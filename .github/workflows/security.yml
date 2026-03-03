@@ -1,24 +1,26 @@
 # =============================================================================
-# Security Pipeline — Issue #45
-# SAST (Semgrep, Bandit, CodeQL), SCA (pip-audit, npm audit),
-# Secret Detection (Gitleaks), Container Scanning (Trivy)
+# Security & Compliance Pipeline
+# Consolidates: SAST, SCA, secret detection, container scanning, SBOM generation
+# Runs on: push/PR (gate), weekly (drift detection), release (SBOM attach)
 # =============================================================================
-name: Security Pipeline
+name: Security & Compliance
 
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  release:
+    types: [published]
   schedule:
-    # Run weekly on Monday at 06:00 UTC for drift detection
+    # Weekly Monday 06:00 UTC — drift detection
     - cron: "0 6 * * 1"
   workflow_dispatch:
 
 permissions:
-  contents: read
-  security-events: write   # SARIF upload
-  actions: read             # CodeQL needs this
+  contents: write        # Release asset upload
+  security-events: write # SARIF upload
+  actions: read          # CodeQL
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -35,29 +37,27 @@ jobs:
     container:
       image: semgrep/semgrep
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Run Semgrep
         run: |
           semgrep scan \
             --config p/security-audit \
             --config p/owasp-top-ten \
-            --sarif \
-            --output semgrep-results.sarif \
+            --sarif --output semgrep-results.sarif \
             --error
         env:
           SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
 
-      - name: Upload Semgrep SARIF
+      - name: Upload SARIF
         uses: github/codeql-action/upload-sarif@v4
         if: always()
-        continue-on-error: true   # Code scanning may not be enabled
+        continue-on-error: true
         with:
           sarif_file: semgrep-results.sarif
           category: semgrep
 
-      - name: Upload Semgrep artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -66,42 +66,35 @@ jobs:
           retention-days: 30
 
   # ───────────────────────────────────────────────────────────
-  # SAST: Bandit (Python-specific)
+  # SAST: Bandit (Python)
   # ───────────────────────────────────────────────────────────
   bandit:
     name: "SAST — Bandit"
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Install Bandit
-        run: pip install bandit[sarif]
-
       - name: Run Bandit
         run: |
-          bandit -r backend/ \
-            -f sarif \
-            -o bandit-results.sarif \
-            --severity-level medium \
-            -x backend/tests \
-            || true
+          pip install bandit[sarif]
+          bandit -r backend/ -f sarif -o bandit-results.sarif \
+            --severity-level medium -x backend/tests || true
 
-      - name: Upload Bandit SARIF
+      - name: Upload SARIF
         uses: github/codeql-action/upload-sarif@v4
         if: always()
-        continue-on-error: true   # Code scanning may not be enabled
+        continue-on-error: true
         with:
           sarif_file: bandit-results.sarif
           category: bandit
 
-      - name: Upload Bandit artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -110,10 +103,10 @@ jobs:
           retention-days: 30
 
   # ───────────────────────────────────────────────────────────
-  # SAST: CodeQL Analysis
+  # SAST: CodeQL (Python + JavaScript)
   # ───────────────────────────────────────────────────────────
   codeql:
-    name: "SAST — CodeQL"
+    name: "SAST — CodeQL (${{ matrix.language }})"
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -121,65 +114,48 @@ jobs:
       matrix:
         language: [python, javascript]
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
-        continue-on-error: true   # Code scanning requires GHAS on private repos
+        continue-on-error: true
         with:
           languages: ${{ matrix.language }}
           queries: security-extended
 
       - name: Autobuild
         uses: github/codeql-action/autobuild@v4
-        continue-on-error: true   # Code scanning requires GHAS on private repos
+        continue-on-error: true
 
-      - name: Perform CodeQL Analysis
+      - name: Perform Analysis
         uses: github/codeql-action/analyze@v4
-        continue-on-error: true   # Code scanning requires GHAS on private repos
+        continue-on-error: true
         with:
           category: codeql-${{ matrix.language }}
 
   # ───────────────────────────────────────────────────────────
-  # SCA: pip-audit (Python dependency vulnerabilities)
+  # SCA: pip-audit + npm audit (combined — saves a runner)
   # ───────────────────────────────────────────────────────────
-  pip-audit:
-    name: "SCA — pip-audit"
+  sca:
+    name: "SCA — Dependency Audit"
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
+      # --- Python SCA ---
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
-        run: pip install -r backend/requirements.txt
-
-      - name: Install pip-audit
-        run: pip install pip-audit
-
-      - name: Run pip-audit
+      - name: pip-audit
         run: |
-          pip-audit \
-            -r backend/requirements.txt \
-            --format json \
-            --output pip-audit-results.json \
-            || true
+          pip install -r backend/requirements.txt pip-audit
+          pip-audit -r backend/requirements.txt \
+            --format json --output pip-audit-results.json || true
 
-      - name: Upload pip-audit results
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: pip-audit-results
-          path: pip-audit-results.json
-          retention-days: 30
-
-      - name: Display pip-audit summary
+      - name: pip-audit summary
         if: always()
         run: |
           echo "## pip-audit Results" >> $GITHUB_STEP_SUMMARY
@@ -197,40 +173,18 @@ jobs:
           " >> $GITHUB_STEP_SUMMARY
           fi
 
-  # ───────────────────────────────────────────────────────────
-  # SCA: npm audit (frontend dependency vulnerabilities)
-  # ───────────────────────────────────────────────────────────
-  npm-audit:
-    name: "SCA — npm audit"
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
+      # --- npm SCA ---
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
 
-      - name: Install dependencies
-        run: npm ci
-        working-directory: frontend
-
-      - name: Run npm audit
+      - name: npm audit
         run: |
+          cd frontend && npm ci
           npm audit --json > ../npm-audit-results.json || true
-        working-directory: frontend
 
-      - name: Upload npm audit results
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: npm-audit-results
-          path: npm-audit-results.json
-          retention-days: 30
-
-      - name: Display npm audit summary
+      - name: npm audit summary
         if: always()
         run: |
           echo "## npm audit Results" >> $GITHUB_STEP_SUMMARY
@@ -246,6 +200,16 @@ jobs:
             " >> $GITHUB_STEP_SUMMARY
           fi
 
+      - name: Upload SCA artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sca-results
+          path: |
+            pip-audit-results.json
+            npm-audit-results.json
+          retention-days: 30
+
   # ───────────────────────────────────────────────────────────
   # Secret Detection: Gitleaks
   # ───────────────────────────────────────────────────────────
@@ -254,8 +218,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -266,20 +229,19 @@ jobs:
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
 
   # ───────────────────────────────────────────────────────────
-  # Container Scan: Trivy on Dockerfile
+  # Container Scan: Trivy
   # ───────────────────────────────────────────────────────────
   trivy:
     name: "Container — Trivy"
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Build Docker image for scanning
         run: docker build -t archmorph-api:scan backend/
 
-      - name: Run Trivy vulnerability scanner
+      - name: Run Trivy
         uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: "archmorph-api:scan"
@@ -287,17 +249,17 @@ jobs:
           output: "trivy-results.sarif"
           severity: "CRITICAL,HIGH"
           ignore-unfixed: true
-          exit-code: "0"    # Report but don't fail — findings tracked via SARIF/artifacts
+          exit-code: "0"
 
-      - name: Upload Trivy SARIF to GitHub Security
+      - name: Upload SARIF
         uses: github/codeql-action/upload-sarif@v4
         if: always()
-        continue-on-error: true   # Code scanning may not be enabled
+        continue-on-error: true
         with:
           sarif_file: trivy-results.sarif
           category: trivy
 
-      - name: Upload Trivy artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -306,25 +268,130 @@ jobs:
           retention-days: 30
 
   # ───────────────────────────────────────────────────────────
-  # Summary Gate — collect all results
+  # SBOM Generation + Grype Vulnerability Scan (from sbom.yml)
+  # ───────────────────────────────────────────────────────────
+  sbom:
+    name: "SBOM & Grype"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: github.ref == 'refs/heads/main' || github.event_name == 'release'
+    steps:
+      - uses: actions/checkout@v4
+
+      # --- Python SBOM ---
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Generate Python SBOM
+        run: |
+          pip install -r backend/requirements.txt cyclonedx-bom
+          cyclonedx-py requirements -i backend/requirements.txt -o backend-sbom.json
+
+      - name: Grype scan (Python)
+        uses: anchore/scan-action@v6
+        id: grype-python
+        with:
+          sbom: backend-sbom.json
+          output-format: sarif
+          output-file: python-grype-results.sarif
+          fail-build: "false"
+
+      - name: Upload Python Grype SARIF
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        continue-on-error: true
+        with:
+          sarif_file: python-grype-results.sarif
+          category: grype-python
+
+      # --- npm SBOM ---
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Generate npm SBOM
+        run: |
+          cd frontend && npm ci
+          npx @cyclonedx/cyclonedx-npm --output-file ../frontend-sbom.json \
+            --output-format JSON --spec-version 1.5
+
+      - name: Grype scan (npm)
+        uses: anchore/scan-action@v6
+        id: grype-npm
+        with:
+          sbom: frontend-sbom.json
+          output-format: sarif
+          output-file: npm-grype-results.sarif
+          fail-build: "false"
+
+      - name: Upload npm Grype SARIF
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        continue-on-error: true
+        with:
+          sarif_file: npm-grype-results.sarif
+          category: grype-npm
+
+      # --- Upload all SBOM artifacts ---
+      - name: Upload SBOM & scan artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sbom-${{ github.sha }}
+          path: |
+            backend-sbom.json
+            frontend-sbom.json
+            python-grype-results.sarif
+            npm-grype-results.sarif
+          retention-days: 90
+
+  # ───────────────────────────────────────────────────────────
+  # Attach SBOMs to GitHub Release
+  # ───────────────────────────────────────────────────────────
+  attach-to-release:
+    name: "Attach SBOMs to Release"
+    if: github.event_name == 'release'
+    needs: sbom
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download SBOM artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: sbom-${{ github.sha }}
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            backend-sbom.json
+            frontend-sbom.json
+            python-grype-results.sarif
+            npm-grype-results.sarif
+
+  # ───────────────────────────────────────────────────────────
+  # Summary Gate
   # ───────────────────────────────────────────────────────────
   security-summary:
     name: "Security Summary"
     runs-on: ubuntu-latest
     timeout-minutes: 5
     if: always()
-    needs: [semgrep, bandit, codeql, pip-audit, npm-audit, gitleaks, trivy]
+    needs: [semgrep, bandit, codeql, sca, gitleaks, trivy, sbom]
     steps:
-      - name: Security pipeline summary
+      - name: Pipeline summary
         run: |
-          echo "## Security Pipeline Summary" >> $GITHUB_STEP_SUMMARY
+          echo "## Security & Compliance Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
           echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
           echo "| Semgrep (SAST) | ${{ needs.semgrep.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Bandit (SAST) | ${{ needs.bandit.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| CodeQL (SAST) | ${{ needs.codeql.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| pip-audit (SCA) | ${{ needs.pip-audit.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| npm audit (SCA) | ${{ needs.npm-audit.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Dependency Audit (SCA) | ${{ needs.sca.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Gitleaks (Secrets) | ${{ needs.gitleaks.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Trivy (Container) | ${{ needs.trivy.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| SBOM & Grype | ${{ needs.sbom.result }} |" >> $GITHUB_STEP_SUMMARY
