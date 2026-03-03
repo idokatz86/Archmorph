@@ -260,6 +260,7 @@ jobs:
             --min-tls-version TLS1_2 \
             --https-only true \
             --allow-blob-public-access false \
+            --allow-shared-key-access true \
             --only-show-errors
           STORAGE_CONN=$(az storage account show-connection-string \
             --name "$STORAGE_NAME" \
@@ -269,7 +270,7 @@ jobs:
           az storage container create \
             --name metrics \
             --account-name "$STORAGE_NAME" \
-            --connection-string "$STORAGE_CONN" \
+            --auth-mode login \
             --only-show-errors || true
 
       - name: Enable multiple revisions
