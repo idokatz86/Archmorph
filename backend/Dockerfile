@@ -5,16 +5,22 @@
 # ══════════════════════════════════════════════════════════════
 
 # ── Stage 1: Builder ──
-FROM python:3.13-slim-bookworm AS builder
+FROM python:3.12-slim-bookworm AS builder
 
 WORKDIR /build
+
+# Install build dependencies for compiled packages
+RUN apt-get update && apt-get install -y --no-install-recommends gcc libpq-dev && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade setuptools>=78.1.1 wheel>=0.46.2 && \
     pip install --no-cache-dir --prefix=/install -r requirements.txt
 
 # ── Stage 2: Runtime ──
-FROM python:3.13-slim-bookworm
+FROM python:3.12-slim-bookworm
+
+# Install runtime dependencies only
+RUN apt-get update && apt-get install -y --no-install-recommends libpq5 && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
