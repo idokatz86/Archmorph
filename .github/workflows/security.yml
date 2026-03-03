@@ -242,7 +242,7 @@ jobs:
         run: docker build -t archmorph-api:scan backend/
 
       - name: Run Trivy
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@0.34.2
         with:
           image-ref: "archmorph-api:scan"
           format: "sarif"
