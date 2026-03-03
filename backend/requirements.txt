@@ -1,4 +1,4 @@
-fastapi==0.135.0
+fastapi==0.135.1
 uvicorn[standard]==0.39.0
 gunicorn==23.0.0  # Production process manager with worker recycling (#301)
 pydantic==2.12.5
