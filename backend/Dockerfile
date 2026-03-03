@@ -10,7 +10,8 @@ FROM mcr.microsoft.com/oryx/python:3.12-debian-bookworm AS builder
 WORKDIR /build
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+RUN pip install --no-cache-dir --upgrade setuptools>=78.1.1 wheel>=0.46.2 && \
+    pip install --no-cache-dir --prefix=/install -r requirements.txt
 
 # ── Stage 2: Runtime ──
 FROM mcr.microsoft.com/oryx/python:3.12-debian-bookworm
