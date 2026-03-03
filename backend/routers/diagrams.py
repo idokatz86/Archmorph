@@ -27,6 +27,7 @@ from job_queue import job_manager
 from usage_metrics import record_event, record_funnel_step
 from image_classifier import classify_image
 from vision_analyzer import analyze_image, compress_image
+from hld_generator import generate_hld, generate_hld_markdown  # noqa: F401 — re-exported for test monkeypatching
 
 logger = logging.getLogger(__name__)
 
