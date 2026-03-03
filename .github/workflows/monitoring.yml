@@ -128,7 +128,7 @@ jobs:
 
       - name: Upload Error Details
         if: steps.logs.outputs.errors_found == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: error-logs
           path: errors.json
@@ -202,7 +202,7 @@ jobs:
 
       - name: Upload Exception Details
         if: steps.check.outputs.skip != 'true' && steps.exceptions.outputs.exception_count != '0'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: exception-logs
           path: exceptions.json
