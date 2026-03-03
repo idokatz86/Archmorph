@@ -129,130 +129,17 @@ def parse_vsdx(file_bytes: bytes) -> Dict[str, Any]:
 
     shapes: List[VisioShape] = []
     connections: List[VisioConnection] = []
-    master_names: Dict[str, str] = {}
     metadata: Dict[str, Any] = {}
 
     with zipfile.ZipFile(io.BytesIO(file_bytes), "r") as zf:
         names = zf.namelist()
+        master_names = _parse_master_names(zf, names)
+        page_files = sorted([n for n in names if re.match(r"visio/pages/page\d*\.xml", n, re.I)])
 
-        # 1. Parse master shape definitions
-        master_files = [n for n in names if re.match(r"visio/masters/master\d*\.xml", n, re.I)]
-        for mf in master_files:
-            try:
-                tree = ET.parse(zf.open(mf))
-                root = tree.getroot()
-                for master in root.iter(f"{{{_NS['v']}}}Master"):
-                    mid = master.get("ID", "")
-                    mname = master.get("Name", "")
-                    if mid and mname:
-                        master_names[mid] = mname
-            except Exception as e:
-                logger.warning("Failed to parse master file %s: %s", mf, e)
+        for page_idx, page_file in enumerate(page_files, start=1):
+            _parse_page(zf, page_file, page_idx, master_names, shapes, connections)
 
-        # Also try masters/masters.xml (unified master list)
-        if "visio/masters/masters.xml" in [n.lower() for n in names]:
-            for n in names:
-                if n.lower() == "visio/masters/masters.xml":
-                    try:
-                        tree = ET.parse(zf.open(n))
-                        root = tree.getroot()
-                        for master in root.iter(f"{{{_NS['v']}}}Master"):
-                            mid = master.get("ID", "")
-                            mname = master.get("Name", "")
-                            if mid and mname:
-                                master_names[mid] = mname
-                    except Exception as e:
-                        logger.warning("Failed to parse masters.xml: %s", e)
-
-        # 2. Parse pages
-        page_files = sorted(
-            [n for n in names if re.match(r"visio/pages/page\d*\.xml", n, re.I)]
-        )
-
-        for page_idx, pf in enumerate(page_files, start=1):
-            try:
-                tree = ET.parse(zf.open(pf))
-                root = tree.getroot()
-
-                # Extract shapes
-                for shape_el in root.iter(f"{{{_NS['v']}}}Shape"):
-                    sid = shape_el.get("ID", "")
-                    master_id = shape_el.get("Master", "")
-                    shape_type = shape_el.get("Type", "")
-
-                    # Extract text content
-                    text_parts = []
-                    for text_el in shape_el.iter(f"{{{_NS['v']}}}Text"):
-                        if text_el.text:
-                            text_parts.append(text_el.text.strip())
-                    text = " ".join(text_parts).strip()
-
-                    # Extract position (XForm)
-                    x = y = w = h = 0.0
-                    xform = shape_el.find(f"{{{_NS['v']}}}XForm")
-                    if xform is not None:
-                        pin_x = xform.find(f"{{{_NS['v']}}}PinX")
-                        pin_y = xform.find(f"{{{_NS['v']}}}PinY")
-                        width_el = xform.find(f"{{{_NS['v']}}}Width")
-                        height_el = xform.find(f"{{{_NS['v']}}}Height")
-                        x = _safe_float(pin_x)
-                        y = _safe_float(pin_y)
-                        w = _safe_float(width_el)
-                        h = _safe_float(height_el)
-
-                    master_name = master_names.get(master_id, "")
-
-                    # Only include shapes with text or known masters
-                    if text or master_name:
-                        shapes.append(VisioShape(
-                            shape_id=sid,
-                            text=text,
-                            master_name=master_name,
-                            x=x, y=y, width=w, height=h,
-                            page=page_idx,
-                        ))
-
-                    # Extract connections (Connect elements)
-                    if shape_type == "Group":
-                        for connect in shape_el.iter(f"{{{_NS['v']}}}Connect"):
-                            from_sheet = connect.get("FromSheet", "")
-                            to_sheet = connect.get("ToSheet", "")
-                            if from_sheet and to_sheet:
-                                connections.append(VisioConnection(
-                                    from_shape=from_sheet,
-                                    to_shape=to_sheet,
-                                ))
-
-                # Also check for top-level Connect elements
-                connects_el = root.find(f"{{{_NS['v']}}}Connects")
-                if connects_el is not None:
-                    for connect in connects_el.findall(f"{{{_NS['v']}}}Connect"):
-                        from_sheet = connect.get("FromSheet", "")
-                        to_sheet = connect.get("ToSheet", "")
-                        if from_sheet and to_sheet:
-                            connections.append(VisioConnection(
-                                from_shape=from_sheet,
-                                to_shape=to_sheet,
-                            ))
-
-            except Exception as e:
-                logger.warning("Failed to parse page %s: %s", pf, e)
-
-        # 3. Parse document metadata
-        if "docProps/core.xml" in names:
-            try:
-                tree = ET.parse(zf.open("docProps/core.xml"))
-                root = tree.getroot()
-                dc_ns = "http://purl.org/dc/elements/1.1/"
-                cp_ns = "http://schemas.openxmlformats.org/package/2006/metadata/core-properties"
-                title = root.find(f"{{{dc_ns}}}title")
-                creator = root.find(f"{{{dc_ns}}}creator")
-                modified = root.find(f"{{{cp_ns}}}lastModifiedBy")
-                metadata["title"] = title.text if title is not None and title.text else ""
-                metadata["creator"] = creator.text if creator is not None and creator.text else ""
-                metadata["last_modified_by"] = modified.text if modified is not None and modified.text else ""
-            except Exception:  # nosec B110 - metadata extraction is best-effort
-                pass
+        metadata.update(_parse_document_metadata(zf, names))
 
     # 4. Classify cloud services from shape text + master names
     cloud_services = _identify_cloud_services(shapes)
@@ -274,6 +161,155 @@ def parse_vsdx(file_bytes: bytes) -> Dict[str, Any]:
         "total_shapes": len(shapes),
         "cloud_services": cloud_services,
     }
+
+
+def _parse_master_names(zf: zipfile.ZipFile, names: List[str]) -> Dict[str, str]:
+    """Parse master shape definitions from Visio master files."""
+    master_names: Dict[str, str] = {}
+    master_files = [n for n in names if re.match(r"visio/masters/master\d*\.xml", n, re.I)]
+    for master_file in master_files:
+        _merge_master_names_from_file(zf, master_file, master_names)
+
+    masters_xml = next((n for n in names if n.lower() == "visio/masters/masters.xml"), None)
+    if masters_xml:
+        try:
+            _merge_master_names_from_file(zf, masters_xml, master_names)
+        except Exception as exc:
+            logger.warning("Failed to parse masters.xml: %s", exc)
+
+    return master_names
+
+
+def _merge_master_names_from_file(
+    zf: zipfile.ZipFile,
+    file_name: str,
+    master_names: Dict[str, str],
+) -> None:
+    """Merge master IDs and names from a single XML file into ``master_names``."""
+    try:
+        tree = ET.parse(zf.open(file_name))
+        root = tree.getroot()
+        for master in root.iter(f"{{{_NS['v']}}}Master"):
+            master_id = master.get("ID", "")
+            master_name = master.get("Name", "")
+            if master_id and master_name:
+                master_names[master_id] = master_name
+    except Exception as exc:
+        logger.warning("Failed to parse master file %s: %s", file_name, exc)
+
+
+def _parse_page(
+    zf: zipfile.ZipFile,
+    page_file: str,
+    page_idx: int,
+    master_names: Dict[str, str],
+    shapes: List[VisioShape],
+    connections: List[VisioConnection],
+) -> None:
+    """Parse one Visio page and append shapes/connections to collectors."""
+    try:
+        tree = ET.parse(zf.open(page_file))
+        root = tree.getroot()
+        for shape_el in root.iter(f"{{{_NS['v']}}}Shape"):
+            _parse_shape_element(shape_el, page_idx, master_names, shapes, connections)
+        _parse_top_level_connections(root, connections)
+    except Exception as exc:
+        logger.warning("Failed to parse page %s: %s", page_file, exc)
+
+
+def _parse_shape_element(
+    shape_el: Element,
+    page_idx: int,
+    master_names: Dict[str, str],
+    shapes: List[VisioShape],
+    connections: List[VisioConnection],
+) -> None:
+    """Parse a single shape element and append derived records."""
+    shape_id = shape_el.get("ID", "")
+    master_id = shape_el.get("Master", "")
+    shape_type = shape_el.get("Type", "")
+    text = _extract_shape_text(shape_el)
+    x, y, width, height = _extract_shape_geometry(shape_el)
+    master_name = master_names.get(master_id, "")
+
+    if text or master_name:
+        shapes.append(
+            VisioShape(
+                shape_id=shape_id,
+                text=text,
+                master_name=master_name,
+                x=x,
+                y=y,
+                width=width,
+                height=height,
+                page=page_idx,
+            )
+        )
+
+    if shape_type == "Group":
+        _append_connect_elements(shape_el.iter(f"{{{_NS['v']}}}Connect"), connections)
+
+
+def _extract_shape_text(shape_el: Element) -> str:
+    """Extract concatenated visible text from a shape."""
+    text_parts: List[str] = []
+    for text_el in shape_el.iter(f"{{{_NS['v']}}}Text"):
+        if text_el.text:
+            text_parts.append(text_el.text.strip())
+    return " ".join(text_parts).strip()
+
+
+def _extract_shape_geometry(shape_el: Element) -> tuple[float, float, float, float]:
+    """Extract PinX/PinY/Width/Height from XForm, defaulting to 0.0 values."""
+    x = y = width = height = 0.0
+    xform = shape_el.find(f"{{{_NS['v']}}}XForm")
+    if xform is None:
+        return x, y, width, height
+
+    pin_x = xform.find(f"{{{_NS['v']}}}PinX")
+    pin_y = xform.find(f"{{{_NS['v']}}}PinY")
+    width_el = xform.find(f"{{{_NS['v']}}}Width")
+    height_el = xform.find(f"{{{_NS['v']}}}Height")
+    return _safe_float(pin_x), _safe_float(pin_y), _safe_float(width_el), _safe_float(height_el)
+
+
+def _append_connect_elements(connect_elements: Any, connections: List[VisioConnection]) -> None:
+    """Append connection objects from an iterable of Connect XML elements."""
+    for connect in connect_elements:
+        from_sheet = connect.get("FromSheet", "")
+        to_sheet = connect.get("ToSheet", "")
+        if from_sheet and to_sheet:
+            connections.append(VisioConnection(from_shape=from_sheet, to_shape=to_sheet))
+
+
+def _parse_top_level_connections(root: Element, connections: List[VisioConnection]) -> None:
+    """Parse top-level Connects section for page-level connectors."""
+    connects_el = root.find(f"{{{_NS['v']}}}Connects")
+    if connects_el is None:
+        return
+    _append_connect_elements(connects_el.findall(f"{{{_NS['v']}}}Connect"), connections)
+
+
+def _parse_document_metadata(zf: zipfile.ZipFile, names: List[str]) -> Dict[str, Any]:
+    """Parse document metadata from core properties if present."""
+    if "docProps/core.xml" not in names:
+        return {}
+
+    try:
+        tree = ET.parse(zf.open("docProps/core.xml"))
+        root = tree.getroot()
+        dc_ns = "http://purl.org/dc/elements/1.1/"
+        cp_ns = "http://schemas.openxmlformats.org/package/2006/metadata/core-properties"
+        title = root.find(f"{{{dc_ns}}}title")
+        creator = root.find(f"{{{dc_ns}}}creator")
+        modified = root.find(f"{{{cp_ns}}}lastModifiedBy")
+        return {
+            "title": title.text if title is not None and title.text else "",
+            "creator": creator.text if creator is not None and creator.text else "",
+            "last_modified_by": modified.text if modified is not None and modified.text else "",
+        }
+    except Exception:  # nosec B110 - metadata extraction is best-effort
+        return {}
 
 
 def _safe_float(element: Optional[Element]) -> float:

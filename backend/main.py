@@ -53,6 +53,13 @@ from routers.shared import limiter, SESSION_STORE, IMAGE_STORE, SHARE_STORE  # n
 # Routers
 from routers.health import router as health_router  # noqa: E402
 from routers.diagrams import router as diagrams_router  # noqa: E402
+from routers.analysis import router as analysis_router  # noqa: E402
+from routers.iac_routes import router as iac_routes_router  # noqa: E402
+from routers.hld_routes import router as hld_routes_router  # noqa: E402
+from routers.insights import router as insights_router  # noqa: E402
+from routers.sharing import router as sharing_router  # noqa: E402
+from routers.infra import router as infra_router  # noqa: E402
+from routers.suggestions import router as suggestions_router  # noqa: E402
 from routers.services import router as services_router  # noqa: E402
 from routers.admin import router as admin_router  # noqa: E402
 from routers.chat import router as chat_router  # noqa: E402
@@ -280,6 +287,13 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.include_router(icon_router)
 app.include_router(health_router)
 app.include_router(diagrams_router)
+app.include_router(analysis_router)
+app.include_router(iac_routes_router)
+app.include_router(hld_routes_router)
+app.include_router(insights_router)
+app.include_router(sharing_router)
+app.include_router(infra_router)
+app.include_router(suggestions_router)
 app.include_router(services_router)
 app.include_router(admin_router)
 app.include_router(chat_router)
@@ -313,6 +327,13 @@ _all_routers = [
     (icon_router, "/api"),       # icon_router has prefix="/api"
     (health_router, ""),         # routes define /api/... in decorators
     (diagrams_router, ""),
+    (analysis_router, ""),
+    (iac_routes_router, ""),
+    (hld_routes_router, ""),
+    (insights_router, ""),
+    (sharing_router, ""),
+    (infra_router, ""),
+    (suggestions_router, ""),
     (services_router, ""),
     (admin_router, ""),
     (chat_router, ""),

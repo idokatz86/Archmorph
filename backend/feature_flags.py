@@ -86,39 +86,62 @@ class FeatureFlags:
         Individual: FEATURE_FLAG_<NAME>=true|false  (e.g. FEATURE_FLAG_DARK_MODE=false)
         JSON blob:  FEATURE_FLAGS_JSON='{"new_ai_model": {"enabled": true, "rollout_percentage": 50}}'
         """
-        # Individual env var overrides
+        self._apply_individual_env_overrides()
+        self._apply_json_override()
+
+    def _apply_individual_env_overrides(self) -> None:
+        """Apply FEATURE_FLAG_<NAME>=true|false overrides from the environment."""
         for name in list(self._flags.keys()):
             env_key = f"FEATURE_FLAG_{name.upper()}"
             env_val = os.getenv(env_key)
-            if env_val is not None:
-                self._flags[name].enabled = env_val.lower() in ("true", "1", "yes")
-                logger.info("Flag '%s' overridden by env %s=%s", name, env_key, env_val)
+            if env_val is None:
+                continue
+            self._flags[name].enabled = env_val.lower() in ("true", "1", "yes")
+            logger.info("Flag '%s' overridden by env %s=%s", name, env_key, env_val)
 
-        # JSON override (higher priority)
+    def _apply_json_override(self) -> None:
+        """Apply FEATURE_FLAGS_JSON overrides (higher priority than individual vars)."""
         json_str = os.getenv("FEATURE_FLAGS_JSON")
-        if json_str:
-            try:
-                overrides = json.loads(json_str)
-                for name, cfg in overrides.items():
-                    if name in self._flags:
-                        if isinstance(cfg, dict):
-                            for k, v in cfg.items():
-                                if hasattr(self._flags[name], k):
-                                    setattr(self._flags[name], k, v)
-                        elif isinstance(cfg, bool):
-                            self._flags[name].enabled = cfg
-                    else:
-                        # Create a new flag from JSON
-                        if isinstance(cfg, dict):
-                            self._flags[name] = Flag(name=name, **{
-                                k: v for k, v in cfg.items()
-                                if k in Flag.__dataclass_fields__
-                            })
-                        else:
-                            self._flags[name] = Flag(name=name, enabled=bool(cfg))
-                logger.info("Applied JSON overrides for %d flags", len(overrides))
-            except (json.JSONDecodeError, TypeError) as exc:
-                logger.warning("Invalid FEATURE_FLAGS_JSON: %s", exc)
+        if not json_str:
+            return
+
+        try:
+            overrides = json.loads(json_str)
+            for name, cfg in overrides.items():
+                self._apply_single_json_override(name, cfg)
+            logger.info("Applied JSON overrides for %d flags", len(overrides))
+        except (json.JSONDecodeError, TypeError) as exc:
+            logger.warning("Invalid FEATURE_FLAGS_JSON: %s", exc)
+
+    def _apply_single_json_override(self, name: str, cfg: Any) -> None:
+        """Apply JSON override for a single flag definition."""
+        if name in self._flags:
+            self._update_existing_flag_from_json(name, cfg)
+            return
+
+        self._create_flag_from_json(name, cfg)
+
+    def _update_existing_flag_from_json(self, name: str, cfg: Any) -> None:
+        """Update an existing flag using parsed JSON data."""
+        if isinstance(cfg, dict):
+            for key, value in cfg.items():
+                if hasattr(self._flags[name], key):
+                    setattr(self._flags[name], key, value)
+            return
+
+        if isinstance(cfg, bool):
+            self._flags[name].enabled = cfg
+
+    def _create_flag_from_json(self, name: str, cfg: Any) -> None:
+        """Create a new flag using parsed JSON data."""
+        if isinstance(cfg, dict):
+            self._flags[name] = Flag(
+                name=name,
+                **{k: v for k, v in cfg.items() if k in Flag.__dataclass_fields__}
+            )
+            return
+
+        self._flags[name] = Flag(name=name, enabled=bool(cfg))
 
     # ── Query ────────────────────────────────────────────────
 

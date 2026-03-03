@@ -5,7 +5,7 @@ Tests for Terraform Plan Preview
 from terraform_preview import (
     ResourceChange, TerraformPlanResult, ResourceAction,
     preview_terraform_plan, validate_terraform_syntax,
-    _simulate_plan_from_hcl, render_plan_preview,
+  _simulate_plan_from_hcl, _parse_terraform_plan_json, render_plan_preview,
 )
 
 
@@ -155,6 +155,56 @@ resource "azurerm_resource_group" "main" {
 '''
         result = preview_terraform_plan(hcl, "diag-123")
         assert any("tags" in w.lower() for w in result.warnings)
+
+
+    class TestTerraformJsonParsing:
+      """Tests for parsing Terraform JSON plan output."""
+
+      def test_parse_json_maps_actions(self):
+        plan_json = {
+          "resource_changes": [
+            {
+              "address": "azurerm_resource_group.main",
+              "type": "azurerm_resource_group",
+              "name": "main",
+              "change": {"actions": ["create"]},
+            },
+            {
+              "address": "azurerm_storage_account.main",
+              "type": "azurerm_storage_account",
+              "name": "main",
+              "change": {"actions": ["delete", "create"]},
+            },
+          ]
+        }
+
+        parsed = _parse_terraform_plan_json(plan_json)
+        assert len(parsed) == 2
+        assert parsed[0].action == ResourceAction.CREATE
+        assert parsed[1].action == ResourceAction.REPLACE
+
+      def test_parse_json_skips_data_sources(self):
+        plan_json = {
+          "resource_changes": [
+            {
+              "address": "data.azurerm_client_config.current",
+              "type": "azurerm_client_config",
+              "name": "current",
+              "mode": "data",
+              "change": {"actions": ["read"]},
+            },
+            {
+              "address": "azurerm_resource_group.main",
+              "type": "azurerm_resource_group",
+              "name": "main",
+              "change": {"actions": ["create"]},
+            },
+          ]
+        }
+
+        parsed = _parse_terraform_plan_json(plan_json)
+        assert len(parsed) == 1
+        assert parsed[0].address == "azurerm_resource_group.main"
 
 
 class TestSyntaxValidation:

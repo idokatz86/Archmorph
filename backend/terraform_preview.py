@@ -89,47 +89,43 @@ class TerraformPlanResult:
 
 def _parse_terraform_plan_json(plan_json: Dict[str, Any]) -> List[ResourceChange]:
     """Parse Terraform plan JSON output into ResourceChange objects."""
-    changes = []
-    
-    resource_changes = plan_json.get("resource_changes", [])
-    
-    for rc in resource_changes:
-        # Skip data sources for preview
-        if rc.get("type", "").startswith("data."):
+    action_map = {
+        ("create",): ResourceAction.CREATE,
+        ("delete",): ResourceAction.DELETE,
+        ("update",): ResourceAction.UPDATE,
+        ("delete", "create"): ResourceAction.REPLACE,
+        ("create", "delete"): ResourceAction.REPLACE,
+        ("no-op",): ResourceAction.NO_OP,
+        ("read",): ResourceAction.READ,
+    }
+
+    def _is_data_source(resource_change: Dict[str, Any]) -> bool:
+        mode = resource_change.get("mode", "")
+        address = resource_change.get("address", "")
+        return mode == "data" or address.startswith("data.")
+
+    def _map_action(actions: List[str]) -> ResourceAction:
+        return action_map.get(tuple(actions), ResourceAction.UPDATE)
+
+    changes: List[ResourceChange] = []
+    for rc in plan_json.get("resource_changes", []):
+        if _is_data_source(rc):
             continue
-        
+
         change = rc.get("change", {})
         actions = change.get("actions", ["no-op"])
-        
-        # Map Terraform actions to our enum
-        if actions == ["create"]:
-            action = ResourceAction.CREATE
-        elif actions == ["delete"]:
-            action = ResourceAction.DELETE
-        elif actions == ["update"]:
-            action = ResourceAction.UPDATE
-        elif actions == ["delete", "create"]:
-            action = ResourceAction.REPLACE
-        elif actions == ["create", "delete"]:
-            action = ResourceAction.REPLACE
-        elif actions == ["no-op"]:
-            action = ResourceAction.NO_OP
-        elif actions == ["read"]:
-            action = ResourceAction.READ
-        else:
-            action = ResourceAction.UPDATE
-        
-        resource_change = ResourceChange(
-            address=rc.get("address", ""),
-            resource_type=rc.get("type", ""),
-            name=rc.get("name", ""),
-            action=action,
-            reason=rc.get("action_reason"),
-            before=change.get("before"),
-            after=change.get("after"),
+        changes.append(
+            ResourceChange(
+                address=rc.get("address", ""),
+                resource_type=rc.get("type", ""),
+                name=rc.get("name", ""),
+                action=_map_action(actions),
+                reason=rc.get("action_reason"),
+                before=change.get("before"),
+                after=change.get("after"),
+            )
         )
-        changes.append(resource_change)
-    
+
     return changes
 
 

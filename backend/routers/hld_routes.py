@@ -1,0 +1,267 @@
+"""
+HLD (High-Level Design) routes — generation, retrieval, export, async generation.
+
+Split from diagrams.py for maintainability (#284).
+"""
+
+from fastapi import APIRouter, HTTPException, Request, Depends
+import asyncio
+import logging
+
+from routers.shared import SESSION_STORE, limiter, verify_api_key
+from routers.samples import get_or_recreate_session
+from job_queue import job_manager
+from usage_metrics import record_event
+import routers.diagrams as diagrams_compat
+from hld_export import export_hld, SUPPORTED_FORMATS
+from services.azure_pricing import estimate_services_cost
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+
+# ─────────────────────────────────────────────────────────────
+# HLD Generation — AI-powered High-Level Design document
+# ─────────────────────────────────────────────────────────────
+@router.post("/api/diagrams/{diagram_id}/generate-hld")
+@limiter.limit("3/minute")
+async def generate_hld_endpoint(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
+    """Generate a comprehensive High-Level Design document."""
+    record_event("hld_generated", {"diagram_id": diagram_id})
+
+    session = get_or_recreate_session(diagram_id)
+    if not session:
+        raise HTTPException(404, "No analysis found. Analyze a diagram first.")
+
+    analysis = session
+
+    # Get cost estimate — use cached if available (#177)
+    cost_estimate = session.get("_cached_cost_estimate")
+    if cost_estimate is None:
+        try:
+            iac_params = session.get("iac_parameters", {})
+            region = iac_params.get("region", "westeurope")
+            strategy = iac_params.get("sku_strategy", "balanced")
+            cost_estimate = estimate_services_cost(analysis.get("mappings", []), region=region, sku_strategy=strategy)
+            session["_cached_cost_estimate"] = cost_estimate
+            SESSION_STORE[diagram_id] = session
+        except Exception:  # nosec B110 — session cleanup is optional, must not break response
+            logger.debug("Cost estimation unavailable, proceeding without it")
+
+    try:
+        hld = await asyncio.to_thread(
+            diagrams_compat.generate_hld,
+            analysis=analysis,
+            cost_estimate=cost_estimate,
+            iac_params=session.get("iac_parameters"),
+        )
+        markdown = diagrams_compat.generate_hld_markdown(hld)
+    except ValueError as e:
+        raise HTTPException(500, str(e))
+    except Exception as e:
+        logger.exception("HLD generation failed: %s", e)
+        raise HTTPException(500, f"HLD generation failed: {type(e).__name__}: {e}")
+
+    # Store in session — must write back to store for Redis compatibility
+    session["hld"] = hld
+    session["hld_markdown"] = markdown
+    SESSION_STORE[diagram_id] = session
+
+    return {
+        "diagram_id": diagram_id,
+        "hld": hld,
+        "markdown": markdown,
+    }
+
+
+async def _ensure_hld(session: dict, diagram_id: str) -> dict:
+    """Auto-generate HLD if session exists but HLD is missing.
+
+    This transparently handles the case where a sample session was
+    recreated (or an older session restored) without HLD data.
+    Returns the updated session with HLD populated.
+    """
+    if "hld" in session:
+        return session
+
+    # Only auto-generate if we have analysis data (mappings)
+    if not session.get("mappings"):
+        return session
+
+    try:
+        cost_estimate = session.get("_cached_cost_estimate")
+        if cost_estimate is None:
+            iac_params = session.get("iac_parameters", {})
+            region = iac_params.get("region", "westeurope")
+            strategy = iac_params.get("sku_strategy", "balanced")
+            cost_estimate = estimate_services_cost(
+                session.get("mappings", []), region=region, sku_strategy=strategy
+            )
+            session["_cached_cost_estimate"] = cost_estimate
+
+        hld = await asyncio.to_thread(
+            diagrams_compat.generate_hld,
+            analysis=session,
+            cost_estimate=cost_estimate,
+            iac_params=session.get("iac_parameters"),
+        )
+        markdown = diagrams_compat.generate_hld_markdown(hld)
+        session["hld"] = hld
+        session["hld_markdown"] = markdown
+        SESSION_STORE[diagram_id] = session
+        logger.info("Auto-generated HLD for session %s", diagram_id)
+    except Exception as e:
+        logger.warning("Auto-HLD generation failed for %s: %s", diagram_id, e)
+
+    return session
+
+
+@router.get("/api/diagrams/{diagram_id}/hld")
+@limiter.limit("30/minute")
+async def get_hld(request: Request, diagram_id: str):
+    """Get previously generated HLD document."""
+    session = get_or_recreate_session(diagram_id)
+    if not session:
+        raise HTTPException(404, "No HLD found. Generate one first.")
+    session = await _ensure_hld(session, diagram_id)
+    if "hld" not in session:
+        raise HTTPException(404, "No HLD found. Generate one first.")
+    return {
+        "diagram_id": diagram_id,
+        "hld": session["hld"],
+        "markdown": session.get("hld_markdown", ""),
+    }
+
+
+@router.post("/api/diagrams/{diagram_id}/export-hld")
+@limiter.limit("10/minute")
+async def export_hld_endpoint(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
+    """Export HLD document to Word, PDF, or PowerPoint format.
+
+    Query params:
+      - format: docx | pdf | pptx (required)
+      - include_diagrams: true | false (default: true)
+
+    Body (optional JSON):
+      - diagram_image: base64-encoded diagram image to embed
+    """
+    fmt = request.query_params.get("format", "").lower()
+    if fmt not in SUPPORTED_FORMATS:
+        raise HTTPException(400, f"Invalid format. Use one of: {', '.join(sorted(SUPPORTED_FORMATS))}")
+
+    include_diagrams = request.query_params.get("include_diagrams", "true").lower() == "true"
+
+    session = get_or_recreate_session(diagram_id)
+    if not session:
+        raise HTTPException(404, "No HLD found. Generate one first.")
+    session = await _ensure_hld(session, diagram_id)
+    if "hld" not in session:
+        raise HTTPException(404, "No HLD found. Generate one first.")
+
+    # Optional diagram image from request body
+    diagram_b64 = None
+    try:
+        body = await request.json()
+        diagram_b64 = body.get("diagram_image") if isinstance(body, dict) else None
+    except Exception:
+        pass  # nosec B110 — No body or non-JSON body is fine
+
+    record_event("hld_exported", {"diagram_id": diagram_id, "format": fmt, "include_diagrams": include_diagrams})
+
+    try:
+        result = await asyncio.to_thread(
+            export_hld,
+            hld=session["hld"],
+            format=fmt,
+            include_diagrams=include_diagrams,
+            diagram_b64=diagram_b64,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        logger.error("HLD export failed: %s", e)
+        raise HTTPException(500, "Export failed. Please try again or contact support.")
+
+    return result
+
+
+# ─────────────────────────────────────────────────────────────
+# Async HLD Generation (Issue #172)
+# ─────────────────────────────────────────────────────────────
+@router.post("/api/diagrams/{diagram_id}/generate-hld-async")
+@limiter.limit("3/minute")
+async def generate_hld_async(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
+    """Start async HLD document generation. Returns 202 with job_id."""
+    session = get_or_recreate_session(diagram_id)
+    if not session:
+        raise HTTPException(404, "No analysis found. Analyze a diagram first.")
+
+    job = job_manager.submit("generate_hld", diagram_id=diagram_id)
+    asyncio.create_task(_run_hld_job(job.job_id, diagram_id))
+
+    from starlette.responses import JSONResponse
+    return JSONResponse(
+        status_code=202,
+        content={
+            "job_id": job.job_id,
+            "diagram_id": diagram_id,
+            "status": "queued",
+            "stream_url": f"/api/jobs/{job.job_id}/stream",
+        },
+    )
+
+
+async def _run_hld_job(job_id: str, diagram_id: str) -> None:
+    """Background worker for HLD generation."""
+    try:
+        job_manager.start(job_id)
+        job_manager.update_progress(job_id, 10, "Preparing HLD generation...")
+
+        session = get_or_recreate_session(diagram_id)
+        if not session:
+            job_manager.fail(job_id, "Analysis not found")
+            return
+
+        if job_manager.is_cancelled(job_id):
+            return
+
+        # Cost estimate
+        cost_estimate = session.get("_cached_cost_estimate")
+        if cost_estimate is None:
+            job_manager.update_progress(job_id, 20, "Calculating cost estimates...")
+            try:
+                iac_params = session.get("iac_parameters", {})
+                region = iac_params.get("region", "westeurope")
+                strategy = iac_params.get("sku_strategy", "balanced")
+                cost_estimate = estimate_services_cost(session.get("mappings", []), region=region, sku_strategy=strategy)
+                session["_cached_cost_estimate"] = cost_estimate
+                SESSION_STORE[diagram_id] = session
+            except Exception:
+                logger.debug("Cost estimation unavailable")
+
+        job_manager.update_progress(job_id, 40, "Generating High-Level Design with GPT-4o...")
+
+        hld = await asyncio.to_thread(
+            diagrams_compat.generate_hld,
+            analysis=session,
+            cost_estimate=cost_estimate,
+            iac_params=session.get("iac_parameters"),
+        )
+
+        if job_manager.is_cancelled(job_id):
+            return
+
+        job_manager.update_progress(job_id, 80, "Rendering markdown...")
+        markdown = diagrams_compat.generate_hld_markdown(hld)
+
+        session["hld"] = hld
+        session["hld_markdown"] = markdown
+        SESSION_STORE[diagram_id] = session
+
+        record_event("hld_generated", {"diagram_id": diagram_id})
+        job_manager.complete(job_id, result={"diagram_id": diagram_id, "hld": hld, "markdown": markdown})
+
+    except Exception as exc:
+        logger.error("Async HLD generation failed: %s", exc, exc_info=True)
+        job_manager.fail(job_id, str(exc))
