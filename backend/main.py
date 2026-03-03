@@ -206,7 +206,7 @@ class ArchmorphMiddleware(BaseHTTPMiddleware):
 
         duration_ms = (time.perf_counter() - start_time) * 1000
 
-        # ── Security Headers ──
+        # ── Security Headers (#377) ──
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"

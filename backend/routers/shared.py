@@ -28,6 +28,8 @@ from session_store import get_store
 limiter = Limiter(
     key_func=get_remote_address,
     enabled=os.getenv("RATE_LIMIT_ENABLED", "true").lower() != "false",
+    default_limits=["200/minute"],  # Global burst protection (#377)
+    storage_uri=os.getenv("RATE_LIMIT_STORAGE", "memory://"),
 )
 
 # ─────────────────────────────────────────────────────────────

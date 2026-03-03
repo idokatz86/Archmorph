@@ -2,10 +2,12 @@
 HLD (High-Level Design) routes — generation, retrieval, export, async generation.
 
 Split from diagrams.py for maintainability (#284).
+Mandatory diagram attachments enforced in customer export mode (#357).
 """
 
 from fastapi import APIRouter, HTTPException, Request, Depends
 import asyncio
+import base64
 import logging
 
 from routers.shared import SESSION_STORE, limiter, verify_api_key
@@ -15,6 +17,7 @@ from usage_metrics import record_event
 import routers.diagrams as diagrams_compat
 from hld_export import export_hld, SUPPORTED_FORMATS
 from services.azure_pricing import estimate_services_cost
+from diagram_export import generate_diagram
 
 logger = logging.getLogger(__name__)
 
@@ -142,15 +145,21 @@ async def export_hld_endpoint(request: Request, diagram_id: str, _auth=Depends(v
     Query params:
       - format: docx | pdf | pptx (required)
       - include_diagrams: true | false (default: true)
+      - export_mode: customer | internal (default: internal)
+        When 'customer', both architecture diagram and application flow
+        diagram MUST be present in the export. If missing, they are
+        auto-generated from analysis data. (#357)
 
     Body (optional JSON):
-      - diagram_image: base64-encoded diagram image to embed
+      - diagram_image: base64-encoded architecture diagram image to embed
+      - app_flow_image: base64-encoded application flow diagram to embed
     """
     fmt = request.query_params.get("format", "").lower()
     if fmt not in SUPPORTED_FORMATS:
         raise HTTPException(400, f"Invalid format. Use one of: {', '.join(sorted(SUPPORTED_FORMATS))}")
 
     include_diagrams = request.query_params.get("include_diagrams", "true").lower() == "true"
+    export_mode = request.query_params.get("export_mode", "internal").lower()
 
     session = get_or_recreate_session(diagram_id)
     if not session:
@@ -159,15 +168,51 @@ async def export_hld_endpoint(request: Request, diagram_id: str, _auth=Depends(v
     if "hld" not in session:
         raise HTTPException(404, "No HLD found. Generate one first.")
 
-    # Optional diagram image from request body
+    # Parse optional diagram images from request body
     diagram_b64 = None
+    app_flow_b64 = None
     try:
         body = await request.json()
-        diagram_b64 = body.get("diagram_image") if isinstance(body, dict) else None
+        if isinstance(body, dict):
+            diagram_b64 = body.get("diagram_image")
+            app_flow_b64 = body.get("app_flow_image")
     except Exception:
         pass  # nosec B110 — No body or non-JSON body is fine
 
-    record_event("hld_exported", {"diagram_id": diagram_id, "format": fmt, "include_diagrams": include_diagrams})
+    # ── Customer mode: mandatory diagram enforcement (#357) ──
+    if export_mode == "customer":
+        include_diagrams = True  # Override — always include in customer mode
+
+        # Auto-generate architecture diagram if not provided
+        if not diagram_b64 and session.get("mappings"):
+            try:
+                arch_result = await asyncio.to_thread(
+                    generate_diagram, session, "excalidraw"
+                )
+                if arch_result and arch_result.get("content"):
+                    content = arch_result["content"]
+                    if isinstance(content, str):
+                        diagram_b64 = base64.b64encode(content.encode()).decode()
+                    elif isinstance(content, (bytes, bytearray)):
+                        diagram_b64 = base64.b64encode(content).decode()
+                    logger.info("Auto-generated architecture diagram for customer export of %s", diagram_id)
+            except Exception as e:
+                logger.warning("Failed to auto-generate architecture diagram: %s", e)
+
+        if not diagram_b64:
+            raise HTTPException(
+                400,
+                "Customer-mode export requires an architecture diagram. "
+                "Upload one via 'diagram_image' in the request body, "
+                "or ensure the analysis has mappings to auto-generate one."
+            )
+
+    record_event("hld_exported", {
+        "diagram_id": diagram_id,
+        "format": fmt,
+        "include_diagrams": include_diagrams,
+        "export_mode": export_mode,
+    })
 
     try:
         result = await asyncio.to_thread(

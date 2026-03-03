@@ -27,6 +27,21 @@ repos:
       - id: check-merge-conflict
       - id: detect-private-key
 
+  # ── Secret scanning (#377) ──
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: ['--baseline', '.secrets.baseline']
+        exclude: |
+          (?x)(
+            \.lock$|
+            \.svg$|
+            node_modules/|
+            \.venv/|
+            playwright-report/
+          )
+
   # ── Frontend linting ──
   - repo: local
     hooks:
