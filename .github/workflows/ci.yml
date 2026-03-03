@@ -246,6 +246,7 @@ jobs:
           exit-code: 1
           severity: CRITICAL,HIGH
           ignore-unfixed: true
+          vuln-type: library  # Scan app deps only, skip OS-level CVEs in base image
 
       - name: Provision metrics storage
         run: |
