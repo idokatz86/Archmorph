@@ -55,9 +55,11 @@ jobs:
           echo "openai=$(echo "$BODY" | jq -r '.checks.openai // "unknown"')" >> $GITHUB_OUTPUT
 
           STATUS=$(echo "$BODY" | jq -r '.status // "unknown"')
-          if [ "$STATUS" != "healthy" ]; then
+          if [ "$STATUS" = "unhealthy" ] || [ "$STATUS" = "unknown" ]; then
             echo "::error::API status is $STATUS"
             exit 1
+          elif [ "$STATUS" = "degraded" ]; then
+            echo "::warning::API status is degraded — non-critical dependency down"
           fi
 
       - name: Check Frontend
