@@ -775,6 +775,7 @@ See [docs/DEPLOYMENT_COSTS.md](docs/DEPLOYMENT_COSTS.md) for full breakdown.
 | v3.3.0 — Analytics & UX | Done | Journey analytics engine, cost comparison engine, cost optimizer, job queue with SSE, cookie consent banner, landing page, legal pages, organization settings |
 | v3.4.0 — Quality & Documentation | Done | 1609 backend tests (70 files), PRD v3.4.0, roadmap alignment with 40 open issues, comprehensive documentation update |
 | v3.5.0 — Customer Intelligence | Done | Confidence deep-dive (strengths/limitations/migration notes per mapping), 7-step workflow (Upload→Analyze→Customize→Results→IaC→HLD→Pricing), HLD auto-generation tab, dedicated Pricing tab with cost drivers, SKU alternatives, optimization recommendations, source vs target comparison, custom domain archmorphai.com |
+| v3.6.0 — Platform Hardening & UX | Done | Dark mode toggle with light/full theme, skeleton loaders, focus-visible a11y, reduced-motion support, Cache-Control headers on read endpoints, HLD v2 with 10 professional sections, contextual help tooltips, confidence deep-dive UI (Strengths/Limitations/Migration tabs per mapping) |
 | v4.0 — Performance & Scale | Planned | Connection pooling, read replicas, CDN edge caching, WebSocket live collaboration |
 | v5.0 — Advanced | Planned | Pulumi output, Azure Migrate integration, multi-diagram projects, team collaboration |
 

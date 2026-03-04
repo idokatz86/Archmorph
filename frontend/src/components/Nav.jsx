@@ -1,12 +1,30 @@
-import React, { useRef, useState } from 'react';
-import { CloudCog, Layers, Server, Rocket, MessageSquare, Shield, Home, LayoutDashboard, Sparkles, Menu, X } from 'lucide-react';
+import React, { useRef, useState, useEffect } from 'react';
+import { CloudCog, Layers, Server, Rocket, MessageSquare, Shield, Home, LayoutDashboard, Sparkles, Menu, X, Moon, Sun } from 'lucide-react';
 import { Badge } from './ui';
 import { APP_VERSION } from '../constants';
 import FeedbackWidget from './FeedbackWidget';
 
+function useTheme() {
+  const [theme, setTheme] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('archmorph-theme') || 'dark';
+    }
+    return 'dark';
+  });
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('archmorph-theme', theme);
+  }, [theme]);
+
+  const toggle = () => setTheme(t => t === 'dark' ? 'light' : 'dark');
+  return { theme, toggle };
+}
+
 export default function Nav({ activeTab, setActiveTab, updateStatus }) {
   const feedbackRef = useRef(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const { theme, toggle: toggleTheme } = useTheme();
 
   const NAV_ITEMS = [
     { id: 'landing', label: 'Home', icon: Home },
@@ -57,6 +75,17 @@ export default function Nav({ activeTab, setActiveTab, updateStatus }) {
                   <span>Catalog {updateStatus.scheduler_running ? 'Live' : 'Idle'}</span>
                 </div>
               )}
+              <button
+                onClick={toggleTheme}
+                className="p-2 rounded-lg hover:bg-secondary transition-colors cursor-pointer"
+                aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+                title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
+              >
+                {theme === 'dark'
+                  ? <Sun className="w-4 h-4 text-text-secondary hover:text-warning" />
+                  : <Moon className="w-4 h-4 text-text-secondary hover:text-info" />
+                }
+              </button>
               <button
                 onClick={() => feedbackRef.current?.open()}
                 className="p-2 rounded-lg hover:bg-secondary transition-colors cursor-pointer"

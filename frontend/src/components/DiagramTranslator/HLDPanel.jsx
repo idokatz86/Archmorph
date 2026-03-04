@@ -1,19 +1,22 @@
 import React from 'react';
 import {
   Sparkles, Download, Check, FileText, Eye, Layers,
-  Network, Shield, ArrowRight, Wrench,
+  Network, Shield, ArrowRight, Wrench, DollarSign, AlertTriangle,
+  Target, BookOpen, ClipboardList,
 } from 'lucide-react';
 import { Button, Card } from '../ui';
 
 const HLD_TABS = [
-  { id: 'overview', label: 'Overview', icon: Eye },
-  { id: 'services', label: 'Services', icon: Layers },
+  { id: 'overview', label: 'Executive Summary', icon: Eye },
+  { id: 'services', label: 'Service Architecture', icon: Layers },
   { id: 'networking', label: 'Networking', icon: Network },
-  { id: 'security', label: 'Security', icon: Shield },
-  // FinOps tab hidden during beta — no money-related UI
-  // { id: 'finops', label: 'FinOps', icon: DollarSign },
-  { id: 'migration', label: 'Migration', icon: ArrowRight },
-  { id: 'waf', label: 'WAF', icon: Wrench },
+  { id: 'security', label: 'Security & IAM', icon: Shield },
+  { id: 'finops', label: 'Cost Model', icon: DollarSign },
+  { id: 'migration', label: 'Migration Plan', icon: ArrowRight },
+  { id: 'risks', label: 'Risks & NFRs', icon: AlertTriangle },
+  { id: 'waf', label: 'WAF Alignment', icon: Wrench },
+  { id: 'decisions', label: 'Decision Log', icon: ClipboardList },
+  { id: 'roadmap', label: 'Implementation Roadmap', icon: Target },
 ];
 
 const DOC_EXPORT_FORMATS = [

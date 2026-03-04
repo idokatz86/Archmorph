@@ -30,6 +30,8 @@
 [data-theme="light"] {
   --color-primary: #F8FAFC;
   --color-secondary: #E2E8F0;
+  --color-cta: #16A34A;
+  --color-cta-hover: #15803D;
   --color-surface: #FFFFFF;
   --color-surface-light: #F1F5F9;
   --color-text-primary: #0F172A;
@@ -37,6 +39,42 @@
   --color-text-muted: #94A3B8;
   --color-border: #E2E8F0;
   --color-border-light: #CBD5E1;
+  --color-danger: #DC2626;
+  --color-warning: #D97706;
+  --color-info: #2563EB;
+}
+
+/* ── Smooth theme transition ── */
+:root {
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* ── Skeleton loader animation (#372) ── */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.skeleton {
+  background: linear-gradient(90deg, var(--color-secondary) 25%, var(--color-surface-light) 50%, var(--color-secondary) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite ease-in-out;
+  border-radius: 0.5rem;
+}
+
+/* ── Focus visible ring for a11y (#372) ── */
+:focus-visible {
+  outline: 2px solid var(--color-cta);
+  outline-offset: 2px;
+  border-radius: 0.25rem;
+}
+
+/* ── Reduced motion preference (#372) ── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 /* ── Skip to main content for a11y (#372) ── */

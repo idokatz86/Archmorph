@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.6.0] - 2026-03-04
+
+### Added
+- **Dark mode toggle** — Sun/Moon button in Nav bar with localStorage persistence, smooth CSS transitions (#372)
+- **Full light theme** — complete light theme variables (CTA, danger, warning, info colors) across all components (#372)
+- **Skeleton loader CSS** — shimmer animation utility class for loading states (#372)
+- **Focus-visible ring** — 2px CTA-colored outline on keyboard focus for WCAG 2.1 compliance (#372)
+- **Reduced motion** — `prefers-reduced-motion` media query disables animations for accessibility (#372)
+- **Cache-Control headers** — GET endpoints return appropriate caching (services: 5min, health: no-cache, costs: 2min, compliance: 10min) (#376)
+- **HLD v2 template** — expanded from 6 to 10 sections: Executive Summary, Service Architecture, Networking, Security & IAM, Cost Model, Migration Plan, Risks & NFRs, WAF Alignment, Decision Log, Implementation Roadmap (#359)
+- **Contextual help tooltips** — `HelpTooltip` component with predefined content for confidence, HLD, pricing, IaC, migration effort, strengths, and limitations (#367)
+- **Confidence deep-dive UI** — tabbed Strengths/Limitations/Migration Notes panel per service mapping with severity badges and doc links (#405)
+- **HelpTooltip.jsx** — new reusable tooltip component with 7 predefined help entries
+
+### Changed
+- `Nav.jsx` — added `useTheme()` hook, dark/light mode toggle button
+- `index.css` — extended light theme, added skeleton/focus-visible/reduced-motion styles
+- `main.py` — Cache-Control middleware for read-only endpoints
+- `HLDPanel.jsx` — expanded HLD_TABS array from 6 to 10 professional sections
+- `AnalysisResults.jsx` — MappingRow now shows DeepDivePanel with Strengths/Limitations/Migration tabs
+
 ## [3.5.0] - 2026-03-04
 
 ### Added

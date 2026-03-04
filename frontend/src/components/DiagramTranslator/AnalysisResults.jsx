@@ -2,14 +2,94 @@ import React, { useState } from 'react';
 import {
   ArrowRight, AlertTriangle, Info, HelpCircle,
   FileCode, Sparkles, Loader2, ChevronDown, ChevronUp, ShieldCheck,
+  CheckCircle2, XCircle, ExternalLink,
 } from 'lucide-react';
 import { Badge, Button, Card } from '../ui';
 import ExportPanel from './ExportPanel';
+import { HelpTooltip, HELP_CONTENT } from '../HelpTooltip';
+
+/* ── Strengths/Limitations Panel for a mapping ──────────── */
+function DeepDivePanel({ m }) {
+  const [tab, setTab] = useState('strengths');
+  const strengths = m.strengths || [];
+  const limitations = m.limitations || [];
+  const migrationNotes = m.migration_notes || [];
+  const hasData = strengths.length > 0 || limitations.length > 0 || migrationNotes.length > 0;
+
+  if (!hasData) return null;
+
+  return (
+    <div className="mt-2 ml-1 pl-3 border-l-2 border-info/30 space-y-2 animate-in fade-in slide-in-from-top-1">
+      <div className="flex gap-1">
+        {[
+          { id: 'strengths', label: 'Strengths', count: strengths.length, color: 'text-cta' },
+          { id: 'limitations', label: 'Limitations', count: limitations.length, color: 'text-danger' },
+          { id: 'migration', label: 'Migration', count: migrationNotes.length, color: 'text-info' },
+        ].filter(t => t.count > 0).map(t => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={`text-[10px] px-2 py-0.5 rounded-full cursor-pointer transition-colors ${
+              tab === t.id ? 'bg-cta/15 text-cta font-semibold' : 'text-text-muted hover:text-text-secondary'
+            }`}
+          >
+            {t.label} ({t.count})
+          </button>
+        ))}
+      </div>
+
+      {tab === 'strengths' && strengths.map((s, i) => (
+        <div key={i} className="flex items-start gap-2 text-xs text-text-secondary">
+          <CheckCircle2 className="w-3.5 h-3.5 text-cta shrink-0 mt-0.5" />
+          <div>
+            <span className="font-medium text-text-primary">{s.factor}</span>
+            <span className="text-text-muted"> — {s.detail}</span>
+          </div>
+        </div>
+      ))}
+
+      {tab === 'limitations' && limitations.map((l, i) => (
+        <div key={i} className="flex items-start gap-2 text-xs text-text-secondary">
+          <XCircle className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${
+            l.severity === 'high' ? 'text-danger' : l.severity === 'medium' ? 'text-warning' : 'text-text-muted'
+          }`} />
+          <div>
+            <span className="font-medium text-text-primary">{l.factor}</span>
+            <Badge variant={l.severity === 'high' ? 'low' : l.severity === 'medium' ? 'medium' : 'high'} className="ml-1.5 text-[9px]">
+              {l.severity}
+            </Badge>
+            <p className="text-text-muted mt-0.5">{l.detail}</p>
+            {l.doc_link && (
+              <a href={l.doc_link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[10px] text-cta hover:underline mt-0.5">
+                <ExternalLink className="w-2.5 h-2.5" /> Learn more
+              </a>
+            )}
+          </div>
+        </div>
+      ))}
+
+      {tab === 'migration' && migrationNotes.map((n, i) => (
+        <div key={i} className="flex items-start gap-2 text-xs text-text-secondary">
+          <ArrowRight className="w-3.5 h-3.5 text-info shrink-0 mt-0.5" />
+          <div>
+            <Badge variant="azure" className="text-[9px] mr-1.5">{n.area}</Badge>
+            <span className="text-text-muted">{n.note}</span>
+            <Badge variant={n.effort === 'high' ? 'low' : n.effort === 'low' ? 'high' : 'medium'} className="ml-1.5 text-[9px]">
+              {n.effort} effort
+            </Badge>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 /* ── Confidence Explanation Row ──────────────────────────── */
 function MappingRow({ m, sourceProvider }) {
   const [open, setOpen] = useState(false);
   const hasExplanation = m.confidence_explanation?.length > 0;
+  const hasDeepDive = (m.strengths?.length > 0 || m.limitations?.length > 0 || m.migration_notes?.length > 0);
+  const expandable = hasExplanation || hasDeepDive;
 
   return (
     <div className="px-4 py-3">
@@ -22,15 +102,15 @@ function MappingRow({ m, sourceProvider }) {
           </div>
         </div>
         <button
-          onClick={() => hasExplanation && setOpen(!open)}
-          className={`flex items-center gap-1.5 ${hasExplanation ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}
-          title={hasExplanation ? 'Click to see why this confidence score was assigned' : ''}
+          onClick={() => expandable && setOpen(!open)}
+          className={`flex items-center gap-1.5 ${expandable ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}
+          title={expandable ? 'Click to see confidence breakdown, strengths & limitations' : ''}
           aria-expanded={open}
         >
           <Badge variant={m.confidence >= 0.9 ? 'high' : m.confidence >= 0.8 ? 'medium' : 'low'}>
             {(m.confidence * 100).toFixed(0)}%
           </Badge>
-          {hasExplanation && (
+          {expandable && (
             open
               ? <ChevronUp className="w-3.5 h-3.5 text-text-muted" />
               : <ChevronDown className="w-3.5 h-3.5 text-text-muted" />
@@ -38,20 +118,25 @@ function MappingRow({ m, sourceProvider }) {
         </button>
       </div>
 
-      {/* Confidence Explanation Panel */}
-      {open && hasExplanation && (
-        <div className="mt-2.5 ml-1 pl-3 border-l-2 border-cta/30 space-y-1.5 animate-in fade-in slide-in-from-top-1">
-          <p className="text-xs font-semibold text-text-secondary flex items-center gap-1.5">
-            <ShieldCheck className="w-3.5 h-3.5 text-cta" />
-            Why this confidence score?
-          </p>
-          {m.confidence_explanation.map((reason, idx) => (
-            <div key={idx} className="flex items-start gap-2 text-xs text-text-muted">
-              <span className="text-cta/60 mt-0.5 shrink-0">•</span>
-              <span>{reason}</span>
+      {/* Expanded: Confidence Explanation + Deep Dive */}
+      {open && (
+        <>
+          {hasExplanation && (
+            <div className="mt-2.5 ml-1 pl-3 border-l-2 border-cta/30 space-y-1.5 animate-in fade-in slide-in-from-top-1">
+              <p className="text-xs font-semibold text-text-secondary flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 text-cta" />
+                Why this confidence score?
+              </p>
+              {m.confidence_explanation.map((reason, idx) => (
+                <div key={idx} className="flex items-start gap-2 text-xs text-text-muted">
+                  <span className="text-cta/60 mt-0.5 shrink-0">•</span>
+                  <span>{reason}</span>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          )}
+          <DeepDivePanel m={m} />
+        </>
       )}
     </div>
   );
@@ -82,7 +167,11 @@ export default function AnalysisResults({
 
         {analysis.confidence_summary && (
           <>
-            <div className="grid grid-cols-4 gap-3 mt-4">
+            <div className="flex items-center gap-2 mt-4 mb-2">
+              <h3 className="text-sm font-semibold text-text-secondary">Confidence Summary</h3>
+              <HelpTooltip {...HELP_CONTENT.confidence} />
+            </div>
+            <div className="grid grid-cols-4 gap-3">
               {[
                 { label: 'High', value: analysis.confidence_summary.high, color: 'text-cta' },
                 { label: 'Medium', value: analysis.confidence_summary.medium, color: 'text-warning' },
