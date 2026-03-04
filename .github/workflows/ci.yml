@@ -369,8 +369,8 @@ jobs:
       - name: Verify production deployment
         run: |
           sleep 10
-          HEALTH=$(curl -s --max-time 30 ${{ env.API_URL }}/health | jq -r '.status')
-          VERSION=$(curl -s --max-time 30 ${{ env.API_URL }}/health | jq -r '.version')
+          HEALTH=$(curl -s --max-time 30 ${{ env.API_URL }}/api/health | jq -r '.status')
+          VERSION=$(curl -s --max-time 30 ${{ env.API_URL }}/api/health | jq -r '.version')
           if [ "$HEALTH" != "healthy" ] && [ "$HEALTH" != "degraded" ]; then
             echo "::error::Production health check failed: $HEALTH"
             exit 1
