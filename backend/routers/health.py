@@ -58,11 +58,9 @@ async def health():
 
     # ── Redis (if configured) ─────────────────────────────
     try:
-        from session_store import REDIS_URL
-        if REDIS_URL:
-            import redis as _redis
-            r = _redis.from_url(REDIS_URL, socket_connect_timeout=2)
-            r.ping()
+        from session_store import redis_configured, _create_redis_client
+        if redis_configured():
+            _create_redis_client(socket_connect_timeout=2)
             checks["redis"] = "ok"
         else:
             checks["redis"] = "not_configured"

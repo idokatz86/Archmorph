@@ -312,25 +312,96 @@ class FileStore(SessionStore):
 
 
 # ─────────────────────────────────────────────────────────────
-# Redis backend (optional — activated when REDIS_URL is set)
+# Redis connection helper — Entra ID or URL-based auth
+# ─────────────────────────────────────────────────────────────
+
+def _create_redis_client(*, decode_responses: bool = True, socket_connect_timeout: int = 5):
+    """Create a Redis client using Entra ID token auth or a connection URL.
+
+    Auth strategy (checked in order):
+      1. ``REDIS_HOST`` set → Entra ID (``DefaultAzureCredential``) over TLS
+      2. ``REDIS_URL``  set → traditional URL-based auth (access key / password)
+
+    Raises ``RuntimeError`` when neither variable is set.
+    """
+    import redis as _redis
+
+    host = os.getenv("REDIS_HOST", "")
+    url = os.getenv("REDIS_URL", "")
+
+    if host:
+        # ── Entra ID token-based auth ─────────────────────
+        from azure.identity import DefaultAzureCredential
+
+        credential = DefaultAzureCredential()
+        token = credential.get_token("https://redis.azure.com/.default")
+
+        # username = Object-ID of the managed identity (from access-policy)
+        # password = Entra ID access token
+        principal_id = os.getenv(
+            "AZURE_CLIENT_ID",  # user-assigned MI
+            os.getenv("IDENTITY_PRINCIPAL_ID", ""),  # explicit override
+        )
+        # If no explicit principal ID, use the token's oid claim
+        if not principal_id:
+            import base64, json as _j
+            # JWT: header.payload.signature — decode the payload
+            payload = token.token.split(".")[1]
+            payload += "=" * (4 - len(payload) % 4)  # pad base64
+            claims = _j.loads(base64.urlsafe_b64decode(payload))
+            principal_id = claims.get("oid", "")
+
+        client = _redis.Redis(
+            host=host,
+            port=int(os.getenv("REDIS_PORT", "6380")),
+            ssl=True,
+            username=principal_id,
+            password=token.token,
+            decode_responses=decode_responses,
+            socket_connect_timeout=socket_connect_timeout,
+        )
+        client.ping()
+        logger.info("Redis connected via Entra ID (host=%s, principal=%s…)", host, principal_id[:8])
+        return client
+
+    if url:
+        # ── Traditional URL-based auth ────────────────────
+        client = _redis.from_url(
+            url,
+            decode_responses=decode_responses,
+            socket_connect_timeout=socket_connect_timeout,
+        )
+        client.ping()
+        logger.info("Redis connected via URL")
+        return client
+
+    raise RuntimeError("Neither REDIS_HOST nor REDIS_URL is configured")
+
+
+def redis_configured() -> bool:
+    """Return True if Redis env vars are set (Entra ID or URL)."""
+    return bool(os.getenv("REDIS_HOST", "") or os.getenv("REDIS_URL", ""))
+
+
+# ─────────────────────────────────────────────────────────────
+# Redis backend (optional — activated when REDIS_HOST or REDIS_URL is set)
 # ─────────────────────────────────────────────────────────────
 
 class RedisStore(SessionStore):
     """Redis-backed session store.
 
-    Requires the ``redis`` package.  Values are serialized as JSON.
+    Supports Entra ID token auth (``REDIS_HOST``) or traditional URL
+    auth (``REDIS_URL``).  Values are serialized as JSON.
     """
 
-    def __init__(self, url: str, prefix: str = "archmorph", maxsize: int = 0, ttl: int = 7200):
-        import redis as _redis  # optional import
+    def __init__(self, prefix: str = "archmorph", maxsize: int = 0, ttl: int = 7200):
         import json as _json
-        self._redis = _redis.from_url(url, decode_responses=True)
-        self._redis.ping()  # Verify connectivity eagerly; raises on failure
+        self._redis = _create_redis_client()
         self._json = _json
         self._prefix = prefix
         self._ttl = ttl
         self._maxsize = maxsize or 10_000
-        logger.info("Redis session store connected (%s, prefix=%s)", url, prefix)
+        logger.info("Redis session store ready (prefix=%s)", prefix)
 
     def _key(self, key: str) -> str:
         return f"{self._prefix}:{key}"
@@ -404,7 +475,8 @@ class RedisStore(SessionStore):
 _stores_lock = threading.Lock()
 _stores: dict[str, SessionStore] = {}
 
-REDIS_URL = os.getenv("REDIS_URL", "")
+REDIS_URL = os.getenv("REDIS_URL", "")  # kept for backward compat
+REDIS_HOST = os.getenv("REDIS_HOST", "")  # Entra ID mode
 WORKER_COUNT = int(os.getenv("WEB_CONCURRENCY", os.getenv("UVICORN_WORKERS", "1")))
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
 
@@ -443,10 +515,10 @@ def get_store(name: str, *, maxsize: int = 500, ttl: int = 7200) -> SessionStore
         if name in _stores:
             return _stores[name]
 
-        if REDIS_URL:
+        if redis_configured():
             try:
                 store: SessionStore = RedisStore(
-                    url=REDIS_URL, prefix=f"archmorph:{name}", maxsize=maxsize, ttl=ttl,
+                    prefix=f"archmorph:{name}", maxsize=maxsize, ttl=ttl,
                 )
             except Exception as exc:
                 logger.warning("Redis unavailable (%s) — falling back for '%s'", exc, name)
