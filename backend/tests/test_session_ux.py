@@ -525,9 +525,13 @@ class TestRedisStoreMocked:
 
     def _build_store(self, **overrides):
         """Helper to instantiate a RedisStore with mocked redis."""
-        defaults = {"url": "redis://mock:6379", "prefix": "test", "ttl": 7200}
+        defaults = {"prefix": "test", "ttl": 7200}
         defaults.update(overrides)
-        return RedisStore(**defaults)
+        # Mock _create_redis_client so RedisStore uses our fake client
+        fake_client = _make_mock_redis_module().from_url()
+        with patch("session_store._create_redis_client", return_value=fake_client):
+            store = RedisStore(**defaults)
+        return store
 
     def test_redis_store_set_and_get(self):
         """RedisStore stores and retrieves JSON-serialized values."""
@@ -587,11 +591,11 @@ class TestRedisStoreMocked:
 class TestGetStoreFactory:
     """Test the get_store factory function with various configurations."""
 
-    @patch("session_store.REDIS_URL", "")
     def test_default_returns_inmemory(self):
         reset_stores()
-        store = get_store("test_factory")
-        assert isinstance(store, InMemoryStore)
+        with patch.dict(os.environ, {"REDIS_URL": "", "REDIS_HOST": ""}, clear=False):
+            store = get_store("test_factory")
+            assert isinstance(store, InMemoryStore)
 
     def test_singleton_pattern(self):
         s1 = get_store("factory_singleton")
@@ -603,19 +607,17 @@ class TestGetStoreFactory:
         s2 = get_store("store_y")
         assert s1 is not s2
 
-    @patch("session_store.REDIS_URL", "redis://unreachable:9999")
     def test_redis_fallback_to_inmemory_single_worker(self):
         """When Redis is unreachable in single-worker mode, falls back to InMemoryStore."""
         reset_stores()
-        store = get_store("redis_fallback_test")
-        assert isinstance(store, InMemoryStore)
+        with patch.dict(os.environ, {"REDIS_URL": "redis://unreachable:9999", "REDIS_HOST": ""}, clear=False):
+            store = get_store("redis_fallback_test")
+            assert isinstance(store, InMemoryStore)
 
-    @patch("session_store.REDIS_URL", "")
-    @patch("session_store.WORKER_COUNT", 4)
     def test_multi_worker_without_redis_uses_filestore(self, tmp_path):
         """Multi-worker without Redis should use FileStore."""
         reset_stores()
-        with patch.dict(os.environ, {"SESSION_FILE_DIR": str(tmp_path)}):
+        with patch.dict(os.environ, {"SESSION_FILE_DIR": str(tmp_path), "REDIS_URL": "", "REDIS_HOST": ""}, clear=False):
             import session_store
             old_multi = session_store._is_multi_worker
             session_store._is_multi_worker = lambda: True
@@ -625,13 +627,13 @@ class TestGetStoreFactory:
             finally:
                 session_store._is_multi_worker = old_multi
 
-    @patch("session_store.REDIS_URL", "")
     def test_custom_ttl_and_maxsize(self):
         """Custom TTL and maxsize should be applied."""
         reset_stores()
-        store = get_store("custom_params", maxsize=100, ttl=60)
-        assert isinstance(store, InMemoryStore)
-        assert store.maxsize == 100
+        with patch.dict(os.environ, {"REDIS_URL": "", "REDIS_HOST": ""}, clear=False):
+            store = get_store("custom_params", maxsize=100, ttl=60)
+            assert isinstance(store, InMemoryStore)
+            assert store.maxsize == 100
 
 
 # ─────────────────────────────────────────────────────────────

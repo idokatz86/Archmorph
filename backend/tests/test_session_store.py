@@ -91,19 +91,13 @@ class TestGetStore:
         s2 = get_store("store_b")
         assert s1 is not s2
 
-    @patch.dict(os.environ, {"REDIS_URL": "redis://localhost:9999"})
+    @patch.dict(os.environ, {"REDIS_URL": "redis://localhost:9999", "REDIS_HOST": ""})
     def test_redis_fallback_to_inmemory(self):
         """When Redis is unreachable, should fall back to InMemoryStore."""
         reset_stores()
-        # Re-import to pick up env var
         import session_store
-        old_url = session_store.REDIS_URL
-        session_store.REDIS_URL = "redis://localhost:9999"
-        try:
-            store = session_store.get_store("redis_fail_test")
-            assert isinstance(store, InMemoryStore)
-        finally:
-            session_store.REDIS_URL = old_url
+        store = session_store.get_store("redis_fail_test")
+        assert isinstance(store, InMemoryStore)
 
 
 class TestSessionStoreInterface:

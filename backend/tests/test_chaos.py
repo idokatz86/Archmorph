@@ -143,15 +143,10 @@ class TestRedisUnavailable:
         from session_store import get_store, reset_stores, InMemoryStore
         reset_stores()
 
-        import session_store
-        original_url = session_store.REDIS_URL
-        session_store.REDIS_URL = "redis://localhost:59999"
-        try:
+        with patch.dict(os.environ, {"REDIS_URL": "redis://localhost:59999", "REDIS_HOST": ""}, clear=False):
             store = get_store("chaos_redis_test")
             assert isinstance(store, InMemoryStore)
-        finally:
-            session_store.REDIS_URL = original_url
-            reset_stores()
+        reset_stores()
 
     def test_app_works_without_redis(self, client):
         """Full health check works when Redis is not configured."""
