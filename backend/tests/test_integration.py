@@ -395,23 +395,8 @@ class TestFullPipelineIntegration:
         assert data["currency"] == "USD"
         assert data["service_count"] > 0
 
-        # Cost comparison
-        resp = client.get(f"/api/diagrams/{diagram_id}/cost-comparison")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "providers" in data
-        assert "aws" in data["providers"]
-        assert "azure" in data["providers"]
-
-    def test_full_pipeline_with_migration_assessment(self, client, clean_session):
-        """Pipeline includes migration assessment after analysis."""
-        diagram_id = self._upload_and_analyze(client)
-
-        resp = client.get(f"/api/diagrams/{diagram_id}/migration-assessment")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "overall_score" in data
-        assert "risk_level" in data
+    # NOTE: migration_assessment, cost_comparison, and migration_runbook tests
+    # archived — see _archive/tests/ for original integration tests.
 
 
 class TestSessionPersistenceIntegration:

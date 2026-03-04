@@ -10,7 +10,7 @@ image:
 env:
   ENVIRONMENT: "prod"
   RATE_LIMIT_ENABLED: "true"
-  ALLOWED_ORIGINS: "https://agreeable-ground-01012c003.2.azurestaticapps.net"
+  ALLOWED_ORIGINS: "https://archmorphai.com,https://www.archmorphai.com"
 
 resources:
   limits:

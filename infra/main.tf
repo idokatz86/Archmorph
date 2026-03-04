@@ -409,7 +409,7 @@ resource "azurerm_container_app" "backend" {
     # app itself 502s/503s or times out (Container Apps returns its own
     # error page which would otherwise strip application-level CORS).
     cors_policy {
-      allowed_origins   = [var.frontend_url]
+      allowed_origins   = [var.frontend_url, "https://www.archmorphai.com"]
       allowed_methods   = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"]
       allowed_headers   = ["Content-Type", "Authorization", "X-API-Key", "X-Correlation-ID"]
       expose_headers    = ["X-Correlation-ID", "X-Response-Time"]

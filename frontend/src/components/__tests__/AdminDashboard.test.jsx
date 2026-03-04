@@ -3,10 +3,6 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import AdminDashboard from '../AdminDashboard'
 
-vi.mock('../MonitoringDashboard', () => ({
-  default: () => <div data-testid="monitoring-dashboard">Monitoring</div>,
-}))
-
 describe('AdminDashboard', () => {
   const mockOnClose = vi.fn()
 

@@ -482,26 +482,7 @@ class TestAuthContract:
         assert resp.status_code in (400, 422)
 
 
-# =================================================================
-# Contract: /api/diagrams/{id}/runbook (migration)
-# =================================================================
-
-@pytest.mark.contract
-class TestMigrationContract:
-    def test_runbook_requires_analysis(self, client):
-        resp = client.post("/api/diagrams/nonexistent/runbook")
-        assert resp.status_code == 404
-
-    def test_assessment_requires_analysis(self, client):
-        resp = client.post("/api/diagrams/nonexistent/assessment")
-        assert resp.status_code in (404, 405)
-
-    def test_runbook_schema(self, client):
-        diagram_id = _upload_and_analyze(client)
-        resp = client.post(f"/api/diagrams/{diagram_id}/runbook")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert_fields(data, {"id": str, "diagram_id": str, "title": str})
+# NOTE: TestMigrationContract archived — see _archive/tests/
 
 
 # =================================================================

@@ -762,47 +762,4 @@ class TestServiceDataQuality:
         assert len(ids) == len(set(ids)), "Duplicate IDs found in GCP"
 
 
-# ====================================================================
-# 15. Migration Assessment Endpoint
-# ====================================================================
-
-class TestMigrationAssessment:
-    def test_assessment_without_analysis_returns_404(self, client, clean_session):
-        resp = client.get("/api/diagrams/no-such-id/migration-assessment")
-        assert resp.status_code == 404
-
-    def test_assessment_with_analysis(self, client, analyzed_diagram):
-        resp = client.get(f"/api/diagrams/{analyzed_diagram}/migration-assessment")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "overall_score" in data
-        assert "risk_level" in data
-        assert "services" in data
-        assert data["total_services"] > 0
-
-    def test_assessment_caches_in_session(self, client, analyzed_diagram):
-        client.get(f"/api/diagrams/{analyzed_diagram}/migration-assessment")
-        # Second call should also work (cached)
-        resp = client.get(f"/api/diagrams/{analyzed_diagram}/migration-assessment")
-        assert resp.status_code == 200
-
-
-# ====================================================================
-# 16. Cost Comparison Endpoint
-# ====================================================================
-
-class TestCostComparison:
-    def test_comparison_without_analysis_returns_404(self, client, clean_session):
-        resp = client.get("/api/diagrams/no-such-id/cost-comparison")
-        assert resp.status_code == 404
-
-    def test_comparison_with_analysis(self, client, analyzed_diagram):
-        resp = client.get(f"/api/diagrams/{analyzed_diagram}/cost-comparison")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "providers" in data
-        assert "aws" in data["providers"]
-        assert "azure" in data["providers"]
-        assert "gcp" in data["providers"]
-        assert "services" in data
-        assert data["total_services"] > 0
+# NOTE: TestMigrationAssessment and TestCostComparison archived — see _archive/tests/

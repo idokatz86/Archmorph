@@ -68,23 +68,11 @@ from routers.samples import router as samples_router  # noqa: E402
 from routers.feedback import router as feedback_router  # noqa: E402
 from routers.auth import router as auth_router  # noqa: E402
 from routers.versioning import router as versioning_router  # noqa: E402
-from routers.migration import router as migration_router  # noqa: E402
 from routers.terraform import router as terraform_router  # noqa: E402
 from routers.feature_flags import router as feature_flags_router  # noqa: E402
 from routers.privacy import router as privacy_router  # noqa: E402
-from routers.billing import router as billing_router  # noqa: E402
 from routers.jobs import router as jobs_router  # noqa: E402
-from routers.organizations import router as organizations_router  # noqa: E402
 from routers.legal import router as legal_router  # noqa: E402
-from routers.webhooks import router as webhooks_router  # noqa: E402
-from routers.webhooks import integration_router  # noqa: E402
-from routers.marketplace import router as marketplace_router  # noqa: E402
-from routers.journey_analytics import router as journey_router  # noqa: E402
-from routers.dashboard import router as dashboard_router  # noqa: E402
-from routers.templates import router as templates_router  # noqa: E402
-from living_architecture import router as living_arch_router  # noqa: E402
-from migration_intelligence import router as migration_intel_router  # noqa: E402
-from whitelabel import router as whitelabel_router  # noqa: E402
 from routers.v1 import build_v1_router  # noqa: E402
 from api_versioning import VersionMiddleware  # noqa: E402
 from audit_logging import audit_logger, AuditEventType  # noqa: E402, F401
@@ -96,7 +84,7 @@ logger = logging.getLogger(__name__)
 ALLOWED_ORIGINS = [
     o.strip() for o in os.getenv(
         "ALLOWED_ORIGINS",
-        "https://agreeable-ground-01012c003.2.azurestaticapps.net"
+        "https://archmorphai.com,https://www.archmorphai.com"
     ).split(",")
     if o.strip()
 ]
@@ -302,23 +290,11 @@ app.include_router(samples_router)
 app.include_router(feedback_router)
 app.include_router(auth_router)
 app.include_router(versioning_router)
-app.include_router(migration_router)
 app.include_router(terraform_router)
 app.include_router(feature_flags_router)
 app.include_router(privacy_router)
-app.include_router(billing_router)
 app.include_router(jobs_router)
-app.include_router(organizations_router)
 app.include_router(legal_router)
-app.include_router(webhooks_router)
-app.include_router(integration_router)
-app.include_router(marketplace_router)
-app.include_router(journey_router)
-app.include_router(dashboard_router)
-app.include_router(templates_router)
-app.include_router(living_arch_router)
-app.include_router(migration_intel_router)
-app.include_router(whitelabel_router)
 
 # ─────────────────────────────────────────────────────────────
 # API v1 Versioned Routes (/api/v1/* mirrors /api/*)
@@ -342,11 +318,9 @@ _all_routers = [
     (feedback_router, ""),
     (auth_router, ""),
     (versioning_router, ""),
-    (migration_router, ""),
     (terraform_router, ""),
     (feature_flags_router, ""),
     (privacy_router, ""),
-    (billing_router, ""),
     (jobs_router, ""),
 ]
 v1_router = build_v1_router(_all_routers)

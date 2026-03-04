@@ -12,7 +12,7 @@ Convert AWS and GCP architecture diagrams into Azure equivalents with guided mig
 ![Python](https://img.shields.io/badge/python-3.12-3776AB.svg)
 ![React](https://img.shields.io/badge/react-19.1-61DAFB.svg)
 
-> **[Live Demo](https://agreeable-ground-01012c003.2.azurestaticapps.net)** | **[API Docs](https://archmorph-api.nicesea-1430d1f7.westeurope.azurecontainerapps.io/docs)**
+> **[Live Demo](https://archmorphai.com)** | **[API Docs](https://api.archmorphai.com/docs)**
 
 ---
 
@@ -478,7 +478,7 @@ Dynamic pricing powered by the [Azure Retail Prices API](https://prices.azure.co
 | `/api/jobs/{id}` | GET | Check background job status |
 | `/api/jobs/{id}/stream` | GET | SSE stream for real-time progress |
 
-Full API documentation: [Swagger UI](https://archmorph-api.nicesea-1430d1f7.westeurope.azurecontainerapps.io/docs)
+Full API documentation: [Swagger UI](https://api.archmorphai.com/docs)
 
 ---
 
@@ -826,9 +826,9 @@ MIT License — see [LICENSE](LICENSE) for details.
 
 ## Links
 
-- **Live App:** https://agreeable-ground-01012c003.2.azurestaticapps.net
-- **API:** https://archmorph-api.nicesea-1430d1f7.westeurope.azurecontainerapps.io
-- **API Docs (Swagger):** https://archmorph-api.nicesea-1430d1f7.westeurope.azurecontainerapps.io/docs
+- **Live App:** https://archmorphai.com
+- **API:** https://api.archmorphai.com
+- **API Docs (Swagger):** https://api.archmorphai.com/docs
 - **PRD:** [docs/PRD.md](docs/PRD.md)
 - **Architecture Diagram:** [docs/architecture.excalidraw](docs/architecture.excalidraw) — Open in [Excalidraw](https://excalidraw.com)
 - **Application Flow:** [docs/application-flow.excalidraw](docs/application-flow.excalidraw) — Open in [Excalidraw](https://excalidraw.com)

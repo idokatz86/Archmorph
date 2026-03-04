@@ -393,34 +393,7 @@ class TestRoadmapRouterCoverage:
         assert resp.status_code == 404
 
 
-# =================================================================
-# Router coverage — migration
-# =================================================================
-
-@pytest.mark.coverage
-class TestMigrationRouterCoverage:
-    @pytest.fixture(scope="class")
-    def client(self):
-        from fastapi.testclient import TestClient
-        from main import app
-        with TestClient(app, raise_server_exceptions=False) as c:
-            yield c
-
-    def test_runbook_not_found(self, client):
-        resp = client.post("/api/diagrams/nonexistent/runbook")
-        assert resp.status_code == 404
-
-    def test_get_runbook_not_found(self, client):
-        resp = client.get("/api/diagrams/nonexistent/runbook")
-        assert resp.status_code == 404
-
-    def test_get_runbook_markdown_not_found(self, client):
-        resp = client.get("/api/diagrams/nonexistent/runbook/markdown")
-        assert resp.status_code == 404
-
-    def test_assessment_not_found(self, client):
-        resp = client.post("/api/diagrams/nonexistent/assessment")
-        assert resp.status_code in (404, 405)
+# NOTE: TestMigrationRouterCoverage archived — see _archive/tests/
 
 
 # =================================================================

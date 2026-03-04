@@ -43,7 +43,7 @@ variable "primary_resource_group" {
 variable "frontend_url" {
   description = "Frontend URL for CORS (same SWA origin used by production)"
   type        = string
-  default     = "https://agreeable-ground-01012c003.2.azurestaticapps.net"
+  default     = "https://archmorphai.com"
 }
 
 # ─────────────────────────────────────────────────────────────

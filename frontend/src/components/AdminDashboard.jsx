@@ -1,18 +1,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Shield, X, Filter, Activity, BarChart3, AlertTriangle, TrendingUp,
-  Zap, Eye, Loader2, DollarSign, Monitor, LogIn, LogOut, Lock, KeyRound,
+  Zap, Eye, Loader2, DollarSign, LogIn, LogOut, Lock, KeyRound,
 } from 'lucide-react';
 import { Badge, Button, Card } from './ui';
 import { API_BASE } from '../constants';
 import api from '../services/apiClient';
-import MonitoringDashboard from './MonitoringDashboard';
 import useFocusTrap from '../hooks/useFocusTrap';
 
 const STEP_COLORS = ['#22C55E', '#3B82F6', '#A855F7', '#F59E0B', '#EF4444', '#06B6D4'];
 const TABS = [
   { key: 'analytics', label: 'Analytics', icon: BarChart3 },
-  { key: 'monitoring', label: 'Monitoring', icon: Monitor },
 ];
 
 export default function AdminDashboard({ onClose }) {
@@ -209,9 +207,6 @@ export default function AdminDashboard({ onClose }) {
       </div>
 
       <div className="max-w-6xl mx-auto px-6 py-8 space-y-8">
-        {/* Monitoring Tab */}
-        {activeTab === 'monitoring' && <MonitoringDashboard sessionToken={sessionToken} onAuthError={() => setSessionToken(null)} />}
-
         {/* Analytics Tab */}
         {activeTab === 'analytics' && (<>
         {/* Summary Row */}

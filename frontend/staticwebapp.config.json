@@ -8,7 +8,7 @@
       "route": "/api/*",
       "allowedRoles": ["anonymous"],
       "headers": {
-        "X-Forwarded-Host": "agreeable-ground-01012c003.2.azurestaticapps.net"
+        "X-Forwarded-Host": "archmorphai.com"
       }
     }
   ],

@@ -223,11 +223,11 @@ class TestCORSTightening:
         r = client.options(
             "/api/health",
             headers={
-                "Origin": "https://agreeable-ground-01012c003.2.azurestaticapps.net",
+                "Origin": "https://archmorphai.com",
                 "Access-Control-Request-Method": "GET",
             },
         )
-        assert r.headers.get("access-control-allow-origin") == "https://agreeable-ground-01012c003.2.azurestaticapps.net"
+        assert r.headers.get("access-control-allow-origin") == "https://archmorphai.com"
 
     def test_cors_blocks_unknown_origin(self, client):
         """Unknown origins should not get CORS headers."""

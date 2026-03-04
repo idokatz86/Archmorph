@@ -1,6 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 
-const FRONTEND_URL = process.env.FRONTEND_URL || 'https://agreeable-ground-01012c003.2.azurestaticapps.net';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://archmorphai.com';
 
 export default defineConfig({
   testDir: './e2e',
