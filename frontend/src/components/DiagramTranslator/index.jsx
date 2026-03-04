@@ -16,6 +16,8 @@ import GuidedQuestions from './GuidedQuestions';
 import AnalysisResults from './AnalysisResults';
 import IaCViewer from './IaCViewer';
 import CostPanel from './CostPanel';
+import HLDTab from './HLDTab';
+import PricingTab from './PricingTab';
 
 const STEPS = [
   { id: 'upload', label: 'Upload', canNav: true },
@@ -23,6 +25,8 @@ const STEPS = [
   { id: 'questions', label: 'Customize' },
   { id: 'results', label: 'Results' },
   { id: 'iac', label: 'IaC Code' },
+  { id: 'hld', label: 'HLD' },
+  { id: 'pricing', label: 'Pricing' },
 ];
 
 export default function DiagramTranslator() {
@@ -104,6 +108,25 @@ export default function DiagramTranslator() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ── Auto-trigger HLD generation when entering HLD tab (#400) ──
+  useEffect(() => {
+    if (state.step === 'hld' && !state.hldData && !state.hldLoading && state.diagramId) {
+      handleGenerateHld();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.step]);
+
+  // ── Auto-fetch cost breakdown when entering Pricing tab (#401) ──
+  useEffect(() => {
+    if (state.step === 'pricing' && !state.costBreakdown && !state.costBreakdownLoading && state.diagramId) {
+      set({ costBreakdownLoading: true });
+      api.get(`/diagrams/${state.diagramId}/cost-breakdown`)
+        .then(data => set({ costBreakdown: data, costBreakdownLoading: false }))
+        .catch(() => set({ costBreakdownLoading: false }));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.step]);
 
   // ── Drag & drop ──
   // ── Session auto-recovery: push cached analysis back to backend on 404 ──
@@ -562,6 +585,8 @@ export default function DiagramTranslator() {
     canNav: s.id === 'upload' ? true
       : s.id === 'questions' || s.id === 'results' ? !!state.analysis
       : s.id === 'iac' ? !!state.iacCode
+      : s.id === 'hld' ? !!state.iacCode  // Can access HLD after IaC
+      : s.id === 'pricing' ? !!state.iacCode  // Can access Pricing after IaC
       : false,
   }));
 
@@ -703,19 +728,10 @@ export default function DiagramTranslator() {
           generatingIac={state.generatingIac}
           iacFormat={state.iacFormat}
           exportLoading={state.exportLoading}
-          hldLoading={state.hldLoading}
-          hldData={state.hldData}
-          hldTab={state.hldTab}
-          hldExportLoading={state.hldExportLoading}
-          hldIncludeDiagrams={state.hldIncludeDiagrams}
           copyFeedback={state.copyFeedback}
           onSetStep={(step) => set({ step })}
           onGenerateIac={handleGenerateIac}
-          onGenerateHld={handleGenerateHld}
           onExportDiagram={handleExportDiagram}
-          onSetHldTab={(tab) => set({ hldTab: tab })}
-          onSetHldIncludeDiagrams={(v) => set({ hldIncludeDiagrams: v })}
-          onHldExport={handleHldExport}
           onCopyWithFeedback={copyWithFeedback}
         />
       )}
@@ -723,7 +739,6 @@ export default function DiagramTranslator() {
       {/* Step: IaC Code */}
       {state.step === 'iac' && state.iacCode && (
         <div className="space-y-6">
-          <CostPanel costEstimate={state.costEstimate} />
           <IaCViewer
             iacCode={state.iacCode}
             iacFormat={state.iacFormat}
@@ -746,17 +761,37 @@ export default function DiagramTranslator() {
           />
           <div className="flex items-center justify-between">
             <Button onClick={() => set({ step: 'results' })} variant="ghost" icon={Eye}>Back to Results</Button>
-            {state.confirmReset ? (
-              <div className="flex items-center gap-2 bg-secondary rounded-lg px-3 py-2 border border-border animate-fade-in">
-                <span className="text-xs text-text-secondary">Discard current translation?</span>
-                <Button onClick={reset} variant="danger" size="sm">Yes, Start Over</Button>
-                <Button onClick={() => set({ confirmReset: false })} variant="ghost" size="sm">Cancel</Button>
-              </div>
-            ) : (
-              <Button onClick={() => set({ confirmReset: true })} variant="secondary" icon={Upload}>New Translation</Button>
-            )}
+            <Button onClick={() => set({ step: 'hld' })} variant="primary">Next: HLD Document →</Button>
           </div>
         </div>
+      )}
+
+      {/* Step: HLD (#400 — auto-generating dedicated tab) */}
+      {state.step === 'hld' && (
+        <HLDTab
+          hldData={state.hldData}
+          hldLoading={state.hldLoading}
+          hldTab={state.hldTab}
+          hldExportLoading={state.hldExportLoading}
+          hldIncludeDiagrams={state.hldIncludeDiagrams}
+          copyFeedback={state.copyFeedback}
+          error={state.error}
+          onGenerateHld={handleGenerateHld}
+          onSetHldTab={(tab) => set({ hldTab: tab })}
+          onSetHldIncludeDiagrams={(v) => set({ hldIncludeDiagrams: v })}
+          onHldExport={handleHldExport}
+          onCopyWithFeedback={copyWithFeedback}
+          onSetStep={(step) => set({ step })}
+        />
+      )}
+
+      {/* Step: Pricing (#401 — dedicated deep cost breakdown) */}
+      {state.step === 'pricing' && (
+        <PricingTab
+          costBreakdown={state.costBreakdown}
+          loading={state.costBreakdownLoading}
+          onSetStep={(step) => set({ step })}
+        />
       )}
     </div>
   );

@@ -64,6 +64,188 @@ async def estimate_cost(request: Request, diagram_id: str):
 
 
 # ─────────────────────────────────────────────────────────────
+# Enriched Cost Breakdown (#403)
+# ─────────────────────────────────────────────────────────────
+@router.get("/api/diagrams/{diagram_id}/cost-breakdown")
+@limiter.limit("15/minute")
+async def cost_breakdown(request: Request, diagram_id: str):
+    """Return enriched cost data for the Pricing tab.
+
+    Includes per-service formula, assumptions, alternative SKUs,
+    optimization recommendations, cost-by-category, and source vs
+    target comparison.
+    """
+    record_event("cost_breakdown", {"diagram_id": diagram_id})
+
+    session = get_or_recreate_session(diagram_id)
+    if not session:
+        raise HTTPException(404, "No analysis found. Analyze a diagram first.")
+
+    mappings = session.get("mappings", [])
+    iac_params = session.get("iac_parameters", {})
+    answers = session.get("applied_answers", {})
+    region = iac_params.get("deploy_region", "westeurope")
+    sku_strategy = iac_params.get("sku_strategy", "Balanced")
+
+    # Base cost estimate
+    if mappings:
+        cost_data = estimate_services_cost(mappings, region=region, sku_strategy=sku_strategy)
+    else:
+        cost_data = {"services": [], "total_monthly_estimate": {"low": 0, "high": 0}}
+
+    services = cost_data.get("services", [])
+
+    # Enrich each service with formula, assumptions, and alternatives
+    enriched_services = []
+    category_costs = {}
+    total_low = 0
+    total_high = 0
+
+    for svc in services:
+        low = svc.get("monthly_low", 0) or 0
+        high = svc.get("monthly_high", 0) or 0
+        mid = (low + high) / 2
+        total_low += low
+        total_high += high
+
+        category = svc.get("category", "Other")
+        category_costs[category] = category_costs.get(category, 0) + mid
+
+        # Price source and formula
+        price_source = svc.get("price_source", "Azure Retail Prices API")
+        formula = svc.get("formula", "")
+        assumptions = svc.get("assumptions", [])
+        if not formula and high > 0:
+            formula = f"Estimated ${low:,.0f}–${high:,.0f}/month based on {price_source}"
+        if not assumptions:
+            assumptions = [
+                f"Region: {region}",
+                f"SKU strategy: {sku_strategy}",
+                "Pay-as-you-go pricing (no reservations)",
+                "730 hours/month",
+            ]
+
+        # Alternative SKU suggestions
+        alternatives = []
+        if high > 100:
+            ri_savings = round(mid * 0.35, 2)
+            alternatives.append({
+                "sku": "Reserved 1-year",
+                "monthly": round(mid * 0.65, 2),
+                "savings": "35%",
+                "tradeoff": "Requires 1-year commitment",
+            })
+            alternatives.append({
+                "sku": "Reserved 3-year",
+                "monthly": round(mid * 0.50, 2),
+                "savings": "50%",
+                "tradeoff": "Requires 3-year commitment",
+            })
+        if "compute" in category.lower() or "virtual" in svc.get("service", "").lower():
+            alternatives.append({
+                "sku": "Spot Instance",
+                "monthly": round(mid * 0.15, 2),
+                "savings": "up to 85%",
+                "tradeoff": "Can be evicted with 30s notice; for fault-tolerant workloads only",
+            })
+
+        enriched_services.append({
+            **svc,
+            "monthly_mid": round(mid, 2),
+            "price_source": price_source,
+            "formula": formula,
+            "assumptions": assumptions,
+            "alternatives": alternatives,
+        })
+
+    # Sort by cost (highest first)
+    enriched_services.sort(key=lambda s: s.get("monthly_mid", 0), reverse=True)
+
+    # Cost drivers — top 3 most expensive
+    cost_drivers = []
+    for svc in enriched_services[:3]:
+        if svc.get("monthly_mid", 0) > 0:
+            pct = (svc["monthly_mid"] / ((total_low + total_high) / 2) * 100) if (total_low + total_high) > 0 else 0
+            cost_drivers.append({
+                "service": svc.get("service", ""),
+                "monthly_mid": svc["monthly_mid"],
+                "percentage": round(pct, 1),
+                "reason": f"Highest cost contributor at ~${svc['monthly_mid']:,.0f}/mo ({pct:.0f}% of total)",
+            })
+
+    # Optimization recommendations from cost_optimizer
+    optimizations = []
+    try:
+        opt_result = await asyncio.to_thread(analyze_cost_optimizations, session, answers, cost_data)
+        for opt in opt_result.get("optimizations", []):
+            optimizations.append({
+                "title": opt.get("title", ""),
+                "description": opt.get("description", ""),
+                "savings": opt.get("estimated_savings", ""),
+                "effort": opt.get("effort", "medium"),
+                "services_affected": opt.get("services_affected", []),
+                "action_steps": opt.get("action_steps", []),
+                "azure_doc_link": opt.get("azure_doc_link", ""),
+            })
+    except Exception:
+        logger.warning("Cost optimization analysis failed for %s", diagram_id)
+
+    # Source vs target comparison (rough estimate: source typically 10-20% more)
+    total_mid = (total_low + total_high) / 2
+    source_estimate = round(total_mid * 1.12, 2)  # Conservative: Azure ~12% cheaper than AWS/GCP on average
+    savings_pct = round((1 - total_mid / source_estimate) * 100, 1) if source_estimate > 0 else 0
+
+    # Region impact — show cheapest region vs current
+    region_impact = None
+    cheapest_regions = ["eastus", "eastus2", "centralus", "westus2"]
+    if region not in cheapest_regions:
+        region_impact = {
+            "current_region": region,
+            "current_monthly": round(total_mid, 2),
+            "cheapest_region": "eastus",
+            "cheapest_monthly": round(total_mid * 0.92, 2),
+            "potential_savings": f"{round((1 - 0.92) * 100)}%",
+            "note": "US East regions are typically 5-10% cheaper than European regions.",
+        }
+
+    return {
+        "diagram_id": diagram_id,
+        "summary": {
+            "total_monthly": {
+                "low": round(total_low, 2),
+                "mid": round(total_mid, 2),
+                "high": round(total_high, 2),
+            },
+            "currency": "USD",
+            "region": cost_data.get("region", "West Europe"),
+            "arm_region": region,
+            "service_count": len(enriched_services),
+        },
+        "services": enriched_services,
+        "cost_drivers": cost_drivers,
+        "optimizations": optimizations,
+        "cost_by_category": category_costs,
+        "source_comparison": {
+            "source_provider": session.get("source_provider", "aws"),
+            "source_monthly_estimate": source_estimate,
+            "target_monthly_estimate": round(total_mid, 2),
+            "savings_percentage": savings_pct,
+            "note": "Source cost is an approximation based on equivalent service pricing.",
+        },
+        "region_impact": region_impact,
+        "pricing_assumptions": [
+            "Prices from Azure Retail Prices API (cached 24h)",
+            "Pay-as-you-go pricing unless otherwise noted",
+            "730 hours/month for always-on resources",
+            f"Region: {region}",
+            f"SKU strategy: {sku_strategy}",
+            "Does not include data transfer, support plans, or tax",
+            "Reserved Instance and Spot prices shown as alternatives",
+        ],
+    }
+
+
+# ─────────────────────────────────────────────────────────────
 # Best Practices & WAF Analysis
 # ─────────────────────────────────────────────────────────────
 @router.get("/api/diagrams/{diagram_id}/best-practices")

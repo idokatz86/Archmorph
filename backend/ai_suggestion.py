@@ -191,6 +191,277 @@ def _build_confidence_factors(suggestion: Dict[str, Any], source_service: str) -
     return factors
 
 
+# ─────────────────────────────────────────────────────────
+# Per-mapping strengths, limitations & migration notes (#404)
+# ─────────────────────────────────────────────────────────
+# Curated knowledge base of Azure-specific limitations and strengths
+# keyed by lowercase Azure service name fragments.
+_SERVICE_KNOWLEDGE_BASE: Dict[str, Dict[str, Any]] = {
+    "virtual machines": {
+        "strengths": [
+            {"factor": "Broad VM family selection", "detail": "60+ VM series covering general purpose, compute, memory, storage, GPU and HPC workloads.", "severity": "positive"},
+            {"factor": "Hybrid benefit", "detail": "Azure Hybrid Benefit allows reuse of Windows Server / SQL Server licenses for up to 85% savings.", "severity": "positive"},
+            {"factor": "Availability Zones", "detail": "99.99% SLA with VMs spread across 3 availability zones.", "severity": "positive"},
+        ],
+        "limitations": [
+            {"factor": "Nested virtualisation", "detail": "Nested Hyper-V is only supported on Dv3/Ev3 or newer series.", "severity": "low", "doc_link": "https://learn.microsoft.com/en-us/azure/virtual-machines/acu"},
+            {"factor": "Live migration during maintenance", "detail": "Memory-preserving live migration is not guaranteed for all VM sizes.", "severity": "medium", "doc_link": "https://learn.microsoft.com/en-us/azure/virtual-machines/maintenance-and-updates"},
+        ],
+        "migration_notes": [
+            {"area": "config", "note": "AMI → Managed Image or Azure Compute Gallery conversion required.", "effort": "medium"},
+            {"area": "networking", "note": "Security groups → NSG rule translation (stateful in both, but syntax differs).", "effort": "low"},
+        ],
+    },
+    "kubernetes": {
+        "strengths": [
+            {"factor": "Managed Kubernetes", "detail": "AKS provides free control plane, integrated Azure AD RBAC, and auto-upgrade channels.", "severity": "positive"},
+            {"factor": "KEDA autoscaling", "detail": "Native event-driven autoscaling with KEDA built into AKS.", "severity": "positive"},
+        ],
+        "limitations": [
+            {"factor": "IAM to Azure RBAC", "detail": "AWS IAM roles for service accounts → Azure Workload Identity Federation migration required.", "severity": "high", "doc_link": "https://learn.microsoft.com/en-us/azure/aks/workload-identity-overview"},
+            {"factor": "Node pool limits", "detail": "AKS supports max 5,000 nodes per cluster (vs EKS 5,000) but 100 nodes per pool by default.", "severity": "medium", "doc_link": "https://learn.microsoft.com/en-us/azure/aks/quotas-skus-regions"},
+        ],
+        "migration_notes": [
+            {"area": "code", "note": "Kubernetes manifests are portable; Helm charts work directly.", "effort": "low"},
+            {"area": "config", "note": "aws-load-balancer-controller annotations → Azure-specific ingress annotations.", "effort": "medium"},
+            {"area": "data", "note": "Persistent volumes: EBS CSI → Azure Disk CSI driver (no data migration needed for stateless).", "effort": "low"},
+        ],
+    },
+    "lambda": {
+        "strengths": [
+            {"factor": "Consumption billing", "detail": "Azure Functions Consumption plan: pay only for execution time, first 1M requests free.", "severity": "positive"},
+            {"factor": "Durable Functions", "detail": "Built-in orchestration patterns (fan-out, chaining, human interaction) not natively available in Lambda.", "severity": "positive"},
+        ],
+        "limitations": [
+            {"factor": "Timeout limits", "detail": "Consumption plan max timeout is 10 minutes (Lambda allows 15 min). Use Premium plan for longer.", "severity": "medium", "doc_link": "https://learn.microsoft.com/en-us/azure/azure-functions/functions-scale"},
+            {"factor": "Cold start", "detail": "Consumption plan cold starts can be 1-3s; Premium plan offers pre-warmed instances.", "severity": "medium", "doc_link": "https://learn.microsoft.com/en-us/azure/azure-functions/functions-premium-plan"},
+            {"factor": "Layer equivalence", "detail": "Lambda Layers have no direct equivalent; use custom Docker images or NuGet/npm packages.", "severity": "low", "doc_link": "https://learn.microsoft.com/en-us/azure/azure-functions/functions-custom-handlers"},
+        ],
+        "migration_notes": [
+            {"area": "code", "note": "Handler signature differs: Lambda handler(event, context) → Azure Function trigger bindings.", "effort": "medium"},
+            {"area": "config", "note": "API Gateway + Lambda → Azure Functions HTTP trigger or Azure API Management.", "effort": "medium"},
+        ],
+    },
+    "functions": {
+        "strengths": [
+            {"factor": "Consumption billing", "detail": "Pay-per-execution with generous free tier (1M requests/month).", "severity": "positive"},
+            {"factor": "Durable orchestration", "detail": "Durable Functions for complex workflows with automatic state management.", "severity": "positive"},
+        ],
+        "limitations": [
+            {"factor": "Timeout limits", "detail": "Consumption plan: 10 min max. Premium/Dedicated plans: configurable up to unlimited.", "severity": "medium", "doc_link": "https://learn.microsoft.com/en-us/azure/azure-functions/functions-scale"},
+        ],
+        "migration_notes": [
+            {"area": "code", "note": "Cloud Functions HTTP trigger → Azure Functions HTTP trigger; signature adaptation needed.", "effort": "medium"},
+        ],
+    },
+    "s3": {
+        "strengths": [
+            {"factor": "Tiered storage", "detail": "Hot/Cool/Cold/Archive tiers with lifecycle management for cost optimisation.", "severity": "positive"},
+            {"factor": "Azure Data Lake", "detail": "Blob Storage supports hierarchical namespace (ADLS Gen2) for big data analytics.", "severity": "positive"},
+        ],
+        "limitations": [
+            {"factor": "Object lock", "detail": "Immutable storage policies differ from S3 Object Lock (compliance vs legal hold modes).", "severity": "low", "doc_link": "https://learn.microsoft.com/en-us/azure/storage/blobs/immutable-storage-overview"},
+            {"factor": "Request rate", "detail": "Blob Storage: 20,000 requests/sec per storage account (S3: 5,500 PUT per prefix).", "severity": "low", "doc_link": "https://learn.microsoft.com/en-us/azure/storage/common/scalability-targets-standard-account"},
+        ],
+        "migration_notes": [
+            {"area": "data", "note": "Use AzCopy or Azure Data Box for large-scale S3 → Blob migration.", "effort": "low"},
+            {"area": "config", "note": "S3 bucket policies → Azure RBAC + Blob access policies.", "effort": "medium"},
+        ],
+    },
+    "rds": {
+        "strengths": [
+            {"factor": "Managed database", "detail": "Azure SQL/PostgreSQL Flex offers built-in HA, automated backups, and intelligent tuning.", "severity": "positive"},
+            {"factor": "Serverless tier", "detail": "Azure SQL Serverless auto-pauses and auto-scales, ideal for intermittent workloads.", "severity": "positive"},
+        ],
+        "limitations": [
+            {"factor": "Engine compatibility", "detail": "RDS Oracle/MariaDB: no native Azure equivalent; use Azure SQL or VM-hosted DB.", "severity": "high", "doc_link": "https://learn.microsoft.com/en-us/azure/azure-sql/migration-guides/"},
+            {"factor": "Read replicas", "detail": "Azure SQL read replicas are limited to same region for Hyperscale tier.", "severity": "medium", "doc_link": "https://learn.microsoft.com/en-us/azure/azure-sql/database/read-scale-out"},
+        ],
+        "migration_notes": [
+            {"area": "data", "note": "Use Azure Database Migration Service (DMS) for schema + data migration.", "effort": "medium"},
+            {"area": "config", "note": "Parameter groups → Azure server parameters; connection string format change.", "effort": "low"},
+        ],
+    },
+    "cosmos": {
+        "strengths": [
+            {"factor": "Multi-model", "detail": "Supports SQL, MongoDB, Cassandra, Gremlin, and Table APIs natively.", "severity": "positive"},
+            {"factor": "Global distribution", "detail": "Turnkey multi-region writes with 5 consistency levels.", "severity": "positive"},
+        ],
+        "limitations": [
+            {"factor": "RU pricing model", "detail": "Request Unit (RU) based pricing can be complex to predict; use capacity calculator.", "severity": "medium", "doc_link": "https://learn.microsoft.com/en-us/azure/cosmos-db/request-units"},
+            {"factor": "Document size", "detail": "Max document size is 2 MB (DynamoDB: 400 KB but with item collections).", "severity": "low", "doc_link": "https://learn.microsoft.com/en-us/azure/cosmos-db/concepts-limits"},
+        ],
+        "migration_notes": [
+            {"area": "data", "note": "DynamoDB → Cosmos DB SQL API migration using Azure Data Factory or custom ETL.", "effort": "high"},
+            {"area": "code", "note": "DynamoDB SDK calls → Cosmos DB SDK; query syntax differs significantly for SQL API.", "effort": "high"},
+        ],
+    },
+    "sql": {
+        "strengths": [
+            {"factor": "Intelligent performance", "detail": "Automatic tuning, intelligent insights, and query performance recommendations.", "severity": "positive"},
+            {"factor": "Elastic pools", "detail": "Share resources across multiple databases for cost efficiency.", "severity": "positive"},
+        ],
+        "limitations": [
+            {"factor": "Cross-database queries", "detail": "Cross-database queries require Elastic Query (limited) or Synapse Link.", "severity": "medium", "doc_link": "https://learn.microsoft.com/en-us/azure/azure-sql/database/elastic-query-overview"},
+        ],
+        "migration_notes": [
+            {"area": "data", "note": "Use Database Migration Service for online migration with minimal downtime.", "effort": "medium"},
+        ],
+    },
+    "redis": {
+        "strengths": [
+            {"factor": "Managed service", "detail": "Azure Cache for Redis with clustering, geo-replication, and data persistence.", "severity": "positive"},
+        ],
+        "limitations": [
+            {"factor": "Lua scripting", "detail": "Complex Lua scripts may need adaptation; check command compatibility.", "severity": "low", "doc_link": "https://learn.microsoft.com/en-us/azure/azure-cache-for-redis/cache-lua-scripting"},
+        ],
+        "migration_notes": [
+            {"area": "data", "note": "Use RDB export/import or RIOT tool for data migration.", "effort": "low"},
+        ],
+    },
+    "load balancer": {
+        "strengths": [
+            {"factor": "Layer 4 & 7 options", "detail": "Azure Load Balancer (L4) + Application Gateway (L7) + Front Door (global L7).", "severity": "positive"},
+        ],
+        "limitations": [
+            {"factor": "Feature mapping", "detail": "ALB → Application Gateway; NLB → Azure LB; one-to-one but config differs.", "severity": "medium", "doc_link": "https://learn.microsoft.com/en-us/azure/architecture/guide/technology-choices/load-balancing-overview"},
+        ],
+        "migration_notes": [
+            {"area": "config", "note": "Target groups → Backend pools; listener rules → routing rules.", "effort": "medium"},
+        ],
+    },
+    "cloudfront": {
+        "strengths": [
+            {"factor": "Azure Front Door", "detail": "Global load balancing + CDN + WAF in a single service.", "severity": "positive"},
+        ],
+        "limitations": [
+            {"factor": "Lambda@Edge", "detail": "CloudFront Functions/Lambda@Edge → Azure Front Door Rules Engine (less flexible).", "severity": "medium", "doc_link": "https://learn.microsoft.com/en-us/azure/frontdoor/front-door-rules-engine"},
+        ],
+        "migration_notes": [
+            {"area": "config", "note": "CloudFront distributions → Front Door profiles; origin and routing reconfiguration.", "effort": "medium"},
+        ],
+    },
+    "sqs": {
+        "strengths": [
+            {"factor": "Azure Service Bus", "detail": "Enterprise messaging with sessions, dead-letter, and scheduled delivery.", "severity": "positive"},
+        ],
+        "limitations": [
+            {"factor": "FIFO guarantees", "detail": "Service Bus sessions provide ordering but differ from SQS FIFO group-level ordering.", "severity": "medium", "doc_link": "https://learn.microsoft.com/en-us/azure/service-bus-messaging/message-sessions"},
+        ],
+        "migration_notes": [
+            {"area": "code", "note": "SQS SDK → Service Bus SDK; message format and receipt handle semantics differ.", "effort": "medium"},
+        ],
+    },
+    "sns": {
+        "strengths": [
+            {"factor": "Event Grid", "detail": "Azure Event Grid provides event-driven pub/sub with filtering and dead-letter.", "severity": "positive"},
+        ],
+        "limitations": [
+            {"factor": "SMS/push", "detail": "SNS SMS/push → Azure Notification Hubs (separate service) or Communication Services.", "severity": "medium", "doc_link": "https://learn.microsoft.com/en-us/azure/notification-hubs/"},
+        ],
+        "migration_notes": [
+            {"area": "code", "note": "SNS topic subscriptions → Event Grid subscriptions; different filtering syntax.", "effort": "medium"},
+        ],
+    },
+    "vpc": {
+        "strengths": [
+            {"factor": "VNet", "detail": "Azure Virtual Network with subnet delegation, service endpoints, and Private Link.", "severity": "positive"},
+        ],
+        "limitations": [
+            {"factor": "CIDR flexibility", "detail": "VNet address space can be modified after creation but subnets cannot overlap.", "severity": "low", "doc_link": "https://learn.microsoft.com/en-us/azure/virtual-network/manage-virtual-network"},
+        ],
+        "migration_notes": [
+            {"area": "networking", "note": "VPC subnets → VNet subnets; NAT Gateway and route tables need reconfiguration.", "effort": "medium"},
+        ],
+    },
+    "app service": {
+        "strengths": [
+            {"factor": "Fully managed PaaS", "detail": "Built-in CI/CD, custom domains, SSL, and autoscale with zero infrastructure management.", "severity": "positive"},
+            {"factor": "Deployment slots", "detail": "Blue-green deployments with traffic splitting built into the platform.", "severity": "positive"},
+        ],
+        "limitations": [
+            {"factor": "Runtime restrictions", "detail": "Consumption-tier App Service has limited outbound IP control and sandbox restrictions.", "severity": "low", "doc_link": "https://learn.microsoft.com/en-us/azure/app-service/overview-patch-os-runtime"},
+        ],
+        "migration_notes": [
+            {"area": "config", "note": "Elastic Beanstalk/App Runner → App Service; Procfile → startup command.", "effort": "low"},
+        ],
+    },
+    "container apps": {
+        "strengths": [
+            {"factor": "Serverless containers", "detail": "Scale to zero, Dapr integration, and KEDA-based autoscaling.", "severity": "positive"},
+            {"factor": "Revision management", "detail": "Built-in traffic splitting for canary/blue-green deployments.", "severity": "positive"},
+        ],
+        "limitations": [
+            {"factor": "GPU support", "detail": "Container Apps GPU workloads require dedicated plan (preview).", "severity": "medium", "doc_link": "https://learn.microsoft.com/en-us/azure/container-apps/gpu-overview"},
+        ],
+        "migration_notes": [
+            {"area": "config", "note": "ECS task definitions → Container Apps YAML manifests; port and env var mapping.", "effort": "medium"},
+        ],
+    },
+}
+
+
+def _lookup_service_knowledge(azure_service: str) -> Dict[str, Any]:
+    """Look up curated knowledge for an Azure service. Returns strengths, limitations, migration notes."""
+    svc_lower = azure_service.lower()
+    for key, knowledge in _SERVICE_KNOWLEDGE_BASE.items():
+        if key in svc_lower or svc_lower in key:
+            return knowledge
+    # Generic fallback
+    return {
+        "strengths": [
+            {"factor": "Managed Azure service", "detail": f"{azure_service} is a fully managed Azure service with SLA guarantees.", "severity": "positive"},
+        ],
+        "limitations": [],
+        "migration_notes": [
+            {"area": "config", "note": "Configuration format and SDK calls will differ from the source provider.", "effort": "medium"},
+        ],
+    }
+
+
+def build_mapping_deep_dive(suggestion: Dict[str, Any], source_service: str) -> Dict[str, Any]:
+    """Build structured strengths, limitations, and migration notes for a mapping (#404).
+
+    Returns dict with:
+      - strengths: list of {factor, detail, severity}
+      - limitations: list of {factor, detail, severity, doc_link}
+      - migration_notes: list of {area, note, effort}
+    """
+    azure_service = suggestion.get("azure_service", "")
+    knowledge = _lookup_service_knowledge(azure_service)
+
+    strengths = list(knowledge.get("strengths", []))
+    limitations = list(knowledge.get("limitations", []))
+    migration_notes = list(knowledge.get("migration_notes", []))
+
+    # Supplement from GPT suggestion data
+    gaps = suggestion.get("feature_gaps", [])
+    for gap in gaps:
+        if not any(l["factor"].lower() == gap.lower() for l in limitations):
+            limitations.append({
+                "factor": gap,
+                "detail": f"Feature gap identified during AI analysis: {gap}.",
+                "severity": "medium",
+                "doc_link": "",
+            })
+
+    # Add effort-based migration note if not already present
+    effort = suggestion.get("migration_effort", "medium")
+    deps = suggestion.get("dependencies", [])
+    if deps and not any(n["area"] == "dependencies" for n in migration_notes):
+        migration_notes.append({
+            "area": "dependencies",
+            "note": f"Requires additional Azure services: {', '.join(deps[:4])}.",
+            "effort": effort,
+        })
+
+    return {
+        "strengths": strengths,
+        "limitations": limitations,
+        "migration_notes": migration_notes,
+    }
+
+
 @openai_retry
 def _call_gpt_suggest(
     source_service: str,
@@ -250,7 +521,7 @@ def suggest_mapping(
     # Fast path — catalogue hit
     existing = lookup_mapping(source_service, source_provider)
     if existing:
-        return {
+        result = {
             "source_service": source_service,
             "source_provider": source_provider,
             "azure_service": existing.get("azure", ""),
@@ -260,6 +531,10 @@ def suggest_mapping(
             "source": "catalogue",
             "review_status": "approved",
         }
+        # Add deep-dive data for catalogue matches too (#404)
+        result["confidence_factors"] = _build_confidence_factors(result, source_service)
+        result.update(build_mapping_deep_dive(result, source_service))
+        return result
 
     # Slow path — GPT-4o
     try:
@@ -293,6 +568,8 @@ def suggest_mapping(
         "review_status": "pending" if suggestion.get("confidence", 0.5) < 0.7 else "auto_approved",
         # ── Confidence explainability (#353) ──
         "confidence_factors": _build_confidence_factors(suggestion, source_service),
+        # ── Deep-dive strengths/limitations/migration notes (#404) ──
+        **build_mapping_deep_dive(suggestion, source_service),
     }
 
     # Queue low-confidence for review

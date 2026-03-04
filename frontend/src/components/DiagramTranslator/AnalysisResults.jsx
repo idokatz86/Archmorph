@@ -5,7 +5,6 @@ import {
 } from 'lucide-react';
 import { Badge, Button, Card } from '../ui';
 import ExportPanel from './ExportPanel';
-import HLDPanel from './HLDPanel';
 
 /* ── Confidence Explanation Row ──────────────────────────── */
 function MappingRow({ m, sourceProvider }) {
@@ -59,10 +58,9 @@ function MappingRow({ m, sourceProvider }) {
 }
 
 export default function AnalysisResults({
-  analysis, loading, generatingIac, iacFormat, exportLoading, hldLoading,
-  hldData, hldTab, hldExportLoading, hldIncludeDiagrams, copyFeedback,
-  onSetStep, onGenerateIac, onGenerateHld, onExportDiagram,
-  onSetHldTab, onSetHldIncludeDiagrams, onHldExport, onCopyWithFeedback,
+  analysis, loading, generatingIac, iacFormat, exportLoading,
+  copyFeedback,
+  onSetStep, onGenerateIac, onExportDiagram, onCopyWithFeedback,
 }) {
   return (
     <div className="space-y-6">
@@ -166,14 +164,12 @@ export default function AnalysisResults({
       <ExportPanel exportLoading={exportLoading} onExportDiagram={onExportDiagram} />
 
       {/* Generation Progress Indicator (#311) */}
-      {(generatingIac || hldLoading) && (
+      {generatingIac && (
         <Card className="p-4 border-cta/30 bg-cta/5" role="status" aria-live="polite">
           <div className="flex items-center gap-3">
             <Loader2 className="w-5 h-5 text-cta animate-spin shrink-0" aria-hidden="true" />
             <p className="text-sm text-text-primary font-medium">
-              {generatingIac
-                ? `Generating ${iacFormat === 'terraform' ? 'Terraform' : iacFormat === 'bicep' ? 'Bicep' : 'CloudFormation'} code...`
-                : 'Generating High-Level Design document...'}
+              {`Generating ${iacFormat === 'terraform' ? 'Terraform' : iacFormat === 'bicep' ? 'Bicep' : 'CloudFormation'} code...`}
             </p>
           </div>
         </Card>
@@ -186,22 +182,8 @@ export default function AnalysisResults({
           <Button onClick={() => onGenerateIac('terraform')} loading={loading && iacFormat === 'terraform'} icon={FileCode}>Generate Terraform</Button>
           <Button onClick={() => onGenerateIac('bicep')} variant="secondary" loading={loading && iacFormat === 'bicep'} icon={FileCode}>Generate Bicep</Button>
           <Button onClick={() => onGenerateIac('cloudformation')} variant="secondary" loading={loading && iacFormat === 'cloudformation'} icon={FileCode}>CloudFormation</Button>
-          <Button onClick={onGenerateHld} loading={hldLoading} variant="secondary" icon={Sparkles}>Generate HLD</Button>
         </div>
       </div>
-
-      {/* HLD Document */}
-      <HLDPanel
-        hldData={hldData}
-        hldTab={hldTab}
-        hldExportLoading={hldExportLoading}
-        hldIncludeDiagrams={hldIncludeDiagrams}
-        copyFeedback={copyFeedback}
-        onSetHldTab={onSetHldTab}
-        onSetHldIncludeDiagrams={onSetHldIncludeDiagrams}
-        onHldExport={onHldExport}
-        onCopyWithFeedback={onCopyWithFeedback}
-      />
     </div>
   );
 }

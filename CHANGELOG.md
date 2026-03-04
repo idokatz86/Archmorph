@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.0] - 2026-03-04
+
+### Added
+- **Confidence deep-dive** — per-mapping strengths, limitations, and migration notes with curated knowledge base for 15+ Azure services (#399, #404)
+- **Enriched cost-breakdown endpoint** — `/api/diagrams/{id}/cost-breakdown` with per-service formula, assumptions, alternative SKUs, optimization recommendations, source vs target comparison, and cost-by-category (#401, #403)
+- **7-step workflow** — Upload → Analyze → Customize → Results → IaC Code → HLD → Pricing (#402)
+- **HLD auto-generation tab** — dedicated step with auto-trigger, loading skeleton, and regenerate button (#400)
+- **Pricing tab** — deep cost breakdown with cost drivers, category chart, region impact, Reserved Instance comparison, and optimization recommendations (#406)
+- **PricingTab.jsx** — new 300-line component with expandable per-service rows, SKU alternatives, and optimization cards
+- **HLDTab.jsx** — new wrapper component for standalone HLD step
+- Custom domain **archmorphai.com** with managed SSL certificates for frontend, API, and www subdomains
+
+### Changed
+- HLD moved from inline Results panel to dedicated workflow tab (auto-generates on entry)
+- Pricing moved from IaC Code tab to dedicated final Pricing tab
+- `AnalysisResults.jsx` simplified — HLD props removed, component focused on analysis display
+- `useWorkflow.js` — added `costBreakdown` and `costBreakdownLoading` state fields
+- `ai_suggestion.py` — `suggest_mapping()` now returns `strengths[]`, `limitations[]`, `migration_notes[]`
+- `routers/insights.py` — new `/cost-breakdown` endpoint with enriched pricing data
+
 ## [3.0.0] - 2026-02-24
 
 ### Added

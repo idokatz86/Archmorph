@@ -38,6 +38,9 @@ const initialState = {
   iacChatMessages: [DEFAULT_CHAT_MESSAGE],
   iacChatInput: '',
   iacChatLoading: false,
+  // Pricing (#401)
+  costBreakdown: null,
+  costBreakdownLoading: false,
 };
 
 function reducer(state, action) {
