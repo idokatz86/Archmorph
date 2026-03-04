@@ -344,7 +344,8 @@ def _create_redis_client(*, decode_responses: bool = True, socket_connect_timeou
         )
         # If no explicit principal ID, use the token's oid claim
         if not principal_id:
-            import base64, json as _j
+            import base64
+            import json as _j
             # JWT: header.payload.signature — decode the payload
             payload = token.token.split(".")[1]
             payload += "=" * (4 - len(payload) % 4)  # pad base64
