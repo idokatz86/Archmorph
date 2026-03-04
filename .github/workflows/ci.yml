@@ -323,11 +323,18 @@ jobs:
             --query "properties.fqdn" -o tsv 2>/dev/null || echo "")
 
           TEST_URL="${GREEN_FQDN:+https://$GREEN_FQDN}"
-          TEST_URL="${TEST_URL:-${{ env.API_URL }}}"
+          # API_URL includes /api suffix; for raw FQDNs we need /api/health,
+          # for API_URL fallback we need /health
+          if [ -n "$GREEN_FQDN" ]; then
+            HEALTH_PATH="/api/health"
+          else
+            TEST_URL="${{ env.API_URL }}"
+            HEALTH_PATH="/health"
+          fi
 
-          echo "Running smoke tests against: $TEST_URL"
+          echo "Running smoke tests against: $TEST_URL$HEALTH_PATH"
           for i in 1 2 3; do
-            HEALTH=$(curl -s --max-time 30 "$TEST_URL/api/health" | jq -r '.status' 2>/dev/null || echo 'failed')
+            HEALTH=$(curl -s --max-time 30 "$TEST_URL$HEALTH_PATH" | jq -r '.status' 2>/dev/null || echo 'failed')
             if [ "$HEALTH" = "healthy" ] || [ "$HEALTH" = "degraded" ]; then break; fi
             echo "Health check attempt $i returned: $HEALTH — retrying in 15s..."
             sleep 15
@@ -336,7 +343,7 @@ jobs:
             echo "::error::Green revision health check failed: $HEALTH"
             exit 1
           fi
-          VERSION=$(curl -s --max-time 30 "$TEST_URL/api/health" | jq -r '.version' 2>/dev/null || echo 'unknown')
+          VERSION=$(curl -s --max-time 30 "$TEST_URL$HEALTH_PATH" | jq -r '.version' 2>/dev/null || echo 'unknown')
           echo "Green revision version: $VERSION — all smoke tests passed"
 
       - name: Shift traffic to green (100%)
@@ -369,8 +376,8 @@ jobs:
       - name: Verify production deployment
         run: |
           sleep 10
-          HEALTH=$(curl -s --max-time 30 ${{ env.API_URL }}/api/health | jq -r '.status')
-          VERSION=$(curl -s --max-time 30 ${{ env.API_URL }}/api/health | jq -r '.version')
+          HEALTH=$(curl -s --max-time 30 ${{ env.API_URL }}/health | jq -r '.status')
+          VERSION=$(curl -s --max-time 30 ${{ env.API_URL }}/health | jq -r '.version')
           if [ "$HEALTH" != "healthy" ] && [ "$HEALTH" != "degraded" ]; then
             echo "::error::Production health check failed: $HEALTH"
             exit 1
