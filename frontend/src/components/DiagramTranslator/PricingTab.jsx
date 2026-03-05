@@ -44,13 +44,14 @@ function ServiceRow({ svc }) {
           )}
 
           {/* Assumptions */}
-          {svc.assumptions?.length > 0 && (
+          {/* Assumptions */}
+          {Array.isArray(svc.assumptions) && svc.assumptions.length > 0 && (
             <div>
               <p className="text-xs font-semibold text-text-secondary mb-1">Assumptions</p>
               <ul className="space-y-0.5">
                 {svc.assumptions.map((a, i) => (
                   <li key={i} className="text-xs text-text-muted flex items-start gap-1.5">
-                    <span className="text-cta/60 mt-0.5">•</span> {a}
+                    <span className="text-cta/60 mt-0.5">•</span> {typeof a === 'string' ? a : JSON.stringify(a)}
                   </li>
                 ))}
               </ul>
@@ -58,7 +59,7 @@ function ServiceRow({ svc }) {
           )}
 
           {/* Alternative SKUs */}
-          {svc.alternatives?.length > 0 && (
+          {Array.isArray(svc.alternatives) && svc.alternatives.length > 0 && (
             <div>
               <p className="text-xs font-semibold text-text-secondary mb-2">Alternative Options</p>
               <div className="grid gap-2">
@@ -104,7 +105,7 @@ function OptimizationCard({ opt }) {
           </p>
         </div>
       </div>
-      {opt.action_steps?.length > 0 && (
+      {opt.action_steps?.length > 0 && Array.isArray(opt.action_steps) && (
         <div className="mt-2">
           <button onClick={() => setExpanded(!expanded)} className="text-xs text-cta cursor-pointer hover:underline">
             {expanded ? 'Hide steps' : 'Show action steps'}
@@ -149,7 +150,8 @@ export default function PricingTab({ costBreakdown, loading, onSetStep }) {
   }
 
   const { summary, services = [], cost_drivers = [], optimizations = [], cost_by_category = {},
-    source_comparison, region_impact, pricing_assumptions = [] } = costBreakdown;
+    source_comparison, region_impact, pricing_assumptions: rawAssumptions } = costBreakdown;
+  const pricing_assumptions = Array.isArray(rawAssumptions) ? rawAssumptions : [];
   const total = summary?.total_monthly || {};
   const categories = Object.entries(cost_by_category).sort((a, b) => b[1] - a[1]);
   const catTotal = categories.reduce((sum, [, v]) => sum + v, 0);
