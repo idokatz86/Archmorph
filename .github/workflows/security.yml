@@ -291,7 +291,7 @@ jobs:
           cyclonedx-py requirements -i requirements.txt -o ../backend-sbom.json
 
       - name: Grype scan (Python)
-        uses: anchore/scan-action@v6
+        uses: anchore/scan-action@v7
         id: grype-python
         with:
           sbom: backend-sbom.json
@@ -320,7 +320,7 @@ jobs:
             --output-format JSON --spec-version 1.5
 
       - name: Grype scan (npm)
-        uses: anchore/scan-action@v6
+        uses: anchore/scan-action@v7
         id: grype-npm
         with:
           sbom: frontend-sbom.json
