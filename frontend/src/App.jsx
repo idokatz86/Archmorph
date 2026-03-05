@@ -17,6 +17,7 @@ const LegalPages = lazy(() => import('./components/LegalPages'));
 const CookieBanner = lazy(() => import('./components/CookieBanner'));
 // PricingPage removed — feature temporarily disabled
 const LandingPage = lazy(() => import('./components/LandingPage'));
+const OnboardingTour = lazy(() => import('./components/OnboardingTour'));
 
 
 function TabFallback() {
@@ -64,6 +65,8 @@ export default function App() {
   return (
     <ToastProvider>
     <div className="min-h-screen bg-surface text-text-primary font-sans">
+      {/* First-time onboarding tour (#257) */}
+      <Suspense fallback={null}><OnboardingTour /></Suspense>
       {/* Skip to main content link for keyboard/screen-reader users (#220) */}
       <a
         href="#main-content"

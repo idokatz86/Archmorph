@@ -1,0 +1,42 @@
+name: Stale Issue & PR Bot
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'  # Every Monday at 6 AM UTC
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@v9
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          # Issues
+          stale-issue-message: >
+            This issue has been automatically marked as stale because it has not had
+            activity in the last 60 days. It will be closed in 14 days if no further
+            activity occurs. If this issue is still relevant, please comment or remove
+            the stale label.
+          close-issue-message: >
+            This issue was closed because it has been stale for 14 days with no activity.
+            Feel free to reopen if it's still relevant.
+          days-before-issue-stale: 60
+          days-before-issue-close: 14
+          stale-issue-label: stale
+          exempt-issue-labels: 'P0,epic,ai-agent-paas,pinned'
+          # PRs
+          stale-pr-message: >
+            This PR has been automatically marked as stale because it has not had
+            activity in the last 30 days. It will be closed in 7 days if no further
+            activity occurs.
+          days-before-pr-stale: 30
+          days-before-pr-close: 7
+          stale-pr-label: stale
+          exempt-pr-labels: 'pinned,work-in-progress'
+          # Limits
+          operations-per-run: 30

@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.7.0] - 2026-03-05
+
+### Added
+- **Migration package export** — "Download Migration Package" button generates ZIP with IaC code, HLD (DOCX + Markdown), cost estimate (JSON), analysis summary, and README (#252)
+- **Before/After architecture visualization** — collapsible source-to-Azure comparison view per zone with confidence badges (#250)
+- **Guided onboarding tour** — 5-step first-time user walkthrough (Upload, Analyze, IaC, HLD, Pricing) with localStorage-based detection (#257)
+- **CI coverage gate** — `--cov-fail-under=60` enforced in CI pipeline, tests fail if coverage drops below 60% (#288)
+- **Stale bot** — GitHub Actions workflow for backlog hygiene: 60-day stale detection, 14-day auto-close, exempt P0/epic labels (#362)
+- **BeforeAfterView.jsx** — interactive before/after architecture comparison component
+- **OnboardingTour.jsx** — 5-step overlay tour with step dots and skip/dismiss
+
+### Changed
+- `ci.yml` — pytest coverage gate added
+- `PricingTab.jsx` — "Download Migration Package" button with ZIP export
+- `AnalysisResults.jsx` — BeforeAfterView integrated after export panel
+- `App.jsx` — OnboardingTour lazy-loaded on first visit
+
 ## [3.6.0] - 2026-03-04
 
 ### Added

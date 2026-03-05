@@ -586,6 +586,30 @@ export default function DiagramTranslator() {
     setTimeout(() => iacChatInputRef.current?.focus(), 100);
   };
 
+  const handleExportPackage = async () => {
+    set({ exportingPackage: true });
+    try {
+      // Build a migration package ZIP with IaC + HLD + cost report
+      const data = await api.post(`/diagrams/${state.diagramId}/export-package`, {
+        iac_format: state.iacFormat,
+        include_diagrams: state.hldIncludeDiagrams,
+      });
+      if (data?.content_b64) {
+        const bytes = Uint8Array.from(atob(data.content_b64), c => c.charCodeAt(0));
+        const blob = new Blob([bytes], { type: 'application/zip' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = data.filename || 'archmorph-migration-package.zip';
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+    } catch (err) {
+      set({ error: `Migration package export failed: ${err.message}` });
+    }
+    set({ exportingPackage: false });
+  };
+
   // ── Render ──
   const steps = STEPS.map(s => ({
     ...s,
@@ -803,6 +827,8 @@ export default function DiagramTranslator() {
           costBreakdown={state.costBreakdown}
           loading={state.costBreakdownLoading}
           onSetStep={(step) => set({ step })}
+          onExportPackage={handleExportPackage}
+          exportingPackage={state.exportingPackage}
         />
       )}
     </div>

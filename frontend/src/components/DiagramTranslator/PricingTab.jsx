@@ -130,7 +130,7 @@ function OptimizationCard({ opt }) {
 }
 
 /* ── Main Pricing Tab ────────────────────────────────── */
-export default function PricingTab({ costBreakdown, loading, onSetStep }) {
+export default function PricingTab({ costBreakdown, loading, onSetStep, onExportPackage, exportingPackage }) {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -335,6 +335,11 @@ export default function PricingTab({ costBreakdown, loading, onSetStep }) {
         <Button onClick={() => onSetStep('hld')} variant="ghost" icon={ArrowLeft}>
           Back to HLD
         </Button>
+        {onExportPackage && (
+          <Button onClick={onExportPackage} variant="primary" icon={DollarSign} loading={exportingPackage}>
+            Download Migration Package
+          </Button>
+        )}
       </div>
     </div>
   );
