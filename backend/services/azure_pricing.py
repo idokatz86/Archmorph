@@ -1247,6 +1247,272 @@ def _find_best_price_match(azure_service: str, prices: dict[str, float]) -> floa
     return 0
 
 
+# ─────────────────────────────────────────────────────────────
+# SKU-level cost formula builder
+# ─────────────────────────────────────────────────────────────
+# Maps service patterns to specific SKU details for human-readable formulas.
+
+_SKU_FORMULAS: dict[str, dict[str, Any]] = {
+    "virtual machines": {
+        "sku": "Standard_D2s_v3", "vcpu": 2, "ram_gb": 8,
+        "hourly": 0.096, "instances": 1, "hours": 730,
+        "formula_tpl": "{instances}x {sku} ({vcpu} vCPU, {ram_gb} GB RAM) × ${hourly}/hr × {hours} hrs/mo",
+        "assumptions": [
+            "{sku} — 2 vCPU, 8 GB RAM, SSD temp storage",
+            "Pay-as-you-go pricing (no reservations)",
+            "1 instance running 24/7 (730 hrs/month)",
+            "Region: {region}",
+            "Does not include OS license, managed disks, or data transfer",
+        ],
+    },
+    "kubernetes": {
+        "sku": "Standard_D4s_v3", "vcpu": 4, "ram_gb": 16,
+        "hourly": 0.192, "instances": 2, "hours": 730,
+        "formula_tpl": "{instances}x {sku} worker nodes ({vcpu} vCPU, {ram_gb} GB) × ${hourly}/hr × {hours} hrs/mo (control plane free)",
+        "assumptions": [
+            "AKS control plane: free",
+            "{instances} worker nodes × {sku} ({vcpu} vCPU, {ram_gb} GB RAM)",
+            "Pay-as-you-go VM pricing",
+            "730 hrs/month per node",
+            "Region: {region}",
+            "Does not include container registry, load balancer, or persistent disks",
+        ],
+    },
+    "app service": {
+        "sku": "S1", "vcpu": 1, "ram_gb": 1.75,
+        "hourly": 0.10, "instances": 1, "hours": 730,
+        "formula_tpl": "{instances}x App Service Plan {sku} ({vcpu} vCPU, {ram_gb} GB RAM) × ${hourly}/hr × {hours} hrs/mo",
+        "assumptions": [
+            "App Service Plan S1 — Standard tier",
+            "1 ACU (1 vCPU, 1.75 GB RAM)",
+            "10 GB disk, 5 deployment slots, custom domains + SSL",
+            "Region: {region}",
+        ],
+    },
+    "container apps": {
+        "sku": "Consumption", "vcpu": 0.5, "ram_gb": 1.0,
+        "formula_tpl": "Consumption plan: {vcpu} vCPU × $0.000012/s + {ram_gb} GB × $0.0000015/s (active seconds only)",
+        "assumptions": [
+            "Consumption plan (scale-to-zero)",
+            "Estimated 50% active time = ~365 hrs/mo",
+            "0.5 vCPU, 1 GB RAM per replica",
+            "First 180,000 vCPU-seconds/mo free",
+            "Region: {region}",
+        ],
+    },
+    "functions": {
+        "sku": "Consumption",
+        "formula_tpl": "Consumption plan: first 1M executions free, then $0.20 per 1M executions + $0.000016/GB-s",
+        "assumptions": [
+            "Consumption plan with generous free tier",
+            "1M executions + 400,000 GB-s free monthly",
+            "Estimated 500K additional executions/mo",
+            "128 MB memory × 1s average duration",
+            "Region: {region}",
+        ],
+    },
+    "sql database": {
+        "sku": "Standard S2", "dtu": 50,
+        "formula_tpl": "SQL Database {sku} ({dtu} DTUs) — fixed monthly rate",
+        "assumptions": [
+            "Standard tier, S2 performance level (50 DTUs)",
+            "250 GB included storage",
+            "Automated backups (7-35 day retention)",
+            "Region: {region}",
+            "For higher workloads consider vCore-based General Purpose tier",
+        ],
+    },
+    "postgresql": {
+        "sku": "Burstable B2s", "vcpu": 2, "ram_gb": 4,
+        "hourly": 0.0656, "instances": 1, "hours": 730,
+        "formula_tpl": "Flexible Server {sku} ({vcpu} vCPU, {ram_gb} GB) × ${hourly}/hr × {hours} hrs/mo + 32 GB storage",
+        "assumptions": [
+            "Flexible Server Burstable B2s tier",
+            "2 vCPU, 4 GB RAM",
+            "32 GB storage ($0.115/GB/mo = $3.68/mo)",
+            "Automated backups (7-day retention, free)",
+            "Region: {region}",
+        ],
+    },
+    "mysql": {
+        "sku": "Burstable B2s", "vcpu": 2, "ram_gb": 4,
+        "hourly": 0.0656, "instances": 1, "hours": 730,
+        "formula_tpl": "Flexible Server {sku} ({vcpu} vCPU, {ram_gb} GB) × ${hourly}/hr × {hours} hrs/mo + 32 GB storage",
+        "assumptions": [
+            "Flexible Server Burstable B2s tier",
+            "2 vCPU, 4 GB RAM",
+            "32 GB storage ($0.115/GB/mo)",
+            "Region: {region}",
+        ],
+    },
+    "cosmos": {
+        "sku": "Autoscale (400-4000 RU/s)",
+        "formula_tpl": "Autoscale provisioned throughput: 400-4000 RU/s × $0.008 per 100 RU/hr + storage",
+        "assumptions": [
+            "Autoscale: 400 min to 4000 max RU/s",
+            "~$0.008 per 100 RU/s per hour",
+            "50 GB storage included ($0.25/GB/mo beyond)",
+            "Single region write",
+            "Region: {region}",
+        ],
+    },
+    "redis": {
+        "sku": "Standard C1", "ram_gb": 1,
+        "formula_tpl": "Azure Cache for Redis {sku} ({ram_gb} GB) — fixed monthly rate",
+        "assumptions": [
+            "Standard C1: 1 GB cache, replication included",
+            "99.9% SLA",
+            "Region: {region}",
+        ],
+    },
+    "blob storage": {
+        "sku": "Hot LRS",
+        "formula_tpl": "Blob Storage {sku}: $0.0184/GB/mo × estimated 1 TB = ~$18.84/mo + operations",
+        "assumptions": [
+            "Hot tier, Locally Redundant Storage (LRS)",
+            "1 TB estimated storage",
+            "10,000 write + 100,000 read operations/mo",
+            "Region: {region}",
+            "Cool tier would be ~50% cheaper for infrequent access",
+        ],
+    },
+    "load balancer": {
+        "sku": "Standard",
+        "formula_tpl": "Standard Load Balancer: $0.025/hr × 730 hrs + $0.005/GB data processed",
+        "assumptions": [
+            "Standard SKU (required for availability zones)",
+            "$0.025/hr base + first 5 rules included",
+            "Estimated 100 GB/mo data processed",
+            "Region: {region}",
+        ],
+    },
+    "application gateway": {
+        "sku": "Standard_v2",
+        "formula_tpl": "Application Gateway v2: fixed cost $0.246/hr × 730 hrs + capacity units",
+        "assumptions": [
+            "Standard_v2 with autoscaling",
+            "Base: $0.246/hr (fixed component)",
+            "~2.5 capacity units average",
+            "Region: {region}",
+        ],
+    },
+    "front door": {
+        "sku": "Standard",
+        "formula_tpl": "Front Door Standard: $35/mo base + $0.01/GB outbound + routing rules",
+        "assumptions": [
+            "Standard tier",
+            "$35/mo base fee",
+            "Estimated 100 GB/mo outbound data",
+            "Region: Global (anycast)",
+        ],
+    },
+    "key vault": {
+        "sku": "Standard",
+        "formula_tpl": "Key Vault Standard: $0.03/10K operations + $3/key/mo (software-protected)",
+        "assumptions": [
+            "Standard tier (software-protected keys)",
+            "Estimated 10K operations/mo",
+            "5 keys, 10 secrets, 2 certificates",
+            "Region: {region}",
+        ],
+    },
+    "event hubs": {
+        "sku": "Standard",
+        "formula_tpl": "Event Hubs Standard: 1 throughput unit × $0.030/hr × 730 hrs/mo",
+        "assumptions": [
+            "Standard tier, 1 throughput unit (1 MB/s in, 2 MB/s out)",
+            "1 consumer group included",
+            "Region: {region}",
+        ],
+    },
+    "service bus": {
+        "sku": "Standard",
+        "formula_tpl": "Service Bus Standard: $0.0135/hr base + $0.80 per 1M operations",
+        "assumptions": [
+            "Standard tier",
+            "Estimated 1M operations/mo",
+            "Region: {region}",
+        ],
+    },
+    "monitor": {
+        "sku": "Pay-as-you-go",
+        "formula_tpl": "Azure Monitor: basic metrics free; Log Analytics at $2.76/GB ingested (first 5 GB/day free)",
+        "assumptions": [
+            "Platform metrics: free",
+            "Log Analytics: $2.76/GB ingested",
+            "First 5 GB/day free (31-day retention)",
+            "Region: {region}",
+        ],
+    },
+}
+
+
+def _build_cost_formula(
+    azure_service: str,
+    base_price: float,
+    adjusted: float,
+    multiplier: float,
+    strategy: str,
+    sku_name: str,
+    meter_name: str,
+    hourly_rate: float,
+    region: str,
+) -> tuple[str, list[str]]:
+    """Build a human-readable cost formula and assumptions list for a service.
+
+    Returns (formula_string, assumptions_list).
+    """
+    svc_lower = azure_service.lower()
+
+    # Find matching SKU formula template
+    for key, tmpl in _SKU_FORMULAS.items():
+        if key in svc_lower:
+            fmt_vars = {
+                **tmpl,
+                "region": region,
+                "strategy": strategy,
+                "base_price": base_price,
+                "adjusted": adjusted,
+            }
+            formula = tmpl.get("formula_tpl", "").format(**fmt_vars)
+            if multiplier != 1.0:
+                formula += f" × {multiplier:.1f} ({strategy})"
+            assumptions = [a.format(**fmt_vars) for a in tmpl.get("assumptions", [])]
+            if multiplier != 1.0:
+                assumptions.append(f"Strategy multiplier: {multiplier:.1f}x ({strategy})")
+            return formula, assumptions
+
+    # Generic fallback with hourly rate if available
+    if hourly_rate > 0 and sku_name:
+        formula = f"{azure_service} [{sku_name}]: ${hourly_rate:.4f}/hr × 730 hrs/mo = ${base_price:.2f}/mo"
+        if multiplier != 1.0:
+            formula += f" × {multiplier:.1f} ({strategy}) = ${adjusted:.2f}/mo"
+        return formula, [
+            f"SKU: {sku_name}",
+            f"Meter: {meter_name}" if meter_name else "Default meter",
+            f"Hourly rate: ${hourly_rate:.4f}/hr",
+            "730 hours/month (always-on)",
+            f"Region: {region}",
+            f"Strategy: {strategy}" if multiplier != 1.0 else "Pay-as-you-go pricing",
+        ]
+
+    # Minimal fallback
+    if base_price > 0:
+        formula = f"{azure_service}: ${base_price:.2f}/mo estimated"
+        if multiplier != 1.0:
+            formula += f" × {multiplier:.1f} ({strategy}) = ${adjusted:.2f}/mo"
+        return formula, [
+            f"Based on {strategy} tier in {region}",
+            "Price from Azure Retail Prices API or built-in estimate",
+            "Range reflects 0.7x-1.4x variance for usage patterns",
+        ]
+
+    return "Pricing not available — use Azure Pricing Calculator", [
+        "No pricing data available for this service",
+        "Check https://azure.microsoft.com/en-us/pricing/calculator/",
+    ]
+
+
 def estimate_services_cost(
     mappings: list[dict[str, Any]],
     region: str = "westeurope",
@@ -1309,19 +1575,39 @@ def estimate_services_cost(
         low = round(adjusted * 0.7, 2)
         high = round(adjusted * 1.4, 2)
 
+        # ── SKU-level detail for cost transparency ──
+        query = SERVICE_PRICE_QUERIES.get(azure_svc) or {}
+        # Check alias
+        canonical = _SERVICE_ALIASES.get(azure_svc)
+        if not query and canonical:
+            query = SERVICE_PRICE_QUERIES.get(canonical, {})
+
+        sku_name = query.get("skuName", "")
+        meter_name = query.get("meterName", "")
+        hourly_rate = round(base_price / 730, 4) if base_price > 0 else 0
+
+        # Build specific formula based on service type
+        formula, assumptions_list = _build_cost_formula(
+            azure_svc, base_price, adjusted, multiplier, sku_strategy,
+            sku_name, meter_name, hourly_rate, region_display,
+        )
+
         service_costs.append({
             "service": azure_svc,
+            "sku": sku_name or "Default tier",
+            "meter": meter_name,
             "monthly_low": low,
             "monthly_high": high,
             "monthly_estimate": adjusted,
             "zone": m.get("notes", "").split("Zone ")[-1].split(" ")[0] if "Zone" in m.get("notes", "") else "",
+            "category": m.get("category", "Other"),
             # ── Cost rationale (#354) ──
             "price_source": "Azure Retail Prices API" if HAS_HTTPX and base_price > 0 else "built-in estimate",
             "base_price_usd": base_price,
+            "hourly_rate_usd": hourly_rate,
             "sku_multiplier": multiplier,
-            "assumptions": f"Based on {sku_strategy} tier in {region_display}; "
-                           f"range reflects 0.7x-1.4x variance for usage patterns.",
-            "formula": f"${base_price:.2f} x {multiplier:.1f} (strategy) = ${adjusted:.2f}/mo",
+            "assumptions": assumptions_list,
+            "formula": formula,
         })
 
     # Sort by estimated cost descending
