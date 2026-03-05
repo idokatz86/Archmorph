@@ -2,7 +2,7 @@ name: E2E Health Monitoring
 
 on:
   schedule:
-    - cron: '0 * * * *'
+    - cron: '0 8 * * *'  # Once daily at 8 AM UTC (was hourly, burning CI minutes)
   workflow_dispatch:
     inputs:
       create_issues:
