@@ -324,7 +324,7 @@ CANONICAL NAME EXAMPLES:
 
 IMPORTANT: Be thorough — extract EVERY service icon, label, and component visible. Don't skip small components. Include infrastructure elements like VPC, subnets, internet gateways, NAT gateways, etc.
 
-Respond ONLY with valid JSON in this exact format:
+Respond ONLY with a valid JSON object in this exact format. Do NOT wrap the JSON in markdown code blocks.
 {
   "diagram_type": "<short description of the architecture>",
   "source_provider": "aws" | "gcp",
@@ -493,17 +493,9 @@ def analyze_image(image_bytes: bytes, content_type: str = "image/png") -> Dict[s
             "JSON may be invalid or incomplete — some services may be missing."
         )
 
-    # Parse JSON from response (handle ```json blocks)
-    json_text = raw_text
-    if "```json" in json_text:
-        json_text = json_text.split("```json", 1)[1]
-        json_text = json_text.split("```", 1)[0]
-    elif "```" in json_text:
-        json_text = json_text.split("```", 1)[1]
-        json_text = json_text.split("```", 1)[0]
-
+    # Parse JSON from response
     try:
-        vision_result = json.loads(json_text.strip())
+        vision_result = json.loads(raw_text)
     except json.JSONDecodeError as exc:
         logger.error("Failed to parse GPT-4o JSON: %s\nRaw: %s", exc, raw_text[:500])
         raise ValueError(f"GPT-4o returned invalid JSON: {exc}") from exc
