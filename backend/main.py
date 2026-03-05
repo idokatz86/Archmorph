@@ -84,7 +84,7 @@ logger = logging.getLogger(__name__)
 ALLOWED_ORIGINS = [
     o.strip() for o in os.getenv(
         "ALLOWED_ORIGINS",
-        "https://archmorphai.com,https://www.archmorphai.com"
+        "https://archmorphai.com,https://www.archmorphai.com,https://agreeable-ground-01012c003.2.azurestaticapps.net"
     ).split(",")
     if o.strip()
 ]
