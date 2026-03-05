@@ -437,7 +437,7 @@ def build_mapping_deep_dive(suggestion: Dict[str, Any], source_service: str) -> 
     # Supplement from GPT suggestion data
     gaps = suggestion.get("feature_gaps", [])
     for gap in gaps:
-        if not any(l["factor"].lower() == gap.lower() for l in limitations):
+        if not any(lim["factor"].lower() == gap.lower() for lim in limitations):
             limitations.append({
                 "factor": gap,
                 "detail": f"Feature gap identified during AI analysis: {gap}.",

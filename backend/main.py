@@ -205,22 +205,21 @@ class ArchmorphMiddleware(BaseHTTPMiddleware):
         response.headers["X-Correlation-ID"] = cid
         response.headers["X-Response-Time"] = f"{duration_ms:.2f}ms"
 
-        # ── Cache-Control for read-only endpoints (#376) ──
-        if method == "GET" and 200 <= status < 300:
-            path = request.url.path
-            if "/services" in path or "/roadmap" in path:
-                response.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=60"
-            elif "/health" in path:
-                response.headers["Cache-Control"] = "no-cache"
-            elif "/cost-estimate" in path or "/cost-breakdown" in path:
-                response.headers["Cache-Control"] = "private, max-age=120"
-            elif "/best-practices" in path or "/compliance" in path:
-                response.headers["Cache-Control"] = "private, max-age=600"
-
         # ── Latency Tracking ──
         endpoint = request.url.path
         method = request.method
         status = response.status_code
+
+        # ── Cache-Control for read-only endpoints (#376) ──
+        if method == "GET" and 200 <= status < 300:
+            if "/services" in endpoint or "/roadmap" in endpoint:
+                response.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=60"
+            elif "/health" in endpoint:
+                response.headers["Cache-Control"] = "no-cache"
+            elif "/cost-estimate" in endpoint or "/cost-breakdown" in endpoint:
+                response.headers["Cache-Control"] = "private, max-age=120"
+            elif "/best-practices" in endpoint or "/compliance" in endpoint:
+                response.headers["Cache-Control"] = "private, max-age=600"
 
         logger.info(
             "request completed",

@@ -128,7 +128,6 @@ async def cost_breakdown(request: Request, diagram_id: str):
         # Alternative SKU suggestions
         alternatives = []
         if high > 100:
-            ri_savings = round(mid * 0.35, 2)
             alternatives.append({
                 "sku": "Reserved 1-year",
                 "monthly": round(mid * 0.65, 2),
