@@ -371,14 +371,16 @@ class TestDiagramExport:
 # ====================================================================
 
 class TestIaCGeneration:
-    def test_generate_terraform(self, client, analyzed_diagram):
+    @patch("routers.iac_routes.generate_iac_code", return_value="resource aws_instance {}")
+    def test_generate_terraform(self, mock_iac, client, analyzed_diagram):
         resp = client.post(f"/api/diagrams/{analyzed_diagram}/generate?format=terraform")
         assert resp.status_code == 200
         data = resp.json()
         assert data["format"] == "terraform"
         assert "resource" in data["code"] or "provider" in data["code"]
 
-    def test_generate_bicep(self, client, analyzed_diagram):
+    @patch("routers.iac_routes.generate_iac_code", return_value="resource aws_instance {} param")
+    def test_generate_bicep(self, mock_iac, client, analyzed_diagram):
         resp = client.post(f"/api/diagrams/{analyzed_diagram}/generate?format=bicep")
         assert resp.status_code == 200
         data = resp.json()
@@ -389,7 +391,8 @@ class TestIaCGeneration:
         resp = client.post(f"/api/diagrams/{analyzed_diagram}/generate?format=pulumi")
         assert resp.status_code == 400
 
-    def test_generate_any_diagram_id(self, client, clean_session):
+    @patch("routers.iac_routes.generate_iac_code", return_value="resource aws_instance {}")
+    def test_generate_any_diagram_id(self, mock_iac, client, clean_session):
         # IaC generation currently returns hardcoded code for any diagram_id
         resp = client.post("/api/diagrams/any-id/generate?format=terraform")
         assert resp.status_code == 200
@@ -484,18 +487,21 @@ class TestChatbot:
         history = get_chat_history("nonexistent-session")
         assert isinstance(history, list)
 
-    def test_chat_endpoint(self, client):
+    @patch("chatbot._call_ai_assistant", return_value={"reply": "Mocked", "action": None})
+    def test_chat_endpoint(self, mock_ai, client):
         resp = client.post("/api/chat", json={"message": "what is archmorph?"})
         assert resp.status_code == 200
         assert "reply" in resp.json()
 
-    def test_chat_history_endpoint(self, client):
+    @patch("chatbot._call_ai_assistant", return_value={"reply": "hi", "action": None})
+    def test_chat_history_endpoint(self, mock_ai, client):
         client.post("/api/chat", json={"message": "hi", "session_id": "e2e-hist"})
         resp = client.get("/api/chat/history/e2e-hist")
         assert resp.status_code == 200
         assert len(resp.json()["messages"]) >= 2
 
-    def test_chat_clear_endpoint(self, client):
+    @patch("chatbot._call_ai_assistant", return_value={"reply": "hi", "action": None})
+    def test_chat_clear_endpoint(self, mock_ai, client):
         client.post("/api/chat", json={"message": "hi", "session_id": "e2e-del"})
         resp = client.delete("/api/chat/e2e-del")
         assert resp.status_code == 200

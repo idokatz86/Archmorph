@@ -113,6 +113,26 @@ def mock_openai_response():
 
 
 # ─────────────────────────────────────────────────────────────
+# Auto-use: Prevent live OpenAI calls via classify_image
+# ─────────────────────────────────────────────────────────────
+
+@pytest.fixture(autouse=True)
+def mock_classify_image():
+    """Mock classify_image globally so tests do not hit the live OpenAI API."""
+    import copy
+    from unittest.mock import patch
+    
+    mock_classification = {
+        "is_architecture_diagram": True,
+        "confidence": 0.95,
+        "image_type": "architecture_diagram",
+        "reason": "Mocked by auto fixture"
+    }
+    
+    with patch("routers.diagrams.classify_image", return_value=mock_classification) as m:
+        yield m
+
+# ─────────────────────────────────────────────────────────────
 # Auto-use: test timing (prints warnings for slow tests)
 # ─────────────────────────────────────────────────────────────
 
