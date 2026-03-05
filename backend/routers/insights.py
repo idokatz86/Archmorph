@@ -364,3 +364,93 @@ async def get_compliance(request: Request, diagram_id: str, _auth=Depends(verify
         "overall_score": result["overall_score"],
     })
     return result
+
+
+# ─────────────────────────────────────────────────────────────
+# Migration Q&A Chat (#258)
+# ─────────────────────────────────────────────────────────────
+_MIGRATION_QA_SYSTEM = """You are an expert Azure migration architect embedded in the Archmorph platform.
+The user has uploaded a cloud architecture diagram and received an analysis with service mappings.
+Answer their questions about the migration using the analysis context provided.
+
+Guidelines:
+- Be specific about the Azure services in THEIR architecture (reference by name)
+- Cite specific SKUs, tiers, and configurations when relevant
+- Address limitations and risks honestly
+- Suggest Azure Well-Architected Framework best practices
+- Keep answers concise (2-4 paragraphs max)
+- If asked about cost, reference the pricing data in the context
+- If unsure, say so — don't hallucinate Azure features
+
+Return a JSON object:
+{"reply": "your answer", "related_services": ["Azure Service 1", "Azure Service 2"]}
+"""
+
+
+@router.post("/api/diagrams/{diagram_id}/migration-chat")
+@limiter.limit("20/minute")
+async def migration_chat(request: Request, diagram_id: str):
+    """Contextual Q&A about the migration analysis results (#258).
+
+    Body: { "message": "user question" }
+    Returns: { "reply": "...", "related_services": [...] }
+    """
+    analysis = get_or_recreate_session(diagram_id)
+    if not analysis:
+        raise HTTPException(404, "No analysis found. Analyze a diagram first.")
+
+    try:
+        body = await request.json()
+        message = body.get("message", "").strip()
+    except Exception:
+        raise HTTPException(400, "Request body must be JSON with a 'message' field")
+
+    if not message:
+        raise HTTPException(400, "Message cannot be empty")
+    if len(message) > 2000:
+        raise HTTPException(400, "Message too long (max 2000 chars)")
+
+    # Build context from analysis
+    mappings = analysis.get("mappings", [])
+    services_ctx = ", ".join(
+        f"{m.get('source_service', '?')} -> {m.get('azure_service', '?')} ({m.get('confidence', 0):.0%})"
+        for m in mappings[:20]
+    )
+    zones_ctx = ", ".join(z.get("name", "") for z in analysis.get("zones", [])[:10])
+    source = analysis.get("source_provider", "unknown").upper()
+
+    context = f"""Architecture: {source} to Azure
+Services mapped: {services_ctx}
+Zones: {zones_ctx}
+Total services: {len(mappings)}
+Diagram type: {analysis.get('diagram_type', 'unknown')}"""
+
+    try:
+        from openai_client import get_openai_client, AZURE_OPENAI_DEPLOYMENT
+        import json as _json
+        client = get_openai_client()
+
+        response = await asyncio.to_thread(
+            lambda: client.chat.completions.create(
+                model=AZURE_OPENAI_DEPLOYMENT,
+                messages=[
+                    {"role": "system", "content": _MIGRATION_QA_SYSTEM},
+                    {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {message}"},
+                ],
+                temperature=0.3,
+                max_tokens=800,
+                response_format={"type": "json_object"},
+            )
+        )
+        raw = response.choices[0].message.content or "{}"
+        result = _json.loads(raw)
+        return {
+            "reply": result.get("reply", "I couldn't generate a response. Please try rephrasing."),
+            "related_services": result.get("related_services", []),
+        }
+    except Exception as exc:
+        logger.error("Migration chat failed: %s", exc)
+        return {
+            "reply": "Sorry, I couldn't process your question right now. Please try again.",
+            "related_services": [],
+        }

@@ -18,6 +18,7 @@ import IaCViewer from './IaCViewer';
 import CostPanel from './CostPanel';
 import HLDTab from './HLDTab';
 import PricingTab from './PricingTab';
+import MigrationChat from './MigrationChat';
 
 const STEPS = [
   { id: 'upload', label: 'Upload', canNav: true },
@@ -477,8 +478,14 @@ export default function DiagramTranslator() {
   const handleHldExport = async (fmt) => {
     setHldExportLoading(fmt, true);
     try {
+      // Include diagram image in HLD export if available (#357)
+      const cachedImg = loadCachedImage(state.diagramId);
+      const exportBody = {};
+      if (cachedImg?.base64) {
+        exportBody.diagram_image = cachedImg.base64;
+      }
       const data = await withRestore(
-        () => api.post(`/diagrams/${state.diagramId}/export-hld?format=${fmt}&include_diagrams=${state.hldIncludeDiagrams}`, {}),
+        () => api.post(`/diagrams/${state.diagramId}/export-hld?format=${fmt}&include_diagrams=${state.hldIncludeDiagrams}&export_mode=customer`, exportBody),
         { cleanup: () => setHldExportLoading(fmt, false) },
       );
       if (data) {
@@ -734,6 +741,11 @@ export default function DiagramTranslator() {
           onExportDiagram={handleExportDiagram}
           onCopyWithFeedback={copyWithFeedback}
         />
+      )}
+
+      {/* Migration Q&A Chat — visible on Results, IaC, HLD steps (#258) */}
+      {state.diagramId && state.analysis && ['results', 'iac', 'hld'].includes(state.step) && (
+        <MigrationChat diagramId={state.diagramId} />
       )}
 
       {/* Step: IaC Code */}
