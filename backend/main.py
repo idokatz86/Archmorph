@@ -73,8 +73,9 @@ from routers.feature_flags import router as feature_flags_router  # noqa: E402
 from routers.privacy import router as privacy_router  # noqa: E402
 from routers.jobs import router as jobs_router  # noqa: E402
 from routers.credentials import router as credentials_router  # noqa: E402
+from routers.tf_backend import router as tf_backend_router  # noqa: E402
+from routers.drift import router as drift_router  # noqa: E402
 from routers.scanner_routes import router as scanner_router  # noqa: E402
-from routers.credentials import router as credentials_router  # noqa: E402
 from routers.legal import router as legal_router  # noqa: E402
 from routers.v1 import build_v1_router  # noqa: E402
 from api_versioning import VersionMiddleware  # noqa: E402
@@ -309,8 +310,9 @@ app.include_router(feature_flags_router)
 app.include_router(privacy_router)
 app.include_router(jobs_router)
 app.include_router(credentials_router)
+app.include_router(tf_backend_router)
+app.include_router(drift_router)
 app.include_router(scanner_router)
-app.include_router(credentials_router)
 app.include_router(legal_router)
 
 # ─────────────────────────────────────────────────────────────

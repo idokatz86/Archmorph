@@ -7,7 +7,7 @@ from __future__ import annotations
 import logging
 from typing import Optional, Dict, Any
 
-from fastapi import APIRouter, Header, Depends
+from fastapi import APIRouter, Request, Header, Depends
 from pydantic import BaseModel, Field
 
 from services.credential_manager import store_credentials, get_credentials, clear_credentials
@@ -54,7 +54,7 @@ def validate_session(authorization: Optional[str] = Header(None)) -> str:
 
 @router.post("/api/credentials/aws", response_model=CredentialResponse)
 @limiter.limit("5/minute")
-async def store_aws_credentials(
+async def store_aws_credentials(request: Request, 
     payload: AWSCredentialsInput,
     session_token: str = Depends(validate_session),
     user: dict = Depends(get_user_from_session)
@@ -79,7 +79,7 @@ async def store_aws_credentials(
 
 @router.post("/api/credentials/azure", response_model=CredentialResponse)
 @limiter.limit("5/minute")
-async def store_azure_credentials(
+async def store_azure_credentials(request: Request, 
     payload: AzureCredentialsInput,
     session_token: str = Depends(validate_session),
     user: dict = Depends(get_user_from_session)
@@ -120,7 +120,7 @@ async def delete_credentials(
 
 @router.post("/api/credentials/validate", response_model=Dict[str, Any])
 @limiter.limit("3/minute")
-async def validate_active_credentials(
+async def validate_active_credentials(request: Request, 
     provider: str,
     session_token: str = Depends(validate_session),
     user: dict = Depends(get_user_from_session)
