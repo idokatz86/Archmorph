@@ -39,3 +39,5 @@ pytest-xdist==3.5.0  # Parallel test execution (#369)
 azure-mgmt-resourcegraph==8.0.0
 azure-mgmt-subscription==3.1.1
 azure-mgmt-resource==23.1.0
+google-cloud-asset==3.28.0
+google-auth==2.38.0

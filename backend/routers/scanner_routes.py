@@ -15,6 +15,7 @@ from services.credential_manager import get_credentials
 from routers.credentials import validate_session
 from scanners.aws_scanner import AWSScanner
 from scanners.azure_scanner import AzureScanner
+from scanners.gcp_scanner import GCPScanner
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -56,6 +57,16 @@ async def run_cloud_scan(
             logger.error(f"Error during Azure scan: {e}")
             raise ArchmorphException(500, f"Azure scan failed: {str(e)}")
     elif provider.lower() == "gcp":
-        raise ArchmorphException(501, f"{provider.capitalize()} scanning is on the roadmap!")
+        try:
+            scanner = GCPScanner(credentials=creds)
+            report = scanner.perform_full_scan()
+            return {
+                "status": "success",
+                "provider": "gcp",
+                "data": report
+            }
+        except Exception as e:
+            logger.error(f"Error during GCP scan: {e}")
+            raise ArchmorphException(500, f"GCP scan failed: {str(e)}")
     else:
         raise ArchmorphException(400, "Unsupported provider")
