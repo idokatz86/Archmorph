@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { CloudCog, Layers, Server, Rocket, MessageSquare, Shield, Home, LayoutDashboard, Sparkles, Menu, X, Moon, Sun } from 'lucide-react';
+import { CloudCog, Layers, Server, Activity, Rocket, MessageSquare, Shield, Home, LayoutDashboard, Sparkles, Menu, X, Moon, Sun } from 'lucide-react';
 import { Badge } from './ui';
 import { APP_VERSION } from '../constants';
 import FeedbackWidget from './FeedbackWidget';
@@ -32,6 +32,7 @@ export default function Nav({ activeTab, setActiveTab, updateStatus }) {
     { id: 'translator', label: 'Translator', icon: Layers },
     // { id: 'templates', label: 'Templates', icon: Sparkles }, // Hidden for beta
     { id: 'services', label: 'Services', icon: Server },
+    { id: 'drift', label: 'Drift', icon: Activity },
     { id: 'roadmap', label: 'Roadmap', icon: Rocket },
     { id: 'legal', label: 'Legal', icon: Shield },
   ];

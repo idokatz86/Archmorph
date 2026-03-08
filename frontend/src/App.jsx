@@ -12,6 +12,7 @@ const DiagramTranslator = lazy(() => import('./components/DiagramTranslator'));
 const ServicesBrowser = lazy(() => import('./components/ServicesBrowser'));
 const Roadmap = lazy(() => import('./components/Roadmap'));
 const ChatWidget = lazy(() => import('./components/ChatWidget'));
+const DriftDashboard = lazy(() => import('./components/DriftDashboard'));
 const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
 const LegalPages = lazy(() => import('./components/LegalPages'));
 const CookieBanner = lazy(() => import('./components/CookieBanner'));
@@ -82,6 +83,7 @@ export default function App() {
             {activeTab === 'translator' && <DiagramTranslator />}
             {activeTab === 'services' && <ServicesBrowser />}
             {activeTab === 'roadmap' && <Roadmap />}
+            {activeTab === 'drift' && <DriftDashboard />}
             {activeTab === 'legal' && <LegalPages onBack={() => setActiveTab('translator')} />}
 
           </Suspense>

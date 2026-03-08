@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.2.1",
-    "dompurify": "^3.3.2",
+    "dompurify": "^3.3.1",
     "lucide-react": "^0.576.0",
     "prismjs": "^1.29.0",
     "react": "^19.1.0",
