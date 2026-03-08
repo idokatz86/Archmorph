@@ -73,6 +73,7 @@ from routers.feature_flags import router as feature_flags_router  # noqa: E402
 from routers.privacy import router as privacy_router  # noqa: E402
 from routers.jobs import router as jobs_router  # noqa: E402
 from routers.credentials import router as credentials_router  # noqa: E402
+from routers.scanner_routes import router as scanner_router  # noqa: E402
 from routers.credentials import router as credentials_router  # noqa: E402
 from routers.legal import router as legal_router  # noqa: E402
 from routers.v1 import build_v1_router  # noqa: E402
@@ -308,6 +309,7 @@ app.include_router(feature_flags_router)
 app.include_router(privacy_router)
 app.include_router(jobs_router)
 app.include_router(credentials_router)
+app.include_router(scanner_router)
 app.include_router(credentials_router)
 app.include_router(legal_router)
 
@@ -338,6 +340,7 @@ _all_routers = [
     (privacy_router, ""),
     (jobs_router, ""),
     (credentials_router, ""), 
+    (scanner_router, ""), 
     (credentials_router, ""),
 ]
 v1_router = build_v1_router(_all_routers)

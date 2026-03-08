@@ -1,0 +1,48 @@
+"""
+Cloud Scanner execution routes.
+Leverages the credentials store and the specific cloud scanners 
+(AWSScanner, AzureScanner, GCPScanner).
+"""
+from __future__ import annotations
+
+import logging
+from typing import Dict, Any
+
+from fastapi import APIRouter, Depends
+from error_envelope import ArchmorphException
+from auth import get_user_from_session
+from services.credential_manager import get_credentials
+from routers.credentials import validate_session
+from scanners.aws_scanner import AWSScanner
+
+router = APIRouter()
+logger = logging.getLogger(__name__)
+
+@router.post("/api/scanner/run/{provider}", response_model=Dict[str, Any])
+async def run_cloud_scan(
+    provider: str,
+    session_token: str = Depends(validate_session),
+    user: dict = Depends(get_user_from_session)
+):
+    """
+    Initiate a live scan of cloud architecture using stored credentials.
+    """
+    try:
+        creds = get_credentials(session_token, expected_provider=provider)
+    except ArchmorphException as e:
+        raise e
+    except Exception:
+        raise ArchmorphException(401, "Please connect your cloud account before scanning.")
+
+    if provider.lower() == "aws":
+        scanner = AWSScanner(credentials=creds)
+        report = scanner.perform_full_scan()
+        return {
+            "status": "success",
+            "provider": "aws",
+            "data": report
+        }
+    elif provider.lower() in ["azure", "gcp"]:
+        raise ArchmorphException(501, f"{provider.capitalize()} scanning is on the roadmap!")
+    else:
+        raise ArchmorphException(400, "Unsupported provider")
