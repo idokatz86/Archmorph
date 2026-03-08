@@ -19,6 +19,7 @@ import CostPanel from './CostPanel';
 import HLDTab from './HLDTab';
 import PricingTab from './PricingTab';
 import MigrationChat from './MigrationChat';
+import DeployPanel from './DeployPanel';
 
 const STEPS = [
   { id: 'upload', label: 'Upload', canNav: true },
@@ -28,6 +29,7 @@ const STEPS = [
   { id: 'iac', label: 'IaC Code' },
   { id: 'hld', label: 'HLD' },
   { id: 'pricing', label: 'Pricing' },
+  { id: 'deploy', label: 'Deploy' },
 ];
 
 export default function DiagramTranslator() {
