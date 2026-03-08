@@ -12,6 +12,14 @@ class ResourceType(str, Enum):
     STORAGE = "Storage"
     DATABASE = "Database"
     NETWORKING = "Networking"
+    SECURITY = "Security"
+    MESSAGING = "Messaging"
+    AI_ML = "AI_ML"
+    ANALYTICS = "Analytics"
+    DEVOPS = "DevOps"
+    WEB = "Web"
+    IDENTITY = "Identity"
+    OTHER = "Other"
 
 class CloudResource(BaseModel):
     id: str = Field()
