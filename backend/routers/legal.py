@@ -1,3 +1,4 @@
+from error_envelope import ArchmorphException
 """Legal & Compliance routes (Issue #108).
 
 Provides:
@@ -356,5 +357,5 @@ async def get_deletion_status(request: Request, request_id: str):
     """Check status of a data deletion request."""
     req = _deletion_requests.get(request_id)
     if not req:
-        raise HTTPException(status_code=404, detail="Deletion request not found")
+        raise ArchmorphException(status_code=404, detail="Deletion request not found")
     return req

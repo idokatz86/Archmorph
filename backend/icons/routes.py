@@ -11,6 +11,7 @@ Endpoints:
 """
 
 from __future__ import annotations
+from error_envelope import ArchmorphException
 
 import json
 import logging
@@ -50,12 +51,12 @@ async def upload_icon_pack(
     content = await file.read()
 
     if not content:
-        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+        raise ArchmorphException(status_code=400, detail="Uploaded file is empty")
 
     # Limit upload size (50 MB)
     max_size = 50 * 1024 * 1024
     if len(content) > max_size:
-        raise HTTPException(status_code=413, detail="Upload exceeds 50 MB limit")
+        raise ArchmorphException(status_code=413, detail="Upload exceeds 50 MB limit")
 
     try:
         # Detect format
@@ -75,15 +76,15 @@ async def upload_icon_pack(
                 pack_id=pack_id,
             )
         else:
-            raise HTTPException(
+            raise ArchmorphException(
                 status_code=400,
                 detail="Unsupported file format. Upload a ZIP or JSON file.",
             )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise ArchmorphException(status_code=400, detail=str(exc))
     except Exception:
         logger.exception("Icon pack ingestion failed")
-        raise HTTPException(status_code=500, detail="Icon pack ingestion failed. Please try again.")
+        raise ArchmorphException(status_code=500, detail="Icon pack ingestion failed. Please try again.")
 
     return result
 
@@ -138,7 +139,7 @@ async def delete_icon_pack(request: Request, pack_id: str):
     """Remove an icon pack and all its icons from the registry."""
     result = registry.delete_pack(pack_id)
     if not result.get("deleted"):
-        raise HTTPException(status_code=404, detail=f"Icon pack '{pack_id}' not found")
+        raise ArchmorphException(status_code=404, detail=f"Icon pack '{pack_id}' not found")
     return result
 
 
@@ -153,7 +154,7 @@ async def get_icon_svg(icon_id: str):
     """Return the raw SVG for a single icon."""
     icon = registry.get_icon(icon_id)
     if icon is None:
-        raise HTTPException(status_code=404, detail=f"Icon '{icon_id}' not found")
+        raise ArchmorphException(status_code=404, detail=f"Icon '{icon_id}' not found")
     return Response(
         content=icon.svg,
         media_type="image/svg+xml",
@@ -179,12 +180,12 @@ async def download_drawio_library(
     - **title**: Optional library title.
     """
     if embed_mode not in ("reference", "full"):
-        raise HTTPException(status_code=400, detail="embedMode must be 'reference' or 'full'")
+        raise ArchmorphException(status_code=400, detail="embedMode must be 'reference' or 'full'")
 
     try:
         data = build_drawio_library(pack_id, embed_mode=embed_mode, title=title)
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise ArchmorphException(status_code=404, detail=str(exc))
 
     filename = f"archmorph-{pack_id}.xml"
     return Response(
@@ -211,7 +212,7 @@ async def download_excalidraw_library(
     try:
         data = build_excalidraw_library(pack_id, title=title)
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise ArchmorphException(status_code=404, detail=str(exc))
 
     filename = f"archmorph-{pack_id}.excalidrawlib"
     return Response(
@@ -240,7 +241,7 @@ async def download_visio_stencil_pack(
     try:
         data = build_visio_stencil_pack(pack_id, title=title, include_png=include_png)
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise ArchmorphException(status_code=404, detail=str(exc))
 
     filename = f"archmorph-{pack_id}-visio.zip"
     return Response(

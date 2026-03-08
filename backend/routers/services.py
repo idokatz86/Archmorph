@@ -1,3 +1,4 @@
+from error_envelope import ArchmorphException
 """
 Cloud Services Catalog & Service Updater routes.
 """
@@ -135,11 +136,11 @@ async def get_service(provider: str, service_id: str):
     """Get a specific service by provider and ID."""
     catalog = {"aws": AWS_SERVICES, "azure": AZURE_SERVICES, "gcp": GCP_SERVICES}
     if provider not in catalog:
-        raise HTTPException(400, f"Invalid provider: {provider}. Use aws, azure, or gcp.")
+        raise ArchmorphException(400, f"Invalid provider: {provider}. Use aws, azure, or gcp.")
 
     service = next((s for s in catalog[provider] if s["id"] == service_id), None)
     if not service:
-        raise HTTPException(404, f"Service '{service_id}' not found for provider '{provider}'")
+        raise ArchmorphException(404, f"Service '{service_id}' not found for provider '{provider}'")
 
     # Find cross-cloud equivalents
     equivalents = []

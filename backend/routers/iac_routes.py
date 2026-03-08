@@ -1,3 +1,4 @@
+from error_envelope import ArchmorphException
 """
 IaC (Infrastructure as Code) routes — generation, chat, async generation.
 
@@ -35,7 +36,7 @@ class IaCChatMessage(BaseModel):
 async def generate_iac(request: Request, diagram_id: str, format: str = "terraform", _auth=Depends(verify_api_key)):
     """Generate Infrastructure as Code from the architecture analysis."""
     if format not in ["terraform", "bicep", "cloudformation"]:
-        raise HTTPException(400, "Format must be 'terraform', 'bicep', or 'cloudformation'")
+        raise ArchmorphException(400, "Format must be 'terraform', 'bicep', or 'cloudformation'")
 
     session = SESSION_STORE.get(diagram_id, {})
     iac_params = session.get("iac_parameters", {})
@@ -49,7 +50,7 @@ async def generate_iac(request: Request, diagram_id: str, format: str = "terrafo
         )
     except Exception as exc:
         logger.error("IaC generation failed for %s: %s", diagram_id, exc)
-        raise HTTPException(500, "IaC generation failed. Please try again.")
+        raise ArchmorphException(500, "IaC generation failed. Please try again.")
 
     record_event(f"iac_generated_{format}", {"diagram_id": diagram_id})
     record_funnel_step(diagram_id, "iac_generate")
@@ -114,7 +115,7 @@ async def generate_iac_async(
 ):
     """Start async IaC code generation. Returns 202 with job_id."""
     if format not in ["terraform", "bicep", "cloudformation"]:
-        raise HTTPException(400, "Format must be 'terraform', 'bicep', or 'cloudformation'")
+        raise ArchmorphException(400, "Format must be 'terraform', 'bicep', or 'cloudformation'")
 
     job = job_manager.submit("generate_iac", diagram_id=diagram_id)
     asyncio.create_task(_run_iac_job(job.job_id, diagram_id, format))

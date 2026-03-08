@@ -1,3 +1,4 @@
+from error_envelope import ArchmorphException
 """
 Feature Flags API routes.
 
@@ -38,7 +39,7 @@ async def get_flag(name: str):
     ff = get_feature_flags()
     flag = ff.get_flag(name)
     if flag is None:
-        raise HTTPException(status_code=404, detail=f"Flag '{name}' not found")
+        raise ArchmorphException(status_code=404, detail=f"Flag '{name}' not found")
     return flag
 
 
@@ -48,8 +49,8 @@ async def update_flag(name: str, data: FlagUpdateRequest):
     ff = get_feature_flags()
     updates = data.model_dump(exclude_none=True)
     if not updates:
-        raise HTTPException(status_code=400, detail="No updates provided")
+        raise ArchmorphException(status_code=400, detail="No updates provided")
     result = ff.update_flag(name, updates)
     if result is None:
-        raise HTTPException(status_code=404, detail=f"Flag '{name}' not found")
+        raise ArchmorphException(status_code=404, detail=f"Flag '{name}' not found")
     return result

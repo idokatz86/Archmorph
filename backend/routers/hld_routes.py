@@ -1,3 +1,4 @@
+from error_envelope import ArchmorphException
 """
 HLD (High-Level Design) routes — generation, retrieval, export, async generation.
 
@@ -35,7 +36,7 @@ async def generate_hld_endpoint(request: Request, diagram_id: str, _auth=Depends
 
     session = get_or_recreate_session(diagram_id)
     if not session:
-        raise HTTPException(404, "No analysis found. Analyze a diagram first.")
+        raise ArchmorphException(404, "No analysis found. Analyze a diagram first.")
 
     analysis = session
 
@@ -61,10 +62,10 @@ async def generate_hld_endpoint(request: Request, diagram_id: str, _auth=Depends
         )
         markdown = diagrams_compat.generate_hld_markdown(hld)
     except ValueError as e:
-        raise HTTPException(500, str(e))
+        raise ArchmorphException(500, str(e))
     except Exception as e:
         logger.exception("HLD generation failed: %s", e)
-        raise HTTPException(500, f"HLD generation failed: {type(e).__name__}: {e}")
+        raise ArchmorphException(500, f"HLD generation failed: {type(e).__name__}: {e}")
 
     # Store in session — must write back to store for Redis compatibility
     session["hld"] = hld
@@ -126,10 +127,10 @@ async def get_hld(request: Request, diagram_id: str):
     """Get previously generated HLD document."""
     session = get_or_recreate_session(diagram_id)
     if not session:
-        raise HTTPException(404, "No HLD found. Generate one first.")
+        raise ArchmorphException(404, "No HLD found. Generate one first.")
     session = await _ensure_hld(session, diagram_id)
     if "hld" not in session:
-        raise HTTPException(404, "No HLD found. Generate one first.")
+        raise ArchmorphException(404, "No HLD found. Generate one first.")
     return {
         "diagram_id": diagram_id,
         "hld": session["hld"],
@@ -156,17 +157,17 @@ async def export_hld_endpoint(request: Request, diagram_id: str, _auth=Depends(v
     """
     fmt = request.query_params.get("format", "").lower()
     if fmt not in SUPPORTED_FORMATS:
-        raise HTTPException(400, f"Invalid format. Use one of: {', '.join(sorted(SUPPORTED_FORMATS))}")
+        raise ArchmorphException(400, f"Invalid format. Use one of: {', '.join(sorted(SUPPORTED_FORMATS))}")
 
     include_diagrams = request.query_params.get("include_diagrams", "true").lower() == "true"
     export_mode = request.query_params.get("export_mode", "internal").lower()
 
     session = get_or_recreate_session(diagram_id)
     if not session:
-        raise HTTPException(404, "No HLD found. Generate one first.")
+        raise ArchmorphException(404, "No HLD found. Generate one first.")
     session = await _ensure_hld(session, diagram_id)
     if "hld" not in session:
-        raise HTTPException(404, "No HLD found. Generate one first.")
+        raise ArchmorphException(404, "No HLD found. Generate one first.")
 
     # Parse optional diagram images from request body
     diagram_b64 = None
@@ -199,7 +200,7 @@ async def export_hld_endpoint(request: Request, diagram_id: str, _auth=Depends(v
                 logger.warning("Failed to auto-generate architecture diagram: %s", e)
 
         if not diagram_b64:
-            raise HTTPException(
+            raise ArchmorphException(
                 400,
                 "Customer-mode export requires an architecture diagram. "
                 "Upload one via 'diagram_image' in the request body, "
@@ -222,10 +223,10 @@ async def export_hld_endpoint(request: Request, diagram_id: str, _auth=Depends(v
             diagram_b64=diagram_b64,
         )
     except ValueError as e:
-        raise HTTPException(400, str(e))
+        raise ArchmorphException(400, str(e))
     except Exception as e:
         logger.error("HLD export failed: %s", e)
-        raise HTTPException(500, "Export failed. Please try again or contact support.")
+        raise ArchmorphException(500, "Export failed. Please try again or contact support.")
 
     return result
 
@@ -239,7 +240,7 @@ async def generate_hld_async(request: Request, diagram_id: str, _auth=Depends(ve
     """Start async HLD document generation. Returns 202 with job_id."""
     session = get_or_recreate_session(diagram_id)
     if not session:
-        raise HTTPException(404, "No analysis found. Analyze a diagram first.")
+        raise ArchmorphException(404, "No analysis found. Analyze a diagram first.")
 
     job = job_manager.submit("generate_hld", diagram_id=diagram_id)
     asyncio.create_task(_run_hld_job(job.job_id, diagram_id))
@@ -330,7 +331,7 @@ async def export_migration_package(request: Request, diagram_id: str, _auth=Depe
 
     session = get_or_recreate_session(diagram_id)
     if not session:
-        raise HTTPException(404, "No analysis found. Analyze a diagram first.")
+        raise ArchmorphException(404, "No analysis found. Analyze a diagram first.")
 
     # Parse options
     iac_format = "terraform"

@@ -1,3 +1,4 @@
+from error_envelope import ArchmorphException
 """
 GDPR / Privacy compliance routes (Issue #145).
 
@@ -145,7 +146,7 @@ async def get_legal_document(request: Request, document_id: str) -> Dict[str, An
     """Get metadata for a specific legal document."""
     doc = _LEGAL_DOCS.get(document_id)
     if not doc:
-        raise HTTPException(404, f"Legal document '{document_id}' not found")
+        raise ArchmorphException(404, f"Legal document '{document_id}' not found")
     return {
         "document": document_id,
         **doc,
@@ -243,7 +244,7 @@ async def get_dsar_status(request: Request, request_id: str) -> Dict[str, Any]:
     """Check the status of a DSAR request."""
     record = _dsar_requests.get(request_id)
     if not record:
-        raise HTTPException(404, "DSAR request not found")
+        raise ArchmorphException(404, "DSAR request not found")
     return {
         "request_id": record["request_id"],
         "request_type": record["request_type"],
@@ -261,7 +262,7 @@ async def request_data_deletion(request: Request, data: DeletionRequest) -> Dict
     and immediately removes any in-memory session data.
     """
     if not data.confirm:
-        raise HTTPException(
+        raise ArchmorphException(
             400,
             "You must set 'confirm' to true to request data deletion",
         )

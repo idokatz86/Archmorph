@@ -1,3 +1,4 @@
+from error_envelope import ArchmorphException
 """User Dashboard API — analysis history, saved diagrams, usage stats (#151).
 
 Endpoints:
@@ -132,7 +133,7 @@ def get_analysis(analysis_id: str, db: Session = Depends(get_db)):
         .first()
     )
     if not row:
-        raise HTTPException(status_code=404, detail="Analysis not found")
+        raise ArchmorphException(status_code=404, detail="Analysis not found")
     return row.to_dict()
 
 
@@ -147,7 +148,7 @@ def save_analysis(analysis_id: str, body: SaveRequest, db: Session = Depends(get
         .first()
     )
     if not analysis:
-        raise HTTPException(status_code=404, detail="Analysis not found")
+        raise ArchmorphException(status_code=404, detail="Analysis not found")
 
     existing = (
         db.query(SavedDiagram)
@@ -179,7 +180,7 @@ def unsave_analysis(analysis_id: str, db: Session = Depends(get_db)):
     )
     db.commit()
     if not deleted:
-        raise HTTPException(status_code=404, detail="Bookmark not found")
+        raise ArchmorphException(status_code=404, detail="Bookmark not found")
     return {"status": "removed"}
 
 

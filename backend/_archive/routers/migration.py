@@ -1,3 +1,4 @@
+from error_envelope import ArchmorphException
 """
 Migration Runbook, Assessment & Cost Comparison routes (v2.9.0).
 """
@@ -28,7 +29,7 @@ async def generate_runbook_endpoint(
     """Generate a migration runbook based on architecture analysis."""
     analysis = SESSION_STORE.get(diagram_id)
     if not analysis:
-        raise HTTPException(404, "Analysis not found")
+        raise ArchmorphException(404, "Analysis not found")
     
     runbook = generate_migration_runbook(diagram_id, analysis, project_name)
     
@@ -47,7 +48,7 @@ async def get_runbook_endpoint(request: Request, diagram_id: str):
     """Get generated runbook for a diagram."""
     analysis = SESSION_STORE.get(diagram_id)
     if not analysis or "runbook" not in analysis:
-        raise HTTPException(404, "Runbook not found. Generate one first.")
+        raise ArchmorphException(404, "Runbook not found. Generate one first.")
     
     return analysis["runbook"]
 
@@ -58,7 +59,7 @@ async def get_runbook_markdown_endpoint(request: Request, diagram_id: str):
     """Get runbook as downloadable Markdown."""
     analysis = SESSION_STORE.get(diagram_id)
     if not analysis or "runbook" not in analysis:
-        raise HTTPException(404, "Runbook not found")
+        raise ArchmorphException(404, "Runbook not found")
     
     # Reconstruct runbook object
     runbook_data = analysis["runbook"]
@@ -89,7 +90,7 @@ async def migration_assessment_endpoint(request: Request, diagram_id: str):
     """Assess migration complexity for all services in a diagram analysis."""
     analysis = SESSION_STORE.get(diagram_id)
     if not analysis:
-        raise HTTPException(404, "Analysis not found")
+        raise ArchmorphException(404, "Analysis not found")
 
     assessment = assess_migration_complexity(analysis)
 
@@ -116,7 +117,7 @@ async def cost_comparison_endpoint(request: Request, diagram_id: str):
     """Get multi-cloud cost comparison for services in a diagram analysis."""
     analysis = SESSION_STORE.get(diagram_id)
     if not analysis:
-        raise HTTPException(404, "Analysis not found")
+        raise ArchmorphException(404, "Analysis not found")
 
     comparison = generate_cost_comparison(analysis)
 

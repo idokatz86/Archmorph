@@ -1,3 +1,4 @@
+from error_envelope import ArchmorphException
 """Azure Marketplace & Enterprise Sales REST endpoints."""
 
 from fastapi import APIRouter, HTTPException, Request, Depends
@@ -80,7 +81,7 @@ async def activate(request: Request, body: ActivateRequest, _=Depends(verify_api
         )
         return sub.to_dict()
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise ArchmorphException(status_code=400, detail=str(exc))
 
 
 # ---------------------------------------------------------------------------
@@ -119,7 +120,7 @@ async def report_usage(request: Request, body: UsageReportRequest, _=Depends(ver
         )
         return report
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise ArchmorphException(status_code=400, detail=str(exc))
 
 
 # ---------------------------------------------------------------------------
@@ -141,7 +142,7 @@ async def get_sub_detail(request: Request, sub_id: str, _=Depends(verify_api_key
     """Get subscription details."""
     sub = get_subscription(sub_id)
     if not sub:
-        raise HTTPException(status_code=404, detail="Subscription not found")
+        raise ArchmorphException(status_code=404, detail="Subscription not found")
     return sub.to_dict()
 
 

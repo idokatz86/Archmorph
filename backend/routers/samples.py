@@ -1,3 +1,4 @@
+from error_envelope import ArchmorphException
 """
 Sample Diagrams routes — onboarding samples with mock analysis.
 """
@@ -343,7 +344,7 @@ async def analyze_sample_diagram(request: Request, sample_id: str):
     diagram_id = f"sample-{sample_id}-{uuid.uuid4().hex[:6]}"
     analysis = build_sample_analysis(sample_id, diagram_id)
     if analysis is None:
-        raise HTTPException(404, f"Sample '{sample_id}' not found")
+        raise ArchmorphException(404, f"Sample '{sample_id}' not found")
 
     SESSION_STORE[diagram_id] = analysis
     record_funnel_step(diagram_id, "analyze")

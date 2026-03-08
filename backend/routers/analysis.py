@@ -1,3 +1,4 @@
+from error_envelope import ArchmorphException
 """
 Analysis routes — guided questions, apply answers, add services, export diagram.
 
@@ -40,7 +41,7 @@ async def get_guided_questions(request: Request, diagram_id: str, smart_dedup: b
     """
     analysis = get_or_recreate_session(diagram_id)
     if not analysis:
-        raise HTTPException(404, f"No analysis found for diagram {diagram_id}. Run /analyze first.")
+        raise ArchmorphException(404, f"No analysis found for diagram {diagram_id}. Run /analyze first.")
 
     detected = [m["source_service"] for m in analysis.get("mappings", [])]
     questions = generate_questions(detected)
@@ -85,7 +86,7 @@ async def add_services_natural_language(
     """
     analysis = get_or_recreate_session(diagram_id)
     if not analysis:
-        raise HTTPException(404, f"No analysis found for diagram {diagram_id}. Run /analyze first.")
+        raise ArchmorphException(404, f"No analysis found for diagram {diagram_id}. Run /analyze first.")
 
     try:
         updated = await asyncio.to_thread(
@@ -95,7 +96,7 @@ async def add_services_natural_language(
         )
     except Exception as exc:
         logger.error("Failed to add services for %s: %s", diagram_id, exc)
-        raise HTTPException(500, "Failed to process request. Please try again.")
+        raise ArchmorphException(500, "Failed to process request. Please try again.")
 
     # Store user context for smart question deduplication
     updated.setdefault("user_context", {})
@@ -130,7 +131,7 @@ async def apply_guided_answers(request: Request, diagram_id: str, answers: Dict[
     """Apply user answers to refine the Azure architecture analysis."""
     analysis = get_or_recreate_session(diagram_id)
     if not analysis:
-        raise HTTPException(404, f"No analysis found for diagram {diagram_id}. Run /analyze first.")
+        raise ArchmorphException(404, f"No analysis found for diagram {diagram_id}. Run /analyze first.")
 
     refined = apply_answers(analysis, answers)
     SESSION_STORE[diagram_id] = refined
@@ -147,16 +148,16 @@ async def apply_guided_answers(request: Request, diagram_id: str, answers: Dict[
 async def export_architecture_diagram(request: Request, diagram_id: str, format: str = "excalidraw"):
     """Generate an architecture diagram in Excalidraw, Draw.io, or Visio format."""
     if format not in ("excalidraw", "drawio", "vsdx"):
-        raise HTTPException(400, "Format must be 'excalidraw', 'drawio', or 'vsdx'")
+        raise ArchmorphException(400, "Format must be 'excalidraw', 'drawio', or 'vsdx'")
 
     analysis = get_or_recreate_session(diagram_id)
     if not analysis:
-        raise HTTPException(404, f"No analysis found for diagram {diagram_id}. Run /analyze first.")
+        raise ArchmorphException(404, f"No analysis found for diagram {diagram_id}. Run /analyze first.")
 
     try:
         result = generate_diagram(analysis, format)
     except ValueError as exc:
-        raise HTTPException(400, str(exc))
+        raise ArchmorphException(400, str(exc))
 
     record_event(f"exports_{format}", {"diagram_id": diagram_id})
     record_funnel_step(diagram_id, "export")

@@ -1,3 +1,4 @@
+from error_envelope import ArchmorphException
 """
 Shared state, dependencies, and models used across Archmorph API routers.
 """
@@ -52,7 +53,7 @@ async def verify_api_key(api_key: Optional[str] = Security(API_KEY_HEADER)):
             _api_key_warning_logged = True
         return  # Auth disabled — dev mode
     if not secrets.compare_digest(api_key or "", API_KEY):
-        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+        raise ArchmorphException(status_code=401, detail="Invalid or missing API key")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -63,15 +64,15 @@ async def verify_admin_key(
 ):
     """Verify admin session via Authorization: Bearer <jwt>."""
     if not admin_is_configured():
-        raise HTTPException(503, "Admin API not configured")
+        raise ArchmorphException(503, "Admin API not configured")
 
     if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(401, "Missing or malformed Authorization header")
+        raise ArchmorphException(401, "Missing or malformed Authorization header")
 
     token = authorization[7:]  # strip "Bearer "
     payload = validate_session_token(token)
     if payload is None:
-        raise HTTPException(401, "Invalid or expired session token")
+        raise ArchmorphException(401, "Invalid or expired session token")
     return payload
 
 

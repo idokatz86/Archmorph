@@ -1,3 +1,4 @@
+from error_envelope import ArchmorphException
 """
 Jobs router — async job management + SSE streaming (Issue #172).
 
@@ -28,7 +29,7 @@ async def get_job_status(request: Request, job_id: str):
     """Get the current status of an async job."""
     job = job_manager.get(job_id)
     if not job:
-        raise HTTPException(404, f"Job {job_id} not found")
+        raise ArchmorphException(404, f"Job {job_id} not found")
     return job.to_dict()
 
 
@@ -47,7 +48,7 @@ async def stream_job(request: Request, job_id: str):
     """
     job = job_manager.get(job_id)
     if not job:
-        raise HTTPException(404, f"Job {job_id} not found")
+        raise ArchmorphException(404, f"Job {job_id} not found")
     return sse_response(job_manager.stream(job_id))
 
 
@@ -57,10 +58,10 @@ async def cancel_job(request: Request, job_id: str):
     """Cancel a running or queued job."""
     job = job_manager.get(job_id)
     if not job:
-        raise HTTPException(404, f"Job {job_id} not found")
+        raise ArchmorphException(404, f"Job {job_id} not found")
     cancelled = job_manager.cancel(job_id)
     if not cancelled:
-        raise HTTPException(
+        raise ArchmorphException(
             409,
             f"Job {job_id} cannot be cancelled (status: {job.status.value})",
         )

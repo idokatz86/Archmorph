@@ -1,3 +1,4 @@
+from error_envelope import ArchmorphException
 """
 Admin Authentication, Metrics, Monitoring, Audit, Observability, Analytics routes.
 """
@@ -44,9 +45,9 @@ class AdminLoginRequest(BaseModel):
 async def admin_login(request: Request, body: AdminLoginRequest):
     """Authenticate with the admin key and receive a session JWT."""
     if not admin_is_configured():
-        raise HTTPException(503, "Admin API not configured")
+        raise ArchmorphException(503, "Admin API not configured")
     if not verify_admin_secret(body.key):
-        raise HTTPException(403, "Invalid admin key")
+        raise ArchmorphException(403, "Invalid admin key")
     token = create_session_token()
     return {"token": token, "expires_in_minutes": 60}
 
@@ -56,7 +57,7 @@ async def admin_login(request: Request, body: AdminLoginRequest):
 async def admin_logout(request: Request, authorization: Optional[str] = Header(None)):
     """Revoke the current admin session token."""
     if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(400, "No token provided")
+        raise ArchmorphException(400, "No token provided")
     token = authorization[7:]
     revoke_token(token)
     return {"status": "logged_out"}

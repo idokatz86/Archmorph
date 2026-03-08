@@ -1,3 +1,4 @@
+from error_envelope import ArchmorphException
 """
 Core diagram routes — upload, analyze, session restore, async analysis.
 
@@ -71,7 +72,7 @@ async def upload_diagram(request: Request, project_id: str, file: UploadFile = F
     ]
     is_visio = file.filename and file.filename.lower().endswith(VISIO_EXTENSION)
     if file.content_type not in allowed_types and not is_visio:
-        raise HTTPException(400, f"File type {file.content_type} not supported")
+        raise ArchmorphException(400, f"File type {file.content_type} not supported")
 
     diagram_id = f"diag-{uuid.uuid4().hex[:8]}"
     # Read file in chunks with early size limit enforcement
@@ -83,7 +84,7 @@ async def upload_diagram(request: Request, project_id: str, file: UploadFile = F
             break
         total_size += len(chunk)
         if total_size > MAX_UPLOAD_SIZE:
-            raise HTTPException(
+            raise ArchmorphException(
                 413,
                 f"File too large. Maximum allowed: {MAX_UPLOAD_SIZE // (1024*1024)} MB."
             )
@@ -126,7 +127,7 @@ async def restore_session(request: Request, diagram_id: str, body: RestoreSessio
     """
     analysis = body.analysis
     if not analysis or not isinstance(analysis, dict):
-        raise HTTPException(400, "Invalid analysis payload")
+        raise ArchmorphException(400, "Invalid analysis payload")
 
     analysis["diagram_id"] = diagram_id
 
@@ -165,7 +166,7 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
     Includes an image classification pre-check to reject non-architecture images.
     """
     if diagram_id not in IMAGE_STORE:
-        raise HTTPException(404, f"No uploaded image found for diagram {diagram_id}. Upload first.")
+        raise ArchmorphException(404, f"No uploaded image found for diagram {diagram_id}. Upload first.")
 
     image_b64, content_type = IMAGE_STORE[diagram_id]
     image_bytes = base64.b64decode(image_b64) if isinstance(image_b64, str) else image_b64
@@ -197,7 +198,7 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
     if not classification["is_architecture_diagram"]:
         logger.info("Image rejected for %s: %s (confidence: %.2f)", diagram_id, classification["reason"], classification["confidence"])
         record_event("images_rejected", {"diagram_id": diagram_id, "image_type": classification["image_type"], "reason": classification["reason"]})
-        raise HTTPException(
+        raise ArchmorphException(
             status_code=422,
             detail={
                 "error": "not_architecture_diagram",
@@ -210,7 +211,7 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
 
     if isinstance(analysis_result_or_exc, Exception):
         logger.error("Vision analysis failed for %s: %s", diagram_id, analysis_result_or_exc, exc_info=True)
-        raise HTTPException(500, "Vision analysis failed. Please try again with a different image.")
+        raise ArchmorphException(500, "Vision analysis failed. Please try again with a different image.")
 
     result = analysis_result_or_exc
     result["diagram_id"] = diagram_id
@@ -238,7 +239,7 @@ async def analyze_diagram_async(request: Request, diagram_id: str, _auth=Depends
     progress events, or poll ``GET /api/jobs/{job_id}`` for status.
     """
     if diagram_id not in IMAGE_STORE:
-        raise HTTPException(404, f"No uploaded image found for diagram {diagram_id}. Upload first.")
+        raise ArchmorphException(404, f"No uploaded image found for diagram {diagram_id}. Upload first.")
 
     job = job_manager.submit("analyze", diagram_id=diagram_id)
     asyncio.create_task(_run_analysis_job(job.job_id, diagram_id))

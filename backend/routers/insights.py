@@ -1,3 +1,4 @@
+from error_envelope import ArchmorphException
 """
 Insights routes — best practices, cost estimation, cost optimization,
 risk score, compliance, terraform preview.
@@ -36,7 +37,7 @@ async def estimate_cost(request: Request, diagram_id: str):
 
     session = get_or_recreate_session(diagram_id)
     if not session:
-        raise HTTPException(404, "No analysis found. Analyze a diagram first.")
+        raise ArchmorphException(404, "No analysis found. Analyze a diagram first.")
 
     mappings = session.get("mappings", [])
     iac_params = session.get("iac_parameters", {})
@@ -79,7 +80,7 @@ async def cost_breakdown(request: Request, diagram_id: str):
 
     session = get_or_recreate_session(diagram_id)
     if not session:
-        raise HTTPException(404, "No analysis found. Analyze a diagram first.")
+        raise ArchmorphException(404, "No analysis found. Analyze a diagram first.")
 
     mappings = session.get("mappings", [])
     iac_params = session.get("iac_parameters", {})
@@ -253,7 +254,7 @@ async def get_best_practices(request: Request, diagram_id: str):
     """Analyze architecture against Azure Well-Architected Framework."""
     analysis = get_or_recreate_session(diagram_id)
     if not analysis:
-        raise HTTPException(404, "Analysis not found")
+        raise ArchmorphException(404, "Analysis not found")
 
     answers = analysis.get("applied_answers", {})
 
@@ -272,7 +273,7 @@ async def get_cost_optimization(request: Request, diagram_id: str):
     """Get cost optimization recommendations for the architecture."""
     analysis = get_or_recreate_session(diagram_id)
     if not analysis:
-        raise HTTPException(404, "Analysis not found")
+        raise ArchmorphException(404, "Analysis not found")
 
     answers = analysis.get("applied_answers", {})
     cost_estimate = analysis.get("cost_estimate")
@@ -297,7 +298,7 @@ async def preview_terraform_plan_endpoint(
     """
     analysis = get_or_recreate_session(diagram_id)
     if not analysis:
-        raise HTTPException(404, "Analysis not found")
+        raise ArchmorphException(404, "Analysis not found")
 
     iac_code = analysis.get("generated_iac")
     if not iac_code:
@@ -309,7 +310,7 @@ async def preview_terraform_plan_endpoint(
                 params=analysis.get("iac_parameters", {}),
             )
         except Exception:
-            raise HTTPException(500, "Failed to generate IaC code. Please try again.")
+            raise ArchmorphException(500, "Failed to generate IaC code. Please try again.")
 
     # Force simulation mode — never run actual terraform CLI (Issue #122)
     result = preview_terraform_plan(iac_code, diagram_id, use_simulation=True)
@@ -330,7 +331,7 @@ async def get_risk_score(request: Request, diagram_id: str, _auth=Depends(verify
     """
     analysis = get_or_recreate_session(diagram_id)
     if not analysis:
-        raise HTTPException(404, "Analysis not found — analyze a diagram first")
+        raise ArchmorphException(404, "Analysis not found — analyze a diagram first")
 
     result = await asyncio.to_thread(compute_risk_score, analysis)
     record_event("risk_score_computed", {
@@ -355,7 +356,7 @@ async def get_compliance(request: Request, diagram_id: str, _auth=Depends(verify
     """
     analysis = get_or_recreate_session(diagram_id)
     if not analysis:
-        raise HTTPException(404, "Analysis not found — analyze a diagram first")
+        raise ArchmorphException(404, "Analysis not found — analyze a diagram first")
 
     result = await asyncio.to_thread(assess_compliance, analysis)
     record_event("compliance_assessed", {
@@ -397,18 +398,18 @@ async def migration_chat(request: Request, diagram_id: str):
     """
     analysis = get_or_recreate_session(diagram_id)
     if not analysis:
-        raise HTTPException(404, "No analysis found. Analyze a diagram first.")
+        raise ArchmorphException(404, "No analysis found. Analyze a diagram first.")
 
     try:
         body = await request.json()
         message = body.get("message", "").strip()
     except Exception:
-        raise HTTPException(400, "Request body must be JSON with a 'message' field")
+        raise ArchmorphException(400, "Request body must be JSON with a 'message' field")
 
     if not message:
-        raise HTTPException(400, "Message cannot be empty")
+        raise ArchmorphException(400, "Message cannot be empty")
     if len(message) > 2000:
-        raise HTTPException(400, "Message too long (max 2000 chars)")
+        raise ArchmorphException(400, "Message too long (max 2000 chars)")
 
     # Build context from analysis
     mappings = analysis.get("mappings", [])

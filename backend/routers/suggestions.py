@@ -1,3 +1,4 @@
+from error_envelope import ArchmorphException
 """
 AI cross-cloud mapping suggestion routes.
 
@@ -90,7 +91,7 @@ async def api_dependency_graph(
     """Build a dependency graph from an existing analysis."""
     session = get_or_recreate_session(diagram_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Analysis not found")
+        raise ArchmorphException(status_code=404, detail="Analysis not found")
     mappings = session.get("mappings", [])
     graph = build_dependency_graph(mappings)
     return {"diagram_id": diagram_id, **graph}
@@ -125,5 +126,5 @@ async def api_review_suggestion(
         notes=body.notes,
     )
     if not result:
-        raise HTTPException(status_code=404, detail="Suggestion not found")
+        raise ArchmorphException(status_code=404, detail="Suggestion not found")
     return {"status": body.decision, "suggestion": result}

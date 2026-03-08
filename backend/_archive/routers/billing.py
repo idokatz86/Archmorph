@@ -1,3 +1,4 @@
+from error_envelope import ArchmorphException
 """
 Stripe Billing & Payment routes (Issue #144).
 
@@ -194,7 +195,7 @@ async def create_checkout_session(request: Request, data: CheckoutRequest) -> Di
     """
     tier_data = next((t for t in PRICING_TIERS if t["id"] == data.tier), None)
     if not tier_data:
-        raise HTTPException(400, f"Invalid tier: {data.tier}")
+        raise ArchmorphException(400, f"Invalid tier: {data.tier}")
 
     if not _stripe_available:
         # Mock response for development
@@ -210,7 +211,7 @@ async def create_checkout_session(request: Request, data: CheckoutRequest) -> Di
     try:
         price_id = tier_data.get("stripe_price_id")
         if not price_id:
-            raise HTTPException(400, f"No Stripe price configured for tier: {data.tier}")
+            raise ArchmorphException(400, f"No Stripe price configured for tier: {data.tier}")
 
         session = _stripe.checkout.Session.create(
             mode="subscription",
@@ -228,7 +229,7 @@ async def create_checkout_session(request: Request, data: CheckoutRequest) -> Di
         }
     except Exception as exc:
         logger.error("Stripe checkout error: %s", exc)
-        raise HTTPException(502, "Payment service temporarily unavailable")
+        raise ArchmorphException(502, "Payment service temporarily unavailable")
 
 
 @router.post("/api/billing/portal")
@@ -255,7 +256,7 @@ async def create_portal_session(request: Request, data: PortalRequest) -> Dict[s
         }
     except Exception as exc:
         logger.error("Stripe portal error: %s", exc)
-        raise HTTPException(502, "Payment service temporarily unavailable")
+        raise ArchmorphException(502, "Payment service temporarily unavailable")
 
 
 @router.get("/api/billing/subscription/{customer_id}")
@@ -299,14 +300,14 @@ async def stripe_webhook(
             )
         except Exception as exc:
             logger.warning("Webhook signature verification failed: %s", exc)
-            raise HTTPException(400, "Invalid webhook signature")
+            raise ArchmorphException(400, "Invalid webhook signature")
     else:
         # Dev mode — parse raw JSON
         import json
         try:
             event = json.loads(body)
         except Exception:
-            raise HTTPException(400, "Invalid webhook payload")
+            raise ArchmorphException(400, "Invalid webhook payload")
 
     event_type = event.get("type", "")
     data_obj = event.get("data", {}).get("object", {})

@@ -1,3 +1,4 @@
+from error_envelope import ArchmorphException
 """
 Infrastructure import routes.
 
@@ -39,13 +40,13 @@ async def import_infrastructure(request: Request, body: InfraImportRequest, _aut
     if body.format == "auto":
         fmt = detect_format(body.filename, body.content)
         if fmt is None:
-            raise HTTPException(400, "Could not auto-detect file format. "
+            raise ArchmorphException(400, "Could not auto-detect file format. "
                               "Specify format as terraform_state, terraform_hcl, or cloudformation.")
     else:
         try:
             fmt = InfraFormat(body.format)
         except ValueError:
-            raise HTTPException(400, f"Unsupported format: {body.format}")
+            raise ArchmorphException(400, f"Unsupported format: {body.format}")
 
     diagram_id = f"import-{uuid.uuid4().hex[:8]}"
 
@@ -54,10 +55,10 @@ async def import_infrastructure(request: Request, body: InfraImportRequest, _aut
             parse_infrastructure, body.content, fmt, diagram_id
         )
     except ValueError as e:
-        raise HTTPException(400, str(e))
+        raise ArchmorphException(400, str(e))
     except Exception as e:
         logger.error("Infrastructure import failed: %s", e, exc_info=True)
-        raise HTTPException(500, "Failed to parse infrastructure file")
+        raise ArchmorphException(500, "Failed to parse infrastructure file")
 
     # Store in session
     SESSION_STORE[diagram_id] = analysis

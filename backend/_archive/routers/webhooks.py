@@ -1,3 +1,4 @@
+from error_envelope import ArchmorphException
 """Webhook & integration management REST endpoints."""
 
 from fastapi import APIRouter, HTTPException, Request, Depends
@@ -71,7 +72,7 @@ async def create_webhook(request: Request, body: WebhookCreateRequest, _=Depends
             "message": "Webhook registered. Save the secret — it won't be shown again.",
         }
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise ArchmorphException(status_code=400, detail=str(exc))
 
 
 @router.get("")
@@ -87,7 +88,7 @@ async def get_webhook_detail(request: Request, webhook_id: str, _=Depends(verify
     """Get webhook details."""
     wh = get_webhook(webhook_id)
     if not wh:
-        raise HTTPException(status_code=404, detail="Webhook not found")
+        raise ArchmorphException(status_code=404, detail="Webhook not found")
     d = wh.to_dict()
     d["secret"] = d["secret"][:4] + "****"
     return d
@@ -108,12 +109,12 @@ async def patch_webhook(
             description=body.description,
         )
         if not wh:
-            raise HTTPException(status_code=404, detail="Webhook not found")
+            raise ArchmorphException(status_code=404, detail="Webhook not found")
         d = wh.to_dict()
         d["secret"] = d["secret"][:4] + "****"
         return d
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise ArchmorphException(status_code=400, detail=str(exc))
 
 
 @router.delete("/{webhook_id}")
@@ -121,7 +122,7 @@ async def patch_webhook(
 async def remove_webhook(request: Request, webhook_id: str, _=Depends(verify_api_key)):
     """Delete a webhook."""
     if not delete_webhook(webhook_id):
-        raise HTTPException(status_code=404, detail="Webhook not found")
+        raise ArchmorphException(status_code=404, detail="Webhook not found")
     return {"deleted": True, "webhook_id": webhook_id}
 
 
@@ -137,7 +138,7 @@ async def webhook_deliveries(
     """Get delivery logs for a webhook."""
     wh = get_webhook(webhook_id)
     if not wh:
-        raise HTTPException(status_code=404, detail="Webhook not found")
+        raise ArchmorphException(status_code=404, detail="Webhook not found")
     return {"deliveries": get_delivery_logs(webhook_id=webhook_id, limit=limit)}
 
 
@@ -175,7 +176,7 @@ async def create_integration(
             "required_fields": INTEGRATION_REQUIREMENTS.get(body.type, []),
         }
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise ArchmorphException(status_code=400, detail=str(exc))
 
 
 @integration_router.get("")
@@ -196,5 +197,5 @@ async def remove_integration(
 ):
     """Remove an integration."""
     if not delete_integration(integration_id):
-        raise HTTPException(status_code=404, detail="Integration not found")
+        raise ArchmorphException(status_code=404, detail="Integration not found")
     return {"deleted": True, "integration_id": integration_id}

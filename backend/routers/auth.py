@@ -1,3 +1,4 @@
+from error_envelope import ArchmorphException
 """
 Authentication & User Management routes (v2.9.0).
 """
@@ -48,14 +49,14 @@ async def login(request: Request, body: LoginRequest):
     try:
         if body.provider == "azure_ad_b2c":
             if not body.token:
-                raise HTTPException(400, "Token required for Azure AD B2C")
+                raise ArchmorphException(400, "Token required for Azure AD B2C")
             user = await validate_azure_ad_b2c_token(body.token)
         elif body.provider == "github":
             if not body.code:
-                raise HTTPException(400, "Code required for GitHub OAuth")
+                raise ArchmorphException(400, "Code required for GitHub OAuth")
             user = await exchange_github_code(body.code)
         else:
-            raise HTTPException(400, f"Unknown provider: {body.provider}")
+            raise ArchmorphException(400, f"Unknown provider: {body.provider}")
         
         session_token = generate_session_token(user)
         
@@ -64,7 +65,7 @@ async def login(request: Request, body: LoginRequest):
             "session_token": session_token,
         }
     except ValueError as e:
-        raise HTTPException(401, str(e))
+        raise ArchmorphException(401, str(e))
 
 
 @router.get("/api/auth/me")

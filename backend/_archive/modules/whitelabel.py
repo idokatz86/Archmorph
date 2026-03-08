@@ -16,6 +16,7 @@ the active brand before first render.
 """
 
 from __future__ import annotations
+from error_envelope import ArchmorphException
 
 import hashlib
 import logging
@@ -137,9 +138,9 @@ def _generate_api_key() -> str:
 def _validate_api_key(api_key: str) -> Dict[str, Any]:
     partner = _PARTNERS.get(api_key)
     if not partner:
-        raise HTTPException(status_code=401, detail="Invalid API key")
+        raise ArchmorphException(status_code=401, detail="Invalid API key")
     if not partner.get("active", True):
-        raise HTTPException(status_code=403, detail="Partner account suspended")
+        raise ArchmorphException(status_code=403, detail="Partner account suspended")
     return partner
 
 
@@ -212,7 +213,7 @@ async def get_embed_snippet(partner_id: str):
     """Generate embeddable HTML/JS snippet for a partner."""
     partner = _PARTNER_BY_ID.get(partner_id)
     if not partner:
-        raise HTTPException(status_code=404, detail="Partner not found")
+        raise ArchmorphException(status_code=404, detail="Partner not found")
 
     embed_cfg = partner["branding"].get("embed", DEFAULT_BRANDING["embed"])
     width = embed_cfg.get("default_width", "100%")

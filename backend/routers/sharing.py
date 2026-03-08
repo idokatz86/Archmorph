@@ -1,3 +1,4 @@
+from error_envelope import ArchmorphException
 """
 Sharing routes — create and retrieve share links.
 
@@ -26,7 +27,7 @@ async def create_share_link(request: Request, diagram_id: str):
     """Create a shareable read-only link for analysis results."""
     analysis = get_or_recreate_session(diagram_id)
     if not analysis:
-        raise HTTPException(404, "Analysis not found")
+        raise ArchmorphException(404, "Analysis not found")
 
     share_id = f"share-{secrets.token_urlsafe(24)}"
 
@@ -50,7 +51,7 @@ async def get_shared_analysis(request: Request, share_id: str):
     """Get shared analysis by share ID (public, read-only)."""
     shared = SHARE_STORE.get(share_id)
     if not shared:
-        raise HTTPException(404, "Share link expired or invalid")
+        raise ArchmorphException(404, "Share link expired or invalid")
 
     return {
         "analysis": shared["analysis"],

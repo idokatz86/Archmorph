@@ -1,3 +1,4 @@
+from error_envelope import ArchmorphException
 """
 Roadmap — Version Timeline & Feature Requests.
 """
@@ -31,7 +32,7 @@ async def roadmap_release(version: str):
     """Get details for a specific release version."""
     release = get_release_by_version(version)
     if not release:
-        raise HTTPException(404, f"Release {version} not found")
+        raise ArchmorphException(404, f"Release {version} not found")
     return release
 
 
@@ -60,7 +61,7 @@ async def roadmap_feature_request(request: Request, payload: FeatureRequestPaylo
         payload.email,
     )
     if not result["success"]:
-        raise HTTPException(500, result.get("error", "Failed to create feature request"))
+        raise ArchmorphException(500, result.get("error", "Failed to create feature request"))
     return result
 
 
@@ -97,5 +98,5 @@ async def roadmap_bug_report(request: Request, payload: BugReportPayload):
         payload.email,
     )
     if not result["success"]:
-        raise HTTPException(500, result.get("error", "Failed to create bug report"))
+        raise ArchmorphException(500, result.get("error", "Failed to create bug report"))
     return result

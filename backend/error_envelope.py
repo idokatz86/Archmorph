@@ -72,6 +72,24 @@ def _build_envelope(status: int, message: str, details: Any = None) -> dict:
     }
 
 
+
+class ArchmorphException(Exception):
+    """
+    Standardized exception for expected business logic errors.
+    Automatically caught and formatted as an error envelope.
+    """
+    def __init__(self, status_code: int, detail: str, details: Any = None):
+        self.status_code = status_code
+        self.detail = detail
+        self.details = details
+
+async def _archmorph_exception_handler(_request: Request, exc: ArchmorphException) -> JSONResponse:
+    logger.info("ArchmorphException raised: %d %s", exc.status_code, exc.detail)
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=_build_envelope(exc.status_code, exc.detail, details=exc.details),
+    )
+
 # ── Exception handlers ─────────────────────────────────────
 async def _http_exception_handler(_request: Request, exc: HTTPException) -> JSONResponse:
     detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
@@ -102,6 +120,7 @@ async def _unhandled_exception_handler(_request: Request, exc: Exception) -> JSO
 
 def register_error_handlers(app: FastAPI) -> None:
     """Wire up all error-envelope handlers on the given FastAPI app."""
+    app.add_exception_handler(ArchmorphException, _archmorph_exception_handler)
     app.add_exception_handler(HTTPException, _http_exception_handler)
     app.add_exception_handler(RequestValidationError, _validation_error_handler)
     app.add_exception_handler(Exception, _unhandled_exception_handler)

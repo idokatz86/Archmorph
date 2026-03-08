@@ -1,3 +1,4 @@
+from error_envelope import ArchmorphException
 """Organization & Team endpoints for multi-tenancy (Issue #169).
 
 Provides CRUD for organizations, member management, invitations,
@@ -93,7 +94,7 @@ async def create_org(request: Request, body: CreateOrgRequest, _=Depends(verify_
         return {"status": "created", "organization": org}
     except Exception as e:
         logger.error("Failed to create org: %s", e)
-        raise HTTPException(status_code=400, detail=str(e))
+        raise ArchmorphException(status_code=400, detail=str(e))
     finally:
         db.close()
 
@@ -119,10 +120,10 @@ async def get_org(request: Request, org_id: str, _=Depends(verify_api_key)):
     db = next(get_db())
     try:
         if not check_permission(db, org_id, user_id, "org:read"):
-            raise HTTPException(status_code=403, detail="Not a member of this organization")
+            raise ArchmorphException(status_code=403, detail="Not a member of this organization")
         org = get_organization(db, org_id)
         if not org:
-            raise HTTPException(status_code=404, detail="Organization not found")
+            raise ArchmorphException(status_code=404, detail="Organization not found")
         role = get_user_role(db, org_id, user_id)
         org["your_role"] = role
         return org
@@ -140,11 +141,11 @@ async def update_org(
     db = next(get_db())
     try:
         if not check_permission(db, org_id, user_id, "org:update"):
-            raise HTTPException(status_code=403, detail="Insufficient permissions")
+            raise ArchmorphException(status_code=403, detail="Insufficient permissions")
         updates = body.dict(exclude_none=True)
         org = update_organization(db, org_id, updates)
         if not org:
-            raise HTTPException(status_code=404, detail="Organization not found")
+            raise ArchmorphException(status_code=404, detail="Organization not found")
         return {"status": "updated", "organization": org}
     finally:
         db.close()
@@ -161,7 +162,7 @@ async def get_members(request: Request, org_id: str, _=Depends(verify_api_key)):
     db = next(get_db())
     try:
         if not check_permission(db, org_id, user_id, "member:read"):
-            raise HTTPException(status_code=403, detail="Insufficient permissions")
+            raise ArchmorphException(status_code=403, detail="Insufficient permissions")
         members = list_members(db, org_id)
         return {"members": members, "count": len(members)}
     finally:
@@ -182,13 +183,13 @@ async def update_member_role(
     db = next(get_db())
     try:
         if not check_permission(db, org_id, user_id, "member:change_role"):
-            raise HTTPException(status_code=403, detail="Insufficient permissions")
+            raise ArchmorphException(status_code=403, detail="Insufficient permissions")
         result = change_member_role(db, org_id, target_user_id, body.role)
         if not result:
-            raise HTTPException(status_code=404, detail="Member not found")
+            raise ArchmorphException(status_code=404, detail="Member not found")
         return {"status": "updated", "member": result}
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise ArchmorphException(status_code=400, detail=str(e))
     finally:
         db.close()
 
@@ -203,13 +204,13 @@ async def delete_member(
     db = next(get_db())
     try:
         if not check_permission(db, org_id, user_id, "member:remove"):
-            raise HTTPException(status_code=403, detail="Insufficient permissions")
+            raise ArchmorphException(status_code=403, detail="Insufficient permissions")
         success = remove_member(db, org_id, target_user_id)
         if not success:
-            raise HTTPException(status_code=404, detail="Member not found")
+            raise ArchmorphException(status_code=404, detail="Member not found")
         return {"status": "removed"}
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise ArchmorphException(status_code=400, detail=str(e))
     finally:
         db.close()
 
@@ -227,11 +228,11 @@ async def invite_member(
     db = next(get_db())
     try:
         if not check_permission(db, org_id, user_id, "member:invite"):
-            raise HTTPException(status_code=403, detail="Insufficient permissions")
+            raise ArchmorphException(status_code=403, detail="Insufficient permissions")
         invite = create_invitation(db, org_id, body.email, body.role, user_id)
         return {"status": "invited", "invitation": invite}
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise ArchmorphException(status_code=400, detail=str(e))
     finally:
         db.close()
 
@@ -246,6 +247,6 @@ async def accept_invite(request: Request, body: AcceptInviteRequest, _=Depends(v
         result = accept_invitation(db, body.token, user_id)
         return {"status": "accepted", **result}
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise ArchmorphException(status_code=400, detail=str(e))
     finally:
         db.close()

@@ -1,3 +1,4 @@
+from error_envelope import ArchmorphException
 """
 Architecture Versioning routes (v2.9.0).
 """
@@ -20,7 +21,7 @@ async def create_version_endpoint(request: Request, diagram_id: str, message: Op
     """Create a new version of an architecture analysis."""
     analysis = SESSION_STORE.get(diagram_id)
     if not analysis:
-        raise HTTPException(404, "Analysis not found")
+        raise ArchmorphException(404, "Analysis not found")
     
     version = create_version(
         diagram_id=diagram_id,
@@ -44,7 +45,7 @@ async def get_version_endpoint(request: Request, diagram_id: str, version_number
     """Get a specific version of an architecture."""
     version = get_version(diagram_id, version_number)
     if not version:
-        raise HTTPException(404, f"Version {version_number} not found")
+        raise ArchmorphException(404, f"Version {version_number} not found")
     
     return version.to_dict()
 
@@ -55,7 +56,7 @@ async def restore_version_endpoint(request: Request, diagram_id: str, version_nu
     """Restore a previous version, creating a new version from it."""
     snapshot = restore_version(diagram_id, version_number)
     if not snapshot:
-        raise HTTPException(404, f"Version {version_number} not found")
+        raise ArchmorphException(404, f"Version {version_number} not found")
     
     # Update session
     SESSION_STORE[diagram_id] = snapshot

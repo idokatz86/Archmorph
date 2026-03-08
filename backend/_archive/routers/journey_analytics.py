@@ -1,3 +1,4 @@
+from error_envelope import ArchmorphException
 """User Journey Analytics & Conversion Funnel REST endpoints."""
 
 from fastapi import APIRouter, HTTPException, Query
@@ -86,7 +87,7 @@ async def api_track_event(body: TrackEventRequest):
         )
         return {"status": "tracked", "event_id": event.id}
     except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise ArchmorphException(status_code=400, detail=str(exc))
 
 
 @router.post("/sessions/{session_id}/segments", summary="Set user segments")
@@ -99,7 +100,7 @@ async def api_set_segments(session_id: str, body: SegmentRequest):
         use_case=body.use_case,
     )
     if result is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+        raise ArchmorphException(status_code=404, detail="Session not found")
     return {"status": "updated", "segments": result}
 
 
@@ -108,7 +109,7 @@ async def api_mark_drop_off(session_id: str):
     """Mark a session as dropped off at its last known stage."""
     stage = mark_drop_off(session_id)
     if stage is None:
-        raise HTTPException(status_code=404, detail="Session not found")
+        raise ArchmorphException(status_code=404, detail="Session not found")
     return {"status": "marked", "drop_off_stage": stage}
 
 
@@ -159,7 +160,7 @@ async def api_create_experiment(body: ExperimentCreateRequest):
         )
         return {"status": "created", "experiment_id": exp.id, "name": exp.name}
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise ArchmorphException(status_code=400, detail=str(exc))
 
 
 @router.get("/experiments", summary="List experiments")
@@ -175,7 +176,7 @@ async def api_experiment_results(experiment_id: str):
     """Get results for a specific experiment."""
     result = get_experiment_results(experiment_id)
     if result is None:
-        raise HTTPException(status_code=404, detail="Experiment not found")
+        raise ArchmorphException(status_code=404, detail="Experiment not found")
     return result
 
 
@@ -184,7 +185,7 @@ async def api_assign_variant(experiment_id: str, body: AssignVariantRequest):
     """Assign a user to an experiment variant."""
     variant = assign_variant(experiment_id, body.user_id)
     if variant is None:
-        raise HTTPException(status_code=404, detail="Experiment not found or inactive")
+        raise ArchmorphException(status_code=404, detail="Experiment not found or inactive")
     return {"variant": variant}
 
 
@@ -193,7 +194,7 @@ async def api_record_conversion(experiment_id: str, body: ConversionRequest):
     """Record a conversion for an experiment variant."""
     ok = record_experiment_conversion(experiment_id, body.variant)
     if not ok:
-        raise HTTPException(status_code=404, detail="Experiment not found")
+        raise ArchmorphException(status_code=404, detail="Experiment not found")
     return {"status": "recorded"}
 
 
@@ -202,7 +203,7 @@ async def api_stop_experiment(experiment_id: str):
     """Stop a running experiment."""
     ok = stop_experiment(experiment_id)
     if not ok:
-        raise HTTPException(status_code=404, detail="Experiment not found")
+        raise ArchmorphException(status_code=404, detail="Experiment not found")
     return {"status": "stopped"}
 
 
@@ -222,7 +223,7 @@ async def api_record_nps(body: NPSRequest):
         )
         return {"status": "recorded", "id": entry["id"]}
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise ArchmorphException(status_code=400, detail=str(exc))
 
 
 @router.get("/nps", summary="NPS summary")
