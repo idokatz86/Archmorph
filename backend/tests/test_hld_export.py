@@ -366,3 +366,144 @@ class TestEdgeCases:
         for fmt in SUPPORTED_FORMATS:
             result = export_hld(hld, format=fmt, include_diagrams=False)
             assert result["format"] == fmt
+
+def test_safe_helper():
+    from hld_export import _safe
+    assert _safe("hello") == "hello"
+    assert _safe(None) == "N/A"
+    assert _safe(None, "Unknown") == "Unknown"
+    assert _safe(123) == "123"
+
+def test_pdf_safe_helper():
+    from hld_export import _pdf_safe
+    assert _pdf_safe("Hello \u2014 World") == "Hello -- World"
+    assert _pdf_safe("Item \u2022 list") == "Item - list"
+    assert _pdf_safe("\u2192 \u2190 \u00a0 \u00b7") == "-> <-   -"
+    assert _pdf_safe("Emoji \U0001f600") == "Emoji ?"
+
+def test_decode_diagram_image():
+    from hld_export import _decode_diagram_image
+    assert _decode_diagram_image(None) is None
+    assert _decode_diagram_image("") is None
+    assert _decode_diagram_image("SGVsbG8=") == b"Hello"
+    assert _decode_diagram_image("data:image/png;base64,SGVsbG8=") == b"Hello"
+    assert _decode_diagram_image("invalid_base_64!@#") is None
+
+def test_export_docx_full():
+    from hld_export import export_hld_docx
+    MOCK_HLD_FULL = {
+        "title": "Full HLD Document",
+        "_metadata": {
+            "source_provider": "AWS",
+            "target_provider": "Azure",
+            "confidence_score": 0.95
+        },
+        "executive_summary": "Summary text • bullet",
+        "architecture_overview": {
+            "description": "Overview \u2192",
+            "architecture_style": "Microservices",
+            "deployment_model": "PaaS"
+        },
+        "services": [
+            {
+                "azure_service": "Azure Functions",
+                "source_service": "AWS Lambda",
+                "justification": "Direct match for serverless functions.",
+                "alternatives_considered": ["ACA", "AKS"],
+                "description": "Serverless compute tier.",
+                "tier_recommendation": "Consumption plan",
+                "limitations": ["Cold starts"],
+                "sla": "99.99%",
+                "communication": {
+                    "connects_to": ["Cosmos DB"],
+                    "protocol": "HTTPS",
+                    "pattern": "Sync"
+                },
+                "estimated_monthly_cost": "$20",
+                "documentation_url": "https://url",
+                "compliance_standards": "HIPAA"
+            }
+        ],
+        "migration_strategy": {
+            "phases": [
+                {"phase": "1", "activities": ["Plan"]},
+                {"phase": 2, "activities": ["Execute"]},
+                {"phase": "3", "activities": None}
+            ],
+            "risks": [
+                {"risk": "Data loss", "mitigation": "Backup"}
+            ]
+        }
+    }
+    res = export_hld_docx(MOCK_HLD_FULL, include_diagrams=True, diagram_b64="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
+    assert res.startswith(b"PK\x03\x04") 
+
+def test_export_pdf_full():
+    from hld_export import export_hld_pdf
+    MOCK_HLD_FULL = {"title": "Test HLD", "_metadata": {"source_provider": "AWS"}}
+    res = export_hld_pdf(MOCK_HLD_FULL, include_diagrams=True, diagram_b64="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
+    assert res.startswith(b"%PDF-") 
+
+def test_export_pptx_full():
+    from hld_export import export_hld_pptx
+    MOCK_HLD_FULL = {"title": "Test HLD", "_metadata": {"source_provider": "AWS"}}
+    res = export_hld_pptx(MOCK_HLD_FULL, include_diagrams=True, diagram_b64="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
+    assert res.startswith(b"PK\x03\x04") 
+
+def test_export_hld_invalid_format():
+    from hld_export import export_hld
+    import pytest
+    with pytest.raises(ValueError):
+        export_hld({}, format="txt")
+
+def test_safe_helper():
+    from hld_export import _safe
+    assert _safe("h") == "h"
+    assert _safe(None) == "N/A"
+    assert _safe(None, "Unknown") == "Unknown"
+    assert _safe(123) == "123"
+
+def test_pdf_safe_helper():
+    from hld_export import _pdf_safe
+    assert _pdf_safe("Item \u2022 list") == "Item - list"
+
+def test_decode_diagram_image():
+    from hld_export import _decode_diagram_image
+    assert _decode_diagram_image(None) is None
+    assert _decode_diagram_image("") is None
+
+def test_export_docx_full():
+    from hld_export import export_hld_docx
+    MOCK_HLD_FULL = {
+        "title": "Full",
+        "_metadata": {
+            "source_provider": "AWS",
+            "target_provider": "Azure",
+            "confidence_score": 0.95
+        },
+        "executive_summary": "Summary",
+        "architecture_overview": {
+            "description": "Overview",
+            "architecture_style": "Microservices",
+            "deployment_model": "PaaS"
+        },
+        "services": [
+            {
+                "azure_service": "Azure Functions",
+                "source_service": "AWS Lambda",
+                "justification": "Direct",
+                "alternatives_considered": ["ACA", "AKS"],
+                "description": "Compute",
+                "tier_recommendation": "Consumption plan",
+                "limitations": ["Cold"]
+            }
+        ]
+    }
+    res = export_hld_docx(MOCK_HLD_FULL, include_diagrams=False)
+    assert res is not None
+
+def test_export_hld_invalid_format():
+    from hld_export import export_hld
+    import pytest
+    with pytest.raises(ValueError):
+        export_hld({}, format="txt")

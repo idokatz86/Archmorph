@@ -1,3 +1,4 @@
+import json
 """
 Archmorph — AI Suggestion Unit Tests
 Tests for ai_suggestion.py (Issue #153)
@@ -142,3 +143,90 @@ class TestReviewQueue:
         })
         result = review_suggestion(suggestion_id, "rejected", "reviewer@test.com")
         assert result is not None
+
+
+
+
+from ai_suggestion import _build_confidence_factors, _lookup_service_knowledge, build_mapping_deep_dive, suggest_mapping
+from unittest.mock import patch, MagicMock
+
+def test_generate_confidence_factors_positive():
+    suggestion = {
+        "confidence": 0.95,
+        "source": "catalog",
+        "feature_gaps": [],
+        "migration_effort": "low",
+        "alternatives": ["AKS"]
+    }
+    factors = _build_confidence_factors(suggestion, "SomeService")
+    assert len(factors) > 0
+    assert any(f["factor"] == "catalog_match" and f["signal"] == "positive" for f in factors)
+    assert any(f["factor"] == "feature_parity" and f["signal"] == "positive" for f in factors)
+
+def test_generate_confidence_factors_negative():
+    suggestion = {
+        "confidence": 0.4,
+        "source": "inference",
+        "feature_gaps": ["Missing auth feature"],
+        "migration_effort": "high",
+        "alternatives": ["AKS", "ACA", "App Service"]
+    }
+    factors = _build_confidence_factors(suggestion, "SomeService")
+    assert len(factors) > 0
+    assert any(f["factor"] == "catalog_match" and f["signal"] == "negative" for f in factors)
+    assert any(f["factor"] == "feature_parity" and f["signal"] == "negative" for f in factors)
+    assert any(f["factor"] == "migration_effort" and f["signal"] == "negative" for f in factors)
+
+def test_lookup_service_knowledge():
+    res1 = _lookup_service_knowledge("virtual machines")
+    assert res1["limitations"] is not None
+    
+    res2 = _lookup_service_knowledge("completely unknown service")
+    assert "strengths" in res2
+    assert res2["limitations"] == []
+
+def test_build_mapping_deep_dive():
+    suggestion = {
+        "azure_service": "Virtual Machines",
+        "feature_gaps": ["Some specific gap"],
+        "migration_effort": "high"
+    }
+    deep_dive = build_mapping_deep_dive(suggestion, "EC2")
+    assert "strengths" in deep_dive
+    assert len(deep_dive["limitations"]) > 0
+    assert any("Some specific gap" in lim["factor"] for lim in deep_dive["limitations"])
+
+
+
+@patch("ai_suggestion.get_openai_client")
+def test_suggest_mapping_gpt_path(mock_get_client):
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_message = MagicMock()
+    
+    mock_message.content = json.dumps({
+        "azure_service": "Azure App Service",
+        "confidence_score": 88,
+        "reasoning": "Standard app hosting.",
+        "common_gaps": ["None"],
+        "cost_implications": "Minimal",
+        "doc_links": ["https://learn.microsoft.com/app-service"]
+    })
+    mock_response.choices = [MagicMock(message=mock_message)]
+    mock_client.chat.completions.create.return_value = mock_response
+    mock_get_client.return_value = mock_client
+    
+    # Needs matching structure to what ai_suggestion.py expects:
+    res = suggest_mapping("UnknownService", "aws")
+    
+    assert res["azure_service"] == "Azure App Service"
+
+@patch("ai_suggestion.get_openai_client")
+def test_suggest_mapping_gpt_failure(mock_get_client):
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.side_effect = Exception("API Error")
+    mock_get_client.return_value = mock_client
+    
+    res = suggest_mapping("UnknownService", "aws")
+    # if suggest_mapping catches error, it returns "Unknown Resource/No Match"
+    assert res["azure_service"] == "Unknown"

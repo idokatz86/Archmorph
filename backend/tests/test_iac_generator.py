@@ -1,8 +1,8 @@
-"""Tests for iac_generator module — GPT-4o powered IaC generation."""
+"""Tests for iac_generator module \u2014 GPT-4o powered IaC generation."""
 
 from unittest.mock import patch, MagicMock
 
-
+import iac_generator
 from iac_generator import generate_iac_code
 
 
@@ -36,7 +36,7 @@ class TestGenerateIaCCode:
     @patch("iac_generator.cached_chat_completion")
     def test_generates_bicep(self, mock_cached):
         mock_cached.return_value = MagicMock(
-            choices=[MagicMock(message=MagicMock(content='resource rg \'Microsoft.Resources/resourceGroups@2023-07-01\' = {\n  name: \'rg-test\'\n  location: \'westeurope\'\n}'))]
+            choices=[MagicMock(message=MagicMock(content="resource rg 'Microsoft.Resources/resourceGroups@2023-07-01' = {\n  name: 'rg-test'\n  location: 'westeurope'\n}"))]
         )
 
         code = generate_iac_code(
@@ -58,3 +58,69 @@ class TestGenerateIaCCode:
             params={},
         )
         assert code is not None
+
+    @patch("iac_generator.cached_chat_completion")
+    def test_generate_cloudformation(self, mock_cached):
+        mock_cached.return_value = MagicMock(choices=[MagicMock(message=MagicMock(content='Resources:\n  MyBucket:\n    Type: AWS::S3::Bucket'))])
+        code = generate_iac_code(
+            analysis=MOCK_ANALYSIS,
+            iac_format="cloudformation",
+            params={"project_name": "test", "region": "us-east-1", "environment": "prod"}
+        )
+        assert "Resources" in code
+
+    @patch("iac_generator.cached_chat_completion")
+    def test_generate_pulumi(self, mock_cached):
+        mock_cached.return_value = MagicMock(choices=[MagicMock(message=MagicMock(content='import pulumi_aws as aws\n\nbucket = aws.s3.Bucket("my-bucket")'))])
+        code = generate_iac_code(
+            analysis=MOCK_ANALYSIS,
+            iac_format="pulumi",
+            params={}
+        )
+        assert "pulumi" in code
+
+    @patch("iac_generator.cached_chat_completion")
+    def test_generate_iac_code_invalid_format(self, mock_cached):
+        mock_cached.return_value = MagicMock(choices=[MagicMock(message=MagicMock(content='provider "azurerm" {}'))])
+        code = generate_iac_code(
+            analysis={"mappings": []},
+            iac_format="unknown_format",
+            params={}
+        )
+        assert "azurerm" in code
+
+    @patch("iac_generator.cached_chat_completion")
+    def test_generate_iac_empty_components(self, mock_cached):
+        mock_cached.return_value = MagicMock(choices=[MagicMock(message=MagicMock(content='provider "azurerm" {}'))])
+        code = generate_iac_code(
+            analysis={"zones": [], "mappings": []},
+            iac_format="terraform",
+            params={}
+        )
+        assert "azurerm" in code
+
+    @patch("iac_generator.cached_chat_completion")
+    def test_cached_chat_completion_error_handling(self, mock_cached):
+        mock_cached.side_effect = Exception("OpenAI Error")
+        try:
+            generate_iac_code(
+                analysis={"mappings": [{"azure_service": "App Service"}]},
+                iac_format="terraform",
+                params={}
+            )
+        except Exception as e:
+            assert "OpenAI Error" in str(e)
+
+    @patch("iac_generator.cached_chat_completion")
+    def test_clean_markdown_marks(self, mock_cached):
+        mock_cached.return_value = MagicMock(choices=[MagicMock(message=MagicMock(content='```terraform\nresource "azurerm_resource_group" "main" {}\n```'))])
+        code = generate_iac_code(
+            analysis={},
+            iac_format="terraform",
+            params={}
+        )
+        assert "resource" in code
+        assert "```" not in code
+
+    
+
