@@ -40,6 +40,34 @@ class TerraformRunner:
         if process.returncode != 0:
             yield f"ERROR: Terraform process exited with code {process.returncode}"
 
+    async def stream_plan(self, terraform_code: str) -> AsyncGenerator[str, None]:
+        """Provides a dry-run implementation by streaming 'terraform plan'."""
+        temp_dir = tempfile.mkdtemp(prefix=f"tf_plan_{self.project_id}_{self.environment}_")
+        
+        try:
+            # 1. Write the main.tf config
+            tf_path = os.path.join(temp_dir, "main.tf")
+            with open(tf_path, 'w') as f:
+                f.write(terraform_code)
+
+            # 2. Init
+            yield "Initializing Terraform backend for dry-run..."
+            async for line in self._run_command(["terraform", "init", "-no-color"], cwd=temp_dir):
+                yield line
+            
+            # 3. Plan
+            yield "Generating Terraform Plan..."
+            async for line in self._run_command(["terraform", "plan", "-no-color"], cwd=temp_dir):
+                yield line
+
+        except Exception as e:
+            logger.error(f"Terraform plan error: {str(e)}")
+            yield f"FATAL ERROR: {str(e)}"
+            
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            yield "Terraform Plan Completed."
+
     async def stream_apply(self, terraform_code: str) -> AsyncGenerator[str, None]:
         """Writes terraform code to a temp dir, inits, and applies. Yields log strings."""
         temp_dir = tempfile.mkdtemp(prefix=f"tf_{self.project_id}_{self.environment}_")
@@ -65,6 +93,30 @@ class TerraformRunner:
             yield f"FATAL ERROR: {str(e)}"
             
         finally:
-            # Cleanup temp directory
+    async def stream_destroy(self, terraform_code: str) -> AsyncGenerator[str, None]:
+        """Provides rollback capabilities via 'terraform destroy'."""
+        temp_dir = tempfile.mkdtemp(prefix=f"tf_destroy_{self.project_id}_{self.environment}_")
+        
+        try:
+            # 1. Write the main.tf config
+            tf_path = os.path.join(temp_dir, "main.tf")
+            with open(tf_path, 'w') as f:
+                f.write(terraform_code)
+
+            # 2. Init
+            yield "Initializing Terraform backend for rollback..."
+            async for line in self._run_command(["terraform", "init", "-no-color"], cwd=temp_dir):
+                yield line
+            
+            # 3. Destroy
+            yield "Starting Terraform Destroy (Rollback)..."
+            async for line in self._run_command(["terraform", "destroy", "-auto-approve", "-no-color"], cwd=temp_dir):
+                yield line
+
+        except Exception as e:
+            logger.error(f"Terraform destroy error: {str(e)}")
+            yield f"FATAL ERROR: {str(e)}"
+            
+        finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
             yield "Terraform Execution Completed."

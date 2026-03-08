@@ -7,7 +7,6 @@ import {
 import { Badge, Button, Card } from '../ui';
 import ExportPanel from './ExportPanel';
 import { HelpTooltip, HELP_CONTENT } from '../HelpTooltip';
-import BeforeAfterView from './BeforeAfterView';
 
 /* ── Strengths/Limitations Panel for a mapping ──────────── */
 function DeepDivePanel({ m }) {
@@ -254,7 +253,6 @@ export default function AnalysisResults({
       <ExportPanel exportLoading={exportLoading} onExportDiagram={onExportDiagram} />
 
       {/* Before/After Architecture Visualization (#250) */}
-      <BeforeAfterView analysis={analysis} />
 
       {/* Generation Progress Indicator (#311) */}
       {generatingIac && (

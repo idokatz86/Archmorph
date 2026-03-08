@@ -251,6 +251,9 @@ def build_sample_analysis(sample_id: str, diagram_id: str) -> dict:
                 "confidence": confidence,
                 "confidence_explanation": conf_explanation,
                 "notes": f"Zone {zone_idx} \u2013 {zone_def['name']}: {role}. {notes_text}".strip(),
+                "strengths": [f"Native integration mapped directly from {sample['provider'].upper()}"],
+                "limitations": [f"Feature parity mismatch might require config adjustments in Azure {azure_svc}"],
+                "migration_notes": [f"AWS usually migrates to Azure {azure_svc} with minimal refactoring." if sample['provider'] == 'aws' else f"GCP has differing networking topologies, test {azure_svc} routes."]
             }
             mappings.append(mapping_entry)
 

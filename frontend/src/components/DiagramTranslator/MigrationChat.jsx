@@ -59,7 +59,7 @@ export default function MigrationChat({ diagramId }) {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="fixed bottom-6 right-6 z-40 flex items-center gap-2 px-4 py-2.5 bg-cta text-surface rounded-full shadow-lg hover:bg-cta-hover transition-all cursor-pointer"
+        className="fixed bottom-6 left-6 z-40 flex items-center gap-2 px-4 py-2.5 bg-cta text-surface rounded-full shadow-lg hover:bg-cta-hover transition-all cursor-pointer"
         aria-label="Open Migration Advisor"
       >
         <MessageSquare className="w-4 h-4" />
@@ -69,7 +69,7 @@ export default function MigrationChat({ diagramId }) {
   }
 
   return (
-    <div className="fixed bottom-6 right-6 z-40 w-96 max-w-[calc(100vw-2rem)] bg-surface border border-border rounded-2xl shadow-2xl flex flex-col" style={{ maxHeight: '70vh' }}>
+    <div className="fixed bottom-6 left-6 z-40 w-96 max-w-[calc(100vw-2rem)] bg-surface border border-border rounded-2xl shadow-2xl flex flex-col" style={{ maxHeight: '70vh' }}>
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-secondary/30 rounded-t-2xl">
         <div className="flex items-center gap-2">
