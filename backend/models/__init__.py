@@ -21,3 +21,5 @@ from models.memory import AgentMemoryDocument, AgentEpisodicMemory, AgentEntityM
 from models.memory import AgentMemoryDocument, AgentEpisodicMemory, AgentEntityMemory  # noqa: F401
 from models.policy import AgentPolicy, AgentPolicyBinding  # noqa: F401
 from models.policy import AgentPolicy, AgentPolicyBinding  # noqa: F401
+from models.model_registry import ModelEndpoint  # noqa: F401
+from models.model_registry import ModelEndpoint  # noqa: F401

@@ -60,6 +60,7 @@ from routers.agents import router as agents_router  # noqa: E402
 from routers.executions import router as executions_router  # noqa: E402
 from routers.agent_memory import router as agent_memory_router  # noqa: E402
 from routers.policies import router as policies_router  # noqa: E402
+from routers.models import router as models_router  # noqa: E402
 from routers.insights import router as insights_router  # noqa: E402
 from routers.sharing import router as sharing_router  # noqa: E402
 from routers.infra import router as infra_router  # noqa: E402
@@ -302,6 +303,7 @@ app.include_router(agents_router)
 app.include_router(executions_router)
 app.include_router(agent_memory_router)
 app.include_router(policies_router)
+app.include_router(models_router)
 app.include_router(insights_router)
 app.include_router(sharing_router)
 app.include_router(infra_router)
@@ -339,6 +341,7 @@ _all_routers = [
     (executions_router, ""),
     (agent_memory_router, ""),
     (policies_router, ""),
+    (models_router, ""),
     (insights_router, ""),
     (sharing_router, ""),
     (infra_router, ""),
