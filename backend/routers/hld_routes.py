@@ -36,7 +36,7 @@ async def generate_hld_endpoint(request: Request, diagram_id: str, _auth=Depends
 
     session = get_or_recreate_session(diagram_id)
     if not session:
-        raise ArchmorphException(404, "No analysis found. Analyze a diagram first.")
+        raise ArchmorphException(400, "Your migration analysis session expired. Please re-analyze the diagram.")
 
     analysis = session
 
@@ -240,7 +240,7 @@ async def generate_hld_async(request: Request, diagram_id: str, _auth=Depends(ve
     """Start async HLD document generation. Returns 202 with job_id."""
     session = get_or_recreate_session(diagram_id)
     if not session:
-        raise ArchmorphException(404, "No analysis found. Analyze a diagram first.")
+        raise ArchmorphException(400, "Your migration analysis session expired. Please re-analyze the diagram.")
 
     job = job_manager.submit("generate_hld", diagram_id=diagram_id)
     asyncio.create_task(_run_hld_job(job.job_id, diagram_id))
@@ -331,7 +331,7 @@ async def export_migration_package(request: Request, diagram_id: str, _auth=Depe
 
     session = get_or_recreate_session(diagram_id)
     if not session:
-        raise ArchmorphException(404, "No analysis found. Analyze a diagram first.")
+        raise ArchmorphException(400, "Your migration analysis session expired. Please re-analyze the diagram.")
 
     # Parse options
     iac_format = "terraform"

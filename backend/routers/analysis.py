@@ -16,6 +16,7 @@ from routers.samples import get_or_recreate_session
 from usage_metrics import record_event, record_funnel_step
 from guided_questions import generate_questions, apply_answers, get_question_constraints
 from diagram_export import generate_diagram
+from mcp_diagram_generator import mcp_client
 from service_builder import deduplicate_questions, get_smart_defaults_from_analysis, add_services_from_text
 
 logger = logging.getLogger(__name__)
@@ -155,7 +156,16 @@ async def export_architecture_diagram(request: Request, diagram_id: str, format:
         raise ArchmorphException(404, f"No analysis found for diagram {diagram_id}. Run /analyze first.")
 
     try:
-        result = generate_diagram(analysis, format)
+        content = await mcp_client.generate_diagram(format, analysis)
+        zones = analysis.get("zones", [])
+        zone_name = zones[0].get("name", "diagram") if zones else "diagram"
+        if format == "vsdx": format_ext = "vsdx"
+        else: format_ext = format
+        result = {
+            "format": format,
+            "filename": f"archmorph-{zone_name}.{format_ext}",
+            "content": content
+        }
     except ValueError as exc:
         raise ArchmorphException(400, str(exc))
 

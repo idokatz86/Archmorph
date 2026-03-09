@@ -196,6 +196,8 @@ async def list_sample_diagrams():
     ]}
 
 
+from ai_suggestion import build_mapping_deep_dive
+
 def build_sample_analysis(sample_id: str, diagram_id: str) -> dict:
     """Build a deterministic analysis dict for a sample diagram.
 
@@ -250,11 +252,18 @@ def build_sample_analysis(sample_id: str, diagram_id: str) -> dict:
                 "azure_service": azure_svc,
                 "confidence": confidence,
                 "confidence_explanation": conf_explanation,
-                "notes": f"Zone {zone_idx} \u2013 {zone_def['name']}: {role}. {notes_text}".strip(),
-                "strengths": [f"Native integration mapped directly from {sample['provider'].upper()}"],
-                "limitations": [f"Feature parity mismatch might require config adjustments in Azure {azure_svc}"],
-                "migration_notes": [f"AWS usually migrates to Azure {azure_svc} with minimal refactoring." if sample['provider'] == 'aws' else f"GCP has differing networking topologies, test {azure_svc} routes."]
+                "notes": f"Zone {zone_idx} \u2013 {zone_def['name']}: {role}. {notes_text}".strip()
             }
+            deep_dive = build_mapping_deep_dive(mapping_entry, svc_name)
+            mapping_entry.update(deep_dive)
+
+            if not mapping_entry.get("strengths"):
+                mapping_entry["strengths"] = [f"Native integration mapped directly from {sample['provider'].upper()}"]
+            if not mapping_entry.get("limitations"):
+                mapping_entry["limitations"] = [f"Feature parity mismatch might require config adjustments in Azure {azure_svc}"]
+            if not mapping_entry.get("migration_notes"):
+                mapping_entry["migration_notes"] = [f"AWS usually migrates to Azure {azure_svc} with minimal refactoring." if sample['provider'] == 'aws' else f"GCP has differing networking topologies, test {azure_svc} routes."]
+            
             mappings.append(mapping_entry)
 
             zone_services.append({
