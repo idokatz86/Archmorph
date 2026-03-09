@@ -1,4 +1,4 @@
-import React, { useRef, useCallback, useEffect } from 'react';
+import React, { useRef, useCallback, useEffect, Suspense, lazy } from 'react';
 import {
   Upload, ChevronRight, CheckCircle, XCircle, X,
   Loader2, Eye, Clock,
@@ -11,16 +11,17 @@ import useWorkflow from './useWorkflow';
 import useSSE from '../../hooks/useSSE';
 import useSessionExpiry from '../../hooks/useSessionExpiry';
 import useBeforeUnload from '../../hooks/useBeforeUnload';
-import UploadStep from './UploadStep';
-import GuidedQuestions from './GuidedQuestions';
-import AnalysisResults from './AnalysisResults';
-import IaCViewer from './IaCViewer';
-import CostPanel from './CostPanel';
-import HLDTab from './HLDTab';
-import PricingTab from './PricingTab';
-import MigrationChat from './MigrationChat';
-import DeployPanel from './DeployPanel';
-import RiskPanel from './RiskPanel';
+
+const UploadStep = lazy(() => import('./UploadStep'));
+const GuidedQuestions = lazy(() => import('./GuidedQuestions'));
+const AnalysisResults = lazy(() => import('./AnalysisResults'));
+const IaCViewer = lazy(() => import('./IaCViewer'));
+const CostPanel = lazy(() => import('./CostPanel'));
+const HLDTab = lazy(() => import('./HLDTab'));
+const PricingTab = lazy(() => import('./PricingTab'));
+const MigrationChat = lazy(() => import('./MigrationChat'));
+const DeployPanel = lazy(() => import('./DeployPanel'));
+const RiskPanel = lazy(() => import('./RiskPanel'));
 
 const STEPS = [
   { id: 'upload', label: 'Upload', canNav: true },
@@ -686,6 +687,7 @@ export default function DiagramTranslator() {
         </Card>
       )}
 
+      <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 animate-spin text-cta" /></div>}>
       {/* Step: Upload */}
       {state.step === 'upload' && (
         <UploadStep
@@ -840,6 +842,7 @@ export default function DiagramTranslator() {
           exportingPackage={state.exportingPackage}
         />
       )}
+      </Suspense>
     </div>
   );
 }
