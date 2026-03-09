@@ -126,13 +126,12 @@ resource "azurerm_container_app" "dr_backend" {
       latest_revision = true
     }
 
-    cors_policy {
+    cors {
       allowed_origins   = [var.frontend_url]
       allowed_methods   = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"]
       allowed_headers   = ["Content-Type", "Authorization", "X-API-Key", "X-Correlation-ID"]
-      expose_headers    = ["X-Correlation-ID", "X-Response-Time"]
-      max_age           = 3600
-      allow_credentials = false
+      exposed_headers = ["X-Correlation-ID", "X-Response-Time"]
+      max_age_in_seconds = 3600
     }
   }
 

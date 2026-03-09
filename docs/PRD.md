@@ -807,7 +807,7 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | **v3.4.0 — Performance & Accessibility** | Done | Gunicorn process manager with worker recycling, asyncio.to_thread for CPU-bound handlers, speculative parallel classify+analyze (saves 10-30s), toast notification system, beforeunload guard, accessibility fixes (ARIA labels, keyboard nav), pre-commit hooks (ruff, eslint, prettier), roadmap data updated, dead code removed |
 | **v3.5.0 — Developer Experience** | Planned | Service dependency graph visualization, cost estimate drill-down, full analysis PDF report, CLI tool for automation, split diagrams.py god router, code coverage gate, Template Gallery re-enable |
 | **v3.6.0 — Intelligence & Identity** | Planned | Redis-backed session persistence, AI cross-cloud mapping auto-suggestion, migration timeline generator, social authentication (Microsoft, Google, GitHub), user profiles with persistent history |
-| **v3.7.0 — Enterprise Readiness** | Planned | RBAC & multi-tenant isolation, collaboration (shared projects, comments, review workflow), compliance framework mapping & gap analysis |
+| **v3.8.0 — Enterprise Readiness** | Planned | RBAC & multi-tenant isolation, collaboration (shared projects, comments, review workflow), compliance framework mapping & gap analysis |
 | **v4.0 — Platform Maturity** | Planned | Multi-diagram project support, Pulumi & CDK IaC output, VS Code extension, real infrastructure scanning via cloud SDKs, end-to-end migration wizard, interactive before/after architecture visualization, one-click Deploy to Azure |
 
 ---

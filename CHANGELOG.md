@@ -35,7 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `roadmap.py` — Now features a 15-minute runtime cache on `fetch_github_ideas` to manage API rate limits efficiently.
 
 
-## [3.7.0] - 2026-03-05
+## [3.8.0] - 2026-03-05
 
 ### Added
 - **Migration package export** — "Download Migration Package" button generates ZIP with IaC code, HLD (DOCX + Markdown), cost estimate (JSON), analysis summary, and README (#252)

@@ -65,6 +65,7 @@ class TerraformRunner:
             yield f"FATAL ERROR: {str(e)}"
             
         finally:
+            pass
             shutil.rmtree(temp_dir, ignore_errors=True)
             yield "Terraform Plan Completed."
 
@@ -93,6 +94,7 @@ class TerraformRunner:
             yield f"FATAL ERROR: {str(e)}"
             
         finally:
+            pass
     async def stream_destroy(self, terraform_code: str) -> AsyncGenerator[str, None]:
         """Provides rollback capabilities via 'terraform destroy'."""
         temp_dir = tempfile.mkdtemp(prefix=f"tf_destroy_{self.project_id}_{self.environment}_")
@@ -118,5 +120,6 @@ class TerraformRunner:
             yield f"FATAL ERROR: {str(e)}"
             
         finally:
+            pass
             shutil.rmtree(temp_dir, ignore_errors=True)
             yield "Terraform Execution Completed."

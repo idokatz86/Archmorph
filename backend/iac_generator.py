@@ -215,6 +215,14 @@ def _build_cloudformation_prompt(analysis: dict, params: dict) -> str:
     return _build_iac_prompt("cloudformation", analysis, params)
 
 
+def _build_pulumi_prompt(analysis: dict, params: dict) -> str:
+    return _build_iac_prompt("pulumi", analysis, params)
+
+
+def _build_aws_cdk_prompt(analysis: dict, params: dict) -> str:
+    return _build_iac_prompt("aws-cdk", analysis, params)
+
+
 # ─────────────────────────────────────────────────────────────
 # IaC Output Validation (Issues #273, #274)
 # ─────────────────────────────────────────────────────────────
@@ -423,7 +431,7 @@ def generate_iac_code(analysis: Optional[dict], iac_format: str = "terraform", p
     
     Args:
         analysis: The diagram analysis result (mappings, services_detected, etc.)
-        iac_format: "terraform", "bicep", or "cloudformation"
+        iac_format: "terraform", "bicep", "cloudformation", "pulumi", or "aws-cdk"
         params: Optional parameters (project_name, region, environment, sku_strategy)
     
     Returns:
@@ -450,6 +458,8 @@ def generate_iac_code(analysis: Optional[dict], iac_format: str = "terraform", p
             "terraform": "terraform_base.tf",
             "bicep": "bicep_base.bicep",
             "cloudformation": "cloudformation_base.yaml",
+            "pulumi": "pulumi_base.ts",
+            "aws-cdk": "aws-cdk_base.ts",
         }
         template_name = template_map.get(iac_format, "terraform_base.tf")
         try:
@@ -469,6 +479,10 @@ def generate_iac_code(analysis: Optional[dict], iac_format: str = "terraform", p
         prompt = _build_terraform_prompt(analysis or {}, params)
     elif iac_format == "cloudformation":
         prompt = _build_cloudformation_prompt(analysis or {}, params)
+    elif iac_format == "pulumi":
+        prompt = _build_pulumi_prompt(analysis or {}, params)
+    elif iac_format == "aws-cdk":
+        prompt = _build_aws_cdk_prompt(analysis or {}, params)
     else:
         prompt = _build_bicep_prompt(analysis or {}, params)
 
@@ -505,9 +519,31 @@ def generate_iac_code(analysis: Optional[dict], iac_format: str = "terraform", p
         if getattr(response, '_truncated', False):
             logger.warning("IaC output was truncated — appending warning comment")
             truncation_warning = {
-                "terraform": "\n\n# ⚠️ WARNING: This output was truncated by the AI model.\n# Some resources may be incomplete. Please review and regenerate if needed.\n",
-                "bicep": "\n\n// ⚠️ WARNING: This output was truncated by the AI model.\n// Some resources may be incomplete. Please review and regenerate if needed.\n",
-                "cloudformation": "\n\n# ⚠️ WARNING: This output was truncated by the AI model.\n# Some resources may be incomplete. Please review and regenerate if needed.\n",
+                "terraform": "
+
+# ⚠️ WARNING: This output was truncated by the AI model.
+# Some resources may be incomplete. Please review and regenerate if needed.
+",
+                "bicep": "
+
+// ⚠️ WARNING: This output was truncated by the AI model.
+// Some resources may be incomplete. Please review and regenerate if needed.
+",
+                "cloudformation": "
+
+# ⚠️ WARNING: This output was truncated by the AI model.
+# Some resources may be incomplete. Please review and regenerate if needed.
+",
+                "pulumi": "
+
+// ⚠️ WARNING: This output was truncated by the AI model.
+// Some resources may be incomplete. Please review and regenerate if needed.
+",
+                "aws-cdk": "
+
+// ⚠️ WARNING: This output was truncated by the AI model.
+// Some resources may be incomplete. Please review and regenerate if needed.
+",
             }
             code += truncation_warning.get(iac_format, "\n# ⚠️ Output was truncated.\n")
 
@@ -533,6 +569,8 @@ def generate_iac_code(analysis: Optional[dict], iac_format: str = "terraform", p
             "terraform": "terraform_base.tf",
             "bicep": "bicep_base.bicep",
             "cloudformation": "cloudformation_base.yaml",
+            "pulumi": "pulumi_base.ts",
+            "aws-cdk": "aws-cdk_base.ts",
         }
         template_name = template_map.get(iac_format, "terraform_base.tf")
         try:

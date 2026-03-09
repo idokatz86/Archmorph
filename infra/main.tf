@@ -223,7 +223,7 @@ resource "azurerm_redis_cache" "main" {
   non_ssl_port_enabled               = false # TLS-only (port 6380)
   minimum_tls_version                = "1.2"
   public_network_access_enabled      = var.environment == "prod" ? false : true
-  access_key_authentication_disabled = false # Required for REDIS_URL access key auth (#320)
+  # access_key_authentication_disabled = false # Required for REDIS_URL access key auth (#320)
 
   redis_configuration {
     maxmemory_policy = "allkeys-lru"
@@ -408,13 +408,12 @@ resource "azurerm_container_app" "backend" {
     # Platform-level CORS — ensures headers are present even when the
     # app itself 502s/503s or times out (Container Apps returns its own
     # error page which would otherwise strip application-level CORS).
-    cors_policy {
+    cors {
       allowed_origins   = [var.frontend_url, "https://www.archmorphai.com"]
       allowed_methods   = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"]
       allowed_headers   = ["Content-Type", "Authorization", "X-API-Key", "X-Correlation-ID"]
-      expose_headers    = ["X-Correlation-ID", "X-Response-Time"]
-      max_age           = 3600
-      allow_credentials = false
+      exposed_headers = ["X-Correlation-ID", "X-Response-Time"]
+      max_age_in_seconds = 3600
     }
   }
 
@@ -1993,7 +1992,7 @@ resource "azurerm_private_endpoint" "keyvault" {
 resource "azurerm_cognitive_account_customer_managed_key" "openai" {
   count                = var.environment == "prod" ? 0 : 0 # Enable when CMK key is provisioned
   cognitive_account_id = azurerm_cognitive_account.openai.id
-  key_vault_key_id     = "" # Populate with CMK key ID
+  key_vault_key_id     = "https://test/keys/dummy/001" # Populate with CMK key ID
 }
 
 # ─────────────────────────────────────────────────────────────
