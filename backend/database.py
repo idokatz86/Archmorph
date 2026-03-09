@@ -23,6 +23,7 @@ import os
 from typing import Generator
 
 from sqlalchemy import create_engine, event
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import sessionmaker, Session, declarative_base
 
 logger = logging.getLogger(__name__)
@@ -101,6 +102,22 @@ if _IS_SQLITE:
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
+# ─────────────────────────────────────────────────────────────
+# Async Engine & Session (Issue #370)
+# ─────────────────────────────────────────────────────────────
+ASYNC_DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://").replace("sqlite:///", "sqlite+aiosqlite:///")
+async_engine = create_async_engine(ASYNC_DATABASE_URL, **_engine_kwargs)
+
+if _IS_SQLITE:
+    @event.listens_for(async_engine.sync_engine, "connect")
+    def _set_async_sqlite_pragma(dbapi_conn, connection_record):
+        cursor = dbapi_conn.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
+AsyncSessionLocal = async_sessionmaker(class_=AsyncSession, autocommit=False, autoflush=False, bind=async_engine)
+
 
 # ─────────────────────────────────────────────────────────────
 # Public API
@@ -113,6 +130,12 @@ def get_db() -> Generator[Session, None, None]:
         yield db
     finally:
         db.close()
+
+
+async def get_async_db():
+    """FastAPI dependency — yields an AsyncSession."""
+    async with AsyncSessionLocal() as session:
+        yield session
 
 
 def init_db() -> None:

@@ -9,6 +9,8 @@ azure-identity==1.25.2
 openai==2.24.0
 psycopg2-binary==2.9.11
 sqlalchemy==2.0.47
+asyncpg==0.30.0
+aiosqlite==0.20.0
 alembic==1.16.5
 python-dotenv==1.2.1
 pillow==12.1.1  # fixes GHSA-cfh3-3jmp-rvhc
