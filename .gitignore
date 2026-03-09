@@ -59,3 +59,5 @@ backend/data/
 
 # Backup files
 *.bak
+
+!backend/data/*.json

@@ -1,0 +1,806 @@
+{
+  "environment_scale": [
+    {
+      "id": "env_target",
+      "question": "What environment is this architecture for?",
+      "type": "single_choice",
+      "options": [
+        "Development",
+        "Staging",
+        "Production",
+        "Multi-environment"
+      ],
+      "condition": [],
+      "impact": "Controls default SKU tiers, redundancy, and monitoring depth across all Azure resources",
+      "default": "Production"
+    },
+    {
+      "id": "env_data_volume",
+      "question": "Expected data volume ingested per day?",
+      "type": "single_choice",
+      "options": [
+        "<1 GB",
+        "1\u2013100 GB",
+        "100 GB\u20131 TB",
+        "1\u201310 TB",
+        ">10 TB"
+      ],
+      "condition": [
+        "S3",
+        "Kinesis",
+        "Glue",
+        "EMR",
+        "Redshift",
+        "Athena",
+        "Lake Formation",
+        "Data Pipeline",
+        "MSK",
+        "IoT Core",
+        "IoT Analytics",
+        "IoT SiteWise",
+        "IoT FleetWise"
+      ],
+      "impact": "Sizes Azure Blob/ADLS storage tiers, Event Hubs throughput units, and Synapse DWU allocation",
+      "default": "1\u2013100 GB"
+    },
+    {
+      "id": "env_concurrent_users",
+      "question": "Expected number of concurrent users or connections?",
+      "type": "single_choice",
+      "options": [
+        "<100",
+        "100\u20131 K",
+        "1 K\u201310 K",
+        "10 K\u2013100 K",
+        ">100 K"
+      ],
+      "condition": [
+        "EC2",
+        "ECS",
+        "EKS",
+        "Fargate",
+        "Lambda",
+        "API Gateway",
+        "ELB",
+        "CloudFront",
+        "App Runner",
+        "Elastic Beanstalk",
+        "Lightsail",
+        "Cognito",
+        "AppSync"
+      ],
+      "impact": "Determines VM Scale Set sizing, App Service plan tier, Functions scaling limits, and CDN capacity",
+      "default": "1 K\u201310 K"
+    }
+  ],
+  "compliance_security": [
+    {
+      "id": "sec_compliance",
+      "question": "Which compliance frameworks apply to this workload?",
+      "type": "multiple_choice",
+      "options": [
+        "HIPAA",
+        "SOC 2",
+        "PCI-DSS",
+        "GDPR",
+        "ISO 27001",
+        "FedRAMP",
+        "None"
+      ],
+      "condition": [],
+      "impact": "Enables Azure Policy initiatives, activates Defender for Cloud regulatory dashboards, restricts allowed regions",
+      "default": "None"
+    },
+    {
+      "id": "sec_data_residency",
+      "question": "Are there data residency requirements?",
+      "type": "single_choice",
+      "options": [
+        "No restriction",
+        "EU only",
+        "US only",
+        "Specific country",
+        "Multi-region with data sovereignty"
+      ],
+      "condition": [],
+      "impact": "Constrains Azure region selection and replication targets; adds geo-fencing policies in IaC",
+      "default": "No restriction"
+    },
+    {
+      "id": "sec_network_isolation",
+      "question": "What level of network isolation is required?",
+      "type": "single_choice",
+      "options": [
+        "Public endpoints OK",
+        "VNet integration",
+        "Full private endpoints",
+        "Air-gapped / isolated"
+      ],
+      "condition": [],
+      "impact": "Adds Private Link, VNet injection, NSGs, and Azure Firewall to IaC; may change service SKUs",
+      "default": "VNet integration"
+    },
+    {
+      "id": "sec_encryption",
+      "question": "Encryption key management preference?",
+      "type": "single_choice",
+      "options": [
+        "Platform-managed keys (default)",
+        "Customer-managed keys (Azure Key Vault)",
+        "Customer-managed keys (HSM-backed)"
+      ],
+      "condition": [
+        "KMS",
+        "CloudHSM",
+        "Secrets Manager",
+        "S3",
+        "RDS",
+        "DynamoDB"
+      ],
+      "impact": "Toggles CMK configuration on storage accounts, databases, and disks; adds Key Vault resources to IaC",
+      "default": "Platform-managed keys (default)"
+    }
+  ],
+  "architecture_preferences": [
+    {
+      "id": "arch_sku_strategy",
+      "question": "Preferred tier / SKU strategy?",
+      "type": "single_choice",
+      "options": [
+        "Cost-optimized (lowest viable tier)",
+        "Balanced (good performance-to-cost ratio)",
+        "Performance-first (premium tiers)",
+        "Enterprise (maximum SLA and features)"
+      ],
+      "condition": [],
+      "impact": "Selects Basic/Standard/Premium SKUs across Azure services; affects estimated monthly cost",
+      "default": "Balanced (good performance-to-cost ratio)"
+    },
+    {
+      "id": "arch_ha",
+      "question": "High-availability requirements?",
+      "type": "single_choice",
+      "options": [
+        "Single region (no redundancy)",
+        "Multi-AZ within region (99.95 %)",
+        "Multi-region active-passive (99.99 %)",
+        "Multi-region active-active (99.999 %)"
+      ],
+      "condition": [],
+      "impact": "Adds availability zones, geo-replication, Traffic Manager / Front Door profiles",
+      "default": "Multi-AZ within region (99.95 %)"
+    },
+    {
+      "id": "arch_dr_rto",
+      "question": "Disaster-recovery RTO target?",
+      "type": "single_choice",
+      "options": [
+        "<1 min (hot standby)",
+        "<15 min",
+        "<1 hour",
+        "<4 hours",
+        "<24 hours",
+        "Not required"
+      ],
+      "condition": [],
+      "impact": "Determines replication mode, standby resources, and Azure Site Recovery configuration",
+      "default": "<1 hour"
+    },
+    {
+      "id": "arch_iac_style",
+      "question": "Preferred Infrastructure-as-Code format for the output?",
+      "type": "single_choice",
+      "options": [
+        "Terraform (HCL)",
+        "Bicep",
+        "ARM Templates (JSON)",
+        "Pulumi"
+      ],
+      "condition": [],
+      "impact": "Sets the IaC language used in generated templates",
+      "default": "Terraform (HCL)"
+    },
+    {
+      "id": "arch_deploy_region",
+      "question": "Target Azure deployment region?",
+      "type": "single_choice",
+      "options": [
+        "West Europe",
+        "North Europe",
+        "East US",
+        "East US 2",
+        "West US 2",
+        "UK South",
+        "Southeast Asia",
+        "Australia East",
+        "Central US",
+        "Canada Central",
+        "Japan East",
+        "France Central",
+        "Germany West Central",
+        "Switzerland North",
+        "Brazil South",
+        "Central India",
+        "Korea Central",
+        "South Africa North",
+        "UAE North",
+        "Sweden Central"
+      ],
+      "condition": [],
+      "impact": "Determines the Azure region for deployment and cost estimation; affects pricing, latency, and compliance",
+      "default": "West Europe"
+    }
+  ],
+  "data_processing": [
+    {
+      "id": "data_storage_redundancy",
+      "question": "Preferred Azure storage redundancy level?",
+      "type": "single_choice",
+      "options": [
+        "LRS",
+        "ZRS",
+        "GRS",
+        "RA-GRS",
+        "GZRS"
+      ],
+      "condition": [
+        "S3",
+        "S3 Glacier",
+        "EFS",
+        "FSx",
+        "Backup",
+        "Storage Gateway",
+        "DataSync"
+      ],
+      "impact": "Sets replication type on all Azure Storage Accounts and ADLS Gen2 resources",
+      "default": "ZRS"
+    },
+    {
+      "id": "data_spark_runtime",
+      "question": "Preferred managed Spark runtime on Azure?",
+      "type": "single_choice",
+      "options": [
+        "Azure Synapse Spark Pools",
+        "Azure HDInsight",
+        "Azure Databricks"
+      ],
+      "condition": [
+        "EMR",
+        "Glue",
+        "Athena",
+        "Lake Formation"
+      ],
+      "impact": "Replaces default EMR \u2192 HDInsight/Synapse mapping; regenerates IaC with chosen runtime",
+      "default": "Azure Synapse Spark Pools"
+    },
+    {
+      "id": "data_functions_plan",
+      "question": "Azure Functions hosting plan preference?",
+      "type": "single_choice",
+      "options": [
+        "Consumption (pure serverless, pay-per-execution)",
+        "Premium (pre-warmed instances, VNet support)",
+        "Dedicated App Service Plan"
+      ],
+      "condition": [
+        "Lambda",
+        "Step Functions"
+      ],
+      "impact": "Sets Azure Functions plan type; Premium required for VNet integration and >10 min execution",
+      "default": "Consumption (pure serverless, pay-per-execution)"
+    },
+    {
+      "id": "data_cosmosdb_throughput",
+      "question": "Cosmos DB throughput model?",
+      "type": "single_choice",
+      "options": [
+        "Serverless (intermittent traffic)",
+        "Provisioned with manual scaling",
+        "Provisioned with autoscale"
+      ],
+      "condition": [
+        "DynamoDB",
+        "Neptune",
+        "DocumentDB",
+        "Keyspaces"
+      ],
+      "impact": "Configures Cosmos DB capacity mode; affects cost model and performance guarantees",
+      "default": "Provisioned with autoscale"
+    },
+    {
+      "id": "data_cosmosdb_api",
+      "question": "Preferred Cosmos DB API?",
+      "type": "single_choice",
+      "options": [
+        "NoSQL (native, recommended)",
+        "MongoDB",
+        "Cassandra",
+        "Gremlin (graph)",
+        "Table"
+      ],
+      "condition": [
+        "DynamoDB",
+        "DocumentDB",
+        "Keyspaces",
+        "Neptune"
+      ],
+      "impact": "Selects the Cosmos DB API and SDK; Gremlin for graph workloads, NoSQL for key-value",
+      "default": "NoSQL (native, recommended)"
+    },
+    {
+      "id": "data_cache_tier",
+      "question": "Azure Cache for Redis tier?",
+      "type": "single_choice",
+      "options": [
+        "Basic (dev/test, no SLA)",
+        "Standard (replicated, 99.9 %)",
+        "Premium (clustering, VNet, geo-replication)",
+        "Enterprise (Redis Enterprise modules)"
+      ],
+      "condition": [
+        "ElastiCache",
+        "MemoryDB"
+      ],
+      "impact": "Sets Redis cache SKU; Enterprise required for RediSearch, RedisJSON",
+      "default": "Standard (replicated, 99.9 %)"
+    },
+    {
+      "id": "data_sql_tier",
+      "question": "Azure SQL / PostgreSQL tier preference?",
+      "type": "single_choice",
+      "options": [
+        "Basic / Burstable (B-series)",
+        "General Purpose",
+        "Business Critical / Memory-Optimized",
+        "Hyperscale"
+      ],
+      "condition": [
+        "RDS",
+        "Aurora"
+      ],
+      "impact": "Determines Azure SQL DB or Flexible Server compute tier and max IOPS",
+      "default": "General Purpose"
+    },
+    {
+      "id": "data_streaming_engine",
+      "question": "Preferred real-time streaming engine on Azure?",
+      "type": "single_choice",
+      "options": [
+        "Azure Event Hubs + Stream Analytics",
+        "Azure Event Hubs + Spark Structured Streaming",
+        "Azure Event Hubs (Kafka surface)"
+      ],
+      "condition": [
+        "Kinesis",
+        "MSK"
+      ],
+      "impact": "Selects streaming analytics approach; Kafka surface allows existing Kafka client reuse",
+      "default": "Azure Event Hubs + Stream Analytics"
+    }
+  ],
+  "iot": [
+    {
+      "id": "iot_message_volume",
+      "question": "Expected IoT message volume?",
+      "type": "single_choice",
+      "options": [
+        "<1 M messages/day",
+        "1 M\u2013100 M messages/day",
+        ">100 M messages/day"
+      ],
+      "condition": [
+        "IoT Core",
+        "IoT Greengrass",
+        "IoT Analytics",
+        "IoT SiteWise",
+        "IoT Events",
+        "IoT FleetWise"
+      ],
+      "impact": "Sizes IoT Hub tier (S1/S2/S3) and partition count; affects Event Hubs downstream capacity",
+      "default": "1 M\u2013100 M messages/day"
+    },
+    {
+      "id": "iot_edge_computing",
+      "question": "Is edge computing required?",
+      "type": "single_choice",
+      "options": [
+        "Yes \u2014 Azure IoT Edge (local processing)",
+        "No \u2014 cloud-only ingestion"
+      ],
+      "condition": [
+        "IoT Greengrass",
+        "IoT Core",
+        "Outposts",
+        "Wavelength"
+      ],
+      "impact": "Adds Azure IoT Edge module definitions and edge deployment manifests to IaC",
+      "default": "Yes \u2014 Azure IoT Edge (local processing)"
+    },
+    {
+      "id": "iot_device_scale",
+      "question": "Device management scope \u2014 how many devices?",
+      "type": "single_choice",
+      "options": [
+        "<100 devices",
+        "100\u201310 K devices",
+        "10 K\u20131 M devices",
+        ">1 M devices"
+      ],
+      "condition": [
+        "IoT Core",
+        "IoT Greengrass",
+        "IoT SiteWise",
+        "IoT Events",
+        "IoT FleetWise",
+        "IoT TwinMaker"
+      ],
+      "impact": "Selects IoT Hub unit count and DPS (Device Provisioning Service) allocation",
+      "default": "100\u201310 K devices"
+    },
+    {
+      "id": "iot_digital_twins",
+      "question": "Do you need a digital-twin model of physical assets?",
+      "type": "single_choice",
+      "options": [
+        "Yes \u2014 Azure Digital Twins",
+        "No"
+      ],
+      "condition": [
+        "IoT TwinMaker",
+        "IoT SiteWise"
+      ],
+      "impact": "Adds Azure Digital Twins resource and DTDL model scaffolding to IaC",
+      "default": "Yes \u2014 Azure Digital Twins"
+    }
+  ],
+  "monitoring_operations": [
+    {
+      "id": "ops_monitoring_depth",
+      "question": "Desired monitoring and observability depth?",
+      "type": "single_choice",
+      "options": [
+        "None \u2014 no monitoring needed",
+        "Basic metrics (Azure Monitor)",
+        "Application Insights (APM + distributed tracing)",
+        "Full observability (Azure Monitor + Grafana + Log Analytics)",
+        "Security-focused (Azure Monitor + Microsoft Sentinel SIEM)"
+      ],
+      "condition": [],
+      "impact": "Adds Log Analytics workspace, Application Insights, Managed Grafana, or Sentinel to IaC (or nothing if None)",
+      "default": "Application Insights (APM + distributed tracing)"
+    },
+    {
+      "id": "ops_cicd",
+      "question": "Preferred CI/CD platform?",
+      "type": "single_choice",
+      "options": [
+        "GitHub Actions",
+        "Azure DevOps Pipelines",
+        "Terraform Cloud / Spacelift",
+        "None \u2014 manual deployment for now"
+      ],
+      "condition": [],
+      "impact": "Generates starter CI/CD pipeline definition alongside IaC templates",
+      "default": "GitHub Actions"
+    },
+    {
+      "id": "ops_alerting",
+      "question": "Alerting and notification channel?",
+      "type": "single_choice",
+      "options": [
+        "None \u2014 no alerts needed",
+        "Email only",
+        "Email + Slack / Teams webhook",
+        "PagerDuty / Opsgenie integration",
+        "Custom webhook"
+      ],
+      "condition": [
+        "CloudWatch",
+        "SNS",
+        "EventBridge"
+      ],
+      "impact": "Configures Azure Monitor action groups and alert rules in IaC (or nothing if None)",
+      "default": "Email + Slack / Teams webhook"
+    }
+  ],
+  "containers": [
+    {
+      "id": "k8s_cluster_tier",
+      "question": "AKS cluster tier?",
+      "type": "single_choice",
+      "options": [
+        "Free tier (dev/test)",
+        "Standard (production SLA, 99.95 %)",
+        "Premium (mission-critical, 99.99 %)"
+      ],
+      "condition": [
+        "EKS"
+      ],
+      "impact": "Sets AKS SKU tier, uptime SLA, and enables/disables Cluster Autoscaler",
+      "default": "Standard (production SLA, 99.95 %)"
+    },
+    {
+      "id": "k8s_node_pool",
+      "question": "AKS default node pool VM size?",
+      "type": "single_choice",
+      "options": [
+        "Standard_B2s (burstable, cost-optimized)",
+        "Standard_D4s_v5 (general purpose)",
+        "Standard_E8s_v5 (memory-optimized)",
+        "Standard_F8s_v2 (compute-optimized)",
+        "Standard_NC6s_v3 (GPU)"
+      ],
+      "condition": [
+        "EKS",
+        "ECS",
+        "Fargate"
+      ],
+      "impact": "Sets default node pool VM size; GPU nodes required for ML inference workloads",
+      "default": "Standard_D4s_v5 (general purpose)"
+    },
+    {
+      "id": "container_runtime_pref",
+      "question": "Preferred container hosting model on Azure?",
+      "type": "single_choice",
+      "options": [
+        "AKS (full Kubernetes)",
+        "Azure Container Apps (serverless Kubernetes)",
+        "Azure Container Instances (simple single-container)",
+        "Azure App Service (containers on PaaS)"
+      ],
+      "condition": [
+        "ECS",
+        "Fargate",
+        "App Runner"
+      ],
+      "impact": "Overrides default ECS/Fargate/App Runner mapping to chosen Azure container service",
+      "default": "Azure Container Apps (serverless Kubernetes)"
+    }
+  ],
+  "ai_ml": [
+    {
+      "id": "ml_workspace_tier",
+      "question": "Azure Machine Learning workspace edition?",
+      "type": "single_choice",
+      "options": [
+        "Basic (notebook-only experimentation)",
+        "Enterprise (managed endpoints, pipelines, AutoML)"
+      ],
+      "condition": [
+        "SageMaker",
+        "Bedrock",
+        "Personalize",
+        "Forecast"
+      ],
+      "impact": "Sets AML workspace SKU; Enterprise required for managed online endpoints",
+      "default": "Enterprise (managed endpoints, pipelines, AutoML)"
+    },
+    {
+      "id": "ml_compute_target",
+      "question": "Primary ML compute target?",
+      "type": "single_choice",
+      "options": [
+        "CPU clusters (general training)",
+        "GPU clusters (deep learning)",
+        "Spark pools (big-data ML)",
+        "Serverless compute (AML managed)"
+      ],
+      "condition": [
+        "SageMaker",
+        "Bedrock",
+        "Rekognition"
+      ],
+      "impact": "Provisions appropriate compute cluster type in Azure ML workspace",
+      "default": "GPU clusters (deep learning)"
+    }
+  ],
+  "hybrid_multicloud": [
+    {
+      "id": "hybrid_strategy",
+      "question": "What is your hybrid / multi-cloud strategy?",
+      "type": "single_choice",
+      "options": [
+        "Full migration to Azure (no hybrid)",
+        "Hybrid \u2014 keep some workloads on-premises",
+        "Multi-cloud \u2014 run workloads across Azure + another cloud",
+        "Edge + cloud \u2014 processing at the edge with cloud control plane"
+      ],
+      "condition": [
+        "Outposts",
+        "EKS Anywhere",
+        "EKS",
+        "ECS Anywhere"
+      ],
+      "impact": "Adds Azure Arc, Azure Stack HCI, or Lighthouse resources to IaC depending on chosen strategy",
+      "default": "Full migration to Azure (no hybrid)"
+    },
+    {
+      "id": "hybrid_arc_scope",
+      "question": "Which resources need Azure Arc management?",
+      "type": "multiple_choice",
+      "options": [
+        "Kubernetes clusters",
+        "SQL databases",
+        "Linux/Windows servers",
+        "None \u2014 cloud-only"
+      ],
+      "condition": [
+        "Outposts",
+        "EKS Anywhere",
+        "SSM"
+      ],
+      "impact": "Determines which Arc-enabled services to provision \u2014 Arc K8s, Arc SQL, or Arc Servers",
+      "default": "None \u2014 cloud-only"
+    }
+  ],
+  "generative_ai": [
+    {
+      "id": "genai_model_provider",
+      "question": "Preferred foundation model provider on Azure?",
+      "type": "single_choice",
+      "options": [
+        "Azure OpenAI (GPT-4o, GPT-4, GPT-3.5)",
+        "Meta Llama (via Azure AI Foundry)",
+        "Mistral (via Azure AI Foundry)",
+        "Cohere (via Azure AI Foundry)",
+        "Bring your own model"
+      ],
+      "condition": [
+        "Bedrock",
+        "Bedrock Agents",
+        "Bedrock Knowledge Bases",
+        "Q Business",
+        "PartyRock"
+      ],
+      "impact": "Selects the model deployment target \u2014 Azure OpenAI or AI Foundry model catalog",
+      "default": "Azure OpenAI (GPT-4o, GPT-4, GPT-3.5)"
+    },
+    {
+      "id": "genai_agent_pattern",
+      "question": "Do you need autonomous AI agents with tool use?",
+      "type": "single_choice",
+      "options": [
+        "Yes \u2014 Azure AI Agent Service (hosted agents)",
+        "Yes \u2014 Semantic Kernel / LangChain (code-first)",
+        "No \u2014 simple prompt/response pattern"
+      ],
+      "condition": [
+        "Bedrock Agents",
+        "Bedrock Knowledge Bases"
+      ],
+      "impact": "Adds Azure AI Agent Service or custom agent framework resources to the architecture",
+      "default": "No \u2014 simple prompt/response pattern"
+    },
+    {
+      "id": "genai_content_safety",
+      "question": "Content safety requirements for AI outputs?",
+      "type": "single_choice",
+      "options": [
+        "Default Azure OpenAI content filters",
+        "Custom Azure AI Content Safety policies",
+        "No content filtering needed (internal use only)"
+      ],
+      "condition": [
+        "Bedrock",
+        "Bedrock Guardrails",
+        "Bedrock Agents"
+      ],
+      "impact": "Configures Azure AI Content Safety resources and custom filter policies",
+      "default": "Default Azure OpenAI content filters"
+    }
+  ],
+  "edge_computing": [
+    {
+      "id": "edge_use_case",
+      "question": "What is the primary edge computing use case?",
+      "type": "single_choice",
+      "options": [
+        "Ultra-low-latency at 5G / telco edge (Azure Edge Zones)",
+        "Metro-area proximity (Azure Extended Zones)",
+        "CDN edge functions (Front Door Rules Engine)",
+        "On-premises edge appliance (Azure Stack Edge)",
+        "Not applicable"
+      ],
+      "condition": [
+        "Wavelength",
+        "Local Zones",
+        "Lambda@Edge",
+        "CloudFront Functions",
+        "Outposts"
+      ],
+      "impact": "Selects the appropriate Azure edge compute target and adds related IaC resources",
+      "default": "Not applicable"
+    }
+  ],
+  "data_governance": [
+    {
+      "id": "gov_data_catalog",
+      "question": "Do you need a centralized data catalog and governance?",
+      "type": "single_choice",
+      "options": [
+        "Yes \u2014 Microsoft Purview (full data governance)",
+        "Basic metadata only (Azure Data Catalog)",
+        "No \u2014 data governance not needed now"
+      ],
+      "condition": [
+        "DataZone",
+        "Lake Formation",
+        "Glue",
+        "Glue DataBrew"
+      ],
+      "impact": "Adds Microsoft Purview resources for data catalog, lineage, and governance",
+      "default": "No \u2014 data governance not needed now"
+    },
+    {
+      "id": "gov_clean_rooms",
+      "question": "Do you need privacy-preserving data collaboration (clean rooms)?",
+      "type": "single_choice",
+      "options": [
+        "Yes \u2014 Azure Confidential Clean Rooms",
+        "No"
+      ],
+      "condition": [
+        "Clean Rooms"
+      ],
+      "impact": "Adds Azure Confidential Clean Rooms with confidential computing guarantees",
+      "default": "No"
+    }
+  ],
+  "zero_trust": [
+    {
+      "id": "zt_network_access",
+      "question": "How should users access internal applications?",
+      "type": "single_choice",
+      "options": [
+        "Traditional VPN (Azure VPN Gateway)",
+        "Zero Trust Network Access (Microsoft Entra Private Access)",
+        "Conditional Access + App Proxy",
+        "Not applicable \u2014 public apps only"
+      ],
+      "condition": [
+        "Verified Access",
+        "Client VPN",
+        "VPN"
+      ],
+      "impact": "Replaces VPN with Entra Private Access for zero-trust identity-based access to apps",
+      "default": "Traditional VPN (Azure VPN Gateway)"
+    },
+    {
+      "id": "zt_siem",
+      "question": "Preferred SIEM / security analytics solution?",
+      "type": "single_choice",
+      "options": [
+        "Microsoft Sentinel (full SIEM + SOAR)",
+        "Microsoft Sentinel (SIEM only, no automation)",
+        "Third-party SIEM (Splunk, Datadog, etc.)",
+        "No SIEM needed"
+      ],
+      "condition": [
+        "Security Hub",
+        "Security Lake",
+        "Detective",
+        "GuardDuty"
+      ],
+      "impact": "Provisions Microsoft Sentinel workspace with data connectors and analytics rules",
+      "default": "Microsoft Sentinel (full SIEM + SOAR)"
+    },
+    {
+      "id": "zt_firewall_tier",
+      "question": "Azure Firewall tier?",
+      "type": "single_choice",
+      "options": [
+        "Standard (L3-L7 filtering, threat intelligence)",
+        "Premium (adds IDPS, TLS inspection, URL filtering)",
+        "Basic (simplified, cost-optimized)",
+        "No centralized firewall"
+      ],
+      "condition": [
+        "Network Firewall",
+        "Firewall Manager",
+        "WAF"
+      ],
+      "impact": "Selects Azure Firewall SKU; Premium required for intrusion detection and TLS inspection",
+      "default": "Standard (L3-L7 filtering, threat intelligence)"
+    }
+  ]
+}

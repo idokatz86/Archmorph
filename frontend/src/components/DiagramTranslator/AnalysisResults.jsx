@@ -260,7 +260,7 @@ export default function AnalysisResults({
           <div className="flex items-center gap-3">
             <Loader2 className="w-5 h-5 text-cta animate-spin shrink-0" aria-hidden="true" />
             <p className="text-sm text-text-primary font-medium">
-              {`Generating ${iacFormat === 'terraform' ? 'Terraform' : iacFormat === 'bicep' ? 'Bicep' : 'CloudFormation'} code...`}
+              {`Generating ${iacFormat === 'terraform' ? 'Terraform' : iacFormat === 'bicep' ? 'Bicep' : iacFormat === 'pulumi' ? 'Pulumi' : iacFormat === 'aws-cdk' ? 'AWS CDK' : 'CloudFormation'} code...`}
             </p>
           </div>
         </Card>
@@ -270,9 +270,11 @@ export default function AnalysisResults({
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
         <Button onClick={() => onSetStep('questions')} variant="ghost" icon={HelpCircle}>Back to Questions</Button>
         <div className="flex flex-wrap items-center gap-2 justify-end">
-          <Button onClick={() => onGenerateIac('terraform')} loading={loading && iacFormat === 'terraform'} icon={FileCode}>Generate Terraform</Button>
-          <Button onClick={() => onGenerateIac('bicep')} variant="secondary" loading={loading && iacFormat === 'bicep'} icon={FileCode}>Generate Bicep</Button>
+          <Button onClick={() => onGenerateIac('terraform')} loading={loading && iacFormat === 'terraform'} icon={FileCode}>Terraform</Button>
+          <Button onClick={() => onGenerateIac('bicep')} variant="secondary" loading={loading && iacFormat === 'bicep'} icon={FileCode}>Bicep</Button>
           <Button onClick={() => onGenerateIac('cloudformation')} variant="secondary" loading={loading && iacFormat === 'cloudformation'} icon={FileCode}>CloudFormation</Button>
+          <Button onClick={() => onGenerateIac('pulumi')} variant="secondary" loading={loading && iacFormat === 'pulumi'} icon={FileCode}>Pulumi</Button>
+          <Button onClick={() => onGenerateIac('aws-cdk')} variant="secondary" loading={loading && iacFormat === 'aws-cdk'} icon={FileCode}>AWS CDK</Button>
         </div>
       </div>
     </div>

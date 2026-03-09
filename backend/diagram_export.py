@@ -17,152 +17,17 @@ from typing import Any
 # ---------------------------------------------------------------------------
 # Azure stencil / icon mapping (30+ services)
 # ---------------------------------------------------------------------------
-AZURE_STENCILS: dict[str, dict[str, str]] = {
-    "IoT Hub": {
-        "drawio": "mxgraph.azure.iot_hub",
-        "visio": "Azure IoT Hub",
-    },
-    "Event Hubs": {
-        "drawio": "mxgraph.azure.event_hubs",
-        "visio": "Azure Event Hubs",
-    },
-    "Blob Storage": {
-        "drawio": "mxgraph.azure.storage",
-        "visio": "Azure Blob Storage",
-    },
-    "Data Factory": {
-        "drawio": "mxgraph.azure.data_factory",
-        "visio": "Azure Data Factory",
-    },
-    "Synapse Analytics": {
-        "drawio": "mxgraph.azure.synapse_analytics",
-        "visio": "Azure Synapse Analytics",
-    },
-    "Azure Functions": {
-        "drawio": "mxgraph.azure.function_apps",
-        "visio": "Azure Functions",
-    },
-    "Cosmos DB": {
-        "drawio": "mxgraph.azure.cosmos_db",
-        "visio": "Azure Cosmos DB",
-    },
-    "Machine Learning": {
-        "drawio": "mxgraph.azure.machine_learning",
-        "visio": "Azure Machine Learning",
-    },
-    "API Management": {
-        "drawio": "mxgraph.azure.api_management",
-        "visio": "Azure API Management",
-    },
-    "Container Apps": {
-        "drawio": "mxgraph.azure.kubernetes_services",
-        "visio": "Azure Container Apps",
-    },
-    "Key Vault": {
-        "drawio": "mxgraph.azure.key_vaults",
-        "visio": "Azure Key Vault",
-    },
-    "AI Search": {
-        "drawio": "mxgraph.azure.search",
-        "visio": "Azure AI Search",
-    },
-    "ExpressRoute": {
-        "drawio": "mxgraph.azure.expressroute_circuits",
-        "visio": "Azure ExpressRoute",
-    },
-    "Power BI": {
-        "drawio": "mxgraph.azure.analysis_services",
-        "visio": "Microsoft Power BI",
-    },
-    "Purview": {
-        "drawio": "mxgraph.azure.general",
-        "visio": "Microsoft Purview",
-    },
-    "Container Instances": {
-        "drawio": "mxgraph.azure.container_instances",
-        "visio": "Azure Container Instances",
-    },
-    "HDInsight": {
-        "drawio": "mxgraph.azure.hdinsight_cluster",
-        "visio": "Azure HDInsight",
-    },
-    "IoT Edge": {
-        "drawio": "mxgraph.azure.iot_edge",
-        "visio": "Azure IoT Edge",
-    },
-    "Stack Edge": {
-        "drawio": "mxgraph.azure.stack_edge",
-        "visio": "Azure Stack Edge",
-    },
-    "SQL Database": {
-        "drawio": "mxgraph.azure.sql_databases",
-        "visio": "Azure SQL Database",
-    },
-    "App Service": {
-        "drawio": "mxgraph.azure.app_services",
-        "visio": "Azure App Service",
-    },
-    "Virtual Machines": {
-        "drawio": "mxgraph.azure.virtual_machines",
-        "visio": "Azure Virtual Machines",
-    },
-    "Virtual Network": {
-        "drawio": "mxgraph.azure.virtual_networks",
-        "visio": "Azure Virtual Network",
-    },
-    "Load Balancer": {
-        "drawio": "mxgraph.azure.load_balancers",
-        "visio": "Azure Load Balancer",
-    },
-    "Application Gateway": {
-        "drawio": "mxgraph.azure.application_gateways",
-        "visio": "Azure Application Gateway",
-    },
-    "Service Bus": {
-        "drawio": "mxgraph.azure.service_bus",
-        "visio": "Azure Service Bus",
-    },
-    "Logic Apps": {
-        "drawio": "mxgraph.azure.logic_apps",
-        "visio": "Azure Logic Apps",
-    },
-    "Cognitive Services": {
-        "drawio": "mxgraph.azure.cognitive_services",
-        "visio": "Azure Cognitive Services",
-    },
-    "Monitor": {
-        "drawio": "mxgraph.azure.monitor",
-        "visio": "Azure Monitor",
-    },
-    "Front Door": {
-        "drawio": "mxgraph.azure.front_doors",
-        "visio": "Azure Front Door",
-    },
-    "DNS": {
-        "drawio": "mxgraph.azure.dns",
-        "visio": "Azure DNS",
-    },
-    "Firewall": {
-        "drawio": "mxgraph.azure.firewalls",
-        "visio": "Azure Firewall",
-    },
-    "Redis Cache": {
-        "drawio": "mxgraph.azure.cache_redis",
-        "visio": "Azure Cache for Redis",
-    },
-    "Notification Hubs": {
-        "drawio": "mxgraph.azure.notification_hubs",
-        "visio": "Azure Notification Hubs",
-    },
-    "Stream Analytics": {
-        "drawio": "mxgraph.azure.stream_analytics",
-        "visio": "Azure Stream Analytics",
-    },
-    "Databricks": {
-        "drawio": "mxgraph.azure.databricks",
-        "visio": "Azure Databricks",
-    },
-}
+
+import json
+import os
+
+_data_file_AZURE_STENCILS = os.path.join(os.path.dirname(__file__), 'data', 'diagram_stencils.json')
+try:
+    with open(_data_file_AZURE_STENCILS, 'r') as _f:
+        AZURE_STENCILS = json.load(_f)
+except FileNotFoundError:
+    AZURE_STENCILS = [] if False else {}
+
 
 # Pastel zone backgrounds
 _ZONE_COLORS = [

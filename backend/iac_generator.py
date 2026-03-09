@@ -519,31 +519,31 @@ def generate_iac_code(analysis: Optional[dict], iac_format: str = "terraform", p
         if getattr(response, '_truncated', False):
             logger.warning("IaC output was truncated — appending warning comment")
             truncation_warning = {
-                "terraform": "
+                "terraform": """
 
 # ⚠️ WARNING: This output was truncated by the AI model.
 # Some resources may be incomplete. Please review and regenerate if needed.
-",
-                "bicep": "
+""",
+                "bicep": """
 
 // ⚠️ WARNING: This output was truncated by the AI model.
 // Some resources may be incomplete. Please review and regenerate if needed.
-",
-                "cloudformation": "
+""",
+                "cloudformation": """
 
 # ⚠️ WARNING: This output was truncated by the AI model.
 # Some resources may be incomplete. Please review and regenerate if needed.
-",
-                "pulumi": "
+""",
+                "pulumi": """
 
 // ⚠️ WARNING: This output was truncated by the AI model.
 // Some resources may be incomplete. Please review and regenerate if needed.
-",
-                "aws-cdk": "
+""",
+                "aws-cdk": """
 
 // ⚠️ WARNING: This output was truncated by the AI model.
 // Some resources may be incomplete. Please review and regenerate if needed.
-",
+""",
             }
             code += truncation_warning.get(iac_format, "\n# ⚠️ Output was truncated.\n")
 

@@ -40,9 +40,11 @@ export default function IaCViewer({
   const highlightedLines = useMemo(() => {
     const grammar = iacFormat === 'terraform' ? Prism.languages.hcl
       : iacFormat === 'cloudformation' ? Prism.languages.yaml
+      : (iacFormat === 'pulumi' || iacFormat === 'aws-cdk') ? Prism.languages.typescript
       : Prism.languages.json;
     const lang = iacFormat === 'terraform' ? 'hcl'
       : iacFormat === 'cloudformation' ? 'yaml'
+      : (iacFormat === 'pulumi' || iacFormat === 'aws-cdk') ? 'typescript'
       : 'json';
     return iacCode.split('\n').map((line) => {
       const rawHighlighted = grammar ? Prism.highlight(line || ' ', grammar, lang) : (line || ' ');
@@ -59,7 +61,7 @@ export default function IaCViewer({
             <FileCode className="w-6 h-6 text-cta" />
             <div>
               <h2 className="text-xl font-bold text-text-primary">
-                {iacFormat === 'terraform' ? 'Terraform' : iacFormat === 'cloudformation' ? 'CloudFormation' : 'Bicep'} Code
+                {iacFormat === 'terraform' ? 'Terraform' : iacFormat === 'cloudformation' ? 'CloudFormation' : iacFormat === 'pulumi' ? 'Pulumi' : iacFormat === 'aws-cdk' ? 'AWS CDK' : 'Bicep'} Code
               </h2>
               <p className="text-xs text-text-muted">{highlightedLines.length} lines generated</p>
             </div>
@@ -72,7 +74,7 @@ export default function IaCViewer({
               const blob = new Blob([iacCode], { type: 'text/plain' });
               const url = URL.createObjectURL(blob);
               const a = document.createElement('a');
-              a.href = url; a.download = iacFormat === 'terraform' ? 'main.tf' : iacFormat === 'cloudformation' ? 'template.yaml' : 'main.bicep'; a.click();
+              a.href = url; a.download = iacFormat === 'terraform' ? 'main.tf' : iacFormat === 'cloudformation' ? 'template.yaml' : (iacFormat === 'pulumi' || iacFormat === 'aws-cdk') ? 'index.ts' : 'main.bicep'; a.click();
               URL.revokeObjectURL(url);
             }} variant="secondary" size="sm" icon={Download}>Download</Button>
           </div>
