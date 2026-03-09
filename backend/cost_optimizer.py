@@ -281,8 +281,8 @@ def analyze_cost_optimizations(
         ]
     
     # Calculate summary
-    commitment_required = [o for o in optimizations if o.requires_commitment]
-    no_commitment = [o for o in optimizations if not o.requires_commitment]
+    commitment_required = [o for o in optimizations if hasattr(o, "requires_commitment") and o.requires_commitment]
+    no_commitment = [o for o in optimizations if not (hasattr(o, "requires_commitment") and o.requires_commitment)]
     
     return {
         "total_optimizations": len(optimizations),
@@ -298,3 +298,116 @@ def analyze_cost_optimizations(
             )[:3]
         ]
     }
+
+def analyze_live_finops(live_schema: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Analyze actual live cloud resources for FinOps optimizations.
+    Uses precise heuristics targeting unattached storage, idle networking, and sizing.
+    """
+    optimizations = []
+    metadata = live_schema.get("metadata", {})
+    provider = metadata.get("provider", "unknown").lower()
+    resources = live_schema.get("resources", [])
+    
+    unattached_disks = []
+    idle_ips = []
+    
+    for res in resources:
+        try:
+            # We must handle both object properties and dict representations
+            if isinstance(res, dict):
+                res_type = res.get("type", "").lower()
+                name = res.get("name", "Unknown")
+                props = res.get("attributes", {})
+            else:
+                res_type = res.type.lower()
+                name = res.name
+                props = res.attributes or {}
+            
+            # Azure specific heuristics
+            if provider == "azure":
+                # 1. Unattached Disks
+                if res_type == "microsoft.compute/disks":
+                    disk_state = props.get("diskState", "").lower()
+                    if disk_state == "unattached":
+                        unattached_disks.append(name)
+                
+                # 2. Idle Public IPs
+                elif res_type == "microsoft.network/publicipaddresses":
+                    ip_config = props.get("ipConfiguration")
+                    if not ip_config:
+                        idle_ips.append(name)
+                        
+                # 3. App Service Plans with low density
+                elif res_type == "microsoft.web/serverfarms":
+                    num_sites = props.get("numberOfSites", 1)  # if unknown assume 1
+                    if num_sites == 0:
+                        optimizations.append(
+                            CostOptimization(
+                                id=f"idle_app_plan_{name}",
+                                title=f"Delete Idle App Service Plan ({name})",
+                                description="This App Service Plan has no hosted applications and is accruing charges.",
+                                category=SavingsCategory.RIGHT_SIZING,
+                                estimated_savings="100% of plan cost",
+                                effort="low",
+                                services_affected=[name],
+                                action_steps=["Verify plan is unused", "Delete the App Service Plan from portal/CLI"]
+                            )
+                        )
+                        
+            # AWS specific heuristics (conceptual mappings)
+            elif provider == "aws":
+                if res_type == "aws::ec2::volume":
+                    if props.get("status") == "available":
+                        unattached_disks.append(name)
+                elif res_type == "aws::ec2::eip":
+                    if not props.get("associationId"):
+                        idle_ips.append(name)
+        except Exception:
+            pass
+
+    # Aggregate unattached disk savings
+    if unattached_disks:
+        optimizations.append(
+            CostOptimization(
+                id=f"unattached_disks_{provider}",
+                title=f"Delete {len(unattached_disks)} Unattached Disks",
+                description="Disks accrue costs even when not attached to any running VM.",
+                category=SavingsCategory.STORAGE_TIERING,
+                estimated_savings="100% of unattached disk costs",
+                effort="low",
+                services_affected=unattached_disks,
+                action_steps=["Snapshot if data backup is required", "Delete orphan disks"]
+            )
+        )
+
+    # Aggregate idle IP savings
+    if idle_ips:
+        optimizations.append(
+            CostOptimization(
+                id=f"idle_ips_{provider}",
+                title=f"Release {len(idle_ips)} Unassociated Public IPs",
+                description="Cloud providers charge hourly rates for reserved public IP addresses not attached to running interfaces.",
+                category=SavingsCategory.RIGHT_SIZING,
+                estimated_savings="~$3-4/month per IP",
+                effort="low",
+                services_affected=idle_ips,
+                action_steps=["Release IPs back to the cloud provider pool"]
+            )
+        )
+        
+    by_category = {}
+    for cat in SavingsCategory:
+        by_category[cat.value] = [asdict(o) for o in optimizations if o.category == cat]
+        
+    no_commitment = [o for o in optimizations if not getattr(o, "requires_commitment", False)]
+    
+    return {
+        "total_optimizations": len(optimizations),
+        "quick_wins": len(no_commitment),
+        "optimizations": [asdict(o) for o in optimizations],
+        "by_category": by_category,
+        "scanned_resources": len(resources),
+        "provider": provider
+    }
+
