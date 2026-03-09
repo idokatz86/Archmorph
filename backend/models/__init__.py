@@ -13,3 +13,6 @@ from models.usage import UsageCounterRecord, FunnelStepRecord  # noqa: F401
 from models.job import JobRecord  # noqa: F401
 from models.tenant import Organization, TeamMember, Invitation  # noqa: F401
 from .deployment_state import DeploymentState
+from models.agent import Agent, AgentVersion  # noqa: F401
+
+from models.agent import Agent, AgentVersion  # noqa: F401
