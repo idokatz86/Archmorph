@@ -36,7 +36,7 @@ async def generate_hld_endpoint(request: Request, diagram_id: str, _auth=Depends
 
     session = get_or_recreate_session(diagram_id)
     if not session:
-        raise ArchmorphException(400, "Your migration analysis session expired. Please re-analyze the diagram.")
+        raise ArchmorphException(404, "Your migration analysis session expired. Please re-analyze the diagram.")
 
     analysis = session
 
@@ -54,7 +54,7 @@ async def generate_hld_endpoint(request: Request, diagram_id: str, _auth=Depends
             logger.debug("Cost estimation unavailable, proceeding without it")
 
     try:
-        hld = await diagrams_compat.generate_hld(
+        hld = diagrams_compat.generate_hld(
             analysis=analysis,
             cost_estimate=cost_estimate,
             iac_params=session.get("iac_parameters"),
@@ -103,7 +103,7 @@ async def _ensure_hld(session: dict, diagram_id: str) -> dict:
             )
             session["_cached_cost_estimate"] = cost_estimate
 
-        hld = await diagrams_compat.generate_hld(
+        hld = diagrams_compat.generate_hld(
             analysis=session,
             cost_estimate=cost_estimate,
             iac_params=session.get("iac_parameters"),
@@ -238,7 +238,7 @@ async def generate_hld_async(request: Request, diagram_id: str, _auth=Depends(ve
     """Start async HLD document generation. Returns 202 with job_id."""
     session = get_or_recreate_session(diagram_id)
     if not session:
-        raise ArchmorphException(400, "Your migration analysis session expired. Please re-analyze the diagram.")
+        raise ArchmorphException(404, "Your migration analysis session expired. Please re-analyze the diagram.")
 
     job = job_manager.submit("generate_hld", diagram_id=diagram_id)
     asyncio.create_task(_run_hld_job(job.job_id, diagram_id))
@@ -285,7 +285,7 @@ async def _run_hld_job(job_id: str, diagram_id: str) -> None:
 
         job_manager.update_progress(job_id, 40, "Generating High-Level Design with GPT-4o...")
 
-        hld = await diagrams_compat.generate_hld(
+        hld = diagrams_compat.generate_hld(
             analysis=session,
             cost_estimate=cost_estimate,
             iac_params=session.get("iac_parameters"),
@@ -328,7 +328,7 @@ async def export_migration_package(request: Request, diagram_id: str, _auth=Depe
 
     session = get_or_recreate_session(diagram_id)
     if not session:
-        raise ArchmorphException(400, "Your migration analysis session expired. Please re-analyze the diagram.")
+        raise ArchmorphException(404, "Your migration analysis session expired. Please re-analyze the diagram.")
 
     # Parse options
     iac_format = "terraform"

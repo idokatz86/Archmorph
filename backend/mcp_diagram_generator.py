@@ -48,13 +48,11 @@ class DiagramMCPClient:
 
     def _fallback_generation(self, format_type: str, analysis_data: Dict[str, Any]) -> str:
         # If MCP is offline or not configured, fallback to the legacy layout engine
-        from diagram_export import export_drawio_xml, export_excalidraw_json, export_visio_vdX
-        if format_type == "excalidraw":
-            return export_excalidraw_json(analysis_data)
-        elif format_type == "drawio":
-            return export_drawio_xml(analysis_data)
-        elif format_type == "visio":
-            return export_visio_vdX(analysis_data)
+        from diagram_export import generate_diagram as diagram_export_generate
+        if format_type in ["excalidraw", "drawio", "visio", "vsdx"]:
+            real_format = "vsdx" if format_type == "visio" else format_type
+            res = diagram_export_generate(analysis_data, real_format)
+            return res.get("content")
         raise ValueError(f"Unsupported MCP format: {format_type}")
 
 # Singleton client

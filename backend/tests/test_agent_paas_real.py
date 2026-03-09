@@ -22,7 +22,7 @@ def override_get_db():
         db.close()
 
 def override_get_current_user():
-    return {"user_id": "test_user", "organization_id": "default"}
+    return {"user_id": "test_user", "organization_id": "default", "roles": ["admin"]}
 
 app.dependency_overrides[get_db] = override_get_db
 app.dependency_overrides[get_current_user] = override_get_current_user
