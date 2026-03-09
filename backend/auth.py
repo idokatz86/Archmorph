@@ -112,8 +112,14 @@ class User:
     email: Optional[str] = None
     name: Optional[str] = None
     provider: AuthProvider = AuthProvider.ANONYMOUS
+
     tier: UserTier = UserTier.FREE
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    
+    # Multi-tenant RBAC fields (#238)
+    tenant_id: str = "default_tenant"
+    roles: list = field(default_factory=lambda: ["user"])
+
     
     # Usage tracking
     analyses_used: int = 0
@@ -215,9 +221,13 @@ class User:
             "id": self.id,
             "email": self.email,
             "name": self.name,
+
             "provider": self.provider.value,
             "tier": self.tier.value,
+            "tenant_id": self.tenant_id,
+            "roles": self.roles,
             "created_at": self.created_at.isoformat(),
+
             "usage": {
                 "analyses": {"used": self.analyses_used, "limit": quota.analyses_per_month},
                 "iac_downloads": {"used": self.iac_downloads_used, "limit": quota.iac_downloads_per_month},

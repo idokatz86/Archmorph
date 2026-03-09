@@ -20,12 +20,14 @@ import HLDTab from './HLDTab';
 import PricingTab from './PricingTab';
 import MigrationChat from './MigrationChat';
 import DeployPanel from './DeployPanel';
+import RiskPanel from './RiskPanel';
 
 const STEPS = [
   { id: 'upload', label: 'Upload', canNav: true },
   { id: 'analyzing', label: 'Analyzing', canNav: false },
   { id: 'questions', label: 'Customize' },
   { id: 'results', label: 'Results' },
+  { id: 'risk', label: 'Risk Score' },
   { id: 'iac', label: 'IaC Code' },
   { id: 'hld', label: 'HLD' },
   { id: 'pricing', label: 'Pricing' },
@@ -769,6 +771,11 @@ export default function DiagramTranslator() {
         />
       )}
 
+
+      {/* Step: Risk */}
+      {state.step === 'risk' && state.diagramId && (
+        <RiskPanel diagramId={state.diagramId} />
+      )}
       {/* Migration Q&A Chat — visible on Results, IaC, HLD steps (#258) */}
       {state.diagramId && state.analysis && ['results', 'iac', 'hld'].includes(state.step) && (
         <MigrationChat diagramId={state.diagramId} />

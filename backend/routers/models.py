@@ -4,7 +4,8 @@ from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 
 from database import get_db
-from auth import get_current_user
+from routers.auth import get_current_user
+from rbac import RequireRole, enforce_tenant_isolation
 from models.model_registry import ModelEndpoint
 
 router = APIRouter(prefix="/api/models", tags=["Model Registry"])
@@ -30,7 +31,7 @@ class ModelEndpointResponseSchema(BaseModel):
         from_attributes = True
 
 @router.post("/", response_model=ModelEndpointResponseSchema, status_code=status.HTTP_201_CREATED)
-def register_model(payload: ModelEndpointCreateSchema, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
+def register_model(payload: ModelEndpointCreateSchema, db: Session = Depends(get_db), user: dict = Depends(RequireRole(['admin', 'super_admin']))):
     org_id = user.get("org_id", "default_org")
     
     endpoint = ModelEndpoint(
@@ -53,7 +54,7 @@ def list_models(db: Session = Depends(get_db), user: dict = Depends(get_current_
     return db.query(ModelEndpoint).filter(ModelEndpoint.organization_id == org_id).all()
 
 @router.delete("/{model_id}")
-def delete_model(model_id: str, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
+def delete_model(model_id: str, db: Session = Depends(get_db), user: dict = Depends(RequireRole(['admin', 'super_admin']))):
     org_id = user.get("org_id", "default_org")
     endpoint = db.query(ModelEndpoint).filter(
         ModelEndpoint.id == model_id,

@@ -463,7 +463,7 @@ RELEASE_TIMELINE: List[Dict[str, Any]] = [
         "date": "2026-03-14",
         "status": ReleaseStatus.PLANNED,
         "highlights": [
-            "Split diagrams.py god router (1,173 LOC) into focused modules (#284)",
+            
             "Code coverage gate in CI — pytest --cov-fail-under=70 (#288)",
             "Cyclomatic complexity gate with radon/xenon (#315)",
             "Magic number extraction & docstring coverage (#317)",
@@ -493,9 +493,7 @@ RELEASE_TIMELINE: List[Dict[str, Any]] = [
         "name": "Enterprise Readiness",
         "date": "2026-04-11",
         "status": ReleaseStatus.PLANNED,
-        "highlights": [
-            "RBAC & multi-tenant isolation enforcement (#238)",
-            "Collaboration — shared projects, comments, review workflow (#237)",
+        "highlights": [            "Collaboration — shared projects, comments, review workflow (#237)",
             "Compliance framework mapping & gap analysis (#239)",
             "Load testing with k6/Locust against SLA targets (#290)",
             "Contextual migration Q&A chat on analysis results (#258)",
@@ -506,9 +504,7 @@ RELEASE_TIMELINE: List[Dict[str, Any]] = [
         "name": "Migration Intelligence",
         "date": "2026-04-25",
         "status": ReleaseStatus.PLANNED,
-        "highlights": [
-            "Migration risk scorecard & readiness assessment (#249)",
-            "End-to-end migration wizard with full package export (#252)",
+        "highlights": [            "End-to-end migration wizard with full package export (#252)",
             "Guided onboarding tour & achievement badges (#257)",
             "Migration Gallery — anonymized community success stories (#256)",
         ],

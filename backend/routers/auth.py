@@ -80,8 +80,10 @@ async def get_current_user(request: Request, authorization: Optional[str] = Head
             user_dict["session_token"] = token
             return user_dict
     
+
     # Return anonymous user info
-    return {"authenticated": False, "tier": "free"}
+    return {"authenticated": False, "tier": "free", "roles": [], "tenant_id": "default_tenant"}
+
 
 
 @router.get("/api/auth/quota")
