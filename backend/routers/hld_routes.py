@@ -54,8 +54,7 @@ async def generate_hld_endpoint(request: Request, diagram_id: str, _auth=Depends
             logger.debug("Cost estimation unavailable, proceeding without it")
 
     try:
-        hld = await asyncio.to_thread(
-            diagrams_compat.generate_hld,
+        hld = await diagrams_compat.generate_hld(
             analysis=analysis,
             cost_estimate=cost_estimate,
             iac_params=session.get("iac_parameters"),
@@ -104,8 +103,7 @@ async def _ensure_hld(session: dict, diagram_id: str) -> dict:
             )
             session["_cached_cost_estimate"] = cost_estimate
 
-        hld = await asyncio.to_thread(
-            diagrams_compat.generate_hld,
+        hld = await diagrams_compat.generate_hld(
             analysis=session,
             cost_estimate=cost_estimate,
             iac_params=session.get("iac_parameters"),
@@ -287,8 +285,7 @@ async def _run_hld_job(job_id: str, diagram_id: str) -> None:
 
         job_manager.update_progress(job_id, 40, "Generating High-Level Design with GPT-4o...")
 
-        hld = await asyncio.to_thread(
-            diagrams_compat.generate_hld,
+        hld = await diagrams_compat.generate_hld(
             analysis=session,
             cost_estimate=cost_estimate,
             iac_params=session.get("iac_parameters"),
