@@ -16,3 +16,4 @@ from .deployment_state import DeploymentState
 from models.agent import Agent, AgentVersion  # noqa: F401
 
 from models.agent import Agent, AgentVersion  # noqa: F401
+from models.execution import Execution  # noqa: F401
