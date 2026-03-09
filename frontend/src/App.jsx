@@ -102,7 +102,7 @@ export default function App() {
               onClick={handleVersionClick}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleVersionClick(); }}
             >
-              Archmorph v{APP_VERSION} — Modernize Any Cloud. Land on Azure.
+              Archmorph v{APP_VERSION} — Modernize Any Cloud Architecture.
             </p>
             <div className="flex items-center gap-4">
               <a href="https://github.com/idokatz86/Archmorph" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-cta transition-colors cursor-pointer">

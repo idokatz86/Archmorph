@@ -131,12 +131,12 @@ export default function LandingPage({ onGetStarted }) {
           </div>
           <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-text-primary leading-tight mb-6">
             Modernize Any Cloud{' '}
-            <span className="text-cta">to Azure</span>
+            <span className="text-cta">Architecture</span>
           </h1>
           <p className="text-lg text-text-secondary max-w-2xl mx-auto mb-8">
-            Upload AWS or GCP architecture diagrams and get instant Azure equivalents
-            with Terraform, Bicep, or CloudFormation code, HLD documents, cost estimates,
-            and step-by-step migration runbooks — all powered by GPT-4o.
+            Upload AWS, GCP, or Azure architecture diagrams and translate them in any direction.
+            Get instant equivalents with Terraform, Bicep, or CloudFormation code, HLD documents, 
+            cost estimates, and step-by-step migration runbooks — all powered by GPT-4o.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <button
@@ -146,6 +146,15 @@ export default function LandingPage({ onGetStarted }) {
             >
               Start Translating — It's Free
               <ArrowRight className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => {
+                // Future functionality: directly drop a sample into the app state
+                onGetStarted();
+              }}
+              className="flex items-center gap-2 px-8 py-3.5 bg-surface text-text-primary border border-border/50 rounded-xl font-semibold hover:bg-secondary/20 transition-colors text-sm"
+            >
+              View Templates
             </button>
           </div>
           <div className="flex flex-wrap items-center justify-center gap-6 mt-8 text-xs text-text-muted">

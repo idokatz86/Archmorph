@@ -34,7 +34,6 @@ export default function Nav({ activeTab, setActiveTab, updateStatus }) {
     { id: 'services', label: 'Services', icon: Server },
     { id: 'drift', label: 'Drift', icon: Activity },
     { id: 'roadmap', label: 'Roadmap', icon: Rocket },
-    { id: 'legal', label: 'Legal', icon: Shield },
   ];
 
   return (
