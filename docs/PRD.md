@@ -1,7 +1,7 @@
 # Archmorph — Cloud Architecture Translator to Azure
 ## Product Requirements Document (PRD)
-**Version:** 3.4.0
-**Date:** February 26, 2026
+**Version:** 3.8.0
+**Date:** March 9, 2026
 **Author:** Ido Katz
 
 ---
@@ -12,7 +12,7 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 
 **Problem:** Organizations migrating to Azure spend weeks manually mapping source architecture to Azure services. This process is error-prone, requires deep multi-cloud expertise, and lacks tooling for interactive refinement.
 
-**Solution:** Automated diagram analysis and service translation with multi-cloud target support (Azure/AWS/GCP), natural language service addition, smart question deduplication with inter-question constraints, confidence-scored mappings enhanced by community migration intelligence with transparency explanations, multi-format diagram export, Visio (.vsdx) import, self-updating service catalog with auto-integration, generated IaC with Terraform/Bicep/CloudFormation with IaC security scanning and secure credential handling, region-aware pricing with optimized targeted queries, AI-powered HLD generation with DOCX/PDF/PPTX export, interactive IaC chat assistant with prompt guard, WAF best practices linting, cost optimization tips, sample diagram onboarding, NPS feedback collection, shareable links, user authentication with quotas, migration runbook generation, architecture versioning, Terraform plan preview, comprehensive analytics, Azure Monitor integration with alerts, an integrated chatbot assistant, modular router architecture with API versioning, feature flags, comprehensive audit logging, session persistence, GPT response caching with vision analysis cache, Zero Trust WAF, user dashboard with bookmarks, template gallery, i18n (en/es/fr), living architecture health monitoring, white-label partner SDK, global toast notification system, beforeunload protection for active sessions, gunicorn process management with worker recycling, and WCAG accessibility improvements.
+**Solution:** Automated diagram analysis and service translation with multi-cloud target support (Azure/AWS/GCP), natural language service addition, smart question deduplication with inter-question constraints, confidence-scored mappings enhanced by community migration intelligence with transparency explanations, multi-format diagram export, Visio (.vsdx) import, self-updating service catalog with auto-integration, generated IaC with Terraform/Bicep/CloudFormation with IaC security scanning and secure credential handling, region-aware pricing with optimized targeted queries, AI-powered HLD generation with DOCX/PDF/PPTX export, interactive IaC chat assistant with prompt guard, WAF best practices linting, cost optimization tips, sample diagram onboarding, dynamic GitHub issues natively integrated into the roadmap, transparent vibe-coding project status, NPS feedback collection, shareable links, user authentication with quotas, migration runbook generation, architecture versioning, Terraform plan preview, comprehensive analytics, Azure Monitor integration with alerts, an integrated chatbot assistant, modular router architecture with API versioning, feature flags, comprehensive audit logging, session persistence, GPT response caching with vision analysis cache, Zero Trust WAF, user dashboard with bookmarks, template gallery, i18n (en/es/fr), living architecture health monitoring, white-label partner SDK, global toast notification system, beforeunload protection for active sessions, gunicorn process management with worker recycling, and WCAG accessibility improvements.
 
 ---
 

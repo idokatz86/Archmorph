@@ -3,6 +3,7 @@ import 'prismjs/themes/prism-tomorrow.css';
 import { Code, Coffee, Loader2, Shield } from 'lucide-react';
 import ErrorBoundary from './components/ErrorBoundary';
 import Nav from './components/Nav';
+import DisclaimerBanner from './components/DisclaimerBanner';
 import { ToastProvider } from './components/Toast';
 import { APP_VERSION } from './constants';
 import useAppStore from './stores/useAppStore';
@@ -75,6 +76,7 @@ export default function App() {
       >
         Skip to main content
       </a>
+      <DisclaimerBanner />
       <Nav activeTab={activeTab} setActiveTab={setActiveTab} updateStatus={updateStatus} />
       <main id="main-content" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <ErrorBoundary>

@@ -61,12 +61,35 @@ class AzureOpenAIClientImpl:
 class AnthropicClientImpl:
     def __init__(self, config: Dict[str, Any]):
         self.config = config
-        # pseudo anthropic
-    async def chat(self, messages, tools=None, **kwargs):
-        raise NotImplementedError("Anthropic native client not installed yet.")
+        from anthropic import AsyncAnthropic
+        self.client = AsyncAnthropic(
+            api_key=config.get("api_key", os.getenv("ANTHROPIC_API_KEY")),
+        )
+        self.model = config.get("model", "claude-3-5-sonnet-latest")
 
-    async def chat_stream(self, messages, tools=None, **kwargs):
-        raise NotImplementedError("Anthropic native client not installed yet.")
+    async def chat(self, messages: List[Dict[str, str]], tools: List[Dict] = None, **kwargs) -> Any:
+        # Convert standard OpenAI-ish format to Anthropic format if needed, but assuming calling code adjusts
+        # Here we just pass through
+        response = await self.client.messages.create(
+            model=self.model,
+            max_tokens=kwargs.pop("max_tokens", 4096),
+            messages=messages,
+            tools=tools if tools else None,
+            **kwargs
+        )
+        return response
+
+    async def chat_stream(self, messages: List[Dict[str, str]], tools: List[Dict] = None, **kwargs) -> AsyncIterator[Any]:
+        stream = await self.client.messages.create(
+            model=self.model,
+            max_tokens=kwargs.pop("max_tokens", 4096),
+            messages=messages,
+            tools=tools if tools else None,
+            stream=True,
+            **kwargs
+        )
+        async for chunk in stream:
+            yield chunk
 
     def supports_tools(self) -> bool: return True
     def supports_vision(self) -> bool: return True

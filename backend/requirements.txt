@@ -1,45 +1,49 @@
-fastapi==0.135.1
-uvicorn[standard]==0.39.0
-gunicorn==25.1.0  # Production process manager with worker recycling (#301)
-pydantic==2.12.5
-python-multipart==0.0.22  # fixes GHSA-wp53-j4wj-2cfg
-httpx==0.28.1
-azure-storage-blob==12.28.0
-azure-identity==1.25.2
-openai==2.24.0
-psycopg2-binary==2.9.11
-sqlalchemy==2.0.47
-asyncpg==0.30.0
-aiosqlite==0.20.0
-alembic==1.16.5
-python-dotenv==1.2.1
-pillow==12.1.1  # fixes GHSA-cfh3-3jmp-rvhc
-apscheduler==3.11.2
-PyGithub==2.8.1
-slowapi==0.1.9
-cachetools==5.3.3
-defusedxml==0.7.1
-azure-monitor-opentelemetry==1.8.6
-tenacity==9.1.4
-psutil==7.2.2
-python-json-logger==3.3.0  # logging_config.py handles both 2.x and 3.x import paths
-PyJWT[crypto]==2.11.0
-email-validator==2.3.0
-redis==7.2.1  # Required for RedisStore session backend (#118)
-stripe==14.3.0  # Stripe billing integration (#144)
+fastapi
+uvicorn[standard]
+gunicorn  # Production process manager with worker recycling (#301)
+pydantic
+python-multipart
+httpx
+azure-storage-blob
+azure-identity
+openai
+psycopg2-binary
+sqlalchemy
+asyncpg
+aiosqlite
+alembic
+python-dotenv
+pillow
+apscheduler
+PyGithub
+slowapi
+cachetools
+defusedxml
+azure-monitor-opentelemetry
+tenacity
+psutil
+python-json-logger
+PyJWT[crypto]
+email-validator
+redis
+stripe
 
 # Document export dependencies
-python-docx==1.2.0
-fpdf2==2.8.7
-python-pptx==1.0.2
+python-docx
+fpdf2
+python-pptx
 
 # Test dependencies
-pytest==8.3.5
-pytest-asyncio==1.3.0
-pytest-cov==7.0.0
-pytest-xdist==3.5.0  # Parallel test execution (#369)
-azure-mgmt-resourcegraph==8.0.0
-azure-mgmt-subscription==3.1.1
-azure-mgmt-resource==23.1.0
-google-cloud-asset==3.28.0
-google-auth==2.38.0
+pytest
+pytest-asyncio
+pytest-cov
+pytest-xdist
+azure-mgmt-resourcegraph
+azure-mgmt-subscription
+azure-mgmt-resource
+google-cloud-asset
+google-auth
+anthropic
+pgvector
+tiktoken
+langchain

@@ -6,7 +6,7 @@ import ChatWidget from '../ChatWidget'
 describe('ChatWidget', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    fetch.mockResolvedValue({
+    fetch.mockResolvedValue({ ok: true, status: 200, headers: new Headers({ "content-type": "application/json" }),
       json: () => Promise.resolve({ reply: 'Hello from AI', action: null, data: null }),
     })
   })

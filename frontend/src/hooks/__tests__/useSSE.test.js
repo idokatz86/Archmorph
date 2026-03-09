@@ -166,7 +166,7 @@ describe('useJobStatus', () => {
   });
 
   it('polls and updates status on completion', async () => {
-    fetch.mockResolvedValueOnce({
+    fetch.mockResolvedValueOnce({ ok: true, status: 200, headers: new Headers({ "content-type": "application/json" }),
       ok: true,
       json: () => Promise.resolve({ status: 'completed', progress: 100, result: { x: 1 } }),
     });
@@ -184,7 +184,7 @@ describe('useJobStatus', () => {
   });
 
   it('sets error on failure status', async () => {
-    fetch.mockResolvedValueOnce({
+    fetch.mockResolvedValueOnce({ ok: true, status: 200, headers: new Headers({ "content-type": "application/json" }),
       ok: true,
       json: () => Promise.resolve({ status: 'failed', error: 'Boom' }),
     });
@@ -201,7 +201,7 @@ describe('useJobStatus', () => {
   });
 
   it('cancel sends POST and updates status', async () => {
-    fetch.mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({}) });
+    fetch.mockResolvedValueOnce({ ok: true, status: 200, headers: new Headers({ "content-type": "application/json" }), ok: true, json: () => Promise.resolve({}) });
 
     const { result } = renderHook(() => useJobStatus());
 

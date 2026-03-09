@@ -28,12 +28,12 @@ const SECTIONS = {
         text: 'You retain ownership of all diagrams and architecture designs you upload. Archmorph retains ownership of the Service, its algorithms, and generated templates. Generated IaC code is provided under the MIT License for your use.',
       },
       {
-        heading: '6. Subscription & Billing',
-        text: 'Paid plans are billed monthly or annually. You may cancel at any time; cancellation takes effect at the end of the current billing period. Refunds are available within the first 14 days of a new subscription.',
+        heading: '6. Free Tool & Vibe-Coding State',
+        text: 'Archmorph is currently a "vibe-coding" project in active development. It is provided completely free of charge, with no subscriptions, billing, or hidden fees. Features ship fast and change often (pardon our dust!), so please expect an evolving experience.',
       },
       {
         heading: '7. Limitation of Liability',
-        text: 'To the maximum extent permitted by law, Archmorph shall not be liable for any indirect, incidental, special, consequential, or punitive damages, including loss of profits, data, or business opportunities, arising from your use of the Service.',
+        text: 'This tool is provided "AS-IS" and "AS-AVAILABLE" without warranties of any kind. As an active build-in-progress passion project, we make no guarantees regarding uptime, stability, or the absolute accuracy of AI mapping outputs. To the maximum extent permitted by law, Archmorph shall not be liable for any indirect, incidental, special, consequential, or punitive damages arising from your use of the Service.',
       },
       {
         heading: '8. Termination',

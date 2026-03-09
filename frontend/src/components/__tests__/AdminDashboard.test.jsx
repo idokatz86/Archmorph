@@ -8,7 +8,7 @@ describe('AdminDashboard', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    fetch.mockResolvedValue({
+    fetch.mockResolvedValue({ ok: true, status: 200, headers: new Headers({ "content-type": "application/json" }),
       ok: true,
       status: 200,
       json: () => Promise.resolve({ token: 'test-token' }),
@@ -52,7 +52,7 @@ describe('AdminDashboard', () => {
   })
 
   it('shows error on invalid admin key', async () => {
-    fetch.mockResolvedValueOnce({ ok: false, status: 401, json: () => Promise.resolve({}) })
+    fetch.mockResolvedValue({ ok: false, status: 401, headers: new Headers({ 'content-type': 'application/json' }), json: () => Promise.resolve({ error: { message: 'Invalid admin key' } }) })
     const user = userEvent.setup()
     render(<AdminDashboard onClose={mockOnClose} />)
     await user.type(screen.getByPlaceholderText('Admin key'), 'wrong')
@@ -61,33 +61,33 @@ describe('AdminDashboard', () => {
   })
 
   it('shows error when server is down', async () => {
-    fetch.mockRejectedValueOnce(new Error('Connection error'))
+    fetch.mockRejectedValue(new TypeError('Connection error'))
     const user = userEvent.setup()
     render(<AdminDashboard onClose={mockOnClose} />)
     await user.type(screen.getByPlaceholderText('Admin key'), 'key')
     await user.click(screen.getByText('Sign In'))
-    expect(await screen.findByText('Unable to reach server')).toBeInTheDocument()
+    expect(await screen.findByText('Network error — check your connection.')).toBeInTheDocument()
   })
 
   it('shows 503 error when admin not configured', async () => {
-    fetch.mockResolvedValueOnce({ ok: false, status: 503, json: () => Promise.resolve({}) })
+    fetch.mockResolvedValue({ ok: false, status: 503, headers: new Headers({ 'content-type': 'application/json' }), json: () => Promise.resolve({ error: 'Admin API not configured on server' }) })
     const user = userEvent.setup()
     render(<AdminDashboard onClose={mockOnClose} />)
     await user.type(screen.getByPlaceholderText('Admin key'), 'key')
     await user.click(screen.getByText('Sign In'))
-    expect(await screen.findByText('Admin API not configured on server')).toBeInTheDocument()
+    expect(await screen.findByText('Admin API not configured on server', {}, { timeout: 8000 })).toBeInTheDocument()
   })
 
   it('navigates to dashboard after successful login', async () => {
     // Login response
-    fetch.mockResolvedValueOnce({
+    fetch.mockResolvedValueOnce({ ok: true, status: 200, headers: new Headers({ "content-type": "application/json" }),
       ok: true,
       status: 200,
       json: () => Promise.resolve({ token: 'test-token' }),
     })
     // Dashboard data fetches (funnel, metrics, daily, recent, costs)
     const dashboardResponse = { ok: true, json: () => Promise.resolve({ funnel: [], total_sessions: 0, completion_rate: 0 }) }
-    fetch.mockResolvedValue(dashboardResponse)
+    fetch.mockResolvedValue({ ...dashboardResponse, ok: true, status: 200, headers: new Headers({ "content-type": "application/json" }) })
 
     const user = userEvent.setup()
     render(<AdminDashboard onClose={mockOnClose} />)

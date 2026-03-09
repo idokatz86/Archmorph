@@ -74,7 +74,7 @@ function ReleaseCard({ release, isExpanded, onToggle }) {
               {release.highlights?.map((feature, idx) => (
                 <li key={idx} className="flex items-start gap-2 text-sm text-text-secondary">
                   <Sparkles className="w-3.5 h-3.5 text-cta shrink-0 mt-0.5" />
-                  <span>{feature}</span>
+                  <span dangerouslySetInnerHTML={{ __html: feature.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-cta hover:underline">$1</a>') }} />
                 </li>
               ))}
             </ul>

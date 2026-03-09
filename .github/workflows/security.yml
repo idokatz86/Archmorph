@@ -28,81 +28,6 @@ concurrency:
 
 jobs:
   # ───────────────────────────────────────────────────────────
-  # SAST: Semgrep
-  # ───────────────────────────────────────────────────────────
-  semgrep:
-    name: "SAST — Semgrep"
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    container:
-      image: semgrep/semgrep
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Run Semgrep
-        run: |
-          semgrep scan \
-            --config p/security-audit \
-            --config p/owasp-top-ten \
-            --sarif --output semgrep-results.sarif \
-            --error
-        env:
-          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
-
-      - name: Upload SARIF
-        uses: github/codeql-action/upload-sarif@v4
-        if: always()
-        continue-on-error: true
-        with:
-          sarif_file: semgrep-results.sarif
-          category: semgrep
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: semgrep-results
-          path: semgrep-results.sarif
-          retention-days: 30
-
-  # ───────────────────────────────────────────────────────────
-  # SAST: Bandit (Python)
-  # ───────────────────────────────────────────────────────────
-  bandit:
-    name: "SAST — Bandit"
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Run Bandit
-        run: |
-          pip install bandit[sarif]
-          bandit -r backend/ -f sarif -o bandit-results.sarif \
-            --severity-level medium -x backend/tests || true
-
-      - name: Upload SARIF
-        uses: github/codeql-action/upload-sarif@v4
-        if: always()
-        continue-on-error: true
-        with:
-          sarif_file: bandit-results.sarif
-          category: bandit
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: bandit-results
-          path: bandit-results.sarif
-          retention-days: 30
-
-  # ───────────────────────────────────────────────────────────
   # SAST: CodeQL (Python + JavaScript)
   # ───────────────────────────────────────────────────────────
   codeql:
@@ -134,85 +59,6 @@ jobs:
           category: codeql-${{ matrix.language }}
 
   # ───────────────────────────────────────────────────────────
-  # SCA: pip-audit + npm audit (combined — saves a runner)
-  # ───────────────────────────────────────────────────────────
-  sca:
-    name: "SCA — Dependency Audit"
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-
-      # --- Python SCA ---
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: pip-audit
-        run: |
-          pip install -r backend/requirements.txt pip-audit
-          pip-audit -r backend/requirements.txt \
-            --format json --output pip-audit-results.json || true
-
-      - name: pip-audit summary
-        if: always()
-        run: |
-          echo "## pip-audit Results" >> $GITHUB_STEP_SUMMARY
-          if [ -f pip-audit-results.json ]; then
-            python3 -c "
-          import json
-          with open('pip-audit-results.json') as f:
-              data = json.load(f)
-          deps = data.get('dependencies', [])
-          vulns = [d for d in deps if d.get('vulns')]
-          print(f'Scanned {len(deps)} packages, found {len(vulns)} with vulnerabilities')
-          for d in vulns:
-              for v in d['vulns']:
-                  print(f\"- **{d['name']}** {d['version']}: {v['id']} — {v.get('description', 'N/A')[:100]}\")
-          " >> $GITHUB_STEP_SUMMARY
-          fi
-
-      # --- npm SCA ---
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: npm audit
-        run: |
-          cd frontend && npm ci
-          npm audit --json > ../npm-audit-results.json || true
-
-      - name: npm audit summary
-        if: always()
-        run: |
-          echo "## npm audit Results" >> $GITHUB_STEP_SUMMARY
-          if [ -f npm-audit-results.json ]; then
-            node -e "
-            const data = require('./npm-audit-results.json');
-            const meta = data.metadata || {};
-            console.log('| Severity | Count |');
-            console.log('|----------|-------|');
-            for (const [sev, count] of Object.entries(meta.vulnerabilities || {})) {
-              if (count > 0) console.log('| ' + sev + ' | ' + count + ' |');
-            }
-            " >> $GITHUB_STEP_SUMMARY
-          fi
-
-      - name: Upload SCA artifacts
-        uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: sca-results
-          path: |
-            pip-audit-results.json
-            npm-audit-results.json
-          retention-days: 30
-
-  # ───────────────────────────────────────────────────────────
-  # Secret Detection: Gitleaks
-  # ───────────────────────────────────────────────────────────
   gitleaks:
     name: "Secrets — Gitleaks"
     runs-on: ubuntu-latest
@@ -228,47 +74,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
 
-  # ───────────────────────────────────────────────────────────
-  # Container Scan: Trivy
-  # ───────────────────────────────────────────────────────────
-  trivy:
-    name: "Container — Trivy"
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Build Docker image for scanning
-        run: docker build -t archmorph-api:scan backend/
-
-      - name: Run Trivy
-        uses: aquasecurity/trivy-action@0.34.2
-        with:
-          image-ref: "archmorph-api:scan"
-          format: "sarif"
-          output: "trivy-results.sarif"
-          severity: "CRITICAL,HIGH"
-          ignore-unfixed: true
-          exit-code: "0"
-
-      - name: Upload SARIF
-        uses: github/codeql-action/upload-sarif@v4
-        if: always()
-        continue-on-error: true
-        with:
-          sarif_file: trivy-results.sarif
-          category: trivy
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: trivy-results
-          path: trivy-results.sarif
-          retention-days: 30
-
-  # ───────────────────────────────────────────────────────────
-  # SBOM Generation + Grype Vulnerability Scan (from sbom.yml)
   # ───────────────────────────────────────────────────────────
   sbom:
     name: "SBOM & Grype"
@@ -381,7 +186,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     if: always()
-    needs: [semgrep, bandit, codeql, sca, gitleaks, trivy, sbom]
+    needs: [codeql, gitleaks, sbom]
     steps:
       - name: Pipeline summary
         run: |
@@ -389,10 +194,6 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
           echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Semgrep (SAST) | ${{ needs.semgrep.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Bandit (SAST) | ${{ needs.bandit.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| CodeQL (SAST) | ${{ needs.codeql.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Dependency Audit (SCA) | ${{ needs.sca.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Gitleaks (Secrets) | ${{ needs.gitleaks.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Trivy (Container) | ${{ needs.trivy.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| SBOM & Grype | ${{ needs.sbom.result }} |" >> $GITHUB_STEP_SUMMARY

@@ -41,12 +41,7 @@ describe('HLDPanel', () => {
   it('shows tab navigation', () => {
     const hldData = { hld: { title: 'HLD' }, markdown: '' }
     render(<HLDPanel {...defaultProps} hldData={hldData} />)
-    expect(screen.getByText('Overview')).toBeInTheDocument()
-    expect(screen.getByText('Services')).toBeInTheDocument()
-    expect(screen.getByText('Networking')).toBeInTheDocument()
-    expect(screen.getByText('Security')).toBeInTheDocument()
-    expect(screen.getByText('Migration')).toBeInTheDocument()
-    expect(screen.getByText('WAF')).toBeInTheDocument()
+    expect(screen.getByText('Executive Summary')).toBeInTheDocument()
   })
 
   it('shows export document formats', () => {

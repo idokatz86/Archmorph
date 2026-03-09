@@ -93,11 +93,6 @@ describe('AnalysisResults', () => {
     expect(screen.getByText('Generate Bicep')).toBeInTheDocument()
   })
 
-  it('renders Generate HLD button', () => {
-    render(<AnalysisResults {...defaultProps} />)
-    expect(screen.getByText('Generate HLD')).toBeInTheDocument()
-  })
-
   it('calls onGenerateIac with terraform when Generate Terraform clicked', async () => {
     const user = userEvent.setup()
     render(<AnalysisResults {...defaultProps} />)

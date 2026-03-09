@@ -18,7 +18,7 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_RETRIES = 3;
 
 /** Base delay for exponential backoff (ms) */
-const BACKOFF_BASE_MS = 1000;
+const BACKOFF_BASE_MS = process.env.NODE_ENV === 'test' ? 10 : 1000;
 
 /** HTTP status codes that are safe to retry */
 const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
