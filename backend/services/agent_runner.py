@@ -9,6 +9,7 @@ from models.agent import Agent
 from models.execution import Execution
 from database import SessionLocal
 from services.model_router import ModelRouter
+from services.tool_registry import tool_registry
 
 class AgentRunner:
     """
@@ -44,13 +45,15 @@ class AgentRunner:
             
             model_client = self.router.route("default")
             
-            # Setup Tools (basic mock for now)
-            formatted_tools = []
+            # Setup Tools
+            formatted_tools = list(tool_registry.get_schemas())
             if agent.tools:
                 for tool in agent.tools:
-                    # Actually convert or just pass-through OpenAI tools format
                     # Assumes agent.tools is stored as OpenAI tool specs
-                    formatted_tools.append(tool)
+                    # Avoid duplicates if matching name
+                    existing_names = [t.get("function", {}).get("name") for t in formatted_tools]
+                    if tool.get("function", {}).get("name") not in existing_names:
+                        formatted_tools.append(tool)
                     
             start_time = time.time()
             
@@ -68,16 +71,24 @@ class AgentRunner:
             # Check if it called a tool
             if getattr(message, 'tool_calls', None):
                 for tool_call in message.tool_calls:
-                    # Fake execution of tool
                     func_name = tool_call.function.name
                     func_args = tool_call.function.arguments
+                    
+                    # Execute Real Tool
+                    session_token = execution.input_data.get("session_token")
+                    result_json = await tool_registry.execute(
+                        func_name, 
+                        func_args, 
+                        session_token=session_token
+                    )
+                    
                     # Append message
                     llm_messages.append(message)
                     llm_messages.append({
                         "role": "tool",
                         "tool_call_id": tool_call.id,
                         "name": func_name,
-                        "content": json.dumps({"status": "success", "result": f"Executed {func_name} with {func_args}"})
+                        "content": result_json
                     })
                 
                 # Second call to get final response

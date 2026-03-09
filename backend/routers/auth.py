@@ -76,7 +76,9 @@ async def get_current_user(request: Request, authorization: Optional[str] = Head
         token = authorization[7:]
         user = get_user_from_session(token)
         if user:
-            return user.to_dict()
+            user_dict = user.to_dict()
+            user_dict["session_token"] = token
+            return user_dict
     
     # Return anonymous user info
     return {"authenticated": False, "tier": "free"}

@@ -6,8 +6,8 @@ from pydantic import BaseModel
 import uuid
 import json
 
-from database import get_db, store
-from auth import get_current_user
+from database import get_db
+from routers.auth import get_current_user
 from models.agent import Agent
 from models.execution import Execution
 from services.agent_runner import AgentRunner
@@ -56,12 +56,17 @@ async def start_execution(
         raise HTTPException(status_code=400, detail="Agent is not active")
 
     # 2. Create Execution Record
+    session_token = user.get("session_token")
+    input_data = {"messages": payload.messages}
+    if session_token:
+        input_data["session_token"] = session_token
+
     execution = Execution(
         agent_id=payload.agent_id,
         organization_id=org_id,
         thread_id=payload.thread_id,
         status="queued",
-        input_data={"messages": payload.messages},
+        input_data=input_data,
         output_data=None
     )
     db.add(execution)
