@@ -1,10 +1,12 @@
 import logging
+import json
 from typing import List, Dict, Any
 from sqlalchemy.orm import Session
 
 from models.agent import Agent
 from models.memory import AgentMemoryDocument, AgentEpisodicMemory, AgentEntityMemory
 import tiktoken
+from openai_client import get_openai_client
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +31,15 @@ class MemoryManager:
             return len(self.encoding.encode(text))
         except Exception:
             return len(text) // 4 # fallback
+
+    def _get_embedding(self, text: str) -> List[float]:
+        try:
+            client = get_openai_client()
+            res = client.embeddings.create(input=text, model="text-embedding-3-small")
+            return res.data[0].embedding
+        except Exception as e:
+            logger.error(f"Failed to get embedding: {e}")
+            return None
 
     def prepare_short_term_buffer(self, messages: List[Dict[str, Any]], max_tokens: int = 4000) -> List[Dict[str, Any]]:
         """
@@ -63,12 +74,14 @@ class MemoryManager:
         """
         Store an episodic memory for future retrieval.
         """
+        vector = self._get_embedding(summary)
         memory = AgentEpisodicMemory(
             agent_id=self.agent_id,
             execution_id=execution_id,
             summary=summary,
             importance_score=importance,
-            tags=tags or []
+            tags=tags or [],
+            embedding=vector
         )
         self.db.add(memory)
         self.db.commit()
@@ -83,17 +96,22 @@ class MemoryManager:
             AgentEntityMemory.entity_name == name
         ).first()
 
+        text_rep = f"Entity: {name}, Type: {entity_type}, Attributes: {json.dumps(attributes)}"
+        vector = self._get_embedding(text_rep)
+
         if entity:
             # merge attributes
             existing_attrs = entity.attributes or {}
             existing_attrs.update(attributes)
             entity.attributes = existing_attrs
+            entity.embedding = vector
         else:
             entity = AgentEntityMemory(
                 agent_id=self.agent_id,
                 entity_name=name,
                 entity_type=entity_type,
-                attributes=attributes
+                attributes=attributes,
+                embedding=vector
             )
             self.db.add(entity)
             
@@ -102,13 +120,23 @@ class MemoryManager:
 
     def retrieve_relevant_context(self, current_query: str) -> str:
         """
-        Given the current_query, look up matching entities and episodic memories.
-        Right now, a simple mock, eventually wired to Qdrant/PGVector.
+        Given the current_query, look up matching entities and episodic memories
+        using pgvector semantic search.
         """
-        # Pseudo vector search mock
-        episodes = self.db.query(AgentEpisodicMemory).filter(AgentEpisodicMemory.agent_id == self.agent_id).limit(5).all()
-        entities = self.db.query(AgentEntityMemory).filter(AgentEntityMemory.agent_id == self.agent_id).limit(5).all()
-        
+        query_vector = self._get_embedding(current_query)
+        if not query_vector:
+            return ""
+
+        episodes = self.db.query(AgentEpisodicMemory).filter(
+            AgentEpisodicMemory.agent_id == self.agent_id,
+            AgentEpisodicMemory.embedding.is_not(None)
+        ).order_by(AgentEpisodicMemory.embedding.cosine_distance(query_vector)).limit(5).all()
+
+        entities = self.db.query(AgentEntityMemory).filter(
+            AgentEntityMemory.agent_id == self.agent_id,
+            AgentEntityMemory.embedding.is_not(None)
+        ).order_by(AgentEntityMemory.embedding.cosine_distance(query_vector)).limit(5).all()
+
         context_parts = []
         if episodes:
             context_parts.append("### Previous Related Episodes ###")

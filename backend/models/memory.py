@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime
 from sqlalchemy import Column, String, DateTime, JSON, ForeignKey, Integer, Boolean, Float
 from sqlalchemy.orm import relationship
+from pgvector.sqlalchemy import Vector
 from database import Base
 
 class AgentMemoryDocument(Base):
@@ -31,6 +32,7 @@ class AgentEpisodicMemory(Base):
     summary = Column(String, nullable=False)
     importance_score = Column(Float, default=1.0) # 1-10 scale of how important this memory is
     tags = Column(JSON, default=list)
+    embedding = Column(Vector(1536), nullable=True) # OpenAI text-embedding-3-small dimension
     
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -43,6 +45,7 @@ class AgentEntityMemory(Base):
     entity_name = Column(String, nullable=False, index=True)
     entity_type = Column(String, nullable=False) # e.g., Person, Project, Preference
     attributes = Column(JSON, default=dict)
+    embedding = Column(Vector(1536), nullable=True) # OpenAI text-embedding-3-small dimension
     
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
