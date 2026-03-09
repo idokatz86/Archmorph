@@ -120,3 +120,69 @@ class TestAssessCompliance:
         result = assess_compliance(_make_analysis(mappings=mappings))
         assert result["overall_score"] >= 0
         assert len(result["frameworks"]) >= 1
+
+
+
+# ====================================================================
+# analyze_live_compliance
+# ====================================================================
+from compliance_mapper import analyze_live_compliance
+
+class TestAnalyzeLiveCompliance:
+    def test_live_compliance_empty(self):
+        res = analyze_live_compliance({"resources": []})
+        assert res["overall_score"] == 100
+        assert len(res["violations"]) == 0
+
+    def test_live_compliance_violations(self):
+        resources = [
+            {
+                "id": "1",
+                "name": "sa1",
+                "type": "microsoft.storage/storageaccounts",
+                "attributes": {"supportsHttpsTrafficOnly": False}
+            },
+            {
+                "id": "2",
+                "name": "kv1",
+                "type": "microsoft.keyvault/vaults",
+                "attributes": {"enableSoftDelete": False}
+            },
+            {
+                "id": "3",
+                "name": "vm1",
+                "type": "microsoft.compute/virtualmachines",
+                "tags": {}
+            }
+        ]
+        res = analyze_live_compliance({"resources": resources})
+        
+        # We expect a few violations
+        assert len(res["violations"]) >= 3
+        # Ensure points dropped
+        assert res["overall_score"] < 100
+        
+        # Check frameworks present
+        assert "SOC 2" in res["frameworks"]
+        assert res["frameworks"]["SOC 2"]["score"] < 100
+
+    def test_live_compliance_passing(self):
+        resources = [
+            {
+                "id": "1",
+                "name": "sa1",
+                "type": "microsoft.storage/storageaccounts",
+                "attributes": {"supportsHttpsTrafficOnly": True}
+            },
+            {
+                "id": "2",
+                "name": "kv1",
+                "type": "microsoft.keyvault/vaults",
+                "attributes": {"enableSoftDelete": True}
+            }
+        ]
+        res = analyze_live_compliance({"resources": resources})
+        
+        # We expect no violations for the rules we have
+        assert len(res["violations"]) == 0
+        assert res["overall_score"] == 100

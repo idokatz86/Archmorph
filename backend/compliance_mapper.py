@@ -568,3 +568,134 @@ def _generate_compliance_recommendations(
         })
 
     return recs
+
+
+
+# ─────────────────────────────────────────────────────────────
+# Live IaC / Scanner Compliance Assessment (#239)
+# ─────────────────────────────────────────────────────────────
+
+LIVE_COMPLIANCE_RULES = [
+    {
+        "rule_id": "storage_secure_transfer",
+        "title": "Storage accounts should require secure transfer",
+        "description": "Ensure 'supportsHttpsTrafficOnly' is true for Storage Accounts.",
+        "severity": "high",
+        "frameworks": ["SOC 2", "HIPAA", "PCI-DSS"],
+        "check": lambda res: (
+            res.get("type", "").lower() == "microsoft.storage/storageaccounts"
+            and not res.get("attributes", {}).get("supportsHttpsTrafficOnly", True)
+        ),
+        "remediation": "Set supportsHttpsTrafficOnly to true for the Storage Account."
+    },
+    {
+        "rule_id": "keyvault_purge_protection",
+        "title": "Key Vault should have purge protection enabled",
+        "description": "Protect Key Vaults from accidental or malicious deletion.",
+        "severity": "high",
+        "frameworks": ["SOC 2", "HIPAA", "PCI-DSS"],
+        "check": lambda res: (
+            res.get("type", "").lower() == "microsoft.keyvault/vaults"
+            and not res.get("attributes", {}).get("enableSoftDelete", False)
+        ),
+        "remediation": "Enable Soft Delete and Purge Protection on the Key Vault."
+    },
+    {
+        "rule_id": "postgresql_ssl_enforcement",
+        "title": "PostgreSQL should enforce SSL",
+        "description": "Ensure PostgreSQL servers enforce SSL connections.",
+        "severity": "high",
+        "frameworks": ["SOC 2", "HIPAA", "PCI-DSS", "GDPR"],
+        "check": lambda res: (
+            "dbforpostgresql" in res.get("type", "").lower()
+            and res.get("attributes", {}).get("sslEnforcement", "Enabled") != "Enabled"
+        ),
+        "remediation": "Set sslEnforcement to Enabled."
+    },
+    {
+        "rule_id": "compute_endpoint_protection",
+        "title": "Endpoint protection should be installed on machines",
+        "description": "Ensure virtual machines have endpoint protection installed.",
+        "severity": "medium",
+        "frameworks": ["SOC 2", "PCI-DSS"],
+        "check": lambda res: (
+            res.get("type", "").lower() == "microsoft.compute/virtualmachines"
+            and "endpointProtection" not in res.get("tags", {})
+        ),
+        "remediation": "Install endpoint protection and enforce via tags or policies."
+    }
+]
+
+def analyze_live_compliance(live_schema: Dict[str, Any]) -> Dict[str, Any]:
+    resources = live_schema.get("resources", [])
+    if isinstance(resources, dict):
+        resources = []
+    
+    # Extract dict if it's a Pydantic model or Dataclass
+    parsed_resources = []
+    for r in resources:
+        if hasattr(r, "model_dump"):
+            parsed_resources.append(r.model_dump())
+        elif hasattr(r, "__dict__"):
+            from dataclasses import asdict
+            try:
+                parsed_resources.append(asdict(r))
+            except (TypeError, Exception):
+                parsed_resources.append(vars(r))
+        elif isinstance(r, dict):
+            parsed_resources.append(r)
+            
+    violations = []
+    framework_stats = {
+        "SOC 2": {"total_rules": 0, "passed_rules": 0},
+        "HIPAA": {"total_rules": 0, "passed_rules": 0},
+        "PCI-DSS": {"total_rules": 0, "passed_rules": 0},
+        "GDPR": {"total_rules": 0, "passed_rules": 0},
+    }
+    
+    for rule in LIVE_COMPLIANCE_RULES:
+        for res in parsed_resources:
+            try:
+                is_violation = rule["check"](res)
+            except Exception:
+                is_violation = False
+            
+            if is_violation:
+                violations.append({
+                    "rule_id": rule["rule_id"],
+                    "title": rule["title"],
+                    "description": rule["description"],
+                    "severity": rule["severity"],
+                    "frameworks": rule["frameworks"],
+                    "resource_id": res.get("id", "unknown"),
+                    "resource_name": res.get("name", "unknown"),
+                    "remediation": rule["remediation"]
+                })
+                for fw in rule["frameworks"]:
+                    if fw in framework_stats:
+                        framework_stats[fw]["total_rules"] += 1
+                
+    frameworks_result = {}
+    for fw, stats in framework_stats.items():
+        score = max(0, 100 - (stats["total_rules"] * 10))
+        
+        status = "Passing"
+        if score < 80:
+            status = "Warning"
+        if score < 60:
+            status = "Failing"
+            
+        frameworks_result[fw] = {
+            "score": score,
+            "status": status,
+            "total_violations": stats["total_rules"]
+        }
+    
+    total_score = sum(f["score"] for f in frameworks_result.values())
+    overall_score = total_score // len(frameworks_result) if frameworks_result else 100
+        
+    return {
+        "frameworks": frameworks_result,
+        "overall_score": overall_score,
+        "violations": violations
+    }

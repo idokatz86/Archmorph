@@ -7,6 +7,8 @@ from scanners.aws_scanner import AWSScanner
 from scanners.azure_scanner import AzureScanner
 from scanners.gcp_scanner import GCPScanner
 from services.credential_manager import get_credentials
+from cost_optimizer import analyze_live_finops
+from compliance_mapper import analyze_live_compliance
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +29,7 @@ class ToolRegistry:
                 "type": "function",
                 "function": {
                     "name": "scan_cloud_infrastructure",
-                    "description": "Trigger a live cloud architecture scan for a targeted provider. Reads live state of compute, network, database resources.",
+                    "description": "Trigger a live cloud architecture scan for a targeted provider. Reads live state of compute, network, database resources. Returns raw architecture data, FinOps cost savings, and security compliance (SOC2/HIPAA) results.",
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -100,7 +102,13 @@ class ToolRegistry:
 
         try:
             report = scanner.perform_full_scan()
-            return report
+            finops = analyze_live_finops(report)
+            compliance = analyze_live_compliance(report)
+            return {
+                "scan_data": report,
+                "cost_savings": finops,
+                "compliance_posture": compliance
+            }
         except Exception as e:
             return {"error": f"Scan failed: {str(e)}"}
 

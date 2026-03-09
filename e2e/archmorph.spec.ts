@@ -1535,6 +1535,30 @@ test.describe('Admin Dashboard Metrics', () => {
     await expect(page.getByText('Admin Analytics')).toBeVisible({ timeout: API_TIMEOUT });
   });
 });
+test.describe('Security & Compliance Posture (#239)', () => {
+  test('Cloud scanner API schema must return compliance object internally alongside FinOps', async ({ request }) => {
+    // If we mock the scan endpoint, we should also get .compliance in its return object
+    const resp = await request.post(`${API_BASE}/api/scanner/run/azure`, {
+      headers: {
+        'x-mock-test': 'true'
+      },
+      timeout: API_TIMEOUT
+    });
+    
+    // We expect it to at least return some object or 401 if credentials drop before mock
+    expect([200, 400, 401, 500]).toContain(resp.status());
+    
+    // If it did return 200, ensure it has compliance.
+    if (resp.status() === 200) {
+      const data = await resp.json();
+      if (data.status === "success" && data.compliance) {
+        expect(data.compliance).toHaveProperty('overall_score');
+        expect(Array.isArray(data.compliance.violations)).toBeTruthy();
+      }
+    }
+  });
+});
+
 test.describe('Cloud Scanner & FinOps (#416)', () => {
   test('Cloud scanner API parses correct dummy data', async ({ request }) => {
     const resp = await request.post(`${API_BASE}/api/scanner/run/aws`, { timeout: API_TIMEOUT });

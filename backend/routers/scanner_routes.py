@@ -16,6 +16,8 @@ from routers.credentials import validate_session
 from scanners.aws_scanner import AWSScanner
 from scanners.azure_scanner import AzureScanner
 from scanners.gcp_scanner import GCPScanner
+from cost_optimizer import analyze_live_finops
+from compliance_mapper import analyze_live_compliance
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -39,19 +41,27 @@ async def run_cloud_scan(
     if provider.lower() == "aws":
         scanner = AWSScanner(credentials=creds)
         report = scanner.perform_full_scan()
+        finops = analyze_live_finops(report)
+        compliance = analyze_live_compliance(report)
         return {
             "status": "success",
             "provider": "aws",
-            "data": report
+            "data": report,
+            "finops": finops,
+            "compliance": compliance
         }
     elif provider.lower() == "azure":
         try:
             scanner = AzureScanner(credentials=creds)
             report = scanner.perform_full_scan()
+            finops = analyze_live_finops(report)
+            compliance = analyze_live_compliance(report)
             return {
                 "status": "success",
                 "provider": "azure",
-                "data": report
+                "data": report,
+                "finops": finops,
+                "compliance": compliance
             }
         except Exception as e:
             logger.error(f"Error during Azure scan: {e}")
@@ -60,10 +70,14 @@ async def run_cloud_scan(
         try:
             scanner = GCPScanner(credentials=creds)
             report = scanner.perform_full_scan()
+            finops = analyze_live_finops(report)
+            compliance = analyze_live_compliance(report)
             return {
                 "status": "success",
                 "provider": "gcp",
-                "data": report
+                "data": report,
+                "finops": finops,
+                "compliance": compliance
             }
         except Exception as e:
             logger.error(f"Error during GCP scan: {e}")

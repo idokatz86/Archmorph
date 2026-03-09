@@ -21,6 +21,7 @@ export const DriftVisualizer = ({ driftResults: initialDrift, onSync }) => {
   const [error, setError] = useState(null);
   const [driftResults, setDriftResults] = useState(initialDrift || null);
   const [finopsResults, setFinopsResults] = useState(null);
+  const [complianceResults, setComplianceResults] = useState(null);
   const [selectedProvider, setSelectedProvider] = useState('azure');
   const [activeTab, setActiveTab] = useState('drift');
 
@@ -221,7 +222,56 @@ export const DriftVisualizer = ({ driftResults: initialDrift, onSync }) => {
               )}
             </div>
           </div>
+)}
+
+        {activeTab === 'compliance' && complianceResults && (
+          <div className="space-y-4 pt-4">
+            <h3 className="text-xl font-bold">Compliance Posture</h3>
+            <p className="text-gray-600">Overall Score: {complianceResults.overall_score}/100</p>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {Object.entries(complianceResults.frameworks || {}).map(([fw, data]) => (
+                <div key={fw} className="p-4 border rounded shadow-sm bg-white">
+                  <div className="flex justify-between">
+                    <span className="font-bold">{fw}</span>
+                    <span className={`px-2 py-1 text-sm rounded ${data.score >= 80 ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                      {data.status} ({data.score}%)
+                    </span>
+                  </div>
+                  <p className="text-sm mt-2 text-gray-500">
+                    {data.passed_rules || (data.total_violations === undefined ? "0" : data.total_rules - data.total_violations)} / {data.total_rules} Controls Passed
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            {complianceResults.violations && complianceResults.violations.length > 0 && (
+              <div className="mt-8">
+                <h4 className="text-lg font-bold">Policy Violations</h4>
+                <div className="space-y-4 mt-4">
+                  {complianceResults.violations.map((v, i) => (
+                    <div key={i} className="p-4 border border-l-4 border-l-red-500 rounded bg-white">
+                      <h5 className="font-bold text-red-700">{v.title}</h5>
+                      <p className="text-sm text-gray-600 mt-1">{v.description}</p>
+                      <div className="mt-2 text-sm">
+                        <strong>Affected Resource:</strong> {v.resource_name} ({v.resource_id})
+                      </div>
+                      <div className="mt-2 text-sm">
+                        <strong>Remediation:</strong> {v.remediation}
+                      </div>
+                      <div className="mt-2 flex space-x-2">
+                        {v.frameworks.map(f => (
+                          <span key={f} className="bg-gray-100 text-xs px-2 py-1 rounded">{f}</span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         )}
+
       </div>
     </Card>
   );
