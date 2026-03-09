@@ -1,9 +1,18 @@
+import os
 import uuid
 from datetime import datetime
 from sqlalchemy import Column, String, DateTime, JSON, ForeignKey, Integer, Boolean, Float
 from sqlalchemy.orm import relationship
-from pgvector.sqlalchemy import Vector
 from database import Base
+
+# Conditionally use pgvector for postgres, fallback to JSON/String for sqlite in tests
+if os.getenv("TESTING", "false").lower() == "true":
+    from sqlalchemy import JSON as VectorType
+    def Vector(dim):
+        return VectorType
+else:
+    from pgvector.sqlalchemy import Vector
+
 
 class AgentMemoryDocument(Base):
     __tablename__ = "agent_memory_documents"
