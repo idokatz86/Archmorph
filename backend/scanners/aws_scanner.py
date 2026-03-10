@@ -66,11 +66,34 @@ class AWSScanner:
                 if future.exception():
                     logger.error("Error during AWS scan: %s", future.exception())
 
-        return {
-            "metadata": {
-                "provider": "AWS",
-                "scanned_regions": [self.default_region],
-                "resource_count": sum(len(items) for items in self.discovered_resources.values())
-            },
-            "resources": self.discovered_resources
-        }
+        import datetime
+        from models.infrastructure import LiveArchitectureSchema, ScanMetadata, CloudProvider, CloudResource, ResourceType
+        
+        resources_list = []
+        for category_name, items in self.discovered_resources.items():
+            for item in items:
+                resources_list.append(
+                    CloudResource(
+                        id=item.get("id", ""),
+                        name=item.get("id", ""),
+                        type=item.get("type", "unknown"),
+                        category=ResourceType.COMPUTE if category_name == "Compute" else (
+                                 ResourceType.STORAGE if category_name == "Storage" else (
+                                 ResourceType.DATABASE if category_name == "Database" else ResourceType.NETWORKING)),
+                        region=self.default_region,
+                        state="running",
+                        tags={},
+                        attributes=item
+                    )
+                )
+
+        schema = LiveArchitectureSchema(
+            metadata=ScanMetadata(
+                provider=CloudProvider.AWS,
+                scanned_regions=[self.default_region],
+                resource_count=len(resources_list),
+                scan_timestamp=datetime.datetime.utcnow().isoformat()
+            ),
+            resources=resources_list
+        )
+        return schema.model_dump()

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Card } from '../ui';
 import api from '../../services/apiClient';
+import { CloudCredentialsModal } from './CloudCredentialsModal';
 
 const DriftBadge = ({ status }) => {
   const colors = {
@@ -24,13 +25,23 @@ export const DriftVisualizer = ({ driftResults: initialDrift, onSync }) => {
   const [complianceResults, setComplianceResults] = useState(null);
   const [selectedProvider, setSelectedProvider] = useState('azure');
   const [activeTab, setActiveTab] = useState('drift');
+  const [showCredentialsModal, setShowCredentialsModal] = useState(false);
 
-  const simulateConnection = async () => {
+  const simulateConnection = () => {
+    setShowCredentialsModal(true);
+  };
+
+  const handleCredentialsSuccess = async (sessionToken) => {
+    setShowCredentialsModal(false);
+    await performScan(sessionToken);
+  };
+
+  const performScan = async (sessionToken) => {
     setLoading(true);
     setError(null);
     try {
       // Create a real cloud architecture scan using stored cloud credentials
-      const scanResponse = await api.post(`/scanner/run/${selectedProvider}`);
+      const scanResponse = await api.auth('POST', `/scanner/run/${selectedProvider}`, { token: sessionToken });
       
       // Perform genuine drift detection between design & observed reality
       const driftPayload = {
@@ -53,6 +64,7 @@ export const DriftVisualizer = ({ driftResults: initialDrift, onSync }) => {
 
   if (!driftResults) {
     return (
+      <>
       <Card className="w-full max-w-4xl mx-auto shadow-sm mt-8 border-dashed border-2">
         <div className="flex flex-col items-center justify-center p-12 text-center text-slate-500">
           <svg className="w-12 h-12 mb-4 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -97,8 +109,16 @@ export const DriftVisualizer = ({ driftResults: initialDrift, onSync }) => {
           </button>
         </div>
       </Card>
-    );
-  }
+      {showCredentialsModal && (
+        <CloudCredentialsModal 
+          provider={selectedProvider} 
+          onClose={() => setShowCredentialsModal(false)}
+          onSuccess={handleCredentialsSuccess}
+        />
+      )}
+    </>
+  );
+}
 
   return (
     <Card className="w-full max-w-4xl mx-auto shadow-sm">

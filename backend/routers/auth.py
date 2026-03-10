@@ -55,6 +55,10 @@ async def login(request: Request, body: LoginRequest):
             if not body.code:
                 raise ArchmorphException(400, "Code required for GitHub OAuth")
             user = await exchange_github_code(body.code)
+        elif body.provider == "anonymous":
+            from auth import get_anonymous_user
+            client_ip = request.client.host if request.client else "127.0.0.1"
+            user = get_anonymous_user(client_ip)
         else:
             raise ArchmorphException(400, f"Unknown provider: {body.provider}")
         
