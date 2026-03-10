@@ -510,7 +510,7 @@ def generate_iac_code(analysis: Optional[dict], iac_format: str = "terraform", p
             ],
             model=AZURE_OPENAI_DEPLOYMENT,
             temperature=0.2,
-            max_tokens=16384,
+            max_tokens=4000,
         )
 
         code = response.choices[0].message.content.strip()

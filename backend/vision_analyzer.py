@@ -478,7 +478,7 @@ def analyze_image(image_bytes: bytes, content_type: str = "image/png") -> Dict[s
                 ],
             },
         ],
-        max_tokens=16384,
+        max_tokens=4000,
         temperature=0.1,
         response_format={"type": "json_object"},  # Enforce JSON output
     )

@@ -11,10 +11,23 @@ import { HelpTooltip, HELP_CONTENT } from '../HelpTooltip';
 /* ── Strengths/Limitations Panel for a mapping ──────────── */
 function DeepDivePanel({ m }) {
   const [tab, setTab] = useState('strengths');
-  const strengths = m.strengths || [];
-  const limitations = m.limitations || [];
-  const migrationNotes = m.migration_notes || [];
-  const hasData = strengths.length > 0 || limitations.length > 0 || migrationNotes.length > 0;
+  
+  const isDummy = (v) => {
+    if (!v) return true;
+    const s = String(v).toLowerCase().trim();
+    return s === 'none' || s === 'n/a' || s === 'none.' || s === 'none identified';
+  };
+  const isRealItem = (item) => {
+    if (!item) return false;
+    if (typeof item === 'string') return !isDummy(item);
+    return !(isDummy(item.factor) && isDummy(item.detail));
+  };
+
+  const strengths = (m.strengths || []).filter(isRealItem);
+  const limitations = (m.limitations || []).filter(isRealItem);
+  const migrationNotes = (m.migration_notes || []).filter(isRealItem);
+  const origDataCount = (m.strengths?.length || 0) + (m.limitations?.length || 0) + (m.migration_notes?.length || 0);
+  const hasData = origDataCount > 0;
 
   if (!hasData) return null;
 
@@ -25,7 +38,7 @@ function DeepDivePanel({ m }) {
           { id: 'strengths', label: 'Strengths', count: strengths.length, color: 'text-cta' },
           { id: 'limitations', label: 'Limitations', count: limitations.length, color: 'text-danger' },
           { id: 'migration', label: 'Migration', count: migrationNotes.length, color: 'text-info' },
-        ].filter(t => t.count > 0).map(t => (
+        ].map(t => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
@@ -48,25 +61,32 @@ function DeepDivePanel({ m }) {
         </div>
       ))}
 
-      {tab === 'limitations' && limitations.map((l, i) => (
-        <div key={i} className="flex items-start gap-2 text-xs text-text-secondary">
-          <XCircle className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${
-            l.severity === 'high' ? 'text-danger' : l.severity === 'medium' ? 'text-warning' : 'text-text-muted'
-          }`} />
-          <div>
-            <span className="font-medium text-text-primary">{l.factor}</span>
-            <Badge variant={l.severity === 'high' ? 'low' : l.severity === 'medium' ? 'medium' : 'high'} className="ml-1.5 text-[9px]">
-              {l.severity}
-            </Badge>
-            <p className="text-text-muted mt-0.5">{l.detail}</p>
-            {l.doc_link && (
-              <a href={l.doc_link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[10px] text-cta hover:underline mt-0.5">
-                <ExternalLink className="w-2.5 h-2.5" /> Learn more
-              </a>
-            )}
+      {tab === 'limitations' && (
+        limitations.length > 0 ? limitations.map((l, i) => (
+          <div key={i} className="flex items-start gap-2 text-xs text-text-secondary">
+            <XCircle className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${
+              l.severity === 'high' ? 'text-danger' : l.severity === 'medium' ? 'text-warning' : 'text-text-muted'
+            }`} />
+            <div>
+              <span className="font-medium text-text-primary">{l.factor}</span>
+              <Badge variant={l.severity === 'high' ? 'low' : l.severity === 'medium' ? 'medium' : 'high'} className="ml-1.5 text-[9px]">
+                {l.severity}
+              </Badge>
+              <p className="text-text-muted mt-0.5">{l.detail}</p>
+              {l.doc_link && (
+                <a href={l.doc_link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[10px] text-cta hover:underline mt-0.5">
+                  <ExternalLink className="w-2.5 h-2.5" /> Learn more
+                </a>
+              )}
+            </div>
           </div>
-        </div>
-      ))}
+        )) : (
+          <div className="flex items-start gap-2 text-xs text-text-secondary">
+            <CheckCircle2 className="w-3.5 h-3.5 text-success shrink-0 mt-0.5" />
+            <p className="font-medium text-success">No known architectural limitations. This is a clean mapping.</p>
+          </div>
+        )
+      )}
 
       {tab === 'migration' && migrationNotes.map((n, i) => (
         <div key={i} className="flex items-start gap-2 text-xs text-text-secondary">
