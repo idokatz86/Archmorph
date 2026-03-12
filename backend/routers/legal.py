@@ -340,7 +340,7 @@ async def request_data_deletion(request: Request, body: DataDeletionRequest):
         "estimated_completion": "30 days",
     }
 
-    logger.info("Data deletion requested: %s for user %s", request_id, body.user_id)
+    logger.info("Data deletion requested: %s for user %s", str(request_id).replace('\n', '').replace('\r', ''), str(body.user_id).replace('\n', '').replace('\r', ''))
 
     return {
         "status": "accepted",

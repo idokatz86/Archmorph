@@ -1,0 +1,30 @@
+{"timestamp": "2026-03-12T16:15:53+0200", "level": "info", "name": "main", "message": "APPLICATIONINSIGHTS_CONNECTION_STRING not set \u2014 telemetry disabled", "logger": "main"}
+{"timestamp": "2026-03-12T16:15:53+0200", "level": "info", "name": "usage_metrics", "message": "Loaded usage metrics from local disk", "logger": "usage_metrics"}
+{"timestamp": "2026-03-12T16:15:53+0200", "level": "info", "name": "session_store", "message": "Development mode: using InMemoryStore for 'sessions' (data lost on restart). Set REDIS_URL for persistent sessions.", "logger": "session_store"}
+{"timestamp": "2026-03-12T16:15:53+0200", "level": "info", "name": "session_store", "message": "Development mode: using InMemoryStore for 'images' (data lost on restart). Set REDIS_URL for persistent sessions.", "logger": "session_store"}
+{"timestamp": "2026-03-12T16:15:53+0200", "level": "info", "name": "session_store", "message": "Development mode: using InMemoryStore for 'shares' (data lost on restart). Set REDIS_URL for persistent sessions.", "logger": "session_store"}
+{"timestamp": "2026-03-12T16:15:54+0200", "level": "warning", "name": "openai_client", "message": "AZURE_OPENAI_ENDPOINT not set \u2014 OpenAI features will be unavailable", "logger": "openai_client"}
+{"timestamp": "2026-03-12T16:15:55+0200", "level": "info", "name": "session_store", "message": "Development mode: using InMemoryStore for 'credentials' (data lost on restart). Set REDIS_URL for persistent sessions.", "logger": "session_store"}
+{"timestamp": "2026-03-12T16:15:56+0200", "level": "info", "name": "session_store", "message": "Development mode: using InMemoryStore for 'tf_locks' (data lost on restart). Set REDIS_URL for persistent sessions.", "logger": "session_store"}
+{"timestamp": "2026-03-12T16:15:56+0200", "level": "info", "name": "routers.v1", "message": "Mirrored 137 routes under /api/v1/", "logger": "routers.v1"}
+INFO:     Started server process [43205]
+INFO:     Waiting for application startup.
+{"timestamp": "2026-03-12T16:15:56+0200", "level": "info", "name": "main", "message": "Starting Archmorph API 3.8.0 \u2014 production mode", "logger": "main"}
+{"timestamp": "2026-03-12T16:15:56+0200", "level": "info", "name": "apscheduler.scheduler", "message": "Adding job tentatively -- it will be properly scheduled when the scheduler starts", "logger": "apscheduler.scheduler"}
+{"timestamp": "2026-03-12T16:15:56+0200", "level": "info", "name": "apscheduler.scheduler", "message": "Added job \"Daily cloud service catalog update\" to job store \"default\"", "logger": "apscheduler.scheduler"}
+{"timestamp": "2026-03-12T16:15:56+0200", "level": "info", "name": "apscheduler.scheduler", "message": "Scheduler started", "logger": "apscheduler.scheduler"}
+2026-03-12 16:15:56,183 [INFO] service_updater: Scheduler started -- next run at 02:00 UTC daily.
+{"timestamp": "2026-03-12T16:15:56+0200", "level": "info", "name": "service_updater", "message": "Scheduler started -- next run at 02:00 UTC daily.", "logger": "service_updater"}
+{"timestamp": "2026-03-12T16:15:56+0200", "level": "info", "name": "icons.registry", "message": "Registry loaded from disk: 1 icons, 1 packs", "logger": "icons.registry"}
+{"timestamp": "2026-03-12T16:15:56+0200", "level": "info", "name": "main", "message": "Icon registry restored from disk", "logger": "main"}
+{"timestamp": "2026-03-12T16:15:56+0200", "level": "info", "name": "database", "message": "Database initialized: sqlite:///./data/archmorph.db (24 tables)", "logger": "database"}
+{"timestamp": "2026-03-12T16:15:56+0200", "level": "info", "name": "main", "message": "Database layer initialized", "logger": "main"}
+{"timestamp": "2026-03-12T16:15:56+0200", "level": "info", "name": "main", "message": "Thread pool configured: 40 workers", "logger": "main"}
+INFO:     Application startup complete.
+ERROR:    [Errno 48] error while attempting to bind on address ('127.0.0.1', 8000): address already in use
+INFO:     Waiting for application shutdown.
+{"timestamp": "2026-03-12T16:15:56+0200", "level": "info", "name": "main", "message": "Shutting down Archmorph API", "logger": "main"}
+{"timestamp": "2026-03-12T16:15:56+0200", "level": "info", "name": "apscheduler.scheduler", "message": "Scheduler has been shut down", "logger": "apscheduler.scheduler"}
+2026-03-12 16:15:56,195 [INFO] service_updater: Scheduler stopped.
+{"timestamp": "2026-03-12T16:15:56+0200", "level": "info", "name": "service_updater", "message": "Scheduler stopped.", "logger": "service_updater"}
+INFO:     Application shutdown complete.

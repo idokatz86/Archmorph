@@ -93,14 +93,14 @@ async def upload_diagram(request: Request, project_id: str, file: UploadFile = F
 
     # Base64-encode for Redis/FileStore compatibility
     IMAGE_STORE[diagram_id] = (base64.b64encode(image_bytes).decode("ascii"), file.content_type)
-    logger.info("Stored image for %s (%d bytes, %s)", diagram_id, len(image_bytes), file.content_type)
+    logger.info("Stored image for %s (%d bytes, %s)", str(diagram_id).replace('\n', '').replace('\r', ''), str(len(image_bytes)).replace('\n', '').replace('\r', ''), str(file.content_type).replace('\n', '').replace('\r', ''))
 
     # Proactive capacity warning (#177)
     img_usage = len(IMAGE_STORE) / IMAGE_STORE.maxsize
     if img_usage >= 0.8:
         logger.warning(
             "IMAGE_STORE at %.0f%% capacity (%d/%d) — oldest entries will be evicted",
-            img_usage * 100, len(IMAGE_STORE), IMAGE_STORE.maxsize,
+            str(img_usage * 100).replace('\n', '').replace('\r', ''), str(len(IMAGE_STORE)).replace('\n', '').replace('\r', ''), str(IMAGE_STORE.maxsize).replace('\n', '').replace('\r', ''),
         )
 
     record_event("diagrams_uploaded", {"filename": file.filename})
@@ -149,7 +149,7 @@ async def restore_session(request: Request, diagram_id: str, body: RestoreSessio
     if body.image_base64:
         IMAGE_STORE[diagram_id] = (body.image_base64, body.image_content_type or "image/png")
         restored_parts.append("image")
-    logger.info("Session restored for %s via client cache (%s)", diagram_id, ", ".join(restored_parts))
+    logger.info("Session restored for %s via client cache (%s)", str(diagram_id).replace('\n', '').replace('\r', ''), str(", ".join(restored_parts)).replace('\n', '').replace('\r', ''))
     record_event("sessions_restored", {"diagram_id": diagram_id, "parts": restored_parts})
     return {"status": "restored", "diagram_id": diagram_id, "restored": restored_parts}
 
@@ -170,7 +170,7 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
 
     image_b64, content_type = IMAGE_STORE[diagram_id]
     image_bytes = base64.b64decode(image_b64) if isinstance(image_b64, str) else image_b64
-    logger.info("Analyzing diagram %s (%d bytes)", diagram_id, len(image_bytes))
+    logger.info("Analyzing diagram %s (%d bytes)", str(diagram_id).replace('\n', '').replace('\r', ''), str(len(image_bytes)).replace('\n', '').replace('\r', ''))
 
     # Pre-compress once to avoid double compression (#177)
     try:
@@ -183,7 +183,7 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
         try:
             return await asyncio.to_thread(classify_image, compressed_bytes, compressed_type)
         except Exception as exc:
-            logger.warning("Image classification failed for %s: %s — proceeding with analysis", diagram_id, exc)
+            logger.warning("Image classification failed for %s: %s — proceeding with analysis", str(diagram_id).replace('\n', '').replace('\r', ''), str(exc).replace('\n', '').replace('\r', ''))
             return {"is_architecture_diagram": True, "confidence": 0.5, "image_type": "unknown", "reason": "Classification unavailable"}
 
     async def _analyze():
@@ -196,7 +196,7 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
     )
 
     if not classification["is_architecture_diagram"]:
-        logger.info("Image rejected for %s: %s (confidence: %.2f)", diagram_id, classification["reason"], classification["confidence"])
+        logger.info("Image rejected for %s: %s (confidence: %.2f)", str(diagram_id).replace('\n', '').replace('\r', ''), str(classification["reason"]).replace('\n', '').replace('\r', ''), str(classification["confidence"]).replace('\n', '').replace('\r', ''))
         record_event("images_rejected", {"diagram_id": diagram_id, "image_type": classification["image_type"], "reason": classification["reason"]})
         raise ArchmorphException(
             status_code=422,
@@ -207,10 +207,10 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
             },
         )
 
-    logger.info("Image classified as architecture diagram for %s (confidence: %.2f)", diagram_id, classification["confidence"])
+    logger.info("Image classified as architecture diagram for %s (confidence: %.2f)", str(diagram_id).replace('\n', '').replace('\r', ''), str(classification["confidence"]).replace('\n', '').replace('\r', ''))
 
     if isinstance(analysis_result_or_exc, Exception):
-        logger.error("Vision analysis failed for %s: %s", diagram_id, analysis_result_or_exc, exc_info=True)
+        logger.error("Vision analysis failed for %s: %s", str(diagram_id).replace('\n', '').replace('\r', ''), str(analysis_result_or_exc).replace('\n', '').replace('\r', ''), exc_info=True)
         raise ArchmorphException(500, "Vision analysis failed. Please try again with a different image.")
 
     result = analysis_result_or_exc
@@ -219,7 +219,7 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
 
     if len(SESSION_STORE) >= SESSION_STORE.maxsize:
         logger.warning("Session store at capacity (%d/%d) — oldest sessions will be evicted",
-                       len(SESSION_STORE), SESSION_STORE.maxsize)
+                       str(len(SESSION_STORE)).replace('\n', '').replace('\r', ''), str(SESSION_STORE.maxsize).replace('\n', '').replace('\r', ''))
     SESSION_STORE[diagram_id] = result
     record_event("analyses_run", {"diagram_id": diagram_id, "services": result["services_detected"]})
     record_funnel_step(diagram_id, "analyze")
@@ -284,7 +284,7 @@ async def _run_analysis_job(job_id: str, diagram_id: str) -> None:
         try:
             classification = await asyncio.to_thread(classify_image, compressed_bytes, compressed_type)
         except Exception as exc:
-            logger.warning("Classification failed for %s: %s", diagram_id, exc)
+            logger.warning("Classification failed for %s: %s", str(diagram_id).replace('\n', '').replace('\r', ''), str(exc).replace('\n', '').replace('\r', ''))
             classification = {"is_architecture_diagram": True, "confidence": 0.5, "image_type": "unknown"}
 
         if not classification.get("is_architecture_diagram", True):
@@ -322,5 +322,5 @@ async def _run_analysis_job(job_id: str, diagram_id: str) -> None:
         job_manager.complete(job_id, result=result)
 
     except Exception as exc:
-        logger.error("Async analysis failed for %s: %s", diagram_id, exc, exc_info=True)
+        logger.error("Async analysis failed for %s: %s", str(diagram_id).replace('\n', '').replace('\r', ''), str(exc).replace('\n', '').replace('\r', ''), exc_info=True)
         job_manager.fail(job_id, str(exc))

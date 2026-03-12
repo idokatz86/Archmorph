@@ -23,7 +23,7 @@ def _get_azure_ad_token() -> str:
         token_info = credential.get_token("https://cognitiveservices.azure.com/.default")
         return token_info.token
     except Exception as e:
-        logger.error(f"Failed to get AD token: {e}")
+        logger.error(f"Failed to get AD token: {str(e).replace('\n', '').replace('\r', '')}")
         return ""
 
 def _call_llm_for_mcp_generation(format_type: str, prompt: str, context: Dict[str, Any]) -> str:
@@ -75,12 +75,12 @@ def _call_llm_for_mcp_generation(format_type: str, prompt: str, context: Dict[st
             content = result["choices"][0]["message"]["content"]
             return content.strip().strip("`").removeprefix("xml\n").removeprefix("json\n")
     except Exception as e:
-        logger.error(f"Error calling LLM: {e}")
+        logger.error(f"Error calling LLM: {str(e).replace('\n', '').replace('\r', '')}")
         raise ValueError("AI Diagram Generation failed")
 
 @app.post("/mcp/{format_type}/generate")
 async def generate_mcp_diagram(format_type: str, request: DiagramRequest):
-    logger.info(f"Received proxy request for {format_type}")
+    logger.info(f"Received proxy request for {str(format_type).replace('\n', '').replace('\r', '')}")
     if format_type not in ["excalidraw", "drawio", "visio", "terraform"]:
         raise HTTPException(status_code=400, detail="Unsupported format")
         

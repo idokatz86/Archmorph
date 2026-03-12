@@ -45,7 +45,7 @@ def build_excalidraw_library(
     cache_key = f"excalidraw:{pack_id}"
     cached = get_cached_asset(cache_key)
     if cached is not None:
-        logger.info("Returning cached Excalidraw library for %s", pack_id)
+        logger.info("Returning cached Excalidraw library for %s", str(pack_id).replace('\n', '').replace('\r', ''))
         return cached
 
     icons = get_pack_icons(pack_id)
@@ -80,7 +80,7 @@ def build_excalidraw_library(
     elapsed = time.monotonic() - t0
     logger.info(
         "Built Excalidraw library '%s' (%d icons, %.2fs)",
-        pack_id, len(library_items), elapsed,
+        str(pack_id).replace('\n', '').replace('\r', ''), str(len(library_items)).replace('\n', '').replace('\r', ''), str(elapsed).replace('\n', '').replace('\r', ''),
     )
 
     return result

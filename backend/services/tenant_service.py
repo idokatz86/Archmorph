@@ -104,7 +104,7 @@ def create_organization(
     )
 
     db.commit()
-    logger.info("Created org %s (%s) with owner %s", org_id, name, owner_user_id)
+    logger.info("Created org %s (%s) with owner %s", str(org_id).replace('\n', '').replace('\r', ''), str(name).replace('\n', '').replace('\r', ''), str(owner_user_id).replace('\n', '').replace('\r', ''))
     return org.to_dict()
 
 
@@ -242,7 +242,7 @@ def create_invitation(
         expires_at=expires_at,
     )
     db.commit()
-    logger.info("Invitation created for %s to org %s", email, org_id)
+    logger.info("Invitation created for %s to org %s", str(email).replace('\n', '').replace('\r', ''), str(org_id).replace('\n', '').replace('\r', ''))
     return invite.to_dict()
 
 
@@ -283,7 +283,7 @@ def accept_invitation(
 
     invite.status = InviteStatus.ACCEPTED.value
     db.commit()
-    logger.info("User %s accepted invite to org %s", user_id, invite.org_id)
+    logger.info("User %s accepted invite to org %s", str(user_id).replace('\n', '').replace('\r', ''), str(invite.org_id).replace('\n', '').replace('\r', ''))
     return {"org_id": invite.org_id, "role": invite.role}
 
 
