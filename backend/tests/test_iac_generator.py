@@ -2,7 +2,6 @@
 
 from unittest.mock import patch, MagicMock
 
-import iac_generator
 from iac_generator import generate_iac_code
 
 
