@@ -3,7 +3,7 @@
 # Uses python:3.12-slim-bookworm for minimal image with fewer CVEs
 # ══════════════════════════════════════════════════════════════
 
-FROM python:3.12-slim-bookworm
+FROM python:3.14-slim-bookworm
 
 # Install system dependencies (libpq for psycopg2, gcc for compiling)
 RUN apt-get update && \
