@@ -1,10 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from sqlalchemy import select
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
-import uuid
-import json
 
 from database import get_db
 from routers.auth import get_current_user

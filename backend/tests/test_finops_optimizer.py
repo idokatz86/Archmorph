@@ -1,4 +1,3 @@
-import pytest
 from cost_optimizer import analyze_live_finops, SavingsCategory
 
 def test_analyze_live_finops_azure():

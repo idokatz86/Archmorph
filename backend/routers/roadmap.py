@@ -3,7 +3,7 @@ from error_envelope import ArchmorphException
 Roadmap — Version Timeline & Feature Requests.
 """
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field, EmailStr
 from typing import Optional
 import asyncio

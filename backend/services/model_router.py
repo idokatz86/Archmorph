@@ -117,7 +117,7 @@ class ModelRouter:
         # simplified priority router
         endpoints = self.db.query(ModelEndpoint).filter(
             ModelEndpoint.organization_id == self.org_id,
-            ModelEndpoint.is_active == True
+            ModelEndpoint.is_active.is_(True)
         ).all()
         
         if not endpoints:

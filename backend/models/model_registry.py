@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, DateTime, JSON, ForeignKey, Boolean, Float
+from sqlalchemy import Column, String, DateTime, JSON, ForeignKey, Boolean
 from database import Base
 
 class ModelEndpoint(Base):

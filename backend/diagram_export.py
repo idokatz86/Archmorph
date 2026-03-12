@@ -18,7 +18,6 @@ from typing import Any
 # Azure stencil / icon mapping (30+ services)
 # ---------------------------------------------------------------------------
 
-import json
 import os
 
 _data_file_AZURE_STENCILS = os.path.join(os.path.dirname(__file__), 'data', 'diagram_stencils.json')
@@ -423,7 +422,7 @@ def _generate_excalidraw(analysis: dict) -> dict:
 
             if icon_uri:
                 # Embed icon as an image element inside the service box
-                file_id = hashlib.md5(azure_name.encode()).hexdigest()[:20]  # nosec B324  # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
+                file_id = hashlib.sha256(azure_name.encode()).hexdigest()[:20]  # nosec B324  # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
                 exc_files[file_id] = {
                     "mimeType": "image/svg+xml",
                     "id": file_id,

@@ -5,7 +5,7 @@ Analysis routes — guided questions, apply answers, add services, export diagra
 Split from diagrams.py for maintainability (#284).
 """
 
-from fastapi import APIRouter, HTTPException, Request, Depends
+from fastapi import APIRouter, Request, Depends
 from pydantic import BaseModel
 from typing import Dict, Any
 import asyncio
@@ -15,7 +15,6 @@ from routers.shared import SESSION_STORE, limiter, verify_api_key
 from routers.samples import get_or_recreate_session
 from usage_metrics import record_event, record_funnel_step
 from guided_questions import generate_questions, apply_answers, get_question_constraints
-from diagram_export import generate_diagram
 from mcp_diagram_generator import mcp_client
 from service_builder import deduplicate_questions, get_smart_defaults_from_analysis, add_services_from_text
 
@@ -159,8 +158,10 @@ async def export_architecture_diagram(request: Request, diagram_id: str, format:
         content = await mcp_client.generate_diagram(format, analysis)
         zones = analysis.get("zones", [])
         zone_name = zones[0].get("name", "diagram") if zones else "diagram"
-        if format == "vsdx": format_ext = "vsdx"
-        else: format_ext = format
+        if format == "vsdx":
+            format_ext = "vsdx"
+        else:
+            format_ext = format
         result = {
             "format": format,
             "filename": f"archmorph-{zone_name}.{format_ext}",

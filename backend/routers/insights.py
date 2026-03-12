@@ -6,7 +6,7 @@ risk score, compliance, terraform preview.
 Split from diagrams.py for maintainability (#284).
 """
 
-from fastapi import APIRouter, HTTPException, Request, Depends
+from fastapi import APIRouter, Request, Depends
 import asyncio
 import logging
 

@@ -12,7 +12,7 @@ Endpoints:
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func as sa_func, desc
 from sqlalchemy.orm import Session

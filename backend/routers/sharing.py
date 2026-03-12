@@ -5,7 +5,7 @@ Sharing routes — create and retrieve share links.
 Split from diagrams.py for maintainability (#284).
 """
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 from datetime import datetime, timezone
 import secrets
 import logging

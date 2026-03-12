@@ -1,11 +1,9 @@
 """Secure Credential Manager for Cloud Scanners"""
 from __future__ import annotations
 
-import os
-import uuid
 import json
 import logging
-from typing import Dict, Optional, Any
+from typing import Optional
 from cryptography.fernet import Fernet
 from error_envelope import ArchmorphException
 

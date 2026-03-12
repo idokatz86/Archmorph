@@ -12,7 +12,7 @@ Provides endpoints for:
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Query, Request
 
 from job_queue import job_manager
 from sse import sse_response

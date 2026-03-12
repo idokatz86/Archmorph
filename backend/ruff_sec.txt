@@ -1,0 +1,569 @@
+S324 Probable use of insecure hash functions in `hashlib`: `md5`
+   --> _archive/modules/journey_analytics.py:434:20
+    |
+433 |     # Deterministic assignment using hash
+434 |     hash_val = int(hashlib.md5(f"{experiment_id}:{user_id}".encode()).hexdigest(), 16)  # nosec B324  # nosemgrep: python.lang.securi…
+    |                    ^^^^^^^^^^^
+435 |     normalized = (hash_val % 10000) / 10000.0
+    |
+
+S311 Standard pseudo-random generators are not suitable for cryptographic purposes
+   --> _archive/modules/living_architecture.py:107:32
+    |
+106 |     # ── Availability dimension (SIMULATED — #243) ──
+107 |     availability_score = round(random.uniform(0.85, 1.0), 2)
+    |                                ^^^^^^^^^^^^^^^^^^^^^^^^^
+108 |     # ── Cost efficiency dimension ──
+109 |     cost_score = round(random.uniform(0.65, 0.95), 2)
+    |
+
+S311 Standard pseudo-random generators are not suitable for cryptographic purposes
+   --> _archive/modules/living_architecture.py:109:24
+    |
+107 |     availability_score = round(random.uniform(0.85, 1.0), 2)
+108 |     # ── Cost efficiency dimension ──
+109 |     cost_score = round(random.uniform(0.65, 0.95), 2)
+    |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+110 |     # ── Compliance dimension ──
+111 |     compliance_score = round(random.uniform(0.80, 1.0), 2)
+    |
+
+S311 Standard pseudo-random generators are not suitable for cryptographic purposes
+   --> _archive/modules/living_architecture.py:111:30
+    |
+109 |     cost_score = round(random.uniform(0.65, 0.95), 2)
+110 |     # ── Compliance dimension ──
+111 |     compliance_score = round(random.uniform(0.80, 1.0), 2)
+    |                              ^^^^^^^^^^^^^^^^^^^^^^^^^
+112 |     # ── Performance dimension ──
+113 |     performance_score = round(random.uniform(0.75, 0.98), 2)
+    |
+
+S311 Standard pseudo-random generators are not suitable for cryptographic purposes
+   --> _archive/modules/living_architecture.py:113:31
+    |
+111 |     compliance_score = round(random.uniform(0.80, 1.0), 2)
+112 |     # ── Performance dimension ──
+113 |     performance_score = round(random.uniform(0.75, 0.98), 2)
+    |                               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+114 |     # ── Security dimension ──
+115 |     security_score = round(random.uniform(0.70, 1.0), 2)
+    |
+
+S311 Standard pseudo-random generators are not suitable for cryptographic purposes
+   --> _archive/modules/living_architecture.py:115:28
+    |
+113 |     performance_score = round(random.uniform(0.75, 0.98), 2)
+114 |     # ── Security dimension ──
+115 |     security_score = round(random.uniform(0.70, 1.0), 2)
+    |                            ^^^^^^^^^^^^^^^^^^^^^^^^^
+116 |
+117 |     dimensions = [
+    |
+
+S311 Standard pseudo-random generators are not suitable for cryptographic purposes
+   --> _archive/modules/living_architecture.py:195:19
+    |
+194 |     # Simulate 0-3 drifts
+195 |     drift_count = random.randint(0, min(3, len(services)))
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+196 |     for i in range(drift_count):
+197 |         svc = random.choice(services) if services else "Unknown"
+    |
+
+S311 Standard pseudo-random generators are not suitable for cryptographic purposes
+   --> _archive/modules/living_architecture.py:197:15
+    |
+195 |     drift_count = random.randint(0, min(3, len(services)))
+196 |     for i in range(drift_count):
+197 |         svc = random.choice(services) if services else "Unknown"
+    |               ^^^^^^^^^^^^^^^^^^^^^^^
+198 |         drift_type = random.choice(["config_change", "modified", "added"])
+199 |         severity = random.choice(["low", "medium", "high"])
+    |
+
+S311 Standard pseudo-random generators are not suitable for cryptographic purposes
+   --> _archive/modules/living_architecture.py:198:22
+    |
+196 |     for i in range(drift_count):
+197 |         svc = random.choice(services) if services else "Unknown"
+198 |         drift_type = random.choice(["config_change", "modified", "added"])
+    |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+199 |         severity = random.choice(["low", "medium", "high"])
+    |
+
+S311 Standard pseudo-random generators are not suitable for cryptographic purposes
+   --> _archive/modules/living_architecture.py:199:20
+    |
+197 |         svc = random.choice(services) if services else "Unknown"
+198 |         drift_type = random.choice(["config_change", "modified", "added"])
+199 |         severity = random.choice(["low", "medium", "high"])
+    |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+200 |
+201 |         descriptions = {
+    |
+
+S311 Standard pseudo-random generators are not suitable for cryptographic purposes
+   --> _archive/modules/living_architecture.py:213:48
+    |
+211 |             severity=severity,
+212 |             description=descriptions[drift_type],
+213 |             detected_at=(now - timedelta(hours=random.randint(1, 72))).isoformat(),
+    |                                                ^^^^^^^^^^^^^^^^^^^^^
+214 |             recommendation=f"Review {svc} configuration and reconcile with IaC state",
+215 |         ))
+    |
+
+S311 Standard pseudo-random generators are not suitable for cryptographic purposes
+   --> _archive/modules/living_architecture.py:230:8
+    |
+228 |     now = datetime.now(timezone.utc)
+229 |
+230 |     if random.random() > 0.6 and services:
+    |        ^^^^^^^^^^^^^^^
+231 |         svc = random.choice(services)
+232 |         expected = round(random.uniform(5, 50), 2)
+    |
+
+S311 Standard pseudo-random generators are not suitable for cryptographic purposes
+   --> _archive/modules/living_architecture.py:231:15
+    |
+230 |     if random.random() > 0.6 and services:
+231 |         svc = random.choice(services)
+    |               ^^^^^^^^^^^^^^^^^^^^^^^
+232 |         expected = round(random.uniform(5, 50), 2)
+233 |         actual = round(expected * random.uniform(1.5, 3.0), 2)
+    |
+
+S311 Standard pseudo-random generators are not suitable for cryptographic purposes
+   --> _archive/modules/living_architecture.py:232:26
+    |
+230 |     if random.random() > 0.6 and services:
+231 |         svc = random.choice(services)
+232 |         expected = round(random.uniform(5, 50), 2)
+    |                          ^^^^^^^^^^^^^^^^^^^^^
+233 |         actual = round(expected * random.uniform(1.5, 3.0), 2)
+234 |         deviation = round(((actual - expected) / expected) * 100, 1)
+    |
+
+S311 Standard pseudo-random generators are not suitable for cryptographic purposes
+   --> _archive/modules/living_architecture.py:233:35
+    |
+231 |         svc = random.choice(services)
+232 |         expected = round(random.uniform(5, 50), 2)
+233 |         actual = round(expected * random.uniform(1.5, 3.0), 2)
+    |                                   ^^^^^^^^^^^^^^^^^^^^^^^^
+234 |         deviation = round(((actual - expected) / expected) * 100, 1)
+    |
+
+S311 Standard pseudo-random generators are not suitable for cryptographic purposes
+   --> _archive/modules/living_architecture.py:241:48
+    |
+239 |             actual_daily=actual,
+240 |             deviation_pct=deviation,
+241 |             detected_at=(now - timedelta(hours=random.randint(1, 24))).isoformat(),
+    |                                                ^^^^^^^^^^^^^^^^^^^^^
+242 |             recommendation=f"Investigate {svc} usage spike — consider reserved capacity or auto-scaling rules",
+243 |         ))
+    |
+
+S324 Probable use of insecure hash functions in `hashlib`: `md5`
+   --> _archive/routers/billing.py:202:42
+    |
+200 |     if not _stripe_available:
+201 |         # Mock response for development
+202 |         mock_id = f"cs_mock_{data.tier}_{hashlib.md5((data.email or 'anon').encode()).hexdigest()[:8]}"  # nosec B324  # nosemgrep: p…
+    |                                          ^^^^^^^^^^^
+203 |         return {
+204 |             "session_id": mock_id,
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> cost_optimizer.py:366:9
+    |
+364 |                       if not props.get("associationId"):
+365 |                           idle_ips.append(name)
+366 | /         except Exception:
+367 | |             pass
+    | |________________^
+368 |
+369 |       # Aggregate unattached disk savings
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+  --> diagram_export.py:90:5
+   |
+88 |               # Return the canonical ID as a reference; callers can embed the SVG
+89 |               return icon_entry.meta.id
+90 | /     except Exception:  # noqa: BLE001  # nosec B110 - falls through to default icon
+91 | |         pass
+   | |____________^
+92 |
+93 |       return "mxgraph.azure.general" if target == "drawio" else "Azure General"
+   |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> diagram_export.py:108:5
+    |
+106 |               b64 = base64.b64encode(entry.svg.encode("utf-8")).decode("ascii")
+107 |               return f"data:image/svg+xml;base64,{b64}"
+108 | /     except Exception:  # nosec B110 - icon resolution is optional, falls through to None
+109 | |         pass
+    | |____________^
+110 |       return None
+    |
+
+S324 Probable use of insecure hash functions in `hashlib`: `md5`
+   --> diagram_export.py:426:27
+    |
+424 | …     if icon_uri:
+425 | …         # Embed icon as an image element inside the service box
+426 | …         file_id = hashlib.md5(azure_name.encode()).hexdigest()[:20]  # nosec B324  # nosemgrep: python.lang.security.insecure-hash-…
+    |                     ^^^^^^^^^^^
+427 | …         exc_files[file_id] = {
+428 | …             "mimeType": "image/svg+xml",
+    |
+
+S324 Probable use of insecure hash functions in `hashlib`: `md5`
+   --> feature_flags.py:183:30
+    |
+181 | …     if user is None:
+182 | …         # No user context: use flag-level probability (deterministic per flag)
+183 | …         bucket = int(hashlib.md5(flag_name.encode()).hexdigest()[:8], 16) % 100  # nosec B324  # nosemgrep: python.lang.security.in…
+    |                        ^^^^^^^^^^^
+184 | …         return bucket < rollout_pct
+185 | …     # Deterministic bucket from user+flag
+    |
+
+S324 Probable use of insecure hash functions in `hashlib`: `md5`
+   --> feature_flags.py:187:26
+    |
+185 | …     # Deterministic bucket from user+flag
+186 | …     key = f"{user}:{flag_name}"
+187 | …     bucket = int(hashlib.md5(key.encode()).hexdigest()[:8], 16) % 100  # nosec B324  # nosemgrep: python.lang.security.insecure-has…
+    |                    ^^^^^^^^^^^
+188 | …     return bucket < rollout_pct
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> infra_import.py:499:9
+    |
+497 |               import yaml
+498 |               template = yaml.safe_load(content)
+499 | /         except Exception:  # nosec B110 - fallback after JSON parse attempt
+500 | |             pass
+    | |________________^
+501 |
+502 |       if template is None:
+    |
+
+S311 Standard pseudo-random generators are not suitable for cryptographic purposes
+   --> living_architecture.py:107:32
+    |
+106 |     # ── Availability dimension (SIMULATED — #243) ──
+107 |     availability_score = round(random.uniform(0.85, 1.0), 2)
+    |                                ^^^^^^^^^^^^^^^^^^^^^^^^^
+108 |     # ── Cost efficiency dimension ──
+109 |     cost_score = round(random.uniform(0.65, 0.95), 2)
+    |
+
+S311 Standard pseudo-random generators are not suitable for cryptographic purposes
+   --> living_architecture.py:109:24
+    |
+107 |     availability_score = round(random.uniform(0.85, 1.0), 2)
+108 |     # ── Cost efficiency dimension ──
+109 |     cost_score = round(random.uniform(0.65, 0.95), 2)
+    |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+110 |     # ── Compliance dimension ──
+111 |     compliance_score = round(random.uniform(0.80, 1.0), 2)
+    |
+
+S311 Standard pseudo-random generators are not suitable for cryptographic purposes
+   --> living_architecture.py:111:30
+    |
+109 |     cost_score = round(random.uniform(0.65, 0.95), 2)
+110 |     # ── Compliance dimension ──
+111 |     compliance_score = round(random.uniform(0.80, 1.0), 2)
+    |                              ^^^^^^^^^^^^^^^^^^^^^^^^^
+112 |     # ── Performance dimension ──
+113 |     performance_score = round(random.uniform(0.75, 0.98), 2)
+    |
+
+S311 Standard pseudo-random generators are not suitable for cryptographic purposes
+   --> living_architecture.py:113:31
+    |
+111 |     compliance_score = round(random.uniform(0.80, 1.0), 2)
+112 |     # ── Performance dimension ──
+113 |     performance_score = round(random.uniform(0.75, 0.98), 2)
+    |                               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+114 |     # ── Security dimension ──
+115 |     security_score = round(random.uniform(0.70, 1.0), 2)
+    |
+
+S311 Standard pseudo-random generators are not suitable for cryptographic purposes
+   --> living_architecture.py:115:28
+    |
+113 |     performance_score = round(random.uniform(0.75, 0.98), 2)
+114 |     # ── Security dimension ──
+115 |     security_score = round(random.uniform(0.70, 1.0), 2)
+    |                            ^^^^^^^^^^^^^^^^^^^^^^^^^
+116 |
+117 |     dimensions = [
+    |
+
+S311 Standard pseudo-random generators are not suitable for cryptographic purposes
+   --> living_architecture.py:195:19
+    |
+194 |     # Simulate 0-3 drifts
+195 |     drift_count = random.randint(0, min(3, len(services)))
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+196 |     for i in range(drift_count):
+197 |         svc = random.choice(services) if services else "Unknown"
+    |
+
+S311 Standard pseudo-random generators are not suitable for cryptographic purposes
+   --> living_architecture.py:197:15
+    |
+195 |     drift_count = random.randint(0, min(3, len(services)))
+196 |     for i in range(drift_count):
+197 |         svc = random.choice(services) if services else "Unknown"
+    |               ^^^^^^^^^^^^^^^^^^^^^^^
+198 |         drift_type = random.choice(["config_change", "modified", "added"])
+199 |         severity = random.choice(["low", "medium", "high"])
+    |
+
+S311 Standard pseudo-random generators are not suitable for cryptographic purposes
+   --> living_architecture.py:198:22
+    |
+196 |     for i in range(drift_count):
+197 |         svc = random.choice(services) if services else "Unknown"
+198 |         drift_type = random.choice(["config_change", "modified", "added"])
+    |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+199 |         severity = random.choice(["low", "medium", "high"])
+    |
+
+S311 Standard pseudo-random generators are not suitable for cryptographic purposes
+   --> living_architecture.py:199:20
+    |
+197 |         svc = random.choice(services) if services else "Unknown"
+198 |         drift_type = random.choice(["config_change", "modified", "added"])
+199 |         severity = random.choice(["low", "medium", "high"])
+    |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+200 |
+201 |         descriptions = {
+    |
+
+S311 Standard pseudo-random generators are not suitable for cryptographic purposes
+   --> living_architecture.py:213:48
+    |
+211 |             severity=severity,
+212 |             description=descriptions[drift_type],
+213 |             detected_at=(now - timedelta(hours=random.randint(1, 72))).isoformat(),
+    |                                                ^^^^^^^^^^^^^^^^^^^^^
+214 |             recommendation=f"Review {svc} configuration and reconcile with IaC state",
+215 |         ))
+    |
+
+S311 Standard pseudo-random generators are not suitable for cryptographic purposes
+   --> living_architecture.py:230:8
+    |
+228 |     now = datetime.now(timezone.utc)
+229 |
+230 |     if random.random() > 0.6 and services:
+    |        ^^^^^^^^^^^^^^^
+231 |         svc = random.choice(services)
+232 |         expected = round(random.uniform(5, 50), 2)
+    |
+
+S311 Standard pseudo-random generators are not suitable for cryptographic purposes
+   --> living_architecture.py:231:15
+    |
+230 |     if random.random() > 0.6 and services:
+231 |         svc = random.choice(services)
+    |               ^^^^^^^^^^^^^^^^^^^^^^^
+232 |         expected = round(random.uniform(5, 50), 2)
+233 |         actual = round(expected * random.uniform(1.5, 3.0), 2)
+    |
+
+S311 Standard pseudo-random generators are not suitable for cryptographic purposes
+   --> living_architecture.py:232:26
+    |
+230 |     if random.random() > 0.6 and services:
+231 |         svc = random.choice(services)
+232 |         expected = round(random.uniform(5, 50), 2)
+    |                          ^^^^^^^^^^^^^^^^^^^^^
+233 |         actual = round(expected * random.uniform(1.5, 3.0), 2)
+234 |         deviation = round(((actual - expected) / expected) * 100, 1)
+    |
+
+S311 Standard pseudo-random generators are not suitable for cryptographic purposes
+   --> living_architecture.py:233:35
+    |
+231 |         svc = random.choice(services)
+232 |         expected = round(random.uniform(5, 50), 2)
+233 |         actual = round(expected * random.uniform(1.5, 3.0), 2)
+    |                                   ^^^^^^^^^^^^^^^^^^^^^^^^
+234 |         deviation = round(((actual - expected) / expected) * 100, 1)
+    |
+
+S311 Standard pseudo-random generators are not suitable for cryptographic purposes
+   --> living_architecture.py:241:48
+    |
+239 |             actual_daily=actual,
+240 |             deviation_pct=deviation,
+241 |             detected_at=(now - timedelta(hours=random.randint(1, 24))).isoformat(),
+    |                                                ^^^^^^^^^^^^^^^^^^^^^
+242 |             recommendation=f"Investigate {svc} usage spike — consider reserved capacity or auto-scaling rules",
+243 |         ))
+    |
+
+S104 Possible binding to all interfaces
+   --> main.py:376:27
+    |
+374 | if __name__ == "__main__":
+375 |     import uvicorn
+376 |     uvicorn.run(app, host="0.0.0.0", port=8000)  # nosec B104 - required for Docker container networking
+    |                           ^^^^^^^^^
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> openai_client.py:354:5
+    |
+352 |           from observability import increment_counter
+353 |           increment_counter(f"gpt_cache.{event_type}", tags={"component": "openai_client"})
+354 | /     except Exception:
+355 | |         pass  # nosec B110 — Observability is optional
+    | |____________^
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> routers/hld_routes.py:177:5
+    |
+175 |               diagram_b64 = body.get("diagram_image")
+176 |               _app_flow_b64 = body.get("app_flow_image")  # noqa: F841 reserved for future use
+177 | /     except Exception:
+178 | |         pass  # nosec B110 — No body or non-JSON body is fine
+    | |____________^
+179 |
+180 |       # ── Customer mode: mandatory diagram enforcement (#357) ──
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> routers/hld_routes.py:341:5
+    |
+339 |               iac_format = body.get("iac_format", "terraform")
+340 |               include_diagrams = body.get("include_diagrams", True)
+341 | /     except Exception:
+342 | |         pass
+    | |____________^
+343 |
+344 |       session = await _ensure_hld(session, diagram_id)
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> routers/privacy.py:294:9
+    |
+292 |                   SESSION_STORE.delete(key)
+293 |                   sessions_cleared += 1
+294 | /         except Exception:  # noqa: BLE001  # nosec B110 - GDPR data deletion is best-effort per session
+295 | |             pass
+    | |________________^
+296 |
+297 |       record["status"] = "completed"
+    |
+
+S113 Probable use of `requests` call without timeout
+  --> run_server.py:15:12
+   |
+13 | print("Sending request...")
+14 | try:
+15 |     resp = requests.post("http://127.0.0.1:8011/api/diagrams/sample/export-package")
+   |            ^^^^^^^^^^^^^
+16 |     print("STATUS:", resp.status_code)
+17 |     print("BODY:", resp.text)
+   |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+    --> services/azure_pricing.py:1085:9
+     |
+1083 |               blob.delete_blob()
+1084 |               logger.info("Deleted pricing cache blob")
+1085 | /         except Exception:
+1086 | |             pass  # nosec B110 — Blob may not exist
+     | |________________^
+1087 |       logger.info("Azure pricing cache invalidated")
+     |
+
+S108 Probable insecure usage of temporary file or directory: "/tmp/archmorph_sessions"
+   --> session_store.py:195:57
+    |
+194 |     def __init__(self, name: str, maxsize: int = 500, ttl: int = 7200):
+195 |         self._base = Path(os.getenv("SESSION_FILE_DIR", "/tmp/archmorph_sessions")) / name  # nosec B108
+    |                                                         ^^^^^^^^^^^^^^^^^^^^^^^^^
+196 |         self._base.mkdir(parents=True, exist_ok=True)
+197 |         self._ttl = ttl
+    |
+
+S110 `try`-`except`-`pass` detected, consider logging the exception
+   --> session_store.py:421:9
+    |
+419 |           try:
+420 |               self._redis.expire(self._key(key), self._ttl)
+421 | /         except Exception:
+422 | |             pass  # nosec B110 — Non-critical TTL refresh is best-effort
+    | |________________^
+423 |           try:
+424 |               return self._json.loads(raw)
+    |
+
+S603 `subprocess` call: check for execution of untrusted input
+   --> terraform_preview.py:248:27
+    |
+247 |             # Initialize Terraform (skip backend)
+248 |             init_result = subprocess.run(  # nosec B603 - hardcoded terraform args, no user input
+    |                           ^^^^^^^^^^^^^^
+249 |                 [terraform_cmd, "init", "-backend=false", "-no-color"],
+250 |                 cwd=temp_path,
+    |
+
+S603 `subprocess` call: check for execution of untrusted input
+   --> terraform_preview.py:264:27
+    |
+263 |             # Run plan with JSON output
+264 |             plan_result = subprocess.run(  # nosec B603 - hardcoded terraform args, no user input
+    |                           ^^^^^^^^^^^^^^
+265 |                 [
+266 |                     terraform_cmd, "plan",
+    |
+
+S603 `subprocess` call: check for execution of untrusted input
+   --> terraform_preview.py:277:27
+    |
+276 |             # Convert plan to JSON
+277 |             show_result = subprocess.run(  # nosec B603 - hardcoded terraform args, no user input
+    |                           ^^^^^^^^^^^^^^
+278 |                 [terraform_cmd, "show", "-json", "plan.out"],
+279 |                 cwd=temp_path,
+    |
+
+S113 Probable use of `requests` call without timeout
+ --> test_backend.py:2:8
+  |
+1 | import requests
+2 | resp = requests.post('http://127.0.0.1:8000/api/diagrams/sampleAwsIaaS123/export-package')
+  |        ^^^^^^^^^^^^^
+3 | print("STATUS", resp.status_code)
+4 | print("BODY", resp.text)
+  |
+
+S113 Probable use of `requests` call without timeout
+ --> test_local.py:2:8
+  |
+1 | import requests
+2 | resp = requests.post('http://127.0.0.1:8000/api/diagrams/sample-aws-eks-72ec79/export-package')
+  |        ^^^^^^^^^^^^^
+3 | print("STATUS", resp.status_code)
+4 | print("BODY", resp.text)
+  |
+
+Found 53 errors.

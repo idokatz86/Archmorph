@@ -6,7 +6,7 @@ and service categories to extract architecture metadata.
 from __future__ import annotations
 import logging
 import concurrent.futures
-from typing import Dict, Any, List
+from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 

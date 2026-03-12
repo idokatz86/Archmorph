@@ -3,7 +3,7 @@ from error_envelope import ArchmorphException
 Architecture Versioning routes (v2.9.0).
 """
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Query, Request
 from typing import Optional
 
 from routers.shared import SESSION_STORE, limiter

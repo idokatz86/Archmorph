@@ -12,7 +12,7 @@ Other diagram-related routes have been split into focused modules (#284):
   - routers/suggestions.py  — AI mapping suggestions
 """
 
-from fastapi import APIRouter, HTTPException, UploadFile, File, Request, Depends
+from fastapi import APIRouter, UploadFile, File, Request, Depends
 from pydantic import BaseModel
 from typing import Dict, Any, Optional
 import asyncio

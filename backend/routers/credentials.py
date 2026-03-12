@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from services.credential_manager import store_credentials, get_credentials, clear_credentials
 from error_envelope import ArchmorphException
 from auth import get_user_from_session
-from audit_logging import audit_logger, AuditEventType
+from audit_logging import audit_logger
 from routers.shared import limiter
 
 router = APIRouter()
@@ -130,7 +130,7 @@ async def validate_active_credentials(request: Request,
     (Mock implementation in this phase).
     """
     # Retrieve securely
-    creds = get_credentials(session_token, expected_provider=provider)
+    get_credentials(session_token, expected_provider=provider)
     
     # TODO: Connect to Boto3 / Azure SDK to validate identity.
     # For now, return mock success if we successfully decrypted them.

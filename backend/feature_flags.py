@@ -180,11 +180,11 @@ class FeatureFlags:
         if rollout_pct < 100:
             if user is None:
                 # No user context: use flag-level probability (deterministic per flag)
-                bucket = int(hashlib.md5(flag_name.encode()).hexdigest()[:8], 16) % 100  # nosec B324  # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
+                bucket = int(hashlib.sha256(flag_name.encode()).hexdigest()[:8], 16) % 100  # nosec B324  # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
                 return bucket < rollout_pct
             # Deterministic bucket from user+flag
             key = f"{user}:{flag_name}"
-            bucket = int(hashlib.md5(key.encode()).hexdigest()[:8], 16) % 100  # nosec B324  # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
+            bucket = int(hashlib.sha256(key.encode()).hexdigest()[:8], 16) % 100  # nosec B324  # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
             return bucket < rollout_pct
 
         return True

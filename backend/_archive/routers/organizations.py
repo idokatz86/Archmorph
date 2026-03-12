@@ -8,7 +8,7 @@ and RBAC-checked access patterns.
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Request, Depends
+from fastapi import APIRouter, Request, Depends
 from pydantic import BaseModel, Field
 
 from routers.shared import limiter, verify_api_key

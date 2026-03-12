@@ -17,7 +17,7 @@ import json
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request, UploadFile, File
+from fastapi import APIRouter, Query, Request, UploadFile, File
 from fastapi.responses import Response
 
 from routers.shared import limiter

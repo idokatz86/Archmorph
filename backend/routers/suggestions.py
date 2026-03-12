@@ -5,7 +5,7 @@ AI cross-cloud mapping suggestion routes.
 Split from diagrams.py for maintainability (#284).
 """
 
-from fastapi import APIRouter, HTTPException, Request, Depends
+from fastapi import APIRouter, Request, Depends
 from pydantic import BaseModel, Field
 from typing import Optional
 import asyncio

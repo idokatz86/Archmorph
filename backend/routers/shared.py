@@ -10,7 +10,7 @@ import secrets
 from collections import OrderedDict
 from typing import Optional, List
 
-from fastapi import HTTPException, Security, Header
+from fastapi import Security, Header
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
 

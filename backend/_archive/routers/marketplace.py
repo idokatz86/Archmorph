@@ -1,7 +1,7 @@
 from error_envelope import ArchmorphException
 """Azure Marketplace & Enterprise Sales REST endpoints."""
 
-from fastapi import APIRouter, HTTPException, Request, Depends
+from fastapi import APIRouter, Request, Depends
 from pydantic import BaseModel, Field
 from typing import Dict, Optional
 

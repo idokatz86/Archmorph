@@ -7,7 +7,7 @@ GET  /api/flags/{name}    — get a single flag (public)
 PUT  /api/flags/{name}    — update a flag (admin only)
 """
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from typing import List, Optional
 

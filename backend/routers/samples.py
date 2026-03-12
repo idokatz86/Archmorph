@@ -3,7 +3,7 @@ from error_envelope import ArchmorphException
 Sample Diagrams routes — onboarding samples with mock analysis.
 """
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 import uuid
 
 from routers.shared import SESSION_STORE, limiter

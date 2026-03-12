@@ -15,7 +15,7 @@ import os
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
 from routers.shared import limiter

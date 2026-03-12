@@ -3,7 +3,7 @@ from error_envelope import ArchmorphException
 Admin Authentication, Metrics, Monitoring, Audit, Observability, Analytics routes.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Header, Query, Request
+from fastapi import APIRouter, Depends, Header, Query, Request
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any
 import time

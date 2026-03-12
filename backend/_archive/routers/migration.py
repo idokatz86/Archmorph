@@ -3,7 +3,7 @@ from error_envelope import ArchmorphException
 Migration Runbook, Assessment & Cost Comparison routes (v2.9.0).
 """
 
-from fastapi import APIRouter, HTTPException, Request, Response, Depends
+from fastapi import APIRouter, Request, Response, Depends
 from typing import Optional
 import logging
 

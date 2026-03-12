@@ -6,7 +6,7 @@ Split from diagrams.py for maintainability (#284).
 Mandatory diagram attachments enforced in customer export mode (#357).
 """
 
-from fastapi import APIRouter, HTTPException, Request, Depends
+from fastapi import APIRouter, Request, Depends
 import asyncio
 import base64
 import logging

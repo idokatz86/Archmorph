@@ -24,7 +24,7 @@ import hashlib
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 
-from fastapi import APIRouter, Request, HTTPException, Header
+from fastapi import APIRouter, Request, Header
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 

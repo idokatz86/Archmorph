@@ -3,7 +3,7 @@ from error_envelope import ArchmorphException
 Authentication & User Management routes (v2.9.0).
 """
 
-from fastapi import APIRouter, HTTPException, Request, Header, Query
+from fastapi import APIRouter, Request, Header, Query
 from pydantic import BaseModel, Field, EmailStr
 from typing import Optional
 

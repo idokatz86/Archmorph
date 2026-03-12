@@ -202,7 +202,7 @@ def clone_agent(agent_id: str, db: Session = Depends(get_db)):
     version_record = AgentVersion(
         id=str(uuid.uuid4()),
         agent_id=new_agent.id,
-        version=new_version,
+        version=new_agent.version,
         config_snapshot={
             "model_config_data": new_agent.model_config_data,
             "tools": new_agent.tools,

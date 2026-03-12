@@ -5,7 +5,7 @@ IaC (Infrastructure as Code) routes — generation, chat, async generation.
 Split from diagrams.py for maintainability (#284).
 """
 
-from fastapi import APIRouter, HTTPException, Request, Depends
+from fastapi import APIRouter, Request, Depends
 from pydantic import BaseModel, Field
 import asyncio
 import logging

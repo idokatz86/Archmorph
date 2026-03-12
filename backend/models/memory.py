@@ -1,8 +1,7 @@
 import os
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, DateTime, JSON, ForeignKey, Integer, Boolean, Float
-from sqlalchemy.orm import relationship
+from sqlalchemy import Column, String, DateTime, JSON, ForeignKey, Integer, Float
 from database import Base
 
 # Conditionally use pgvector for postgres, fallback to JSON/String for sqlite in tests

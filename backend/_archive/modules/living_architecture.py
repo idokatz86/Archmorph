@@ -21,7 +21,7 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)

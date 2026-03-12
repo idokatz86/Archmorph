@@ -119,7 +119,6 @@ def mock_openai_response():
 @pytest.fixture(autouse=True)
 def mock_classify_image():
     """Mock classify_image globally so tests do not hit the live OpenAI API."""
-    import copy
     from unittest.mock import patch
     
     mock_classification = {

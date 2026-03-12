@@ -4,7 +4,7 @@ Generate and preview Terraform plans with estimated changes
 """
 
 import logging
-import subprocess  # nosec B404 - used for terraform CLI with hardcoded args only
+import subprocess  # noqa: S404
 import tempfile
 import shutil
 import json
@@ -245,7 +245,7 @@ def _run_actual_terraform_plan(hcl_content: str, plan_id: str) -> TerraformPlanR
             main_tf.write_text(hcl_content)
             
             # Initialize Terraform (skip backend)
-            init_result = subprocess.run(  # nosec B603 - hardcoded terraform args, no user input
+            init_result = subprocess.run(  # noqa: S603
                 [terraform_cmd, "init", "-backend=false", "-no-color"],
                 cwd=temp_path,
                 capture_output=True,
@@ -261,7 +261,7 @@ def _run_actual_terraform_plan(hcl_content: str, plan_id: str) -> TerraformPlanR
                 )
             
             # Run plan with JSON output
-            plan_result = subprocess.run(  # nosec B603 - hardcoded terraform args, no user input
+            plan_result = subprocess.run(  # noqa: S603
                 [
                     terraform_cmd, "plan",
                     "-out=plan.out",
@@ -274,7 +274,7 @@ def _run_actual_terraform_plan(hcl_content: str, plan_id: str) -> TerraformPlanR
             )
             
             # Convert plan to JSON
-            show_result = subprocess.run(  # nosec B603 - hardcoded terraform args, no user input
+            show_result = subprocess.run(  # noqa: S603
                 [terraform_cmd, "show", "-json", "plan.out"],
                 cwd=temp_path,
                 capture_output=True,

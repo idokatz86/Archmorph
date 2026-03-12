@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from database import get_db
 from routers.auth import get_current_user
-from rbac import RequireRole, enforce_tenant_isolation
+from rbac import RequireRole
 from models.model_registry import ModelEndpoint
 
 router = APIRouter(prefix="/api/models", tags=["Model Registry"])

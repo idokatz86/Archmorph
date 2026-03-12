@@ -1,7 +1,7 @@
 from error_envelope import ArchmorphException
 """User Journey Analytics & Conversion Funnel REST endpoints."""
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 from typing import Dict, List, Optional
 

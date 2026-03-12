@@ -3,7 +3,7 @@ from error_envelope import ArchmorphException
 Cloud Services Catalog & Service Updater routes.
 """
 
-from fastapi import APIRouter, HTTPException, Query, Response, Depends
+from fastapi import APIRouter, Query, Response, Depends
 from typing import Optional
 
 from services import AWS_SERVICES, AZURE_SERVICES, GCP_SERVICES, CROSS_CLOUD_MAPPINGS

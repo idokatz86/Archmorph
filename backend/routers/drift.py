@@ -1,6 +1,6 @@
 import logging
 from typing import Dict, Any
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter
 from pydantic import BaseModel
 from error_envelope import ArchmorphException
 

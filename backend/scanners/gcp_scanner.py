@@ -1,6 +1,6 @@
 import datetime
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional
 from google.cloud import asset_v1
 from google.oauth2 import service_account
 import google.auth

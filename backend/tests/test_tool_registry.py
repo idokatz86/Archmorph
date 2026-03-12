@@ -1,6 +1,5 @@
 import pytest
 import json
-import asyncio
 from unittest.mock import patch, MagicMock
 
 from services.tool_registry import tool_registry

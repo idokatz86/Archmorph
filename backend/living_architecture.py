@@ -16,12 +16,12 @@ from error_envelope import ArchmorphException
 
 import hashlib
 import logging
-import random
+import secrets
 import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -104,15 +104,15 @@ def _compute_health(arch_id: str) -> ArchitectureHealthResponse:
     logger.debug("Computing simulated health for architecture %s", str(arch_id).replace('\n', '').replace('\r', ''))
 
     # ── Availability dimension (SIMULATED — #243) ──
-    availability_score = round(random.uniform(0.85, 1.0), 2)
+    availability_score = round(secrets.SystemRandom().uniform(0.85, 1.0), 2)
     # ── Cost efficiency dimension ──
-    cost_score = round(random.uniform(0.65, 0.95), 2)
+    cost_score = round(secrets.SystemRandom().uniform(0.65, 0.95), 2)
     # ── Compliance dimension ──
-    compliance_score = round(random.uniform(0.80, 1.0), 2)
+    compliance_score = round(secrets.SystemRandom().uniform(0.80, 1.0), 2)
     # ── Performance dimension ──
-    performance_score = round(random.uniform(0.75, 0.98), 2)
+    performance_score = round(secrets.SystemRandom().uniform(0.75, 0.98), 2)
     # ── Security dimension ──
-    security_score = round(random.uniform(0.70, 1.0), 2)
+    security_score = round(secrets.SystemRandom().uniform(0.70, 1.0), 2)
 
     dimensions = [
         HealthDimension(
@@ -192,11 +192,11 @@ def _generate_drift_items(arch: Dict) -> List[DriftItem]:
     now = datetime.now(timezone.utc)
 
     # Simulate 0-3 drifts
-    drift_count = random.randint(0, min(3, len(services)))
+    drift_count = secrets.SystemRandom().randint(0, min(3, len(services)))
     for i in range(drift_count):
-        svc = random.choice(services) if services else "Unknown"
-        drift_type = random.choice(["config_change", "modified", "added"])
-        severity = random.choice(["low", "medium", "high"])
+        svc = secrets.SystemRandom().choice(services) if services else "Unknown"
+        drift_type = secrets.SystemRandom().choice(["config_change", "modified", "added"])
+        severity = secrets.SystemRandom().choice(["low", "medium", "high"])
 
         descriptions = {
             "config_change": f"Configuration change detected in {svc} — SKU/tier differs from baseline",
@@ -210,7 +210,7 @@ def _generate_drift_items(arch: Dict) -> List[DriftItem]:
             drift_type=drift_type,
             severity=severity,
             description=descriptions[drift_type],
-            detected_at=(now - timedelta(hours=random.randint(1, 72))).isoformat(),
+            detected_at=(now - timedelta(hours=secrets.SystemRandom().randint(1, 72))).isoformat(),
             recommendation=f"Review {svc} configuration and reconcile with IaC state",
         ))
 
@@ -227,10 +227,10 @@ def _generate_cost_anomalies(arch: Dict) -> List[CostAnomaly]:
     anomalies = []
     now = datetime.now(timezone.utc)
 
-    if random.random() > 0.6 and services:
-        svc = random.choice(services)
-        expected = round(random.uniform(5, 50), 2)
-        actual = round(expected * random.uniform(1.5, 3.0), 2)
+    if secrets.SystemRandom().random() > 0.6 and services:
+        svc = secrets.SystemRandom().choice(services)
+        expected = round(secrets.SystemRandom().uniform(5, 50), 2)
+        actual = round(expected * secrets.SystemRandom().uniform(1.5, 3.0), 2)
         deviation = round(((actual - expected) / expected) * 100, 1)
 
         anomalies.append(CostAnomaly(
@@ -238,7 +238,7 @@ def _generate_cost_anomalies(arch: Dict) -> List[CostAnomaly]:
             expected_daily=expected,
             actual_daily=actual,
             deviation_pct=deviation,
-            detected_at=(now - timedelta(hours=random.randint(1, 24))).isoformat(),
+            detected_at=(now - timedelta(hours=secrets.SystemRandom().randint(1, 24))).isoformat(),
             recommendation=f"Investigate {svc} usage spike — consider reserved capacity or auto-scaling rules",
         ))
 

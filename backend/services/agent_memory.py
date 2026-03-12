@@ -3,8 +3,7 @@ import json
 from typing import List, Dict, Any
 from sqlalchemy.orm import Session
 
-from models.agent import Agent
-from models.memory import AgentMemoryDocument, AgentEpisodicMemory, AgentEntityMemory
+from models.memory import AgentEpisodicMemory, AgentEntityMemory
 import tiktoken
 from openai_client import get_openai_client
 

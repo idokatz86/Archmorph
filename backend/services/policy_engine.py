@@ -24,7 +24,7 @@ class PolicyEngine:
         ).filter(
             AgentPolicyBinding.agent_id == self.agent_id,
             AgentPolicy.organization_id == self.org_id,
-            AgentPolicy.is_active == True
+            AgentPolicy.is_active.is_(True)
         )
         if policy_type:
             query = query.filter(AgentPolicy.policy_type == policy_type)

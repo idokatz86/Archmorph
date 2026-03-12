@@ -1,5 +1,5 @@
 import datetime
-from sqlalchemy import Column, String, JSON, DateTime, Integer, Boolean, ForeignKey
+from sqlalchemy import Column, String, JSON, DateTime, Integer
 from database import Base
 
 class DeploymentState(Base):
