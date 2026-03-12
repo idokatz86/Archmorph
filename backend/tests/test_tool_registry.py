@@ -20,4 +20,4 @@ async def test_tool_registry_executes_cloud_scan(mock_aws_scanner):
         
         response = json.loads(response_json)
         assert response["status"] == "success"
-        assert response["result"]["metadata"]["provider"] == "aws"
+        assert response["result"]["scan_data"]["metadata"]["provider"] == "aws"

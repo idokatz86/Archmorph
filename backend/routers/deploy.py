@@ -43,6 +43,6 @@ async def execute_deployment(
                 yield f"{log_line}\n"
         except Exception as e:
             logger.error(f"Error during deployment streaming: {str(e)}")
-            yield f"ERROR: {str(e)}\n"
+            yield "ERROR: An internal error occurred during deployment.\n"
 
     return StreamingResponse(log_generator(), media_type="text/plain")

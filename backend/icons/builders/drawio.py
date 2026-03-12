@@ -51,7 +51,7 @@ def build_drawio_library(
     cache_key = f"drawio:{pack_id}:{embed_mode}"
     cached = get_cached_asset(cache_key)
     if cached is not None:
-        logger.info("Returning cached draw.io library for %s", pack_id)
+        logger.info("Returning cached draw.io library for %s", str(pack_id).replace("\n", "").replace("\r", ""))
         return cached
 
     icons = get_pack_icons(pack_id)

@@ -1151,7 +1151,7 @@ def fetch_prices_for_region(
     cache_key = f"prices_{arm_region}"
 
     if cache_key in cache:
-        logger.info("Using cached prices for region %s", arm_region)
+        logger.info("Using cached prices for region %s", str(arm_region).replace("\n", "").replace("\r", ""))
         return cache[cache_key]
 
     prices: dict[str, float] = {}

@@ -377,7 +377,7 @@ class TestHldGeneration:
         hld = generate_hld(MOCK_ANALYSIS)
         for svc in hld.get("services", []):
             assert svc.get("documentation_url"), f"Missing doc URL for {svc.get('azure_service')}"
-            assert svc["documentation_url"].startswith("https://learn.microsoft.com")
+            assert svc["documentation_url"].startswith("https://learn.microsoft.com/")
 
     @patch("hld_generator.cached_chat_completion")
     def test_generate_hld_metadata(self, mock_cached):

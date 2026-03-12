@@ -431,7 +431,7 @@ def assign_variant(experiment_id: str, user_id: str) -> Optional[str]:
             return None
 
     # Deterministic assignment using hash
-    hash_val = int(hashlib.md5(f"{experiment_id}:{user_id}".encode()).hexdigest(), 16)  # nosec B324  # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
+    hash_val = int(hashlib.sha256(f"{experiment_id}:{user_id}".encode()).hexdigest(), 16)  # nosec B324  # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
     normalized = (hash_val % 10000) / 10000.0
 
     cumulative = 0.0

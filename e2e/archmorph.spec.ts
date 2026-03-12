@@ -183,7 +183,7 @@ test.describe('Diagram Export', () => {
 
     // Click Draw.io export and wait for download
     const downloadPromise = page.waitForEvent('download', { timeout: API_TIMEOUT });
-    await page.getByRole('button', { name: /Draw\.io/i }).click();
+    await page.getByRole('button', { name: /^Draw\.io$/i }).click();
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toContain('.drawio');
   });
@@ -193,7 +193,7 @@ test.describe('Diagram Export', () => {
     await navigateToResults(page);
 
     const downloadPromise = page.waitForEvent('download', { timeout: API_TIMEOUT });
-    await page.getByRole('button', { name: /Excalidraw/i }).click();
+    await page.getByRole('button', { name: /^Excalidraw$/i }).click();
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toContain('.excalidraw');
   });

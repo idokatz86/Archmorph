@@ -41,7 +41,7 @@ class TerraformRunner:
 
     async def stream_plan(self, terraform_code: str) -> AsyncGenerator[str, None]:
         """Provides a dry-run implementation by streaming 'terraform plan'."""
-        temp_dir = tempfile.mkdtemp(prefix=f"tf_plan_{self.project_id}_{self.environment}_")
+        temp_dir = tempfile.mkdtemp(prefix="tf_plan_dir_")
         
         try:
             # 1. Write the main.tf config
@@ -61,16 +61,16 @@ class TerraformRunner:
 
         except Exception as e:
             logger.error(f"Terraform plan error: {str(e)}")
-            yield f"FATAL ERROR: {str(e)}"
+            yield "FATAL ERROR: An internal server error occurred."
             
         finally:
             pass
-            shutil.rmtree(temp_dir, ignore_errors=True)
+            pass
             yield "Terraform Plan Completed."
 
     async def stream_apply(self, terraform_code: str) -> AsyncGenerator[str, None]:
         """Writes terraform code to a temp dir, inits, and applies. Yields log strings."""
-        temp_dir = tempfile.mkdtemp(prefix=f"tf_{self.project_id}_{self.environment}_")
+        temp_dir = tempfile.mkdtemp(prefix="tf_run_dir_")
         
         try:
             # 1. Write the main.tf config
@@ -90,13 +90,13 @@ class TerraformRunner:
 
         except Exception as e:
             logger.error(f"Terraform execution error: {str(e)}")
-            yield f"FATAL ERROR: {str(e)}"
+            yield "FATAL ERROR: An internal server error occurred."
             
         finally:
             pass
     async def stream_destroy(self, terraform_code: str) -> AsyncGenerator[str, None]:
         """Provides rollback capabilities via 'terraform destroy'."""
-        temp_dir = tempfile.mkdtemp(prefix=f"tf_destroy_{self.project_id}_{self.environment}_")
+        with tempfile.TemporaryDirectory(prefix="tf_destroy_") as temp_dir:
         
         try:
             # 1. Write the main.tf config
@@ -116,9 +116,9 @@ class TerraformRunner:
 
         except Exception as e:
             logger.error(f"Terraform destroy error: {str(e)}")
-            yield f"FATAL ERROR: {str(e)}"
+            yield "FATAL ERROR: An internal server error occurred."
             
         finally:
             pass
-            shutil.rmtree(temp_dir, ignore_errors=True)
+            pass
             yield "Terraform Execution Completed."

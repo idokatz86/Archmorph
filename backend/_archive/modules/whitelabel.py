@@ -204,7 +204,7 @@ async def update_branding(
     partner = _validate_api_key(x_partner_key)
     partner["branding"] = branding.model_dump()
     partner["updated_at"] = datetime.now(timezone.utc).isoformat()
-    logger.info("Updated branding for partner %s", partner["partner_id"])
+    logger.info("Updated branding for partner")
     return {"status": "updated", "partner_id": partner["partner_id"]}
 
 
