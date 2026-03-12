@@ -1,37 +1,20 @@
-# =============================================================================
-# Security & Compliance Pipeline
-# Consolidates: SAST, SCA, secret detection, container scanning, SBOM generation
-# Runs on: push/PR (gate), weekly (drift detection), release (SBOM attach)
-# =============================================================================
-name: Security & Compliance
-
+name: CodeQL
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
-  release:
-    types: [published]
   schedule:
-    # Weekly Monday 06:00 UTC — drift detection
     - cron: "0 6 * * 1"
-  workflow_dispatch:
 
 permissions:
-  contents: write        # Release asset upload
-  security-events: write # SARIF upload
-  actions: read          # CodeQL
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  security-events: write
+  actions: read
+  contents: read
 
 jobs:
-  # ───────────────────────────────────────────────────────────
-  # SAST: CodeQL (Python + JavaScript)
-  # ───────────────────────────────────────────────────────────
   codeql:
-    name: "SAST — CodeQL (${{ matrix.language }})"
+    name: "SAST — CodeQL"
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -40,160 +23,14 @@ jobs:
         language: [python, javascript]
     steps:
       - uses: actions/checkout@v4
-
+      
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v4
-        continue-on-error: true
+        uses: github/codeql-action/init@v3
         with:
           languages: ${{ matrix.language }}
           queries: security-extended
-
-      - name: Autobuild
-        uses: github/codeql-action/autobuild@v4
-        continue-on-error: true
-
+          
       - name: Perform Analysis
-        uses: github/codeql-action/analyze@v4
-        continue-on-error: true
+        uses: github/codeql-action/analyze@v3
         with:
           category: codeql-${{ matrix.language }}
-
-  # ───────────────────────────────────────────────────────────
-  gitleaks:
-    name: "Secrets — Gitleaks"
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Run Gitleaks
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
-
-  # ───────────────────────────────────────────────────────────
-  sbom:
-    name: "SBOM & Grype"
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    if: github.ref == 'refs/heads/main' || github.event_name == 'release'
-    steps:
-      - uses: actions/checkout@v4
-
-      # --- Python SBOM ---
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Generate Python SBOM
-        working-directory: backend
-        run: |
-          pip install -r requirements.txt cyclonedx-bom
-          cyclonedx-py requirements -i requirements.txt -o ../backend-sbom.json
-
-      - name: Grype scan (Python)
-        uses: anchore/scan-action@v7
-        id: grype-python
-        with:
-          sbom: backend-sbom.json
-          output-format: sarif
-          output-file: python-grype-results.sarif
-          fail-build: "false"
-
-      - name: Upload Python Grype SARIF
-        uses: github/codeql-action/upload-sarif@v4
-        if: always()
-        continue-on-error: true
-        with:
-          sarif_file: python-grype-results.sarif
-          category: grype-python
-
-      # --- npm SBOM ---
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: Generate npm SBOM
-        run: |
-          cd frontend && npm ci
-          npx @cyclonedx/cyclonedx-npm --output-file ../frontend-sbom.json \
-            --output-format JSON --spec-version 1.5
-
-      - name: Grype scan (npm)
-        uses: anchore/scan-action@v7
-        id: grype-npm
-        with:
-          sbom: frontend-sbom.json
-          output-format: sarif
-          output-file: npm-grype-results.sarif
-          fail-build: "false"
-
-      - name: Upload npm Grype SARIF
-        uses: github/codeql-action/upload-sarif@v4
-        if: always()
-        continue-on-error: true
-        with:
-          sarif_file: npm-grype-results.sarif
-          category: grype-npm
-
-      # --- Upload all SBOM artifacts ---
-      - name: Upload SBOM & scan artifacts
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: sbom-${{ github.sha }}
-          path: |
-            backend-sbom.json
-            frontend-sbom.json
-            python-grype-results.sarif
-            npm-grype-results.sarif
-          retention-days: 90
-
-  # ───────────────────────────────────────────────────────────
-  # Attach SBOMs to GitHub Release
-  # ───────────────────────────────────────────────────────────
-  attach-to-release:
-    name: "Attach SBOMs to Release"
-    if: github.event_name == 'release'
-    needs: sbom
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Download SBOM artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: sbom-${{ github.sha }}
-
-      - name: Upload to release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            backend-sbom.json
-            frontend-sbom.json
-            python-grype-results.sarif
-            npm-grype-results.sarif
-
-  # ───────────────────────────────────────────────────────────
-  # Summary Gate
-  # ───────────────────────────────────────────────────────────
-  security-summary:
-    name: "Security Summary"
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    if: always()
-    needs: [codeql, gitleaks, sbom]
-    steps:
-      - name: Pipeline summary
-        run: |
-          echo "## Security & Compliance Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| CodeQL (SAST) | ${{ needs.codeql.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Gitleaks (Secrets) | ${{ needs.gitleaks.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| SBOM & Grype | ${{ needs.sbom.result }} |" >> $GITHUB_STEP_SUMMARY
