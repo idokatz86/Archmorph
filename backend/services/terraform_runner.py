@@ -16,7 +16,7 @@ class TerraformRunner:
 
     async def _run_command(self, cmd: list[str], cwd: str) -> AsyncGenerator[str, None]:
         """Runs an async subprocess and yields stdout lines."""
-        logger.info(f"Running Terraform command: {sanitize_log(' '.join(cmd))} in {sanitize_log(cwd)}")  # lgtm[py/log-injection]
+        logger.info(f"Running Terraform command: {sanitize_log(' '.join(cmd))} in {sanitize_log(cwd)}")  # codeql[py/log-injection] Handled by custom sanitize_log
         process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
@@ -60,7 +60,7 @@ class TerraformRunner:
                 yield line
 
         except Exception as e:
-            logger.error(f"Terraform plan error: {sanitize_log(str(e))}")
+            logger.error(f"Terraform plan error: {sanitize_log(str(e))}")  # codeql[py/log-injection] Handled by custom sanitize_log
             yield "FATAL ERROR: An internal server error occurred."
             
         finally:
@@ -87,7 +87,7 @@ class TerraformRunner:
                 yield line
 
         except Exception as e:
-            logger.error(f"Terraform execution error: {sanitize_log(str(e))}")
+            logger.error(f"Terraform execution error: {sanitize_log(str(e))}")  # codeql[py/log-injection] Handled by custom sanitize_log
             yield "FATAL ERROR: An internal server error occurred."
             
         finally:
@@ -114,7 +114,7 @@ class TerraformRunner:
                 yield line
 
         except Exception as e:
-            logger.error(f"Terraform destroy error: {sanitize_log(str(e))}")
+            logger.error(f"Terraform destroy error: {sanitize_log(str(e))}")  # codeql[py/log-injection] Handled by custom sanitize_log
             yield "FATAL ERROR: An internal server error occurred."
 
         finally:

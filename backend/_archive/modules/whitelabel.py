@@ -172,7 +172,7 @@ async def register_partner(reg: PartnerRegistration):
     _PARTNERS[api_key] = record
     _PARTNER_BY_ID[partner_id] = record
 
-    logger.info("Registered white-label partner: %s (%s)", sanitize_log(reg.partner_name), sanitize_log(partner_id))  # lgtm[py/log-injection]
+    logger.info("Registered white-label partner: %s (%s)", sanitize_log(reg.partner_name), sanitize_log(partner_id))  # codeql[py/log-injection] Handled by custom sanitize_log
 
     return {
         "partner_id": partner_id,

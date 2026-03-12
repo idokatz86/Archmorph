@@ -50,7 +50,7 @@ async def generate_iac(request: Request, diagram_id: str, format: str = "terrafo
             params=iac_params,
         )
     except Exception as exc:
-        logger.error("IaC generation failed for %s: %s", sanitize_log(diagram_id), sanitize_log(exc))  # lgtm[py/log-injection]
+        logger.error("IaC generation failed for %s: %s", sanitize_log(diagram_id), sanitize_log(exc))  # codeql[py/log-injection] Handled by custom sanitize_log
         raise ArchmorphException(500, "IaC generation failed. Please try again.")
 
     record_event(f"iac_generated_{format}", {"diagram_id": diagram_id})
@@ -166,5 +166,5 @@ async def _run_iac_job(job_id: str, diagram_id: str, iac_format: str) -> None:
         job_manager.complete(job_id, result={"diagram_id": diagram_id, "format": iac_format, "code": code})
 
     except Exception as exc:
-        logger.error("Async IaC generation failed: %s", sanitize_log(exc), exc_info=True)
+        logger.error("Async IaC generation failed: %s", sanitize_log(exc), exc_info=True)  # codeql[py/log-injection] Handled by custom sanitize_log
         job_manager.fail(job_id, str(exc))

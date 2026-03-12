@@ -75,7 +75,7 @@ def build_visio_stencil_pack(
     cache_key = f"visio:{pack_id}:{include_png}"
     cached = get_cached_asset(cache_key)
     if cached is not None:
-        logger.info("Returning cached Visio stencil pack for %s", sanitize_log(pack_id))  # lgtm[py/log-injection]
+        logger.info("Returning cached Visio stencil pack for %s", sanitize_log(pack_id))  # codeql[py/log-injection] Handled by custom sanitize_log
         return cached
 
     icons = get_pack_icons(pack_id)
@@ -105,7 +105,7 @@ def build_visio_stencil_pack(
                     zf.writestr(png_filename, png_bytes)
                     has_png = True
                 except Exception as exc:
-                    logger.warning("PNG rasterization failed for %s: %s", sanitize_log(slug), sanitize_log(exc))
+                    logger.warning("PNG rasterization failed for %s: %s", sanitize_log(slug), sanitize_log(exc))  # codeql[py/log-injection] Handled by custom sanitize_log
 
             # Build SVG data URI for embedding in Visio shapes
             svg_b64 = base64.b64encode(icon.svg.encode("utf-8")).decode("ascii")

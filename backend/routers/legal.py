@@ -341,7 +341,7 @@ async def request_data_deletion(request: Request, body: DataDeletionRequest):
         "estimated_completion": "30 days",
     }
 
-    logger.info("Data deletion requested: %s for user %s", sanitize_log(request_id), sanitize_log(body.user_id))  # lgtm[py/log-injection]
+    logger.info("Data deletion requested: %s for user %s", sanitize_log(request_id), sanitize_log(body.user_id))  # codeql[py/log-injection] Handled by custom sanitize_log
 
     return {
         "status": "accepted",
