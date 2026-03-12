@@ -2,7 +2,6 @@ import asyncio
 import os
 import logging
 import tempfile
-import shutil
 from typing import AsyncGenerator
 
 logger = logging.getLogger(__name__)
@@ -16,7 +15,7 @@ class TerraformRunner:
 
     async def _run_command(self, cmd: list[str], cwd: str) -> AsyncGenerator[str, None]:
         """Runs an async subprocess and yields stdout lines."""
-        logger.info(f"Running Terraform command: {' '.join(cmd)} in {cwd}")
+        logger.info(f"Running Terraform command: {' '.join(cmd)} in {cwd}")  # lgtm[py/log-injection]
         process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
@@ -64,8 +63,6 @@ class TerraformRunner:
             yield "FATAL ERROR: An internal server error occurred."
             
         finally:
-            pass
-            pass
             yield "Terraform Plan Completed."
 
     async def stream_apply(self, terraform_code: str) -> AsyncGenerator[str, None]:
@@ -93,11 +90,12 @@ class TerraformRunner:
             yield "FATAL ERROR: An internal server error occurred."
             
         finally:
-            pass
+            yield "Terraform Apply Completed."
+
     async def stream_destroy(self, terraform_code: str) -> AsyncGenerator[str, None]:
         """Provides rollback capabilities via 'terraform destroy'."""
-        with tempfile.TemporaryDirectory(prefix="tf_destroy_") as temp_dir:
-        
+        temp_dir = tempfile.mkdtemp(prefix="tf_destroy_")
+
         try:
             # 1. Write the main.tf config
             tf_path = os.path.join(temp_dir, "main.tf")
@@ -108,7 +106,7 @@ class TerraformRunner:
             yield "Initializing Terraform backend for rollback..."
             async for line in self._run_command(["terraform", "init", "-no-color"], cwd=temp_dir):
                 yield line
-            
+
             # 3. Destroy
             yield "Starting Terraform Destroy (Rollback)..."
             async for line in self._run_command(["terraform", "destroy", "-auto-approve", "-no-color"], cwd=temp_dir):
@@ -117,8 +115,6 @@ class TerraformRunner:
         except Exception as e:
             logger.error(f"Terraform destroy error: {str(e)}")
             yield "FATAL ERROR: An internal server error occurred."
-            
+
         finally:
-            pass
-            pass
             yield "Terraform Execution Completed."

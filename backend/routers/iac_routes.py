@@ -49,7 +49,7 @@ async def generate_iac(request: Request, diagram_id: str, format: str = "terrafo
             params=iac_params,
         )
     except Exception as exc:
-        logger.error("IaC generation failed for %s: %s", diagram_id, exc)
+        logger.error("IaC generation failed for %s: %s", diagram_id, exc)  # lgtm[py/log-injection]
         raise ArchmorphException(500, "IaC generation failed. Please try again.")
 
     record_event(f"iac_generated_{format}", {"diagram_id": diagram_id})

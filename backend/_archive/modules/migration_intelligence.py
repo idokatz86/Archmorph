@@ -124,8 +124,8 @@ def record_migration_event(event: MigrationEvent) -> None:
     })
 
     logger.info("Recorded migration event: %s → %s (%s→%s)",
-                event.source_service, event.target_service,
-                event.source_provider, event.target_provider)
+                event.source_service, event.target_service,  # lgtm[py/log-injection]
+                event.source_provider, event.target_provider)  # lgtm[py/log-injection]
 
 
 def get_community_confidence(

@@ -108,8 +108,9 @@ export default function ChatWidget() {
           if (linkMatch) {
             // Sanitize URL: only allow http/https protocols (#213 — XSS prevention)
             let href = linkMatch[2];
-            try { const url = new URL(href, window.location.origin); if (!["http:", "https:"].includes(url.protocol)) href = "about:blank"; } catch { href = "about:blank"; }
-              href = encodeURI(href);
+            if (!/^(https?:\/\/)/i.test(href)) {
+              href = "about:blank";
+            }
             return <a key={j} href={href} target="_blank" rel="noopener noreferrer" className="text-cta underline cursor-pointer">{linkMatch[1]}</a>;
           }
           return part;

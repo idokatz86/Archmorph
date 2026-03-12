@@ -312,7 +312,7 @@ async def stripe_webhook(
     event_type = event.get("type", "")
     data_obj = event.get("data", {}).get("object", {})
 
-    logger.info("Stripe webhook received: %s", str(event_type).replace("\n", "").replace("\r", ""))
+    logger.info("Stripe webhook received: %s", str(event_type).replace("\n", "").replace("\r", ""))  # lgtm[py/log-injection]
 
     if event_type == "checkout.session.completed":
         customer_id = data_obj.get("customer", "")
@@ -324,7 +324,7 @@ async def stripe_webhook(
             "cancel_at_period_end": False,
             "activated_at": datetime.now(timezone.utc).isoformat(),
         }
-        logger.info("Subscription activated: customer=%s tier=%s", str(customer_id).replace("\n", "").replace("\r", ""), str(tier).replace("\n", "").replace("\r", ""))
+        logger.info("Subscription activated: customer=%s tier=%s", str(customer_id).replace("\n", "").replace("\r", ""), str(tier).replace("\n", "").replace("\r", ""))  # lgtm[py/log-injection]
 
     elif event_type == "customer.subscription.updated":
         customer_id = data_obj.get("customer", "")
@@ -334,18 +334,18 @@ async def stripe_webhook(
             _subscriptions[customer_id]["cancel_at_period_end"] = data_obj.get(
                 "cancel_at_period_end", False
             )
-        logger.info("Subscription updated: customer=%s status=%s", str(customer_id).replace("\n", "").replace("\r", ""), str(status).replace("\n", "").replace("\r", ""))
+        logger.info("Subscription updated: customer=%s status=%s", str(customer_id).replace("\n", "").replace("\r", ""), str(status).replace("\n", "").replace("\r", ""))  # lgtm[py/log-injection]
 
     elif event_type == "customer.subscription.deleted":
         customer_id = data_obj.get("customer", "")
         if customer_id in _subscriptions:
             _subscriptions[customer_id]["tier"] = "free"
             _subscriptions[customer_id]["status"] = "canceled"
-        logger.info("Subscription canceled: customer=%s", str(customer_id).replace("\n", "").replace("\r", ""))
+        logger.info("Subscription canceled: customer=%s", str(customer_id).replace("\n", "").replace("\r", ""))  # lgtm[py/log-injection]
 
     elif event_type == "invoice.payment_failed":
         customer_id = data_obj.get("customer", "")
-        logger.warning("Payment failed for customer: %s", str(customer_id).replace("\n", "").replace("\r", ""))
+        logger.warning("Payment failed for customer: %s", str(customer_id).replace("\n", "").replace("\r", ""))  # lgtm[py/log-injection]
         if customer_id in _subscriptions:
             _subscriptions[customer_id]["status"] = "past_due"
 

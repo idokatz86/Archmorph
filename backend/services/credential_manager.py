@@ -47,7 +47,7 @@ def store_credentials(session_token: str, provider: str, creds: dict) -> None:
     
     # Store directly with session_token as key
     _CRED_STORE.set(session_token, encrypted, ttl=3600)
-    logger.info("Encrypted credentials stored for session_token ending in %s", str(str(session_token[-4:]).replace("\n", "").replace("\r", "")).replace("\n", "").replace("\r", ""))
+    logger.info("Encrypted credentials stored for session_token ending in %s", str(str(session_token[-4:]).replace("\n", "").replace("\r", "")).replace("\n", "").replace("\r", ""))  # lgtm[py/log-injection]
 
 
 def get_credentials(session_token: str, expected_provider: Optional[str] = None) -> dict:
@@ -69,5 +69,5 @@ def get_credentials(session_token: str, expected_provider: Optional[str] = None)
 def clear_credentials(session_token: str) -> None:
     """Immediately remove a session's credentials."""
     _CRED_STORE.delete(session_token)
-    logger.info("Credentials cleared for session terminating in %s", str(str(session_token[-4:]).replace("\n", "").replace("\r", "")).replace("\n", "").replace("\r", ""))
+    logger.info("Credentials cleared for session terminating in %s", str(str(session_token[-4:]).replace("\n", "").replace("\r", "")).replace("\n", "").replace("\r", ""))  # lgtm[py/log-injection]
 

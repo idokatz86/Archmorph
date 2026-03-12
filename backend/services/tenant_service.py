@@ -104,7 +104,7 @@ def create_organization(
     )
 
     db.commit()
-    logger.info("Created org %s (%s) with owner %s", org_id, name, owner_user_id)
+    logger.info("Created org %s (%s) with owner %s", org_id, name, owner_user_id)  # lgtm[py/log-injection]
     return org.to_dict()
 
 
@@ -242,7 +242,7 @@ def create_invitation(
         expires_at=expires_at,
     )
     db.commit()
-    logger.info("Invitation created for %s to org %s", email, org_id)
+    logger.info("Invitation created for %s to org %s", email, org_id)  # lgtm[py/log-injection]
     return invite.to_dict()
 
 

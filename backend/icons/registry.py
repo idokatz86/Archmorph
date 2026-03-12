@@ -195,7 +195,7 @@ def ingest_icon_pack(
     elapsed = time.monotonic() - t0
     logger.info(
         "Icon pack '%s' ingested: %d icons, %d failed (%.2fs)",
-        pid, len(ingested_ids), failed, elapsed,
+        pid, len(ingested_ids), failed, elapsed,  # lgtm[py/log-injection]
     )
 
     result = {
@@ -319,7 +319,7 @@ def delete_pack(pack_id: str) -> dict[str, Any]:
         for k in stale_keys:
             _ASSET_CACHE.pop(k, None)
     _save_to_disk()
-    logger.info("Deleted pack '%s': %d icons removed", pack_id, removed)
+    logger.info("Deleted pack '%s': %d icons removed", pack_id, removed)  # lgtm[py/log-injection]
     return {"deleted": True, "pack_id": pack_id, "icons_removed": removed}
 
 

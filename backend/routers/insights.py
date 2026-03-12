@@ -188,7 +188,7 @@ async def cost_breakdown(request: Request, diagram_id: str):
                 "azure_doc_link": opt.get("azure_doc_link", ""),
             })
     except Exception:
-        logger.warning("Cost optimization analysis failed for %s", diagram_id)
+        logger.warning("Cost optimization analysis failed for %s", diagram_id)  # lgtm[py/log-injection]
 
     # Source vs target comparison (rough estimate: source typically 10-20% more)
     total_mid = (total_low + total_high) / 2

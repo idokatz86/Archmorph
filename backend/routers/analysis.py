@@ -95,7 +95,7 @@ async def add_services_natural_language(
             user_text=body.text,
         )
     except Exception as exc:
-        logger.error("Failed to add services for %s: %s", str(diagram_id).replace("\n", "").replace("\r", ""), str(exc).replace("\n", "").replace("\r", ""))
+        logger.error("Failed to add services for %s: %s", str(diagram_id).replace("\n", "").replace("\r", ""), str(exc).replace("\n", "").replace("\r", ""))  # lgtm[py/log-injection]
         raise ArchmorphException(500, "Failed to process request. Please try again.")
 
     # Store user context for smart question deduplication

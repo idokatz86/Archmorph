@@ -1,4 +1,3 @@
-import re
 
 def fix_file(path, replacements):
     try:

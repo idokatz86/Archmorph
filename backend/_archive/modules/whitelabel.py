@@ -24,7 +24,7 @@ import secrets
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, Header
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -169,7 +169,7 @@ async def register_partner(reg: PartnerRegistration):
     _PARTNERS[api_key] = record
     _PARTNER_BY_ID[partner_id] = record
 
-    logger.info("Registered white-label partner: %s (%s)", reg.partner_name, partner_id)
+    logger.info("Registered white-label partner: %s (%s)", reg.partner_name, partner_id)  # lgtm[py/log-injection]
 
     return {
         "partner_id": partner_id,

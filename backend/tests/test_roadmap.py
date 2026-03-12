@@ -175,7 +175,9 @@ class TestCreateGitHubIssue:
 
             assert result["success"] is True
             assert result["issue_number"] == 42
-            assert result["issue_url"].startswith("https://github.com/")
+            import urllib.parse
+            parsed_url = urllib.parse.urlparse(result["issue_url"])
+            assert parsed_url.netloc == "github.com"
 
     @patch("roadmap.GITHUB_TOKEN", "fake-token")
     def test_handles_github_error(self):

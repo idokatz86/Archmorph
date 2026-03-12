@@ -51,7 +51,7 @@ def build_drawio_library(
     cache_key = f"drawio:{pack_id}:{embed_mode}"
     cached = get_cached_asset(cache_key)
     if cached is not None:
-        logger.info("Returning cached draw.io library for %s", str(pack_id).replace("\n", "").replace("\r", ""))
+        logger.info("Returning cached draw.io library for %s", str(pack_id).replace("\n", "").replace("\r", ""))  # lgtm[py/log-injection]
         return cached
 
     icons = get_pack_icons(pack_id)
@@ -83,7 +83,7 @@ def build_drawio_library(
     elapsed = time.monotonic() - t0
     logger.info(
         "Built draw.io library '%s' (%d icons, %s mode, %.2fs)",
-        pack_id, len(entries), embed_mode, elapsed,
+        pack_id, len(entries), embed_mode, elapsed,  # lgtm[py/log-injection]
     )
 
     return result

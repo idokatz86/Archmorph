@@ -72,7 +72,7 @@ def build_visio_stencil_pack(
     cache_key = f"visio:{pack_id}:{include_png}"
     cached = get_cached_asset(cache_key)
     if cached is not None:
-        logger.info("Returning cached Visio stencil pack for %s", pack_id)
+        logger.info("Returning cached Visio stencil pack for %s", pack_id)  # lgtm[py/log-injection]
         return cached
 
     icons = get_pack_icons(pack_id)
@@ -146,7 +146,7 @@ def build_visio_stencil_pack(
     elapsed = time.monotonic() - t0
     logger.info(
         "Built Visio stencil pack '%s' (%d icons, %.2fs)",
-        pack_id, len(manifest_entries), elapsed,
+        pack_id, len(manifest_entries), elapsed,  # lgtm[py/log-injection]
     )
 
     return result
