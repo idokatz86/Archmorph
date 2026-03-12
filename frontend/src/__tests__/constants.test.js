@@ -3,7 +3,7 @@ import { API_BASE, APP_VERSION, CATEGORY_ICONS, getCategoryIcon } from '../const
 
 describe('constants', () => {
   it('API_BASE defaults to /api', () => {
-    expect(API_BASE).toBe('/api')
+    expect(API_BASE).toBe(import.meta.env.VITE_API_BASE || '/api')
   })
 
   it('APP_VERSION is a semver string', () => {

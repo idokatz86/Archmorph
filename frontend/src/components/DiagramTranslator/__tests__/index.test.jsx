@@ -19,41 +19,41 @@ describe('DiagramTranslator', () => {
     fetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({}) })
   })
 
-  it('renders without crashing', () => {
+  it('renders without crashing', async () => {
     render(<DiagramTranslator />)
-    expect(screen.getByText('Upload')).toBeInTheDocument()
+    expect(await screen.findByText('Upload')).toBeInTheDocument()
   })
 
-  it('shows the step progress bar', () => {
+  it('shows the step progress bar', async () => {
     render(<DiagramTranslator />)
-    expect(screen.getByText('Upload')).toBeInTheDocument()
-    expect(screen.getByText('Analyzing')).toBeInTheDocument()
-    expect(screen.getByText('Customize')).toBeInTheDocument()
+    expect(await screen.findByText('Upload')).toBeInTheDocument()
+    expect(await screen.findByText('Analyzing')).toBeInTheDocument()
+    expect(await screen.findByText('Customize')).toBeInTheDocument()
   })
 
-  it('shows upload step by default', () => {
+  it('shows upload step by default', async () => {
     render(<DiagramTranslator />)
-    expect(screen.getByText('Upload Architecture Diagram')).toBeInTheDocument()
+    expect(await screen.findByText('Upload Architecture Diagram')).toBeInTheDocument()
   })
 
-  it('shows drag & drop zone', () => {
+  it('shows drag & drop zone', async () => {
     render(<DiagramTranslator />)
-    expect(screen.getByText(/Drag & drop your AWS or GCP diagram/)).toBeInTheDocument()
+    expect(await screen.findByText(/Drag & drop your AWS or GCP diagram/)).toBeInTheDocument()
   })
 
-  it('shows sample diagrams section', () => {
+  it('shows sample diagrams section', async () => {
     render(<DiagramTranslator />)
-    expect(screen.getByText(/try with a sample architecture/)).toBeInTheDocument()
+    expect(await screen.findByText(/try with a sample architecture/)).toBeInTheDocument()
   })
 
-  it('shows supported file formats', () => {
+  it('shows supported file formats', async () => {
     render(<DiagramTranslator />)
-    expect(screen.getByText(/Supports PNG, JPG, SVG, PDF/)).toBeInTheDocument()
+    expect(await screen.findByText(/Supports PNG, JPG, SVG, PDF/)).toBeInTheDocument()
   })
 
-  it('shows sample buttons', () => {
+  it('shows sample buttons', async () => {
     render(<DiagramTranslator />)
-    expect(screen.getByText('AWS IaaS')).toBeInTheDocument()
-    expect(screen.getByText('GCP IaaS')).toBeInTheDocument()
+    expect(await screen.findByText('AWS IaaS')).toBeInTheDocument()
+    expect(await screen.findByText('GCP IaaS')).toBeInTheDocument()
   })
 })

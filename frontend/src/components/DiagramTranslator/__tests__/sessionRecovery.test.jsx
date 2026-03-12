@@ -69,12 +69,12 @@ describe('DiagramTranslator — Session UX Tests', () => {
 
   // ── Rendering ──
 
-  it('renders upload step by default when no cached session', () => {
+  it('renders upload step by default when no cached session', async () => {
     render(<DiagramTranslator />)
-    expect(screen.getByText('Upload Architecture Diagram')).toBeInTheDocument()
+    expect(await screen.findByText('Upload Architecture Diagram')).toBeInTheDocument()
   })
 
-  it('auto-restores cached session on mount (#269)', () => {
+  it('auto-restores cached session on mount (#269)', async () => {
     mockLoadSession.mockReturnValue({
       diagramId: 'cached-123',
       analysis: { zones: [], mappings: [], diagram_type: 'AWS Architecture', services_detected: 5 },
@@ -83,9 +83,9 @@ describe('DiagramTranslator — Session UX Tests', () => {
       ts: Date.now(),
     })
 
-    render(<DiagramTranslator />)
+    await act(async () => { render(<DiagramTranslator />) });
     // With auto-restore (#269), cached session is loaded and step advances to results
-    expect(screen.queryByText('Upload Architecture Diagram')).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByText('Upload Architecture Diagram')).not.toBeInTheDocument());
   })
 
   // ── Session expiry error display ──
@@ -148,7 +148,7 @@ describe('DiagramTranslator — Session UX Tests', () => {
 
   // ── Drag and drop ──
 
-  it('handles drag over/leave states', () => {
+  it('handles drag over/leave states', async () => {
     render(<DiagramTranslator />)
 
     const dropZone = screen.getByText(/Drag & drop/).closest('div')

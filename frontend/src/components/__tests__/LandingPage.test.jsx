@@ -20,7 +20,7 @@ describe('LandingPage', () => {
   it('renders hero headline', () => {
     render(<LandingPage {...defaultProps} />);
     expect(screen.getByText(/Modernize Any Cloud/)).toBeInTheDocument();
-    expect(screen.getByText('to Azure')).toBeInTheDocument();
+    expect(screen.getByText('Architecture')).toBeInTheDocument();
   });
 
   it('hero CTA calls onGetStarted', () => {

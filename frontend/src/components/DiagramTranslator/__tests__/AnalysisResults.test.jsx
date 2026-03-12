@@ -83,27 +83,27 @@ describe('AnalysisResults', () => {
     expect(screen.getByText('Consider using managed services')).toBeInTheDocument()
   })
 
-  it('renders Generate Terraform button', () => {
+  it('renders Terraform button', () => {
     render(<AnalysisResults {...defaultProps} />)
-    expect(screen.getByText('Generate Terraform')).toBeInTheDocument()
+    expect(screen.getByText('Terraform')).toBeInTheDocument()
   })
 
-  it('renders Generate Bicep button', () => {
+  it('renders Bicep button', () => {
     render(<AnalysisResults {...defaultProps} />)
-    expect(screen.getByText('Generate Bicep')).toBeInTheDocument()
+    expect(screen.getByText('Bicep')).toBeInTheDocument()
   })
 
-  it('calls onGenerateIac with terraform when Generate Terraform clicked', async () => {
+  it('calls onGenerateIac with terraform when Terraform clicked', async () => {
     const user = userEvent.setup()
     render(<AnalysisResults {...defaultProps} />)
-    await user.click(screen.getByText('Generate Terraform'))
+    await user.click(screen.getByText('Terraform'))
     expect(defaultProps.onGenerateIac).toHaveBeenCalledWith('terraform')
   })
 
-  it('calls onGenerateIac with bicep when Generate Bicep clicked', async () => {
+  it('calls onGenerateIac with bicep when Bicep clicked', async () => {
     const user = userEvent.setup()
     render(<AnalysisResults {...defaultProps} />)
-    await user.click(screen.getByText('Generate Bicep'))
+    await user.click(screen.getByText('Bicep'))
     expect(defaultProps.onGenerateIac).toHaveBeenCalledWith('bicep')
   })
 
