@@ -129,6 +129,54 @@ _FORMAT_CONFIG = {
         ),
         "return_instruction": "Return ONLY the CloudFormation YAML, no markdown fences, no explanations.",
     },
+    "pulumi": {
+        "expert_role": "cloud infrastructure engineer specializing in Pulumi",
+        "code_type": "Pulumi TypeScript code",
+        "target_field": "azure_service",
+        "target_label": "Azure",
+        "use_azure_region": True,
+        "requirements": (
+            "1. Use @pulumi/azure-native SDK\n"
+            "2. Follow Azure naming conventions\n"
+            "3. Use Pulumi Config for environment, region, and secrets\n"
+            "4. Include a resource group as the foundation\n"
+            "5. Generate EVERY Azure resource from the mappings above\n"
+            "6. Group resources by logical function with clear comments\n"
+            "7. Use appropriate SKUs based on the strategy ({sku_strategy})\n"
+            "8. Include managed identities where applicable\n"
+            "9. **CRITICAL — Credential Handling:**\n"
+            "   - ALWAYS use Azure Key Vault for secrets\n"
+            "   - NEVER use inline/hardcoded passwords or credentials\n"
+            "   - Use pulumi.secret() for secret outputs\n"
+            "10. Export meaningful outputs (endpoints, URLs) — NEVER export secrets\n"
+            "11. Do NOT include any markdown formatting — return ONLY valid TypeScript code\n"
+            "12. Add comments explaining which source service each resource replaces"
+        ),
+        "return_instruction": "Return ONLY the Pulumi TypeScript code, no markdown fences, no explanations.",
+    },
+    "aws-cdk": {
+        "expert_role": "AWS infrastructure engineer specializing in AWS CDK",
+        "code_type": "AWS CDK TypeScript code",
+        "target_field": "target_service",
+        "target_label": "AWS",
+        "use_azure_region": False,
+        "requirements": (
+            "1. Use aws-cdk-lib constructs\n"
+            "2. Follow AWS naming conventions and tagging best practices\n"
+            "3. Use CfnParameter or environment variables for configuration\n"
+            "4. Include all AWS resources from the mappings above\n"
+            "5. Group resources by logical function with clear comments\n"
+            "6. Use appropriate instance types based on the strategy ({sku_strategy})\n"
+            "7. Include IAM roles and policies with least-privilege principle\n"
+            "8. **CRITICAL — Credential Handling:**\n"
+            "   - ALWAYS use AWS Secrets Manager for secrets\n"
+            "   - NEVER use inline/hardcoded passwords or credentials\n"
+            "9. Include meaningful CfnOutput (endpoints, ARNs) — NEVER output secrets\n"
+            "10. Do NOT include any markdown formatting — return ONLY valid TypeScript code\n"
+            "11. Add comments explaining which source service each resource replaces"
+        ),
+        "return_instruction": "Return ONLY the CDK TypeScript code, no markdown fences, no explanations.",
+    },
 }
 
 
