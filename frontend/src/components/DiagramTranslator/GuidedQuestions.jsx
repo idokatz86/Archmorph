@@ -121,7 +121,7 @@ export default function GuidedQuestions({
   const [activeCatIdx, setActiveCatIdx] = useState(0);
   const contentRef = useRef(null);
 
-  const activeCat = categories[activeCatIdx] || categories[0];
+  const activeCat = categories[activeCatIdx] || categories[0] || 'General';
   const catQuestions = useMemo(() => constrainedQuestions.filter(q => (q.category || 'General') === activeCat), [constrainedQuestions, activeCat]);
 
   const answered = useMemo(() => Object.keys(answers).filter(k => answers[k] !== undefined && answers[k] !== null && answers[k] !== ''), [answers]);
@@ -193,7 +193,7 @@ export default function GuidedQuestions({
                 }`}
               >
                 {isDone && <Check className="w-3 h-3 inline mr-1 -mt-px" />}
-                {cat.replace(/_/g, ' ')} {catAnswered}/{catQs.length}
+                {cat ? cat.replace(/_/g, ' ') : 'General'} {catAnswered}/{catQs.length}
               </button>
             );
           })}
@@ -205,7 +205,7 @@ export default function GuidedQuestions({
         <div className="px-6 py-4 border-b border-border/50 bg-secondary/10">
           <div className="flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-cta" />
-            <h3 className="text-sm font-semibold text-text-primary">{activeCat.replace(/_/g, ' ')}</h3>
+            <h3 className="text-sm font-semibold text-text-primary">{activeCat ? activeCat.replace(/_/g, ' ') : ''}</h3>
             <span className="text-xs text-text-muted ml-auto">{activeCatIdx + 1} of {categories.length}</span>
           </div>
         </div>
