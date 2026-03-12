@@ -30,7 +30,7 @@ const STEPS = [
   { id: 'iac', label: 'IaC Code' },
   { id: 'hld', label: 'HLD' },
   { id: 'pricing', label: 'Pricing' },
-  { id: 'deploy', label: 'Deploy' },
+  { id: 'deploy', label: 'Coming Soon' },
 ];
 
 export default function DiagramTranslator() {
