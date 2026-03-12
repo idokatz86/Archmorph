@@ -65,7 +65,7 @@ jobs:
           AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
 
       - name: Upload coverage report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-report
           path: backend/htmlcov/
@@ -93,7 +93,7 @@ jobs:
           category: grype-python
 
       - name: Upload Python Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: backend-sbom
           path: |
@@ -152,7 +152,7 @@ jobs:
           category: grype-npm
 
       - name: Upload npm Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: frontend-sbom
           path: |
@@ -160,7 +160,7 @@ jobs:
             ${{ steps.grype-npm.outputs.sarif }}
 
       - name: Upload frontend dist
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: frontend-dist
           path: frontend/dist
