@@ -11,6 +11,7 @@ Convert AWS and GCP architecture diagrams into Azure equivalents with guided mig
 ![Tests](https://img.shields.io/badge/tests-1653%20passing-22C55E.svg)
 ![Python](https://img.shields.io/badge/python-3.12-3776AB.svg)
 ![React](https://img.shields.io/badge/react-19.1-61DAFB.svg)
+![Vibe Coding](https://img.shields.io/badge/built_with-Vibe_Coding-FF69B4.svg)
 
 > **[Live Demo](https://archmorphai.com)** | **[API Docs](https://api.archmorphai.com/docs)**
 
