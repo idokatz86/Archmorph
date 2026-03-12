@@ -91,16 +91,20 @@ from error_envelope import register_error_handlers  # noqa: E402
 logger = logging.getLogger(__name__)
 
 # Allowed frontend origins (production) — strictly enumerated, no wildcards
-ALLOWED_ORIGINS = [
-    o.strip() for o in os.getenv(
-        "ALLOWED_ORIGINS",
-        "https://archmorphai.com,https://www.archmorphai.com,https://agreeable-ground-01012c003.2.azurestaticapps.net"
-    ).split(",")
+env_origins = [
+    o.strip() for o in os.getenv("ALLOWED_ORIGINS", "").split(",")
     if o.strip()
 ]
+default_origins = [
+    "https://archmorphai.com",
+    "https://www.archmorphai.com",
+    "https://agreeable-ground-01012c003.2.azurestaticapps.net"
+]
+ALLOWED_ORIGINS = list(set(env_origins + default_origins))
+
 # Add local dev origins only when running locally
 if os.getenv("ENVIRONMENT", "production") == "dev":
-    ALLOWED_ORIGINS += ["http://localhost:5173", "http://localhost:3000"]
+    ALLOWED_ORIGINS.extend(["http://localhost:5173", "http://localhost:3000"])
 
 
 @asynccontextmanager
