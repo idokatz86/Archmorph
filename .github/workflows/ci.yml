@@ -74,14 +74,14 @@ jobs:
       - name: Generate Backend SBOM
         run: |
           pip install cyclonedx-bom
-          cyclonedx-py requirements -i requirements.txt -o ../backend-sbom.json
+          cyclonedx-py requirements -i requirements.txt -o ${{ github.workspace }}/backend-sbom.json
 
       - name: Grype scan (Python)
+        id: grype-python
         uses: anchore/scan-action@v3
         with:
-          sbom: ../backend-sbom.json
+          sbom: ${{ github.workspace }}/backend-sbom.json
           output-format: sarif
-          output-file: ../python-grype-results.sarif
           fail-build: "false"
 
       - name: Upload Python Grype SARIF
@@ -89,7 +89,7 @@ jobs:
         if: always()
         continue-on-error: true
         with:
-          sarif_file: ../python-grype-results.sarif
+          sarif_file: ${{ steps.grype-python.outputs.sarif }}
           category: grype-python
 
       - name: Upload Python Artifacts
@@ -97,8 +97,8 @@ jobs:
         with:
           name: backend-sbom
           path: |
-            ../backend-sbom.json
-            ../python-grype-results.sarif
+            backend-sbom.json
+            ${{ steps.grype-python.outputs.sarif }}
 
   # ============================================
   # FRONTEND BUILD & TEST (npm audit in security.yml)
@@ -133,14 +133,14 @@ jobs:
 
       - name: Generate npm SBOM
         run: |
-          npx @cyclonedx/cyclonedx-npm --output-file ../frontend-sbom.json --output-format JSON --spec-version 1.5
+          npx @cyclonedx/cyclonedx-npm --output-file ${{ github.workspace }}/frontend-sbom.json --output-format JSON --spec-version 1.5
 
       - name: Grype scan (npm)
+        id: grype-npm
         uses: anchore/scan-action@v3
         with:
-          sbom: ../frontend-sbom.json
+          sbom: ${{ github.workspace }}/frontend-sbom.json
           output-format: sarif
-          output-file: ../npm-grype-results.sarif
           fail-build: "false"
 
       - name: Upload npm Grype SARIF
@@ -148,7 +148,7 @@ jobs:
         if: always()
         continue-on-error: true
         with:
-          sarif_file: ../npm-grype-results.sarif
+          sarif_file: ${{ steps.grype-npm.outputs.sarif }}
           category: grype-npm
 
       - name: Upload npm Artifacts
@@ -156,8 +156,8 @@ jobs:
         with:
           name: frontend-sbom
           path: |
-            ../frontend-sbom.json
-            ../npm-grype-results.sarif
+            frontend-sbom.json
+            ${{ steps.grype-npm.outputs.sarif }}
 
       - name: Upload frontend dist
         uses: actions/upload-artifact@v4
