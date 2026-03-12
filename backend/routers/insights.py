@@ -1,3 +1,4 @@
+from utils.logger_utils import sanitize_log
 from error_envelope import ArchmorphException
 """
 Insights routes — best practices, cost estimation, cost optimization,
@@ -188,7 +189,7 @@ async def cost_breakdown(request: Request, diagram_id: str):
                 "azure_doc_link": opt.get("azure_doc_link", ""),
             })
     except Exception:
-        logger.warning("Cost optimization analysis failed for %s", diagram_id)  # lgtm[py/log-injection]
+        logger.warning("Cost optimization analysis failed for %s", sanitize_log(diagram_id))  # lgtm[py/log-injection]
 
     # Source vs target comparison (rough estimate: source typically 10-20% more)
     total_mid = (total_low + total_high) / 2
@@ -450,7 +451,7 @@ Diagram type: {analysis.get('diagram_type', 'unknown')}"""
             "related_services": result.get("related_services", []),
         }
     except Exception as exc:
-        logger.error("Migration chat failed: %s", exc)
+        logger.error("Migration chat failed: %s", sanitize_log(exc))
         return {
             "reply": "Sorry, I couldn't process your question right now. Please try again.",
             "related_services": [],

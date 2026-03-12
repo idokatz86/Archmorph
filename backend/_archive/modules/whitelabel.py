@@ -15,7 +15,10 @@ All frontend assets read /whitelabel/config/{partner_id} to resolve
 the active brand before first render.
 """
 
+
 from __future__ import annotations
+
+from utils.logger_utils import sanitize_log
 from error_envelope import ArchmorphException
 
 import hashlib
@@ -169,7 +172,7 @@ async def register_partner(reg: PartnerRegistration):
     _PARTNERS[api_key] = record
     _PARTNER_BY_ID[partner_id] = record
 
-    logger.info("Registered white-label partner: %s (%s)", reg.partner_name, partner_id)  # lgtm[py/log-injection]
+    logger.info("Registered white-label partner: %s (%s)", sanitize_log(reg.partner_name), sanitize_log(partner_id))  # lgtm[py/log-injection]
 
     return {
         "partner_id": partner_id,

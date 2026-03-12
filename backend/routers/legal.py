@@ -1,3 +1,4 @@
+from utils.logger_utils import sanitize_log
 from error_envelope import ArchmorphException
 """Legal & Compliance routes (Issue #108).
 
@@ -340,7 +341,7 @@ async def request_data_deletion(request: Request, body: DataDeletionRequest):
         "estimated_completion": "30 days",
     }
 
-    logger.info("Data deletion requested: %s for user %s", request_id, body.user_id)  # lgtm[py/log-injection]
+    logger.info("Data deletion requested: %s for user %s", sanitize_log(request_id), sanitize_log(body.user_id))  # lgtm[py/log-injection]
 
     return {
         "status": "accepted",

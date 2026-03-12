@@ -1,3 +1,4 @@
+from utils.logger_utils import sanitize_log
 from error_envelope import ArchmorphException
 """
 Core diagram routes — upload, analyze, session restore, async analysis.
@@ -93,14 +94,14 @@ async def upload_diagram(request: Request, project_id: str, file: UploadFile = F
 
     # Base64-encode for Redis/FileStore compatibility
     IMAGE_STORE[diagram_id] = (base64.b64encode(image_bytes).decode("ascii"), file.content_type)
-    logger.info("Stored image for %s (%d bytes, %s)", diagram_id, len(image_bytes), file.content_type)
+    logger.info("Stored image for %s (%d bytes, %s)", sanitize_log(diagram_id), sanitize_log(len(image_bytes)), sanitize_log(file.content_type))
 
     # Proactive capacity warning (#177)
     img_usage = len(IMAGE_STORE) / IMAGE_STORE.maxsize
     if img_usage >= 0.8:
         logger.warning(
             "IMAGE_STORE at %.0f%% capacity (%d/%d) — oldest entries will be evicted",
-            img_usage * 100, len(IMAGE_STORE), IMAGE_STORE.maxsize,
+            sanitize_log(img_usage * 100), sanitize_log(len(IMAGE_STORE)), sanitize_log(IMAGE_STORE.maxsize),
         )
 
     record_event("diagrams_uploaded", {"filename": file.filename})
@@ -149,7 +150,7 @@ async def restore_session(request: Request, diagram_id: str, body: RestoreSessio
     if body.image_base64:
         IMAGE_STORE[diagram_id] = (body.image_base64, body.image_content_type or "image/png")
         restored_parts.append("image")
-    logger.info("Session restored for %s via client cache (%s)", diagram_id, ", ".join(restored_parts))  # lgtm[py/log-injection]
+    logger.info("Session restored for %s via client cache (%s)", sanitize_log(diagram_id), sanitize_log(", ".join(restored_parts)))  # lgtm[py/log-injection]
     record_event("sessions_restored", {"diagram_id": diagram_id, "parts": restored_parts})
     return {"status": "restored", "diagram_id": diagram_id, "restored": restored_parts}
 
@@ -170,7 +171,7 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
 
     image_b64, content_type = IMAGE_STORE[diagram_id]
     image_bytes = base64.b64decode(image_b64) if isinstance(image_b64, str) else image_b64
-    logger.info("Analyzing diagram %s (%d bytes)", diagram_id, len(image_bytes))  # lgtm[py/log-injection]
+    logger.info("Analyzing diagram %s (%d bytes)", sanitize_log(diagram_id), sanitize_log(len(image_bytes)))  # lgtm[py/log-injection]
 
     # Pre-compress once to avoid double compression (#177)
     try:
@@ -183,7 +184,7 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
         try:
             return await asyncio.to_thread(classify_image, compressed_bytes, compressed_type)
         except Exception as exc:
-            logger.warning("Image classification failed for %s: %s — proceeding with analysis", diagram_id, exc)  # lgtm[py/log-injection]
+            logger.warning("Image classification failed for %s: %s — proceeding with analysis", sanitize_log(diagram_id), sanitize_log(exc))  # lgtm[py/log-injection]
             return {"is_architecture_diagram": True, "confidence": 0.5, "image_type": "unknown", "reason": "Classification unavailable"}
 
     async def _analyze():
@@ -196,7 +197,7 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
     )
 
     if not classification["is_architecture_diagram"]:
-        logger.info("Image rejected for %s: %s (confidence: %.2f)", diagram_id, classification["reason"], classification["confidence"])  # lgtm[py/log-injection]
+        logger.info("Image rejected for %s: %s (confidence: %.2f)", sanitize_log(diagram_id), sanitize_log(classification["reason"]), sanitize_log(classification["confidence"]))  # lgtm[py/log-injection]
         record_event("images_rejected", {"diagram_id": diagram_id, "image_type": classification["image_type"], "reason": classification["reason"]})
         raise ArchmorphException(
             status_code=422,
@@ -207,10 +208,10 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
             },
         )
 
-    logger.info("Image classified as architecture diagram for %s (confidence: %.2f)", diagram_id, classification["confidence"])  # lgtm[py/log-injection]
+    logger.info("Image classified as architecture diagram for %s (confidence: %.2f)", sanitize_log(diagram_id), sanitize_log(classification["confidence"]))  # lgtm[py/log-injection]
 
     if isinstance(analysis_result_or_exc, Exception):
-        logger.error("Vision analysis failed for %s: %s", diagram_id, analysis_result_or_exc, exc_info=True)  # lgtm[py/log-injection]
+        logger.error("Vision analysis failed for %s: %s", sanitize_log(diagram_id), sanitize_log(analysis_result_or_exc), exc_info=True)  # lgtm[py/log-injection]
         raise ArchmorphException(500, "Vision analysis failed. Please try again with a different image.")
 
     result = analysis_result_or_exc
@@ -219,7 +220,7 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
 
     if len(SESSION_STORE) >= SESSION_STORE.maxsize:
         logger.warning("Session store at capacity (%d/%d) — oldest sessions will be evicted",
-                       len(SESSION_STORE), SESSION_STORE.maxsize)
+                       sanitize_log(len(SESSION_STORE)), sanitize_log(SESSION_STORE.maxsize))
     SESSION_STORE[diagram_id] = result
     record_event("analyses_run", {"diagram_id": diagram_id, "services": result["services_detected"]})
     record_funnel_step(diagram_id, "analyze")
@@ -284,7 +285,7 @@ async def _run_analysis_job(job_id: str, diagram_id: str) -> None:
         try:
             classification = await asyncio.to_thread(classify_image, compressed_bytes, compressed_type)
         except Exception as exc:
-            logger.warning("Classification failed for %s: %s", diagram_id, exc)  # lgtm[py/log-injection]
+            logger.warning("Classification failed for %s: %s", sanitize_log(diagram_id), sanitize_log(exc))  # lgtm[py/log-injection]
             classification = {"is_architecture_diagram": True, "confidence": 0.5, "image_type": "unknown"}
 
         if not classification.get("is_architecture_diagram", True):
@@ -322,5 +323,5 @@ async def _run_analysis_job(job_id: str, diagram_id: str) -> None:
         job_manager.complete(job_id, result=result)
 
     except Exception as exc:
-        logger.error("Async analysis failed for %s: %s", diagram_id, exc, exc_info=True)  # lgtm[py/log-injection]
+        logger.error("Async analysis failed for %s: %s", sanitize_log(diagram_id), sanitize_log(exc), exc_info=True)  # lgtm[py/log-injection]
         job_manager.fail(job_id, str(exc))

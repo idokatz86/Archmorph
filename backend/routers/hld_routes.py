@@ -1,3 +1,4 @@
+from utils.logger_utils import sanitize_log
 from error_envelope import ArchmorphException
 """
 HLD (High-Level Design) routes — generation, retrieval, export, async generation.
@@ -63,7 +64,7 @@ async def generate_hld_endpoint(request: Request, diagram_id: str, _auth=Depends
     except ValueError as e:
         raise ArchmorphException(500, str(e))
     except Exception as e:
-        logger.exception("HLD generation failed: %s", e)
+        logger.exception("HLD generation failed: %s", sanitize_log(e))
         raise ArchmorphException(500, f"HLD generation failed: {type(e).__name__}: {e}")
 
     # Store in session — must write back to store for Redis compatibility
@@ -112,9 +113,9 @@ async def _ensure_hld(session: dict, diagram_id: str) -> dict:
         session["hld"] = hld
         session["hld_markdown"] = markdown
         SESSION_STORE[diagram_id] = session
-        logger.info("Auto-generated HLD for session %s", diagram_id)  # lgtm[py/log-injection]
+        logger.info("Auto-generated HLD for session %s", sanitize_log(diagram_id))  # lgtm[py/log-injection]
     except Exception as e:
-        logger.warning("Auto-HLD generation failed for %s: %s", diagram_id, e)  # lgtm[py/log-injection]
+        logger.warning("Auto-HLD generation failed for %s: %s", sanitize_log(diagram_id), sanitize_log(e))  # lgtm[py/log-injection]
 
     return session
 
@@ -193,9 +194,9 @@ async def export_hld_endpoint(request: Request, diagram_id: str, _auth=Depends(v
                         diagram_b64 = base64.b64encode(content.encode()).decode()
                     elif isinstance(content, (bytes, bytearray)):
                         diagram_b64 = base64.b64encode(content).decode()
-                    logger.info("Auto-generated architecture diagram for customer export of %s", diagram_id)  # lgtm[py/log-injection]
+                    logger.info("Auto-generated architecture diagram for customer export of %s", sanitize_log(diagram_id))  # lgtm[py/log-injection]
             except Exception as e:
-                logger.warning("Failed to auto-generate architecture diagram: %s", e)
+                logger.warning("Failed to auto-generate architecture diagram: %s", sanitize_log(e))
 
         if not diagram_b64:
             raise ArchmorphException(
@@ -223,7 +224,7 @@ async def export_hld_endpoint(request: Request, diagram_id: str, _auth=Depends(v
     except ValueError as e:
         raise ArchmorphException(400, str(e))
     except Exception as e:
-        logger.error("HLD export failed: %s", e)
+        logger.error("HLD export failed: %s", sanitize_log(e))
         raise ArchmorphException(500, "Export failed. Please try again or contact support.")
 
     return result
@@ -305,7 +306,7 @@ async def _run_hld_job(job_id: str, diagram_id: str) -> None:
         job_manager.complete(job_id, result={"diagram_id": diagram_id, "hld": hld, "markdown": markdown})
 
     except Exception as exc:
-        logger.error("Async HLD generation failed: %s", exc, exc_info=True)
+        logger.error("Async HLD generation failed: %s", sanitize_log(exc), exc_info=True)
         job_manager.fail(job_id, str(exc))
 
 
@@ -388,7 +389,7 @@ async def export_migration_package(request: Request, diagram_id: str, _auth=Depe
                 docx_bytes = export_hld(hld, "docx", include_diagrams=include_diagrams)
                 zf.writestr("documents/high-level-design.docx", docx_bytes)
             except Exception as exc:
-                logger.warning("DOCX export failed in package: %s", exc)
+                logger.warning("DOCX export failed in package: %s", sanitize_log(exc))
 
         # 6. README
         readme = f"""# Migration Package — {session.get('diagram_type', 'Architecture')}

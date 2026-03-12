@@ -7,7 +7,10 @@ Excalidraw image elements for portability.
 Output is deterministic: same input icons → byte-identical JSON.
 """
 
+
 from __future__ import annotations
+
+from utils.logger_utils import sanitize_log
 
 import base64
 import json
@@ -45,7 +48,7 @@ def build_excalidraw_library(
     cache_key = f"excalidraw:{pack_id}"
     cached = get_cached_asset(cache_key)
     if cached is not None:
-        logger.info("Returning cached Excalidraw library for %s", pack_id)  # lgtm[py/log-injection]
+        logger.info("Returning cached Excalidraw library for %s", sanitize_log(pack_id))  # lgtm[py/log-injection]
         return cached
 
     icons = get_pack_icons(pack_id)
@@ -80,7 +83,7 @@ def build_excalidraw_library(
     elapsed = time.monotonic() - t0
     logger.info(
         "Built Excalidraw library '%s' (%d icons, %.2fs)",
-        pack_id, len(library_items), elapsed,  # lgtm[py/log-injection]
+        sanitize_log(pack_id), sanitize_log(len(library_items)), sanitize_log(elapsed),  # lgtm[py/log-injection]
     )
 
     return result

@@ -8,7 +8,10 @@ Supports two embed modes:
 Output is deterministic: same input icons → byte-identical XML.
 """
 
+
 from __future__ import annotations
+
+from utils.logger_utils import sanitize_log
 
 import base64
 import logging
@@ -83,7 +86,7 @@ def build_drawio_library(
     elapsed = time.monotonic() - t0
     logger.info(
         "Built draw.io library '%s' (%d icons, %s mode, %.2fs)",
-        pack_id, len(entries), embed_mode, elapsed,  # lgtm[py/log-injection]
+        sanitize_log(pack_id), sanitize_log(len(entries)), sanitize_log(embed_mode), sanitize_log(elapsed),  # lgtm[py/log-injection]
     )
 
     return result

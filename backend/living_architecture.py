@@ -11,7 +11,10 @@ Features:
   - Recommendations: actionable improvement suggestions
 """
 
+
 from __future__ import annotations
+
+from utils.logger_utils import sanitize_log
 from error_envelope import ArchmorphException
 
 import hashlib
@@ -101,7 +104,7 @@ def _compute_health(arch_id: str) -> ArchitectureHealthResponse:
         raise ValueError(f"Architecture {arch_id} not found")
 
     now = datetime.now(timezone.utc)
-    logger.debug("Computing simulated health for architecture %s", arch_id)  # lgtm[py/log-injection]
+    logger.debug("Computing simulated health for architecture %s", sanitize_log(arch_id))  # lgtm[py/log-injection]
 
     # ── Availability dimension (SIMULATED — #243) ──
     availability_score = round(secrets.SystemRandom().uniform(0.85, 1.0), 2)

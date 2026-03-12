@@ -3,6 +3,8 @@
 Handles organization CRUD, team member management, invitations,
 RBAC enforcement, and tenant-scoped data isolation.
 """
+from utils.logger_utils import sanitize_log
+
 
 import logging
 import re
@@ -104,7 +106,7 @@ def create_organization(
     )
 
     db.commit()
-    logger.info("Created org %s (%s) with owner %s", org_id, name, owner_user_id)  # lgtm[py/log-injection]
+    logger.info("Created org %s (%s) with owner %s", sanitize_log(org_id), sanitize_log(name), sanitize_log(owner_user_id))  # lgtm[py/log-injection]
     return org.to_dict()
 
 
@@ -242,7 +244,7 @@ def create_invitation(
         expires_at=expires_at,
     )
     db.commit()
-    logger.info("Invitation created for %s to org %s", email, org_id)  # lgtm[py/log-injection]
+    logger.info("Invitation created for %s to org %s", sanitize_log(email), sanitize_log(org_id))  # lgtm[py/log-injection]
     return invite.to_dict()
 
 
@@ -283,7 +285,7 @@ def accept_invitation(
 
     invite.status = InviteStatus.ACCEPTED.value
     db.commit()
-    logger.info("User %s accepted invite to org %s", user_id, invite.org_id)
+    logger.info("User %s accepted invite to org %s", sanitize_log(user_id), sanitize_log(invite.org_id))
     return {"org_id": invite.org_id, "role": invite.role}
 
 
