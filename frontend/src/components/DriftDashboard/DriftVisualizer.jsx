@@ -156,6 +156,15 @@ export const DriftVisualizer = ({ driftResults: initialDrift, onSync }) => {
   return (
     <Card className="w-full max-w-4xl mx-auto shadow-sm">
       <div className="flex flex-col space-y-1.5 p-6 border-b">
+        <div className="mb-4 p-4 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg flex items-start gap-3">
+          <AlertTriangle className="w-5 h-5 text-amber-500 mt-0.5" />
+          <div>
+            <h4 className="font-semibold text-sm">Alpha Stage Feature</h4>
+            <p className="text-sm mt-1">
+              Drift Detection is currently in alpha. We are actively developing this capability, which means you may experience occasional instability or inaccurate detection results. The core functionality is enabled for early testing and feedback.
+            </p>
+          </div>
+        </div>
         <h3 className="text-2xl font-semibold leading-none tracking-tight">Architecture Drift Detection</h3>
         
         <div className="flex pt-4 mt-2">
