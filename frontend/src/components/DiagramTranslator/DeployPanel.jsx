@@ -48,39 +48,14 @@ export default function DeployPanel({ parsedResults, isLoading }) {
   if (isLoading) return null;
 
   return (
-    <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 mt-8">
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center space-x-3">
-          <Terminal className="w-6 h-6 text-indigo-600" />
-          <h2 className="text-xl font-bold text-slate-900">One Click Deploy</h2>
-        </div>
-        <button 
-          onClick={handleDeploy} 
-          disabled={isDeploying || !parsedResults}
-          className={`flex items-center px-4 py-2 rounded-lg text-white font-medium transition-colors ${
-            isDeploying ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'
-          }`}
-        >
-          <Play className="w-4 h-4 mr-2" />
-          { isDeploying ? 'Deploying...' : 'Deploy to Azure' }
-        </button>
-      </div>
-
-      { error && 
-        <div className="p-4 bg-red-50 text-red-700 rounded-md mb-4 flex items-center">
-          <AlertTriangle className="w-5 h-5 mr-2" /> {error}
-        </div>
-      }
-
-      <div className="bg-gray-900 rounded-lg p-4 h-64 overflow-y-auto font-mono text-sm text-green-400 whitespace-pre-wrap">
-        { logs.length === 0 && !isDeploying && (
-          <div className="text-gray-500 italic">Deployment logs will appear here...</div>
-        )}
-        { logs.map((log, i) => (
-          <div key={i} className={log.includes('ERROR') ? 'text-red-400' : log.includes('Complete') ? 'text-blue-400' : 'inherit'}>
-            { log }
-          </div>
-        ))}
+    <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 mt-8 mt-4 text-center">
+      <div className="flex flex-col items-center justify-center space-y-4 py-12 text-slate-500">
+        <Terminal className="w-12 h-12 text-slate-300" />
+        <h2 className="text-2xl font-bold text-slate-700">Deployments Coming Soon</h2>
+        <p className="max-w-md mx-auto text-slate-500">
+          In an upcoming release, you will be able to perform 1-click deployments directly 
+          into your cloud environment right from this panel using the generated IaC code.
+        </p>
       </div>
     </div>
   );
