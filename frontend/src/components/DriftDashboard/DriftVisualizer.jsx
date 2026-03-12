@@ -89,6 +89,39 @@ export const DriftVisualizer = ({ driftResults: initialDrift, onSync }) => {
               <option value="gcp">Google Cloud</option>
             </select>
           </div>
+
+          {/* New Connection Guide on Empty State */}
+          <div className="mt-6 w-full max-w-2xl text-left bg-slate-50 p-6 rounded-lg border border-slate-200">
+            <h4 className="font-semibold text-slate-800 mb-4 text-sm uppercase tracking-wider border-b pb-2">Step-by-step Connection Guide</h4>
+            
+            {selectedProvider === 'aws' && (
+              <ol className="list-decimal pl-5 space-y-3 text-sm text-slate-600">
+                <li><strong className="text-slate-800">Create an IAM Role:</strong> Log into AWS Console and navigate to IAM &gt; Roles.</li>
+                <li><strong className="text-slate-800">Set Trust Relationship:</strong> Select "Another AWS account" (ID: <code className="bg-slate-200 px-1 py-0.5 rounded">123456789012</code>) and require external ID (<code className="bg-slate-200 px-1 py-0.5 rounded">ext-xxxx-xxxx</code>).</li>
+                <li><strong className="text-slate-800">Attach Policies:</strong> Attach the <strong>ReadOnlyAccess</strong> managed policy.</li>
+                <li>Save the role and click <strong>Connect Cloud Account</strong> below to input your Role ARN.</li>
+              </ol>
+            )}
+
+            {selectedProvider === 'azure' && (
+              <ol className="list-decimal pl-5 space-y-3 text-sm text-slate-600">
+                <li><strong className="text-slate-800">Register an Application:</strong> In the Azure Portal, go to Microsoft Entra ID &gt; App registrations and create a new app named <code className="bg-slate-200 px-1 py-0.5 rounded">Archmorph Drift</code>.</li>
+                <li><strong className="text-slate-800">Generate Secret:</strong> Under Certificates &amp; secrets, generate a new client secret. Copy the value immediately.</li>
+                <li><strong className="text-slate-800">Assign Role:</strong> Go to Subscriptions &gt; Access control (IAM) and assign the <strong>Reader</strong> role to your new app.</li>
+                <li>Click <strong>Connect Cloud Account</strong> below to input your credentials.</li>
+              </ol>
+            )}
+
+            {selectedProvider === 'gcp' && (
+              <ol className="list-decimal pl-5 space-y-3 text-sm text-slate-600">
+                <li><strong className="text-slate-800">Create Service Account:</strong> In the GCP Console, go to IAM &amp; Admin &gt; Service Accounts and create a new account named <code className="bg-slate-200 px-1 py-0.5 rounded">archmorph-drift</code>.</li>
+                <li><strong className="text-slate-800">Grant Access:</strong> Give the service account the <strong>Viewer</strong> role for read-only access.</li>
+                <li><strong className="text-slate-800">Download Key:</strong> Generate a new JSON key for the service account and download it.</li>
+                <li>Click <strong>Connect Cloud Account</strong> below to upload your JSON file.</li>
+              </ol>
+            )}
+          </div>
+
           {error && (
             <div className="mt-4 p-3 bg-red-50 text-red-700 text-sm rounded border border-red-200 w-full">
               {error}
