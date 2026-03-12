@@ -124,8 +124,8 @@ def record_migration_event(event: MigrationEvent) -> None:
     })
 
     logger.info("Recorded migration event: %s → %s (%s→%s)",
-                str(event.source_service).replace('\n', '').replace('\r', ''), str(event.target_service).replace('\n', '').replace('\r', ''),
-                str(event.source_provider).replace('\n', '').replace('\r', ''), str(event.target_provider).replace('\n', '').replace('\r', ''))
+                event.source_service, event.target_service,
+                event.source_provider, event.target_provider)
 
 
 def get_community_confidence(

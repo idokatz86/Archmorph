@@ -173,7 +173,7 @@ async def save_cookie_consent(request: Request, data: ConsentRequest) -> Dict[st
         "user_agent": request.headers.get("User-Agent", ""),
     }
     _consent_store[session_id] = record
-    logger.info("Cookie consent recorded for session %s", str(session_id).replace('\n', '').replace('\r', ''))
+    logger.info("Cookie consent recorded for session %s", session_id)
 
     return {
         "status": "saved",
@@ -225,7 +225,7 @@ async def submit_dsar(request: Request, data: DSARRequest) -> DSARResponse:
     _dsar_requests[request_id] = record
     logger.info(
         "DSAR %s submitted: type=%s email=%s",
-        str(request_id).replace('\n', '').replace('\r', ''), str(data.request_type).replace('\n', '').replace('\r', ''), str(data.email).replace('\n', '').replace('\r', ''),
+        request_id, data.request_type, data.email,
     )
 
     return DSARResponse(
@@ -299,7 +299,7 @@ async def request_data_deletion(request: Request, data: DeletionRequest) -> Dict
 
     logger.info(
         "Data deletion completed: request_id=%s email=%s sessions_cleared=%d",
-        str(request_id).replace('\n', '').replace('\r', ''), str(data.email).replace('\n', '').replace('\r', ''), str(sessions_cleared).replace('\n', '').replace('\r', ''),
+        request_id, data.email, sessions_cleared,
     )
 
     return {

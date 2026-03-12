@@ -24,7 +24,7 @@ import secrets
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Header
+from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -169,7 +169,7 @@ async def register_partner(reg: PartnerRegistration):
     _PARTNERS[api_key] = record
     _PARTNER_BY_ID[partner_id] = record
 
-    logger.info("Registered white-label partner: %s (%s)", str(reg.partner_name).replace('\n', '').replace('\r', ''), str(partner_id).replace('\n', '').replace('\r', ''))
+    logger.info("Registered white-label partner: %s (%s)", reg.partner_name, partner_id)
 
     return {
         "partner_id": partner_id,
@@ -204,7 +204,7 @@ async def update_branding(
     partner = _validate_api_key(x_partner_key)
     partner["branding"] = branding.model_dump()
     partner["updated_at"] = datetime.now(timezone.utc).isoformat()
-    logger.info("Updated branding for partner")
+    logger.info("Updated branding for partner %s", partner["partner_id"])
     return {"status": "updated", "partner_id": partner["partner_id"]}
 
 

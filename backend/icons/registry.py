@@ -110,7 +110,7 @@ def ingest_icon_pack(
         ``{"pack_id": ..., "ingested": N, "failed": N, "icons": [...]}``
     """
     t0 = time.monotonic()
-    logger.info("Ingesting icon pack from %s", str(type(source).__name__).replace('\n', '').replace('\r', ''))
+    logger.info("Ingesting icon pack from %s", type(source).__name__)
 
     # Collect {relative_path: svg_bytes}
     files: dict[str, bytes] = {}
@@ -158,7 +158,7 @@ def ingest_icon_pack(
         try:
             sanitized_svg = validate_svg(svg_bytes)
         except SVGSanitizationError as exc:
-            logger.warning("Validation failed for %s: %s", str(rel_path).replace('\n', '').replace('\r', ''), str(exc).replace('\n', '').replace('\r', ''))
+            logger.warning("Validation failed for %s: %s", rel_path, exc)
             _metrics["validation_failures"] += 1
             failed += 1
             continue
@@ -195,7 +195,7 @@ def ingest_icon_pack(
     elapsed = time.monotonic() - t0
     logger.info(
         "Icon pack '%s' ingested: %d icons, %d failed (%.2fs)",
-        str(pid).replace('\n', '').replace('\r', ''), str(len(ingested_ids)).replace('\n', '').replace('\r', ''), str(failed).replace('\n', '').replace('\r', ''), str(elapsed).replace('\n', '').replace('\r', ''),
+        pid, len(ingested_ids), failed, elapsed,
     )
 
     result = {
@@ -319,7 +319,7 @@ def delete_pack(pack_id: str) -> dict[str, Any]:
         for k in stale_keys:
             _ASSET_CACHE.pop(k, None)
     _save_to_disk()
-    logger.info("Deleted pack '%s': %d icons removed", str(pack_id).replace('\n', '').replace('\r', ''), str(removed).replace('\n', '').replace('\r', ''))
+    logger.info("Deleted pack '%s': %d icons removed", pack_id, removed)
     return {"deleted": True, "pack_id": pack_id, "icons_removed": removed}
 
 
@@ -346,9 +346,9 @@ def _save_to_disk() -> None:
             json.dumps(snapshot, indent=2, default=str),
             encoding="utf-8",
         )
-        logger.debug("Registry persisted to %s (%d icons)", str(_PERSIST_FILE).replace('\n', '').replace('\r', ''), str(len(snapshot["icons"])).replace('\n', '').replace('\r', ''))
+        logger.debug("Registry persisted to %s (%d icons)", _PERSIST_FILE, len(snapshot["icons"]))
     except Exception as exc:  # noqa: BLE001 — icon pack loading is best-effort
-        logger.warning("Failed to persist registry: %s", str(exc).replace('\n', '').replace('\r', ''))
+        logger.warning("Failed to persist registry: %s", exc)
 
 
 def _load_from_disk() -> bool:
@@ -363,10 +363,10 @@ def _load_from_disk() -> bool:
                 _ICON_STORE[cid] = IconEntry(meta=meta, svg=data["svg"])
             for pid, ids in raw.get("packs", {}).items():
                 _PACK_INDEX[pid] = ids
-        logger.info("Registry loaded from disk: %d icons, %d packs", str(len(_ICON_STORE)).replace('\n', '').replace('\r', ''), str(len(_PACK_INDEX)).replace('\n', '').replace('\r', ''))
+        logger.info("Registry loaded from disk: %d icons, %d packs", len(_ICON_STORE), len(_PACK_INDEX))
         return True
     except Exception as exc:  # noqa: BLE001 — icon metadata parsing is best-effort
-        logger.warning("Failed to load registry from disk: %s", str(exc).replace('\n', '').replace('\r', ''))
+        logger.warning("Failed to load registry from disk: %s", exc)
         return False
 
 
@@ -377,7 +377,7 @@ def load_builtin_packs() -> int:
     """
     samples_dir = Path(__file__).resolve().parent.parent / "samples"
     if not samples_dir.is_dir():
-        logger.debug("No samples/ directory found at %s", str(samples_dir).replace('\n', '').replace('\r', ''))
+        logger.debug("No samples/ directory found at %s", samples_dir)
         return 0
 
     loaded = 0
@@ -387,7 +387,7 @@ def load_builtin_packs() -> int:
         provider_name = provider_dir.name.lower()
         # Skip if already loaded
         if provider_name in _PACK_INDEX:
-            logger.debug("Pack '%s' already loaded, skipping", str(provider_name).replace('\n', '').replace('\r', ''))
+            logger.debug("Pack '%s' already loaded, skipping", provider_name)
             continue
         try:
             files, manifest_raw = _read_folder(provider_dir, None)
@@ -406,7 +406,7 @@ def load_builtin_packs() -> int:
             ingest_icon_pack(pack_manifest, files, items=items, pack_id=provider_name)
             loaded += 1
         except Exception as exc:  # noqa: BLE001 — icon resolution is best-effort
-            logger.warning("Failed to load builtin pack '%s': %s", str(provider_name).replace('\n', '').replace('\r', ''), str(exc).replace('\n', '').replace('\r', ''))
+            logger.warning("Failed to load builtin pack '%s': %s", provider_name, exc)
     return loaded
 
 
@@ -453,7 +453,7 @@ def _read_zip(
             if name.lower().endswith(".svg") and not name.startswith("__MACOSX"):
                 # Prevent ZIP slip path traversal
                 if ".." in name or name.startswith("/"):
-                    logger.warning("Skipping suspicious ZIP entry: %s", str(name).replace('\n', '').replace('\r', ''))
+                    logger.warning("Skipping suspicious ZIP entry: %s", name)
                     continue
                 files[name] = zf.read(name)
 

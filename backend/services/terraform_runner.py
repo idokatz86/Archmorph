@@ -16,7 +16,7 @@ class TerraformRunner:
 
     async def _run_command(self, cmd: list[str], cwd: str) -> AsyncGenerator[str, None]:
         """Runs an async subprocess and yields stdout lines."""
-        logger.info(f"Running Terraform command: {str(' '.join(cmd)).replace('\n', '').replace('\r', '')} in {str(cwd).replace('\n', '').replace('\r', '')}")
+        logger.info(f"Running Terraform command: {' '.join(cmd)} in {cwd}")
         process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
@@ -60,7 +60,7 @@ class TerraformRunner:
                 yield line
 
         except Exception as e:
-            logger.error(f"Terraform plan error: {str(str(e)).replace('\n', '').replace('\r', '')}")
+            logger.error(f"Terraform plan error: {str(e)}")
             yield f"FATAL ERROR: {str(e)}"
             
         finally:
@@ -89,7 +89,7 @@ class TerraformRunner:
                 yield line
 
         except Exception as e:
-            logger.error(f"Terraform execution error: {str(str(e)).replace('\n', '').replace('\r', '')}")
+            logger.error(f"Terraform execution error: {str(e)}")
             yield f"FATAL ERROR: {str(e)}"
             
         finally:
@@ -115,7 +115,7 @@ class TerraformRunner:
                 yield line
 
         except Exception as e:
-            logger.error(f"Terraform destroy error: {str(str(e)).replace('\n', '').replace('\r', '')}")
+            logger.error(f"Terraform destroy error: {str(e)}")
             yield f"FATAL ERROR: {str(e)}"
             
         finally:
