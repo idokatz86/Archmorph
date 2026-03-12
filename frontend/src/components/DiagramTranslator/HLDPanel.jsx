@@ -13,10 +13,8 @@ const HLD_TABS = [
   { id: 'security', label: 'Security & IAM', icon: Shield },
   { id: 'finops', label: 'Cost Model', icon: DollarSign },
   { id: 'migration', label: 'Migration Plan', icon: ArrowRight },
-  { id: 'risks', label: 'Risks & NFRs', icon: AlertTriangle },
+  { id: 'risks', label: 'Risks & Mitigations', icon: AlertTriangle },
   { id: 'waf', label: 'WAF Alignment', icon: Wrench },
-  { id: 'decisions', label: 'Decision Log', icon: ClipboardList },
-  { id: 'roadmap', label: 'Implementation Roadmap', icon: Target },
 ];
 
 const DOC_EXPORT_FORMATS = [
@@ -177,7 +175,24 @@ export default function HLDPanel({
           </div>
         )}
 
-        {/* FinOps tab content hidden during beta — no money-related UI */}
+        {hldTab === 'finops' && hldData.hld?.finops && (
+          <div className="space-y-4 p-4 bg-surface rounded-xl border border-border">
+            <p className="text-xs"><strong>Total Estimated Monthly Cost:</strong> {hldData.hld.finops.total_estimated_monthly_cost}</p>
+            {hldData.hld.finops.cost_optimization_recommendations?.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold mb-1">Optimization Recommendations:</p>
+                <ul className="list-disc pl-4 text-xs space-y-1">
+                  {hldData.hld.finops.cost_optimization_recommendations.map((rec, i) => (
+                    <li key={i}>{rec}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {hldData.hld.finops.cost_monitoring && (
+              <p className="text-xs"><strong>Monitoring Strategy:</strong> {hldData.hld.finops.cost_monitoring}</p>
+            )}
+          </div>
+        )}
 
         {hldTab === 'migration' && hldData.hld?.migration_approach && (
           <div className="space-y-3">
@@ -187,6 +202,20 @@ export default function HLDPanel({
                 <p className="text-xs font-semibold text-text-primary">Phase {p.phase}: {p.name}</p>
                 <p className="text-[10px] text-text-muted mt-1">{p.description}</p>
                 <p className="text-[10px] mt-1">Duration: {p.duration_weeks} weeks | Services: {p.services?.join(', ')}</p>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {hldTab === 'risks' && hldData.hld?.risks_and_mitigations && (
+          <div className="space-y-3">
+            {hldData.hld.risks_and_mitigations.map((r, i) => (
+              <div key={i} className="p-3 bg-surface rounded-xl border border-border">
+                <p className="text-xs font-semibold text-text-primary mb-1">
+                  <span className={`inline-block w-2 h-2 rounded-full mr-2 ${r.impact === 'High' ? 'bg-red-500' : r.impact === 'Medium' ? 'bg-yellow-500' : 'bg-green-500'}`}></span>
+                  {r.risk}
+                </p>
+                <p className="text-[10px] text-text-muted"><strong>Mitigation:</strong> {r.mitigation}</p>
               </div>
             ))}
           </div>

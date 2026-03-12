@@ -21,14 +21,12 @@ const HLDTab = lazy(() => import('./HLDTab'));
 const PricingTab = lazy(() => import('./PricingTab'));
 const MigrationChat = lazy(() => import('./MigrationChat'));
 const DeployPanel = lazy(() => import('./DeployPanel'));
-const RiskPanel = lazy(() => import('./RiskPanel'));
 
 const STEPS = [
   { id: 'upload', label: 'Upload', canNav: true },
   { id: 'analyzing', label: 'Analyzing', canNav: false },
   { id: 'questions', label: 'Customize' },
   { id: 'results', label: 'Results' },
-  { id: 'risk', label: 'Risk Score' },
   { id: 'iac', label: 'IaC Code' },
   { id: 'hld', label: 'HLD' },
   { id: 'pricing', label: 'Pricing' },
@@ -599,8 +597,9 @@ export default function DiagramTranslator() {
         iac_format: state.iacFormat,
         include_diagrams: state.hldIncludeDiagrams,
       });
-      if (data?.content_b64) {
-        const bytes = Uint8Array.from(atob(data.content_b64), c => c.charCodeAt(0));
+      const b64 = data?.content_b64 || data?.data;
+      if (b64) {
+        const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
         const blob = new Blob([bytes], { type: 'application/zip' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -623,6 +622,7 @@ export default function DiagramTranslator() {
       : s.id === 'iac' ? !!state.iacCode
       : s.id === 'hld' ? !!state.iacCode  // Can access HLD after IaC
       : s.id === 'pricing' ? !!state.iacCode  // Can access Pricing after IaC
+      : s.id === 'deploy' ? !!state.iacCode  // Can access Deploy after IaC
       : false,
   }));
 
@@ -773,11 +773,6 @@ export default function DiagramTranslator() {
         />
       )}
 
-
-      {/* Step: Risk */}
-      {state.step === 'risk' && state.diagramId && (
-        <RiskPanel diagramId={state.diagramId} />
-      )}
       {/* Migration Q&A Chat — visible on Results, IaC, HLD steps (#258) */}
       {state.diagramId && state.analysis && ['results', 'iac', 'hld'].includes(state.step) && (
         <MigrationChat diagramId={state.diagramId} />
