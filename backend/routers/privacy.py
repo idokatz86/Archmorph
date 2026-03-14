@@ -173,7 +173,7 @@ async def save_cookie_consent(request: Request, data: ConsentRequest) -> Dict[st
         "user_agent": request.headers.get("User-Agent", ""),
     }
     _consent_store[session_id] = record
-    logger.info("Cookie consent recorded for session %s", str(session_id).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom sanitize_log
+    logger.info("Cookie consent recorded for session %s", str(session_id).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
 
     return {
         "status": "saved",

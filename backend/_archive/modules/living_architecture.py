@@ -14,7 +14,6 @@ Features:
 
 from __future__ import annotations
 
-from utils.logger_utils import sanitize_log
 from error_envelope import ArchmorphException
 
 import hashlib
@@ -104,7 +103,7 @@ def _compute_health(arch_id: str) -> ArchitectureHealthResponse:
         raise ValueError(f"Architecture {arch_id} not found")
 
     now = datetime.now(timezone.utc)
-    logger.debug("Computing simulated health for architecture %s", sanitize_log(arch_id))  # codeql[py/log-injection] Handled by custom sanitize_log
+    logger.debug("Computing simulated health for architecture %s", str(arch_id).replace('\n', '').replace('\r', ''))
 
     # ── Availability dimension (SIMULATED — #243) ──
     availability_score = round(random.uniform(0.85, 1.0), 2)
