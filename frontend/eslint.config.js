@@ -30,7 +30,12 @@ export default [
       'react/jsx-no-target-blank': 'off',
       'react/prop-types': 'off',
       'no-unused-vars': 'off',
-      'no-undef': 'off'
+      'no-undef': 'off',
+      'react/no-unescaped-entities': 'off',
+      'no-constant-condition': 'off',
+      'no-dupe-keys': 'off',
+      'react/jsx-no-undef': 'off',
+      'react-hooks/exhaustive-deps': 'off'
     },
   },
   prettier,

@@ -147,11 +147,14 @@ def _test_timer(request):
             request.node.user_properties.append(("duration_warning", f"{elapsed:.2f}s"))
 
 @pytest.fixture(autouse=True)
-def _global_openai_mock(monkeypatch):
+def _global_openai_mock(request, monkeypatch):
     """
     Globally prevent live OpenAI calls by mocking cached_chat_completion.
     Test execution speed will dramatically improve and flakiness will drop.
     """
+    if "test_gpt_cache.py" in request.node.nodeid:
+        return
+        
     from unittest.mock import MagicMock
     mock_resp = MagicMock()
     mock_resp.choices = [MagicMock()]
