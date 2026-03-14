@@ -12,18 +12,24 @@ import dagre from 'dagre';
 import '@xyflow/react/dist/style.css';
 
 import {
-  SiAmazonwebservices,
-  SiGooglecloud,
-  SiMicrosoftazure,
-  SiAwslambda,
-  SiAmazonec2,
-  SiAmazons3,
-  SiAmazonrds,
-  SiAzurefunctions,
-  SiAzuredevops,
+  FaAws
+} from 'react-icons/fa';
+
+import {
+  VscAzure
+} from 'react-icons/vsc';
+
+import {
+  SiGooglecloud
 } from 'react-icons/si';
 
-import { ArrowRight } from 'lucide-react';
+import { 
+  ArrowRight,
+  Database,
+  Server,
+  Zap,
+  HardDrive
+} from 'lucide-react';
 
 const NODE_WIDTH = 250;
 const NODE_HEIGHT = 80;
@@ -31,11 +37,10 @@ const NODE_HEIGHT = 80;
 const getCloudIcon = (serviceName, defaultIcon) => {
   if (!serviceName) return defaultIcon;
   const s = serviceName.toLowerCase();
-  if (s.includes('lambda')) return <SiAwslambda className="w-5 h-5 text-[#FF9900]" />;
-  if (s.includes('ec2')) return <SiAmazonec2 className="w-5 h-5 text-[#FF9900]" />;
-  if (s.includes('s3')) return <SiAmazons3 className="w-5 h-5 text-[#569A31]" />;
-  if (s.includes('rds')) return <SiAmazonrds className="w-5 h-5 text-[#527FFF]" />;
-  if (s.includes('functions')) return <SiAzurefunctions className="w-5 h-5 text-[#0062AD]" />;
+  if (s.includes('lambda') || s.includes('functions')) return <Zap className="w-5 h-5 text-gray-500" />;
+  if (s.includes('ec2') || s.includes('compute')) return <Server className="w-5 h-5 text-gray-500" />;
+  if (s.includes('s3') || s.includes('blob')) return <HardDrive className="w-5 h-5 text-gray-500" />;
+  if (s.includes('rds') || s.includes('cosmos')) return <Database className="w-5 h-5 text-gray-500" />;
   return defaultIcon;
 };
 
@@ -46,7 +51,7 @@ function MappingNode({ data }) {
   const pLower = (provider || 'aws').toLowerCase();
   const PIcon = pLower === 'gcp'
     ? <SiGooglecloud className="w-5 h-5 text-[#EA4335]" />
-    : <SiAmazonwebservices className="w-5 h-5 text-[#FF9900]" />;
+    : <FaAws className="w-5 h-5 text-[#FF9900]" />;
 
   return (
     <div className="bg-card border-2 border-border rounded-lg shadow-md p-3 flex flex-col gap-2 min-w-[220px]">
@@ -63,7 +68,7 @@ function MappingNode({ data }) {
         <ArrowRight className="w-4 h-4 text-text-muted flex-shrink-0" />
 
         <div className="flex flex-col items-center gap-1 w-[40%]" title={target}>
-          {getCloudIcon(target, <SiMicrosoftazure className="w-5 h-5 text-[#0089D6]" />)}
+          {getCloudIcon(target, <VscAzure className="w-5 h-5 text-[#0089D6]" />)}
           <span className="text-[10px] font-bold text-text-primary text-center leading-tight truncate w-full">
             {target || 'Pending'}
           </span>
