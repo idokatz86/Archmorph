@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, Suspense, lazy } from 'react';
 import {
   ArrowRight, AlertTriangle, Info, HelpCircle,
   FileCode, Sparkles, Loader2, ChevronDown, ChevronUp, ShieldCheck,
@@ -7,6 +7,8 @@ import {
 import { Badge, Button, Card } from '../ui';
 import ExportPanel from './ExportPanel';
 import { HelpTooltip, HELP_CONTENT } from '../HelpTooltip';
+
+const ArchitectureFlow = lazy(() => import('./ArchitectureFlow'));
 
 /* ── Strengths/Limitations Panel for a mapping ──────────── */
 function DeepDivePanel({ m }) {
@@ -273,6 +275,14 @@ export default function AnalysisResults({
       <ExportPanel exportLoading={exportLoading} onExportDiagram={onExportDiagram} />
 
       {/* Before/After Architecture Visualization (#250) */}
+      <div className="mt-8">
+        <h3 className="text-xl font-bold text-text-primary mb-4 flex items-center gap-2">
+          Interactive Architecture Map
+        </h3>
+        <Suspense fallback={<div className="h-64 flex items-center justify-center text-text-muted"><Loader2 className="w-5 h-5 animate-spin" /></div>}>
+          <ArchitectureFlow analysis={analysis} />
+        </Suspense>
+      </div>
 
       {/* Generation Progress Indicator (#311) */}
       {generatingIac && (

@@ -11,17 +11,42 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
+    
     - uses: actions/setup-node@v4
       with:
         node-version: lts/*
+        
+    - name: Use fallback environment variables
+      run: cp backend/.env.example backend/.env
+      
+    - name: Start Application Locally
+      run: |
+        docker compose up -d
+        echo "Waiting for backend..."
+        for i in {1..30}; do curl -s http://localhost:8000/api/health > /dev/null && break || sleep 2; done
+        echo "Waiting for frontend..."
+        npx wait-on http://localhost:5173 -t 60000 || true
+        docker compose ps
+        
     - name: Install dependencies
       run: npm install --no-fund --no-audit
+      
     - name: Install Playwright Browsers
-      run: npx playwright install --with-deps
+      run: npx playwright install chromium --with-deps
+      
     - name: Run Playwright tests
-      run: npx playwright test
+      run: |
+        npx wait-on http://localhost:5173 -t 60000
+        npx playwright test --project=chromium
       env:
-        FRONTEND_URL: "https://archmorphai.com"
+        FRONTEND_URL: "http://localhost:5173"
+        API_BASE: "http://localhost:8000"
+        ADMIN_KEY: "test-admin-key"
+        
+    - name: Dump docker logs on failure
+      if: failure()
+      run: docker compose logs backend frontend
+      
     - uses: actions/upload-artifact@v4
       if: ${{ !cancelled() }}
       with:
