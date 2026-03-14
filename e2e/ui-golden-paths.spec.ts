@@ -13,7 +13,7 @@ test.describe('Golden Paths: Core UI & React Flow Canvas', () => {
 
   test.beforeEach(async ({ page }) => {
     // Navigate to root to start cleanly
-    await page.goto('/');
+    await page.goto('/#translator');
   });
 
   test('Path 1: Application Mount & Header Visibility', async ({ page }) => {
