@@ -215,7 +215,7 @@ jobs:
             --name ${{ env.CONTAINER_APP_NAME }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --image ${{ env.ACR_LOGIN_SERVER }}/archmorph-api:staging-${{ github.sha }} \
-            --set-env-vars ENVIRONMENT=staging AZURE_OPENAI_ENDPOINT="https://archmorph-openai-acm7pd.openai.azure.com/" AZURE_OPENAI_DEPLOYMENT="gpt-4o" \
+            --set-env-vars ENVIRONMENT=staging AZURE_OPENAI_ENDPOINT="${{ secrets.AZURE_OPENAI_ENDPOINT }}" AZURE_OPENAI_DEPLOYMENT="gpt-4o" \
             --revision-suffix "stg-${SHORT_SHA}"
 
       - name: Verify staging deployment
@@ -351,7 +351,7 @@ jobs:
             --set-env-vars \
               ARCHMORPH_ADMIN_KEY=secretref:admin-key \
               AZURE_STORAGE_CONNECTION_STRING=secretref:storage-connection \
-              AZURE_OPENAI_ENDPOINT="https://archmorph-openai-acm7pd.openai.azure.com/" \
+              AZURE_OPENAI_ENDPOINT="${{ secrets.AZURE_OPENAI_ENDPOINT }}" \
               AZURE_OPENAI_DEPLOYMENT="gpt-4o" \
             --revision-suffix "sha-${SHORT_SHA}" \
             --no-wait

@@ -1,7 +1,7 @@
 # Production Environment Terraform Variables
 # Copy to terraform.tfvars for production deployment
 
-subscription_id  = "152f2bd5-8f6b-48ba-a702-21a23172a224"
+subscription_id  = "00000000-0000-0000-0000-000000000000"
 environment      = "prod"
 location         = "westeurope"
 openai_location  = "eastus"

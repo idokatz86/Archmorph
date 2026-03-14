@@ -1,7 +1,7 @@
 # Staging Environment Terraform Variables
 # Copy to terraform.tfvars for staging deployment
 
-subscription_id  = "152f2bd5-8f6b-48ba-a702-21a23172a224"
+subscription_id  = "00000000-0000-0000-0000-000000000000"
 environment      = "staging"
 location         = "westeurope"
 openai_location  = "eastus"
