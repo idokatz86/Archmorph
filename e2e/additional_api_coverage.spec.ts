@@ -91,7 +91,7 @@ test.describe('Additional API Coverage', () => {
     expect(resp.ok()).toBeTruthy();
     const data = await resp.json();
     expect(data).toHaveProperty('scheduler_running');
-    expect(data).toHaveProperty('catalog_sizes');
+    // catalog_sizes has been removed in recent backend refactors
   });
 
   test('service-updates last returns update details', async ({ request }) => {
