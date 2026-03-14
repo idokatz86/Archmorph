@@ -189,12 +189,23 @@ def process_iac_chat(
         response = openai_retry(client.chat.completions.create)(
             model=AZURE_OPENAI_DEPLOYMENT,
             messages=messages,
-            max_tokens=4000,
+            max_tokens=8000,
             temperature=0.2,
             response_format={"type": "json_object"},
         )
 
         raw_text = response.choices[0].message.content.strip()
+        
+        if response.choices[0].finish_reason == "length":
+            logger.warning("IaC chat response was truncated due to token limit.")
+            return {
+                "reply": "My response was cut off because the infrastructure code became too large to process in one go (token limit reached). Please ask me to make granular changes one step at a time.",
+                "code": current_code,
+                "changes_summary": [],
+                "services_added": [],
+                "error": True,
+            }
+            
         logger.info("IaC chat response received (%d chars)", len(raw_text))
 
         result = json.loads(raw_text)
@@ -205,18 +216,27 @@ def process_iac_chat(
         services = result.get("services_added", [])
 
     except json.JSONDecodeError as exc:
-        logger.error("Failed to parse IaC chat JSON: %s", exc)
+        logger.error("Failed to parse IaC chat JSON: %s\nText snippet: %s", exc, raw_text[-500:])
         return {
-            "reply": "I encountered an error processing the response. Please try again.",
+            "reply": "I generated the code, but there was an error parsing the format. The output might contain unescaped characters. Please try rephrasing your request.",
             "code": current_code,
             "changes_summary": [],
             "services_added": [],
             "error": True,
         }
     except Exception as exc:
-        logger.error("IaC chat OpenAI call failed: %s", exc)
+        err_type = type(exc).__name__
+        err_msg = str(exc).lower()
+        logger.error("IaC chat OpenAI call failed: %s - %s", err_type, err_msg)
+        
+        user_msg = f"Sorry, I couldn't process your request due to an external error ({err_type}). "
+        if "context_length_exceeded" in err_msg or "maximum context length" in err_msg:
+            user_msg += "Your codebase has grown too large for my context window."
+        else:
+            user_msg += "Please try again."
+            
         return {
-            "reply": "Sorry, I couldn't process your request. Please try again.",
+            "reply": user_msg,
             "code": current_code,
             "changes_summary": [],
             "services_added": [],
