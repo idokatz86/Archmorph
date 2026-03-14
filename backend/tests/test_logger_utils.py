@@ -1,12 +1,13 @@
+from utils.logger_utils import sanitize_log
 
-def test__strings():
-    assert("test\nstring") == "teststring"
-    assert("test\rstring") == "teststring"
-    assert("test\r\nstring") == "teststring"
-    assert("test") == "test"
+def test_sanitize_log_strings():
+    assert sanitize_log("test\nstring") == "teststring"
+    assert sanitize_log("test\rstring") == "teststring"
+    assert sanitize_log("test\r\nstring") == "teststring"
+    assert sanitize_log("test") == "test"
 
-def test__non_strings():
-    assert(123) == 123
-    assert(["a", "b"]) == ["a", "b"]
-    assert(None) is None
-    assert({"key": "value"}) == {"key": "value"}
+def test_sanitize_log_non_strings():
+    assert sanitize_log(123) == 123
+    assert sanitize_log(["a", "b"]) == ["a", "b"]
+    assert sanitize_log(None) is None
+    assert sanitize_log({"key": "value"}) == {"key": "value"}
