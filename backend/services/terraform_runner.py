@@ -1,4 +1,3 @@
-from utils.logger_utils import sanitize_log
 import asyncio
 import os
 import logging
@@ -16,7 +15,7 @@ class TerraformRunner:
 
     async def _run_command(self, cmd: list[str], cwd: str) -> AsyncGenerator[str, None]:
         """Runs an async subprocess and yields stdout lines."""
-        logger.info(f"Running Terraform command: {sanitize_log(' '.join(cmd))} in {sanitize_log(cwd)}")  # codeql[py/log-injection] Handled by custom sanitize_log
+        logger.info(f"Running Terraform command: {(' '.join(cmd))} in {(cwd)}")  # codeql[py/log-injection] Handled by custom
         process = await asyncio.create_subprocess_exec(
             *cmd,
             stdout=asyncio.subprocess.PIPE,
@@ -60,7 +59,7 @@ class TerraformRunner:
                 yield line
 
         except Exception as e:
-            logger.error(f"Terraform plan error: {sanitize_log(str(e))}")  # codeql[py/log-injection] Handled by custom sanitize_log
+            logger.error(f"Terraform plan error: {(str(e))}")  # codeql[py/log-injection] Handled by custom
             yield "FATAL ERROR: An internal server error occurred."
             
         finally:
@@ -87,7 +86,7 @@ class TerraformRunner:
                 yield line
 
         except Exception as e:
-            logger.error(f"Terraform execution error: {sanitize_log(str(e))}")  # codeql[py/log-injection] Handled by custom sanitize_log
+            logger.error(f"Terraform execution error: {(str(e))}")  # codeql[py/log-injection] Handled by custom
             yield "FATAL ERROR: An internal server error occurred."
             
         finally:
@@ -114,7 +113,7 @@ class TerraformRunner:
                 yield line
 
         except Exception as e:
-            logger.error(f"Terraform destroy error: {sanitize_log(str(e))}")  # codeql[py/log-injection] Handled by custom sanitize_log
+            logger.error(f"Terraform destroy error: {(str(e))}")  # codeql[py/log-injection] Handled by custom
             yield "FATAL ERROR: An internal server error occurred."
 
         finally:

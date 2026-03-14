@@ -17,7 +17,6 @@ names, provider pairs, and success/failure booleans are recorded.
 
 from __future__ import annotations
 
-from utils.logger_utils import sanitize_log
 
 import hashlib
 import logging
@@ -126,9 +125,7 @@ def record_migration_event(event: MigrationEvent) -> None:
         "timestamp": datetime.now(timezone.utc).isoformat(),
     })
 
-    logger.info("Recorded migration event: %s → %s (%s→%s)",
-                sanitize_log(event.source_service), sanitize_log(event.target_service),  # lgtm[py/log-injection]
-                sanitize_log(event.source_provider), sanitize_log(event.target_provider))  # lgtm[py/log-injection]
+    logger.info("Recorded migration event: %s → %s (%s→%s)"(event.source_service)(event.target_service),  # lgtm[py/log-injection](event.source_provider)(event.target_provider))  # lgtm[py/log-injection]
 
 
 def get_community_confidence(

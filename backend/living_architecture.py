@@ -103,7 +103,7 @@ def _compute_health(arch_id: str) -> ArchitectureHealthResponse:
         raise ValueError(f"Architecture {arch_id} not found")
 
     now = datetime.now(timezone.utc)
-    logger.debug("Computing simulated health for architecture %s", str(arch_id).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom sanitize_log
+    logger.debug("Computing simulated health for architecture %s", str(arch_id).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
 
     # ── Availability dimension (SIMULATED — #243) ──
     availability_score = round(secrets.SystemRandom().uniform(0.85, 1.0), 2)

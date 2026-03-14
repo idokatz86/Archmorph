@@ -47,7 +47,7 @@ def build_excalidraw_library(
     cache_key = f"excalidraw:{pack_id}"
     cached = get_cached_asset(cache_key)
     if cached is not None:
-        logger.info("Returning cached Excalidraw library for %s", str(pack_id).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom sanitize_log
+        logger.info("Returning cached Excalidraw library for %s", str(pack_id).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
         return cached
 
     icons = get_pack_icons(pack_id)
