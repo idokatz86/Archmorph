@@ -14,11 +14,22 @@
     "dev:frontend": "cd frontend && npm run dev",
     "build:frontend": "cd frontend && npm run build"
   },
-  "keywords": ["azure", "cloud", "architecture", "migration", "terraform", "bicep"],
+  "keywords": [
+    "azure",
+    "cloud",
+    "architecture",
+    "migration",
+    "terraform",
+    "bicep"
+  ],
   "author": "idokatz86",
   "license": "MIT",
   "devDependencies": {
     "@playwright/test": "^1.58.2",
-    "puppeteer": "^24.37.5"
+    "playwright": "^1.58.2",
+    "puppeteer": "^24.39.1"
+  },
+  "overrides": {
+    "yauzl": "^3.2.1"
   }
 }
