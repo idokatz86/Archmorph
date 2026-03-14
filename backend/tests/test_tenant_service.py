@@ -12,7 +12,7 @@ def test_create_organization():
     db_mock.query().filter().first.return_value = None
     
     # We will just verify it calls add and commit
-    org = create_organization(db_mock, name="Test Org")
+    org = create_organization(db_mock, name="Test Org", owner_user_id="user1", owner_email="test@example.com")
     assert org["name"] == "Test Org"
     assert org["slug"] == "test-org"
     assert org["plan"] == "free"
