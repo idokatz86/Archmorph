@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.8.1] - 2026-03-15
+
+### Fixed
+- **Frontend Crash**: Fixed a critical rendering crash in `ArchitectureFlow.jsx` where destructured return values from `useMemo` resulted in undefined array access, which had silently hidden the canvas causing E2E timeouts.
+- **E2E Stability**: Updated Playwright specs (`ui-golden-paths.spec.ts`) to successfully navigate explicitly to the `/#translator` route and accurately hydrated mocked `sessionStorage` objects to use `mappings` instead of the legacy `mapped_services` array.
+- **Backend Syntax**: Solved backend syntax issues (`logger_utils.py` / `migration_intelligence.py`) failing the CI pipeline via ruff lint checks.
+- **Docker Volumes**: Addressed backend icon cache mounting issues (`/app/data/icon_registry.json`) ensuring write access for the application's runtime user.
+
+### Planned (Sprint #465 - March 15)
+- Tracked UX Polish and Bug Fixes planned for immediate resolution: Fix HLD generation 500/429 crashes, restore missing layout layers in Interactive Map, unblock IaC assistance dynamic modifications, populate the 'Coming Soon' tab safely, and place Alpha warning text above Drift Detection.
+
 ## [3.8.0] - 2026-03-09
 
 ### Added

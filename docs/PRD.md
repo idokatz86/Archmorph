@@ -1,7 +1,7 @@
 # Archmorph — Cloud Architecture Translator to Azure
 ## Product Requirements Document (PRD)
-**Version:** 3.8.0
-**Date:** March 9, 2026
+**Version:** 3.8.1
+**Date:** March 15, 2026
 **Author:** Ido Katz
 
 ---
@@ -807,7 +807,8 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | **v3.4.0 — Performance & Accessibility** | Done | Gunicorn process manager with worker recycling, asyncio.to_thread for CPU-bound handlers, speculative parallel classify+analyze (saves 10-30s), toast notification system, beforeunload guard, accessibility fixes (ARIA labels, keyboard nav), pre-commit hooks (ruff, eslint, prettier), roadmap data updated, dead code removed |
 | **v3.5.0 — Developer Experience** | Planned | Service dependency graph visualization, cost estimate drill-down, full analysis PDF report, CLI tool for automation, split diagrams.py god router, code coverage gate, Template Gallery re-enable |
 | **v3.6.0 — Intelligence & Identity** | Planned | Redis-backed session persistence, AI cross-cloud mapping auto-suggestion, migration timeline generator, social authentication (Microsoft, Google, GitHub), user profiles with persistent history |
-| **v3.8.0 — Enterprise Readiness** | Planned | RBAC & multi-tenant isolation, collaboration (shared projects, comments, review workflow), compliance framework mapping & gap analysis |
+| **v3.8.0 — Complete Migration Flow** | Done | Migration package ZIP export (IaC + HLD + costs), before/after architecture visualization, guided onboarding tour, CI coverage gate (60%), stale bot, migration Q&A chat advisor |
+| **v3.8.1 — UX Polish & Bug Bash** | In Progress | Fix HLD generation 500 crashes, recover missing Map layers, unblock IaC dynamic modifications, populate Coming Soon tab, and Drift Alpha warnings |
 | **v4.0 — Platform Maturity** | Planned | Multi-diagram project support, Pulumi & CDK IaC output, VS Code extension, real infrastructure scanning via cloud SDKs, end-to-end migration wizard, interactive before/after architecture visualization, one-click Deploy to Azure |
 
 ---

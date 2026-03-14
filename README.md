@@ -776,6 +776,7 @@ See [docs/DEPLOYMENT_COSTS.md](docs/DEPLOYMENT_COSTS.md) for full breakdown.
 | v3.5.0 — Customer Intelligence | Done | Confidence deep-dive (strengths/limitations/migration notes per mapping), 7-step workflow (Upload→Analyze→Customize→Results→IaC→HLD→Pricing), HLD auto-generation tab, dedicated Pricing tab with cost drivers, SKU alternatives, optimization recommendations, source vs target comparison, custom domain archmorphai.com |
 | v3.6.0 — Platform Hardening & UX | Done | Dark mode toggle with light/full theme, skeleton loaders, focus-visible a11y, reduced-motion support, Cache-Control headers on read endpoints, HLD v2 with 10 professional sections, contextual help tooltips, confidence deep-dive UI (Strengths/Limitations/Migration tabs per mapping) |
 | v3.8.0 — Complete Migration Flow | Done | Migration package ZIP export (IaC + HLD + costs), before/after architecture visualization, guided onboarding tour, CI coverage gate (60%), stale bot, migration Q&A chat advisor |
+| v3.8.1 — UX Polish & Bug Bash | In Progress | Fix HLD generation 500 crashes, recover missing Map layers, unblock IaC dynamic modifications, populate Coming Soon tab, and Drift Alpha warnings |
 | v4.0 — Performance & Scale | Planned | Connection pooling, read replicas, CDN edge caching, WebSocket live collaboration |
 | v5.0 — Advanced | Planned | Pulumi output, Azure Migrate integration, multi-diagram projects, team collaboration |
 
