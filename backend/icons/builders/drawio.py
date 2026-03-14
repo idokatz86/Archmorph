@@ -84,7 +84,7 @@ def build_drawio_library(
 
     elapsed = time.monotonic() - t0
     logger.info(
-        "Built draw.io library '%s' (%d icons, %s mode, %.2fs)",
+        "Built draw.io library '%s' (%s icons, %s mode, %ss)",
         str(pack_id).replace('\n', '').replace('\r', ''), str(len(entries)).replace('\n', '').replace('\r', ''), str(embed_mode).replace('\n', '').replace('\r', ''), str(elapsed).replace('\n', '').replace('\r', ''),  # lgtm[py/log-injection]
     )
 

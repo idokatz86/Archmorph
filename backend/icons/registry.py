@@ -196,7 +196,7 @@ def ingest_icon_pack(
 
     elapsed = time.monotonic() - t0
     logger.info(
-        "Icon pack '%s' ingested: %d icons, %d failed (%.2fs)",
+        "Icon pack '%s' ingested: %s icons, %s failed (%ss)",
         str(pid).replace('\n', '').replace('\r', ''), str(len(ingested_ids)).replace('\n', '').replace('\r', ''), str(failed).replace('\n', '').replace('\r', ''), str(elapsed).replace('\n', '').replace('\r', ''),  # lgtm[py/log-injection]
     )
 
@@ -321,7 +321,7 @@ def delete_pack(pack_id: str) -> dict[str, Any]:
         for k in stale_keys:
             _ASSET_CACHE.pop(k, None)
     _save_to_disk()
-    logger.info("Deleted pack '%s': %d icons removed", str(pack_id).replace('\n', '').replace('\r', ''), str(removed).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom sanitize_log
+    logger.info("Deleted pack '%s': %s icons removed", str(pack_id).replace('\n', '').replace('\r', ''), str(removed).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom sanitize_log
     return {"deleted": True, "pack_id": pack_id, "icons_removed": removed}
 
 
@@ -348,7 +348,7 @@ def _save_to_disk() -> None:
             json.dumps(snapshot, indent=2, default=str),
             encoding="utf-8",
         )
-        logger.debug("Registry persisted to %s (%d icons)", str(_PERSIST_FILE).replace('\n', '').replace('\r', ''), str(len(snapshot["icons"])).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom sanitize_log
+        logger.debug("Registry persisted to %s (%s icons)", str(_PERSIST_FILE).replace('\n', '').replace('\r', ''), str(len(snapshot["icons"])).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom sanitize_log
     except Exception as exc:  # noqa: BLE001 — icon pack loading is best-effort
         logger.warning("Failed to persist registry: %s", str(exc).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom sanitize_log
 
@@ -365,7 +365,7 @@ def _load_from_disk() -> bool:
                 _ICON_STORE[cid] = IconEntry(meta=meta, svg=data["svg"])
             for pid, ids in raw.get("packs", {}).items():
                 _PACK_INDEX[pid] = ids
-        logger.info("Registry loaded from disk: %d icons, %d packs", str(len(_ICON_STORE)).replace('\n', '').replace('\r', ''), str(len(_PACK_INDEX)).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom sanitize_log
+        logger.info("Registry loaded from disk: %s icons, %s packs", str(len(_ICON_STORE)).replace('\n', '').replace('\r', ''), str(len(_PACK_INDEX)).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom sanitize_log
         return True
     except Exception as exc:  # noqa: BLE001 — icon metadata parsing is best-effort
         logger.warning("Failed to load registry from disk: %s", str(exc).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom sanitize_log

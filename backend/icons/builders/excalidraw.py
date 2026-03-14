@@ -81,7 +81,7 @@ def build_excalidraw_library(
 
     elapsed = time.monotonic() - t0
     logger.info(
-        "Built Excalidraw library '%s' (%d icons, %.2fs)",
+        "Built Excalidraw library '%s' (%s icons, %ss)",
         str(pack_id).replace('\n', '').replace('\r', ''), str(len(library_items)).replace('\n', '').replace('\r', ''), str(elapsed).replace('\n', '').replace('\r', ''),  # lgtm[py/log-injection]
     )
 

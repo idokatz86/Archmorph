@@ -196,7 +196,7 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
     )
 
     if not classification["is_architecture_diagram"]:
-        logger.info("Image rejected for %s: %s (confidence: %.2f)", str(diagram_id).replace('\n', '').replace('\r', ''), str(classification["reason"]).replace('\n', '').replace('\r', ''), str(classification["confidence"]).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom sanitize_log
+        logger.info("Image rejected for %s: %s (confidence: %s)", str(diagram_id).replace('\n', '').replace('\r', ''), str(classification["reason"]).replace('\n', '').replace('\r', ''), str(classification["confidence"]).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom sanitize_log
         record_event("images_rejected", {"diagram_id": diagram_id, "image_type": classification["image_type"], "reason": classification["reason"]})
         raise ArchmorphException(
             status_code=422,
@@ -207,7 +207,7 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
             },
         )
 
-    logger.info("Image classified as architecture diagram for %s (confidence: %.2f)", str(diagram_id).replace('\n', '').replace('\r', ''), str(classification["confidence"]).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom sanitize_log
+    logger.info("Image classified as architecture diagram for %s (confidence: %s)", str(diagram_id).replace('\n', '').replace('\r', ''), str(classification["confidence"]).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom sanitize_log
 
     if isinstance(analysis_result_or_exc, Exception):
         logger.error("Vision analysis failed for %s: %s", str(diagram_id).replace('\n', '').replace('\r', ''), str(analysis_result_or_exc).replace('\n', '').replace('\r', ''), exc_info=True)  # codeql[py/log-injection] Handled by custom sanitize_log

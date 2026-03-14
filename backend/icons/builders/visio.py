@@ -147,7 +147,7 @@ def build_visio_stencil_pack(
 
     elapsed = time.monotonic() - t0
     logger.info(
-        "Built Visio stencil pack '%s' (%d icons, %.2fs)",
+        "Built Visio stencil pack '%s' (%s icons, %ss)",
         str(pack_id).replace('\n', '').replace('\r', ''), str(len(manifest_entries)).replace('\n', '').replace('\r', ''), str(elapsed).replace('\n', '').replace('\r', ''),  # lgtm[py/log-injection]
     )
 
