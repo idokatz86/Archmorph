@@ -41,7 +41,7 @@ class IssueType(str, Enum):
 import json
 import os
 
-_data_file_RELEASE_TIMELINE = os.path.join(os.path.dirname(__file__), 'data', 'roadmap.json')
+_data_file_RELEASE_TIMELINE = os.path.join(os.path.dirname(__file__), 'assets', 'roadmap.json')
 try:
     with open(_data_file_RELEASE_TIMELINE, 'r') as _f:
         RELEASE_TIMELINE = json.load(_f)

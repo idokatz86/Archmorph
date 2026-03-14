@@ -10,7 +10,6 @@ Output is deterministic: same input icons → byte-identical JSON.
 
 from __future__ import annotations
 
-from utils.logger_utils import sanitize_log
 
 import base64
 import json
@@ -48,7 +47,7 @@ def build_excalidraw_library(
     cache_key = f"excalidraw:{pack_id}"
     cached = get_cached_asset(cache_key)
     if cached is not None:
-        logger.info("Returning cached Excalidraw library for %s", sanitize_log(pack_id))  # codeql[py/log-injection] Handled by custom sanitize_log
+        logger.info("Returning cached Excalidraw library for %s", str(pack_id).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom sanitize_log
         return cached
 
     icons = get_pack_icons(pack_id)
@@ -83,7 +82,7 @@ def build_excalidraw_library(
     elapsed = time.monotonic() - t0
     logger.info(
         "Built Excalidraw library '%s' (%d icons, %.2fs)",
-        sanitize_log(pack_id), sanitize_log(len(library_items)), sanitize_log(elapsed),  # lgtm[py/log-injection]
+        str(pack_id).replace('\n', '').replace('\r', ''), str(len(library_items)).replace('\n', '').replace('\r', ''), str(elapsed).replace('\n', '').replace('\r', ''),  # lgtm[py/log-injection]
     )
 
     return result

@@ -18,7 +18,6 @@ Output is deterministic: same input icons → byte-identical ZIP/manifest.
 
 from __future__ import annotations
 
-from utils.logger_utils import sanitize_log
 
 import base64
 import io
@@ -75,7 +74,7 @@ def build_visio_stencil_pack(
     cache_key = f"visio:{pack_id}:{include_png}"
     cached = get_cached_asset(cache_key)
     if cached is not None:
-        logger.info("Returning cached Visio stencil pack for %s", sanitize_log(pack_id))  # codeql[py/log-injection] Handled by custom sanitize_log
+        logger.info("Returning cached Visio stencil pack for %s", str(pack_id).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom sanitize_log
         return cached
 
     icons = get_pack_icons(pack_id)
@@ -105,7 +104,7 @@ def build_visio_stencil_pack(
                     zf.writestr(png_filename, png_bytes)
                     has_png = True
                 except Exception as exc:
-                    logger.warning("PNG rasterization failed for %s: %s", sanitize_log(slug), sanitize_log(exc))  # codeql[py/log-injection] Handled by custom sanitize_log
+                    logger.warning("PNG rasterization failed for %s: %s", str(slug).replace('\n', '').replace('\r', ''), str(exc).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom sanitize_log
 
             # Build SVG data URI for embedding in Visio shapes
             svg_b64 = base64.b64encode(icon.svg.encode("utf-8")).decode("ascii")
@@ -149,7 +148,7 @@ def build_visio_stencil_pack(
     elapsed = time.monotonic() - t0
     logger.info(
         "Built Visio stencil pack '%s' (%d icons, %.2fs)",
-        sanitize_log(pack_id), sanitize_log(len(manifest_entries)), sanitize_log(elapsed),  # lgtm[py/log-injection]
+        str(pack_id).replace('\n', '').replace('\r', ''), str(len(manifest_entries)).replace('\n', '').replace('\r', ''), str(elapsed).replace('\n', '').replace('\r', ''),  # lgtm[py/log-injection]
     )
 
     return result

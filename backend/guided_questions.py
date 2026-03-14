@@ -45,7 +45,7 @@ Answers = dict[str, Any]
 import json
 import os
 
-_data_file_QUESTION_BANK = os.path.join(os.path.dirname(__file__), 'data', 'guided_questions_bank.json')
+_data_file_QUESTION_BANK = os.path.join(os.path.dirname(__file__), 'assets', 'guided_questions_bank.json')
 try:
     with open(_data_file_QUESTION_BANK, 'r') as _f:
         QUESTION_BANK = json.load(_f)

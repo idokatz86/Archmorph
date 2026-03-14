@@ -11,7 +11,6 @@ Output is deterministic: same input icons → byte-identical XML.
 
 from __future__ import annotations
 
-from utils.logger_utils import sanitize_log
 
 import base64
 import logging
@@ -86,7 +85,7 @@ def build_drawio_library(
     elapsed = time.monotonic() - t0
     logger.info(
         "Built draw.io library '%s' (%d icons, %s mode, %.2fs)",
-        sanitize_log(pack_id), sanitize_log(len(entries)), sanitize_log(embed_mode), sanitize_log(elapsed),  # lgtm[py/log-injection]
+        str(pack_id).replace('\n', '').replace('\r', ''), str(len(entries)).replace('\n', '').replace('\r', ''), str(embed_mode).replace('\n', '').replace('\r', ''), str(elapsed).replace('\n', '').replace('\r', ''),  # lgtm[py/log-injection]
     )
 
     return result

@@ -20,7 +20,7 @@ from typing import Any
 
 import os
 
-_data_file_AZURE_STENCILS = os.path.join(os.path.dirname(__file__), 'data', 'diagram_stencils.json')
+_data_file_AZURE_STENCILS = os.path.join(os.path.dirname(__file__), 'assets', 'diagram_stencils.json')
 try:
     with open(_data_file_AZURE_STENCILS, 'r') as _f:
         AZURE_STENCILS = json.load(_f)
