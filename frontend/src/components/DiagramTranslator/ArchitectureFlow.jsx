@@ -162,7 +162,8 @@ export default function ArchitectureFlow({ analysis }) {
       // or just let dagre place them side by side
     }
 
-    return getLayoutedElements(nodes, edges);
+    const layouted = getLayoutedElements(nodes, edges);
+    return { initialNodes: layouted.nodes, initialEdges: layouted.edges };
   }, [analysis]);
 
   const [nodes, setNodes] = React.useState(initialNodes);
