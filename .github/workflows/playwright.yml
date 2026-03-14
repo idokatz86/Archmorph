@@ -11,17 +11,42 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
+    
     - uses: actions/setup-node@v4
       with:
         node-version: lts/*
+        
+    - name: Start Application Locally
+      run: |
+        cp backend/.env.example backend/.env
+        docker compose up -d
+        echo "Waiting for services to be healthy..."
+        for i in {1..18}; do
+          if docker inspect --format="{{json .State.Health.Status}}" archmorph-backend-1 2>/dev/null | grep -q "healthy"; then
+            echo "Backend is healthy!"
+            break
+          fi
+          echo "Waiting..."
+          sleep 5
+        done
+        
     - name: Install dependencies
       run: npm install --no-fund --no-audit
+      
     - name: Install Playwright Browsers
       run: npx playwright install --with-deps
+      
     - name: Run Playwright tests
       run: npx playwright test
       env:
-        FRONTEND_URL: "https://archmorphai.com"
+        FRONTEND_URL: "http://localhost:5173"
+        API_BASE: "http://localhost:8000"
+        ADMIN_KEY: "test-admin-key"
+        
+    - name: Dump docker logs on failure
+      if: failure()
+      run: docker compose logs backend
+      
     - uses: actions/upload-artifact@v4
       if: ${{ !cancelled() }}
       with:
