@@ -114,9 +114,9 @@ test.describe('Feedback Widget', () => {
   test('feedback modal has mode tabs (Rate, Feature, Bug)', async ({ page }) => {
     await page.goto('/');
     await page.locator('header button[title="Give Feedback"]').click();
-    await expect(page.getByRole('button', { name: /Rate/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: /Feature/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: /Bug/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: '⭐ Rate' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '💡 Feature' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '🐛 Bug' })).toBeVisible();
   });
 
   test('feedback modal closes on X click', async ({ page }) => {
@@ -143,7 +143,7 @@ test.describe('Feedback Widget', () => {
   test('feedback Bug tab shows description field', async ({ page }) => {
     await page.goto('/');
     await page.locator('header button[title="Give Feedback"]').click();
-    await page.getByRole('button', { name: /Bug/i }).click();
+    await page.getByRole('button', { name: '🐛 Bug' }).click();
     await expect(page.getByPlaceholder('Describe the issue')).toBeVisible();
   });
 });

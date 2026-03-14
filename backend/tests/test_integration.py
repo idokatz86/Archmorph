@@ -375,12 +375,18 @@ class TestFullPipelineIntegration:
         assert resp.status_code == 200
 
         # Generate IaC
-        resp = client.post(f"/api/diagrams/{diagram_id}/generate?format=terraform")
+        with patch("routers.iac_routes.generate_iac_code") as mock_iac:
+            mock_iac.return_value = "resource aws_s3_bucket mock {}"
+            resp = client.post(f"/api/diagrams/{diagram_id}/generate?format=terraform")
         assert resp.status_code == 200
         assert "resource" in resp.json()["code"] or "provider" in resp.json()["code"]
 
         # Export drawio
-        resp = client.post(f"/api/diagrams/{diagram_id}/export-diagram?format=drawio")
+        with patch("routers.analysis.mcp_client.generate_diagram") as mock_diagram:
+            async def mock_gen(*args, **kwargs):
+                return "<mxGraphModel></mxGraphModel>"
+            mock_diagram.side_effect = mock_gen
+            resp = client.post(f"/api/diagrams/{diagram_id}/export-diagram?format=drawio")
         assert resp.status_code == 200
         assert resp.json()["format"] == "drawio"
 
