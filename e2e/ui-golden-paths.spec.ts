@@ -18,10 +18,14 @@ test.describe('Golden Paths: Core UI & React Flow Canvas', () => {
       sessionStorage.setItem('archmorph_session_test-123', JSON.stringify({
         diagramId: 'test-123',
         analysis: {
-           mapped_services: [
-             { id: '1', service_name: 'test', provider_name: 'aws' }
+           mappings: [
+             {
+               source_service: 'Amazon EC2',
+               azure_service: 'Azure Virtual Machines',
+               source_provider: 'aws'
+             }
            ],
-           relationships: []
+           service_connections: []
         },
         ts: Date.now()
       }));
