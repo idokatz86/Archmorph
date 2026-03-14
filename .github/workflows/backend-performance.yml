@@ -1,0 +1,38 @@
+name: Backend Performance K6 Tests
+
+on:
+  push:
+    branches: [ main, staging ]
+  pull_request:
+    branches: [ main, staging ]
+
+jobs:
+  k6-load-test:
+    name: "SLA Verification (100 RPS, <5s p99)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Use fallback environment variables
+        run: cp backend/.env.example backend/.env
+      
+      - name: Start Application Locally
+        run: |
+          # Only spin up backend, skipping bloated frontend for pure API testing 
+          docker compose up -d backend
+          
+          echo "Waiting for backend to stabilize..."
+          for i in {1..30}; do curl -s http://localhost:8000/api/health > /dev/null && break || sleep 2; done
+          docker compose ps
+          
+      - name: Run k6 Load Test
+        uses: grafana/k6-action@v0.3.1
+        with:
+          filename: backend/tests/performance/api_load_test.js
+        env:
+          API_BASE_URL: "http://localhost:8000"
+          
+      - name: Dump docker logs on failure
+        if: failure()
+        run: docker compose logs backend
