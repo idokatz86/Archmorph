@@ -1,4 +1,3 @@
-import logging
 from typing import Any
 
 def sanitize_log(val: Any) -> Any:
