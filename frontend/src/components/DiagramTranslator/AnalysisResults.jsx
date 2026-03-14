@@ -12,8 +12,6 @@ const ArchitectureFlow = lazy(() => import('./ArchitectureFlow'));
 
 /* ── Strengths/Limitations Panel for a mapping ──────────── */
 function DeepDivePanel({ m }) {
-  const [tab, setTab] = useState('strengths');
-  
   const isDummy = (v) => {
     if (!v) return true;
     const s = String(v).toLowerCase().trim();
@@ -28,8 +26,12 @@ function DeepDivePanel({ m }) {
   const strengths = (m.strengths || []).filter(isRealItem);
   const limitations = (m.limitations || []).filter(isRealItem);
   const migrationNotes = (m.migration_notes || []).filter(isRealItem);
+  
   const origDataCount = (m.strengths?.length || 0) + (m.limitations?.length || 0) + (m.migration_notes?.length || 0);
   const hasData = origDataCount > 0;
+
+  const defaultTab = strengths.length > 0 ? 'strengths' : (limitations.length > 0 ? 'limitations' : 'migration');
+  const [tab, setTab] = useState(defaultTab);
 
   if (!hasData) return null;
 
@@ -40,7 +42,7 @@ function DeepDivePanel({ m }) {
           { id: 'strengths', label: 'Strengths', count: strengths.length, color: 'text-cta' },
           { id: 'limitations', label: 'Limitations', count: limitations.length, color: 'text-danger' },
           { id: 'migration', label: 'Migration', count: migrationNotes.length, color: 'text-info' },
-        ].map(t => (
+        ].filter(t => t.id === 'limitations' || t.count > 0).map(t => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
@@ -94,11 +96,16 @@ function DeepDivePanel({ m }) {
         <div key={i} className="flex items-start gap-2 text-xs text-text-secondary">
           <ArrowRight className="w-3.5 h-3.5 text-info shrink-0 mt-0.5" />
           <div>
-            <Badge variant="azure" className="text-[9px] mr-1.5">{n.area}</Badge>
+            <Badge variant="azure" className="text-[9px] mr-1.5">{n.area || 'General'}</Badge>
             <span className="text-text-muted">{n.note}</span>
             <Badge variant={n.effort === 'high' ? 'low' : n.effort === 'low' ? 'high' : 'medium'} className="ml-1.5 text-[9px]">
-              {n.effort} effort
+              {n.effort || 'unknown'} effort
             </Badge>
+            {n.doc_link && (
+              <a href={n.doc_link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[10px] text-cta hover:underline mt-0.5 block">
+                <ExternalLink className="w-2.5 h-2.5" /> Reference Guide
+              </a>
+            )}
           </div>
         </div>
       ))}
