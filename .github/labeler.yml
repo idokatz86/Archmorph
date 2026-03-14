@@ -1,0 +1,26 @@
+"area: backend":
+  - changed-files:
+    - any-glob-to-any-file: 'backend/**/*'
+
+"area: frontend":
+  - changed-files:
+    - any-glob-to-any-file: 'frontend/**/*'
+
+"area: infrastructure":
+  - changed-files:
+    - any-glob-to-any-file: 'infra/**/*'
+
+"area: ci-cd":
+  - changed-files:
+    - any-glob-to-any-file: '.github/workflows/**/*'
+    - any-glob-to-any-file: '.github/dependabot.yml'
+
+"area: testing":
+  - changed-files:
+    - any-glob-to-any-file: 'e2e/**/*'
+    - any-glob-to-any-file: 'playwright.config.ts'
+
+"area: docs":
+  - changed-files:
+    - any-glob-to-any-file: 'docs/**/*'
+    - any-glob-to-any-file: '*.md'

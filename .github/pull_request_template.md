@@ -26,6 +26,7 @@
 ## Definition of Done Checklist
 
 ### Code Quality
+- [ ] PR title follows Semantic Pull Request format (`feat:`, `fix:`, `chore:`, etc.)
 - [ ] Code follows project style guidelines (ruff, ESLint)
 - [ ] Self-review completed
 - [ ] No `console.log` / debug prints left in production code
