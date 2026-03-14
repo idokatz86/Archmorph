@@ -153,6 +153,12 @@ def init_db() -> None:
         db_dir = os.path.dirname(db_path)
         if db_dir:
             os.makedirs(db_dir, exist_ok=True)
+    else:
+        # Before creating tables in PostgreSQL, ensure vector extension exists
+        from sqlalchemy import text
+        with engine.connect() as conn:
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+            conn.commit()
 
     Base.metadata.create_all(bind=engine)
     logger.info("Database initialized: %s (%d tables)", DATABASE_URL, len(Base.metadata.tables))

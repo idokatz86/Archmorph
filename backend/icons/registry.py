@@ -392,20 +392,7 @@ def load_builtin_packs() -> int:
             logger.debug("Pack '%s' already loaded, skipping", str(provider_name).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
             continue
         try:
-            files, manifest_raw = _read_folder(provider_dir, None)
-            if not files:
-                continue
-            manifest = manifest_raw or {}
-            pack_manifest = IconPackManifest(
-                name=manifest.get("name", provider_name),
-                provider=manifest.get("provider", provider_name),
-                version=manifest.get("version", "1.0.0"),
-                description=manifest.get("description", f"Built-in {provider_name} icon pack"),
-            )
-            items = []
-            for item_data in manifest.get("icons", []):
-                items.append(IconPackItem(**item_data))
-            ingest_icon_pack(pack_manifest, files, items=items, pack_id=provider_name)
+            ingest_icon_pack(provider_dir, pack_id=provider_name)
             loaded += 1
         except Exception as exc:  # noqa: BLE001 — icon resolution is best-effort
             logger.warning("Failed to load builtin pack '%s': %s", str(provider_name).replace('\n', '').replace('\r', ''), str(exc).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom

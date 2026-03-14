@@ -40,7 +40,7 @@ jobs:
         npx playwright test --project=chromium
       env:
         FRONTEND_URL: "http://localhost:5173"
-        API_BASE: "http://localhost:8000"
+        API_BASE: "http://localhost:8000/api"
         ADMIN_KEY: "test-admin-key"
         
     - name: Dump docker logs on failure
