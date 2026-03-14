@@ -298,7 +298,7 @@ async def request_data_deletion(request: Request, data: DeletionRequest) -> Dict
     record["sessions_cleared"] = sessions_cleared
 
     logger.info(
-        "Data deletion completed: request_id=%s email=%s sessions_cleared=%d",
+        "Data deletion completed: request_id=%s email=%s sessions_cleared=%s",
         str(request_id).replace('\n', '').replace('\r', ''), str(data.email).replace('\n', '').replace('\r', ''), str(sessions_cleared).replace('\n', '').replace('\r', ''),  # lgtm[py/log-injection]
     )
 
