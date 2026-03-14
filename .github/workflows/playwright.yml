@@ -19,16 +19,8 @@ jobs:
     - name: Start Application Locally
       run: |
         cp backend/.env.example backend/.env
-        docker compose up -d
-        echo "Waiting for services to be healthy..."
-        for i in {1..18}; do
-          if docker inspect --format="{{json .State.Health.Status}}" archmorph-backend-1 2>/dev/null | grep -q "healthy"; then
-            echo "Backend is healthy!"
-            break
-          fi
-          echo "Waiting..."
-          sleep 5
-        done
+        docker compose up -d --wait
+        echo "Services are up!"
         
     - name: Install dependencies
       run: npm install --no-fund --no-audit
