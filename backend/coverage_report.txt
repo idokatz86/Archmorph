@@ -1,0 +1,270 @@
+........................................................................ [  4%]
+........................................................................ [  9%]
+........................................................................ [ 14%]
+........................................................................ [ 19%]
+........................................................................ [ 24%]
+........................................................................ [ 29%]
+........................................................................ [ 34%]
+........................................................................ [ 39%]
+.......FFF.............................................................. [ 44%]
+........................................................................ [ 49%]
+........................................................................ [ 54%]
+........................................................................ [ 59%]
+........................................................................ [ 64%]
+........................................................................ [ 69%]
+........................................................................ [ 74%]
+........................................................................ [ 79%]
+......................................s................................. [ 84%]
+........................................................................ [ 89%]
+........................................................................ [ 94%]
+........................................................................ [ 99%]
+.........                                                                [100%]
+=================================== FAILURES ===================================
+___________________ TestCachedChatCompletion.test_cache_hit ____________________
+tests/test_gpt_cache.py:76: in test_cache_hit
+    assert mock_client.chat.completions.create.call_count == 1
+E   AssertionError: assert 0 == 1
+E    +  where 0 = <MagicMock name='get_openai_client().chat.completions.create' id='4604813936'>.call_count
+E    +    where <MagicMock name='get_openai_client().chat.completions.create' id='4604813936'> = <MagicMock name='get_openai_client().chat.completions' id='4604816960'>.create
+E    +      where <MagicMock name='get_openai_client().chat.completions' id='4604816960'> = <MagicMock name='get_openai_client().chat' id='4604820656'>.completions
+E    +        where <MagicMock name='get_openai_client().chat' id='4604820656'> = <MagicMock name='get_openai_client()' id='4604819984'>.chat
+__________________ TestCachedChatCompletion.test_bypass_cache __________________
+tests/test_gpt_cache.py:99: in test_bypass_cache
+    assert mock_client.chat.completions.create.call_count == 2
+E   AssertionError: assert 0 == 2
+E    +  where 0 = <MagicMock name='get_openai_client().chat.completions.create' id='4673931648'>.call_count
+E    +    where <MagicMock name='get_openai_client().chat.completions.create' id='4673931648'> = <MagicMock name='get_openai_client().chat.completions' id='4673931312'>.create
+E    +      where <MagicMock name='get_openai_client().chat.completions' id='4673931312'> = <MagicMock name='get_openai_client().chat' id='4673929968'>.completions
+E    +        where <MagicMock name='get_openai_client().chat' id='4673929968'> = <MagicMock name='get_openai_client()' id='4673930640'>.chat
+____________ TestCachedChatCompletion.test_different_params_no_hit _____________
+tests/test_gpt_cache.py:113: in test_different_params_no_hit
+    assert mock_client.chat.completions.create.call_count == 2
+E   AssertionError: assert 0 == 2
+E    +  where 0 = <MagicMock name='get_openai_client().chat.completions.create' id='4673935008'>.call_count
+E    +    where <MagicMock name='get_openai_client().chat.completions.create' id='4673935008'> = <MagicMock name='get_openai_client().chat.completions' id='4673934336'>.create
+E    +      where <MagicMock name='get_openai_client().chat.completions' id='4673934336'> = <MagicMock name='get_openai_client().chat' id='4673934672'>.completions
+E    +        where <MagicMock name='get_openai_client().chat' id='4673934672'> = <MagicMock name='get_openai_client()' id='4604816288'>.chat
+=============================== warnings summary ===============================
+routers/agents.py:42
+  /Users/idokatz/VSCode/Archmorph/backend/tests/../routers/agents.py:42: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class AgentResponseSchema(BaseModel):
+
+routers/executions.py:21
+  /Users/idokatz/VSCode/Archmorph/backend/tests/../routers/executions.py:21: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class ExecutionResponseSchema(BaseModel):
+
+routers/agent_memory.py:13
+  /Users/idokatz/VSCode/Archmorph/backend/tests/../routers/agent_memory.py:13: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class DocumentResponseSchema(BaseModel):
+
+routers/agent_memory.py:23
+  /Users/idokatz/VSCode/Archmorph/backend/tests/../routers/agent_memory.py:23: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class EpisodeResponseSchema(BaseModel):
+
+routers/agent_memory.py:32
+  /Users/idokatz/VSCode/Archmorph/backend/tests/../routers/agent_memory.py:32: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class EntityResponseSchema(BaseModel):
+
+routers/policies.py:19
+  /Users/idokatz/VSCode/Archmorph/backend/tests/../routers/policies.py:19: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class PolicyResponseSchema(BaseModel):
+
+routers/models.py:21
+  /Users/idokatz/VSCode/Archmorph/backend/tests/../routers/models.py:21: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class ModelEndpointResponseSchema(BaseModel):
+
+tests/test_admin_auth.py::TestAdminAuth::test_create_and_validate_token
+tests/test_admin_auth.py::TestAdminAuth::test_revoke_token
+tests/test_admin_auth.py::TestAdminAuth::test_expired_token
+  /Users/idokatz/VSCode/Archmorph/backend/.venv/lib/python3.13/site-packages/jwt/api_jwt.py:153: InsecureKeyLengthWarning: The HMAC key is 13 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.
+    return self._jws.encode(
+
+tests/test_admin_auth.py::TestAdminAuth::test_create_and_validate_token
+tests/test_admin_auth.py::TestAdminAuth::test_revoke_token
+tests/test_admin_auth.py::TestAdminAuth::test_expired_token
+  /Users/idokatz/VSCode/Archmorph/backend/.venv/lib/python3.13/site-packages/jwt/api_jwt.py:371: InsecureKeyLengthWarning: The HMAC key is 13 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.
+    decoded = self.decode_complete(
+
+tests/test_admin_auth.py: 3 warnings
+tests/test_api.py: 5 warnings
+tests/test_integration.py: 3 warnings
+  /Users/idokatz/VSCode/Archmorph/backend/.venv/lib/python3.13/site-packages/jwt/api_jwt.py:153: InsecureKeyLengthWarning: The HMAC key is 24 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.
+    return self._jws.encode(
+
+tests/test_admin_auth.py: 3 warnings
+tests/test_api.py: 6 warnings
+tests/test_integration.py: 6 warnings
+  /Users/idokatz/VSCode/Archmorph/backend/.venv/lib/python3.13/site-packages/jwt/api_jwt.py:371: InsecureKeyLengthWarning: The HMAC key is 24 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.
+    decoded = self.decode_complete(
+
+tests/test_agent_paas_real.py::test_models_registry_create
+tests/test_agent_paas_real.py::test_models_registry_create
+tests/test_agent_paas_real.py::test_agent_policy_lifecycle
+tests/test_agent_paas_real.py::test_agent_policy_lifecycle
+  /Users/idokatz/VSCode/Archmorph/backend/.venv/lib/python3.13/site-packages/sqlalchemy/sql/schema.py:3596: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return util.wrap_callable(lambda ctx: fn(), fn)  # type: ignore
+
+tests/test_audit_logging.py::TestAuditDecorators::test_audit_admin_action_decorator
+  /Users/idokatz/VSCode/Archmorph/backend/tests/test_audit_logging.py:708: DeprecationWarning: There is no current event loop
+    result = asyncio.get_event_loop().run_until_complete(my_route(request=request))
+
+tests/test_database.py::TestBaseRepository::test_create_and_get_by_id
+tests/test_database.py::TestBaseRepository::test_delete_by_id
+tests/test_database.py::TestBaseRepository::test_delete_by_id
+  /Users/idokatz/VSCode/Archmorph/backend/tests/../repositories/base.py:41: LegacyAPIWarning: The Query.get() method is considered legacy as of the 1.x series of SQLAlchemy and becomes a legacy construct in 2.0. The method is now available as Session.get() (deprecated since: 2.0) (Background on SQLAlchemy 2.0 at: https://sqlalche.me/e/b8d9)
+    return self.db.query(self.model).get(record_id)
+
+tests/test_job_queue.py::TestJobsRouter::test_stream_endpoint_returns_sse
+  /Users/idokatz/VSCode/Archmorph/backend/.venv/lib/python3.13/site-packages/starlette/testclient.py:439: DeprecationWarning: You should not use the 'timeout' argument with the TestClient. See https://github.com/Kludex/starlette/issues/1108 for more information.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================================ tests coverage ================================
+______________ coverage: platform darwin, python 3.13.12-final-0 _______________
+
+Name                             Stmts   Miss  Cover   Missing
+--------------------------------------------------------------
+admin_auth.py                       54      2  96.3%   60, 100
+ai_suggestion.py                   177     27  84.7%   59, 178, 452, 476, 524-537, 600-608, 650, 669, 728, 730, 732, 772, 780, 782, 784, 807
+analytics.py                       203      6  97.0%   144, 162, 224, 242, 298, 534
+api_versioning.py                   37      0 100.0%
+audit_logging.py                   368     17  95.4%   252-253, 413-418, 427, 447-448, 481-482, 513, 526, 671, 742-743, 745-746
+auth.py                            236     81  65.7%   95, 153, 197-198, 205-206, 259-283, 288-346, 351-424
+best_practices.py                   85      4  95.3%   492-493, 506-507
+chatbot.py                         142     15  89.4%   54-60, 204, 279-280, 314-321, 335-337
+compliance_mapper.py               157     13  91.7%   349-350, 561, 632, 638, 640-644, 660-661, 686
+cost_optimizer.py                  103     19  81.6%   255-256, 268-269, 323-325, 342-366
+data/__init__.py                     0      0 100.0%
+data/aws_services.py                 3      3   0.0%   6-293
+data/gcp_services.py                 2      2   0.0%   221-222
+database.py                         62     11  82.3%   55-56, 84, 114-117, 137-138, 163, 168
+diagram_export.py                  416     43  89.7%   27-28, 88-89, 105-107, 356-357, 397-400, 425-465, 490-493, 533-536, 639-642, 667-693, 717, 877, 891
+error_envelope.py                   40      0 100.0%
+feature_flags.py                   125      2  98.4%   144, 246
+feedback.py                        158     25  84.2%   58-62, 112-114, 132-133, 141-142, 187, 202, 234, 248, 296, 314, 328, 365, 382-388
+guided_questions.py                410     71  82.7%   52-53, 182-185, 316, 559-571, 584-585, 593-594, 622-628, 634-635, 641, 644-646, 652, 660-661, 666, 707-711, 734-735, 766, 771, 796-797, 853, 888-893, 915-916, 934, 944-949, 978-980, 991, 1041-1046, 1076, 1110-1111
+hld_export.py                      581     11  98.1%   132, 134, 264, 439, 441, 469-470, 681, 683, 709-710
+hld_generator.py                   210      3  98.6%   306, 340, 461
+iac_chat.py                         64      3  95.3%   117-118, 128
+iac_generator.py                   185     33  82.2%   29, 206, 271, 288, 294, 303, 307, 311, 329, 335, 344, 348, 365, 369, 387, 391-392, 396, 400, 404, 408-409, 413, 522-523, 533, 600-606, 633-634
+icons/__init__.py                    0      0 100.0%
+icons/builders/__init__.py           0      0 100.0%
+icons/builders/drawio.py            55      2  96.4%   56-57
+icons/builders/excalidraw.py        40      2  95.0%   50-51
+icons/builders/visio.py             71      6  91.5%   77-78, 106-107, 164-165
+icons/models.py                     36      0 100.0%
+icons/registry.py                  219     62  71.7%   126-131, 135, 162-166, 237, 260, 262, 267, 311-325, 352-353, 359, 370-372, 380-412, 458-459
+icons/routes.py                     90     19  78.9%   59, 65-68, 79-87, 140-143, 214-215, 243-244
+icons/svg_sanitizer.py             103     18  82.5%   153-163, 167-169, 190-191, 200-201, 214
+image_classifier.py                 31      2  93.5%   124-125
+infra_import.py                    218     47  78.4%   357, 376, 384-385, 389, 393, 401, 410-414, 418-419, 457, 463-467, 470-471, 491, 496-499, 503, 507, 511, 517, 524-525, 559, 592, 675, 677, 679, 681, 683, 685, 687, 689, 691, 773, 775, 815, 824, 828
+job_queue.py                       151     32  78.8%   120, 130, 143, 156, 167, 190, 208-209, 218-221, 225-253, 259
+living_architecture.py             136    136   0.0%   15-325
+logging_config.py                   25      0 100.0%
+main.py                            194     17  91.2%   30-35, 107, 121-122, 128-129, 132-133, 263-264, 277-278
+mcp_diagram_generator.py            30      3  90.0%   38-39, 56
+migration_risk.py                  167     24  85.6%   145, 183, 213, 245, 266, 268, 270, 293, 303-308, 329, 337-339, 400, 427-428, 440, 452, 462
+models/__init__.py                  13      0 100.0%
+models/agent.py                     32      0 100.0%
+models/analytics.py                 32      4  87.5%   28-29, 57-58
+models/audit.py                     35      4  88.6%   34-35, 67-68
+models/deployment_state.py          14      0 100.0%
+models/execution.py                 24      0 100.0%
+models/feedback.py                  28      3  89.3%   25, 53-54
+models/infrastructure.py            37      0 100.0%
+models/job.py                       22      2  90.9%   33-34
+models/memory.py                    42      3  92.9%   9-11
+models/model_registry.py            17      0 100.0%
+models/policy.py                    22      0 100.0%
+models/tenant.py                    61      3  95.1%   54, 87, 119
+models/usage.py                     21      2  90.5%   23, 45
+models/user_history.py              39     39   0.0%   3-76
+models/versioning.py                28      3  89.3%   28, 52-53
+observability.py                   189     62  67.2%   52, 61, 136, 177-204, 209-210, 267, 349, 370, 373-426
+openai_client.py                    90     10  88.9%   57-58, 63-64, 69-70, 75-76, 140, 354
+performance_config.py               30      2  93.3%   27, 128
+prompt_guard.py                     47      3  93.6%   260, 274-278
+rbac.py                             31     15  51.6%   24, 30, 33-34, 43, 51-67
+repositories/__init__.py             1      0 100.0%
+repositories/base.py                39      5  87.2%   51, 58, 68, 72, 76
+repositories/tenant.py              28     10  64.3%   17, 20, 27-30, 33, 38, 47, 50
+roadmap.py                         110     28  74.5%   48-49, 64, 69-100, 127, 139, 328
+routers/__init__.py                  0      0 100.0%
+routers/admin.py                   172     33  80.8%   102-130, 230-233, 286, 293-299, 313, 320-325, 335-337, 347, 361, 368, 375, 382
+routers/agent_memory.py             69     22  68.1%   46, 50-52, 56-63, 68-69, 73-75, 79-85
+routers/agents.py                  129     70  45.7%   55-91, 95-96, 100-103, 107-149, 153-159, 163-172, 176-177, 181-216
+routers/analysis.py                 83      6  92.8%   97-99, 162, 170-171
+routers/auth.py                     69     28  59.4%   51-53, 57-67, 72, 79-89, 97-109, 116-126
+routers/chat.py                     28      1  96.4%   30
+routers/credentials.py              65     22  66.2%   50-52, 63-77, 88-102, 111-118, 133-144
+routers/deploy.py                   26     11  57.7%   31-48
+routers/diagrams.py                171     64  62.6%   101, 135, 137, 139, 141, 146, 148, 150-151, 178-179, 185-187, 199-201, 221, 244-248, 262-326
+routers/drift.py                    20      7  65.0%   22-28
+routers/executions.py               63     32  49.2%   42-77, 85-93, 101-116
+routers/feature_flags.py            35      8  77.1%   49-56
+routers/feedback.py                 33      1  97.0%   68
+routers/health.py                   65     22  66.2%   38-44, 50, 52, 55-57, 63-64, 67-70, 76, 80-81, 86-87
+routers/hld_routes.py              217    119  45.2%   53-54, 63-67, 93, 111-115, 128, 174-176, 182-201, 223-227, 243-247, 260-309, 325-419
+routers/iac_routes.py               79     25  68.4%   51-53, 120-124, 138-169
+routers/infra.py                    39     20  48.7%   40-72
+routers/insights.py                179    103  42.5%   55, 79-211, 312-313, 332-342, 357-367, 399-454
+routers/jobs.py                     38      2  94.7%   51, 61
+routers/legal.py                    72      5  93.1%   322, 358-361
+routers/models.py                   47      7  85.1%   58-68
+routers/policies.py                 55     15  72.7%   55-64, 68-79
+routers/privacy.py                 111      6  94.6%   289-294
+routers/roadmap.py                  49     11  77.6%   36, 55-65, 88-102
+routers/samples.py                  76      4  94.7%   243, 261, 265, 359
+routers/scanner_routes.py           50     33  34.0%   34-86
+routers/services.py                100      8  92.0%   112-113, 116, 139, 153, 155, 207-208
+routers/shared.py                   71     11  84.5%   55-56, 112-121
+routers/sharing.py                  26      0 100.0%
+routers/suggestions.py              60     19  68.3%   59-70, 79-83, 92-97, 106-108, 120-130
+routers/terraform.py                11      0 100.0%
+routers/tf_backend.py               84     61  27.4%   18-27, 31-34, 38-59, 63-89, 93-116, 120-132
+routers/v1.py                       22      1  95.5%   41
+routers/versioning.py               38     16  57.9%   22-32, 39, 46-50, 57-64, 76
+run_server.py                       17     17   0.0%   1-19
+scanners/__init__.py                 0      0 100.0%
+scanners/aws_scanner.py             39     27  30.8%   19-21, 29-32, 35-37, 40-42, 45-46, 53-99
+scanners/azure_scanner.py           44     30  31.8%   59-66, 73-74, 78-79, 83-84, 91-149
+scanners/gcp_scanner.py             47     33  29.8%   53-61, 65-66, 72-131, 145-146
+service_builder.py                 163     17  89.6%   139-140, 227, 308-309, 438, 448, 470-472, 478-479, 481-482, 534-535, 550
+service_updater.py                 238    101  57.6%   146-150, 154-155, 158-164, 406-414, 419-438, 443-460, 479-585
+services/__init__.py                34      2  94.1%   26-28
+services/agent_memory.py            78     78   0.0%   1-150
+services/agent_runner.py            72     63  12.5%   14-15, 18-131
+services/aws_services.py             1      0 100.0%
+services/azure_pricing.py          264     43  83.7%   976-977, 982-984, 986-988, 1001, 1016-1018, 1025-1029, 1032-1033, 1055-1056, 1064-1066, 1078, 1085, 1102, 1129-1130, 1154-1155, 1191, 1195-1198, 1207, 1232-1233, 1236, 1240, 1489, 1503, 1537
+services/azure_services.py           1      0 100.0%
+services/credential_manager.py      37      3  91.9%   34-36
+services/drift_detection.py         28     21  25.0%   11-52, 55-67
+services/gcp_services.py             0      0 100.0%
+services/hld_service.py              9      9   0.0%   13-69
+services/mappings.py                 1      0 100.0%
+services/model_router.py            56     30  46.4%   27-34, 38, 46-54, 63-68, 73-80, 83-92, 100-104, 111-112, 115-129
+services/policy_engine.py           60     60   0.0%   1-99
+services/tenant_service.py         137    112  18.2%   64-65, 79-110, 115-116, 125-142, 147-157, 165-166, 176-189, 194-206, 221-248, 257-289, 302-306, 311-314
+services/terraform_runner.py        73     60  17.8%   14-15, 19-40, 44-67, 71-94, 98-121
+services/tool_registry.py           61     18  70.5%   53, 57, 68, 73-77, 86, 91-92, 96-101, 112-113
+services/usage_metering.py          69     11  84.1%   26-27, 145, 171-190
+session_store.py                   304     55  81.9%   69-72, 75, 78, 122, 125, 129-133, 144, 146, 221-222, 236, 248, 296-299, 304, 334-366, 376-379, 413-415, 421, 425-426, 432-433, 438-439, 466, 470, 517, 527-532, 538-544
+sse.py                              25      7  72.0%   80-90
+terraform_preview.py               160     33  79.4%   198-208, 220-315, 381, 411
+usage_metrics.py                   238     66  72.3%   96, 99, 101, 103, 115-138, 148-155, 164-168, 181-186, 194-195, 218-219, 224-231, 247-249, 252, 266, 270, 272, 297, 316, 331, 355-357
+utils/__init__.py                    0      0 100.0%
+utils/logger_utils.py                4      3  25.0%   2-4
+version.py                           1      0 100.0%
+versioning.py                      155      9  94.2%   188, 203, 216-217, 289, 297, 319, 338, 340
+visio_parser.py                    173    123  28.9%   127-156, 168-180, 189-198, 210-217, 228-250, 255-259, 264-273, 278-282, 287-290, 295-312, 317-322, 330-352, 357-373
+vision_analyzer.py                 202    100  50.5%   48-51, 69, 73, 404-410, 427-510, 522-650
+webhooks.py                        318     89  72.0%   84-85, 131, 136, 139, 207, 212, 228-254, 295-301, 304-305, 317-318, 335, 351, 353, 370-375, 413, 488-534, 539-549, 567-571, 584-653, 663-664
+--------------------------------------------------------------
+TOTAL                            11977   2972  75.2%
+Coverage HTML written to dir htmlcov
+Required test coverage of 60.0% reached. Total coverage: 75.19%
+=========================== short test summary info ============================
+FAILED tests/test_gpt_cache.py::TestCachedChatCompletion::test_cache_hit - As...
+FAILED tests/test_gpt_cache.py::TestCachedChatCompletion::test_bypass_cache
+FAILED tests/test_gpt_cache.py::TestCachedChatCompletion::test_different_params_no_hit
+3 failed, 1445 passed, 1 skipped, 48 warnings in 172.94s (0:02:52)

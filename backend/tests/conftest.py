@@ -145,3 +145,15 @@ def _test_timer(request):
         # Attach as a custom property so pytest-html / reporters can pick it up
         if hasattr(request.node, "user_properties"):
             request.node.user_properties.append(("duration_warning", f"{elapsed:.2f}s"))
+
+@pytest.fixture(autouse=True)
+def _global_openai_mock(monkeypatch):
+    """
+    Globally prevent live OpenAI calls by mocking cached_chat_completion.
+    Test execution speed will dramatically improve and flakiness will drop.
+    """
+    from unittest.mock import MagicMock
+    mock_resp = MagicMock()
+    mock_resp.choices = [MagicMock()]
+    mock_resp.choices[0].message.content = '{"result": "mocked"}'
+    monkeypatch.setattr("openai_client.cached_chat_completion", MagicMock(return_value=mock_resp))
