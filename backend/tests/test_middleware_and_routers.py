@@ -361,12 +361,12 @@ class TestV1RouterBuilder:
 class TestHLDExportRoutes:
     """Test HLD export endpoint at route level."""
 
-    def test_export_hld_requires_hld(self, client, clean_session):
-        """Export HLD without generating it first → 404."""
+    def test_export_hld_auto_generates(self, client, clean_session):
+        """Export HLD without generating it first auto-generates it → 200."""
         # Upload + analyze, but don't generate HLD
         diagram_id = _upload_and_analyze(client, clean_session)
         resp = client.post(f"/api/diagrams/{diagram_id}/export-hld?format=docx")
-        assert resp.status_code == 404
+        assert resp.status_code == 200
 
     def test_export_hld_invalid_format(self, client, clean_session):
         """Invalid export format → 400."""
