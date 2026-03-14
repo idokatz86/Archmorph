@@ -329,12 +329,17 @@ def generate_hld(
         logger.info("HLD response received (%s chars)", len(raw_text))
         hld = json.loads(raw_text)
 
+        if not isinstance(hld, dict):
+            raise ValueError(f"HLD generation failed: LLM returned valid JSON but not a dictionary. Got: type {type(hld)}")
+
     except Exception as exc:
         logger.error("HLD generation failed: %s", exc)
         raise ValueError(f"HLD generation failed: {exc}") from exc
 
     # Enrich with documentation links
-    for svc in hld.get("services", []):
+    for svc in hld.get("services") or []:
+        if not isinstance(svc, dict):
+            continue
         azure_name = svc.get("azure_service", "")
         if not svc.get("documentation_url"):
             svc["documentation_url"] = _find_doc_link(azure_name)
@@ -365,7 +370,11 @@ def generate_hld_markdown(hld: Dict[str, Any]) -> str:
     md.append("")
 
     # Architecture Overview
-    arch = hld.get("architecture_overview", {})
+    arch = hld.get("architecture_overview") or {}
+    if not isinstance(arch, dict):
+        arch = {}
+    if not isinstance(arch, dict):
+        arch = {}
     md.append("\n## 2. Architecture Overview\n")
     md.append(f"**Architecture Style:** {arch.get('architecture_style', 'N/A')}\n")
     md.append(f"**Deployment Model:** {arch.get('deployment_model', 'N/A')}\n")
@@ -374,10 +383,14 @@ def generate_hld_markdown(hld: Dict[str, Any]) -> str:
         md.append(f"\n### Data Flow\n{arch['diagram_description']}\n")
 
     # Services Detail
-    services = hld.get("services", [])
+    services = hld.get("services") or []
+    if not isinstance(services, list):
+        services = []
     if services:
         md.append("\n## 3. Azure Services — Detailed Design\n")
         for i, svc in enumerate(services, 1):
+            if not isinstance(svc, dict):  # Guard against LLM outputting strings instead of objects
+                continue
             md.append(f"\n### 3.{i}. {svc.get('azure_service', 'Unknown')}\n")
             if svc.get("source_service"):
                 md.append(f"**Replaces:** {svc['source_service']}\n")
@@ -403,7 +416,9 @@ def generate_hld_markdown(hld: Dict[str, Any]) -> str:
                 md.append(f"\n📖 [Documentation]({svc['documentation_url']})\n")
 
     # Networking Design
-    net = hld.get("networking_design", {})
+    net = hld.get("networking_design") or {}
+    if not isinstance(net, dict):
+        net = {}
     if net:
         md.append("\n## 4. Networking Design\n")
         md.append(f"**Topology:** {net.get('topology', 'N/A')}\n")
@@ -418,7 +433,9 @@ def generate_hld_markdown(hld: Dict[str, Any]) -> str:
                 md.append(f"- {r}")
 
     # Security Design
-    sec = hld.get("security_design", {})
+    sec = hld.get("security_design") or {}
+    if not isinstance(sec, dict):
+        sec = {}
     if sec:
         md.append("\n\n## 5. Security Design\n")
         for field, label in [("identity", "Identity & Access"), ("data_protection", "Data Protection"),
@@ -429,7 +446,9 @@ def generate_hld_markdown(hld: Dict[str, Any]) -> str:
             md.append(f"**Compliance Frameworks:** {', '.join(sec['compliance_frameworks'])}\n")
 
     # Data Architecture
-    data = hld.get("data_architecture", {})
+    data = hld.get("data_architecture") or {}
+    if not isinstance(data, dict):
+        data = {}
     if data:
         md.append("\n## 6. Data Architecture\n")
         for field, label in [("data_flow", "Data Flow"), ("storage_strategy", "Storage Strategy"),
@@ -439,7 +458,9 @@ def generate_hld_markdown(hld: Dict[str, Any]) -> str:
                 md.append(f"**{label}:** {data[field]}\n")
 
     # Azure CAF Alignment
-    caf = hld.get("azure_caf_alignment", {})
+    caf = hld.get("azure_caf_alignment") or {}
+    if not isinstance(caf, dict):
+        caf = {}
     if caf:
         md.append("\n## 7. Azure Cloud Adoption Framework Alignment\n")
         for field, label in [("landing_zone", "Landing Zone"), ("management_groups", "Management Groups"),
@@ -449,7 +470,9 @@ def generate_hld_markdown(hld: Dict[str, Any]) -> str:
                 md.append(f"**{label}:** {caf[field]}\n")
 
     # FinOps
-    fin = hld.get("finops", {})
+    fin = hld.get("finops") or {}
+    if not isinstance(fin, dict):
+        fin = {}
     if fin:
         md.append("\n## 8. FinOps — Cost Management\n")
         md.append(f"**Total Estimated Monthly Cost:** {fin.get('total_estimated_monthly_cost', 'N/A')}\n")
@@ -463,7 +486,9 @@ def generate_hld_markdown(hld: Dict[str, Any]) -> str:
             md.append(f"**Cost Monitoring:** {fin['cost_monitoring']}\n")
 
     # Region Strategy
-    region = hld.get("region_strategy", {})
+    region = hld.get("region_strategy") or {}
+    if not isinstance(region, dict):
+        region = {}
     if region:
         md.append("\n## 9. Region Strategy\n")
         md.append(f"**Primary Region:** {region.get('primary_region', 'N/A')}\n")
@@ -476,7 +501,9 @@ def generate_hld_markdown(hld: Dict[str, Any]) -> str:
             md.append(f"**Multi-Region:** {region['multi_region_considerations']}\n")
 
     # WAF Assessment
-    waf = hld.get("waf_assessment", {})
+    waf = hld.get("waf_assessment") or {}
+    if not isinstance(waf, dict):
+        waf = {}
     if waf:
         md.append("\n## 10. Well-Architected Framework Assessment\n")
         md.append("| Pillar | Score | Notes |")
@@ -487,7 +514,9 @@ def generate_hld_markdown(hld: Dict[str, Any]) -> str:
             md.append(f"| {label} | {p.get('score', 'N/A')} | {p.get('notes', '')} |")
 
     # Migration Approach
-    mig = hld.get("migration_approach", {})
+    mig = hld.get("migration_approach") or {}
+    if not isinstance(mig, dict):
+        mig = {}
     if mig:
         md.append("\n\n## 11. Migration Roadmap\n")
         md.append(f"**Strategy:** {mig.get('strategy', 'N/A')}\n")
@@ -508,14 +537,18 @@ def generate_hld_markdown(hld: Dict[str, Any]) -> str:
             md.append(f"**Testing Strategy:** {mig['testing_strategy']}\n")
 
     # Considerations
-    considerations = hld.get("considerations", [])
+    considerations = hld.get("considerations") or []
+    if not isinstance(considerations, list):
+        considerations = []
     if considerations:
         md.append("\n## 12. Key Considerations\n")
         for c in considerations:
             md.append(f"- {c}")
 
     # Risks & Mitigations
-    risks = hld.get("risks_and_mitigations", [])
+    risks = hld.get("risks_and_mitigations") or []
+    if not isinstance(risks, list):
+        risks = []
     if risks:
         md.append("\n\n## 13. Risks & Mitigations\n")
         md.append("| Risk | Impact | Mitigation |")
@@ -524,7 +557,9 @@ def generate_hld_markdown(hld: Dict[str, Any]) -> str:
             md.append(f"| {r.get('risk', '')} | {r.get('impact', '')} | {r.get('mitigation', '')} |")
 
     # Next Steps
-    next_steps = hld.get("next_steps", [])
+    next_steps = hld.get("next_steps") or []
+    if not isinstance(next_steps, list):
+        next_steps = []
     if next_steps:
         md.append("\n\n## 14. Next Steps\n")
         for i, s in enumerate(next_steps, 1):
