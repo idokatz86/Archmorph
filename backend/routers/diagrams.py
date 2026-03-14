@@ -93,7 +93,7 @@ async def upload_diagram(request: Request, project_id: str, file: UploadFile = F
 
     # Base64-encode for Redis/FileStore compatibility
     IMAGE_STORE[diagram_id] = (base64.b64encode(image_bytes).decode("ascii"), file.content_type)
-    logger.info("Stored image for %s (%d bytes, %s)", str(diagram_id).replace('\n', '').replace('\r', ''), str(len(image_bytes)).replace('\n', '').replace('\r', ''), str(file.content_type).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom sanitize_log
+    logger.info("Stored image for %s (%s bytes, %s)", str(diagram_id).replace('\n', '').replace('\r', ''), str(len(image_bytes)).replace('\n', '').replace('\r', ''), str(file.content_type).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom sanitize_log
 
     # Proactive capacity warning (#177)
     img_usage = len(IMAGE_STORE) / IMAGE_STORE.maxsize
@@ -170,7 +170,7 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
 
     image_b64, content_type = IMAGE_STORE[diagram_id]
     image_bytes = base64.b64decode(image_b64) if isinstance(image_b64, str) else image_b64
-    logger.info("Analyzing diagram %s (%d bytes)", str(diagram_id).replace('\n', '').replace('\r', ''), str(len(image_bytes)).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom sanitize_log
+    logger.info("Analyzing diagram %s (%s bytes)", str(diagram_id).replace('\n', '').replace('\r', ''), str(len(image_bytes)).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom sanitize_log
 
     # Pre-compress once to avoid double compression (#177)
     try:

@@ -326,7 +326,7 @@ def generate_hld(
         )
 
         raw_text = response.choices[0].message.content.strip()
-        logger.info("HLD response received (%d chars)", len(raw_text))
+        logger.info("HLD response received (%s chars)", len(raw_text))
         hld = json.loads(raw_text)
 
     except Exception as exc:

@@ -127,7 +127,7 @@ class InMemoryStore(SessionStore):
         # Evict oldest if adding this would exceed memory budget
         if self._total_bytes + entry_size > self.MAX_MEMORY_BYTES:
             logger.warning(
-                "InMemoryStore memory budget exceeded (%d + %d > %d bytes) — rejecting entry",
+                "InMemoryStore memory budget exceeded (%d + %d > %s bytes) — rejecting entry",
                 self._total_bytes, entry_size, self.MAX_MEMORY_BYTES,
             )
             return  # Silently drop — caller can retry
