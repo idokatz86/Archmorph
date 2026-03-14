@@ -9,7 +9,7 @@ def test_slugify():
 def test_create_organization():
     db_mock = MagicMock()
     # Mocking that slug doesn't exist yet
-    db_mock.query().filter().first.return_value = None
+    db_mock.query().filter_by().first.return_value = None
     
     # We will just verify it calls add and commit
     org = create_organization(db_mock, name="Test Org", owner_user_id="user1", owner_email="test@example.com")

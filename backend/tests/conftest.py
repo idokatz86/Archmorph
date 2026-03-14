@@ -158,5 +158,17 @@ def _global_openai_mock(request, monkeypatch):
     from unittest.mock import MagicMock
     mock_resp = MagicMock()
     mock_resp.choices = [MagicMock()]
-    mock_resp.choices[0].message.content = '{"result": "mocked"}'
+    mock_resp.choices[0].message.content = '{"result": "mocked", "services": [], "hld": {"title": "Test HLD", "services": [], "executive_summary": "Test", "architecture_overview": {}}, "action": "none", "timeline": []}'
+    
+    # Needs a mock token count
+    mock_resp.usage = MagicMock()
+    mock_resp.usage.total_tokens = 42
+
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.return_value = mock_resp
+
+    # Make get_openai_client() return our mock by setting the singleton
+    monkeypatch.setattr("openai_client._client", mock_client)
+    
+    # Also patch cached_chat_completion because people do `from openai_client import cached_chat_completion`
     monkeypatch.setattr("openai_client.cached_chat_completion", MagicMock(return_value=mock_resp))
