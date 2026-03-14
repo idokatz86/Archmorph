@@ -12,6 +12,20 @@ import { test, expect } from '@playwright/test';
 test.describe('Golden Paths: Core UI & React Flow Canvas', () => {
 
   test.beforeEach(async ({ page }) => {
+    // Mock session storage to bypass ML backend analysis (handled by k6/pytest)
+    await page.addInitScript(() => {
+      sessionStorage.setItem('archmorph_active_diagram', 'test-123');
+      sessionStorage.setItem('archmorph_session_test-123', JSON.stringify({
+        diagramId: 'test-123',
+        analysis: {
+           mapped_services: [
+             { id: '1', service_name: 'test', provider_name: 'aws' }
+           ],
+           relationships: []
+        },
+        ts: Date.now()
+      }));
+    });
     // Navigate to root to start cleanly
     await page.goto('/#translator');
   });
