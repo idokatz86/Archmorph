@@ -382,6 +382,25 @@
     }
   },
   {
+    "version": "3.1.x",
+    "name": "Roadmap for 3.1.x",
+    "date": null,
+    "status": "in_progress",
+    "highlights": [
+      "UX: Improve empty states across Dashboards (Drift & Services) (#438)",
+      "UX: Add 'Try a sample diagram' quick action to Landing Page Hero (#437)",
+      "UX: Fix misleading Hero copy on Landing Page regarding Multi-Cloud translation (#436)",
+      "UX: Relocate Legal Page link to a global footer instead of main navigation (#435)",
+      "Feature: Upgrade Diagram Generation using MCPs (#433)",
+      "Enhancement: Provide deeper context for Confidence Scores (#431)",
+      "[v3.1] User profile \u2014 personal details, preferences, and avatar (#247)",
+      "[v3.1] Social authentication \u2014 Microsoft, Google, GitHub sign-in (#246)",
+      "[v3.1] Persistent analysis history tied to user account (#245)",
+      "[v3.1] Migration timeline generator with dependency ordering (#231)",
+      "[v3.1] AI-powered cross-cloud mapping auto-suggestion (#230)"
+    ]
+  },
+  {
     "version": "3.1.0",
     "name": "Landing Page Redesign & GA",
     "date": "2026-02-25",
@@ -403,6 +422,27 @@
     }
   },
   {
+    "version": "3.2.x",
+    "name": "Roadmap for 3.2.x",
+    "date": null,
+    "status": "planned",
+    "highlights": [
+      "feat: Cross-Cloud FinOps & Security Overlay (Pre-Deployment) (#419)",
+      "feat: Upgrade Vision Analyzer to Native Multimodal (Azure OpenAI GPT-4o) (#417)",
+      "feat: One-Click Deploy to AWS, GCP, and Azure from Generated IaC (#412)",
+      "AI Agent PaaS: Proof of Concept (End-to-End Demo) [Track 2 \u2014 STU-MSFT] (#397)",
+      "AI Agent PaaS: RAG Pipeline (Document Ingestion, Vector Search, Retrieval) [Track 1 \u2014 Product Value] (#395)",
+      "AI Agent PaaS: Cost & Token Observability Dashboard [Track 1 \u2014 Product Value] (#392)",
+      "AI Agent PaaS: Microsoft Technology Architecture Mapping [Track 2 \u2014 STU-MSFT] (#381)",
+      "AI Agent PaaS: HLD \u2014 Vendor-Neutral High-Level System Design Document [Track 2 \u2014 STU-MSFT] (#380)",
+      "AI Agent PaaS: Control/Runtime design + routing/memory/policy + PoC (STU-MSFT) \u2014 Two-Track Strategy (#319)",
+      "[v3.2] Full analysis PDF report export (#236)",
+      "[v3.2] CLI tool for automation & CI/CD integration (#235)",
+      "[v3.2] Cost estimate drill-down with per-service configurability (#234)",
+      "[v3.2] Service dependency graph visualization (#233)"
+    ]
+  },
+  {
     "version": "3.2.0",
     "name": "Confidence Transparency",
     "date": "2026-02-25",
@@ -418,6 +458,21 @@
       "mappings": 122,
       "api_endpoints": 118
     }
+  },
+  {
+    "version": "3.3.x",
+    "name": "Roadmap for 3.3.x",
+    "date": null,
+    "status": "planned",
+    "highlights": [
+      "[DevOps] Multi-stage Docker, uv CI migration, container scanning, Helm probes, deploy gates (#378)",
+      "[QA] Test modernization: pytest-xdist, property tests, contract tests, model factories, 75% coverage (#375)",
+      "[Clean] Magic numbers, inconsistent error details, 138 missing docstrings (#317)",
+      "[Clean] High cyclomatic complexity - 8 deeply nested functions, 5 functions over 100 lines (#315)",
+      "[v3.3] Compliance framework mapping & gap analysis (#239)",
+      "[v3.3] Enforce RBAC & multi-tenant isolation (#238)",
+      "[v3.3] Collaboration \u2014 shared projects, comments & review workflow (#237)"
+    ]
   },
   {
     "version": "3.3.0",
@@ -518,17 +573,25 @@
   },
   {
     "version": "4.0.0",
-    "name": "Platform Maturity",
-    "date": "2026-06-01",
+    "name": "Roadmap for 4.0.0",
+    "date": null,
     "status": "planned",
     "highlights": [
-      "Multi-diagram project support (#241)",
-      "Pulumi & CDK IaC output support (#242)",
-      "VS Code extension for in-editor translation (#240)",
-      "Real infrastructure scanning via cloud SDKs (#243)",
-      "One-click 'Deploy to Azure' from generated IaC (#248)",
-      "Interactive before/after architecture visualization (#250)",
-      "Public API, webhooks & enterprise integrations (#259)"
+      "[Venture Advisory] Investor readiness: analytics funnel, metered billing, competitive benchmarks, marketplace listing (#379)",
+      "[VP R&D] Engineering toolchain modernization: pytest-xdist, uv, Ruff pre-commit, structured concurrency (#369)",
+      "[CTO] No load testing \u2014 SLA targets in performance_config.py untested (#290)",
+      "[Differentiator] Public API, webhooks & enterprise integrations (Slack, Teams, Jira) (#259)",
+      "[Differentiator] Migration Gallery \u2014 public anonymized success stories (#256)",
+      "[Differentiator] Migration replay \u2014 animated analysis timeline for presentations (#254)",
+      "[Differentiator] Built-in architecture diagram editor (canvas) (#253)",
+      "[Differentiator] Real-time collaborative migration workspace (#251)",
+      "[Differentiator] One-click \"Deploy to Azure\" from generated IaC (#248)",
+      "[Post-Beta] Re-enable Template Gallery (#244)",
+      "[v4.0] Real infrastructure scanning via cloud provider SDKs (#243)",
+      "[v4.0] Pulumi & CDK IaC output support (#242)",
+      "[v4.0] Multi-diagram project support (#241)",
+      "[v4.0] VS Code extension for in-editor architecture translation (#240)",
+      "[ROADMAP] Master: Archmorph v3.1 \u2192 v4.0 Strategic Roadmap (#229)"
     ]
   },
   {
@@ -565,6 +628,16 @@
       "Built-in architecture diagram editor (canvas) (#253)",
       "Migration replay \u2014 animated timeline for presentations (#254)",
       "AI Agent PaaS \u2014 control/runtime design (#319)"
+    ]
+  },
+  {
+    "version": "Future",
+    "name": "Open Roadmap Issues",
+    "date": null,
+    "status": "idea",
+    "highlights": [
+      "Epic: Cloud Scanner & Auto-Deploy \u2014 Sprint 8-11 Plan (8 Weeks) (#416)",
+      "[Epic] Live Cloud Discovery & Auto-Deployment to Target Cloud (#321)"
     ]
   }
 ]
