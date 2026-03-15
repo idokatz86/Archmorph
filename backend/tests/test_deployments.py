@@ -136,8 +136,8 @@ async def test_run_command_process_failed():
     mock_process = AsyncMock()
     mock_process.communicate.return_value = (b"stdout", b"stderr_error")
     mock_process.returncode = 1
-    
-    with patch("asyncio.create_subprocess_exec", return_value=mock_process) as mock_exec:
+
+    with patch("asyncio.create_subprocess_exec", return_value=mock_process):
         import pytest
         with pytest.raises(RuntimeError) as excinfo:
             await service._run_command(["az", "fail"])
