@@ -27,7 +27,7 @@ from routers.shared import (
 from job_queue import job_manager
 from usage_metrics import record_event, record_funnel_step
 from image_classifier import classify_image
-from vision_analyzer import analyze_image, compress_image
+from vision_analyzer import analyze_image
 from hld_generator import generate_hld, generate_hld_markdown  # noqa: F401 — re-exported for test monkeypatching
 
 logger = logging.getLogger(__name__)
@@ -172,11 +172,8 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
     image_bytes = base64.b64decode(image_b64) if isinstance(image_b64, str) else image_b64
     logger.info("Analyzing diagram %s (%s bytes)", str(diagram_id).replace('\n', '').replace('\r', ''), str(len(image_bytes)).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
 
-    # Pre-compress once to avoid double compression (#177)
-    try:
-        compressed_bytes, compressed_type, _cw, _ch = compress_image(image_bytes, content_type)
-    except Exception:
-        compressed_bytes, compressed_type = image_bytes, content_type
+    # No need to pre-compress, vision analyzer and classifier handle it internally
+    compressed_bytes, compressed_type = image_bytes, content_type
 
     # Speculative parallel: classify + analyze concurrently (#299)
     async def _classify():
@@ -269,11 +266,8 @@ async def _run_analysis_job(job_id: str, diagram_id: str) -> None:
         if job_manager.is_cancelled(job_id):
             return
 
-        # Pre-compress
-        try:
-            compressed_bytes, compressed_type, _cw, _ch = compress_image(image_bytes, content_type)
-        except Exception:
-            compressed_bytes, compressed_type = image_bytes, content_type
+        # Forward raw bytes directly
+        compressed_bytes, compressed_type = image_bytes, content_type
 
         job_manager.update_progress(job_id, 15, "Classifying image type...")
 
