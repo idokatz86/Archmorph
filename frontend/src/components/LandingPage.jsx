@@ -130,8 +130,8 @@ export default function LandingPage({ onGetStarted }) {
             AI-Powered Cloud Migration
           </div>
           <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-text-primary leading-tight mb-6">
-            Modernize Any Cloud{' '}
-            <span className="text-cta">Architecture</span>
+            Translate Between Any{' '}
+            <span className="text-cta">Cloud Providers</span>
           </h1>
           <p className="text-lg text-text-secondary max-w-2xl mx-auto mb-8">
             Upload AWS, GCP, or Azure architecture diagrams and translate them in any direction.
@@ -154,7 +154,7 @@ export default function LandingPage({ onGetStarted }) {
               }}
               className="flex items-center gap-2 px-8 py-3.5 bg-surface text-text-primary border border-border/50 rounded-xl font-semibold hover:bg-secondary/20 transition-colors text-sm"
             >
-              View Templates
+              Try a sample diagram
             </button>
           </div>
           <div className="flex flex-wrap items-center justify-center gap-6 mt-8 text-xs text-text-muted">
