@@ -50,7 +50,8 @@ class DiagramMCPClient:
             except httpx.RequestError as e:
                 logger.warning(f"MCP Gateway request error for {format_type}: {e}. Retrying ({attempt+1}/{retry_count})...")
                 
-        raise TimeoutError(f"MCP Gateway timed out after {retry_count} attempts for {format_type}.")
+        logger.warning(f"MCP Gateway failed or timed out after {retry_count} attempts for {format_type}. Falling back to legacy layout engine.")
+        return self._fallback_generation(format_type, analysis_data)
 
     def _build_prompt(self, analysis: Dict[str, Any]) -> str:
         return f"Generate a highly detailed Azure architecture diagram for the following zones: {json.dumps(analysis.get('zones', []))}."

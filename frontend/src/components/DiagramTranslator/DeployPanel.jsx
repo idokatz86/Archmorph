@@ -168,9 +168,14 @@ const DeployPanel = ({ templateSource = 'main.bicep', parameters = {}, provider 
       {step === 1 && (
         <div className="flex flex-col items-center justify-center py-10 space-y-4">
           <p className="text-gray-600 dark:text-gray-300 text-center">
-            Ready to deploy your infrastructure to <strong>{provider.toUpperCase()}</strong>. <br/>
-            Target template: <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">{templateSource}</code>
+            Ready to deploy your infrastructure to <strong>{provider.toUpperCase()}</strong>.
           </p>
+          <div className="w-full max-w-3xl bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded p-4 text-left max-h-64 overflow-y-auto">
+            <p className="text-xs text-gray-500 mb-2 font-semibold uppercase tracking-wider">TARGET TEMPLATE ({provider.toUpperCase()})</p>
+            <pre className="text-xs font-mono text-gray-800 dark:text-gray-300 whitespace-pre-wrap">
+              {templateSource}
+            </pre>
+          </div>
           <button 
             onClick={handlePreview} 
             disabled={loading}

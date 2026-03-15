@@ -29,7 +29,7 @@ router = APIRouter()
 # HLD Generation — AI-powered High-Level Design document
 # ─────────────────────────────────────────────────────────────
 @router.post("/api/diagrams/{diagram_id}/generate-hld")
-@limiter.limit("3/minute")
+@limiter.limit("10/minute")
 async def generate_hld_endpoint(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
     """Generate a comprehensive High-Level Design document."""
     record_event("hld_generated", {"diagram_id": diagram_id})
@@ -233,7 +233,7 @@ async def export_hld_endpoint(request: Request, diagram_id: str, _auth=Depends(v
 # Async HLD Generation (Issue #172)
 # ─────────────────────────────────────────────────────────────
 @router.post("/api/diagrams/{diagram_id}/generate-hld-async")
-@limiter.limit("3/minute")
+@limiter.limit("10/minute")
 async def generate_hld_async(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
     """Start async HLD document generation. Returns 202 with job_id."""
     session = get_or_recreate_session(diagram_id)
