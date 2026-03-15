@@ -14,6 +14,7 @@ import logging
 import os
 import threading
 from difflib import SequenceMatcher
+from ai_suggestion import _lookup_service_knowledge
 from typing import Any, Dict, Optional, Tuple
 
 from PIL import Image
@@ -586,6 +587,9 @@ def _build_analysis_result(vision_result: Dict[str, Any], target_provider: str =
                     "Manual review recommended to confirm the best target service",
                 ]
 
+            # Get deeper context for confidence scores and detailed service comparisons (#431)
+            deep_dive = _lookup_service_knowledge(target_service)
+
             # Build mapping entry (keep azure_service key for backward compat)
             mapping_entry = {
                 "source_service": full_name,
@@ -595,6 +599,9 @@ def _build_analysis_result(vision_result: Dict[str, Any], target_provider: str =
                 "target_provider": target_provider,
                 "confidence": confidence,
                 "confidence_explanation": confidence_reasons,
+                "strengths": deep_dive.get("strengths", []),
+                "limitations": deep_dive.get("limitations", []),
+                "migration_notes": deep_dive.get("migration_notes", []),
                 "notes": f"Zone {zone_number} – {zone_name}: {role}. {notes}".strip(),
             }
             mappings.append(mapping_entry)
