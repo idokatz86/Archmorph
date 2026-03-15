@@ -1,3 +1,4 @@
+import re
 """
 Archmorph IaC Chat — GPT-4o powered Terraform/Bicep assistant.
 
@@ -212,6 +213,15 @@ def process_iac_chat(
 
         reply = sanitize_response(result.get("message", "Code updated."))
         code = result.get("code", current_code)
+        
+        # Strip markdown code fences if GPT-4o accidentally included them inside the JSON string
+        if isinstance(code, str):
+            code = code.strip()
+            if code.startswith("```"):
+                code = re.sub(r"^```[a-zA-Z]*\n", "", code)
+                code = re.sub(r"\n```$", "", code)
+                code = code.strip()
+
         changes = result.get("changes_summary", [])
         services = result.get("services_added", [])
 

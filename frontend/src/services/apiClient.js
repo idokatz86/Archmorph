@@ -81,7 +81,8 @@ async function request(path, options = {}, signal) {
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     // Create a timeout controller that chains with the caller's signal
     const timeoutController = new AbortController();
-    const timeoutId = setTimeout(() => timeoutController.abort(), DEFAULT_TIMEOUT_MS);
+    const msTimeout = options.timeout !== undefined ? options.timeout : DEFAULT_TIMEOUT_MS;
+    const timeoutId = msTimeout > 0 ? setTimeout(() => timeoutController.abort(), msTimeout) : null;
 
     // If the caller provided a signal, abort our controller when it fires
     const onCallerAbort = () => timeoutController.abort();
@@ -166,14 +167,15 @@ async function request(path, options = {}, signal) {
 const api = {
   get: (path, signal) => request(path, { method: 'GET' }, signal),
 
-  post: (path, body, signal) =>
+  post: (path, body, signal, timeout) =>
     request(
       path,
       {
         method: 'POST',
         body: body instanceof FormData ? body : JSON.stringify(body),
+        timeout
       },
-      signal,
+      signal
     ),
 
   patch: (path, body, signal) =>

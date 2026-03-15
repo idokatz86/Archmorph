@@ -549,6 +549,7 @@ export default function DiagramTranslator() {
       });
       if (data.code && !data.error) {
         set({ iacCode: data.code });
+        updateSessionCache({ iacCode: data.code });
       }
     } catch {
       addChatMessage({ role: 'assistant', content: 'Sorry, couldn\'t connect to the IaC assistant.' });
@@ -564,7 +565,7 @@ export default function DiagramTranslator() {
       const timeout = setTimeout(() => controller.abort(), 180_000);
       activeTimeoutsRef.current.push(timeout);
       const data = await withRestore(
-        () => api.post(`/diagrams/${state.diagramId}/generate-hld`, undefined, controller.signal),
+        () => api.post(`/diagrams/${state.diagramId}/generate-hld`, undefined, controller.signal, 180_000),
         { cleanup: () => set({ hldLoading: false }) },
       );
       clearTimeout(timeout);
@@ -836,6 +837,10 @@ export default function DiagramTranslator() {
           onExportPackage={handleExportPackage}
           exportingPackage={state.exportingPackage}
         />
+      )}
+
+      {state.step === 'deploy' && (
+        <DeployPanel isLoading={false} />
       )}
       </Suspense>
     </div>

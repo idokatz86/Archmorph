@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { AlertTriangle } from 'lucide-react';
 import { Card } from '../ui';
 import api from '../../services/apiClient';
 import { CloudCredentialsModal } from './CloudCredentialsModal';
@@ -65,7 +66,18 @@ export const DriftVisualizer = ({ driftResults: initialDrift, onSync }) => {
   if (!driftResults) {
     return (
       <>
-      <Card className="w-full max-w-4xl mx-auto shadow-sm mt-8 border-dashed border-2">
+      <div className="w-full max-w-4xl mx-auto mb-4 mt-8">
+        <div className="p-4 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg flex items-start gap-3">
+          <AlertTriangle className="w-5 h-5 text-amber-500 mt-0.5" />
+          <div>
+            <h4 className="font-semibold text-sm">Alpha Stage Feature</h4>
+            <p className="text-sm mt-1">
+              Drift Detection is currently in alpha. We are actively developing this capability, which means you may experience occasional instability or inaccurate detection results. The core functionality is enabled for early testing and feedback.
+            </p>
+          </div>
+        </div>
+      </div>
+      <Card className="w-full max-w-4xl mx-auto shadow-sm border-dashed border-2">
         <div className="flex flex-col items-center justify-center p-12 text-center text-slate-500">
           <svg className="w-12 h-12 mb-4 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
