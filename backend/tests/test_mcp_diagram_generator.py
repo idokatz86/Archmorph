@@ -1,6 +1,7 @@
 import pytest
 import httpx
 from unittest.mock import patch, AsyncMock, MagicMock
+from mcp_diagram_generator import DiagramMCPClient
 
 @pytest.fixture
 def mcp_client():
