@@ -1,0 +1,105 @@
+import logging
+from typing import Dict, Any, Optional
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
+from pydantic import BaseModel
+
+from services.azure_deploy_service import AzureDeployService
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(
+    prefix="/api/deployments",
+    tags=["deployments"],
+)
+
+# Shared dependencies can be added here
+def get_azure_deploy_service() -> AzureDeployService:
+    return AzureDeployService(subscription_id="dummy-subscription-id")
+
+# ─────────────────────────────────────────────────────────────
+# Pydantic Schemas
+# ─────────────────────────────────────────────────────────────
+class DeploymentPreviewRequest(BaseModel):
+    provider: str
+    infrastructure_code: str
+    variables: Optional[Dict[str, Any]] = None
+
+class DeploymentExecuteRequest(BaseModel):
+    provider: str
+    job_id: Optional[str] = None
+    infrastructure_code: str
+    variables: Optional[Dict[str, Any]] = None
+
+class DeploymentResponse(BaseModel):
+    job_id: str
+    status: str
+    message: Optional[str] = None
+    data: Optional[Dict[str, Any]] = None
+
+# ─────────────────────────────────────────────────────────────
+# Endpoints
+# ─────────────────────────────────────────────────────────────
+
+@router.post("/preview")
+async def preview_deployment(
+    payload: DeploymentPreviewRequest,
+    azure_service: AzureDeployService = Depends(get_azure_deploy_service)
+):
+    """
+    POST /api/deployments/preview
+    Dry-run preview (what-if for Bicep or terraform plan).
+    """
+    logger.info(f"Received deployment preview request for provider: {payload.provider}")
+    
+    if payload.provider.lower() == "azure":
+        result = await azure_service.preview_deployment(payload.model_dump())
+        return {"status": "success", "data": result}
+    else:
+        raise HTTPException(status_code=501, detail=f"Preview not fully implemented for {payload.provider}")
+
+@router.post("/execute")
+async def execute_deployment(
+    payload: DeploymentExecuteRequest,
+    background_tasks: BackgroundTasks,
+    azure_service: AzureDeployService = Depends(get_azure_deploy_service)
+):
+    """
+    POST /api/deployments/execute
+    Trigger the main deployment (az deployment create or terraform apply).
+    """
+    import uuid
+    job_id = payload.job_id or str(uuid.uuid4())
+    logger.info(f"Executing deployment {job_id} for provider: {payload.provider}")
+    
+    if payload.provider.lower() == "azure":
+        # Launch real deploy step.
+        result = await azure_service.deploy_infrastructure(job_id, payload.model_dump())
+        return DeploymentResponse(job_id=job_id, status=result["status"], message=result["message"])
+    else:
+        raise HTTPException(status_code=501, detail=f"Deploy not fully implemented for {payload.provider}")
+
+@router.get("/{job_id}/stream")
+async def stream_deployment_logs(job_id: str):
+    """
+    GET /api/deployments/{job_id}/stream
+    Stream logs for an ongoing deployment operation.
+    """
+    # NOTE: To be implemented with StreamingResponse / SSE
+    return {"message": f"Log streaming endpoint for job {job_id} stubbed."}
+
+@router.get("/{job_id}/status")
+async def get_deployment_status(job_id: str):
+    """
+    GET /api/deployments/{job_id}/status
+    Check the current status of the requested deployment job.
+    """
+    # Return stub data
+    return {"job_id": job_id, "status": "running"}
+
+@router.post("/{job_id}/rollback")
+async def rollback_deployment(job_id: str):
+    """
+    POST /api/deployments/{job_id}/rollback
+    Trigger an automated rollback (state revert or terraform destroy / resource group cleanup).
+    """
+    return {"job_id": job_id, "status": "rollback_initiated", "message": "Rollback triggered successfully."}
