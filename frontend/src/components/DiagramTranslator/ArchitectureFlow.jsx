@@ -79,19 +79,37 @@ function MappingNode({ data }) {
   );
 }
 
+function GroupNode({ data }) {
+  return (
+    <div className="w-full h-full relative" style={{ zIndex: -1 }}>
+      <div className="absolute top-2 left-3 bg-white/70 px-2 py-1 rounded-md text-xs font-semibold text-primary border border-border shadow-sm">
+        {data.label}
+      </div>
+    </div>
+  );
+}
+
 const nodeTypes = {
   mappingNode: MappingNode,
+  groupNode: GroupNode,
 };
 
 // Layout engine
 const getLayoutedElements = (nodes, edges) => {
-  const dagreGraph = new dagre.graphlib.Graph();
+  const dagreGraph = new dagre.graphlib.Graph({ compound: true });
   dagreGraph.setDefaultEdgeLabel(() => ({}));
   
   dagreGraph.setGraph({ rankdir: 'TB', ranksep: 80, nodesep: 60 });
 
   nodes.forEach((node) => {
-    dagreGraph.setNode(node.id, { width: NODE_WIDTH, height: NODE_HEIGHT });
+    if (node.type === 'group') {
+      dagreGraph.setNode(node.id, { label: node.data.label, clusterLabelPos: 'top' });
+    } else {
+      dagreGraph.setNode(node.id, { width: NODE_WIDTH, height: NODE_HEIGHT });
+    }
+    if (node.parentId) {
+      dagreGraph.setParent(node.id, node.parentId);
+    }
   });
 
   edges.forEach((edge) => {
@@ -104,11 +122,27 @@ const getLayoutedElements = (nodes, edges) => {
     const nodeWithPosition = dagreGraph.node(node.id);
     node.targetPosition = 'top';
     node.sourcePosition = 'bottom';
-    // Dagre sets center points, React Flow needs top-left
-    node.position = {
-      x: nodeWithPosition.x - nodeWithPosition.width / 2,
-      y: nodeWithPosition.y - nodeWithPosition.height / 2,
-    };
+    
+    let x = nodeWithPosition.x - nodeWithPosition.width / 2;
+    let y = nodeWithPosition.y - nodeWithPosition.height / 2;
+
+    if (node.type === 'group' || node.type === 'groupNode') {
+      const gWidth = (nodeWithPosition.width || NODE_WIDTH) + 40;
+      const gHeight = (nodeWithPosition.height || NODE_HEIGHT) + 60;
+      node.style = { ...node.style, width: gWidth, height: gHeight };
+      x -= 20; 
+      y -= 40; 
+    }
+
+    if (node.parentId) {
+      const parentWithPosition = dagreGraph.node(node.parentId);
+      const parentX = parentWithPosition.x - (parentWithPosition.width || 0) / 2 - 20;
+      const parentY = parentWithPosition.y - (parentWithPosition.height || 0) / 2 - 40;
+      x -= parentX;
+      y -= parentY;
+    }
+    
+    node.position = { x, y };
   });
 
   return { nodes, edges };
@@ -118,17 +152,37 @@ export default function ArchitectureFlow({ analysis }) {
   const { initialNodes, initialEdges } = useMemo(() => {
     const mappings = analysis?.mappings || [];
     const connections = analysis?.service_connections || [];
+    const zones = analysis?.zones || [];
 
     const nodes = [];
     const edges = [];
     
+    // Create group nodes for each zone
+    zones.forEach((zone) => {
+      nodes.push({
+        id: `zone-${zone.name}`,
+        type: 'groupNode',
+        data: { label: zone.name },
+        position: { x: 0, y: 0 },
+        style: {
+          backgroundColor: 'rgba(240, 247, 255, 0.4)',
+          border: '1px dashed #527FFF',
+          borderRadius: '8px',
+          zIndex: -1
+        },
+      });
+    });
+
     // Create a node for each mapping
     // We use source_service name as ID to link edges correctly
     mappings.forEach((m) => {
       if (m.azure_service && m.azure_service !== '[Manual mapping needed]') {
+        const parentZone = zones.find(z => z.services?.includes(m.source_service));
         nodes.push({
           id: m.source_service,
           type: 'mappingNode',
+          parentId: parentZone ? `zone-${parentZone.name}` : undefined,
+          extent: parentZone ? 'parent' : undefined,
           data: {
             source: m.source_service,
             target: m.azure_service,
