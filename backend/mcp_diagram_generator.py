@@ -28,20 +28,29 @@ class DiagramMCPClient:
         # Build prompt for the MCP agent
         prompt = self._build_prompt(analysis_data)
         
-        # Try routing to the real MCP Server Gateway
-        try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                response = await client.post(
-                    f"{self.mcp_gateway_url}/{format_type}/generate",
-                    json={"prompt": prompt, "context": analysis_data}
-                )
-                if response.status_code == 200:
-                    return response.json().get("diagram_payload", "")
-        except (httpx.TimeoutException, httpx.RequestError) as e:
-            logger.warning(f"MCP Gateway unreachable or timed out for {format_type}: {e}. Falling back to legacy layout engine.")
-
-        # Fallback if Gateway is offline or returns error
-        return self._fallback_generation(format_type, analysis_data)
+        retry_count = 3
+        for attempt in range(retry_count):
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    response = await client.post(
+                        f"{self.mcp_gateway_url}/{format_type}/generate",
+                        json={"prompt": prompt, "context": analysis_data}
+                    )
+                    if response.status_code == 200:
+                        return response.json().get("diagram_payload", "")
+                    else:
+                        logger.warning(f"MCP Gateway returned status {response.status_code}. Retrying...")
+            except httpx.ConnectError as e:
+                logger.warning(f"MCP Gateway connection failed for {format_type}: {e}. Falling back to legacy layout engine.")
+                return self._fallback_generation(format_type, analysis_data)
+            except httpx.WriteTimeout as e:
+                logger.warning(f"MCP Gateway write timeout for {format_type}: {e}. Retrying ({attempt+1}/{retry_count})...")
+            except httpx.ReadTimeout as e:
+                logger.warning(f"MCP Gateway read timeout for {format_type}: {e}. Retrying ({attempt+1}/{retry_count})...")
+            except httpx.RequestError as e:
+                logger.warning(f"MCP Gateway request error for {format_type}: {e}. Retrying ({attempt+1}/{retry_count})...")
+                
+        raise TimeoutError(f"MCP Gateway timed out after {retry_count} attempts for {format_type}.")
 
     def _build_prompt(self, analysis: Dict[str, Any]) -> str:
         return f"Generate a highly detailed Azure architecture diagram for the following zones: {json.dumps(analysis.get('zones', []))}."

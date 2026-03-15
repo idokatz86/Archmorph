@@ -37,7 +37,15 @@ def _call_llm_for_mcp_generation(format_type: str, prompt: str, context: Dict[st
     if not azure_openai_endpoint and not openai_api_key and not azure_openai_api_key:
         return f'{{\n  "error": "No LLM configuration present in Gateway",\n  "format": "{format_type}",\n  "mcp_generated": true\n}}'
         
-    system_prompt = "You are an expert Model Context Protocol server generating diagrams. Only output raw code, no markdown wrapping."
+    format_instructions = ""
+    if format_type == "excalidraw":
+        format_instructions = "Output strictly valid Excalidraw JSON. Start with '{' and end with '}'. Do not use Markdown code blocks or wrappers like ```json."
+    elif format_type == "drawio":
+        format_instructions = "Output strictly valid Draw.io XML graph schema. Start with <mxfile> and end with </mxfile>. Do not use Markdown code blocks or wrappers like ```xml."
+    elif format_type == "visio":
+        format_instructions = "Output strictly valid Visio VDX/XML schema. Start with <VisioDocument> and end with </VisioDocument>. Do not use Markdown code blocks or wrappers like ```xml."
+
+    system_prompt = f"You are an expert Model Context Protocol server generating diagrams. Only output raw code, no markdown wrapping. {format_instructions}"
     
     if azure_openai_endpoint:
         base_url = azure_openai_endpoint.rstrip("/")
@@ -73,7 +81,24 @@ def _call_llm_for_mcp_generation(format_type: str, prompt: str, context: Dict[st
         with urllib.request.urlopen(req) as response:
             result = json.loads(response.read().decode())
             content = result["choices"][0]["message"]["content"]
-            return content.strip().strip("`").removeprefix("xml\n").removeprefix("json\n")
+            
+            # Robustly sanitize markdown wrappers
+            content = content.replace("```json", "").replace("```xml", "").replace("```", "").strip()
+            
+            # Basic validation
+            if format_type == "excalidraw" or format_type == "terraform":
+                try:
+                    # just verify it builds json/hcl (approx for hcl, maybe json for excalidraw)
+                    if format_type == "excalidraw":
+                        json.loads(content)
+                except json.JSONDecodeError:
+                    raise ValueError(f"Generated content for {format_type} is not valid JSON")
+                    
+            elif format_type in ["drawio", "visio"]:
+                if not content.startswith("<") or not content.endswith(">"):
+                    raise ValueError(f"Generated text for {format_type} does not look like valid XML")
+                    
+            return content
     except Exception as e:
         logger.error(f"Error calling LLM: {sanitize_log(e)}")
         raise ValueError("AI Diagram Generation failed")
