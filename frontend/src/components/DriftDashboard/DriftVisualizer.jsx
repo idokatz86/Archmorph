@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, ShieldCheck } from 'lucide-react';
 import { Card } from '../ui';
+import EmptyState from '../EmptyState';
 import api from '../../services/apiClient';
 import { CloudCredentialsModal } from './CloudCredentialsModal';
 
@@ -77,16 +78,13 @@ export const DriftVisualizer = ({ driftResults: initialDrift, onSync }) => {
           </div>
         </div>
       </div>
-      <Card className="w-full max-w-4xl mx-auto shadow-sm border-dashed border-2">
-        <div className="flex flex-col items-center justify-center p-12 text-center text-slate-500">
-          <svg className="w-12 h-12 mb-4 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-          </svg>
-          <h3 className="text-lg font-semibold text-slate-700">No Active Audits</h3>
-          <p className="mt-2 text-sm max-w-md">
-            Connect your live cloud environment or run an IaC scan to detect architectural drift between your design document and reality.
-          </p>
-          <div className="mt-4 w-full max-w-xs text-left">
+      <EmptyState
+        icon={ShieldCheck}
+        title="No Active Audits"
+        description="Connect your live cloud environment or run an IaC scan to detect architectural drift between your design document and reality."
+      >
+        <div className="flex flex-col items-center">
+          <div className="w-full max-w-xs text-left mb-6">
             <label className="block text-sm font-medium text-slate-700 mb-1">
               Cloud Provider
             </label>
@@ -103,7 +101,7 @@ export const DriftVisualizer = ({ driftResults: initialDrift, onSync }) => {
           </div>
 
           {/* New Connection Guide on Empty State */}
-          <div className="mt-6 w-full max-w-2xl text-left bg-slate-50 p-6 rounded-lg border border-slate-200">
+          <div className="w-full text-left bg-slate-50 p-6 rounded-lg border border-slate-200">
             <h4 className="font-semibold text-slate-800 mb-4 text-sm uppercase tracking-wider border-b pb-2">Step-by-step Connection Guide</h4>
             
             {selectedProvider === 'aws' && (
@@ -153,7 +151,7 @@ export const DriftVisualizer = ({ driftResults: initialDrift, onSync }) => {
             {loading ? 'Evaluating infrastructure...' : 'Connect Cloud Account'}
           </button>
         </div>
-      </Card>
+      </EmptyState>
       {showCredentialsModal && (
         <CloudCredentialsModal 
           provider={selectedProvider} 
