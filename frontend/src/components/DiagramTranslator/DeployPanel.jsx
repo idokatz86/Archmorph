@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Play, AlertTriangle, Check, Terminal } from 'lucide-react';
+import { Play, AlertTriangle, Check, Terminal, Rocket } from 'lucide-react';
 import apiClient from '../../services/apiClient';
+import EmptyState from '../EmptyState';
 
 export default function DeployPanel({ parsedResults, isLoading }) {
   const [ isDeploying, setIsDeploying ] = useState(false);
@@ -48,15 +49,10 @@ export default function DeployPanel({ parsedResults, isLoading }) {
   if (isLoading) return null;
 
   return (
-    <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 mt-8 mt-4 text-center">
-      <div className="flex flex-col items-center justify-center space-y-4 py-12 text-slate-500">
-        <Terminal className="w-12 h-12 text-slate-300" />
-        <h2 className="text-2xl font-bold text-slate-700">Deployments Coming Soon</h2>
-        <p className="max-w-md mx-auto text-slate-500">
-          In an upcoming release, you will be able to perform 1-click deployments directly 
-          into your cloud environment right from this panel using the generated IaC code.
-        </p>
-      </div>
-    </div>
+    <EmptyState
+      icon={Rocket}
+      title="Deployments Coming Soon"
+      description="In an upcoming release, you will be able to perform 1-click deployments directly into your cloud environment right from this panel using the generated IaC code."
+    />
   );
 }
