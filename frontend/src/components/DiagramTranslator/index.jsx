@@ -30,7 +30,7 @@ const STEPS = [
   { id: 'iac', label: 'IaC Code' },
   { id: 'hld', label: 'HLD' },
   { id: 'pricing', label: 'Pricing' },
-  { id: 'deploy', label: 'Coming Soon' },
+  { id: 'deploy', label: 'Deploy' },
 ];
 
 export default function DiagramTranslator() {
@@ -840,7 +840,7 @@ export default function DiagramTranslator() {
       )}
 
       {state.step === 'deploy' && (
-        <DeployPanel isLoading={false} />
+        <DeployPanel isLoading={false} templateSource={state.iacCode} />
       )}
       </Suspense>
     </div>
