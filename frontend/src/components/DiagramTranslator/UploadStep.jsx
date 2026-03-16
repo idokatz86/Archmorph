@@ -4,6 +4,9 @@ import { Badge, Button, Card } from '../ui';
 
 const SAMPLES = [
   { id: 'aws-hub-spoke', name: 'Hub & Spoke', icon: '🏛️', desc: 'Secure Landing Zone', provider: 'aws' },
+  { id: 'aws-iaas', name: 'Classic Web App', icon: '🌐', desc: 'Basic 3-tier Architecture', provider: 'aws' },
+  { id: 'aws-eks', name: 'Microservices', icon: '🐳', desc: 'EKS Containerized App', provider: 'aws' },
+  { id: 'gcp-gke', name: 'GKE Cluster', icon: '⚡', desc: 'Scalable K8s Platform', provider: 'gcp' }
 ];
 
 export default function UploadStep({

@@ -226,6 +226,18 @@ def _build_iac_prompt(iac_format: str, analysis: dict, params: dict) -> str:
         mapping_lines.append(f"  - {src} → {tgt} (category: {cat}, confidence: {conf})")
 
     mapping_text = "\n".join(mapping_lines) if mapping_lines else "  (no specific mappings available)"
+    
+    connections = analysis.get("service_connections", [])
+    conn_lines = []
+    for c in connections:
+        c_from = c.get("from", "unknown")
+        c_to = c.get("to", "unknown")
+        c_type = c.get("type", "connects to")
+        conn_lines.append(f"  - {c_from} -> {c_to} ({c_type})")
+    conn_text = "\n".join(conn_lines) if conn_lines else "  (no specific connections available)"
+    
+    patterns = analysis.get("architecture_patterns", [])
+    patterns_text = ", ".join(patterns) if patterns else "None detected"
     target_label = config["target_label"]
     requirements = config["requirements"].format(sku_strategy=sku_strategy)
 
@@ -234,9 +246,13 @@ to deploy the {target_label} architecture described below.
 
 ## Source Architecture
 - Provider: {source_provider}
+- Architecture Patterns: {patterns_text}
 - Services detected: {services_detected}
 - Service mappings (source → {target_label}):
 {mapping_text}
+
+## Service Connections & Topology
+{conn_text}
 
 ## Parameters
 - Project name: {project_name}
