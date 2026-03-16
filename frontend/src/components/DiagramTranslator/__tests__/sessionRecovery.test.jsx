@@ -118,7 +118,7 @@ describe('DiagramTranslator — Session UX Tests', () => {
     render(<DiagramTranslator />)
 
     // Click a sample diagram button
-    const awsButton = screen.getByText('AWS IaaS')
+    const awsButton = screen.getByText('Hub & Spoke')
     await act(async () => {
       fireEvent.click(awsButton)
     })

@@ -53,7 +53,7 @@ describe('DiagramTranslator', () => {
 
   it('shows sample buttons', async () => {
     render(<DiagramTranslator />)
-    expect(await screen.findByText('AWS IaaS')).toBeInTheDocument()
-    expect(await screen.findByText('GCP IaaS')).toBeInTheDocument()
+    expect(await screen.findByText('Hub & Spoke')).toBeInTheDocument()
+    expect(await screen.findByText('GKE Cluster')).toBeInTheDocument()
   })
 })

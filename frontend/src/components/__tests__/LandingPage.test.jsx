@@ -19,8 +19,8 @@ describe('LandingPage', () => {
 
   it('renders hero headline', () => {
     render(<LandingPage {...defaultProps} />);
-    expect(screen.getByText(/Modernize Any Cloud/)).toBeInTheDocument();
-    expect(screen.getByText('Architecture')).toBeInTheDocument();
+    expect(screen.getByText(/Translate Between Any/)).toBeInTheDocument();
+    expect(screen.getByText('Cloud Providers')).toBeInTheDocument();
   });
 
   it('hero CTA calls onGetStarted', () => {

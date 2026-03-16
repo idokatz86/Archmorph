@@ -36,19 +36,19 @@ describe('UploadStep', () => {
 
   it('renders sample diagram buttons', () => {
     render(<UploadStep {...defaultProps} />)
-    expect(screen.getByText('AWS IaaS')).toBeInTheDocument()
-    expect(screen.getByText('GCP IaaS')).toBeInTheDocument()
-    expect(screen.getByText('AWS Containers')).toBeInTheDocument()
-    expect(screen.getByText('GCP Containers')).toBeInTheDocument()
+    expect(screen.getByText('Hub & Spoke')).toBeInTheDocument()
+    expect(screen.getByText('GKE Cluster')).toBeInTheDocument()
+    expect(screen.getByText('Classic Web App')).toBeInTheDocument()
+    expect(screen.getByText('Microservices')).toBeInTheDocument()
   })
 
   it('calls onLoadSample when sample button is clicked', async () => {
     const user = userEvent.setup()
     render(<UploadStep {...defaultProps} />)
-    await user.click(screen.getByText('AWS IaaS'))
+    await user.click(screen.getByText('Hub & Spoke'))
     expect(defaultProps.onLoadSample).toHaveBeenCalledTimes(1)
     expect(defaultProps.onLoadSample).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'aws-iaas', provider: 'aws' })
+      expect.objectContaining({ id: 'aws-hub-spoke', provider: 'aws' })
     )
   })
 
