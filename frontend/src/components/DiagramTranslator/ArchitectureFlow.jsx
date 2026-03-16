@@ -1,150 +1,232 @@
 import React, { useMemo } from 'react';
 import {
-  ReactFlow,
-  Controls,
-  Background,
-  applyNodeChanges,
-  applyEdgeChanges,
-  Handle,
-  Position,
+  ReactFlow, Controls, Background, MiniMap,
+  applyNodeChanges, applyEdgeChanges, Handle, Position,
 } from '@xyflow/react';
 import dagre from 'dagre';
 import '@xyflow/react/dist/style.css';
+import { FaAws } from 'react-icons/fa';
+import { VscAzure } from 'react-icons/vsc';
+import { SiGooglecloud } from 'react-icons/si';
+import { ArrowRight, Database, Server, Zap, HardDrive, AlertTriangle } from 'lucide-react';
 
-import {
-  FaAws
-} from 'react-icons/fa';
+const NODE_WIDTH = 270;
+const NODE_HEIGHT = 100;
 
-import {
-  VscAzure
-} from 'react-icons/vsc';
-
-import {
-  SiGooglecloud
-} from 'react-icons/si';
-
-import { 
-  ArrowRight,
-  Database,
-  Server,
-  Zap,
-  HardDrive
-} from 'lucide-react';
-
-const NODE_WIDTH = 250;
-const NODE_HEIGHT = 80;
-
-const getCloudIcon = (serviceName, defaultIcon) => {
-  if (!serviceName) return defaultIcon;
-  const s = serviceName.toLowerCase();
-  if (s.includes('lambda') || s.includes('functions')) return <Zap className="w-5 h-5 text-gray-500" />;
-  if (s.includes('ec2') || s.includes('compute')) return <Server className="w-5 h-5 text-gray-500" />;
-  if (s.includes('s3') || s.includes('blob')) return <HardDrive className="w-5 h-5 text-gray-500" />;
-  if (s.includes('rds') || s.includes('cosmos')) return <Database className="w-5 h-5 text-gray-500" />;
-  return defaultIcon;
+const getCloudIcon = (name, fallback) => {
+  if (!name) return fallback;
+  const s = name.toLowerCase();
+  if (s.includes('lambda') || s.includes('functions')) return <Zap className="w-4 h-4 text-slate-400" />;
+  if (s.includes('ec2') || s.includes('compute')) return <Server className="w-4 h-4 text-slate-400" />;
+  if (s.includes('s3') || s.includes('blob')) return <HardDrive className="w-4 h-4 text-slate-400" />;
+  if (s.includes('rds') || s.includes('cosmos') || s.includes('aurora')) return <Database className="w-4 h-4 text-slate-400" />;
+  return fallback;
 };
 
-// Custom Node for displaying mapped services
-function MappingNode({ data }) {
-  const { source, target, provider } = data;
+/* Edge type visual styles — per Cloud Architect specification */
+const EDGE_STYLES = {
+  traffic: { stroke: '#3B82F6', strokeWidth: 2 },
+  database: { stroke: '#22C55E', strokeWidth: 2 },
+  auth: { stroke: '#A855F7', strokeWidth: 1.5, strokeDasharray: '6,4' },
+  control: { stroke: '#94A3B8', strokeWidth: 1.5, strokeDasharray: '6,4' },
+  inspection: { stroke: '#F97316', strokeWidth: 2, strokeDasharray: '3,3' },
+  security: { stroke: '#F97316', strokeWidth: 2, strokeDasharray: '3,3' },
+  storage: { stroke: '#14B8A6', strokeWidth: 1.5 },
+  backup: { stroke: '#14B8A6', strokeWidth: 1.5 },
+  metrics: { stroke: '#94A3B8', strokeWidth: 1.5, strokeDasharray: '6,4' },
+};
+const DEFAULT_EDGE = { stroke: '#3B82F6', strokeWidth: 2 };
 
+/* ── MappingNode with confidence ring, effort badge, category, feature gaps ── */
+function MappingNode({ data }) {
+  const { source, target, provider, confidence, effort, category, featureGaps } = data;
   const pLower = (provider || 'aws').toLowerCase();
-  const PIcon = pLower === 'gcp'
-    ? <SiGooglecloud className="w-5 h-5 text-[#EA4335]" />
-    : <FaAws className="w-5 h-5 text-[#FF9900]" />;
+  const PIcon = pLower === 'gcp' ? <SiGooglecloud className="w-4 h-4 text-[#EA4335]" /> : <FaAws className="w-4 h-4 text-[#FF9900]" />;
+
+  const pct = Math.round((confidence ?? 0) * 100);
+  const cColor = pct >= 85 ? 'text-emerald-400' : pct >= 60 ? 'text-amber-400' : 'text-red-400';
+  const cRing = pct >= 85 ? 'stroke-emerald-400' : pct >= 60 ? 'stroke-amber-400' : 'stroke-red-400';
+
+  const effortMap = {
+    low: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
+    medium: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
+    high: 'bg-red-500/20 text-red-400 border-red-500/30',
+  };
+  const eCls = effortMap[effort] || effortMap.medium;
+
+  const catMap = {
+    Compute: 'bg-blue-500/15 text-blue-400',
+    Networking: 'bg-purple-500/15 text-purple-400',
+    Database: 'bg-green-500/15 text-green-400',
+    Security: 'bg-red-500/15 text-red-400',
+    Storage: 'bg-teal-500/15 text-teal-400',
+    'AI/ML': 'bg-pink-500/15 text-pink-400',
+  };
+  const catCls = catMap[category] || 'bg-slate-500/15 text-slate-400';
+  const gaps = featureGaps?.length || 0;
+  const circ = 2 * Math.PI * 14;
+  const off = circ - (circ * pct / 100);
 
   return (
-    <div className="bg-card border-2 border-border rounded-lg shadow-md p-3 flex flex-col gap-2 min-w-[220px]">
-      <Handle type="target" position={Position.Top} className="w-3 h-3 bg-secondary" />
-      
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex flex-col items-center gap-1 w-[40%]" title={source}>
-          {getCloudIcon(source, PIcon)}
-          <span className="text-[10px] font-medium text-text-secondary text-center leading-tight truncate w-full">
-            {source}
-          </span>
-        </div>
-        
-        <ArrowRight className="w-4 h-4 text-text-muted flex-shrink-0" />
-
-        <div className="flex flex-col items-center gap-1 w-[40%]" title={target}>
-          {getCloudIcon(target, <VscAzure className="w-5 h-5 text-[#0089D6]" />)}
-          <span className="text-[10px] font-bold text-text-primary text-center leading-tight truncate w-full">
-            {target || 'Pending'}
-          </span>
+    <div className="bg-[#0F172A] border border-slate-700 rounded-lg shadow-lg min-w-[260px] hover:border-[#22C55E]/50 hover:shadow-xl transition-all duration-200">
+      <Handle type="target" position={Position.Top} className="w-2.5 h-2.5 !bg-slate-500" />
+      {/* Top bar: category + effort + gap count */}
+      <div className="flex items-center justify-between px-3 pt-2 pb-1.5 border-b border-slate-700/50">
+        <span className={`text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded ${catCls}`}>{category || 'Service'}</span>
+        <div className="flex items-center gap-1.5">
+          {effort && <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded border ${eCls}`}>{effort}</span>}
+          {gaps > 0 && (
+            <span className="flex items-center gap-0.5 text-[9px] text-amber-400" title={`${gaps} feature gap(s)`}>
+              <AlertTriangle className="w-3 h-3" />{gaps}
+            </span>
+          )}
         </div>
       </div>
-      <Handle type="source" position={Position.Bottom} className="w-3 h-3 bg-primary" />
+      {/* Main: confidence ring + source -> target */}
+      <div className="flex items-center gap-3 px-3 py-2">
+        <div className="relative flex-shrink-0 w-9 h-9" title={`${pct}% confidence`}>
+          <svg className="w-9 h-9 -rotate-90" viewBox="0 0 36 36">
+            <circle cx="18" cy="18" r="14" fill="none" stroke="currentColor" className="text-slate-700" strokeWidth="3" />
+            <circle cx="18" cy="18" r="14" fill="none" className={cRing} strokeWidth="3" strokeLinecap="round"
+              strokeDasharray={circ} strokeDashoffset={off} />
+          </svg>
+          <span className={`absolute inset-0 flex items-center justify-center text-[9px] font-bold ${cColor}`}>{pct}</span>
+        </div>
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <div className="flex flex-col items-center gap-0.5 min-w-0 flex-1">
+            {getCloudIcon(source, PIcon)}
+            <span className="text-[10px] font-medium text-slate-300 text-center leading-tight truncate w-full">{source}</span>
+          </div>
+          <ArrowRight className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
+          <div className="flex flex-col items-center gap-0.5 min-w-0 flex-1">
+            {getCloudIcon(target, <VscAzure className="w-4 h-4 text-[#0089D6]" />)}
+            <span className="text-[10px] font-bold text-white text-center leading-tight truncate w-full">{target || 'Pending'}</span>
+          </div>
+        </div>
+      </div>
+      <Handle type="source" position={Position.Bottom} className="w-2.5 h-2.5 !bg-slate-500" />
     </div>
   );
 }
 
+/* ── ManualMappingNode — red dashed node for unmapped services ── */
+function ManualMappingNode({ data }) {
+  const { source, provider } = data;
+  const PIcon = (provider || 'aws').toLowerCase() === 'gcp'
+    ? <SiGooglecloud className="w-4 h-4 text-[#EA4335]" />
+    : <FaAws className="w-4 h-4 text-[#FF9900]" />;
+
+  return (
+    <div className="bg-red-950/40 border-2 border-dashed border-red-500/60 rounded-lg shadow-lg min-w-[220px] hover:border-red-400 transition-all">
+      <Handle type="target" position={Position.Top} className="w-2.5 h-2.5 !bg-red-500" />
+      <div className="flex items-center gap-3 px-3 py-3">
+        <div className="flex-shrink-0 w-8 h-8 rounded-full bg-red-500/20 flex items-center justify-center">
+          <AlertTriangle className="w-4 h-4 text-red-400" />
+        </div>
+        <div className="flex flex-col min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            {getCloudIcon(source, PIcon)}
+            <span className="text-[11px] font-semibold text-red-300 truncate">{source}</span>
+          </div>
+          <span className="text-[9px] text-red-400/80 mt-0.5">Manual mapping required</span>
+        </div>
+        <span className="text-[9px] font-bold uppercase px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 border border-red-500/30">Review</span>
+      </div>
+      <Handle type="source" position={Position.Bottom} className="w-2.5 h-2.5 !bg-red-500" />
+    </div>
+  );
+}
+
+/* ── GroupNode ── */
 function GroupNode({ data }) {
   return (
     <div className="w-full h-full relative" style={{ zIndex: -1 }}>
-      <div className="absolute top-2 left-3 bg-white/70 px-2 py-1 rounded-md text-xs font-semibold text-primary border border-border shadow-sm">
+      <div className="absolute top-2 left-3 bg-[#0F172A]/80 backdrop-blur-sm px-2.5 py-1 rounded-md text-[10px] font-bold text-blue-300 uppercase tracking-wider border border-blue-500/30 shadow-sm">
         {data.label}
       </div>
     </div>
   );
 }
 
-const nodeTypes = {
-  mappingNode: MappingNode,
-  groupNode: GroupNode,
-};
+/* ── MapLegend overlay ── */
+function MapLegend() {
+  const [open, setOpen] = React.useState(true);
+  const items = [
+    ['Traffic', '#3B82F6', 'none'], ['Database', '#22C55E', 'none'],
+    ['Auth', '#A855F7', '4,3'], ['Control', '#94A3B8', '4,3'],
+    ['Security', '#F97316', '2,2'], ['Storage', '#14B8A6', 'none'],
+  ];
 
-// Layout engine
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)}
+        className="absolute bottom-4 left-4 z-10 bg-[#0F172A] border border-slate-700 rounded-lg px-2.5 py-1.5 text-[10px] text-slate-300 hover:border-slate-500 transition-colors">
+        Legend &#x25B8;
+      </button>
+    );
+  }
+
+  return (
+    <div className="absolute bottom-4 left-4 z-10 bg-[#0F172A]/95 backdrop-blur-sm border border-slate-700 rounded-lg p-3 w-48 shadow-xl">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-[10px] font-bold text-slate-300 uppercase tracking-wider">Legend</span>
+        <button onClick={() => setOpen(false)} className="text-slate-500 hover:text-slate-300 text-xs">&#x2715;</button>
+      </div>
+      <div className="space-y-1.5 mb-2.5">
+        <div className="flex items-center gap-2"><div className="w-4 h-3 rounded-sm border border-slate-700 bg-[#0F172A]" /><span className="text-[9px] text-slate-400">Mapped service</span></div>
+        <div className="flex items-center gap-2"><div className="w-4 h-3 rounded-sm border-2 border-dashed border-red-500/60 bg-red-950/40" /><span className="text-[9px] text-slate-400">Manual mapping needed</span></div>
+      </div>
+      <div className="border-t border-slate-700/50 pt-2 space-y-1">
+        {items.map(([l, c, d]) => (
+          <div key={l} className="flex items-center gap-2">
+            <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke={c} strokeWidth="2" strokeDasharray={d} /></svg>
+            <span className="text-[9px] text-slate-400">{l}</span>
+          </div>
+        ))}
+      </div>
+      <div className="border-t border-slate-700/50 pt-2 mt-2 space-y-1">
+        <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-400" /><span className="text-[9px] text-slate-400">{'\u2265'}85% conf.</span></div>
+        <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-amber-400" /><span className="text-[9px] text-slate-400">60-84%</span></div>
+        <div className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-red-400" /><span className="text-[9px] text-slate-400">&lt;60%</span></div>
+      </div>
+    </div>
+  );
+}
+
+const nodeTypes = { mappingNode: MappingNode, manualNode: ManualMappingNode, groupNode: GroupNode };
+
+/* ── Dagre layout engine ── */
 const getLayoutedElements = (nodes, edges) => {
-  const dagreGraph = new dagre.graphlib.Graph({ compound: true });
-  dagreGraph.setDefaultEdgeLabel(() => ({}));
-  
-  dagreGraph.setGraph({ rankdir: 'TB', ranksep: 100, nodesep: 80 });
+  const g = new dagre.graphlib.Graph({ compound: true });
+  g.setDefaultEdgeLabel(() => ({}));
+  g.setGraph({ rankdir: 'TB', ranksep: 100, nodesep: 80 });
 
-  nodes.forEach((node) => {
-    if (node.type === 'group') {
-      dagreGraph.setNode(node.id, { label: node.data.label, clusterLabelPos: 'top' });
-    } else {
-      dagreGraph.setNode(node.id, { width: NODE_WIDTH, height: NODE_HEIGHT });
-    }
-    if (node.parentId) {
-      dagreGraph.setParent(node.id, node.parentId);
-    }
+  nodes.forEach((n) => {
+    if (n.type === 'groupNode') g.setNode(n.id, { label: n.data.label, clusterLabelPos: 'top' });
+    else g.setNode(n.id, { width: NODE_WIDTH, height: NODE_HEIGHT });
+    if (n.parentId) g.setParent(n.id, n.parentId);
   });
+  edges.forEach((e) => g.setEdge(e.source, e.target));
+  dagre.layout(g);
 
-  edges.forEach((edge) => {
-    dagreGraph.setEdge(edge.source, edge.target);
-  });
-
-  dagre.layout(dagreGraph);
-
-  nodes.forEach((node) => {
-    const nodeWithPosition = dagreGraph.node(node.id);
-    node.targetPosition = 'top';
-    node.sourcePosition = 'bottom';
-    
-    let x = nodeWithPosition.x - nodeWithPosition.width / 2;
-    let y = nodeWithPosition.y - nodeWithPosition.height / 2;
-
-    if (node.type === 'group' || node.type === 'groupNode') {
-      const gWidth = (nodeWithPosition.width || NODE_WIDTH) + 40;
-      const gHeight = (nodeWithPosition.height || NODE_HEIGHT) + 60;
-      node.style = { ...node.style, width: gWidth, height: gHeight };
-      x -= 20; 
-      y -= 40; 
+  nodes.forEach((n) => {
+    const p = g.node(n.id);
+    n.targetPosition = 'top';
+    n.sourcePosition = 'bottom';
+    let x = p.x - p.width / 2;
+    let y = p.y - p.height / 2;
+    if (n.type === 'groupNode') {
+      n.style = { ...n.style, width: (p.width || NODE_WIDTH) + 40, height: (p.height || NODE_HEIGHT) + 60 };
+      x -= 20;
+      y -= 40;
     }
-
-    if (node.parentId) {
-      const parentWithPosition = dagreGraph.node(node.parentId);
-      const parentX = parentWithPosition.x - (parentWithPosition.width || 0) / 2 - 20;
-      const parentY = parentWithPosition.y - (parentWithPosition.height || 0) / 2 - 40;
-      x -= parentX;
-      y -= parentY;
+    if (n.parentId) {
+      const pp = g.node(n.parentId);
+      x -= pp.x - (pp.width || 0) / 2 - 20;
+      y -= pp.y - (pp.height || 0) / 2 - 40;
     }
-    
-    node.position = { x, y };
+    n.position = { x, y };
   });
-
   return { nodes, edges };
 };
 
@@ -153,68 +235,57 @@ export default function ArchitectureFlow({ analysis }) {
     const mappings = analysis?.mappings || [];
     const connections = analysis?.service_connections || [];
     const zones = analysis?.zones || [];
-
     const nodes = [];
     const edges = [];
-    
-    // Create group nodes for each zone
-    zones.forEach((zone) => {
+
+    // Zone groups
+    zones.forEach((z) => {
       nodes.push({
-        id: `zone-${zone.name}`,
-        type: 'groupNode',
-        data: { label: zone.name },
+        id: `zone-${z.name}`, type: 'groupNode', data: { label: z.name },
         position: { x: 0, y: 0 },
-        style: {
-          backgroundColor: 'rgba(240, 247, 255, 0.4)',
-          border: '1px dashed #527FFF',
-          borderRadius: '8px',
-          zIndex: -1
-        },
+        style: { backgroundColor: 'rgba(59,130,246,0.05)', border: '1px dashed rgba(59,130,246,0.3)', borderRadius: '8px', zIndex: -1 },
       });
     });
 
-    // Create a node for each mapping
-    // We use source_service name as ID to link edges correctly
+    // Service nodes — including manual-mapping-needed (#P0)
     mappings.forEach((m) => {
-      if (m.azure_service && m.azure_service !== '[Manual mapping needed]') {
-        const parentZone = zones.find(z => z.services?.includes(typeof m.source_service === 'object' ? m.source_service.name : m.source_service));
-        nodes.push({
-          id: typeof m.source_service === 'object' ? m.source_service.name : m.source_service,
-          type: 'mappingNode',
-          parentId: parentZone ? `zone-${parentZone.name}` : undefined,
-          extent: parentZone ? 'parent' : undefined,
-          data: {
-            source: typeof m.source_service === 'object' ? m.source_service.name : m.source_service,
-            target: m.azure_service,
-            provider: analysis?.source_provider || m.source_provider || 'aws'
-          },
-          position: { x: 0, y: 0 } // Computed by dagre
-        });
-      }
+      const src = typeof m.source_service === 'object' ? m.source_service.name : m.source_service;
+      const manual = !m.azure_service || m.azure_service === '[Manual mapping needed]';
+      const pz = zones.find((z) => z.services?.includes(src));
+
+      nodes.push({
+        id: src,
+        type: manual ? 'manualNode' : 'mappingNode',
+        parentId: pz ? `zone-${pz.name}` : undefined,
+        extent: pz ? 'parent' : undefined,
+        data: {
+          source: src,
+          target: manual ? null : m.azure_service,
+          provider: analysis?.source_provider || m.source_provider || 'aws',
+          confidence: m.confidence ?? 0,
+          effort: m.migration_effort || 'medium',
+          category: m.category || '',
+          featureGaps: m.feature_gaps || [],
+        },
+        position: { x: 0, y: 0 },
+      });
     });
 
-    // Create edges
-    connections.forEach((conn, idx) => {
-      // only add if both nodes exist in mapped nodes
-      if (nodes.find(n => n.id === conn.from) && nodes.find(n => n.id === conn.to)) {
+    // Typed edges (#P1)
+    connections.forEach((c, i) => {
+      if (nodes.find((n) => n.id === c.from) && nodes.find((n) => n.id === c.to)) {
+        const s = EDGE_STYLES[(c.type || '').toLowerCase()] || DEFAULT_EDGE;
         edges.push({
-          id: `e${idx}-${conn.from}-${conn.to}`,
-          source: conn.from,
-          target: conn.to,
-          animated: true,
-          label: conn.protocol || '',
-          style: { stroke: '#3b82f6', strokeWidth: 2 },
-          labelStyle: { fill: '#64748b', fontWeight: 600, fontSize: 10 },
-          labelBgStyle: { fill: 'white', fillOpacity: 0.85 }
+          id: `e${i}-${c.from}-${c.to}`,
+          source: c.from, target: c.to,
+          animated: !s.strokeDasharray,
+          label: c.protocol || '',
+          style: s,
+          labelStyle: { fill: '#94A3B8', fontWeight: 600, fontSize: 10 },
+          labelBgStyle: { fill: '#0F172A', fillOpacity: 0.9 },
         });
       }
     });
-
-    // Fallback if there are no connections but there are nodes
-    if (nodes.length && edges.length === 0) {
-      // Try to connect them sequentially if it makes sense, 
-      // or just let dagre place them side by side
-    }
 
     const layouted = getLayoutedElements(nodes, edges);
     return { initialNodes: layouted.nodes, initialEdges: layouted.edges };
@@ -228,40 +299,36 @@ export default function ArchitectureFlow({ analysis }) {
     setEdges(initialEdges);
   }, [initialNodes, initialEdges]);
 
-  const onNodesChange = React.useCallback(
-    (changes) => setNodes((nds) => applyNodeChanges(changes, nds)),
-    []
-  );
-  const onEdgesChange = React.useCallback(
-    (changes) => setEdges((eds) => applyEdgeChanges(changes, eds)),
-    []
-  );
+  const onNodesChange = React.useCallback((changes) => setNodes((nds) => applyNodeChanges(changes, nds)), []);
+  const onEdgesChange = React.useCallback((changes) => setEdges((eds) => applyEdgeChanges(changes, eds)), []);
 
   if (!nodes.length) {
     return (
-      <div className="w-full h-64 flex items-center justify-center text-text-muted bg-secondary/20 rounded-lg border border-border">
+      <div className="w-full h-64 flex items-center justify-center text-slate-400 bg-[#020617] rounded-lg border border-slate-700">
         No architecture diagram data available.
       </div>
     );
   }
 
   return (
-    <div style={{ width: '100%', height: '600px' }} className="rounded-lg border border-border overflow-hidden bg-white">
+    <div style={{ width: '100%', height: '600px' }} className="relative rounded-lg border border-slate-700 overflow-hidden bg-[#020617]">
       <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        nodeTypes={nodeTypes}
-        fitView
-        fitViewOptions={{ padding: 0.15 }}
-        attributionPosition="bottom-right"
-        minZoom={0.3}
-        maxZoom={1.5}
+        nodes={nodes} edges={edges}
+        onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
+        nodeTypes={nodeTypes} fitView fitViewOptions={{ padding: 0.15 }}
+        attributionPosition="bottom-right" minZoom={0.3} maxZoom={1.5}
       >
-        <Background color="#e2e8f0" gap={20} size={1} />
+        <Background color="#1E293B" gap={20} size={1} />
         <Controls />
+        <MiniMap
+          nodeStrokeWidth={3}
+          nodeColor={(n) => n.type === 'manualNode' ? '#EF4444' : n.type === 'groupNode' ? 'transparent' : '#22C55E'}
+          maskColor="rgba(15,23,42,0.7)"
+          style={{ backgroundColor: '#020617', border: '1px solid #334155', borderRadius: 8 }}
+          pannable zoomable
+        />
       </ReactFlow>
+      <MapLegend />
     </div>
   );
 }
