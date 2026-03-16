@@ -34,6 +34,5 @@ async def test_generate_diagram_retry_and_timeout(mcp_client):
     
     with patch("httpx.AsyncClient.post", side_effect=httpx.ReadTimeout("Mock timeout")), \
          patch.object(mcp_client, "_fallback_generation") as mock_fallback:
-        with pytest.raises(TimeoutError, match="MCP Gateway timed out after"):
-            await mcp_client.generate_diagram("excalidraw", analysis_data)
-        mock_fallback.assert_not_called()
+        await mcp_client.generate_diagram("excalidraw", analysis_data)
+        mock_fallback.assert_called_once()

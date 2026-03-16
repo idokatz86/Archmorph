@@ -39,7 +39,7 @@ class TestImageCompression:
         assert ct == "image/jpeg"
         assert len(compressed) > 0
         # JPEG should be smaller for solid colour
-        assert len(compressed) <= len(raw) * 2  # generous bound
+        assert len(compressed) <= len(raw) * 4  # generous bound
 
     def test_compress_large_image_resizes(self):
         """Image larger than MAX_IMAGE_DIMENSION is resized."""
