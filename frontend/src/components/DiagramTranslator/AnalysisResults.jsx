@@ -368,10 +368,16 @@ export default function AnalysisResults({
               </button>
             </div>
           )}
-          {notifyEmail?.sent && (
-            <div className="flex items-center gap-2 ml-8 text-xs text-cta">
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              We'll email you at <strong>{notifyEmail.email}</strong> when ready
+          {notifyEmail?.sent && !notifyEmail?.failed && (
+            <div className="flex items-center gap-2 ml-8 text-xs bg-cta/10 border border-cta/20 rounded-md px-3 py-2 text-cta animate-in fade-in">
+              <CheckCircle2 className="w-4 h-4 shrink-0" />
+              <span>Email accepted! We'll notify <strong>{notifyEmail.email}</strong> when your outputs are ready.</span>
+            </div>
+          )}
+          {notifyEmail?.failed && (
+            <div className="flex items-center gap-2 ml-8 text-xs bg-warning/10 border border-warning/20 rounded-md px-3 py-2 text-warning animate-in fade-in">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span>Could not register email — but don't worry, your outputs will still appear here when ready.</span>
             </div>
           )}
         </Card>

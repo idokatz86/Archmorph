@@ -596,7 +596,7 @@ export default function DiagramTranslator() {
       });
       set({ notifyEmail: { sent: true, email } });
     } catch {
-      // Silent fail — email notification is best-effort
+      set({ notifyEmail: { sent: true, email, failed: true } });
     }
   };
 

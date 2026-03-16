@@ -1,10 +1,36 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { Rocket } from 'lucide-react';
 import api from '../../services/apiClient';
 
 const API_BASE_URL = '/api/v1/deployments'; // For standard execution
 const PREFLIGHT_URL = '/api/deploy/preflight-check';
 
-const DeployPanel = ({ templateSource = 'main.bicep', parameters = {}, provider = 'azure', canvasState = null }) => {
+const DeployPanel = (props) => {
+  // Feature is in development — show greyscale placeholder
+  return (
+    <div className="relative w-full">
+      {/* Coming Soon overlay */}
+      <div className="absolute inset-0 z-10 flex items-start justify-center pt-12 pointer-events-none">
+        <div className="bg-surface/95 backdrop-blur-sm border border-border rounded-xl px-8 py-5 shadow-xl text-center pointer-events-auto">
+          <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-cta/10 flex items-center justify-center">
+            <Rocket className="w-6 h-6 text-cta" />
+          </div>
+          <h3 className="text-lg font-bold text-text-primary">Coming Soon</h3>
+          <p className="text-sm text-text-muted mt-1 max-w-xs">
+            One-click deployment is under active development.<br />
+            Deploy your generated IaC directly to Azure with built-in security checks and rollback.
+          </p>
+        </div>
+      </div>
+      {/* Greyscaled content underneath */}
+      <div className="grayscale opacity-40 pointer-events-none select-none" aria-hidden="true">
+        <DeployPanelContent {...props} />
+      </div>
+    </div>
+  );
+};
+
+const DeployPanelContent = ({ templateSource = 'main.bicep', parameters = {}, provider = 'azure', canvasState = null }) => {
   const [step, setStep] = useState(1); // 1: Init, 2: Preview, 3: Deploying/Terminal
   const [loading, setLoading] = useState(false);
   const [preflightData, setPreflightData] = useState(null);
