@@ -624,6 +624,55 @@ def generate_iac_code(analysis: Optional[dict], iac_format: str = "terraform", p
         # Validate generated output (Issues #273, #274)
         code = _apply_validation(code, iac_format)
 
+        # -------------------------------------------------------------
+        # IaC Architecture Verification & Auto-Fix Step
+        # -------------------------------------------------------------
+        logger.info("Executing self-reflection verification step for generated %s code", iac_format)
+        verify_prompt = (
+            f"Please strictly review the following {iac_format} code generated for the user's infrastructure:\\n"
+            f"```\\n{code}\\n```\\n\\n"
+            f"Does this {iac_format} code fully and completely implement ALL resources, connections, and routing detailed in the architecture mapping?\\n"
+            f"Original Architecture Map:\\n{analysis.get('mappings', [])}\\n\\n"
+            f"If the code is INCOMPLETE, or MISSING any mapped services described above, UPDATE the code to fully implement the entire architecture.\\n"
+            f"Return ONLY the highly robust and completed {iac_format} code. DO NOT ADD markdown fences (e.g. ```). DO NOT ADD any conversational explanations."
+        )
+
+        try:
+            verify_response = cached_chat_completion(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": f"You are a strict {cloud_label} architecture quality gate. You return ONLY {iac_format} code, no markdown formatting, no descriptions."
+                    },
+                    {"role": "user", "content": verify_prompt},
+                ],
+                model=AZURE_OPENAI_DEPLOYMENT,
+                temperature=0.1,
+                max_tokens=4000,
+            )
+
+            verified_code = verify_response.choices[0].message.content.strip()
+            
+            # Detect truncation in verification step
+            if getattr(verify_response, '_truncated', False):
+                logger.warning("Verification output was truncated.")
+                truncation_warning = "\n# \u26a0\ufe0f WARNING: Output was truncated by the AI model.\n"
+                verified_code += truncation_warning
+
+            if verified_code:
+                if verified_code.startswith("```"):
+                    lines = verified_code.split("\n")
+                    if lines[-1].strip() == "```":
+                        lines = lines[1:-1]
+                    else:
+                        lines = lines[1:]
+                    verified_code = "\n".join(lines)
+                code = verified_code
+                code = _apply_validation(code, iac_format)
+
+        except Exception as verify_exc:
+            logger.warning("Verification step failed, using initial generation: %s", verify_exc)
+
         return code
 
     except Exception as exc:
