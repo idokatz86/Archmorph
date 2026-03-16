@@ -2,7 +2,7 @@ import React, { useState, Suspense, lazy } from 'react';
 import {
   ArrowRight, AlertTriangle, Info, HelpCircle,
   FileCode, Sparkles, Loader2, ChevronDown, ChevronUp, ShieldCheck,
-  CheckCircle2, XCircle, ExternalLink, FileText, ArrowUpRight,
+  CheckCircle2, XCircle, ExternalLink, FileText, ArrowUpRight, Mail,
 } from 'lucide-react';
 import { Badge, Button, Card } from '../ui';
 import ExportPanel from './ExportPanel';
@@ -213,7 +213,7 @@ function MappingRow({ m, sourceProvider }) {
 
 export default function AnalysisResults({
   analysis, loading, generatingIac, iacFormat, exportLoading,
-  copyFeedback, genProgress,
+  copyFeedback, genProgress, notifyEmail, onNotifyEmail,
   onSetStep, onGenerateIac, onExportDiagram, onCopyWithFeedback,
 }) {
   return (
@@ -333,7 +333,7 @@ export default function AnalysisResults({
 
       {/* Generation Progress Indicator (#311) */}
       {generatingIac && (
-        <Card className="p-4 border-cta/30 bg-cta/5" role="status" aria-live="polite">
+        <Card className="p-4 border-cta/30 bg-cta/5 space-y-3" role="status" aria-live="polite">
           <div className="flex items-center gap-3">
             <Loader2 className="w-5 h-5 text-cta animate-spin shrink-0" aria-hidden="true" />
             <div>
@@ -343,6 +343,37 @@ export default function AnalysisResults({
               {genProgress && <p className="text-xs text-text-muted mt-0.5">Generating IaC + HLD together to save you time</p>}
             </div>
           </div>
+          {/* Email notification opt-in */}
+          {!notifyEmail?.sent && (
+            <div className="flex items-center gap-2 ml-8">
+              <Mail className="w-3.5 h-3.5 text-text-muted shrink-0" />
+              <input
+                type="email"
+                placeholder="Get notified when ready (email)"
+                className="flex-1 text-xs px-2.5 py-1.5 rounded-md bg-surface border border-border text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-cta"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && e.target.value.includes('@')) {
+                    onNotifyEmail?.(e.target.value);
+                  }
+                }}
+              />
+              <button
+                onClick={(e) => {
+                  const input = e.target.closest('div')?.querySelector('input');
+                  if (input?.value?.includes('@')) onNotifyEmail?.(input.value);
+                }}
+                className="text-[10px] px-2.5 py-1.5 rounded-md bg-cta/15 text-cta font-medium hover:bg-cta/25 transition-colors"
+              >
+                Notify me
+              </button>
+            </div>
+          )}
+          {notifyEmail?.sent && (
+            <div className="flex items-center gap-2 ml-8 text-xs text-cta">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              We'll email you at <strong>{notifyEmail.email}</strong> when ready
+            </div>
+          )}
         </Card>
       )}
 

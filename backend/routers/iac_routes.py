@@ -6,9 +6,10 @@ Split from diagrams.py for maintainability (#284).
 """
 
 from fastapi import APIRouter, Request, Depends
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, EmailStr
 import asyncio
 import logging
+import re
 
 from routers.shared import SESSION_STORE, limiter, verify_api_key
 from job_queue import job_manager
@@ -167,3 +168,41 @@ async def _run_iac_job(job_id: str, diagram_id: str, iac_format: str) -> None:
     except Exception as exc:
         logger.error("Async IaC generation failed: %s", str(exc).replace('\n', '').replace('\r', ''), exc_info=True)  # codeql[py/log-injection] Handled by custom
         job_manager.fail(job_id, str(exc))
+
+
+# ─────────────────────────────────────────────────────────────
+# Email Notification — send session link when generation completes
+# ─────────────────────────────────────────────────────────────
+_EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
+
+
+class NotifyEmailRequest(BaseModel):
+    """Request body for email notification."""
+    email: str = Field(..., min_length=5, max_length=254)
+    diagram_name: str = Field(default="", max_length=200)
+
+
+@router.post("/api/diagrams/{diagram_id}/notify-email")
+@limiter.limit("3/minute")
+async def notify_email(request: Request, diagram_id: str, body: NotifyEmailRequest, _auth=Depends(verify_api_key)):
+    """Send a session-ready notification email to the user."""
+    if not _EMAIL_RE.match(body.email):
+        raise ArchmorphException(400, "Invalid email address format.")
+
+    from services.email_service import send_session_ready_email, is_email_configured
+
+    if not is_email_configured():
+        raise ArchmorphException(503, "Email service is not configured.")
+
+    success = await asyncio.to_thread(
+        send_session_ready_email,
+        recipient_email=body.email,
+        diagram_id=diagram_id,
+        diagram_name=body.diagram_name or None,
+    )
+
+    if not success:
+        raise ArchmorphException(502, "Failed to send email. Please try again.")
+
+    record_event("email_notification_sent", {"diagram_id": diagram_id})
+    return {"sent": True, "email": body.email}

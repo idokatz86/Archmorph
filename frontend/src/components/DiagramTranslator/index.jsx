@@ -588,6 +588,18 @@ export default function DiagramTranslator() {
     setTimeout(() => iacChatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
   };
 
+  const handleNotifyEmail = async (email) => {
+    try {
+      await api.post(`/diagrams/${state.diagramId}/notify-email`, {
+        email,
+        diagram_name: state.analysis?.diagram_type || '',
+      });
+      set({ notifyEmail: { sent: true, email } });
+    } catch {
+      // Silent fail — email notification is best-effort
+    }
+  };
+
   const handleGenerateHld = async () => {
     set({ hldLoading: true, error: null });
     try {
@@ -800,6 +812,8 @@ export default function DiagramTranslator() {
           onSetStep={(step) => set({ step })}
           onGenerateIac={handleGenerateAll}
           genProgress={state.genProgress}
+          notifyEmail={state.notifyEmail}
+          onNotifyEmail={handleNotifyEmail}
           onExportDiagram={handleExportDiagram}
           onCopyWithFeedback={copyWithFeedback}
         />

@@ -359,6 +359,8 @@ jobs:
               AZURE_OPENAI_DEPLOYMENT="gpt-4.1" \
               AZURE_OPENAI_FALLBACK_DEPLOYMENT="gpt-4o" \
               AZURE_OPENAI_API_VERSION="2025-04-01-preview" \
+              ACS_CONNECTION_STRING="${{ secrets.ACS_CONNECTION_STRING }}" \
+              ACS_SENDER_EMAIL="${{ secrets.ACS_SENDER_EMAIL }}" \
             --revision-suffix "sha-${SHORT_SHA}" \
             --no-wait
 
