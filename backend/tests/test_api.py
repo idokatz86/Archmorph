@@ -110,7 +110,8 @@ class TestHealth:
         data = resp.json()
         # Status may be 'degraded' when OpenAI is not configured (test env)
         assert data["status"] in ("healthy", "degraded")
-        assert data["version"] == "3.8.0"
+        from version import __version__
+        assert data["version"] == __version__
 
     def test_health_has_catalog_counts(self, client):
         data = client.get("/api/health").json()

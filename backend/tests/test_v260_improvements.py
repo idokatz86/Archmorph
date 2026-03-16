@@ -190,7 +190,8 @@ class TestHealthCheck:
         data = r.json()
         # Status may be 'degraded' when OpenAI is not configured (test env)
         assert data["status"] in ("healthy", "degraded")
-        assert data["version"] == "3.8.0"
+        from version import __version__
+        assert data["version"] == __version__
         assert "checks" in data
         assert "openai" in data["checks"]
         assert "storage" in data["checks"]
