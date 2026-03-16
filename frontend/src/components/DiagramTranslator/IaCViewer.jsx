@@ -30,12 +30,25 @@ const CHAT_QUICK_BUTTONS = [
 ];
 
 export default function IaCViewer({
-  iacCode, iacFormat, copyFeedback,
+  iacCode, previousIacCode, iacFormat, copyFeedback,
   iacChatOpen, iacChatMessages, iacChatInput, iacChatLoading,
   iacChatEndRef, iacChatInputRef,
   onCopyWithFeedback, onToggleChat, onOpenChatWithMessage,
   onResetChat, onSendChat, onSetChatInput,
 }) {
+  // Compute which lines are new/changed compared to previous version
+  const changedLineSet = useMemo(() => {
+    if (!previousIacCode || previousIacCode === iacCode) return new Set();
+    const oldLines = previousIacCode.split('\n');
+    const newLines = iacCode.split('\n');
+    const oldSet = new Set(oldLines.map(l => l.trim()));
+    const changed = new Set();
+    newLines.forEach((line, i) => {
+      if (!oldSet.has(line.trim()) && line.trim() !== '') changed.add(i);
+    });
+    return changed;
+  }, [iacCode, previousIacCode]);
+
   // Memoize syntax highlighting — avoids per-line Prism.highlight + DOMPurify on every render (#219)
   const highlightedLines = useMemo(() => {
     const grammar = iacFormat === 'terraform' ? Prism.languages.hcl
@@ -83,7 +96,7 @@ export default function IaCViewer({
           <pre className="p-4 text-xs leading-relaxed">
             <code>
               {highlightedLines.map((html, i) => (
-                <div key={i} className="flex">
+                <div key={i} className={`flex ${changedLineSet.has(i) ? 'bg-cta/10 border-l-2 border-cta' : ''}`}>
                   <span className="inline-block w-10 text-right pr-4 text-text-muted select-none opacity-50">{i + 1}</span>
                   <span dangerouslySetInnerHTML={{ __html: html }} />
                 </div>

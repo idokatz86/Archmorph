@@ -2,7 +2,7 @@ import React, { useState, Suspense, lazy } from 'react';
 import {
   ArrowRight, AlertTriangle, Info, HelpCircle,
   FileCode, Sparkles, Loader2, ChevronDown, ChevronUp, ShieldCheck,
-  CheckCircle2, XCircle, ExternalLink,
+  CheckCircle2, XCircle, ExternalLink, FileText, ArrowUpRight,
 } from 'lucide-react';
 import { Badge, Button, Card } from '../ui';
 import ExportPanel from './ExportPanel';
@@ -75,25 +75,51 @@ function DeepDivePanel({ m }) {
           const detail = typeof l === 'string' ? null : l.detail;
           const severity = typeof l === 'string' ? 'medium' : l.severity;
           const doc_link = typeof l === 'string' ? null : l.doc_link;
+
+          const severityConfig = {
+            high:   { bg: 'bg-danger/10', border: 'border-danger/20', dot: 'bg-danger', text: 'text-danger', label: 'Likely blocker' },
+            medium: { bg: 'bg-warning/10', border: 'border-warning/20', dot: 'bg-warning', text: 'text-warning', label: 'May need workaround' },
+            low:    { bg: 'bg-text-muted/10', border: 'border-text-muted/15', dot: 'bg-text-muted', text: 'text-text-muted', label: 'Minor gap' },
+          };
+          const sc = severityConfig[severity] || severityConfig.medium;
+
           return (
-          <div key={i} className="flex items-start gap-2 text-xs text-text-secondary">
-            <XCircle className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${
-              severity === 'high' ? 'text-danger' : severity === 'medium' ? 'text-warning' : 'text-text-muted'
-            }`} />
-            <div>
-              <span className="font-medium text-text-primary">{factor}</span>
-              <Badge variant={severity === 'high' ? 'low' : severity === 'medium' ? 'medium' : 'high'} className="ml-1.5 text-[9px]">
-                {severity}
-              </Badge>
-              {detail && <p className="text-text-muted mt-0.5">{detail}</p>}
+            <div key={i} className={`rounded-lg p-3 ${sc.bg} border ${sc.border} space-y-1.5`}>
+              {/* Layer 1: Headline + Impact pill */}
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-start gap-2 min-w-0">
+                  <AlertTriangle className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${sc.text}`} />
+                  <span className="text-xs font-semibold text-text-primary leading-snug">{factor}</span>
+                </div>
+                <span className={`inline-flex items-center gap-1.5 text-[10px] font-medium ${sc.text} shrink-0`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${sc.dot}`} />
+                  {sc.label}
+                </span>
+              </div>
+
+              {/* Layer 2: Detail summary */}
+              {detail && (
+                <p className="text-[11px] text-text-muted leading-relaxed ml-[22px]">
+                  {detail.length > 180 ? detail.slice(0, 177) + '...' : detail}
+                </p>
+              )}
+
+              {/* Layer 3: Doc CTA */}
               {doc_link && (
-                <a href={doc_link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[10px] text-cta hover:underline mt-0.5">
-                  <ExternalLink className="w-2.5 h-2.5" /> Learn more
+                <a
+                  href={doc_link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 ml-[22px] text-[10px] font-medium text-cta hover:text-cta/80 transition-colors group"
+                >
+                  <FileText className="w-3 h-3" />
+                  Compare feature parity
+                  <ArrowUpRight className="w-2.5 h-2.5 opacity-60 group-hover:opacity-100 transition-opacity" />
                 </a>
               )}
             </div>
-          </div>
-        )}) : (
+          );
+        }) : (
           <div className="flex items-start gap-2 text-xs text-text-secondary">
             <CheckCircle2 className="w-3.5 h-3.5 text-success shrink-0 mt-0.5" />
             <p className="font-medium text-success">No known architectural limitations. This is a clean mapping.</p>
@@ -187,7 +213,7 @@ function MappingRow({ m, sourceProvider }) {
 
 export default function AnalysisResults({
   analysis, loading, generatingIac, iacFormat, exportLoading,
-  copyFeedback,
+  copyFeedback, genProgress,
   onSetStep, onGenerateIac, onExportDiagram, onCopyWithFeedback,
 }) {
   return (
@@ -310,9 +336,12 @@ export default function AnalysisResults({
         <Card className="p-4 border-cta/30 bg-cta/5" role="status" aria-live="polite">
           <div className="flex items-center gap-3">
             <Loader2 className="w-5 h-5 text-cta animate-spin shrink-0" aria-hidden="true" />
-            <p className="text-sm text-text-primary font-medium">
-              {`Generating ${iacFormat === 'terraform' ? 'Terraform' : iacFormat === 'bicep' ? 'Bicep' : iacFormat === 'pulumi' ? 'Pulumi' : iacFormat === 'aws-cdk' ? 'AWS CDK' : 'CloudFormation'} code...`}
-            </p>
+            <div>
+              <p className="text-sm text-text-primary font-medium">
+                {genProgress || `Generating ${iacFormat === 'terraform' ? 'Terraform' : iacFormat === 'bicep' ? 'Bicep' : iacFormat === 'pulumi' ? 'Pulumi' : iacFormat === 'aws-cdk' ? 'AWS CDK' : 'CloudFormation'} code...`}
+              </p>
+              {genProgress && <p className="text-xs text-text-muted mt-0.5">Generating IaC + HLD together to save you time</p>}
+            </div>
           </div>
         </Card>
       )}

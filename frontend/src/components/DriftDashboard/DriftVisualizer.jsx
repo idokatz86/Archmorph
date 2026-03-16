@@ -20,6 +20,31 @@ const DriftBadge = ({ status }) => {
 };
 
 export const DriftVisualizer = ({ driftResults: initialDrift, onSync }) => {
+  // Feature is in development — show greyscale placeholder
+  return (
+    <div className="relative w-full">
+      {/* Coming Soon overlay */}
+      <div className="absolute inset-0 z-10 flex items-start justify-center pt-12 pointer-events-none">
+        <div className="bg-surface/95 backdrop-blur-sm border border-border rounded-xl px-8 py-5 shadow-xl text-center pointer-events-auto">
+          <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-cta/10 flex items-center justify-center">
+            <ShieldCheck className="w-6 h-6 text-cta" />
+          </div>
+          <h3 className="text-lg font-bold text-text-primary">Coming Soon</h3>
+          <p className="text-sm text-text-muted mt-1 max-w-xs">
+            Drift Detection is under active development.<br />
+            Connect your live cloud environment to detect architectural drift between your design and reality.
+          </p>
+        </div>
+      </div>
+      {/* Greyscaled content underneath */}
+      <div className="grayscale opacity-40 pointer-events-none select-none" aria-hidden="true">
+        <DriftVisualizerContent driftResults={initialDrift} onSync={onSync} />
+      </div>
+    </div>
+  );
+};
+
+const DriftVisualizerContent = ({ driftResults: initialDrift, onSync }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [driftResults, setDriftResults] = useState(initialDrift || null);

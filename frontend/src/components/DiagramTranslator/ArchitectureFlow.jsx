@@ -99,7 +99,7 @@ const getLayoutedElements = (nodes, edges) => {
   const dagreGraph = new dagre.graphlib.Graph({ compound: true });
   dagreGraph.setDefaultEdgeLabel(() => ({}));
   
-  dagreGraph.setGraph({ rankdir: 'TB', ranksep: 80, nodesep: 60 });
+  dagreGraph.setGraph({ rankdir: 'TB', ranksep: 100, nodesep: 80 });
 
   nodes.forEach((node) => {
     if (node.type === 'group') {
@@ -203,9 +203,9 @@ export default function ArchitectureFlow({ analysis }) {
           target: conn.to,
           animated: true,
           label: conn.protocol || '',
-          style: { stroke: '#527FFF', strokeWidth: 2 },
-          labelStyle: { fill: '#888', fontWeight: 500, fontSize: 10 },
-          labelBgStyle: { fill: 'transparent' }
+          style: { stroke: '#3b82f6', strokeWidth: 2 },
+          labelStyle: { fill: '#64748b', fontWeight: 600, fontSize: 10 },
+          labelBgStyle: { fill: 'white', fillOpacity: 0.85 }
         });
       }
     });
@@ -246,7 +246,7 @@ export default function ArchitectureFlow({ analysis }) {
   }
 
   return (
-    <div style={{ width: '100%', height: '500px' }} className="rounded-lg border border-border overflow-hidden bg-background/50">
+    <div style={{ width: '100%', height: '600px' }} className="rounded-lg border border-border overflow-hidden bg-white">
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -254,9 +254,12 @@ export default function ArchitectureFlow({ analysis }) {
         onEdgesChange={onEdgesChange}
         nodeTypes={nodeTypes}
         fitView
+        fitViewOptions={{ padding: 0.15 }}
         attributionPosition="bottom-right"
+        minZoom={0.3}
+        maxZoom={1.5}
       >
-        <Background color="#777" gap={16} size={1} />
+        <Background color="#e2e8f0" gap={20} size={1} />
         <Controls />
       </ReactFlow>
     </div>

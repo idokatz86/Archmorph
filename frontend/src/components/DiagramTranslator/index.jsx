@@ -478,6 +478,36 @@ export default function DiagramTranslator() {
     set({ loading: false, generatingIac: false });
   };
 
+  // Background parallel generation of both IaC + HLD (#task4)
+  const handleGenerateAll = async (fmt) => {
+    set({ loading: true, iacFormat: fmt, generatingIac: true, generatingAll: true, genProgress: 'Generating infrastructure code...' });
+    try {
+      // Start IaC generation
+      const iacData = await withRestore(
+        () => api.post(`/diagrams/${state.diagramId}/generate?format=${fmt}`, undefined, undefined, 180_000),
+        { cleanup: () => set({ loading: false, generatingIac: false, generatingAll: false }) },
+      );
+      if (iacData) {
+        set({ iacCode: iacData.code, genProgress: 'IaC complete. Generating HLD document...' });
+        updateSessionCache({ iacCode: iacData.code, iacFormat: fmt });
+        // Start HLD generation in parallel
+        const [hldData, costData] = await Promise.allSettled([
+          api.post(`/diagrams/${state.diagramId}/generate-hld`, undefined, undefined, 180_000),
+          api.get(`/diagrams/${state.diagramId}/cost-estimate`),
+        ]);
+        if (hldData.status === 'fulfilled' && hldData.value?.hld) {
+          set({ hldData: hldData.value });
+          updateSessionCache({ hldData: hldData.value });
+        }
+        if (costData.status === 'fulfilled') set({ costEstimate: costData.value });
+        set({ step: 'iac', generatingIac: false, generatingAll: false, genProgress: null });
+      }
+    } catch (err) {
+      set({ error: err.message, generatingIac: false, generatingAll: false, genProgress: null });
+    }
+    set({ loading: false, generatingIac: false, generatingAll: false });
+  };
+
   const handleHldExport = async (fmt) => {
     setHldExportLoading(fmt, true);
     try {
@@ -548,7 +578,7 @@ export default function DiagramTranslator() {
         services: data.services_added || [],
       });
       if (data.code && !data.error) {
-        set({ iacCode: data.code });
+        set({ previousIacCode: state.iacCode, iacCode: data.code });
         updateSessionCache({ iacCode: data.code });
       }
     } catch {
@@ -768,7 +798,8 @@ export default function DiagramTranslator() {
           exportLoading={state.exportLoading}
           copyFeedback={state.copyFeedback}
           onSetStep={(step) => set({ step })}
-          onGenerateIac={handleGenerateIac}
+          onGenerateIac={handleGenerateAll}
+          genProgress={state.genProgress}
           onExportDiagram={handleExportDiagram}
           onCopyWithFeedback={copyWithFeedback}
         />
@@ -784,6 +815,7 @@ export default function DiagramTranslator() {
         <div className="space-y-6">
           <IaCViewer
             iacCode={state.iacCode}
+            previousIacCode={state.previousIacCode}
             iacFormat={state.iacFormat}
             copyFeedback={state.copyFeedback}
             iacChatOpen={state.iacChatOpen}

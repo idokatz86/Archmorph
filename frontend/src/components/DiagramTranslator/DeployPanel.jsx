@@ -165,18 +165,18 @@ const DeployPanel = ({ templateSource = 'main.bicep', parameters = {}, provider 
   };
 
   return (
-    <div className="w-full max-w-4xl mx-auto p-6 bg-white dark:bg-gray-800 rounded-lg shadow-md border border-gray-200 dark:border-gray-700 font-sans">
+    <div className="w-full max-w-4xl mx-auto p-6 bg-surface rounded-lg shadow-md border border-border font-sans">
       
-      <div className="mb-6 border-b border-gray-200 dark:border-gray-700 pb-4 flex justify-between items-center">
+      <div className="mb-6 border-b border-border pb-4 flex justify-between items-center">
         <div>
-          <h2 className="text-2xl font-bold text-gray-800 dark:text-white">Deployment Panel</h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400">One-Click Infrastructure Provisioning</p>
+          <h2 className="text-2xl font-bold text-text-primary">Deployment Panel</h2>
+          <p className="text-sm text-text-muted">One-Click Infrastructure Provisioning</p>
         </div>
         
         <div className="flex space-x-2 text-sm font-medium">
-          <span className={`px-3 py-1 rounded-full ${step === 1 ? 'bg-blue-100 text-blue-700' : 'text-gray-400'}`}>1. Init</span>
-          <span className={`px-3 py-1 rounded-full ${step === 2 ? 'bg-blue-100 text-blue-700' : 'text-gray-400'}`}>2. Preview</span>
-          <span className={`px-3 py-1 rounded-full ${step === 3 ? 'bg-blue-100 text-blue-700' : 'text-gray-400'}`}>3. Deploy</span>
+          <span className={`px-3 py-1 rounded-full ${step === 1 ? 'bg-cta/15 text-cta' : 'text-text-muted'}`}>1. Init</span>
+          <span className={`px-3 py-1 rounded-full ${step === 2 ? 'bg-cta/15 text-cta' : 'text-text-muted'}`}>2. Preview</span>
+          <span className={`px-3 py-1 rounded-full ${step === 3 ? 'bg-cta/15 text-cta' : 'text-text-muted'}`}>3. Deploy</span>
         </div>
       </div>
 
