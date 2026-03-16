@@ -375,7 +375,7 @@ def build_sample_analysis(sample_id: str, diagram_id: str) -> dict:
             if not mapping_entry.get("strengths"):
                 mapping_entry["strengths"] = [f"Native integration mapped directly from {sample['provider'].upper()}"]
             if not mapping_entry.get("limitations"):
-                mapping_entry["limitations"] = [f"Feature parity mismatch might require config adjustments in Azure {azure_svc}"]
+                mapping_entry["limitations"] = [f"Feature parity mismatch: Azure {azure_svc} may lack some specific integrations available natively in {sample['provider'].upper()}. Refer to https://learn.microsoft.com/en-us/azure/architecture/aws-professional/services for a detailed feature comparison."]
             if not mapping_entry.get("migration_notes"):
                 mapping_entry["migration_notes"] = [f"AWS usually migrates to Azure {azure_svc} with minimal refactoring." if sample['provider'] == 'aws' else f"GCP has differing networking topologies, test {azure_svc} routes."]
             

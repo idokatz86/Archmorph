@@ -73,12 +73,13 @@ Return a JSON object with these exact fields:
   "notes": "Brief migration guidance (max 150 chars)",
   "alternatives": ["other Azure options if any"],
   "migration_effort": "low|medium|high",
-  "feature_gaps": ["notable gaps between source and target"],
+  "feature_gaps": ["If any feature gaps exist, explain the mismatch in detail and provide an official Microsoft Learn or Azure docs link for reference"],
   "dependencies": ["other Azure services typically needed"]
 }
 
 Rules:
 - confidence must reflect realistic feature parity (0.6-0.95 range usually)
+- When there is a Feature parity mismatch or a feature gap, explicitly explain what the mismatch is within feature_gaps, and supply a link to official documentation (e.g. Microsoft Learn) explaining the limitation or alternative.
 - If no good Azure equivalent exists, set confidence < 0.5 and explain in notes
 - Consider the surrounding architecture context when suggesting alternatives
 - Return ONLY the JSON object, no markdown fencing

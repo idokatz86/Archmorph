@@ -463,7 +463,7 @@ export default function DiagramTranslator() {
     set({ loading: true, iacFormat: fmt, generatingIac: true });
     try {
       const iacData = await withRestore(
-        () => api.post(`/diagrams/${state.diagramId}/generate?format=${fmt}`),
+        () => api.post(`/diagrams/${state.diagramId}/generate?format=${fmt}`, undefined, undefined, 180_000),
         { cleanup: () => set({ loading: false, generatingIac: false }) },
       );
       if (iacData) {
@@ -540,7 +540,7 @@ export default function DiagramTranslator() {
     try {
       const data = await api.post(`/diagrams/${state.diagramId}/iac-chat`, {
         message: text, code: state.iacCode || '', format: state.iacFormat,
-      });
+      }, undefined, 180_000);
       addChatMessage({
         role: 'assistant',
         content: data.reply || data.message || 'Done.',
