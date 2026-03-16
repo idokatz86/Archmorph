@@ -61,7 +61,7 @@ def send_session_ready_email(
                 "to": [{"address": recipient_email}],
             },
             "content": {
-                "subject": f"Archmorph — Your migration outputs are ready",
+                "subject": "Archmorph — Your migration outputs are ready",
                 "html": f"""
                 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 600px; margin: 0 auto; padding: 32px 24px; background: #f8fafc;">
                   <div style="background: white; border-radius: 12px; padding: 32px; border: 1px solid #e2e8f0;">
