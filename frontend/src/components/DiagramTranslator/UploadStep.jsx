@@ -3,6 +3,8 @@ import { Upload, FileText, X } from 'lucide-react';
 import { Badge, Button, Card } from '../ui';
 
 const SAMPLES = [
+  { id: 'aws-hub-spoke', name: 'Hub & Spoke', icon: '🏛️', desc: 'Secure Landing Zone', provider: 'aws' },
+  { id: 'aws-hub-spoke', name: 'Hub & Spoke', icon: '🏛️', desc: 'Secure Landing Zone', provider: 'aws' },
   { id: 'aws-iaas', name: 'AWS IaaS', icon: '🖥️', desc: 'VPC + EC2 + RDS + S3', provider: 'aws' },
   { id: 'gcp-iaas', name: 'GCP IaaS', icon: '🌐', desc: 'VPC + VMs + Cloud SQL', provider: 'gcp' },
   { id: 'aws-eks', name: 'AWS Containers', icon: '🐳', desc: 'EKS + Fargate + ECR', provider: 'aws' },

@@ -177,14 +177,14 @@ export default function ArchitectureFlow({ analysis }) {
     // We use source_service name as ID to link edges correctly
     mappings.forEach((m) => {
       if (m.azure_service && m.azure_service !== '[Manual mapping needed]') {
-        const parentZone = zones.find(z => z.services?.includes(m.source_service));
+        const parentZone = zones.find(z => z.services?.includes(typeof m.source_service === 'object' ? m.source_service.name : m.source_service));
         nodes.push({
-          id: m.source_service,
+          id: typeof m.source_service === 'object' ? m.source_service.name : m.source_service,
           type: 'mappingNode',
           parentId: parentZone ? `zone-${parentZone.name}` : undefined,
           extent: parentZone ? 'parent' : undefined,
           data: {
-            source: m.source_service,
+            source: typeof m.source_service === 'object' ? m.source_service.name : m.source_service,
             target: m.azure_service,
             provider: analysis?.source_provider || m.source_provider || 'aws'
           },

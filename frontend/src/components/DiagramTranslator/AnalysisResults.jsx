@@ -55,15 +55,19 @@ function DeepDivePanel({ m }) {
         ))}
       </div>
 
-      {tab === 'strengths' && strengths.map((s, i) => (
-        <div key={i} className="flex items-start gap-2 text-xs text-text-secondary">
-          <CheckCircle2 className="w-3.5 h-3.5 text-cta shrink-0 mt-0.5" />
-          <div>
-            <span className="font-medium text-text-primary">{s.factor}</span>
-            <span className="text-text-muted"> — {s.detail}</span>
+      {tab === 'strengths' && strengths.map((s, i) => {
+        const factor = typeof s === 'string' ? s : s.factor;
+        const detail = typeof s === 'string' ? null : s.detail;
+        return (
+          <div key={i} className="flex items-start gap-2 text-xs text-text-secondary">
+            <CheckCircle2 className="w-3.5 h-3.5 text-cta shrink-0 mt-0.5" />
+            <div>
+              <span className="font-medium text-text-primary">{factor}</span>
+              {detail && <span className="text-text-muted"> — {detail}</span>}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
 
       {tab === 'limitations' && (
         limitations.length > 0 ? limitations.map((l, i) => (
@@ -125,7 +129,7 @@ function MappingRow({ m, sourceProvider }) {
       <div className="flex items-center gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className={`text-sm font-medium ${sourceProvider === 'gcp' ? 'text-[#EA4335]' : 'text-[#FF9900]'}`}>{m.source_service}</span>
+            <span className={`text-sm font-medium ${sourceProvider === 'gcp' ? 'text-[#EA4335]' : 'text-[#FF9900]'}`}>{typeof m.source_service === 'object' ? m.source_service.name : m.source_service}</span>
             <ArrowRight className="w-3.5 h-3.5 text-text-muted shrink-0" />
             <span className="text-sm text-info font-medium">{m.azure_service}</span>
           </div>

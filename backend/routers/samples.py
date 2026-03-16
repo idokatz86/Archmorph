@@ -20,6 +20,113 @@ router = APIRouter()
 
 SAMPLE_DIAGRAMS = [
     {
+        "id": "aws-hub-spoke",
+        "name": "AWS Hub & Spoke (Well-Architected)",
+        "description": "Enterprise Landing Zone with centralized inspection, Transit Gateway, and isolated VPCs (Dev/Prod).",
+        "provider": "aws",
+        "zones": [
+            {
+                "name": "Hub (Network & Security)",
+                "services": [
+                    {
+                        "name": "Transit Gateway",
+                        "role": "Central network routing Hub"
+                    },
+                    {
+                        "name": "VPN Gateway",
+                        "role": "On-premises connectivity"
+                    },
+                    {
+                        "name": "Network Firewall",
+                        "role": "Deep packet inspection"
+                    },
+                    {
+                        "name": "Direct Connect",
+                        "role": "Dedicated enterprise link"
+                    }
+                ]
+            },
+            {
+                "name": "Spoke 1 (Shared Services)",
+                "services": [
+                    {
+                        "name": "Active Directory",
+                        "role": "Identity management"
+                    },
+                    {
+                        "name": "Systems Manager",
+                        "role": "Secure bastion host bypass"
+                    }
+                ]
+            },
+            {
+                "name": "Spoke 2 (Production App)",
+                "services": [
+                    {
+                        "name": "EKS",
+                        "role": "Prod container workloads"
+                    },
+                    {
+                        "name": "Aurora",
+                        "role": "Multi-AZ database"
+                    }
+                ]
+            }
+        ],
+        "service_connections": [
+            {
+                "from": "VPN Gateway",
+                "to": "Transit Gateway",
+                "protocol": "IPsec",
+                "type": "traffic"
+            },
+            {
+                "from": "Direct Connect",
+                "to": "Transit Gateway",
+                "protocol": "BGP",
+                "type": "traffic"
+            },
+            {
+                "from": "Transit Gateway",
+                "to": "Network Firewall",
+                "protocol": "Routing",
+                "type": "inspection"
+            },
+            {
+                "from": "Network Firewall",
+                "to": "Transit Gateway",
+                "protocol": "Routing",
+                "type": "inspection"
+            },
+            {
+                "from": "Transit Gateway",
+                "to": "Active Directory",
+                "protocol": "TCP",
+                "type": "auth"
+            },
+            {
+                "from": "Transit Gateway",
+                "to": "EKS",
+                "protocol": "TCP",
+                "type": "traffic"
+            },
+            {
+                "from": "EKS",
+                "to": "Aurora",
+                "protocol": "TCP",
+                "type": "database"
+            },
+            {
+                "from": "Systems Manager",
+                "to": "EKS",
+                "protocol": "HTTPS",
+                "type": "control"
+            }
+        ],
+        "complexity": "high"
+    },
+
+    {
         "id": "aws-iaas",
         "name": "AWS IaaS — VMs, VPC & Storage",
         "description": "Classic IaaS: VPC with public/private subnets, EC2 Auto Scaling behind an ALB, EBS volumes, S3 backups, and CloudWatch monitoring",
@@ -57,6 +164,14 @@ SAMPLE_DIAGRAMS = [
                     {"name": "KMS", "role": "Encryption key management for EBS and S3"},
                 ],
             },
+        ],
+        "service_connections": [
+            {"from": "ELB", "to": "EC2", "protocol": "HTTP", "type": "traffic"},
+            {"from": "EC2", "to": "RDS", "protocol": "TCP", "type": "database"},
+            {"from": "EC2 Auto Scaling", "to": "EC2", "protocol": "API", "type": "control"},
+            {"from": "EC2", "to": "EBS", "protocol": "iSCSI", "type": "storage"},
+            {"from": "S3", "to": "EC2", "protocol": "HTTPS", "type": "backup"},
+            {"from": "CloudWatch", "to": "EC2", "protocol": "HTTPS", "type": "metrics"}
         ],
         "complexity": "medium",
     },
@@ -294,7 +409,7 @@ def build_sample_analysis(sample_id: str, diagram_id: str) -> dict:
         "zones": zones_with_services,
         "mappings": mappings,
         "warnings": [],
-        "service_connections": [],
+        "service_connections": sample.get("service_connections", []),
         "confidence_summary": {
             "high": high,
             "medium": medium,
