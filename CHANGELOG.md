@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Frontend Test Suite Stability**: Addressed CI/CD failures on `frontend-build` job caused by mismatched text assertions. Updated Vitest screen matchers in four React test files (`UploadStep.test.jsx`, `index.test.jsx`, `sessionRecovery.test.jsx`, `LandingPage.test.jsx`) to align with recent UI changes (e.g., matching "Hub & Spoke", "Translate Between Any Cloud Providers", etc.). 
+
+### Changed
+- **Feature Parity Mismatch & IaC UI**: Handled feature parity and modified IaC generation UI elements to resolve visual and logic constraints, achieving a successful pipeline build and clean `main` branch.
+
 ## [3.8.1] - 2026-03-15
 
 ### Fixed

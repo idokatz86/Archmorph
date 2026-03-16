@@ -89,12 +89,13 @@ class TestIacChatProcessing:
     def setup_method(self):
         IAC_CHAT_SESSIONS.clear()
 
-    @patch("iac_chat.get_openai_client")
-    def test_process_iac_chat_returns_result(self, mock_client):
+    @patch("iac_chat.cached_chat_completion")
+    def test_process_iac_chat_returns_result(self, mock_completion):
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = json.dumps(MOCK_CHAT_RESPONSE)
-        mock_client.return_value.chat.completions.create.return_value = mock_response
+        mock_response.choices[0].finish_reason = "stop"
+        mock_completion.return_value = mock_response
 
         result = process_iac_chat(
             diagram_id="test-diagram",
@@ -109,12 +110,13 @@ class TestIacChatProcessing:
         assert "services_added" in result
         assert result["error"] is False
 
-    @patch("iac_chat.get_openai_client")
-    def test_process_iac_chat_stores_history(self, mock_client):
+    @patch("iac_chat.cached_chat_completion")
+    def test_process_iac_chat_stores_history(self, mock_completion):
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = json.dumps(MOCK_CHAT_RESPONSE)
-        mock_client.return_value.chat.completions.create.return_value = mock_response
+        mock_response.choices[0].finish_reason = "stop"
+        mock_completion.return_value = mock_response
 
         process_iac_chat("test-hist", "Add VNet", SAMPLE_TF_CODE)
 
@@ -124,28 +126,30 @@ class TestIacChatProcessing:
         assert history[0]["content"] == "Add VNet"
         assert history[1]["role"] == "assistant"
 
-    @patch("iac_chat.get_openai_client")
-    def test_process_iac_chat_sends_code_in_prompt(self, mock_client):
+    @patch("iac_chat.cached_chat_completion")
+    def test_process_iac_chat_sends_code_in_prompt(self, mock_completion):
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = json.dumps(MOCK_CHAT_RESPONSE)
-        mock_client.return_value.chat.completions.create.return_value = mock_response
+        mock_response.choices[0].finish_reason = "stop"
+        mock_completion.return_value = mock_response
 
         process_iac_chat("test-prompt", "Add storage", SAMPLE_TF_CODE, "terraform")
 
-        call_args = mock_client.return_value.chat.completions.create.call_args
+        call_args = mock_completion.call_args
         messages = call_args.kwargs["messages"]
         user_msg = messages[-1]["content"]
         assert "azurerm_resource_group" in user_msg
         assert "Add storage" in user_msg
         assert "Terraform" in user_msg
 
-    @patch("iac_chat.get_openai_client")
-    def test_process_iac_chat_with_analysis_context(self, mock_client):
+    @patch("iac_chat.cached_chat_completion")
+    def test_process_iac_chat_with_analysis_context(self, mock_completion):
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = json.dumps(MOCK_CHAT_RESPONSE)
-        mock_client.return_value.chat.completions.create.return_value = mock_response
+        mock_response.choices[0].finish_reason = "stop"
+        mock_completion.return_value = mock_response
 
         context = {
             "source_provider": "aws",
@@ -155,36 +159,37 @@ class TestIacChatProcessing:
         }
         process_iac_chat("test-ctx", "Add VNet", SAMPLE_TF_CODE, "terraform", context)
 
-        call_args = mock_client.return_value.chat.completions.create.call_args
+        call_args = mock_completion.call_args
         messages = call_args.kwargs["messages"]
         system_msg = messages[0]["content"]
         assert "AWS" in system_msg
         assert "event-driven" in system_msg
 
-    @patch("iac_chat.get_openai_client")
-    def test_process_iac_chat_api_error(self, mock_client):
-        mock_client.return_value.chat.completions.create.side_effect = Exception("API timeout")
+    @patch("iac_chat.cached_chat_completion")
+    def test_process_iac_chat_api_error(self, mock_completion):
+        mock_completion.side_effect = Exception("API timeout")
 
         result = process_iac_chat("test-err", "Add VNet", SAMPLE_TF_CODE)
 
         assert result["error"] is True
         assert result["code"] == SAMPLE_TF_CODE  # Returns original code on error
-        assert "sorry" in result["reply"].lower() or "couldn't" in result["reply"].lower()
+        assert "error" in result["reply"].lower() or "unexpected" in result["reply"].lower()
 
-    @patch("iac_chat.get_openai_client")
-    def test_process_iac_chat_json_error(self, mock_client):
+    @patch("iac_chat.cached_chat_completion")
+    def test_process_iac_chat_json_error(self, mock_completion):
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = "not valid json {{"
-        mock_client.return_value.chat.completions.create.return_value = mock_response
+        mock_response.choices[0].finish_reason = "stop"
+        mock_completion.return_value = mock_response
 
         result = process_iac_chat("test-json-err", "Add VNet", SAMPLE_TF_CODE)
 
         assert result["error"] is True
         assert result["code"] == SAMPLE_TF_CODE
 
-    @patch("iac_chat.get_openai_client")
-    def test_process_iac_chat_bicep_format(self, mock_client):
+    @patch("iac_chat.cached_chat_completion")
+    def test_process_iac_chat_bicep_format(self, mock_completion):
         bicep_response = {
             "message": "Added VNet.",
             "code": "param location string = 'westeurope'\nresource vnet 'Microsoft.Network/virtualNetworks@2023-05-01' = {}",
@@ -194,25 +199,27 @@ class TestIacChatProcessing:
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = json.dumps(bicep_response)
-        mock_client.return_value.chat.completions.create.return_value = mock_response
+        mock_response.choices[0].finish_reason = "stop"
+        mock_completion.return_value = mock_response
 
         process_iac_chat("test-bicep", "Add VNet", "param location string", "bicep")
 
-        call_args = mock_client.return_value.chat.completions.create.call_args
+        call_args = mock_completion.call_args
         messages = call_args.kwargs["messages"]
         user_msg = messages[-1]["content"]
         assert "Bicep" in user_msg
 
-    @patch("iac_chat.get_openai_client")
-    def test_process_iac_chat_conversation_flow(self, mock_client):
+    @patch("iac_chat.cached_chat_completion")
+    def test_process_iac_chat_conversation_flow(self, mock_completion):
         """Test multi-turn conversation preserves history."""
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
+        mock_response.choices[0].finish_reason = "stop"
 
         # Turn 1
         resp1 = {"message": "Added VNet", "code": "# code1", "changes_summary": [], "services_added": []}
         mock_response.choices[0].message.content = json.dumps(resp1)
-        mock_client.return_value.chat.completions.create.return_value = mock_response
+        mock_completion.return_value = mock_response
         process_iac_chat("test-conv", "Add VNet", SAMPLE_TF_CODE)
 
         # Turn 2
@@ -225,7 +232,7 @@ class TestIacChatProcessing:
         assert len(history) == 4
 
         # Verify GPT-4o received conversation history on 2nd call
-        call_args = mock_client.return_value.chat.completions.create.call_args
+        call_args = mock_completion.call_args
         messages = call_args.kwargs["messages"]
         # System + 2 history msgs (from turn 1) + current user = 4
         assert len(messages) >= 4
@@ -275,12 +282,13 @@ class TestIacChatEndpoints:
         IMAGE_STORE.clear()
         IAC_CHAT_SESSIONS.clear()
 
-    @patch("iac_chat.get_openai_client")
-    def test_iac_chat_endpoint(self, mock_client, client, analyzed_diagram):
+    @patch("iac_chat.cached_chat_completion")
+    def test_iac_chat_endpoint(self, mock_completion, client, analyzed_diagram):
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = json.dumps(MOCK_CHAT_RESPONSE)
-        mock_client.return_value.chat.completions.create.return_value = mock_response
+        mock_response.choices[0].finish_reason = "stop"
+        mock_completion.return_value = mock_response
 
         resp = client.post(
             f"/api/diagrams/{analyzed_diagram}/iac-chat",

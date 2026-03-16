@@ -15,7 +15,8 @@ from typing import Any, Dict, List, Optional
 
 from cachetools import TTLCache
 
-from openai_client import get_openai_client, AZURE_OPENAI_DEPLOYMENT, openai_retry
+from openai import RateLimitError, APITimeoutError, APIConnectionError, BadRequestError
+from openai_client import cached_chat_completion, AZURE_OPENAI_DEPLOYMENT
 from prompt_guard import (
     PROMPT_ARMOR,
     sanitize_message,
@@ -176,9 +177,7 @@ def process_iac_chat(
     )
     messages.append({"role": "user", "content": user_content})
 
-    # Call GPT-4o
-    client = get_openai_client()
-
+    # Call GPT-4o via cached wrapper (with fallback model support)
     logger.info(
         "IaC chat request for diagram %s: %s (%d history msgs)",
         diagram_id,
@@ -187,12 +186,13 @@ def process_iac_chat(
     )
 
     try:
-        response = openai_retry(client.chat.completions.create)(
-            model=AZURE_OPENAI_DEPLOYMENT,
+        response = cached_chat_completion(
             messages=messages,
-            max_tokens=8000,
+            model=AZURE_OPENAI_DEPLOYMENT,
+            max_tokens=16384,
             temperature=0.2,
             response_format={"type": "json_object"},
+            bypass_cache=True,
         )
 
         raw_text = response.choices[0].message.content.strip()
@@ -234,23 +234,35 @@ def process_iac_chat(
             "services_added": [],
             "error": True,
         }
-    except Exception as exc:
+    except (RateLimitError, APITimeoutError, APIConnectionError) as exc:
         err_type = type(exc).__name__
+        logger.error("IaC chat OpenAI call failed (retryable): %s - %s", err_type, exc)
+        return {
+            "reply": f"The AI provider is temporarily unavailable ({err_type}). Please wait a moment and try again.",
+            "code": current_code,
+            "changes_summary": [],
+            "services_added": [],
+            "error": True,
+        }
+    except BadRequestError as exc:
         err_msg = str(exc).lower()
-        logger.error("IaC chat OpenAI call failed: %s - %s", err_type, err_msg)
-        
-        if err_type == "APIConnectionError":
-            user_msg = "Sorry, I couldn't process your request due to a network connection issue with the AI provider. "
-        else:
-            user_msg = f"Sorry, I couldn't process your request due to an external error ({err_type}). "
-            
+        logger.error("IaC chat bad request: %s", exc)
         if "context_length_exceeded" in err_msg or "maximum context length" in err_msg:
-            user_msg += "Your codebase has grown too large for my context window."
+            user_msg = "Your codebase has grown too large for the AI model's context window. Try making smaller, more targeted requests."
         else:
-            user_msg += "Please try again."
-            
+            user_msg = f"The AI provider rejected the request: {exc}"
         return {
             "reply": user_msg,
+            "code": current_code,
+            "changes_summary": [],
+            "services_added": [],
+            "error": True,
+        }
+    except Exception as exc:
+        err_type = type(exc).__name__
+        logger.error("IaC chat unexpected error: %s - %s", err_type, exc)
+        return {
+            "reply": f"An unexpected error occurred ({err_type}). Please try again.",
             "code": current_code,
             "changes_summary": [],
             "services_added": [],
