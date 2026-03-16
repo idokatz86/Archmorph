@@ -840,7 +840,7 @@ export default function DiagramTranslator() {
       )}
 
       {state.step === 'deploy' && (
-        <DeployPanel isLoading={false} templateSource={state.iacCode} />
+        <DeployPanel isLoading={false} templateSource={state.iacCode} canvasState={state.analysis} />
       )}
       </Suspense>
     </div>

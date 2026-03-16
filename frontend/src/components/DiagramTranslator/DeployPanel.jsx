@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
+import api from '../../services/apiClient';
 
-const API_BASE_URL = '/api/v1/deployments'; // Adjust as per your setup
+const API_BASE_URL = '/api/v1/deployments'; // For standard execution
+const PREFLIGHT_URL = '/api/deploy/preflight-check';
 
-const DeployPanel = ({ templateSource = 'main.bicep', parameters = {}, provider = 'azure' }) => {
+const DeployPanel = ({ templateSource = 'main.bicep', parameters = {}, provider = 'azure', canvasState = null }) => {
   const [step, setStep] = useState(1); // 1: Init, 2: Preview, 3: Deploying/Terminal
   const [loading, setLoading] = useState(false);
+  const [preflightData, setPreflightData] = useState(null);
   const [previewData, setPreviewData] = useState(null);
   const [jobId, setJobId] = useState(null);
   const [logs, setLogs] = useState([]);
@@ -13,14 +16,19 @@ const DeployPanel = ({ templateSource = 'main.bicep', parameters = {}, provider 
 
   const logsEndRef = useRef(null);
 
-  // Auto-scroll logs
   useEffect(() => {
     if (logsEndRef.current) {
       logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [logs]);
 
-  // Handle SSE streaming for deployment logs
+  useEffect(() => {
+    if (step === 1 && !preflightData && !loading && canvasState) {
+      runPreflight();
+    }
+  // eslint-disable-next-line
+  }, [step, canvasState]);
+
   useEffect(() => {
     let eventSource = null;
 
@@ -39,7 +47,7 @@ const DeployPanel = ({ templateSource = 'main.bicep', parameters = {}, provider 
       eventSource.onerror = (err) => {
         console.error('SSE Error:', err);
         eventSource.close();
-        setStatus('completed-or-failed'); // Basic fallback, should ideally poll /status
+        setStatus('completed-or-failed');
       };
     }
 
@@ -50,12 +58,32 @@ const DeployPanel = ({ templateSource = 'main.bicep', parameters = {}, provider 
     };
   }, [step, jobId, status]);
 
+  const runPreflight = async () => {
+    try {
+      setLoading(true);
+      const res = await fetch(PREFLIGHT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          project_id: "default",
+          canvas_state: canvasState
+        })
+      });
+      if (!res.ok) throw new Error(`Preflight failed: ${res.status}`);
+      const data = await res.json();
+      setPreflightData(data);
+    } catch (err) {
+      console.error("Preflight Error:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handlePreview = async () => {
     try {
       setLoading(true);
       setError(null);
       
-      // Simulating base payload
       const payload = {
         provider,
         template_source: templateSource,
@@ -64,13 +92,11 @@ const DeployPanel = ({ templateSource = 'main.bicep', parameters = {}, provider 
 
       const res = await fetch(`${API_BASE_URL}/preview`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
 
-      if (!res.ok) throw new Error(`Preview failed with status \${res.status}`);
+      if (!res.ok) throw new Error(`Preview failed with status ${res.status}`);
 
       const data = await res.json();
       setPreviewData(data.preview_data || data);
@@ -95,13 +121,11 @@ const DeployPanel = ({ templateSource = 'main.bicep', parameters = {}, provider 
 
       const res = await fetch(`${API_BASE_URL}/execute`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
 
-      if (!res.ok) throw new Error(`Execute failed with status \${res.status}`);
+      if (!res.ok) throw new Error(`Execute failed with status ${res.status}`);
 
       const data = await res.json();
       setJobId(data.job_id);
@@ -119,9 +143,7 @@ const DeployPanel = ({ templateSource = 'main.bicep', parameters = {}, provider 
     if (!jobId) return;
     try {
       setLoading(true);
-      const res = await fetch(`${API_BASE_URL}/${jobId}/rollback`, {
-        method: 'POST'
-      });
+      const res = await fetch(`${API_BASE_URL}/${jobId}/rollback`, { method: 'POST' });
       if (!res.ok) throw new Error('Rollback failed');
       
       setLogs((prev) => [...prev, '--- Rollback Initiated ---']);
@@ -152,9 +174,9 @@ const DeployPanel = ({ templateSource = 'main.bicep', parameters = {}, provider 
         </div>
         
         <div className="flex space-x-2 text-sm font-medium">
-          <span className={`px-3 py-1 rounded-full \${step === 1 ? 'bg-blue-100 text-blue-700' : 'text-gray-400'}`}>1. Init</span>
-          <span className={`px-3 py-1 rounded-full \${step === 2 ? 'bg-blue-100 text-blue-700' : 'text-gray-400'}`}>2. Preview</span>
-          <span className={`px-3 py-1 rounded-full \${step === 3 ? 'bg-blue-100 text-blue-700' : 'text-gray-400'}`}>3. Deploy</span>
+          <span className={`px-3 py-1 rounded-full ${step === 1 ? 'bg-blue-100 text-blue-700' : 'text-gray-400'}`}>1. Init</span>
+          <span className={`px-3 py-1 rounded-full ${step === 2 ? 'bg-blue-100 text-blue-700' : 'text-gray-400'}`}>2. Preview</span>
+          <span className={`px-3 py-1 rounded-full ${step === 3 ? 'bg-blue-100 text-blue-700' : 'text-gray-400'}`}>3. Deploy</span>
         </div>
       </div>
 
@@ -166,23 +188,67 @@ const DeployPanel = ({ templateSource = 'main.bicep', parameters = {}, provider 
 
       {/* STEP 1: INITIAL STATE */}
       {step === 1 && (
-        <div className="flex flex-col items-center justify-center py-10 space-y-4">
+        <div className="flex flex-col items-center justify-center py-6 space-y-6">
           <p className="text-gray-600 dark:text-gray-300 text-center">
             Ready to deploy your infrastructure to <strong>{provider.toUpperCase()}</strong>.
           </p>
-          <div className="w-full max-w-3xl bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded p-4 text-left max-h-64 overflow-y-auto">
+
+          {/* PREFLIGHT CHECK DATA */}
+          {preflightData && (
+            <div className="w-full grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
+              <div className="bg-yellow-50 dark:bg-yellow-900 border border-yellow-200 dark:border-yellow-700 rounded p-4">
+                <h3 className="font-semibold text-yellow-800 dark:text-yellow-200 mb-2">Security Compliance</h3>
+                <p className="text-sm">Score: {preflightData.security?.score}/100 ({preflightData.security?.status})</p>
+                {preflightData.security?.findings?.length > 0 ? (
+                  <ul className="list-disc list-inside text-xs mt-2 text-yellow-700 dark:text-yellow-300 ml-2 space-y-1">
+                    {preflightData.security.findings.map((f, i) => (
+                      <li key={i}><strong>{f.resource}:</strong> {f.issue}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-xs mt-2 text-green-600">All checks passed!</p>
+                )}
+              </div>
+              <div className="bg-blue-50 dark:bg-blue-900 border border-blue-200 dark:border-blue-700 rounded p-4">
+                <h3 className="font-semibold text-blue-800 dark:text-blue-200 mb-2">FinOps Estimate</h3>
+                <p className="text-xl font-bold text-blue-900 dark:text-blue-100 tracking-tight">
+                  ${preflightData.finops?.total_monthly_estimate?.toFixed(2)} <span className="text-sm font-normal">/ mo</span>
+                </p>
+                <div className="mt-2 text-xs text-blue-700 dark:text-blue-300 max-h-24 overflow-y-auto">
+                  {preflightData.finops?.breakdown?.map((item, i) => (
+                    <div key={i} className="flex justify-between mt-1 border-b border-blue-200 dark:border-blue-700 pb-1">
+                      <span>{item.resource} ({item.assumed_sku})</span>
+                      <span className="font-semibold">${item.monthly_cost_usd?.toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded p-4 text-left max-h-64 overflow-y-auto">
             <p className="text-xs text-gray-500 mb-2 font-semibold uppercase tracking-wider">TARGET TEMPLATE ({provider.toUpperCase()})</p>
             <pre className="text-xs font-mono text-gray-800 dark:text-gray-300 whitespace-pre-wrap">
               {templateSource}
             </pre>
           </div>
-          <button 
-            onClick={handlePreview} 
-            disabled={loading}
-            className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded shadow transition-colors disabled:opacity-50"
-          >
-            {loading ? 'Generating Preview...' : 'Run Preview'}
-          </button>
+
+          <div className="flex space-x-3 mt-4">
+             <button 
+                onClick={runPreflight} 
+                disabled={loading || !canvasState}
+                className="px-4 py-2 border border-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 font-medium rounded transition-colors text-sm disabled:opacity-50"
+              >
+                {loading ? 'Analyzing...' : 'Refresh Preflight'}
+              </button>
+            <button 
+              onClick={handlePreview} 
+              disabled={loading}
+              className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded shadow transition-colors disabled:opacity-50"
+            >
+              {loading ? 'Loading...' : 'Run Preview'}
+            </button>
+          </div>
         </div>
       )}
 

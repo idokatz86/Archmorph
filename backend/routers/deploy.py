@@ -6,6 +6,8 @@ from pydantic import BaseModel
 
 from routers.auth import get_current_user
 from services.terraform_runner import TerraformRunner
+from services.security_compliance import analyze_security_compliance
+from services.finops_analyzer import calculate_costs
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +20,25 @@ class DeploymentRequest(BaseModel):
     project_id: str
     iac_code: Optional[str] = None
     canvas_state: Optional[dict] = None
+
+@router.post("/preflight-check")
+async def run_preflight_check(
+    request: DeploymentRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Runs security and cost estimations before deployment.
+    """
+    if not request.canvas_state:
+        raise HTTPException(status_code=400, detail="No canvas state provided for preflight check.")
+
+    security_checks = analyze_security_compliance(request.canvas_state)
+    cost_estimate = calculate_costs(request.canvas_state)
+    
+    return {
+        "security": security_checks,
+        "finops": cost_estimate
+    }
 
 @router.post("/execute/{project_id}")
 async def execute_deployment(
