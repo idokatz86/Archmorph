@@ -243,7 +243,8 @@ const DeployPanel = ({ templateSource = 'main.bicep', parameters = {}, provider 
               </button>
             <button 
               onClick={handlePreview} 
-              disabled={loading}
+              disabled={loading || preflightData?.security?.status === 'Fail'}
+              title={preflightData?.security?.status === 'Fail' ? "Cannot deploy with critical security risks" : ""}
               className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded shadow transition-colors disabled:opacity-50"
             >
               {loading ? 'Loading...' : 'Run Preview'}

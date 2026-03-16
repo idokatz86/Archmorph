@@ -104,8 +104,8 @@ _client_lock = threading.Lock()
 
 # Default timeout for all OpenAI API calls — configurable to prevent
 # thread pool starvation (Issue #298).  Reduced from 120s to 60s.
-_OPENAI_TIMEOUT_SECONDS = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "60"))
-_OPENAI_CONNECT_TIMEOUT = float(os.getenv("OPENAI_CONNECT_TIMEOUT", "10"))
+_OPENAI_TIMEOUT_SECONDS = float(os.getenv("OPENAI_TIMEOUT_SECONDS", "120"))
+_OPENAI_CONNECT_TIMEOUT = float(os.getenv("OPENAI_CONNECT_TIMEOUT", "30"))
 _OPENAI_TIMEOUT = OpenAITimeout(timeout=_OPENAI_TIMEOUT_SECONDS, connect=_OPENAI_CONNECT_TIMEOUT)
 
 # ─────────────────────────────────────────────────────────────

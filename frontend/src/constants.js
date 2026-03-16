@@ -5,7 +5,7 @@ import {
 
 export const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 
-export const APP_VERSION = '3.8.1';
+export const APP_VERSION = '3.9.0';
 
 export const CATEGORY_ICONS = {
   Compute: Server, Storage: Database, Networking: Globe, Security: Shield,

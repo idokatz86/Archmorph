@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +58,7 @@ def calculate_costs(topology: Dict[str, Any]) -> Dict[str, Any]:
             count = element.get('config', {}).get('instance_count', 1)
             try:
                 count = int(count)
-            except:
+            except (ValueError, TypeError):
                 count = 1
             estimated_cost = SERVICE_COST_MAP["default_vm"] * count
             applied_sku = f"{count}x Standard_D2s_v3"

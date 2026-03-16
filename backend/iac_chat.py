@@ -239,7 +239,11 @@ def process_iac_chat(
         err_msg = str(exc).lower()
         logger.error("IaC chat OpenAI call failed: %s - %s", err_type, err_msg)
         
-        user_msg = f"Sorry, I couldn't process your request due to an external error ({err_type}). "
+        if err_type == "APIConnectionError":
+            user_msg = "Sorry, I couldn't process your request due to a network connection issue with the AI provider. "
+        else:
+            user_msg = f"Sorry, I couldn't process your request due to an external error ({err_type}). "
+            
         if "context_length_exceeded" in err_msg or "maximum context length" in err_msg:
             user_msg += "Your codebase has grown too large for my context window."
         else:
