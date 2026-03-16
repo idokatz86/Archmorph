@@ -70,25 +70,30 @@ function DeepDivePanel({ m }) {
       })}
 
       {tab === 'limitations' && (
-        limitations.length > 0 ? limitations.map((l, i) => (
+        limitations.length > 0 ? limitations.map((l, i) => {
+          const factor = typeof l === 'string' ? l : l.factor || 'Limitation';
+          const detail = typeof l === 'string' ? null : l.detail;
+          const severity = typeof l === 'string' ? 'medium' : l.severity;
+          const doc_link = typeof l === 'string' ? null : l.doc_link;
+          return (
           <div key={i} className="flex items-start gap-2 text-xs text-text-secondary">
             <XCircle className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${
-              l.severity === 'high' ? 'text-danger' : l.severity === 'medium' ? 'text-warning' : 'text-text-muted'
+              severity === 'high' ? 'text-danger' : severity === 'medium' ? 'text-warning' : 'text-text-muted'
             }`} />
             <div>
-              <span className="font-medium text-text-primary">{l.factor}</span>
-              <Badge variant={l.severity === 'high' ? 'low' : l.severity === 'medium' ? 'medium' : 'high'} className="ml-1.5 text-[9px]">
-                {l.severity}
+              <span className="font-medium text-text-primary">{factor}</span>
+              <Badge variant={severity === 'high' ? 'low' : severity === 'medium' ? 'medium' : 'high'} className="ml-1.5 text-[9px]">
+                {severity}
               </Badge>
-              <p className="text-text-muted mt-0.5">{l.detail}</p>
-              {l.doc_link && (
-                <a href={l.doc_link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[10px] text-cta hover:underline mt-0.5">
+              {detail && <p className="text-text-muted mt-0.5">{detail}</p>}
+              {doc_link && (
+                <a href={doc_link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[10px] text-cta hover:underline mt-0.5">
                   <ExternalLink className="w-2.5 h-2.5" /> Learn more
                 </a>
               )}
             </div>
           </div>
-        )) : (
+        )}) : (
           <div className="flex items-start gap-2 text-xs text-text-secondary">
             <CheckCircle2 className="w-3.5 h-3.5 text-success shrink-0 mt-0.5" />
             <p className="font-medium text-success">No known architectural limitations. This is a clean mapping.</p>
@@ -96,23 +101,28 @@ function DeepDivePanel({ m }) {
         )
       )}
 
-      {tab === 'migration' && migrationNotes.map((n, i) => (
+      {tab === 'migration' && migrationNotes.map((n, i) => {
+        const area = typeof n === 'string' ? 'General' : n.area || 'General';
+        const note = typeof n === 'string' ? n : n.note;
+        const effort = typeof n === 'string' ? 'unknown' : n.effort || 'unknown';
+        const doc_link = typeof n === 'string' ? null : n.doc_link;
+        return (
         <div key={i} className="flex items-start gap-2 text-xs text-text-secondary">
           <ArrowRight className="w-3.5 h-3.5 text-info shrink-0 mt-0.5" />
           <div>
-            <Badge variant="azure" className="text-[9px] mr-1.5">{n.area || 'General'}</Badge>
-            <span className="text-text-muted">{n.note}</span>
-            <Badge variant={n.effort === 'high' ? 'low' : n.effort === 'low' ? 'high' : 'medium'} className="ml-1.5 text-[9px]">
-              {n.effort || 'unknown'} effort
+            <Badge variant="azure" className="text-[9px] mr-1.5">{area}</Badge>
+            <span className="text-text-muted">{note}</span>
+            <Badge variant={effort === 'high' ? 'low' : effort === 'low' ? 'high' : 'medium'} className="ml-1.5 text-[9px]">
+              {effort} effort
             </Badge>
-            {n.doc_link && (
-              <a href={n.doc_link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[10px] text-cta hover:underline mt-0.5 block">
+            {doc_link && (
+              <a href={doc_link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[10px] text-cta hover:underline mt-0.5 block">
                 <ExternalLink className="w-2.5 h-2.5" /> Reference Guide
               </a>
             )}
           </div>
         </div>
-      ))}
+      )})}
     </div>
   );
 }
