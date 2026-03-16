@@ -350,7 +350,8 @@ class TestHldGeneration:
         # Should call cached_chat_completion
         mock_cached.assert_called_once()
         call_kwargs = mock_cached.call_args.kwargs
-        assert call_kwargs["model"] == "gpt-4o"
+        from openai_client import AZURE_OPENAI_DEPLOYMENT
+        assert call_kwargs["model"] == AZURE_OPENAI_DEPLOYMENT
         assert call_kwargs["response_format"] == {"type": "json_object"}
 
     @patch("hld_generator.cached_chat_completion")
