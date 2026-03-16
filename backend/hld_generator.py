@@ -320,7 +320,7 @@ def generate_hld(
                 {"role": "user", "content": f"Generate a comprehensive HLD document for this migration:\n\n{context}"},
             ],
             model=AZURE_OPENAI_DEPLOYMENT,
-            max_tokens=16384,
+            max_tokens=32768,
             temperature=0.3,
             response_format={"type": "json_object"},
         )

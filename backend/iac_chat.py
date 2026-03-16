@@ -189,7 +189,7 @@ def process_iac_chat(
         response = cached_chat_completion(
             messages=messages,
             model=AZURE_OPENAI_DEPLOYMENT,
-            max_tokens=16384,
+            max_tokens=32768,
             temperature=0.2,
             response_format={"type": "json_object"},
             bypass_cache=True,

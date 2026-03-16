@@ -90,13 +90,13 @@ def handle_openai_error(exc: Exception, context: str = "OpenAI call") -> OpenAIS
 AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "")
 if not AZURE_OPENAI_ENDPOINT:
     logger.warning("AZURE_OPENAI_ENDPOINT not set — OpenAI features will be unavailable")
-AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
-AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-10-21")
+AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4.1")
+AZURE_OPENAI_API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2025-04-01-preview")
 AZURE_OPENAI_KEY = os.getenv("AZURE_OPENAI_API_KEY", "") or os.getenv("AZURE_OPENAI_KEY", "")
 
 # Fallback model deployment — used when the primary model fails (Issue #285).
-# Set to a lighter/cheaper model (e.g. gpt-4o-mini) for resilience.
-AZURE_OPENAI_FALLBACK_DEPLOYMENT = os.getenv("AZURE_OPENAI_FALLBACK_DEPLOYMENT", "")
+# Set to gpt-4o as a proven fallback for resilience.
+AZURE_OPENAI_FALLBACK_DEPLOYMENT = os.getenv("AZURE_OPENAI_FALLBACK_DEPLOYMENT", "gpt-4o")
 
 # Singleton client (reused across requests for connection pooling)
 _client: Optional[AzureOpenAI] = None
