@@ -1,10 +1,9 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import {
   ReactFlow, ReactFlowProvider, Controls, Background, MiniMap,
-  applyNodeChanges, applyEdgeChanges, Handle, Position,
+  useNodesState, useEdgesState, Handle, Position,
 } from '@xyflow/react';
 import dagre from 'dagre';
-import '@xyflow/react/dist/base.css';
 import '@xyflow/react/dist/style.css';
 import { FaAws } from 'react-icons/fa';
 import { VscAzure } from 'react-icons/vsc';
@@ -292,16 +291,22 @@ export default function ArchitectureFlow({ analysis }) {
     return { initialNodes: layouted.nodes, initialEdges: layouted.edges };
   }, [analysis]);
 
-  const [nodes, setNodes] = React.useState(initialNodes);
-  const [edges, setEdges] = React.useState(initialEdges);
+  return (
+    <ReactFlowProvider>
+      <FlowCanvas initialNodes={initialNodes} initialEdges={initialEdges} />
+    </ReactFlowProvider>
+  );
+}
+
+/* Inner component — MUST be inside ReactFlowProvider for hooks to work */
+function FlowCanvas({ initialNodes, initialEdges }) {
+  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
 
   React.useEffect(() => {
     setNodes(initialNodes);
     setEdges(initialEdges);
-  }, [initialNodes, initialEdges]);
-
-  const onNodesChange = React.useCallback((changes) => setNodes((nds) => applyNodeChanges(changes, nds)), []);
-  const onEdgesChange = React.useCallback((changes) => setEdges((eds) => applyEdgeChanges(changes, eds)), []);
+  }, [initialNodes, initialEdges, setNodes, setEdges]);
 
   if (!nodes.length) {
     return (
@@ -312,32 +317,24 @@ export default function ArchitectureFlow({ analysis }) {
   }
 
   return (
-    <ReactFlowProvider>
-      <div style={{ width: '100%', height: '600px' }} className="relative rounded-lg border border-border overflow-hidden bg-white">
-        <ReactFlow
-          nodes={nodes} edges={edges}
-          onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
-          nodeTypes={nodeTypes} fitView fitViewOptions={{ padding: 0.15 }}
-          nodesDraggable
-          panOnDrag
-          zoomOnScroll
-          zoomOnPinch
-          panOnScroll={false}
-          selectionOnDrag={false}
-          attributionPosition="bottom-right" minZoom={0.3} maxZoom={1.5}
-        >
-          <Background color="#e2e8f0" gap={20} size={1} />
-          <Controls />
-          <MiniMap
-            nodeStrokeWidth={3}
-            nodeColor={(n) => n.type === 'manualNode' ? '#EF4444' : n.type === 'groupNode' ? 'transparent' : '#22C55E'}
-            maskColor="rgba(255,255,255,0.7)"
-            style={{ backgroundColor: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 8 }}
-            pannable zoomable
-          />
-        </ReactFlow>
-        <MapLegend />
-      </div>
-    </ReactFlowProvider>
+    <div style={{ width: '100%', height: '600px' }} className="relative rounded-lg border border-border bg-white">
+      <ReactFlow
+        nodes={nodes} edges={edges}
+        onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
+        nodeTypes={nodeTypes} fitView fitViewOptions={{ padding: 0.15 }}
+        attributionPosition="bottom-right" minZoom={0.3} maxZoom={1.5}
+      >
+        <Background color="#e2e8f0" gap={20} size={1} />
+        <Controls />
+        <MiniMap
+          nodeStrokeWidth={3}
+          nodeColor={(n) => n.type === 'manualNode' ? '#EF4444' : n.type === 'groupNode' ? 'transparent' : '#22C55E'}
+          maskColor="rgba(255,255,255,0.7)"
+          style={{ backgroundColor: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 8 }}
+          pannable zoomable
+        />
+      </ReactFlow>
+      <MapLegend />
+    </div>
   );
 }
