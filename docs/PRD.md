@@ -1,7 +1,7 @@
 # Archmorph — Cloud Architecture Translator to Azure
 ## Product Requirements Document (PRD)
-**Version:** 3.8.1
-**Date:** March 15, 2026
+**Version:** 3.9.0
+**Date:** March 17, 2026
 **Author:** Ido Katz
 
 ---
@@ -300,6 +300,34 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 - **Pattern detection** — identifies common architecture patterns and suggests missing components
 - **Confidence scoring** — each suggestion includes relevance confidence
 - **Fuzzy Azure service matching** — maps suggestions to canonical service catalog entries
+
+### 3.53 Interactive Architecture Map (v3.9.0)
+- **Dagre auto-layout** — automatic top-to-bottom hierarchical layout via dagre.js with compound graph support for zone grouping
+- **Confidence rings** — SVG circular progress indicators per node showing mapping confidence (green ≥85%, amber ≥60%, red <60%)
+- **Effort badges** — Low/Medium/High migration effort indicators with color-coded backgrounds
+- **Typed edges** — 6 connection styles: Traffic (blue solid), Database (green solid), Auth (purple dashed), Control (grey dashed), Security (orange dotted), Storage (teal solid)
+- **Zone grouping** — Services grouped into architectural zones (Hub, Spokes) with dashed-border containers and floating labels
+- **Manual mapping nodes** — Red dashed nodes with AlertTriangle icon for unmapped services requiring manual review
+- **Map legend** — Collapsible overlay explaining node types, edge styles, and confidence levels
+- **MiniMap** — React Flow minimap with node-type color coding (green=mapped, red=manual, transparent=group)
+- **Full interactivity** — Pan, zoom, drag via `useNodesState`/`useEdgesState` hooks inside `ReactFlowProvider`
+- **NaN position guards** — All dagre-computed positions validated with `Number.isFinite()` to prevent SVG attribute errors
+
+### 3.54 Email Notifications (v3.9.0)
+- **Azure Communication Services** — Branded HTML email delivery for migration report notifications
+- **Email validation** — Server-side email format validation with rate limiting
+- **Notify endpoint** — `POST /api/diagrams/{id}/notify-email` triggers formatted email with analysis summary
+
+### 3.55 GPT-4.1 Model Upgrade (v3.9.0)
+- **Primary model** — Azure OpenAI `gpt-4.1` (2025-04-14) with 32K max output tokens
+- **Fallback model** — Automatic fallback to `gpt-4o` on rate limits, timeouts, or connection errors
+- **API version** — Updated to `2025-04-01-preview`
+- **Cached chat completion** — All AI calls routed through `cached_chat_completion` with bypass option and specific exception handling
+
+### 3.56 IaC Diff Highlighting (v3.9.0)
+- **Previous code tracking** — Frontend stores previous IaC generation for comparison
+- **Line-level diff** — Changed lines highlighted with green tint and left border marker
+- **Visual feedback** — Users can see exactly what changed after IaC chat modifications or regeneration
 
 ### 3.44 API Client Rewrite (v3.0.2)
 - **Retry with exponential backoff** — automatic retry for transient failures (429, 500, 502, 503)
@@ -620,7 +648,7 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 |-------|------------|
 | Frontend | React 19.1, Vite 7.3, TailwindCSS 4.2, Lucide React (icons), Prism.js (syntax highlighting), react-i18next (i18n) |
 | Backend | Python 3.12, FastAPI, Gunicorn (UvicornWorker) |
-| AI | Azure OpenAI GPT-4o (deployment `gpt-4o`, model 2024-05-13) |
+| AI | Azure OpenAI GPT-4.1 (deployment `gpt-4.1`, model 2025-04-14) with GPT-4o fallback |
 | Database | PostgreSQL (Azure Flexible Server) |
 | Storage | Azure Blob Storage |
 | Hosting | Azure Container Apps (API), Static Web Apps (frontend) |
@@ -808,7 +836,8 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | **v3.5.0 — Developer Experience** | Planned | Service dependency graph visualization, cost estimate drill-down, full analysis PDF report, CLI tool for automation, split diagrams.py god router, code coverage gate, Template Gallery re-enable |
 | **v3.6.0 — Intelligence & Identity** | Planned | Redis-backed session persistence, AI cross-cloud mapping auto-suggestion, migration timeline generator, social authentication (Microsoft, Google, GitHub), user profiles with persistent history |
 | **v3.8.0 — Complete Migration Flow** | Done | Migration package ZIP export (IaC + HLD + costs), before/after architecture visualization, guided onboarding tour, CI coverage gate (60%), stale bot, migration Q&A chat advisor |
-| **v3.8.1 — UX Polish & Bug Bash** | In Progress | Fix HLD generation 500 crashes, recover missing Map layers, unblock IaC dynamic modifications, populate Coming Soon tab, and Drift Alpha warnings |
+| **v3.8.1 — UX Polish & Bug Bash** | Done | Fix HLD generation 500 crashes, recover missing Map layers, unblock IaC dynamic modifications, populate Coming Soon tab, and Drift Alpha warnings |
+| **v3.9.0 — AI Upgrade & Architecture Map** | Done | GPT-4.1 with 32K output tokens, interactive Architecture Map (dagre layout, confidence rings, effort badges, typed edges, zone grouping, MiniMap), email notifications via Azure Communication Services, IaC diff highlighting, parallel IaC+HLD generation, limitations UX redesign, Deploy/Drift Coming Soon overlays |
 | **v4.0 — Platform Maturity** | Planned | Multi-diagram project support, Pulumi & CDK IaC output, VS Code extension, real infrastructure scanning via cloud SDKs, end-to-end migration wizard, interactive before/after architecture visualization, one-click Deploy to Azure |
 
 ---

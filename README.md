@@ -6,9 +6,9 @@ Convert AWS and GCP architecture diagrams into Azure equivalents with guided mig
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Azure](https://img.shields.io/badge/cloud-Azure-0078D4.svg)
-![Version](https://img.shields.io/badge/version-3.4.0-22C55E.svg)
+![Version](https://img.shields.io/badge/version-3.9.0-22C55E.svg)
 ![Status](https://img.shields.io/badge/status-Production-22C55E.svg)
-![Tests](https://img.shields.io/badge/tests-1653%20passing-22C55E.svg)
+![Tests](https://img.shields.io/badge/tests-1706%20passing-22C55E.svg)
 ![Python](https://img.shields.io/badge/python-3.12-3776AB.svg)
 ![React](https://img.shields.io/badge/react-19.1-61DAFB.svg)
 ![Vibe Coding](https://img.shields.io/badge/built_with-Vibe_Coding-FF69B4.svg)
@@ -18,7 +18,7 @@ Convert AWS and GCP architecture diagrams into Azure equivalents with guided mig
 
 ## Overview
 
-Archmorph uses Azure OpenAI GPT-4o to analyze cloud architecture diagrams, identify services, ask guided migration questions with inter-question constraints, map services to Azure equivalents with confidence scores and transparency explanations, export architecture diagrams in multiple formats, generate deployable infrastructure as code with security scanning, estimate costs using the Azure Retail Prices API, automatically discover and integrate new cloud services into its catalog, and provide a comprehensive icon registry with multi-format library export.
+Archmorph uses Azure OpenAI GPT-4.1 (with GPT-4o fallback) to analyze cloud architecture diagrams, identify services, ask guided migration questions with inter-question constraints, map services to Azure equivalents with confidence scores and transparency explanations, export architecture diagrams in multiple formats, generate deployable infrastructure as code with security scanning, estimate costs using the Azure Retail Prices API, automatically discover and integrate new cloud services into its catalog, and provide a comprehensive icon registry with multi-format library export.
 
 **Key Capabilities:**
 - Upload architecture diagrams (PNG, JPG, SVG, PDF, Draw.io, Visio)
@@ -26,6 +26,8 @@ Archmorph uses Azure OpenAI GPT-4o to analyze cloud architecture diagrams, ident
 - **Guided migration questions** — 32 contextual questions across 8 categories with **inter-question constraint system** that dynamically filters options based on compliance and data residency choices
 - Map to Azure equivalents with **confidence scores and transparency explanations** showing why each level was assigned
 - **Export architecture diagrams** as Excalidraw, Draw.io, or Visio with Azure stencils
+- **Interactive Architecture Map** — dagre auto-layout with confidence rings, effort badges, typed edges, zone grouping, and full pan/zoom/drag interactivity
+- **Email notifications** — Azure Communication Services integration for migration report delivery
 - Generate Terraform HCL or Bicep code with secure credential handling and **8-rule IaC security scanning**
 - **Dynamic cost estimates** — region-aware pricing via Azure Retail Prices API with 46 service mappings and monthly cache
 - **Cost comparison** — side-by-side AWS/GCP vs Azure cost analysis with optimization recommendations
@@ -156,7 +158,7 @@ flowchart TB
         end
         
         subgraph AI["Azure OpenAI"]
-            GPT4O[GPT-4o<br/>+ Fallback Model]
+            GPT4O[GPT-4.1 Primary<br/>+ GPT-4o Fallback]
         end
         
         Pricing[Azure Retail<br/>Prices API]
@@ -198,7 +200,7 @@ flowchart TB
 |-----------|------------|---------------|
 | Frontend | React 19.1, Vite 7.3, TailwindCSS 4.2, Zustand, Lucide React | Static Web Apps |
 | Backend API | Python 3.12, FastAPI 0.128, Gunicorn + Uvicorn | Container Apps |
-| AI Engine | GPT-4o (vision + chat) with fallback model | Azure OpenAI |
+| AI Engine | GPT-4.1 (vision + chat) with GPT-4o fallback | Azure OpenAI |
 | Container Registry | Docker | Azure Container Registry |
 | Database | PostgreSQL 16 | Flexible Server |
 | Cache / Sessions | Redis 7 | Azure Cache for Redis |
@@ -230,7 +232,7 @@ flowchart TB
 | Job Queue + SSE | Background task processing with Server-Sent Events | In-process |
 | API Versioning | v1 prefix mirror for all routes | Middleware |
 | WAF | OWASP CRS 3.2 | Azure Front Door Premium |
-| Testing | pytest (1609 tests) + Vitest + Playwright E2E | CI/CD |
+| Testing | pytest (1706 tests) + Vitest + Playwright E2E | CI/CD |
 
 > 📐 **Detailed Diagrams:** [architecture.excalidraw](docs/architecture.excalidraw) | [application-flow.excalidraw](docs/application-flow.excalidraw) — Open in [Excalidraw](https://excalidraw.com)
 

@@ -7,11 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-- **Frontend Test Suite Stability**: Addressed CI/CD failures on `frontend-build` job caused by mismatched text assertions. Updated Vitest screen matchers in four React test files (`UploadStep.test.jsx`, `index.test.jsx`, `sessionRecovery.test.jsx`, `LandingPage.test.jsx`) to align with recent UI changes (e.g., matching "Hub & Spoke", "Translate Between Any Cloud Providers", etc.). 
+## [3.9.0] - 2026-03-17
+
+### Added
+- **GPT-4.1 Model Upgrade** — Deployed Azure OpenAI `gpt-4.1` (2025-04-14) as primary model with `gpt-4o` fallback. Output token limit increased from 4K to 32K for significantly richer IaC and HLD generation.
+- **Interactive Architecture Map** — Complete rewrite of `ArchitectureFlow.jsx` using dagre auto-layout with:
+  - **Confidence rings** — SVG circular progress showing mapping confidence per node (green ≥85%, amber ≥60%, red <60%)
+  - **Effort badges** — Low/Medium/High migration effort indicators per service
+  - **Typed edges** — 6 edge styles (Traffic, Database, Auth, Control, Security, Storage) with color-coded lines and protocol labels
+  - **Zone grouping** — Services grouped into architectural zones (Hub, Spoke, etc.) with dashed-border containers
+  - **Manual mapping nodes** — Red dashed nodes for unmapped services requiring manual review
+  - **Map legend overlay** — Collapsible legend explaining all visual elements
+  - **MiniMap** — React Flow minimap with node-type color coding
+  - **Full interactivity** — Pan, zoom, drag nodes, using `useNodesState`/`useEdgesState` inside `ReactFlowProvider`
+- **Email Notifications** — Azure Communication Services integration for sending branded HTML migration report emails via `POST /api/diagrams/{id}/notify-email`
+- **IaC Diff Highlighting** — `IaCViewer.jsx` compares previous vs current IaC code with green-tinted changed lines and left border markers
+- **Parallel IaC + HLD Generation** — "Generate All" button fires IaC and HLD generation simultaneously for faster workflow
+- **Generation Progress Indicator** — Real-time progress bar during IaC/HLD/cost generation in the Results panel
+- **AWS Hub & Spoke Sample** — Enterprise Landing Zone sample diagram with Transit Gateway, Network Firewall, VPN, EKS, and Aurora across 3 zones with 8 typed connections
 
 ### Changed
-- **Feature Parity Mismatch & IaC UI**: Handled feature parity and modified IaC generation UI elements to resolve visual and logic constraints, achieving a successful pipeline build and clean `main` branch.
+- **Limitations UX Redesign** — Limitations displayed as 3-layer scannable cards with severity-tinted backgrounds, icons, and collapsible details instead of flat bullet lists
+- **Deploy Tab** — Greyscale overlay with Rocket icon and "Coming Soon" badge (placeholder for future CI/CD deploy pipeline)
+- **Drift Tab** — Greyscale overlay with ShieldCheck icon and "Coming Soon" badge
+- **IaC Chat Backend** — Switched from direct OpenAI calls to `cached_chat_completion` with automatic fallback model support and specific exception handling (`RateLimitError`, `APITimeoutError`, `APIConnectionError`, `BadRequestError`)
+- **CI/CD Pipeline** — Production deploy now sets `AZURE_OPENAI_DEPLOYMENT=gpt-4.1`, `AZURE_OPENAI_FALLBACK_DEPLOYMENT=gpt-4o`, and `AZURE_OPENAI_API_VERSION=2025-04-01-preview`
+
+### Fixed
+- **Architecture Map NaN Positions** — Group nodes in dagre layout had no dimensions, causing `undefined` x/y propagation as NaN across all SVG attributes (MiniMap circles, edge paths, viewBox). Fixed by passing explicit width/height to `g.setNode()` and adding `Number.isFinite()` guards.
+- **Zone Service Matching** — `z.services?.includes(src)` compared strings against `{name, role}` objects (never matched). Fixed with `.some(s => s.name === src)`.
+- **IaC Generation Truncation** — Output was cut off at 4K tokens. Increased `max_tokens` to 32,768 across IaC generator, HLD generator, and verification step.
+- **IaC Chat Failures** — Broad `except Exception` handler silently swallowed errors. Replaced with specific exception types and fallback model retry.
+- **HLD Generation 500 Errors** — Same 4K token limit caused truncated/invalid HLD output. Now uses 32K tokens.
+- **Empty AZURE_OPENAI_ENDPOINT** — Production container had empty endpoint string (GitHub Secret unset). Fixed by setting directly on container app and storing as GitHub secret.
+- **CI/CD Hardcoded Model** — Deployment workflow hardcoded `gpt-4o` instead of using the upgraded `gpt-4.1` deployment name.
+- **Frontend Test Suite Stability** — Updated Vitest matchers in 4 test files to align with UI text changes (Hub & Spoke, provider labels).
+- **Ruff Lint** — Removed unused `EmailStr` import and extraneous f-string prefix in email service.
 
 ## [3.8.1] - 2026-03-15
 
