@@ -43,7 +43,10 @@ async def get_guided_questions(request: Request, diagram_id: str, smart_dedup: b
     if not analysis:
         raise ArchmorphException(404, f"No analysis found for diagram {diagram_id}. Run /analyze first.")
 
-    detected = [m["source_service"] for m in analysis.get("mappings", [])]
+    detected = [
+        m["source_service"]["name"] if isinstance(m["source_service"], dict) else m["source_service"]
+        for m in analysis.get("mappings", [])
+    ]
     questions = generate_questions(detected)
 
     # Apply smart deduplication if enabled

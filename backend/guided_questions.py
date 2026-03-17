@@ -172,8 +172,11 @@ _NORMALISE: dict[str, str] = {
 }
 
 
-def _normalise_service(name: str) -> str:
+def _normalise_service(name) -> str:
     """Normalise a detected AWS service name to its short canonical form."""
+    if isinstance(name, dict):
+        name = name.get("name", str(name))
+    name = str(name)
     return _NORMALISE.get(name, name)
 
 
