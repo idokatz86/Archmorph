@@ -1,9 +1,10 @@
 import React, { useMemo } from 'react';
 import {
-  ReactFlow, Controls, Background, MiniMap,
+  ReactFlow, ReactFlowProvider, Controls, Background, MiniMap,
   applyNodeChanges, applyEdgeChanges, Handle, Position,
 } from '@xyflow/react';
 import dagre from 'dagre';
+import '@xyflow/react/dist/base.css';
 import '@xyflow/react/dist/style.css';
 import { FaAws } from 'react-icons/fa';
 import { VscAzure } from 'react-icons/vsc';
@@ -311,30 +312,32 @@ export default function ArchitectureFlow({ analysis }) {
   }
 
   return (
-    <div style={{ width: '100%', height: '600px' }} className="relative rounded-lg border border-border overflow-hidden bg-white">
-      <ReactFlow
-        nodes={nodes} edges={edges}
-        onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
-        nodeTypes={nodeTypes} fitView fitViewOptions={{ padding: 0.15 }}
-        nodesDraggable
-        panOnDrag
-        zoomOnScroll
-        zoomOnPinch
-        panOnScroll={false}
-        selectionOnDrag={false}
-        attributionPosition="bottom-right" minZoom={0.3} maxZoom={1.5}
-      >
-        <Background color="#e2e8f0" gap={20} size={1} />
-        <Controls />
-        <MiniMap
-          nodeStrokeWidth={3}
-          nodeColor={(n) => n.type === 'manualNode' ? '#EF4444' : n.type === 'groupNode' ? 'transparent' : '#22C55E'}
-          maskColor="rgba(255,255,255,0.7)"
-          style={{ backgroundColor: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 8 }}
-          pannable zoomable
-        />
-      </ReactFlow>
-      <MapLegend />
-    </div>
+    <ReactFlowProvider>
+      <div style={{ width: '100%', height: '600px' }} className="relative rounded-lg border border-border overflow-hidden bg-white">
+        <ReactFlow
+          nodes={nodes} edges={edges}
+          onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
+          nodeTypes={nodeTypes} fitView fitViewOptions={{ padding: 0.15 }}
+          nodesDraggable
+          panOnDrag
+          zoomOnScroll
+          zoomOnPinch
+          panOnScroll={false}
+          selectionOnDrag={false}
+          attributionPosition="bottom-right" minZoom={0.3} maxZoom={1.5}
+        >
+          <Background color="#e2e8f0" gap={20} size={1} />
+          <Controls />
+          <MiniMap
+            nodeStrokeWidth={3}
+            nodeColor={(n) => n.type === 'manualNode' ? '#EF4444' : n.type === 'groupNode' ? 'transparent' : '#22C55E'}
+            maskColor="rgba(255,255,255,0.7)"
+            style={{ backgroundColor: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 8 }}
+            pannable zoomable
+          />
+        </ReactFlow>
+        <MapLegend />
+      </div>
+    </ReactFlowProvider>
   );
 }
