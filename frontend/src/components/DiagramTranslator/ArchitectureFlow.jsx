@@ -202,7 +202,7 @@ const getLayoutedElements = (nodes, edges) => {
   g.setGraph({ rankdir: 'TB', ranksep: 100, nodesep: 80 });
 
   nodes.forEach((n) => {
-    if (n.type === 'groupNode') g.setNode(n.id, { label: n.data.label, clusterLabelPos: 'top' });
+    if (n.type === 'groupNode') g.setNode(n.id, { label: n.data.label, clusterLabelPos: 'top', width: NODE_WIDTH + 80, height: NODE_HEIGHT + 60 });
     else g.setNode(n.id, { width: NODE_WIDTH, height: NODE_HEIGHT });
     if (n.parentId) g.setParent(n.id, n.parentId);
   });
@@ -211,19 +211,29 @@ const getLayoutedElements = (nodes, edges) => {
 
   nodes.forEach((n) => {
     const p = g.node(n.id);
+    if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) {
+      n.position = { x: 0, y: 0 };
+      return;
+    }
     n.targetPosition = 'top';
     n.sourcePosition = 'bottom';
-    let x = p.x - p.width / 2;
-    let y = p.y - p.height / 2;
+    const pw = Number.isFinite(p.width) ? p.width : NODE_WIDTH;
+    const ph = Number.isFinite(p.height) ? p.height : NODE_HEIGHT;
+    let x = p.x - pw / 2;
+    let y = p.y - ph / 2;
     if (n.type === 'groupNode') {
-      n.style = { ...n.style, width: (p.width || NODE_WIDTH) + 40, height: (p.height || NODE_HEIGHT) + 60 };
+      n.style = { ...n.style, width: pw + 40, height: ph + 60 };
       x -= 20;
       y -= 40;
     }
     if (n.parentId) {
       const pp = g.node(n.parentId);
-      x -= pp.x - (pp.width || 0) / 2 - 20;
-      y -= pp.y - (pp.height || 0) / 2 - 40;
+      if (pp && Number.isFinite(pp.x) && Number.isFinite(pp.y)) {
+        const ppw = Number.isFinite(pp.width) ? pp.width : 0;
+        const pph = Number.isFinite(pp.height) ? pp.height : 0;
+        x -= pp.x - ppw / 2 - 20;
+        y -= pp.y - pph / 2 - 40;
+      }
     }
     n.position = { x, y };
   });
@@ -251,7 +261,7 @@ export default function ArchitectureFlow({ analysis }) {
     mappings.forEach((m) => {
       const src = typeof m.source_service === 'object' ? m.source_service.name : m.source_service;
       const manual = !m.azure_service || m.azure_service === '[Manual mapping needed]';
-      const pz = zones.find((z) => z.services?.includes(src));
+      const pz = zones.find((z) => z.services?.some((s) => (typeof s === 'string' ? s : s?.name) === src));
 
       nodes.push({
         id: src,
