@@ -25,7 +25,7 @@ router = APIRouter()
 class IaCChatMessage(BaseModel):
     """Request body for IaC chat messages."""
     message: str = Field(..., min_length=1, max_length=5000)
-    code: str = Field(..., max_length=100000)
+    code: str = Field(default="", max_length=100000)
     format: str = Field(default="terraform", pattern="^(terraform|bicep|cloudformation)$")
 
 
