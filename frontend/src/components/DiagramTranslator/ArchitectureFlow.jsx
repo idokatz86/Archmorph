@@ -257,7 +257,7 @@ export default function ArchitectureFlow({ analysis }) {
         id: src,
         type: manual ? 'manualNode' : 'mappingNode',
         parentId: pz ? `zone-${pz.name}` : undefined,
-        extent: pz ? 'parent' : undefined,
+        draggable: true,
         data: {
           source: src,
           target: manual ? null : m.azure_service,
@@ -317,6 +317,11 @@ export default function ArchitectureFlow({ analysis }) {
         onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
         nodeTypes={nodeTypes} fitView fitViewOptions={{ padding: 0.15 }}
         nodesDraggable
+        panOnDrag
+        zoomOnScroll
+        zoomOnPinch
+        panOnScroll={false}
+        selectionOnDrag={false}
         attributionPosition="bottom-right" minZoom={0.3} maxZoom={1.5}
       >
         <Background color="#e2e8f0" gap={20} size={1} />
