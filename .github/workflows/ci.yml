@@ -78,7 +78,7 @@ jobs:
 
       - name: Grype scan (Python)
         id: grype-python
-        uses: anchore/scan-action@v3
+        uses: anchore/scan-action@v7
         with:
           sbom: ${{ github.workspace }}/backend-sbom.json
           output-format: sarif
@@ -141,7 +141,7 @@ jobs:
 
       - name: Grype scan (npm)
         id: grype-npm
-        uses: anchore/scan-action@v3
+        uses: anchore/scan-action@v7
         with:
           sbom: ${{ github.workspace }}/frontend-sbom.json
           output-format: sarif
