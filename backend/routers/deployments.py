@@ -49,13 +49,13 @@ async def preview_deployment(
     POST /api/deployments/preview
     Dry-run preview (what-if for Bicep or terraform plan).
     """
-    logger.info(f"Received deployment preview request for provider: {payload.provider}")
+    logger.info("Received deployment preview request for provider: %s", str(payload.provider).replace('\n', '').replace('\r', ''))
     
     if payload.provider.lower() == "azure":
         result = await azure_service.preview_deployment(payload.model_dump())
         return {"status": "success", "data": result}
     else:
-        raise HTTPException(status_code=501, detail=f"Preview not fully implemented for {payload.provider}")
+        raise HTTPException(status_code=501, detail="Preview not fully implemented for the requested provider")
 
 @router.post("/execute")
 async def execute_deployment(
@@ -69,14 +69,14 @@ async def execute_deployment(
     """
     import uuid
     job_id = payload.job_id or str(uuid.uuid4())
-    logger.info(f"Executing deployment {job_id} for provider: {payload.provider}")
+    logger.info("Executing deployment %s for provider: %s", str(job_id).replace('\n', '').replace('\r', ''), str(payload.provider).replace('\n', '').replace('\r', ''))
     
     if payload.provider.lower() == "azure":
         # Launch real deploy step.
         result = await azure_service.deploy_infrastructure(job_id, payload.model_dump())
         return DeploymentResponse(job_id=job_id, status=result["status"], message=result["message"])
     else:
-        raise HTTPException(status_code=501, detail=f"Deploy not fully implemented for {payload.provider}")
+        raise HTTPException(status_code=501, detail="Deploy not fully implemented for the requested provider")
 
 @router.get("/{job_id}/stream")
 async def stream_deployment_logs(job_id: str):

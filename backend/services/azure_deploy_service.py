@@ -46,7 +46,7 @@ class AzureDeployService:
         Executes actual deployment.
         Runs `az deployment group create`.
         """
-        logger.info(f"Executing Azure deployment for job {job_id}")
+        logger.info("Executing Azure deployment for job %s", str(job_id).replace('\n', '').replace('\r', ''))
         
         variables = payload.get("variables") or {}
         rg = variables.get("resource_group", "default-rg")

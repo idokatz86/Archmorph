@@ -125,7 +125,7 @@ def record_migration_event(event: MigrationEvent) -> None:
         "timestamp": datetime.now(timezone.utc).isoformat(),
     })
 
-    logger.info("Recorded migration event: %s → %s (%s→%s)", event.source_service, event.target_service, event.source_provider, event.target_provider)
+    logger.info("Recorded migration event: %s → %s (%s→%s)", str(event.source_service).replace('\n', '').replace('\r', ''), str(event.target_service).replace('\n', '').replace('\r', ''), str(event.source_provider).replace('\n', '').replace('\r', ''), str(event.target_provider).replace('\n', '').replace('\r', ''))
 
 
 def get_community_confidence(
