@@ -38,6 +38,20 @@ UPLOAD_CHUNK_SIZE_BYTES = 1024 * 1024
 VISIO_EXTENSION = ".vsdx"
 
 
+def _normalize_analysis(result: dict) -> dict:
+    """Normalize GPT vision output so downstream code always sees consistent fields.
+
+    - source_service: always a string (GPT-4.1 sometimes returns a dict)
+    - azure_service: always present (GPT-4.1 sometimes uses target_service instead)
+    """
+    for m in result.get("mappings", []):
+        if isinstance(m.get("source_service"), dict):
+            m["source_service"] = m["source_service"].get("name", str(m["source_service"]))
+        if "azure_service" not in m and "target_service" in m:
+            m["azure_service"] = m.pop("target_service")
+    return result
+
+
 # ─────────────────────────────────────────────────────────────
 # Models
 # ─────────────────────────────────────────────────────────────
@@ -212,7 +226,7 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
         logger.error("Vision analysis failed for %s: %s", str(diagram_id).replace('\n', '').replace('\r', ''), str(analysis_result_or_exc).replace('\n', '').replace('\r', ''), exc_info=True)  # codeql[py/log-injection] Handled by custom
         raise ArchmorphException(500, "Vision analysis failed. Please try again with a different image.")
 
-    result = analysis_result_or_exc
+    result = _normalize_analysis(analysis_result_or_exc)
     result["diagram_id"] = diagram_id
     result["image_classification"] = classification
 
@@ -303,6 +317,7 @@ async def _run_analysis_job(job_id: str, diagram_id: str) -> None:
 
         job_manager.update_progress(job_id, 70, "Mapping services to Azure equivalents...")
 
+        result = _normalize_analysis(result)
         result["diagram_id"] = diagram_id
         result["image_classification"] = classification
 
