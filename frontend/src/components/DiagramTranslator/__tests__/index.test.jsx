@@ -48,7 +48,7 @@ describe('DiagramTranslator', () => {
 
   it('shows supported file formats', async () => {
     render(<DiagramTranslator />)
-    expect(await screen.findByText(/Supports PNG, JPG, SVG, PDF/)).toBeInTheDocument()
+    expect(await screen.findByText(/Supports PNG, JPG, JPEG, SVG, PDF, Draw\.io, Visio/)).toBeInTheDocument()
   })
 
   it('shows sample buttons', async () => {

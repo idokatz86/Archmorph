@@ -31,7 +31,7 @@ describe('UploadStep', () => {
 
   it('shows file format info', () => {
     render(<UploadStep {...defaultProps} />)
-    expect(screen.getByText(/Supports PNG, JPG, SVG, PDF/)).toBeInTheDocument()
+    expect(screen.getByText(/Supports PNG, JPG, JPEG, SVG, PDF, Draw\.io, Visio/)).toBeInTheDocument()
   })
 
   it('renders sample diagram buttons', () => {

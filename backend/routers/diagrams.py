@@ -68,11 +68,13 @@ async def upload_diagram(request: Request, project_id: str, file: UploadFile = F
         "image/png", "image/jpeg", "image/svg+xml", "application/pdf",
         "application/vnd.ms-visio.drawing.main+xml",  # .vsdx
         "application/vnd.visio",  # legacy alias
-        "application/octet-stream",  # browsers may send .vsdx as octet-stream
+        "application/xml", "text/xml",  # .drawio files
+        "application/octet-stream",  # browsers may send .vsdx/.drawio as octet-stream
     ]
     is_visio = file.filename and file.filename.lower().endswith(VISIO_EXTENSION)
-    if file.content_type not in allowed_types and not is_visio:
-        raise ArchmorphException(400, f"File type {file.content_type} not supported")
+    is_drawio = file.filename and file.filename.lower().endswith(".drawio")
+    if file.content_type not in allowed_types and not is_visio and not is_drawio:
+        raise ArchmorphException(400, f"File type {file.content_type} not supported. Accepted: PNG, JPG, JPEG, SVG, PDF, Draw.io, Visio.")
 
     diagram_id = f"diag-{uuid.uuid4().hex[:8]}"
     # Read file in chunks with early size limit enforcement

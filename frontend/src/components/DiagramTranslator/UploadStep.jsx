@@ -73,7 +73,7 @@ export default function UploadStep({
               <p className="text-sm text-text-secondary mb-4">
                 Drag & drop your AWS or GCP diagram here, or click to browse
               </p>
-              <p className="text-xs text-text-muted">Supports PNG, JPG, SVG, PDF — up to 10 MB</p>
+              <p className="text-xs text-text-muted">Supports PNG, JPG, JPEG, SVG, PDF, Draw.io, Visio — up to 10 MB</p>
               {dragOver && (
                 <div className="absolute inset-0 rounded-2xl bg-cta/10 flex items-center justify-center">
                   <p className="text-lg font-bold text-cta">Drop diagram here</p>
@@ -83,7 +83,7 @@ export default function UploadStep({
           )}
         </div>
 
-        <input ref={fileInputRef} type="file" accept="image/*,.pdf,.svg,.vsdx" onChange={e => e.target.files[0] && onFileSelect(e.target.files[0])} className="hidden" aria-label="Select architecture diagram file" />
+        <input ref={fileInputRef} type="file" accept=".png,.jpg,.jpeg,.svg,.pdf,.vsdx,.drawio,image/png,image/jpeg,image/svg+xml,application/pdf" onChange={e => e.target.files[0] && onFileSelect(e.target.files[0])} className="hidden" aria-label="Select architecture diagram file" />
 
         {/* Sample Diagrams */}
         <div className="mt-6 pt-6 border-t border-border">
