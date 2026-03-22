@@ -8,7 +8,7 @@ Uses the same TESTING env var pattern as models/memory.py for SQLite fallback.
 import os
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, DateTime, JSON, ForeignKey, Integer, Float, Text
+from sqlalchemy import Column, String, DateTime, JSON, ForeignKey, Integer, Text
 from database import Base
 
 # Conditionally use pgvector for postgres, fallback to JSON/String for sqlite in tests

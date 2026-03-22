@@ -10,7 +10,7 @@ Issue #395 — Track 1 Product Value feature.
 import asyncio
 import logging
 import os
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
 from pydantic import BaseModel, Field

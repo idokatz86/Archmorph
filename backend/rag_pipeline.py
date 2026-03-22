@@ -11,7 +11,6 @@ Issue #395 — Track 1 Product Value feature.
 
 import csv
 import hashlib
-import html
 import io
 import json
 import logging
