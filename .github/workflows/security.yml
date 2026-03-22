@@ -1,4 +1,4 @@
-name: CodeQL
+name: Security Scanning
 on:
   push:
     branches: [main]
@@ -13,6 +13,9 @@ permissions:
   contents: read
 
 jobs:
+  # ────────────────────────────────────────────
+  # SAST — CodeQL (existing)
+  # ────────────────────────────────────────────
   codeql:
     name: "SAST — CodeQL"
     runs-on: ubuntu-latest
@@ -34,3 +37,56 @@ jobs:
         uses: github/codeql-action/analyze@v4
         with:
           category: codeql-${{ matrix.language }}
+
+  # ────────────────────────────────────────────
+  # Container Scan — Trivy (#378)
+  # Builds image locally, scans for HIGH/CRITICAL
+  # CVEs, uploads SARIF to GitHub Security tab
+  # ────────────────────────────────────────────
+  trivy-container:
+    name: "Container Scan — Trivy"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build backend image for scanning
+        uses: docker/build-push-action@v7
+        with:
+          context: ./backend
+          load: true
+          tags: archmorph-api:scan
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Trivy vulnerability scan (SARIF)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: archmorph-api:scan
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          scanners: vuln
+
+      - name: Trivy vulnerability scan (table — CI log)
+        uses: aquasecurity/trivy-action@master
+        if: always()
+        with:
+          image-ref: archmorph-api:scan
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          scanners: vuln
+
+      - name: Upload Trivy SARIF to GitHub Security
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        continue-on-error: true
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-container

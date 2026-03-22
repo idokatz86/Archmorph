@@ -104,13 +104,14 @@ externalSecrets:
       remoteRef:
         key: admin-key
 
-# Health check configuration
+# Health check configuration (#378)
 livenessProbe:
   httpGet:
     path: /api/health
     port: 8000
   initialDelaySeconds: 10
   periodSeconds: 30
+  timeoutSeconds: 5
   failureThreshold: 3
 
 readinessProbe:
@@ -119,6 +120,8 @@ readinessProbe:
     port: 8000
   initialDelaySeconds: 5
   periodSeconds: 10
+  timeoutSeconds: 5
+  successThreshold: 1
   failureThreshold: 3
 
 startupProbe:
@@ -127,7 +130,8 @@ startupProbe:
     port: 8000
   initialDelaySeconds: 5
   periodSeconds: 5
-  failureThreshold: 10
+  timeoutSeconds: 5
+  failureThreshold: 30  # 150s window — allows model loading and DB migrations
 
 nodeSelector: {}
 tolerations: []

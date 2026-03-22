@@ -84,6 +84,8 @@ from routers.scanner_routes import router as scanner_router  # noqa: E402
 from routers.deploy import router as deploy_router  # noqa: E402
 from routers.deployments import router as deployments_router  # noqa: E402
 from routers.legal import router as legal_router  # noqa: E402
+from routers.rag_routes import router as rag_router  # noqa: E402
+from routers.agent_paas import router as agent_paas_router  # noqa: E402
 from routers.v1 import build_v1_router  # noqa: E402
 from api_versioning import VersionMiddleware  # noqa: E402
 from audit_logging import audit_logger, AuditEventType  # noqa: E402, F401
@@ -332,6 +334,8 @@ app.include_router(scanner_router)
 app.include_router(deploy_router)
 app.include_router(deployments_router)
 app.include_router(legal_router)
+app.include_router(rag_router)
+app.include_router(agent_paas_router)
 
 # ─────────────────────────────────────────────────────────────
 # API v1 Versioned Routes (/api/v1/* mirrors /api/*)
