@@ -393,6 +393,20 @@ async def execute_agent(agent_id: str, payload: ExecuteRequest):
     model_key = agent["model"]
     cost = _calculate_cost(model_key, total_prompt_tokens, total_completion_tokens)
 
+    # ── 6b. Record in central cost meter (Issue #392) ──
+    try:
+        from cost_metering import CostMeter
+        CostMeter.instance().record(
+            model=model_key,
+            prompt_tokens=total_prompt_tokens,
+            completion_tokens=total_completion_tokens,
+            execution_id=execution_id,
+            agent_id=agent_id,
+            caller="agent_paas",
+        )
+    except Exception:
+        pass  # Cost metering must never break execution
+
     elapsed_ms = (time.perf_counter() - start_time) * 1000
 
     # ── 7. Store execution record ──

@@ -21,6 +21,7 @@ from ai_suggestion import (
     get_review_queue,
     review_suggestion,
     get_review_stats,
+    get_suggestion_history,
 )
 
 logger = logging.getLogger(__name__)
@@ -48,6 +49,19 @@ class ReviewRequest(BaseModel):
     override_azure_service: Optional[str] = None
     override_confidence: Optional[float] = Field(None, ge=0.0, le=1.0)
     notes: Optional[str] = None
+
+
+class GenerateRequest(BaseModel):
+    """Request body for triggering AI suggestion generation."""
+    source_service: str = Field(..., min_length=1, max_length=200)
+    source_provider: str = Field("aws", pattern="^(aws|gcp)$")
+    context_services: Optional[list] = None
+
+
+class GenerateBatchRequest(BaseModel):
+    """Request body for batch AI suggestion generation."""
+    services: list = Field(..., min_length=1, max_length=50)
+    source_provider: str = Field("aws", pattern="^(aws|gcp)$")
 
 
 @router.post("/api/suggest/mapping", tags=["ai-suggestion"])
@@ -128,3 +142,75 @@ async def api_review_suggestion(
     if not result:
         raise ArchmorphException(status_code=404, detail="Suggestion not found")
     return {"status": body.decision, "suggestion": result}
+
+
+# ─────────────────────────────────────────────────────────
+# Issue #230 — Admin suggestion management routes
+# ─────────────────────────────────────────────────────────
+
+
+@router.post("/api/admin/suggestions/generate", tags=["ai-suggestion"])
+@limiter.limit("10/minute")
+async def api_generate_suggestion(
+    request: Request, body: GenerateRequest, _=Depends(verify_api_key)
+):
+    """Trigger AI suggestion generation for a single service or with context."""
+    result = await asyncio.to_thread(
+        suggest_mapping,
+        body.source_service,
+        body.source_provider,
+        body.context_services,
+    )
+    record_event("ai_suggestion_generate", {
+        "source": body.source_service,
+        "provider": body.source_provider,
+        "confidence": result.get("confidence", 0),
+        "review_status": result.get("review_status", ""),
+    })
+    return result
+
+
+@router.post("/api/admin/suggestions/generate/batch", tags=["ai-suggestion"])
+@limiter.limit("3/minute")
+async def api_generate_batch(
+    request: Request, body: GenerateBatchRequest, _=Depends(verify_api_key)
+):
+    """Trigger AI suggestion generation for multiple services."""
+    results = await asyncio.to_thread(
+        suggest_batch, body.services, body.source_provider
+    )
+    record_event("ai_suggestion_generate_batch", {"count": len(results)})
+    return {"suggestions": results, "count": len(results)}
+
+
+@router.get("/api/admin/suggestions/pending", tags=["ai-suggestion"])
+@limiter.limit("30/minute")
+async def api_pending_suggestions(
+    request: Request, _=Depends(verify_api_key)
+):
+    """List pending suggestions awaiting admin review."""
+    items = get_review_queue(status="pending")
+    return {"pending": items, "count": len(items)}
+
+
+@router.get("/api/admin/suggestions/history", tags=["ai-suggestion"])
+@limiter.limit("30/minute")
+async def api_suggestion_history(
+    request: Request,
+    decision: Optional[str] = None,
+    limit: int = 100,
+    _=Depends(verify_api_key),
+):
+    """History of all suggestions with their review decisions."""
+    items = get_suggestion_history(limit=limit, decision_filter=decision)
+    return {"history": items, "count": len(items)}
+
+
+@router.get("/api/admin/suggestions/stats", tags=["ai-suggestion"])
+@limiter.limit("30/minute")
+async def api_suggestion_stats(
+    request: Request, _=Depends(verify_api_key)
+):
+    """Accuracy statistics: approved vs rejected ratio, avg confidence."""
+    stats = get_review_stats()
+    return stats

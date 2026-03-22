@@ -343,6 +343,9 @@ def cached_chat_completion(
         with _cache_lock:
             _response_cache[cache_key] = response
 
+        # ── Cost metering (Issue #392) — transparent, best-effort ──
+        _meter_response(response, deployment)
+
     return response
 
 
@@ -354,3 +357,19 @@ def _emit_cache_metric(event_type: str):
     except Exception:
         pass  # nosec B110 — Observability is optional
 
+
+def _meter_response(response: Any, model: str, caller: str = "cached_chat_completion") -> None:
+    """Record token usage from an OpenAI response in the cost meter (best-effort)."""
+    try:
+        usage = getattr(response, "usage", None)
+        if usage is None:
+            return
+        from cost_metering import CostMeter
+        CostMeter.instance().record(
+            model=model,
+            prompt_tokens=usage.prompt_tokens or 0,
+            completion_tokens=usage.completion_tokens or 0,
+            caller=caller,
+        )
+    except Exception:
+        pass  # nosec B110 — Cost metering must never break request handling

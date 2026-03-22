@@ -29,6 +29,14 @@ logger = logging.getLogger(__name__)
 _review_queue: Dict[str, Dict[str, Any]] = {}  # suggestion_id → suggestion
 _review_lock = threading.Lock()
 
+# ─────────────────────────────────────────────────────────
+# Learning feedback store — approved/rejected decisions
+# used as few-shot examples for future GPT suggestions
+# ─────────────────────────────────────────────────────────
+_feedback_store: List[Dict[str, Any]] = []  # chronologically ordered
+_feedback_lock = threading.Lock()
+_AUTO_APPROVE_THRESHOLD = 0.9  # confidence > this → auto-approved
+
 # Known catalogue lookup for fast matching
 _KNOWN_AWS: Dict[str, Dict[str, Any]] = {}
 _KNOWN_GCP: Dict[str, Dict[str, Any]] = {}
@@ -84,6 +92,57 @@ Rules:
 - Consider the surrounding architecture context when suggesting alternatives
 - Return ONLY the JSON object, no markdown fencing
 """
+
+
+def _build_few_shot_examples(source_provider: str, max_examples: int = 5) -> str:
+    """Build few-shot examples from approved feedback for the GPT prompt."""
+    examples = []
+    with _feedback_lock:
+        approved = [
+            fb for fb in _feedback_store
+            if fb.get("decision") == "approved"
+            and fb.get("source_provider", "").lower() == source_provider.lower()
+        ]
+    # Take most recent approved entries
+    for fb in approved[-max_examples:]:
+        examples.append(
+            f'  {{"source": "{fb.get("source_service", "")}", '
+            f'"azure_service": "{fb.get("azure_service", "")}", '
+            f'"confidence": {fb.get("confidence", 0.8)}, '
+            f'"category": "{fb.get("category", "")}"}}'
+        )
+    # Also pull a few from the known catalogue
+    known = _KNOWN_AWS if source_provider.lower() in ("aws", "amazon") else _KNOWN_GCP
+    for key, m in list(known.items())[:max(0, max_examples - len(examples))]:
+        examples.append(
+            f'  {{"source": "{key}", '
+            f'"azure_service": "{m.get("azure", "")}", '
+            f'"confidence": {m.get("confidence", 0.9)}, '
+            f'"category": "{m.get("category", "")}"}}'
+        )
+    if not examples:
+        return ""
+    return (
+        "\n\nHere are verified mappings for reference:\n"
+        + "\n".join(examples)
+    )
+
+
+def _record_feedback(suggestion: Dict[str, Any], decision: str, reviewer: str) -> None:
+    """Record an approved/rejected decision for learning feedback."""
+    entry = {
+        "source_service": suggestion.get("source_service", ""),
+        "source_provider": suggestion.get("source_provider", ""),
+        "azure_service": suggestion.get("azure_service", ""),
+        "confidence": suggestion.get("confidence", 0),
+        "category": suggestion.get("category", ""),
+        "decision": decision,
+        "reviewer": reviewer,
+        "recorded_at": datetime.now(timezone.utc).isoformat(),
+    }
+    with _feedback_lock:
+        _feedback_store.append(entry)
+    logger.info("Recorded feedback: %s → %s (%s)", entry["source_service"], entry["azure_service"], decision)
 
 
 def _build_confidence_factors(suggestion: Dict[str, Any], source_service: str) -> list:
@@ -476,6 +535,11 @@ def _call_gpt_suggest(
     if context_services:
         user_content += f"\nOther services in the architecture: {', '.join(context_services[:20])}"
 
+    # Inject few-shot examples from approved feedback + catalogue
+    few_shot = _build_few_shot_examples(source_provider)
+    if few_shot:
+        user_content += few_shot
+
     response = client.chat.completions.create(
         model=AZURE_OPENAI_DEPLOYMENT,
         messages=[
@@ -566,15 +630,15 @@ def suggest_mapping(
         "feature_gaps": suggestion.get("feature_gaps", []),
         "dependencies": suggestion.get("dependencies", []),
         "source": "ai",
-        "review_status": "pending" if suggestion.get("confidence", 0.5) < 0.7 else "auto_approved",
+        "review_status": "pending" if float(suggestion.get("confidence", 0.5)) < _AUTO_APPROVE_THRESHOLD else "auto_approved",
         # ── Confidence explainability (#353) ──
         "confidence_factors": _build_confidence_factors(suggestion, source_service),
         # ── Deep-dive strengths/limitations/migration notes (#404) ──
         **build_mapping_deep_dive(suggestion, source_service),
     }
 
-    # Queue low-confidence for review
-    if auto_queue_review and result["confidence"] < 0.7:
+    # Queue for review unless auto-approved (confidence >= 0.9)
+    if auto_queue_review and result["confidence"] < _AUTO_APPROVE_THRESHOLD:
         _enqueue_review(result)
 
     return result
@@ -784,6 +848,9 @@ def review_suggestion(
         if notes:
             suggestion["reviewer_notes"] = notes
 
+    # Record feedback for learning
+    _record_feedback(suggestion, decision, reviewer)
+
     logger.info(
         "Suggestion %s %s by %s",
         suggestion_id,
@@ -794,7 +861,7 @@ def review_suggestion(
 
 
 def get_review_stats() -> Dict[str, Any]:
-    """Return review queue statistics."""
+    """Return review queue statistics with accuracy metrics."""
     with _review_lock:
         items = list(_review_queue.values())
 
@@ -802,15 +869,54 @@ def get_review_stats() -> Dict[str, Any]:
     pending = sum(1 for i in items if not i.get("reviewed"))
     approved = sum(1 for i in items if i.get("decision") == "approved")
     rejected = sum(1 for i in items if i.get("decision") == "rejected")
+    reviewed = approved + rejected
 
     avg_confidence = 0.0
     if items:
         avg_confidence = sum(i.get("confidence", 0) for i in items) / len(items)
+
+    approval_rate = round(approved / reviewed, 3) if reviewed > 0 else 0.0
+
+    with _feedback_lock:
+        feedback_total = len(_feedback_store)
 
     return {
         "total": total,
         "pending": pending,
         "approved": approved,
         "rejected": rejected,
+        "reviewed": reviewed,
+        "approval_rate": approval_rate,
         "avg_confidence": round(avg_confidence, 3),
+        "auto_approve_threshold": _AUTO_APPROVE_THRESHOLD,
+        "feedback_entries": feedback_total,
     }
+
+
+def get_suggestion_history(
+    limit: int = 100,
+    decision_filter: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Return history of all suggestions with decisions.
+
+    Parameters
+    ----------
+    limit : int
+        Max items to return.
+    decision_filter : str, optional
+        Filter by decision ("approved", "rejected", "auto_approved", "pending").
+    """
+    with _review_lock:
+        items = list(_review_queue.values())
+
+    if decision_filter == "auto_approved":
+        items = [i for i in items if i.get("review_status") == "auto_approved"]
+    elif decision_filter == "approved":
+        items = [i for i in items if i.get("decision") == "approved"]
+    elif decision_filter == "rejected":
+        items = [i for i in items if i.get("decision") == "rejected"]
+    elif decision_filter == "pending":
+        items = [i for i in items if not i.get("reviewed")]
+
+    items.sort(key=lambda x: x.get("submitted_at", ""), reverse=True)
+    return items[:limit]

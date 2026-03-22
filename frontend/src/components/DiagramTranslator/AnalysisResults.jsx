@@ -9,6 +9,7 @@ import ExportPanel from './ExportPanel';
 import { HelpTooltip, HELP_CONTENT } from '../HelpTooltip';
 
 const ArchitectureFlow = lazy(() => import('./ArchitectureFlow'));
+const DependencyGraph = lazy(() => import('./DependencyGraph'));
 
 /* ── Strengths/Limitations Panel for a mapping ──────────── */
 function DeepDivePanel({ m }) {
@@ -330,6 +331,21 @@ export default function AnalysisResults({
           <ArchitectureFlow analysis={analysis} />
         </Suspense>
       </div>
+
+      {/* Service Dependency Graph (#233) */}
+      {analysis.service_connections?.length > 0 && (
+        <div className="mt-8">
+          <h3 className="text-xl font-bold text-text-primary mb-4 flex items-center gap-2">
+            Service Dependency Graph
+          </h3>
+          <p className="text-sm text-text-secondary mb-4">
+            Interactive visualization of service connections and data flows. Click a node for details.
+          </p>
+          <Suspense fallback={<div className="h-64 flex items-center justify-center text-text-muted"><Loader2 className="w-5 h-5 animate-spin" /></div>}>
+            <DependencyGraph analysis={analysis} />
+          </Suspense>
+        </div>
+      )}
 
       {/* Generation Progress Indicator (#311) */}
       {generatingIac && (
