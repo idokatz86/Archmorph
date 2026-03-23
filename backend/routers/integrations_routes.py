@@ -69,10 +69,10 @@ def _post_json(url: str, payload: Dict[str, Any], headers: Optional[Dict[str, st
         return {
             "success": False,
             "status_code": exc.code,
-            "body": exc.read().decode("utf-8", errors="replace")[:500],
+            "error_body": exc.read().decode("utf-8", errors="replace")[:500],
         }
     except Exception as exc:
-        return {"success": False, "status_code": None, "error": str(exc)[:300]}
+        return {"success": False, "status_code": None, "error": "Request failed"}
 
 
 def _validate_https(url: str, field_name: str = "webhook_url") -> None:

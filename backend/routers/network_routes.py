@@ -104,7 +104,7 @@ async def generate_network_topology(
     _topology_cache[diagram_id] = result
 
     logger.info("Network topology generated for %s: %s topology, %d subnets, %d NSGs",
-                diagram_id, result["topology_type"],
+                diagram_id.replace('\n', '').replace('\r', ''), result["topology_type"],
                 len(result["vnet"]["subnets"]), len(result["nsgs"]))
 
     return {"status": "ok", "diagram_id": diagram_id, "network_topology": result}
