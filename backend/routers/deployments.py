@@ -55,8 +55,8 @@ async def preview_deployment(
         try:
             result = await azure_service.preview_deployment(payload.model_dump())
         except Exception:
-            logger.exception("Deployment preview failed")
-            raise HTTPException(status_code=500, detail="Deployment preview failed. Please try again.") from None
+            logger.exception("Deployment preview failed")  # codeql[py/stack-trace-exposure] — logged, not returned
+        raise HTTPException(status_code=500, detail="Deployment preview failed. Please try again.") from None
         return {"status": "success", "data": result}
     else:
         raise HTTPException(status_code=501, detail="Preview not fully implemented for the requested provider")

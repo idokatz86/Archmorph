@@ -97,6 +97,9 @@ from routers.webhook_routes import router as webhook_routes_router  # noqa: E402
 from routers.integrations_routes import router as integrations_router  # noqa: E402
 from routers.sku_routes import router as sku_router  # noqa: E402
 from routers.provenance import router as provenance_router  # noqa: E402
+from routers.network_routes import router as network_router  # noqa: E402
+from routers.share_routes import router as share_routes_router  # noqa: E402
+from routers.diff_routes import router as diff_routes_router  # noqa: E402
 from routers.v1 import build_v1_router  # noqa: E402
 from api_versioning import VersionMiddleware  # noqa: E402
 from audit_logging import audit_logger, AuditEventType  # noqa: E402, F401
@@ -373,6 +376,9 @@ app.include_router(webhook_routes_router)
 app.include_router(integrations_router)
 app.include_router(sku_router)
 app.include_router(provenance_router)
+app.include_router(network_router)
+app.include_router(share_routes_router)
+app.include_router(diff_routes_router)
 
 # ─────────────────────────────────────────────────────────────
 # API v1 Versioned Routes (/api/v1/* mirrors /api/*)

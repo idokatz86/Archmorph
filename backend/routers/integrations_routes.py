@@ -33,18 +33,29 @@ router = APIRouter(tags=["Integrations"])
 
 def _post_json(url: str, payload: Dict[str, Any], headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
     """POST JSON to an HTTPS URL using stdlib. Returns status info."""
-    # SSRF protection: only allow https URLs to known services
+    # SSRF protection: only allow HTTPS to known external service hostnames
     parsed = urllib.parse.urlparse(url)
-    if parsed.scheme not in ("https",):
+    if parsed.scheme != "https":
         return {"success": False, "status_code": 0, "body": "Only HTTPS URLs are allowed"}
-    if not parsed.hostname:
-        return {"success": False, "status_code": 0, "body": "Invalid URL"}
+    _ALLOWED_HOSTS = {
+        "hooks.slack.com", "api.github.com",
+    }
+    hostname = (parsed.hostname or "").lower()
+    # Allow *.atlassian.net for Jira, *.webhook.office.com for Teams
+    host_ok = (
+        hostname in _ALLOWED_HOSTS
+        or hostname.endswith(".atlassian.net")
+        or hostname.endswith(".webhook.office.com")
+    )
+    if not host_ok:
+        return {"success": False, "status_code": 0, "body": "Hostname not in allowlist"}
+    sanitized_url = urllib.parse.urlunparse(parsed)  # rebuild from parsed parts
     data = json.dumps(payload, default=str).encode("utf-8")
     hdrs = {"Content-Type": "application/json", "User-Agent": "Archmorph-Integrations/1.0"}
     if headers:
         hdrs.update(headers)
 
-    req = urllib.request.Request(url, data=data, headers=hdrs, method="POST")
+    req = urllib.request.Request(sanitized_url, data=data, headers=hdrs, method="POST")
     ctx = ssl.create_default_context()
 
     try:
@@ -283,10 +294,11 @@ async def jira_create(body: JiraCreateRequest, request: Request, _auth=Depends(v
     epic_result = _post_json(f"{base}/rest/api/3/issue", epic_payload, headers)
 
     if not epic_result["success"]:
+        logger.warning("Jira Epic creation failed: HTTP %s", epic_result.get('status_code'))
         raise ArchmorphException(
             502,
-            f"Jira Epic creation failed (HTTP {epic_result.get('status_code')}): "
-            f"{epic_result.get('body', epic_result.get('error', 'unknown'))}",
+            "Jira Epic creation failed. Please check your API URL and credentials.",
+        )
         )
 
     try:
@@ -311,7 +323,8 @@ async def jira_create(body: JiraCreateRequest, request: Request, _auth=Depends(v
         if task_result["success"]:
             try:
                 task_data = json.loads(task_result["body"])
-                created_tasks.append(task_data.get("key", f"task-{idx}"))
+                task_key = task_data.get("key")
+                created_tasks.append(task_key if task_key else f"task-{idx}")
             except (json.JSONDecodeError, KeyError):
                 created_tasks.append(f"task-{idx}")
         else:
@@ -379,7 +392,9 @@ async def github_issue(body: GitHubIssueRequest, request: Request, _auth=Depends
     try:
         issue_data = json.loads(result["body"])
         issue_number = issue_data.get("number")
-        issue_url = issue_data.get("html_url", "")
+        issue_url_raw = issue_data.get("html_url", "")
+        # Sanitize: only return URL if it looks like a GitHub URL
+        issue_url = issue_url_raw if isinstance(issue_url_raw, str) and issue_url_raw.startswith("https://github.com/") else ""
     except (json.JSONDecodeError, KeyError):
         issue_number = None
         issue_url = ""
