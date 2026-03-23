@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-03-23
+
+### Added
+- **RAG Pipeline** (#395) — Document ingestion (PDF/DOCX/HTML/CSV/JSON/TXT/MD), recursive chunking, Azure OpenAI embedding with content-hash caching, in-memory vector store with hybrid search (cosine + BM25), 8 API endpoints, `assemble_context()` integration for HLD/IaC generators
+- **AI Agent PaaS PoC** (#397) — End-to-end agent platform proof of concept: agent CRUD, tool attachment (web_search, code_interpreter mocks), ReAct execution loop with GPT-4o function calling, RAG integration, per-execution cost tracking, 12 API endpoints under `/api/agent-paas/`
+- **Cost & Token Observability Dashboard** (#392) — Per-execution token metering, model-specific cost calculation (GPT-4o/4o-mini/embedding models), budget management with alert thresholds (50%/80%/100%), timeseries aggregation, CSV export, 10 API endpoints. Auto-instrumented via `cached_chat_completion` hook.
+- **AI Cross-Cloud Mapping Auto-Suggestion** (#230) — GPT-4o powered mapping suggestions with few-shot learning from approved mappings, 0.9 confidence auto-approve threshold, admin review queue, feedback loop, batch processing
+- **Migration Timeline Generator** (#231) — 7-phase migration plan (Assessment → Optimization) with Kahn's topological sort for dependency ordering, 4 complexity tiers for duration estimation, risk scoring, parallel workstream identification, export as JSON/Markdown/CSV
+- **Service Dependency Graph Visualization** (#233) — Interactive React Flow canvas with dagre layout, custom service nodes (confidence badges, category colors), 6 typed edges (traffic/database/auth/control/security/storage), zone grouping, click-to-reveal detail panel, SVG export
+- **Social Authentication** (#246) — Microsoft, Google, GitHub sign-in via Azure SWA built-in auth + JWT fallback for non-SWA deployments, `x-ms-client-principal` header parsing, AuthProvider React context, LoginModal, UserMenu components
+- **User Profile** (#247) — Profile management with preferences (source cloud, IaC format, role, company), GDPR-compliant account deletion, ProfilePage modal, Zustand auth store with localStorage persistence
+- **RBAC & Multi-Tenant Isolation** (#238) — 4-role hierarchy (viewer < member < admin < owner), organization CRUD, member invitation/management, tier-based quotas (free=5/mo, pro=100/mo, enterprise=unlimited), org-scoped audit logging, 11 API endpoints
+- **Full Analysis PDF Report Export** (#236) — 6-section branded PDF (cover, executive summary, service mappings table, cost estimates, risk summary, IaC appendix) via fpdf2, StreamingResponse download
+- **AI Agent PaaS HLD** (#380) — 1,720-line vendor-neutral High-Level Design document covering 11 subsystems across Control Plane and Runtime Plane, with 5 Mermaid diagrams
+- **Microsoft Technology Mapping** (#381) — 1,288-line document mapping every HLD component to concrete Azure services (Cosmos DB, Container Apps, AI Search, APIM, Entra ID, etc.) with 6 Mermaid diagrams, SKU recommendations, and cost estimates
+
+### Changed
+- **DevOps Modernization** (#378) — Multi-stage Dockerfile (~50% image size reduction), CI migrated to `uv` (10-50x faster installs), Trivy container scanning with SARIF upload to GitHub Security tab, Helm chart health probes with 150s startup window
+- **OpenAI Client** — Added transparent cost metering hook in `cached_chat_completion` for automatic token tracking
+- **AI Suggestion Engine** — Enhanced with few-shot learning from approved mappings, feedback store, raised auto-approve threshold from 0.7 to 0.9
+
+### Fixed
+- Deploy tab greyscale overlay (#478) — already resolved in commit 6074da6
+- Email notification confirmation UI (#477) — already resolved in commit 6074da6
+- Ruff F401 lint errors in new modules (agent_tools, rag_pipeline, rag_routes, models/rag, cost_routes)
+
+### Removed
+- Duplicate issues: #243 (subsumed by #321), #248 (subsumed by #321)
+
 ## [3.9.0] - 2026-03-17
 
 ### Added

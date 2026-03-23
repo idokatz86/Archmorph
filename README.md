@@ -6,9 +6,9 @@ Convert AWS and GCP architecture diagrams into Azure equivalents with guided mig
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Azure](https://img.shields.io/badge/cloud-Azure-0078D4.svg)
-![Version](https://img.shields.io/badge/version-3.9.0-22C55E.svg)
+![Version](https://img.shields.io/badge/version-4.0.0-22C55E.svg)
 ![Status](https://img.shields.io/badge/status-Production-22C55E.svg)
-![Tests](https://img.shields.io/badge/tests-1706%20passing-22C55E.svg)
+![Tests](https://img.shields.io/badge/tests-1446%20passing-22C55E.svg)
 ![Python](https://img.shields.io/badge/python-3.12-3776AB.svg)
 ![React](https://img.shields.io/badge/react-19.1-61DAFB.svg)
 ![Vibe Coding](https://img.shields.io/badge/built_with-Vibe_Coding-FF69B4.svg)
@@ -27,26 +27,33 @@ Archmorph uses Azure OpenAI GPT-4.1 (with GPT-4o fallback) to analyze cloud arch
 - Map to Azure equivalents with **confidence scores and transparency explanations** showing why each level was assigned
 - **Export architecture diagrams** as Excalidraw, Draw.io, or Visio with Azure stencils
 - **Interactive Architecture Map** — dagre auto-layout with confidence rings, effort badges, typed edges, zone grouping, and full pan/zoom/drag interactivity
+- **Service Dependency Graph** — React Flow interactive graph with 6 typed edges (traffic/database/auth/control/security/storage), dagre layout, click-to-reveal detail panel, SVG export
 - **Email notifications** — Azure Communication Services integration for migration report delivery
 - Generate Terraform HCL or Bicep code with secure credential handling and **8-rule IaC security scanning**
 - **Dynamic cost estimates** — region-aware pricing via Azure Retail Prices API with 46 service mappings and monthly cache
+- **Cost & Token Observability** — per-execution token metering, budget management with alerts, timeseries analytics, CSV export
 - **Cost comparison** — side-by-side AWS/GCP vs Azure cost analysis with optimization recommendations
+- **RAG Pipeline** — document ingestion (PDF/DOCX/HTML/CSV/JSON), hybrid search (vector + BM25), citation tracking for grounded AI responses
+- **AI Agent PaaS** — agent creation, tool attachment, ReAct execution loop, RAG-grounded responses, per-agent cost tracking
+- **Migration Timeline Generator** — 7-phase migration plan with dependency ordering (topological sort), parallel workstreams, export as JSON/Markdown/CSV
 - **Self-updating service catalog** — daily auto-discovery and auto-integration of new cloud services with fuzzy matching and category classification
+- **AI cross-cloud mapping suggestions** — GPT-powered mapping with few-shot learning, auto-approve at 0.9 confidence, admin review queue
 - **Icon Registry** — 405 normalized cloud service icons with Draw.io, Excalidraw, and Visio library builders
 - **AI-powered HLD generation** — 13-section High-Level Design documents with WAF assessment
 - **HLD document export** — download HLD as Word (.docx), PDF, or PowerPoint (.pptx) with branded formatting
+- **Full analysis PDF report** — 6-section branded report (cover, summary, mappings, costs, risks, IaC appendix)
 - **IaC Chat assistant** — interactive GPT-4o assistant for code modifications
 - **Chatbot assistant** — FAQ support and GitHub issue creation with intent detection
-- **AI-powered service suggestions** — intelligent Azure service recommendations based on workload context
 - **Compliance mapper** — map requirements to Azure compliance frameworks (GDPR, HIPAA, SOC2, FedRAMP)
 - **Migration risk assessment** — risk scoring with automated runbook generation
 - **Migration intelligence** — ML-powered analysis with historical pattern matching
 - **Infrastructure import** — import existing Terraform/ARM/CloudFormation configurations
 - **Living architecture** — real-time architecture drift detection and versioning
+- **Social authentication** — Microsoft, Google, GitHub sign-in (Azure SWA + JWT fallback)
+- **User profiles** — preferences, avatar, GDPR-compliant account deletion
+- **RBAC & multi-tenant isolation** — 4-role hierarchy (viewer/member/admin/owner), org management, tier-based quotas
 - **Admin dashboard** — conversion funnel, daily metrics, session tracking
-- **JWT admin authentication** — HS256 tokens with 1-hour TTL, in-memory revocation
 - **Persistent analytics** — Azure Blob Storage with background flush and crash-safe shutdown
-- **Journey analytics** — user journey tracking with funnel analysis
 - **Toast notification system** — non-blocking success/error/warning notifications with auto-dismiss
 - **Session expiry warning** — countdown banner with session extension capability
 - **Browser close protection** — `beforeunload` guard prevents accidental data loss during analysis
@@ -54,6 +61,7 @@ Archmorph uses Azure OpenAI GPT-4.1 (with GPT-4o fallback) to analyze cloud arch
 - **Error envelope middleware** — standardized JSON error responses with correlation IDs
 - **Security hardening** — timing-safe auth, security headers, XSS protection, Dependabot
 - **CI/CD security** — Semgrep SAST, Gitleaks secret detection, Trivy container scanning, CycloneDX SBOM
+- **Multi-stage Docker** — optimized build with ~50% image size reduction, uv for fast installs
 - **API versioning** — all `/api/*` routes mirrored at `/api/v1/*` for stable integrations
 - **Feature flags system** — percentage rollout + user targeting with admin API
 - **Comprehensive audit logging** — structured JSON with risk levels, alerting rules, compliance queries
@@ -134,20 +142,26 @@ flowchart TB
                 HLD[HLD Generator<br/>13 sections + WAF]
                 HLDExport[HLD Export<br/>DOCX/PDF/PPTX]
                 Chat[IaC Chat<br/>GPT-4o Assistant]
-                AISuggest[AI Suggestions<br/>Service Recommendations]
+                AISuggest[AI Suggestions<br/>Few-Shot Learning]
                 Compliance[Compliance Mapper<br/>GDPR/HIPAA/SOC2/FedRAMP]
                 MigRisk[Migration Risk<br/>Assessment + Runbook]
                 MigIntel[Migration Intelligence<br/>ML Pattern Matching]
+                MigTimeline[Migration Timeline<br/>7-Phase DAG + Topo Sort]
                 InfraImport[Infra Import<br/>TF/ARM/CFN]
                 Living[Living Architecture<br/>Drift Detection]
                 CostComp[Cost Comparison<br/>Cross-Cloud Analysis]
                 CostOpt[Cost Optimizer<br/>Savings Recommendations]
+                CostMeter[Cost Metering<br/>Token/Budget Tracking]
+                RAG[RAG Pipeline<br/>Ingest/Embed/Search]
+                AgentPaaS[Agent PaaS<br/>ReAct Execution]
+                ReportGen[PDF Report<br/>6-Section Export]
             end
             ErrorEnv[Error Envelope<br/>Middleware]
             FeatureFlags[Feature Flags<br/>% rollout + targeting]
             AuditLog[Audit Logging<br/>Structured JSON]
             SessionStore[Session Store<br/>InMemory / Redis]
             JobQueue[Job Queue + SSE<br/>Background Tasks]
+            Auth[Auth + RBAC<br/>SWA + JWT + Orgs]
         end
         
         subgraph Data["Data Services"]
@@ -182,6 +196,13 @@ flowchart TB
     API --> Living
     API --> CostComp
     API --> CostOpt
+    API --> CostMeter
+    API --> RAG --> GPT4O
+    API --> AgentPaaS --> GPT4O
+    AgentPaaS --> RAG
+    API --> MigTimeline
+    API --> ReportGen
+    API --> Auth
     API --> Pricing
     API --> DB
     API --> Blob
@@ -217,13 +238,19 @@ flowchart TB
 | HLD Export | DOCX/PDF/PPTX with branded formatting | In-process engine |
 | IaC Generator | Terraform/Bicep + security scanning | In-process engine |
 | IaC Chat | GPT-4o interactive assistant | In-process engine |
-| AI Suggestions | Service recommendation engine | In-process engine |
+| AI Suggestions | Few-shot learning, review queue, auto-approve | In-process engine |
 | Compliance Mapper | GDPR/HIPAA/SOC2/FedRAMP mapping | In-process engine |
 | Migration Risk | Risk assessment + runbook generation | In-process engine |
 | Migration Intelligence | ML-powered pattern matching | In-process engine |
+| Migration Timeline | 7-phase DAG, topo sort, JSON/MD/CSV export | In-process engine |
 | Infrastructure Import | TF/ARM/CloudFormation parser | In-process engine |
 | Living Architecture | Drift detection & change tracking | In-process engine |
-| Auth | JWT (HS256), in-memory revocation | Middleware |
+| RAG Pipeline | Document ingest, embed, hybrid search (vector+BM25) | In-process engine |
+| Agent PaaS | Agent CRUD, ReAct loop, tool execution | In-process engine |
+| Cost Metering | Token tracking, budgets, alerts, CSV export | In-process engine |
+| PDF Report | 6-section branded report generator | In-process engine |
+| Auth | Social login (MS/Google/GitHub), JWT, SWA integration | Middleware |
+| RBAC | 4-role org hierarchy, quotas, audit | Middleware |
 | Security | Headers, timing-safe auth, XSS protection, Dependabot | Middleware |
 | Error Envelope | Structured error responses with correlation IDs | Middleware |
 | Feature Flags | Python module, % rollout + user targeting | In-process |
@@ -232,7 +259,7 @@ flowchart TB
 | Job Queue + SSE | Background task processing with Server-Sent Events | In-process |
 | API Versioning | v1 prefix mirror for all routes | Middleware |
 | WAF | OWASP CRS 3.2 | Azure Front Door Premium |
-| Testing | pytest (1706 tests) + Vitest + Playwright E2E | CI/CD |
+| Testing | pytest (1446 tests) + Vitest + Playwright E2E | CI/CD |
 
 > 📐 **Detailed Diagrams:** [architecture.excalidraw](docs/architecture.excalidraw) | [application-flow.excalidraw](docs/application-flow.excalidraw) — Open in [Excalidraw](https://excalidraw.com)
 
@@ -265,21 +292,35 @@ flowchart LR
         F[📝 IaC Generator<br/>Terraform/Bicep/CFN<br/>+ Security Scan]
         G[💰 Cost Estimate<br/>Cross-Cloud Comparison]
         H[📄 HLD Document<br/>13 Sections + WAF]
+        L[📑 PDF Report<br/>6-Section Branded]
     end
     
     subgraph Intelligence["6️⃣ Intelligence"]
-        I[🧠 AI Suggestions<br/>Service Recommendations]
+        I[🧠 AI Suggestions<br/>Few-Shot Learning]
         J[📋 Compliance Map<br/>GDPR/HIPAA/SOC2]
         K[⚠️ Migration Risk<br/>Assessment + Runbook]
+        M[📅 Migration Timeline<br/>7-Phase DAG]
+        N[🔗 Dependency Graph<br/>React Flow Canvas]
+    end
+    
+    subgraph Platform["7️⃣ Platform"]
+        O[🤖 Agent PaaS<br/>ReAct + Tools + RAG]
+        P[💵 Cost Dashboard<br/>Token Metering + Budgets]
+        Q[🔐 Auth + RBAC<br/>Social Login + Orgs]
     end
     
     A --> B --> C --> D --> E
     D --> F
     D --> G
     D --> H
+    D --> L
     D --> I
     D --> J
     D --> K
+    D --> M
+    D --> N
+    O --> P
+    Q -.-> O
     
     style Upload fill:#3B82F6,color:#fff
     style Analysis fill:#8B5CF6,color:#fff
@@ -287,6 +328,7 @@ flowchart LR
     style Results fill:#22C55E,color:#fff
     style Export fill:#06B6D4,color:#fff
     style Intelligence fill:#EC4899,color:#fff
+    style Platform fill:#F97316,color:#fff
 ```
 
 ### Step-by-Step Flow
@@ -300,14 +342,19 @@ Upload Diagram → AI Analysis → Guided Questions → Results & Export → Gen
 3. **Feature Flags** — Feature availability checked via flags system (percentage rollout + user targeting)
 4. **Guided Questions** — 8–18 contextual questions refine migration choices (SKU, compliance, networking, DR, security, deployment region) with inter-question constraints
 5. **Results** — Multi-cloud service mappings grouped by zone with confidence scores and transparency explanations
-6. **Diagram Export** — Download translated architecture as Excalidraw, Draw.io, or Visio
-7. **IaC Generation** — Generate Terraform HCL, Bicep, or CloudFormation with syntax highlighting and security scanning
-8. **Cost Estimation** — Region-aware monthly cost breakdown with cross-cloud comparison
-9. **HLD Generation** — AI-powered High-Level Design document with WAF assessment
-10. **HLD Export** — Download HLD as Word, PDF, or PowerPoint with branded formatting
-11. **IaC Chat** — Interactive code modification via GPT-4o assistant
-12. **AI Suggestions** — Intelligent service recommendations based on workload analysis
-13. **Compliance Mapping** — GDPR/HIPAA/SOC2/FedRAMP compliance assessment
+6. **Dependency Graph** — Interactive React Flow canvas showing service connections with 6 typed edges
+7. **Diagram Export** — Download translated architecture as Excalidraw, Draw.io, or Visio
+8. **IaC Generation** — Generate Terraform HCL, Bicep, or CloudFormation with syntax highlighting and security scanning
+9. **Cost Estimation** — Region-aware monthly cost breakdown with cross-cloud comparison and token observability
+10. **HLD Generation** — AI-powered High-Level Design document with WAF assessment
+11. **HLD Export** — Download HLD as Word, PDF, or PowerPoint with branded formatting
+12. **PDF Report** — Download branded 6-section analysis report
+13. **Migration Timeline** — Auto-generated phased plan with dependency ordering and parallel workstreams
+14. **IaC Chat** — Interactive code modification via GPT-4o assistant
+15. **AI Suggestions** — Intelligent service mapping with few-shot learning and admin review queue
+16. **Compliance Mapping** — GDPR/HIPAA/SOC2/FedRAMP compliance assessment
+17. **RAG Search** — Upload reference documents for grounded AI responses
+18. **Agent PaaS** — Create agents with tools and RAG collections for automated workflows
 14. **Migration Risk** — Risk assessment with automated runbook generation
 15. **Migration Intelligence** — ML-powered pattern matching for migration optimization
 

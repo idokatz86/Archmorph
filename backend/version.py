@@ -1,4 +1,4 @@
 """Single source of truth for the Archmorph version string."""
 
-__version__ = "3.9.0"
-# Sprint 8 release — gpt-4.1 upgrade, 32K output tokens, IaC/HLD fixes
+__version__ = "4.0.0"
+# v4.0.0 — RAG pipeline, Agent PaaS PoC, Cost dashboard, Auth/RBAC, DependencyGraph, Timeline, PDF export
