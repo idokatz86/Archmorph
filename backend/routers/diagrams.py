@@ -31,6 +31,8 @@ from vision_analyzer import analyze_image
 from hld_generator import generate_hld, generate_hld_markdown  # noqa: F401 — re-exported for test monkeypatching
 from auth import get_user_from_request_headers
 from analysis_history import maybe_save_from_session
+from sku_translator import get_sku_translator
+from confidence_provenance import build_provenance
 
 logger = logging.getLogger(__name__)
 
@@ -40,17 +42,64 @@ UPLOAD_CHUNK_SIZE_BYTES = 1024 * 1024
 VISIO_EXTENSION = ".vsdx"
 
 
+def _enrich_with_sku(result: dict) -> dict:
+    """Enrich analysis mappings with SKU-level instance type translations.
+
+    For each mapping whose source category is Compute, Database, or Storage,
+    attempt to detect instance types from the service names/roles and attach
+    SKU translation details with parity scores.
+    """
+    engine = get_sku_translator()
+    provider = result.get("source_provider", "aws").lower()
+
+    for m in result.get("mappings", []):
+        source_name = m.get("source_service", "")
+        if isinstance(source_name, dict):
+            source_name = source_name.get("name", "")
+        role = m.get("role", m.get("description", ""))
+        search_text = f"{source_name} {role}"
+
+        category = m.get("category", "").lower()
+        if category in ("compute", ""):
+            translation = engine.best_fit(search_text, provider)
+            if translation is not None:
+                m["sku_translation"] = {
+                    "source_sku": translation.source.sku,
+                    "azure_sku": translation.target.sku,
+                    "parity_score": translation.parity.overall,
+                    "parity_details": translation.parity.details,
+                    "vcpus": translation.target.vcpus,
+                    "ram_gb": translation.target.ram_gb,
+                }
+
+    return result
+
+
+def _enrich_with_provenance(result: dict) -> dict:
+    """Attach structured confidence provenance to each mapping."""
+    for m in result.get("mappings", []):
+        try:
+            m["confidence_provenance"] = build_provenance(m)
+        except Exception:
+            logger.debug("Provenance enrichment skipped for mapping: %s", m.get("source_service"))
+    return result
+
+
 def _normalize_analysis(result: dict) -> dict:
     """Normalize GPT vision output so downstream code always sees consistent fields.
 
     - source_service: always a string (GPT-4.1 sometimes returns a dict)
     - azure_service: always present (GPT-4.1 sometimes uses target_service instead)
+    - sku_translation: enriched when instance types are detected in service text
     """
     for m in result.get("mappings", []):
         if isinstance(m.get("source_service"), dict):
             m["source_service"] = m["source_service"].get("name", str(m["source_service"]))
         if "azure_service" not in m and "target_service" in m:
             m["azure_service"] = m.pop("target_service")
+
+    result = _enrich_with_sku(result)
+    result = _enrich_with_provenance(result)
     return result
 
 

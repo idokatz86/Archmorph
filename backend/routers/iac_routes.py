@@ -16,6 +16,7 @@ from job_queue import job_manager
 from usage_metrics import record_event, record_funnel_step
 from iac_chat import process_iac_chat, get_iac_chat_history, clear_iac_chat
 from iac_generator import generate_iac_code
+from iac_scaffold import generate_scaffold
 
 logger = logging.getLogger(__name__)
 
@@ -206,3 +207,50 @@ async def notify_email(request: Request, diagram_id: str, body: NotifyEmailReque
 
     record_event("email_notification_sent", {"diagram_id": diagram_id})
     return {"sent": True, "email": body.email}
+
+
+# ─────────────────────────────────────────────────────────────
+# IaC Scaffold — Full Terraform project structure
+# ─────────────────────────────────────────────────────────────
+@router.post("/api/diagrams/{diagram_id}/iac-scaffold")
+@limiter.limit("5/minute")
+async def generate_iac_scaffold(
+    request: Request,
+    diagram_id: str,
+    format: str = "terraform",
+    _auth=Depends(verify_api_key),
+):
+    """Generate a production-grade IaC project scaffold.
+
+    Returns a JSON object with ``files`` mapping relative paths to content.
+    Currently supports ``format=terraform`` only.
+    """
+    if format != "terraform":
+        raise ArchmorphException(400, "Scaffold generation currently supports 'terraform' only")
+
+    session = SESSION_STORE.get(diagram_id, {})
+    iac_params = session.get("iac_parameters", {})
+
+    try:
+        files = await asyncio.to_thread(
+            generate_scaffold,
+            analysis=session if session else None,
+            params=iac_params,
+        )
+    except Exception as exc:
+        logger.error(
+            "IaC scaffold generation failed for %s: %s",
+            str(diagram_id).replace('\n', '').replace('\r', ''),
+            str(exc).replace('\n', '').replace('\r', ''),
+        )
+        raise ArchmorphException(500, "IaC scaffold generation failed. Please try again.")
+
+    record_event("iac_scaffold_generated", {"diagram_id": diagram_id, "file_count": len(files)})
+    record_funnel_step(diagram_id, "iac_scaffold")
+
+    return {
+        "diagram_id": diagram_id,
+        "format": format,
+        "file_count": len(files),
+        "files": files,
+    }
