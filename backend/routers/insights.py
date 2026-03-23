@@ -7,10 +7,14 @@ Split from diagrams.py for maintainability (#284).
 """
 
 from fastapi import APIRouter, Request, Depends
+from pydantic import BaseModel, Field
+from typing import Optional, List
 import asyncio
+import csv
+import io
 import logging
 
-from routers.shared import limiter, verify_api_key
+from routers.shared import limiter, verify_api_key, SESSION_STORE
 from routers.samples import get_or_recreate_session
 from usage_metrics import record_event
 from best_practices import analyze_architecture, get_quick_wins
@@ -455,3 +459,250 @@ Diagram type: {analysis.get('diagram_type', 'unknown')}"""
             "reply": "Sorry, I couldn't process your question right now. Please try again.",
             "related_services": [],
         }
+
+
+# ─────────────────────────────────────────────────────────────
+# Cost Estimate Drill-Down — Per-Service Configurability (#234)
+# ─────────────────────────────────────────────────────────────
+
+# RI discount rates (standard Azure Reserved Instance savings)
+_RI_DISCOUNTS = {"none": 0.0, "1yr": 0.30, "3yr": 0.50}
+
+
+class ServiceCostConfig(BaseModel):
+    service: str
+    instance_count: int = Field(1, ge=1, le=1000)
+    sku: Optional[str] = None
+    reserved_term: str = Field("none", pattern=r"^(none|1yr|3yr)$")
+
+
+class CostConfigureRequest(BaseModel):
+    overrides: List[ServiceCostConfig]
+
+
+def _get_cost_overrides(diagram_id: str) -> dict:
+    """Get user cost overrides from the session."""
+    session = get_or_recreate_session(diagram_id)
+    if not session:
+        return {}
+    return session.get("_cost_overrides", {})
+
+
+def _apply_overrides(services: list, overrides: dict) -> list:
+    """Apply user overrides to service cost entries and return enriched list."""
+    result = []
+    for svc in services:
+        name = svc.get("service", "")
+        override = overrides.get(name, {})
+
+        instance_count = override.get("instance_count", 1)
+        sku = override.get("sku") or svc.get("sku", "Default tier")
+        reserved_term = override.get("reserved_term", "none")
+        discount = _RI_DISCOUNTS.get(reserved_term, 0.0)
+
+        base_low = svc.get("monthly_low", 0)
+        base_high = svc.get("monthly_high", 0)
+
+        adj_low = round(base_low * instance_count * (1 - discount), 2)
+        adj_high = round(base_high * instance_count * (1 - discount), 2)
+
+        # Calculate RI savings vs pay-as-you-go
+        payg_low = round(base_low * instance_count, 2)
+        payg_high = round(base_high * instance_count, 2)
+        ri_savings = round((payg_low + payg_high) / 2 - (adj_low + adj_high) / 2, 2)
+
+        result.append({
+            **svc,
+            "instance_count": instance_count,
+            "sku": sku,
+            "reserved_term": reserved_term,
+            "monthly_low": adj_low,
+            "monthly_high": adj_high,
+            "base_monthly_low": base_low,
+            "base_monthly_high": base_high,
+            "ri_savings": ri_savings,
+        })
+    return result
+
+
+@router.post("/api/diagrams/{diagram_id}/cost-estimate/configure")
+@limiter.limit("30/minute")
+async def configure_cost_estimate(
+    request: Request,
+    diagram_id: str,
+    body: CostConfigureRequest,
+):
+    """Update per-service cost configuration (instance count, SKU, reserved capacity)."""
+    session = get_or_recreate_session(diagram_id)
+    if not session:
+        raise ArchmorphException(404, "No analysis found. Analyze a diagram first.")
+
+    overrides = session.get("_cost_overrides", {})
+    for item in body.overrides:
+        overrides[item.service] = {
+            "instance_count": item.instance_count,
+            "sku": item.sku,
+            "reserved_term": item.reserved_term,
+        }
+
+    session["_cost_overrides"] = overrides
+    SESSION_STORE[diagram_id] = session
+
+    return {"status": "ok", "overrides_count": len(overrides)}
+
+
+@router.get("/api/diagrams/{diagram_id}/cost-estimate/configured")
+@limiter.limit("30/minute")
+async def get_configured_cost(request: Request, diagram_id: str):
+    """Get cost estimate with user-configured overrides applied."""
+    session = get_or_recreate_session(diagram_id)
+    if not session:
+        raise ArchmorphException(404, "No analysis found. Analyze a diagram first.")
+
+    mappings = session.get("mappings", [])
+    iac_params = session.get("iac_parameters", {})
+    region = iac_params.get("deploy_region", "westeurope")
+    sku_strategy = iac_params.get("sku_strategy", "Balanced")
+
+    if not mappings:
+        return {
+            "diagram_id": diagram_id,
+            "total_monthly_estimate": {"low": 0, "high": 0},
+            "currency": "USD",
+            "services": [],
+            "overrides_applied": 0,
+        }
+
+    base = estimate_services_cost(mappings, region=region, sku_strategy=sku_strategy)
+    overrides = session.get("_cost_overrides", {})
+    configured = _apply_overrides(base.get("services", []), overrides)
+
+    total_low = sum(s["monthly_low"] for s in configured)
+    total_high = sum(s["monthly_high"] for s in configured)
+
+    return {
+        "diagram_id": diagram_id,
+        "total_monthly_estimate": {"low": round(total_low, 2), "high": round(total_high, 2)},
+        "currency": "USD",
+        "region": base.get("region", "West Europe"),
+        "arm_region": region,
+        "services": configured,
+        "service_count": len(configured),
+        "overrides_applied": len(overrides),
+    }
+
+
+@router.get("/api/diagrams/{diagram_id}/cost-estimate/savings")
+@limiter.limit("15/minute")
+async def get_ri_savings(request: Request, diagram_id: str):
+    """Show Reserved Instance savings vs pay-as-you-go pricing."""
+    session = get_or_recreate_session(diagram_id)
+    if not session:
+        raise ArchmorphException(404, "No analysis found. Analyze a diagram first.")
+
+    mappings = session.get("mappings", [])
+    iac_params = session.get("iac_parameters", {})
+    region = iac_params.get("deploy_region", "westeurope")
+    sku_strategy = iac_params.get("sku_strategy", "Balanced")
+
+    if not mappings:
+        return {"diagram_id": diagram_id, "savings": []}
+
+    base = estimate_services_cost(mappings, region=region, sku_strategy=sku_strategy)
+    overrides = session.get("_cost_overrides", {})
+    services = base.get("services", [])
+
+    payg_total = 0
+    ri_1yr_total = 0
+    ri_3yr_total = 0
+    service_savings = []
+
+    for svc in services:
+        name = svc.get("service", "")
+        override = overrides.get(name, {})
+        count = override.get("instance_count", 1)
+        base_mid = ((svc.get("monthly_low", 0) + svc.get("monthly_high", 0)) / 2) * count
+
+        payg_total += base_mid
+        s1 = round(base_mid * 0.70, 2)
+        s3 = round(base_mid * 0.50, 2)
+        ri_1yr_total += s1
+        ri_3yr_total += s3
+
+        service_savings.append({
+            "service": name,
+            "pay_as_you_go": round(base_mid, 2),
+            "reserved_1yr": s1,
+            "reserved_3yr": s3,
+            "savings_1yr": round(base_mid - s1, 2),
+            "savings_3yr": round(base_mid - s3, 2),
+        })
+
+    return {
+        "diagram_id": diagram_id,
+        "summary": {
+            "pay_as_you_go_monthly": round(payg_total, 2),
+            "reserved_1yr_monthly": round(ri_1yr_total, 2),
+            "reserved_3yr_monthly": round(ri_3yr_total, 2),
+            "savings_1yr_monthly": round(payg_total - ri_1yr_total, 2),
+            "savings_3yr_monthly": round(payg_total - ri_3yr_total, 2),
+            "savings_1yr_percent": round((1 - ri_1yr_total / payg_total) * 100, 1) if payg_total > 0 else 0,
+            "savings_3yr_percent": round((1 - ri_3yr_total / payg_total) * 100, 1) if payg_total > 0 else 0,
+        },
+        "services": service_savings,
+        "currency": "USD",
+    }
+
+
+@router.get("/api/diagrams/{diagram_id}/cost-estimate/export")
+@limiter.limit("10/minute")
+async def export_cost_csv(request: Request, diagram_id: str):
+    """Export cost breakdown as CSV with overrides applied."""
+    from starlette.responses import Response
+
+    session = get_or_recreate_session(diagram_id)
+    if not session:
+        raise ArchmorphException(404, "No analysis found. Analyze a diagram first.")
+
+    mappings = session.get("mappings", [])
+    iac_params = session.get("iac_parameters", {})
+    region = iac_params.get("deploy_region", "westeurope")
+    sku_strategy = iac_params.get("sku_strategy", "Balanced")
+
+    if not mappings:
+        raise ArchmorphException(400, "No services to export.")
+
+    base = estimate_services_cost(mappings, region=region, sku_strategy=sku_strategy)
+    overrides = session.get("_cost_overrides", {})
+    configured = _apply_overrides(base.get("services", []), overrides)
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Service", "SKU", "Instances", "Reserved Term", "Monthly Low (USD)", "Monthly High (USD)", "RI Savings (USD)", "Total Mid (USD)"])
+
+    for svc in configured:
+        mid = round((svc["monthly_low"] + svc["monthly_high"]) / 2, 2)
+        writer.writerow([
+            svc.get("service", ""),
+            svc.get("sku", ""),
+            svc.get("instance_count", 1),
+            svc.get("reserved_term", "none"),
+            svc["monthly_low"],
+            svc["monthly_high"],
+            svc.get("ri_savings", 0),
+            mid,
+        ])
+
+    # Totals row
+    total_low = sum(s["monthly_low"] for s in configured)
+    total_high = sum(s["monthly_high"] for s in configured)
+    total_savings = sum(s.get("ri_savings", 0) for s in configured)
+    total_mid = round((total_low + total_high) / 2, 2)
+    writer.writerow(["TOTAL", "", "", "", round(total_low, 2), round(total_high, 2), round(total_savings, 2), total_mid])
+
+    csv_content = output.getvalue()
+    return Response(
+        content=csv_content,
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=cost-estimate-{diagram_id}.csv"},
+    )

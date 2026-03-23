@@ -12,6 +12,7 @@ import logging
 
 from routers.shared import limiter
 from auth import get_user_from_request_headers, USER_STORE
+import analysis_history
 
 logger = logging.getLogger(__name__)
 
@@ -120,9 +121,54 @@ async def update_profile(request: Request, body: ProfileUpdate):
 @router.get("/api/me/analyses")
 @limiter.limit("30/minute")
 async def list_analyses(request: Request):
-    """List current user's analysis history (placeholder)."""
-    _require_user(request)
-    return {"analyses": [], "total": 0}
+    """List current user's analysis history with pagination and date filtering."""
+    user = _require_user(request)
+
+    limit = min(int(request.query_params.get("limit", "20")), 100)
+    offset = max(int(request.query_params.get("offset", "0")), 0)
+    date_from = request.query_params.get("date_from")
+    date_to = request.query_params.get("date_to")
+
+    return analysis_history.list_analyses(
+        user.id,
+        limit=limit,
+        offset=offset,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+
+@router.get("/api/me/analyses/{analysis_id}")
+@limiter.limit("30/minute")
+async def get_analysis_detail(request: Request, analysis_id: str):
+    """Get full details for a single analysis."""
+    user = _require_user(request)
+    result = analysis_history.get_analysis(user.id, analysis_id)
+    if not result:
+        raise ArchmorphException(404, "Analysis not found")
+    return result
+
+
+@router.delete("/api/me/analyses/{analysis_id}")
+@limiter.limit("10/minute")
+async def delete_analysis(request: Request, analysis_id: str):
+    """Delete an analysis from the user's history."""
+    user = _require_user(request)
+    deleted = analysis_history.delete_analysis(user.id, analysis_id)
+    if not deleted:
+        raise ArchmorphException(404, "Analysis not found")
+    return {"success": True, "message": "Analysis deleted"}
+
+
+@router.post("/api/me/analyses/{analysis_id}/bookmark")
+@limiter.limit("30/minute")
+async def toggle_bookmark(request: Request, analysis_id: str):
+    """Toggle bookmark on an analysis."""
+    user = _require_user(request)
+    new_state = analysis_history.toggle_bookmark(user.id, analysis_id)
+    if new_state is None:
+        raise ArchmorphException(404, "Analysis not found")
+    return {"bookmarked": new_state}
 
 
 @router.delete("/api/me/account")
@@ -137,6 +183,9 @@ async def delete_account(request: Request):
 
     # Remove extended profile
     _PROFILE_STORE.pop(user_id, None)
+
+    # Remove analysis history
+    analysis_history._history.pop(user_id, None)
 
     # Remove from user store
     try:

@@ -29,6 +29,8 @@ from usage_metrics import record_event, record_funnel_step
 from image_classifier import classify_image
 from vision_analyzer import analyze_image
 from hld_generator import generate_hld, generate_hld_markdown  # noqa: F401 — re-exported for test monkeypatching
+from auth import get_user_from_request_headers
+from analysis_history import maybe_save_from_session
 
 logger = logging.getLogger(__name__)
 
@@ -236,6 +238,12 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
     SESSION_STORE[diagram_id] = result
     record_event("analyses_run", {"diagram_id": diagram_id, "services": result["services_detected"]})
     record_funnel_step(diagram_id, "analyze")
+
+    # Save to user history if authenticated (#245)
+    user = get_user_from_request_headers(dict(request.headers))
+    if user:
+        maybe_save_from_session(user.id, result, diagram_id)
+
     return result
 
 
@@ -328,6 +336,11 @@ async def _run_analysis_job(job_id: str, diagram_id: str) -> None:
 
         record_event("analyses_run", {"diagram_id": diagram_id, "services": result.get("services_detected", 0)})
         record_funnel_step(diagram_id, "analyze")
+
+        # Save to user history if job carries user_id (#245)
+        job_user_id = getattr(job_manager.get_job(job_id), "user_id", None) if hasattr(job_manager, "get_job") else None
+        if job_user_id:
+            maybe_save_from_session(job_user_id, result, diagram_id)
 
         job_manager.update_progress(job_id, 95, "Finalizing...")
         job_manager.complete(job_id, result=result)
