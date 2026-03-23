@@ -299,7 +299,6 @@ async def jira_create(body: JiraCreateRequest, request: Request, _auth=Depends(v
             502,
             "Jira Epic creation failed. Please check your API URL and credentials.",
         )
-        )
 
     try:
         epic_data = json.loads(epic_result["body"])
