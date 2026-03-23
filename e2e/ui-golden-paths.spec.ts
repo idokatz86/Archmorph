@@ -42,6 +42,13 @@ test.describe('Golden Paths: Core UI & React Flow Canvas', () => {
   });
 
   test('Path 2: React Flow Canvas Initialization', async ({ page }) => {
+    // React Flow is now behind a view toggle (Table/Matrix/Map)
+    // First try clicking the Map tab if the view toggle exists
+    const mapTab = page.getByRole('button', { name: /map/i }).first();
+    if (await mapTab.isVisible({ timeout: 5000 }).catch(() => false)) {
+      await mapTab.click();
+    }
+
     // The prime real estate for the app is the react-flow node canvas
     const canvas = page.locator('.react-flow').first();
     await expect(canvas).toBeVisible({ timeout: 20000 });
