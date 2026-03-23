@@ -707,7 +707,7 @@ def capture_lead(
         marketing_consent=marketing_consent,
     )
     LEAD_STORE.append(lead)
-    logger.info("Lead captured: %s for action %s", email, action)
+    logger.info("Lead captured: %s for action %s", str(email).replace('\n', '').replace('\r', ''), str(action).replace('\n', '').replace('\r', ''))
     return lead
 
 

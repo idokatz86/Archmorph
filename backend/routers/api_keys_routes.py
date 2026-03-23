@@ -143,7 +143,7 @@ def create_api_key(
         _keys[record.id] = record
         _hash_index[key_hash] = record.id
 
-    logger.info("Created API key %s (%s) scopes=%s", record.id, name, scopes)
+    logger.info("Created API key %s (%s) scopes=%s", record.id, str(name).replace('\n', '').replace('\r', ''), str(scopes).replace('\n', '').replace('\r', ''))
     return record, raw_key
 
 
@@ -168,7 +168,7 @@ def revoke_api_key(key_id: str) -> bool:
         rec.revoked = True
         # Remove from hash index
         _hash_index.pop(rec.key_hash, None)
-    logger.info("Revoked API key %s", key_id)
+    logger.info("Revoked API key %s", str(key_id).replace('\n', '').replace('\r', ''))
     return True
 
 

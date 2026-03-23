@@ -123,7 +123,7 @@ async def create_agent(payload: AgentCreate):
         "updated_at": now,
     }
     AGENT_STORE[agent_id] = agent
-    logger.info("Agent created: %s (%s)", payload.name, agent_id)
+    logger.info("Agent created: %s (%s)", str(payload.name).replace('\n', '').replace('\r', ''), agent_id)
     return agent
 
 
@@ -430,7 +430,7 @@ async def execute_agent(agent_id: str, payload: ExecuteRequest):
 
     logger.info(
         "Agent execution complete: agent=%s exec=%s tools=%d tokens=%d cost=$%.6f time=%.0fms",
-        agent_id,
+        str(agent_id).replace('\n', '').replace('\r', ''),
         execution_id,
         len(tool_calls_made),
         total_prompt_tokens + total_completion_tokens,

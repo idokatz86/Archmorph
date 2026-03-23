@@ -13,6 +13,7 @@ import logging
 import ssl
 import urllib.request
 import urllib.error
+import urllib.parse
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
 
@@ -32,6 +33,12 @@ router = APIRouter(tags=["Integrations"])
 
 def _post_json(url: str, payload: Dict[str, Any], headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
     """POST JSON to an HTTPS URL using stdlib. Returns status info."""
+    # SSRF protection: only allow https URLs to known services
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ("https",):
+        return {"success": False, "status_code": 0, "body": "Only HTTPS URLs are allowed"}
+    if not parsed.hostname:
+        return {"success": False, "status_code": 0, "body": "Invalid URL"}
     data = json.dumps(payload, default=str).encode("utf-8")
     hdrs = {"Content-Type": "application/json", "User-Agent": "Archmorph-Integrations/1.0"}
     if headers:
@@ -308,7 +315,7 @@ async def jira_create(body: JiraCreateRequest, request: Request, _auth=Depends(v
             except (json.JSONDecodeError, KeyError):
                 created_tasks.append(f"task-{idx}")
         else:
-            logger.warning("Jira sub-task %d failed: %s", idx, task_result)
+            logger.warning("Jira sub-task %d failed: HTTP %s", idx, task_result.get('status_code'))
 
     return {
         "status": "created",
@@ -363,10 +370,10 @@ async def github_issue(body: GitHubIssueRequest, request: Request, _auth=Depends
     result = _post_json(url, payload, headers)
 
     if not result["success"]:
+        logger.warning("GitHub issue creation failed: HTTP %s", result.get('status_code'))
         raise ArchmorphException(
             502,
-            f"GitHub issue creation failed (HTTP {result.get('status_code')}): "
-            f"{result.get('body', result.get('error', 'unknown'))}",
+            "GitHub issue creation failed. Please check your token and repository settings.",
         )
 
     try:
