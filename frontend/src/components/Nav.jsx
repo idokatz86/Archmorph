@@ -97,6 +97,7 @@ export default function Nav({ activeTab, setActiveTab, updateStatus }) {
                 <MessageSquare className="w-4 h-4 text-text-secondary hover:text-text-primary" />
               </button>
               <UserMenu />
+              <span className="hidden lg:inline-flex items-center gap-1 text-[10px] text-text-muted font-mono"><kbd className="px-1 py-0.5 rounded bg-secondary border border-border/50">⌘K</kbd></span>
               <Badge variant="azure" className="hidden sm:inline-flex">v{APP_VERSION}</Badge>
               {/* Mobile hamburger */}
               <button

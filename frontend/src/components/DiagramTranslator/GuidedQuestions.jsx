@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
-import { HelpCircle, ChevronRight, ChevronLeft, Check, Sparkles, ToggleLeft, ToggleRight, AlertTriangle } from 'lucide-react';
+import { HelpCircle, ChevronRight, ChevronLeft, Check, Sparkles, ToggleLeft, ToggleRight, AlertTriangle, LayoutGrid, List } from 'lucide-react';
 import { Badge, Button, Card } from '../ui';
 
 /* ── Toggle Switch ── */
@@ -121,6 +121,40 @@ export default function GuidedQuestions({
   const [activeCatIdx, setActiveCatIdx] = useState(0);
   const contentRef = useRef(null);
 
+  /* ── Expert / Guided mode toggle (persisted to localStorage) ── */
+  const [expertMode, setExpertMode] = useState(() => {
+    try { return localStorage.getItem('archmorph-expert-mode') === 'true'; } catch { return false; }
+  });
+  const toggleExpertMode = useCallback(() => {
+    setExpertMode(prev => {
+      const next = !prev;
+      try { localStorage.setItem('archmorph-expert-mode', String(next)); } catch { /* noop */ }
+      return next;
+    });
+  }, []);
+
+  /* ── Smart defaults: build a map of AI-suggested defaults from question.default ── */
+  const aiDefaults = useMemo(() => {
+    const map = {};
+    for (const q of constrainedQuestions) {
+      if (q.default !== undefined && q.default !== null && q.default !== '') {
+        map[q.id] = q.default;
+      }
+    }
+    return map;
+  }, [constrainedQuestions]);
+
+  /* ── Helper: does current answer differ from AI default? ── */
+  const differsFromDefault = useCallback((qId) => {
+    const current = answers[qId];
+    const def = aiDefaults[qId];
+    if (def === undefined || current === undefined) return false;
+    if (Array.isArray(current) && Array.isArray(def)) {
+      return current.length !== def.length || current.some(v => !def.includes(v));
+    }
+    return current !== def;
+  }, [answers, aiDefaults]);
+
   const activeCat = categories[activeCatIdx] || categories[0] || 'General';
   const catQuestions = useMemo(() => constrainedQuestions.filter(q => (q.category || 'General') === activeCat), [constrainedQuestions, activeCat]);
 
@@ -147,16 +181,29 @@ export default function GuidedQuestions({
     <div className="space-y-5">
       {/* Header Card */}
       <Card className="p-6">
-        <div className="flex items-center gap-3 mb-2">
-          <div className="w-10 h-10 rounded-xl bg-cta/10 flex items-center justify-center">
-            <HelpCircle className="w-5 h-5 text-cta" />
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-cta/10 flex items-center justify-center">
+              <HelpCircle className="w-5 h-5 text-cta" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-text-primary">Customize Your Azure Architecture</h2>
+              <p className="text-sm text-text-secondary mt-0.5">
+                {analysis?.services_detected || 0} {(analysis?.source_provider || 'aws').toUpperCase()} services detected across {analysis?.zones?.length || 0} zones
+              </p>
+            </div>
           </div>
-          <div>
-            <h2 className="text-xl font-bold text-text-primary">Customize Your Azure Architecture</h2>
-            <p className="text-sm text-text-secondary mt-0.5">
-              {analysis?.services_detected || 0} {(analysis?.source_provider || 'aws').toUpperCase()} services detected across {analysis?.zones?.length || 0} zones
-            </p>
-          </div>
+          {/* Expert / Guided toggle */}
+          <button
+            type="button"
+            onClick={toggleExpertMode}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border/50 hover:border-cta/30 bg-secondary/10 hover:bg-secondary/20 transition-all cursor-pointer text-sm font-medium"
+          >
+            {expertMode ? <LayoutGrid className="w-4 h-4 text-cta" /> : <List className="w-4 h-4 text-text-muted" />}
+            <span className={expertMode ? 'text-cta' : 'text-text-secondary'}>
+              {expertMode ? 'Expert View' : 'Guided View'}
+            </span>
+          </button>
         </div>
 
         {/* Overall progress */}
@@ -173,141 +220,250 @@ export default function GuidedQuestions({
           </div>
         </div>
 
-        {/* Category stepper pills */}
-        <div className="flex flex-wrap gap-2 mt-4">
-          {categories.map((cat, idx) => {
-            const catQs = constrainedQuestions.filter(q => (q.category || 'General') === cat);
-            const catAnswered = catQs.filter(q => answered.includes(q.id)).length;
-            const isActive = idx === activeCatIdx;
-            const isDone = catAnswered === catQs.length;
-            return (
-              <button
-                key={cat}
-                onClick={() => setActiveCatIdx(idx)}
-                className={`text-xs px-3 py-1.5 rounded-full border transition-all duration-200 cursor-pointer font-medium ${
-                  isActive
-                    ? 'border-cta bg-cta/15 text-cta shadow-sm'
-                    : isDone
-                      ? 'border-cta/30 text-cta/80 bg-cta/5'
-                      : 'border-border/50 text-text-muted hover:border-cta/20 hover:text-text-secondary'
-                }`}
-              >
-                {isDone && <Check className="w-3 h-3 inline mr-1 -mt-px" />}
-                {cat ? cat.replace(/_/g, ' ') : 'General'} {catAnswered}/{catQs.length}
-              </button>
-            );
-          })}
-        </div>
+        {/* Category stepper pills (guided mode only) */}
+        {!expertMode && (
+          <div className="flex flex-wrap gap-2 mt-4">
+            {categories.map((cat, idx) => {
+              const catQs = constrainedQuestions.filter(q => (q.category || 'General') === cat);
+              const catAnswered = catQs.filter(q => answered.includes(q.id)).length;
+              const isActive = idx === activeCatIdx;
+              const isDone = catAnswered === catQs.length;
+              return (
+                <button
+                  key={cat}
+                  onClick={() => setActiveCatIdx(idx)}
+                  className={`text-xs px-3 py-1.5 rounded-full border transition-all duration-200 cursor-pointer font-medium ${
+                    isActive
+                      ? 'border-cta bg-cta/15 text-cta shadow-sm'
+                      : isDone
+                        ? 'border-cta/30 text-cta/80 bg-cta/5'
+                        : 'border-border/50 text-text-muted hover:border-cta/20 hover:text-text-secondary'
+                  }`}
+                >
+                  {isDone && <Check className="w-3 h-3 inline mr-1 -mt-px" />}
+                  {cat ? cat.replace(/_/g, ' ') : 'General'} {catAnswered}/{catQs.length}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </Card>
 
-      {/* Active category questions */}
-      <Card className="overflow-hidden">
-        <div className="px-6 py-4 border-b border-border/50 bg-secondary/10">
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-cta" />
-            <h3 className="text-sm font-semibold text-text-primary">{activeCat ? activeCat.replace(/_/g, ' ') : ''}</h3>
-            <span className="text-xs text-text-muted ml-auto">{activeCatIdx + 1} of {categories.length}</span>
-          </div>
-        </div>
-        <div ref={contentRef} className="p-6 space-y-6 max-h-[60vh] overflow-y-auto">
-          {catQuestions.map((q, qi) => (
-            <div key={q.id} className="space-y-3">
-              <div className="flex items-start gap-2">
-                <span className="text-xs font-bold text-cta/60 mt-0.5">{qi + 1}.</span>
-                <div>
-                  <p className="text-sm font-medium text-text-primary leading-snug">{q.question}</p>
-                  {q.impact && (
-                    <Badge className="mt-1.5" variant="outline">{q.impact}</Badge>
-                  )}
-                  {q.constraintReasons?.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mt-2">
-                      {q.constraintReasons.map((reason, ri) => (
-                        <span key={ri} className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-                          <AlertTriangle className="w-3 h-3 shrink-0" />
-                          {reason}
-                        </span>
+      {/* ═══════════ EXPERT VIEW ═══════════ */}
+      {expertMode ? (
+        <>
+          <Card className="overflow-hidden">
+            <div className="px-6 py-3 border-b border-border/50 bg-secondary/10 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <LayoutGrid className="w-4 h-4 text-cta" />
+                <h3 className="text-sm font-semibold text-text-primary">All Questions</h3>
+              </div>
+              <span className="text-xs text-text-muted">Press <kbd className="px-1.5 py-0.5 rounded bg-secondary text-text-secondary text-[10px] font-mono">Tab</kbd> to navigate, <kbd className="px-1.5 py-0.5 rounded bg-secondary text-text-secondary text-[10px] font-mono">Enter</kbd> to confirm</span>
+            </div>
+            <div className="p-6 max-h-[70vh] overflow-y-auto space-y-8">
+              {categories.map(cat => {
+                const qs = constrainedQuestions.filter(q => (q.category || 'General') === cat);
+                return (
+                  <div key={cat}>
+                    {/* Sticky category header */}
+                    <div className="sticky top-0 z-10 bg-surface/95 backdrop-blur-sm py-2 mb-3 border-b border-border/30">
+                      <h4 className="text-xs font-bold text-cta uppercase tracking-wider">{cat ? cat.replace(/_/g, ' ') : 'General'}</h4>
+                    </div>
+                    {/* 2-column compact grid */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-3">
+                      {qs.map(q => (
+                        <div key={q.id} className="flex items-center gap-3 py-2 min-h-[40px]">
+                          {/* Label (60%) */}
+                          <div className="w-[60%] flex items-center gap-1.5 min-w-0">
+                            {differsFromDefault(q.id) && (
+                              <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" title="Differs from AI suggestion" />
+                            )}
+                            <span className="text-sm text-text-primary truncate" title={q.question}>{q.question}</span>
+                          </div>
+                          {/* Input (40%) */}
+                          <div className="w-[40%] shrink-0">
+                            {q.type === 'single_choice' && (
+                              <select
+                                value={answers[q.id] || ''}
+                                onChange={e => onUpdateAnswer(q.id, e.target.value)}
+                                className="w-full text-sm px-2 py-1.5 rounded-lg border border-border/50 bg-surface text-text-primary focus:border-cta focus:ring-1 focus:ring-cta/30 outline-none transition-colors"
+                              >
+                                <option value="" disabled>Select…</option>
+                                {q.options?.map(raw => {
+                                  const opt = typeof raw === 'string' ? { value: raw, label: raw } : raw;
+                                  return <option key={opt.value} value={opt.value}>{opt.label}</option>;
+                                })}
+                              </select>
+                            )}
+                            {(q.type === 'multi_choice' || q.type === 'multiple_choice') && (
+                              <div className="flex flex-wrap gap-1">
+                                {q.options?.map(raw => {
+                                  const opt = typeof raw === 'string' ? { value: raw, label: raw } : raw;
+                                  const current = answers[q.id] || [];
+                                  const isSelected = current.includes(opt.value);
+                                  return (
+                                    <button
+                                      key={opt.value}
+                                      type="button"
+                                      onClick={() => onUpdateAnswer(q.id, isSelected ? current.filter(v => v !== opt.value) : [...current, opt.value])}
+                                      className={`text-xs px-2 py-1 rounded border transition-colors cursor-pointer ${
+                                        isSelected ? 'border-cta bg-cta/15 text-cta' : 'border-border/50 text-text-muted hover:border-cta/30'
+                                      }`}
+                                    >
+                                      {opt.label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
+                            {(q.type === 'boolean' || q.type === 'yes_no') && (
+                              <button
+                                type="button"
+                                onClick={() => onUpdateAnswer(q.id, answers[q.id] === 'yes' ? 'no' : 'yes')}
+                                className={`flex items-center gap-2 text-sm px-3 py-1.5 rounded-lg border transition-colors cursor-pointer ${
+                                  answers[q.id] === 'yes'
+                                    ? 'border-cta bg-cta/10 text-cta'
+                                    : 'border-border/50 text-text-muted hover:border-cta/30'
+                                }`}
+                                role="switch"
+                                aria-checked={answers[q.id] === 'yes'}
+                              >
+                                {answers[q.id] === 'yes'
+                                  ? <ToggleRight className="w-5 h-5" />
+                                  : <ToggleLeft className="w-5 h-5" />}
+                                {answers[q.id] === 'yes' ? 'Yes' : 'No'}
+                              </button>
+                            )}
+                          </div>
+                        </div>
                       ))}
                     </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Single choice → selectable cards */}
-              {q.type === 'single_choice' && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pl-5">
-                  {q.options?.map(raw => {
-                    const opt = typeof raw === 'string' ? { value: raw, label: raw } : raw;
-                    return (
-                      <OptionCard
-                        key={opt.value}
-                        selected={answers[q.id] === opt.value}
-                        onClick={() => onUpdateAnswer(q.id, opt.value)}
-                        label={opt.label}
-                        description={opt.description}
-                      />
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* Multi choice → selectable cards with checkmarks */}
-              {(q.type === 'multi_choice' || q.type === 'multiple_choice') && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pl-5">
-                  {q.options?.map(raw => {
-                    const opt = typeof raw === 'string' ? { value: raw, label: raw } : raw;
-                    const current = answers[q.id] || [];
-                    const isSelected = current.includes(opt.value);
-                    return (
-                      <OptionCard
-                        key={opt.value}
-                        selected={isSelected}
-                        multi
-                        onClick={() => {
-                          onUpdateAnswer(q.id, isSelected
-                            ? current.filter(v => v !== opt.value)
-                            : [...current, opt.value]);
-                        }}
-                        label={opt.label}
-                        description={opt.description}
-                      />
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* Boolean → toggle switch */}
-              {(q.type === 'boolean' || q.type === 'yes_no') && (
-                <div className="pl-5 max-w-sm">
-                  <Toggle
-                    checked={answers[q.id] === 'yes'}
-                    onChange={(v) => onUpdateAnswer(q.id, v ? 'yes' : 'no')}
-                    label={answers[q.id] === 'yes' ? 'Yes — Enabled' : 'No — Disabled'}
-                  />
-                </div>
-              )}
-
-              {qi < catQuestions.length - 1 && <hr className="border-border/30 ml-5" />}
+                  </div>
+                );
+              })}
             </div>
-          ))}
-        </div>
-      </Card>
+          </Card>
+          {/* Expert mode footer */}
+          <div className="flex items-center justify-between">
+            <Button onClick={onSkip} variant="ghost" icon={ChevronRight}>Skip All</Button>
+            <Button onClick={onApplyAnswers} loading={loading} icon={Check}>
+              Apply All &amp; Generate
+            </Button>
+          </div>
+        </>
+      ) : (
+        /* ═══════════ GUIDED VIEW (original) ═══════════ */
+        <>
+          {/* Active category questions */}
+          <Card className="overflow-hidden">
+            <div className="px-6 py-4 border-b border-border/50 bg-secondary/10">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-cta" />
+                <h3 className="text-sm font-semibold text-text-primary">{activeCat ? activeCat.replace(/_/g, ' ') : ''}</h3>
+                <span className="text-xs text-text-muted ml-auto">{activeCatIdx + 1} of {categories.length}</span>
+              </div>
+            </div>
+            <div ref={contentRef} className="p-6 space-y-6 max-h-[60vh] overflow-y-auto">
+              {catQuestions.map((q, qi) => (
+                <div key={q.id} className="space-y-3">
+                  <div className="flex items-start gap-2">
+                    <span className="text-xs font-bold text-cta/60 mt-0.5">{qi + 1}.</span>
+                    <div>
+                      <p className="text-sm font-medium text-text-primary leading-snug">{q.question}</p>
+                      {q.impact && (
+                        <Badge className="mt-1.5" variant="outline">{q.impact}</Badge>
+                      )}
+                      {q.constraintReasons?.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                          {q.constraintReasons.map((reason, ri) => (
+                            <span key={ri} className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                              <AlertTriangle className="w-3 h-3 shrink-0" />
+                              {reason}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
 
-      {/* Navigation footer */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          {activeCatIdx > 0 && (
-            <Button onClick={goPrev} variant="ghost" icon={ChevronLeft}>Previous</Button>
-          )}
-          <Button onClick={onSkip} variant="ghost" icon={ChevronRight}>Skip All</Button>
-        </div>
-        <Button
-          onClick={goNext}
-          loading={isLast && loading}
-          icon={isLast ? Check : ChevronRight}
-        >
-          {isLast ? 'Apply and View Results' : 'Next Category'}
-        </Button>
-      </div>
+                  {/* Single choice → selectable cards */}
+                  {q.type === 'single_choice' && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pl-5">
+                      {q.options?.map(raw => {
+                        const opt = typeof raw === 'string' ? { value: raw, label: raw } : raw;
+                        return (
+                          <OptionCard
+                            key={opt.value}
+                            selected={answers[q.id] === opt.value}
+                            onClick={() => onUpdateAnswer(q.id, opt.value)}
+                            label={opt.label}
+                            description={opt.description}
+                          />
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Multi choice → selectable cards with checkmarks */}
+                  {(q.type === 'multi_choice' || q.type === 'multiple_choice') && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pl-5">
+                      {q.options?.map(raw => {
+                        const opt = typeof raw === 'string' ? { value: raw, label: raw } : raw;
+                        const current = answers[q.id] || [];
+                        const isSelected = current.includes(opt.value);
+                        return (
+                          <OptionCard
+                            key={opt.value}
+                            selected={isSelected}
+                            multi
+                            onClick={() => {
+                              onUpdateAnswer(q.id, isSelected
+                                ? current.filter(v => v !== opt.value)
+                                : [...current, opt.value]);
+                            }}
+                            label={opt.label}
+                            description={opt.description}
+                          />
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Boolean → toggle switch */}
+                  {(q.type === 'boolean' || q.type === 'yes_no') && (
+                    <div className="pl-5 max-w-sm">
+                      <Toggle
+                        checked={answers[q.id] === 'yes'}
+                        onChange={(v) => onUpdateAnswer(q.id, v ? 'yes' : 'no')}
+                        label={answers[q.id] === 'yes' ? 'Yes — Enabled' : 'No — Disabled'}
+                      />
+                    </div>
+                  )}
+
+                  {qi < catQuestions.length - 1 && <hr className="border-border/30 ml-5" />}
+                </div>
+              ))}
+            </div>
+          </Card>
+
+          {/* Navigation footer */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              {activeCatIdx > 0 && (
+                <Button onClick={goPrev} variant="ghost" icon={ChevronLeft}>Previous</Button>
+              )}
+              <Button onClick={onSkip} variant="ghost" icon={ChevronRight}>Skip All</Button>
+            </div>
+            <Button
+              onClick={goNext}
+              loading={isLast && loading}
+              icon={isLast ? Check : ChevronRight}
+            >
+              {isLast ? 'Apply and View Results' : 'Next Category'}
+            </Button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

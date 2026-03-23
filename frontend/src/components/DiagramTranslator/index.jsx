@@ -816,6 +816,7 @@ export default function DiagramTranslator() {
           onNotifyEmail={handleNotifyEmail}
           onExportDiagram={handleExportDiagram}
           onCopyWithFeedback={copyWithFeedback}
+          diagramId={state.diagramId}
         />
       )}
 

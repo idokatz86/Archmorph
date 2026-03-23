@@ -23,6 +23,7 @@ const CookieBanner = lazy(() => import('./components/CookieBanner'));
 const LandingPage = lazy(() => import('./components/LandingPage'));
 const OnboardingTour = lazy(() => import('./components/OnboardingTour'));
 const CanvasEditor = lazy(() => import('./components/CanvasEditor/CanvasEditor'));
+const CommandPalette = lazy(() => import('./components/CommandPalette'));
 
 
 function TabFallback() {
@@ -106,6 +107,9 @@ export default function App() {
         <ErrorBoundary>
           <CookieBanner />
         </ErrorBoundary>
+      </Suspense>
+      <Suspense fallback={null}>
+        <CommandPalette />
       </Suspense>
       {adminOpen && (
         <Suspense fallback={<TabFallback />}>

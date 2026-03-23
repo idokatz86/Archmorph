@@ -3,9 +3,12 @@ import {
   ArrowRight, AlertTriangle, Info, HelpCircle,
   FileCode, Sparkles, Loader2, ChevronDown, ChevronUp, ShieldCheck,
   CheckCircle2, XCircle, ExternalLink, FileText, ArrowUpRight, Mail,
+  Package,
 } from 'lucide-react';
 import { Badge, Button, Card } from '../ui';
 import ExportPanel from './ExportPanel';
+import ResultsTable from './ResultsTable';
+import ExportHub from './ExportHub';
 import { HelpTooltip, HELP_CONTENT } from '../HelpTooltip';
 
 const ArchitectureFlow = lazy(() => import('./ArchitectureFlow'));
@@ -216,7 +219,10 @@ export default function AnalysisResults({
   analysis, loading, generatingIac, iacFormat, exportLoading,
   copyFeedback, genProgress, notifyEmail, onNotifyEmail,
   onSetStep, onGenerateIac, onExportDiagram, onCopyWithFeedback,
+  diagramId,
 }) {
+  const [resultsView, setResultsView] = useState('table');
+
   return (
     <div className="space-y-6">
       {/* Analysis Summary */}
@@ -276,30 +282,60 @@ export default function AnalysisResults({
         )}
       </Card>
 
-      {/* Zones */}
-      <div className="space-y-3">
-        {analysis.zones?.map(zone => {
-          const zoneMappings = analysis.mappings?.filter(m => m.notes?.includes(`Zone ${zone.id}`)) || [];
-          return (
-            <Card key={zone.id} className="overflow-hidden">
-              <div className="px-4 py-3 bg-secondary/50 border-b border-border flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="w-6 h-6 rounded bg-cta/15 text-cta text-xs font-bold flex items-center justify-center">{zone.id}</span>
-                  <h3 className="text-sm font-semibold text-text-primary">{zone.name}</h3>
+      {/* Results Table / Matrix / Map toggle */}
+      {analysis.mappings?.length > 0 && (
+        <ResultsTable
+          analysis={analysis}
+          activeView={resultsView}
+          onViewChange={setResultsView}
+        />
+      )}
+
+      {/* Map view — existing ArchitectureFlow */}
+      {resultsView === 'map' && (
+        <>
+          <div className="mt-4">
+            <Suspense fallback={<div className="h-64 flex items-center justify-center text-text-muted"><Loader2 className="w-5 h-5 animate-spin" /></div>}>
+              <ArchitectureFlow analysis={analysis} />
+            </Suspense>
+          </div>
+          {analysis.service_connections?.length > 0 && (
+            <div className="mt-8">
+              <h3 className="text-xl font-bold text-text-primary mb-4">Service Dependency Graph</h3>
+              <Suspense fallback={<div className="h-64 flex items-center justify-center text-text-muted"><Loader2 className="w-5 h-5 animate-spin" /></div>}>
+                <DependencyGraph analysis={analysis} />
+              </Suspense>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Zone detail — show only in map view for legacy compatibility */}
+      {resultsView === 'map' && (
+        <div className="space-y-3">
+          {analysis.zones?.map(zone => {
+            const zoneMappings = analysis.mappings?.filter(m => m.notes?.includes(`Zone ${zone.id}`)) || [];
+            return (
+              <Card key={zone.id} className="overflow-hidden">
+                <div className="px-4 py-3 bg-secondary/50 border-b border-border flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="w-6 h-6 rounded bg-cta/15 text-cta text-xs font-bold flex items-center justify-center">{zone.id}</span>
+                    <h3 className="text-sm font-semibold text-text-primary">{zone.name}</h3>
+                  </div>
+                  <span className="text-xs text-text-muted">{Array.isArray(zone.services) ? zone.services.length : zone.services} services</span>
                 </div>
-                <span className="text-xs text-text-muted">{Array.isArray(zone.services) ? zone.services.length : zone.services} services</span>
-              </div>
-              {zoneMappings.length > 0 && (
-                <div className="divide-y divide-border">
-                  {zoneMappings.map((m, i) => (
-                    <MappingRow key={i} m={m} sourceProvider={analysis.source_provider} />
-                  ))}
-                </div>
-              )}
-            </Card>
-          );
-        })}
-      </div>
+                {zoneMappings.length > 0 && (
+                  <div className="divide-y divide-border">
+                    {zoneMappings.map((m, i) => (
+                      <MappingRow key={i} m={m} sourceProvider={analysis.source_provider} />
+                    ))}
+                  </div>
+                )}
+              </Card>
+            );
+          })}
+        </div>
+      )}
 
       {/* Warnings */}
       {analysis.warnings?.length > 0 && (
@@ -319,33 +355,18 @@ export default function AnalysisResults({
         </Card>
       )}
 
-      {/* Export Diagram */}
-      <ExportPanel exportLoading={exportLoading} onExportDiagram={onExportDiagram} />
-
-      {/* Before/After Architecture Visualization (#250) */}
-      <div className="mt-8">
-        <h3 className="text-xl font-bold text-text-primary mb-4 flex items-center gap-2">
-          Interactive Architecture Map
-        </h3>
-        <Suspense fallback={<div className="h-64 flex items-center justify-center text-text-muted"><Loader2 className="w-5 h-5 animate-spin" /></div>}>
-          <ArchitectureFlow analysis={analysis} />
-        </Suspense>
+      {/* Export Diagram + Export Hub */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+        <div className="flex-1">
+          <ExportPanel exportLoading={exportLoading} onExportDiagram={onExportDiagram} />
+        </div>
+        <Button onClick={() => document.dispatchEvent(new CustomEvent('archmorph:command', { detail: 'export-hub' }))} variant="secondary" icon={Package}>
+          Export All
+        </Button>
       </div>
 
-      {/* Service Dependency Graph (#233) */}
-      {analysis.service_connections?.length > 0 && (
-        <div className="mt-8">
-          <h3 className="text-xl font-bold text-text-primary mb-4 flex items-center gap-2">
-            Service Dependency Graph
-          </h3>
-          <p className="text-sm text-text-secondary mb-4">
-            Interactive visualization of service connections and data flows. Click a node for details.
-          </p>
-          <Suspense fallback={<div className="h-64 flex items-center justify-center text-text-muted"><Loader2 className="w-5 h-5 animate-spin" /></div>}>
-            <DependencyGraph analysis={analysis} />
-          </Suspense>
-        </div>
-      )}
+      {/* Export Hub Modal */}
+      <ExportHub diagramId={diagramId} />
 
       {/* Generation Progress Indicator (#311) */}
       {generatingIac && (
