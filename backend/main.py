@@ -88,6 +88,9 @@ from routers.rag_routes import router as rag_router  # noqa: E402
 from routers.agent_paas import router as agent_paas_router  # noqa: E402
 from routers.cost_routes import router as cost_router  # noqa: E402
 from routers.timeline_routes import router as timeline_router  # noqa: E402
+from routers.profile_routes import router as profile_router  # noqa: E402
+from routers.report_routes import router as report_router  # noqa: E402
+from routers.org_routes import router as org_router  # noqa: E402
 from routers.v1 import build_v1_router  # noqa: E402
 from api_versioning import VersionMiddleware  # noqa: E402
 from audit_logging import audit_logger, AuditEventType  # noqa: E402, F401
@@ -340,6 +343,9 @@ app.include_router(rag_router)
 app.include_router(agent_paas_router)
 app.include_router(cost_router)
 app.include_router(timeline_router)
+app.include_router(profile_router)
+app.include_router(report_router)
+app.include_router(org_router)
 
 # ─────────────────────────────────────────────────────────────
 # API v1 Versioned Routes (/api/v1/* mirrors /api/*)
@@ -378,6 +384,9 @@ _all_routers = [
     (deployments_router, ""),
     (credentials_router, ""),
     (cost_router, ""),
+    (profile_router, ""),
+    (report_router, ""),
+    (org_router, ""),
 ]
 v1_router = build_v1_router(_all_routers)
 app.include_router(v1_router)

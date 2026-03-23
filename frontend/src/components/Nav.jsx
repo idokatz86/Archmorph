@@ -3,6 +3,7 @@ import { CloudCog, Layers, Server, Activity, Rocket, MessageSquare, Shield, Home
 import { Badge } from './ui';
 import { APP_VERSION } from '../constants';
 import FeedbackWidget from './FeedbackWidget';
+import { UserMenu } from './Auth';
 
 function useTheme() {
   const [theme, setTheme] = useState(() => {
@@ -94,6 +95,7 @@ export default function Nav({ activeTab, setActiveTab, updateStatus }) {
               >
                 <MessageSquare className="w-4 h-4 text-text-secondary hover:text-text-primary" />
               </button>
+              <UserMenu />
               <Badge variant="azure" className="hidden sm:inline-flex">v{APP_VERSION}</Badge>
               {/* Mobile hamburger */}
               <button

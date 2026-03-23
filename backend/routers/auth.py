@@ -1,6 +1,7 @@
 from error_envelope import ArchmorphException
 """
 Authentication & User Management routes (v2.9.0).
+Social Authentication — Microsoft, Google, GitHub (Issue #246).
 """
 
 from fastapi import APIRouter, Request, Header, Query
@@ -13,7 +14,12 @@ from auth import (
     validate_azure_ad_b2c_token,
     exchange_github_code,
     generate_session_token,
+    generate_refresh_token,
     get_user_from_session,
+    get_user_from_request_headers,
+    parse_swa_client_principal,
+    refresh_session,
+    invalidate_session,
     capture_lead,
 )
 
@@ -45,7 +51,7 @@ async def get_auth_config():
 @router.post("/api/auth/login")
 @limiter.limit("10/minute")
 async def login(request: Request, body: LoginRequest):
-    """Login with Azure AD B2C or GitHub OAuth."""
+    """Login with Azure AD B2C, GitHub OAuth, or SWA provider."""
     try:
         if body.provider == "azure_ad_b2c":
             if not body.token:
@@ -59,14 +65,24 @@ async def login(request: Request, body: LoginRequest):
             from auth import get_anonymous_user
             client_ip = request.client.host if request.client else "127.0.0.1"
             user = get_anonymous_user(client_ip)
+        elif body.provider == "swa":
+            # Login via Azure SWA — client principal is in the header
+            swa_header = request.headers.get("x-ms-client-principal")
+            if not swa_header:
+                raise ArchmorphException(400, "Missing x-ms-client-principal header for SWA login")
+            user = parse_swa_client_principal(swa_header)
+            if not user:
+                raise ArchmorphException(401, "Invalid SWA client principal")
         else:
             raise ArchmorphException(400, f"Unknown provider: {body.provider}")
         
         session_token = generate_session_token(user)
+        refresh_token = generate_refresh_token(user)
         
         return {
             "user": user.to_dict(),
             "session_token": session_token,
+            "refresh_token": refresh_token,
         }
     except ValueError as e:
         raise ArchmorphException(401, str(e))
@@ -75,18 +91,58 @@ async def login(request: Request, body: LoginRequest):
 @router.get("/api/auth/me")
 @limiter.limit("30/minute")
 async def get_current_user(request: Request, authorization: Optional[str] = Header(None)):
-    """Get current authenticated user."""
-    if authorization and authorization.startswith("Bearer "):
-        token = authorization[7:]
-        user = get_user_from_session(token)
-        if user:
-            user_dict = user.to_dict()
-            user_dict["session_token"] = token
-            return user_dict
-    
+    """Get current authenticated user (SWA header or Bearer JWT)."""
+    # Try SWA + Bearer via unified helper
+    user = get_user_from_request_headers(dict(request.headers))
+    if user:
+        user_dict = user.to_dict()
+        # If we came through a Bearer token, echo it back
+        if authorization and authorization.startswith("Bearer "):
+            user_dict["session_token"] = authorization[7:]
+        return user_dict
 
     # Return anonymous user info
     return {"authenticated": False, "tier": "free", "roles": [], "tenant_id": "default_tenant"}
+
+
+@router.get("/api/auth/providers")
+async def list_providers():
+    """List available auth providers and their SWA login URLs."""
+    config = _get_auth_config()
+    providers = []
+    for key, info in config.get("providers", {}).items():
+        if key in ("microsoft", "google", "github") and info.get("swa_login_url"):
+            providers.append({
+                "id": key,
+                "name": key.capitalize(),
+                "enabled": info.get("enabled", False),
+                "login_url": info["swa_login_url"],
+            })
+    return {"providers": providers, "anonymous_allowed": config.get("anonymous_allowed", True)}
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
+@router.post("/api/auth/refresh")
+@limiter.limit("10/minute")
+async def refresh_token_endpoint(request: Request, body: RefreshRequest):
+    """Refresh session token using a refresh token."""
+    result = refresh_session(body.refresh_token)
+    if not result:
+        raise ArchmorphException(401, "Invalid or expired refresh token")
+    return result
+
+
+@router.post("/api/auth/logout")
+@limiter.limit("10/minute")
+async def logout(request: Request, authorization: Optional[str] = Header(None)):
+    """Logout — invalidate session token."""
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization[7:]
+        invalidate_session(token)
+    return {"success": True}
 
 
 

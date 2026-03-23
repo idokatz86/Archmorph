@@ -1,15 +1,18 @@
 """
 Archmorph Authentication Module
 Azure AD B2C and GitHub OAuth2 Support with Usage Quota Management
+Social Authentication — Microsoft, Google, GitHub (Issue #246)
+Azure SWA built-in auth via x-ms-client-principal header
 """
 
 import os
 import logging
 import hashlib
-import secrets
 import threading
+import base64
+import json
 from collections import deque
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any
 from dataclasses import dataclass, field
 from enum import Enum
@@ -31,6 +34,16 @@ AZURE_AD_B2C_CLIENT_ID = os.getenv("AZURE_AD_B2C_CLIENT_ID", "")
 GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID", "")
 GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET", "")
 
+# Social auth provider toggle (Issue #246)
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
+
+# JWT session secret — MUST be set in production
+JWT_SECRET = os.getenv("JWT_SECRET", "archmorph-dev-secret-change-in-production")
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRY_HOURS = int(os.getenv("JWT_EXPIRY_HOURS", "24"))
+JWT_REFRESH_EXPIRY_HOURS = int(os.getenv("JWT_REFRESH_EXPIRY_HOURS", "168"))  # 7 days
+
 # JWKS cache (refresh every hour)
 JWKS_CACHE: TTLCache = TTLCache(maxsize=10, ttl=3600)
 
@@ -45,6 +58,8 @@ USER_CACHE: TTLCache = TTLCache(maxsize=1000, ttl=USER_CACHE_TTL)
 # ─────────────────────────────────────────────────────────────
 class AuthProvider(str, Enum):
     AZURE_AD_B2C = "azure_ad_b2c"
+    MICROSOFT = "microsoft"
+    GOOGLE = "google"
     GITHUB = "github"
     ANONYMOUS = "anonymous"
 
@@ -111,6 +126,7 @@ class User:
     id: str
     email: Optional[str] = None
     name: Optional[str] = None
+    avatar_url: Optional[str] = None
     provider: AuthProvider = AuthProvider.ANONYMOUS
 
     tier: UserTier = UserTier.FREE
@@ -221,6 +237,7 @@ class User:
             "id": self.id,
             "email": self.email,
             "name": self.name,
+            "avatar_url": self.avatar_url,
 
             "provider": self.provider.value,
             "tier": self.tier.value,
@@ -443,15 +460,199 @@ def get_anonymous_user(client_ip: str) -> User:
 
 
 def generate_session_token(user: User) -> str:
-    """Generate a session token for an authenticated user."""
-    token = secrets.token_urlsafe(32)
+    """Generate a JWT session token for an authenticated user."""
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": user.id,
+        "email": user.email,
+        "name": user.name,
+        "avatar_url": user.avatar_url,
+        "provider": user.provider.value,
+        "tier": user.tier.value,
+        "tenant_id": user.tenant_id,
+        "roles": user.roles,
+        "iat": now,
+        "exp": now + timedelta(hours=JWT_EXPIRY_HOURS),
+        "type": "access",
+    }
+    token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+    # Also cache the user object for fast lookup
     USER_CACHE[token] = user
     return token
 
 
+def generate_refresh_token(user: User) -> str:
+    """Generate a long-lived refresh token."""
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": user.id,
+        "provider": user.provider.value,
+        "iat": now,
+        "exp": now + timedelta(hours=JWT_REFRESH_EXPIRY_HOURS),
+        "type": "refresh",
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
 def get_user_from_session(token: str) -> Optional[User]:
-    """Get user from session token."""
-    return USER_CACHE.get(token)
+    """Get user from session token (cache-first, then JWT decode)."""
+    # Fast path: in-memory cache hit
+    cached = USER_CACHE.get(token)
+    if cached:
+        return cached
+
+    # Slow path: decode JWT
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        if payload.get("type") != "access":
+            return None
+        user_id = payload["sub"]
+        # Check USER_STORE for full user with quota state
+        if user_id in USER_STORE:
+            user = USER_STORE[user_id]
+            USER_CACHE[token] = user
+            return user
+        # Reconstruct minimal user from JWT claims
+        provider_str = payload.get("provider", "anonymous")
+        try:
+            provider = AuthProvider(provider_str)
+        except ValueError:
+            provider = AuthProvider.ANONYMOUS
+        user = User(
+            id=user_id,
+            email=payload.get("email"),
+            name=payload.get("name"),
+            avatar_url=payload.get("avatar_url"),
+            provider=provider,
+            tier=UserTier(payload.get("tier", "free")),
+            tenant_id=payload.get("tenant_id", "default_tenant"),
+            roles=payload.get("roles", ["user"]),
+        )
+        USER_CACHE[token] = user
+        return user
+    except JWTError:
+        return None
+
+
+def refresh_session(refresh_token: str) -> Optional[Dict[str, str]]:
+    """Validate a refresh token and issue new access + refresh tokens."""
+    try:
+        payload = jwt.decode(refresh_token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        if payload.get("type") != "refresh":
+            return None
+        user_id = payload["sub"]
+        # Look up full user object
+        user = USER_STORE.get(user_id)
+        if not user:
+            return None
+        return {
+            "session_token": generate_session_token(user),
+            "refresh_token": generate_refresh_token(user),
+        }
+    except JWTError:
+        return None
+
+
+def invalidate_session(token: str) -> bool:
+    """Remove a session token from cache (logout)."""
+    if token in USER_CACHE:
+        del USER_CACHE[token]
+        return True
+    return False
+
+
+# ─────────────────────────────────────────────────────────────
+# Azure SWA Client Principal Parsing (Issue #246)
+# ─────────────────────────────────────────────────────────────
+_SWA_PROVIDER_MAP = {
+    "aad": AuthProvider.MICROSOFT,
+    "microsoft": AuthProvider.MICROSOFT,
+    "google": AuthProvider.GOOGLE,
+    "github": AuthProvider.GITHUB,
+}
+
+
+def parse_swa_client_principal(header_value: str) -> Optional[User]:
+    """Decode Azure SWA x-ms-client-principal header → User.
+
+    The header is a base64-encoded JSON blob with:
+      { "identityProvider": "aad|google|github",
+        "userId": "...",
+        "userDetails": "email or username",
+        "userRoles": ["anonymous", "authenticated"],
+        "claims": [{"typ": "...", "val": "..."}, ...] }
+    """
+    try:
+        raw = base64.b64decode(header_value)
+        data = json.loads(raw)
+    except Exception:
+        logger.warning("Failed to decode x-ms-client-principal header")
+        return None
+
+    identity_provider = (data.get("identityProvider") or "").lower()
+    provider = _SWA_PROVIDER_MAP.get(identity_provider)
+    if not provider:
+        logger.warning("Unknown SWA identity provider: %s", identity_provider)
+        return None
+
+    user_id = data.get("userId", "")
+    if not user_id:
+        return None
+
+    # Extract claims into a dict for easy lookup
+    claims = {c["typ"]: c["val"] for c in data.get("claims", []) if "typ" in c and "val" in c}
+
+    email = (
+        claims.get("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress")
+        or claims.get("emails")
+        or data.get("userDetails")
+    )
+    name = (
+        claims.get("name")
+        or claims.get("http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name")
+        or data.get("userDetails", "")
+    )
+    avatar_url = claims.get("picture")
+
+    full_user_id = f"{identity_provider}_{user_id}"
+
+    # Upsert into USER_STORE
+    if full_user_id in USER_STORE:
+        user = USER_STORE[full_user_id]
+        user.name = name or user.name
+        user.email = email or user.email
+        user.avatar_url = avatar_url or user.avatar_url
+    else:
+        user = User(
+            id=full_user_id,
+            email=email,
+            name=name,
+            avatar_url=avatar_url,
+            provider=provider,
+        )
+        USER_STORE[full_user_id] = user
+
+    user.maybe_reset_monthly_usage()
+    return user
+
+
+def get_user_from_request_headers(headers: Dict[str, str]) -> Optional[User]:
+    """Extract user from request headers — SWA principal or Bearer JWT.
+
+    Called by optional auth middleware; returns None for anonymous users.
+    """
+    # 1. Azure SWA built-in auth header (production on SWA)
+    swa_principal = headers.get("x-ms-client-principal")
+    if swa_principal:
+        return parse_swa_client_principal(swa_principal)
+
+    # 2. Bearer JWT token
+    auth_header = headers.get("authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:]
+        return get_user_from_session(token)
+
+    return None
 
 
 # ─────────────────────────────────────────────────────────────
@@ -541,7 +742,7 @@ def get_leads_summary() -> Dict[str, Any]:
 # ─────────────────────────────────────────────────────────────
 def is_auth_enabled() -> bool:
     """Check if any authentication provider is configured."""
-    return bool(AZURE_AD_B2C_CLIENT_ID or GITHUB_CLIENT_ID)
+    return bool(AZURE_AD_B2C_CLIENT_ID or GITHUB_CLIENT_ID or GOOGLE_CLIENT_ID)
 
 
 def get_auth_config() -> Dict[str, Any]:
@@ -555,11 +756,22 @@ def get_auth_config() -> Dict[str, Any]:
                 "policy": AZURE_AD_B2C_POLICY if AZURE_AD_B2C_CLIENT_ID else None,
                 "client_id": AZURE_AD_B2C_CLIENT_ID or None,
             },
+            "microsoft": {
+                "enabled": bool(AZURE_AD_B2C_CLIENT_ID),
+                "swa_login_url": "/.auth/login/aad",
+            },
+            "google": {
+                "enabled": bool(GOOGLE_CLIENT_ID),
+                "client_id": GOOGLE_CLIENT_ID or None,
+                "swa_login_url": "/.auth/login/google",
+            },
             "github": {
                 "enabled": bool(GITHUB_CLIENT_ID),
                 "client_id": GITHUB_CLIENT_ID or None,
+                "swa_login_url": "/.auth/login/github",
             },
         },
         "anonymous_allowed": True,
+        "swa_auth_enabled": True,  # SWA handles OAuth flow
         "free_tier_limits": UsageQuota.for_tier(UserTier.FREE).__dict__,
     }

@@ -6,6 +6,7 @@ import Nav from './components/Nav';
 import Footer from './components/Footer';
 import DisclaimerBanner from './components/DisclaimerBanner';
 import { ToastProvider } from './components/Toast';
+import { AuthProvider } from './components/Auth';
 import { APP_VERSION } from './constants';
 import useAppStore from './stores/useAppStore';
 
@@ -66,6 +67,7 @@ export default function App() {
   };
 
   return (
+    <AuthProvider>
     <ToastProvider>
     <div className="min-h-screen bg-surface text-text-primary font-sans">
       {/* First-time onboarding tour (#257) */}
@@ -112,5 +114,6 @@ export default function App() {
       )}
     </div>
     </ToastProvider>
+    </AuthProvider>
   );
 }

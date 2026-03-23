@@ -19,3 +19,4 @@ from models.execution import Execution  # noqa: F401
 from models.memory import AgentMemoryDocument, AgentEpisodicMemory, AgentEntityMemory  # noqa: F401
 from models.policy import AgentPolicy, AgentPolicyBinding  # noqa: F401
 from models.model_registry import ModelEndpoint  # noqa: F401
+from models.user import UserRecord  # noqa: F401
