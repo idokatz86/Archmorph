@@ -92,6 +92,9 @@ from routers.profile_routes import router as profile_router  # noqa: E402
 from routers.report_routes import router as report_router  # noqa: E402
 from routers.org_routes import router as org_router  # noqa: E402
 from routers.compliance_routes import router as compliance_router  # noqa: E402
+from routers.api_keys_routes import router as api_keys_router  # noqa: E402
+from routers.webhook_routes import router as webhook_routes_router  # noqa: E402
+from routers.integrations_routes import router as integrations_router  # noqa: E402
 from routers.v1 import build_v1_router  # noqa: E402
 from api_versioning import VersionMiddleware  # noqa: E402
 from audit_logging import audit_logger, AuditEventType  # noqa: E402, F401
@@ -164,7 +167,22 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Archmorph API",
-    description="AI-powered Cloud Architecture Translator to Azure",
+    description=(
+        "AI-powered Cloud Architecture Translator to Azure.\n\n"
+        "## Authentication\n\n"
+        "All endpoints require an API key passed via the `X-API-Key` header.\n"
+        "Generate keys at `POST /api/keys`.\n\n"
+        "## Webhooks\n\n"
+        "Subscribe to real-time events (analysis completed, IaC generated, etc.) "
+        "via `POST /api/webhooks`. Deliveries include HMAC-SHA256 signatures "
+        "in the `X-Archmorph-Signature` header.\n\n"
+        "## Integrations\n\n"
+        "Push analysis results to Slack, Microsoft Teams, Jira, and GitHub "
+        "via the `/api/integrations/*` endpoints.\n\n"
+        "## Rate Limiting\n\n"
+        "Default: 200 requests/minute per IP. "
+        "Per-key limits are configurable at key creation time."
+    ),
     version=__version__,
     lifespan=lifespan,
 )
@@ -348,6 +366,9 @@ app.include_router(profile_router)
 app.include_router(report_router)
 app.include_router(org_router)
 app.include_router(compliance_router)
+app.include_router(api_keys_router)
+app.include_router(webhook_routes_router)
+app.include_router(integrations_router)
 
 # ─────────────────────────────────────────────────────────────
 # API v1 Versioned Routes (/api/v1/* mirrors /api/*)
@@ -390,6 +411,9 @@ _all_routers = [
     (report_router, ""),
     (org_router, ""),
     (compliance_router, ""),
+    (api_keys_router, ""),
+    (webhook_routes_router, ""),
+    (integrations_router, ""),
 ]
 v1_router = build_v1_router(_all_routers)
 app.include_router(v1_router)

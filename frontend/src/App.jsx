@@ -22,6 +22,7 @@ const CookieBanner = lazy(() => import('./components/CookieBanner'));
 // PricingPage removed — feature temporarily disabled
 const LandingPage = lazy(() => import('./components/LandingPage'));
 const OnboardingTour = lazy(() => import('./components/OnboardingTour'));
+const CanvasEditor = lazy(() => import('./components/CanvasEditor/CanvasEditor'));
 
 
 function TabFallback() {
@@ -89,6 +90,7 @@ export default function App() {
             {activeTab === 'services' && <ServicesBrowser />}
             {activeTab === 'roadmap' && <Roadmap />}
             {activeTab === 'drift' && <DriftDashboard />}
+            {activeTab === 'canvas' && <CanvasEditor />}
             {activeTab === 'legal' && <LegalPages onBack={() => setActiveTab('translator')} />}
 
           </Suspense>
