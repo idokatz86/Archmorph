@@ -1,4 +1,3 @@
-from error_envelope import ArchmorphException
 """
 Sharing routes — legacy module, now superseded by share_routes.py.
 
