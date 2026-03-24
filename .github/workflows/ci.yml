@@ -88,14 +88,6 @@ jobs:
           output-format: sarif
           fail-build: "false"
 
-      - name: Upload Python Grype SARIF
-        uses: github/codeql-action/upload-sarif@v4
-        if: always()
-        continue-on-error: true
-        with:
-          sarif_file: ${{ steps.grype-python.outputs.sarif }}
-          category: grype-python
-
       - name: Upload Python Artifacts
         uses: actions/upload-artifact@v7
         with:
@@ -151,14 +143,6 @@ jobs:
           output-format: sarif
           fail-build: "false"
 
-      - name: Upload npm Grype SARIF
-        uses: github/codeql-action/upload-sarif@v4
-        if: always()
-        continue-on-error: true
-        with:
-          sarif_file: ${{ steps.grype-npm.outputs.sarif }}
-          category: grype-npm
-
       - name: Upload npm Artifacts
         uses: actions/upload-artifact@v7
         with:
@@ -173,6 +157,46 @@ jobs:
           name: frontend-dist
           path: frontend/dist
           retention-days: 1
+
+  # ============================================
+  # SARIF UPLOAD (isolated so rate-limits don't block builds)
+  # ============================================
+  upload-sarif:
+    needs: [backend-tests, frontend-build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: always() && (needs.backend-tests.result == 'success' || needs.frontend-build.result == 'success')
+    continue-on-error: true
+    steps:
+      - name: Download backend SARIF
+        uses: actions/download-artifact@v8
+        with:
+          name: backend-sbom
+          path: backend-sarif
+        continue-on-error: true
+
+      - name: Download frontend SARIF
+        uses: actions/download-artifact@v8
+        with:
+          name: frontend-sbom
+          path: frontend-sarif
+        continue-on-error: true
+
+      - name: Upload Python Grype SARIF
+        uses: github/codeql-action/upload-sarif@v4
+        if: hashFiles('backend-sarif/**/*.sarif') != ''
+        continue-on-error: true
+        with:
+          sarif_file: backend-sarif
+          category: grype-python
+
+      - name: Upload npm Grype SARIF
+        uses: github/codeql-action/upload-sarif@v4
+        if: hashFiles('frontend-sarif/**/*.sarif') != ''
+        continue-on-error: true
+        with:
+          sarif_file: frontend-sarif
+          category: grype-npm
 
   # ============================================
   # STAGING DEPLOY
