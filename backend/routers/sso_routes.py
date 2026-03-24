@@ -168,12 +168,15 @@ async def saml_acs(request: Request):
     # data and returns a session stub.
 
     import base64
-    import xml.etree.ElementTree as ET
+    import defusedxml.ElementTree as ET
 
+    _parse_failed = False
     try:
         decoded = base64.b64decode(saml_response)
-        root = ET.fromstring(decoded)  # noqa: S314
+        root = ET.fromstring(decoded)
     except Exception:
+        _parse_failed = True
+    if _parse_failed:
         raise ArchmorphException(400, "Invalid SAMLResponse encoding")
 
     # Extract NameID (best-effort; namespace-agnostic search)
@@ -189,7 +192,7 @@ async def saml_acs(request: Request):
     # Generate a session stub (real implementation delegates to auth.generate_session_token)
     session_id = hashlib.sha256(f"saml:{name_id}:{secrets.token_hex(8)}".encode()).hexdigest()[:32]
 
-    logger.info("SAML ACS processed for NameID=%s", name_id)
+    logger.info("SAML ACS processed for NameID=%s", str(name_id).replace('\n', '').replace('\r', ''))
 
     return {
         "status": "authenticated",
@@ -290,7 +293,7 @@ async def scim_create_user(
     user_data = body.model_dump()
     _scim_user_store.set(f"scim:user:{user_id}", user_data)
 
-    logger.info("SCIM user provisioned: %s (id=%s)", body.userName, user_id)
+    logger.info("SCIM user provisioned: %s (id=%s)", str(body.userName).replace('\n', '').replace('\r', ''), user_id)
     return _scim_user_resource(user_id, user_data)
 
 
@@ -328,7 +331,7 @@ async def scim_patch_user(
                 del user_data[path]
 
     _scim_user_store.set(store_key, user_data)
-    logger.info("SCIM user updated: %s", user_id)
+    logger.info("SCIM user updated: %s", str(user_id).replace('\n', '').replace('\r', ''))
     return _scim_user_resource(user_id, user_data)
 
 

@@ -52,13 +52,14 @@ async def preview_deployment(
     logger.info("Received deployment preview request for provider: %s", str(payload.provider).replace('\n', '').replace('\r', ''))
     
     if payload.provider.lower() == "azure":
-        _failed = False
+        _preview_failed = False
+        result = None
         try:
             result = await azure_service.preview_deployment(payload.model_dump())
         except Exception:
-            _failed = True
+            _preview_failed = True
             logger.error("Deployment preview failed")
-        if _failed:
+        if _preview_failed:
             raise HTTPException(status_code=500, detail="Deployment preview failed.")
         return {"status": "success", "data": result}
     else:
