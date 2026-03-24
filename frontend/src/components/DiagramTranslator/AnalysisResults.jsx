@@ -221,7 +221,7 @@ export default function AnalysisResults({
   onSetStep, onGenerateIac, onExportDiagram, onCopyWithFeedback,
   diagramId,
 }) {
-  const [resultsView, setResultsView] = useState('table');
+  const [resultsView, setResultsView] = useState('card');
 
   return (
     <div className="space-y-6">

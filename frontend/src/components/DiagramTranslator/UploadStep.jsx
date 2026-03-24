@@ -1,6 +1,7 @@
 import React from 'react';
 import { Upload, FileText, X } from 'lucide-react';
 import { Badge, Button, Card } from '../ui';
+import { ContextualHint } from '../OnboardingTour';
 
 const SAMPLES = [
   { id: 'aws-hub-spoke', name: 'Hub & Spoke', icon: '🏛️', desc: 'Secure Landing Zone', provider: 'aws' },
@@ -18,6 +19,7 @@ export default function UploadStep({
       <div className="text-center max-w-lg mx-auto">
 
         {/* Drag & Drop Zone */}
+        <ContextualHint id="upload-prompt" content="Drop any cloud diagram here — or try a sample below" position="bottom">
         <div
           role="button"
           tabIndex={0}
@@ -82,6 +84,8 @@ export default function UploadStep({
             </>
           )}
         </div>
+
+        </ContextualHint>
 
         <input ref={fileInputRef} type="file" accept=".png,.jpg,.jpeg,.svg,.pdf,.vsdx,.drawio,image/png,image/jpeg,image/svg+xml,application/pdf" onChange={e => e.target.files[0] && onFileSelect(e.target.files[0])} className="hidden" aria-label="Select architecture diagram file" />
 

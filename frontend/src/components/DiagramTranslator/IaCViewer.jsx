@@ -9,6 +9,7 @@ import {
   Plus, RotateCcw, Send, Loader2, CheckCircle,
 } from 'lucide-react';
 import { Button, Card } from '../ui';
+import { ContextualHint } from '../OnboardingTour';
 
 const QUICK_ACTIONS = [
   { label: 'Add VNet & Subnets', msg: 'Add a Virtual Network with 3 subnets: frontend (10.0.1.0/24), backend (10.0.2.0/24), and data (10.0.3.0/24). Include NSGs for each subnet with appropriate rules.' },
@@ -107,6 +108,7 @@ export default function IaCViewer({
       </Card>
 
       {/* IaC Chat Panel */}
+      <ContextualHint id="iac-chat" content="Ask the AI to modify your infrastructure code" position="top">
       <Card className="p-6">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
@@ -221,6 +223,7 @@ export default function IaCViewer({
           </div>
         )}
       </Card>
+      </ContextualHint>
     </>
   );
 }

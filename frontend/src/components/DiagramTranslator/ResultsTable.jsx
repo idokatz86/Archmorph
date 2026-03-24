@@ -1,9 +1,10 @@
 import React, { useState, useMemo, useCallback, useRef } from 'react';
 import {
   ArrowUpDown, ArrowUp, ArrowDown, Filter, ChevronDown, ChevronUp,
-  AlertTriangle, CheckCircle2, ArrowRight, X,
+  AlertTriangle, CheckCircle2, ArrowRight, X, LayoutGrid,
 } from 'lucide-react';
 import { Badge, Card } from '../ui';
+import { ContextualHint } from '../OnboardingTour';
 
 /* ── Helpers ── */
 const effortValue = (e) => e === 'low' ? 1 : e === 'medium' ? 2 : e === 'high' ? 3 : 0;
@@ -206,6 +207,56 @@ const CATEGORY_COLORS = {
   Other: '#6B7280',
 };
 
+/* ── Confidence Ring (SVG arc indicator) (#516) ── */
+function ConfidenceRing({ value, size = 32 }) {
+  const r = (size - 4) / 2;
+  const circumference = 2 * Math.PI * r;
+  const offset = circumference * (1 - value / 100);
+  const color = value >= 90 ? '#22C55E' : value >= 70 ? '#F59E0B' : '#EF4444';
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-label={`${value}% confidence`}>
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--color-secondary)" strokeWidth={3} />
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={3}
+        strokeDasharray={circumference} strokeDashoffset={offset}
+        strokeLinecap="round" transform={`rotate(-90 ${size / 2} ${size / 2})`}
+        className="transition-all duration-700" />
+      <text x={size / 2} y={size / 2 + 1} textAnchor="middle" dominantBaseline="middle"
+        className="text-[8px] font-bold fill-current text-text-primary">{value}%</text>
+    </svg>
+  );
+}
+
+/* ── Mapping Card (card view mode) (#516) ── */
+function MappingCard({ m, sourceProvider, onClick }) {
+  return (
+    <Card hover className="p-4 cursor-pointer stagger-item" onClick={onClick}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-2">
+            <span className={`text-xs font-semibold ${sourceProvider === 'gcp' ? 'text-[#EA4335]' : 'text-[#FF9900]'}`}>
+              {m._source}
+            </span>
+            <ArrowRight className="w-3 h-3 text-text-muted shrink-0" />
+            <span className="text-xs font-semibold text-info truncate">{m._target}</span>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Badge variant={m._effort === 'low' ? 'high' : m._effort === 'high' ? 'low' : 'medium'}>
+              {m._effort} effort
+            </Badge>
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-secondary text-text-muted">{m._category}</span>
+            {m._gaps.length > 0 && (
+              <span className="flex items-center gap-0.5 text-[10px] text-warning">
+                <AlertTriangle className="w-3 h-3" />{m._gaps.length} gap{m._gaps.length > 1 ? 's' : ''}
+              </span>
+            )}
+          </div>
+        </div>
+        <ConfidenceRing value={Math.round(m._confidence)} size={36} />
+      </div>
+    </Card>
+  );
+}
+
 function RiskMatrix({ mappings, onDotClick }) {
   const [tooltip, setTooltip] = useState(null);
   const svgRef = useRef(null);
@@ -394,11 +445,14 @@ export default function ResultsTable({ analysis, activeView, onViewChange }) {
   return (
     <div className="space-y-4">
       {/* Summary */}
-      <SummaryBar mappings={mappings} />
+      <ContextualHint id="results-review" content="Review your mappings below, then generate IaC" position="bottom">
+        <SummaryBar mappings={mappings} />
+      </ContextualHint>
 
       {/* View Toggle */}
       <div className="flex items-center gap-1 bg-secondary rounded-xl p-1 w-fit">
         {[
+          { id: 'card', label: 'Cards' },
           { id: 'table', label: 'Table' },
           { id: 'matrix', label: 'Matrix' },
           { id: 'map', label: 'Map' },
@@ -420,10 +474,62 @@ export default function ResultsTable({ analysis, activeView, onViewChange }) {
         <RiskMatrix mappings={mappings} onDotClick={handleDotClick} />
       )}
 
+      {/* Card View (#516) */}
+      {activeView === 'card' && (
+        <>
+          <details className="group">
+            <summary className="flex items-center gap-2 text-xs text-text-muted cursor-pointer hover:text-text-primary mb-2">
+              <Filter className="w-3.5 h-3.5" /> Filters
+              <ChevronDown className="w-3 h-3 group-open:rotate-180 transition-transform" />
+            </summary>
+            <div className="mb-3">
+              <FilterBar filters={filters} categories={allCategories} onFilterChange={setFilters} />
+            </div>
+          </details>
+
+          {allCategories.map(cat => {
+            const catItems = sorted.filter(m => m._category === cat);
+            if (catItems.length === 0) return null;
+            return (
+              <details key={cat} open className="group/cat mb-3">
+                <summary className="flex items-center gap-2 cursor-pointer mb-2">
+                  <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: CATEGORY_COLORS[cat] || CATEGORY_COLORS.Other }} />
+                  <span className="text-sm font-semibold text-text-primary">{cat}</span>
+                  <span className="text-xs text-text-muted">({catItems.length})</span>
+                  <ChevronDown className="w-3.5 h-3.5 text-text-muted group-open/cat:rotate-180 transition-transform ml-auto" />
+                </summary>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {catItems.map(m => (
+                    <MappingCard
+                      key={m._idx}
+                      m={m}
+                      sourceProvider={sourceProvider}
+                      onClick={() => { onViewChange?.('table'); setExpandedRow(m._idx); }}
+                    />
+                  ))}
+                </div>
+              </details>
+            );
+          })}
+
+          <p className="text-[10px] text-text-muted text-right">
+            Showing {sorted.length} of {mappings.length} services
+          </p>
+        </>
+      )}
+
       {/* Table View */}
       {activeView === 'table' && (
         <>
-          <FilterBar filters={filters} categories={allCategories} onFilterChange={setFilters} />
+          <details open className="group">
+            <summary className="flex items-center gap-2 text-xs text-text-muted cursor-pointer hover:text-text-primary mb-2">
+              <Filter className="w-3.5 h-3.5" /> Filters
+              <ChevronDown className="w-3 h-3 group-open:rotate-180 transition-transform" />
+            </summary>
+            <div className="mb-2">
+              <FilterBar filters={filters} categories={allCategories} onFilterChange={setFilters} />
+            </div>
+          </details>
 
           <Card className="overflow-hidden">
             <div className="overflow-x-auto">

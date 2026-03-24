@@ -66,6 +66,7 @@ function AnalysisCard({ analysis, onResume, onBookmark, onDelete }) {
 
 export default function DashboardPage() {
   const setActiveTab = useAppStore(s => s.setActiveTab);
+  const setPendingResumeId = useAppStore(s => s.setPendingResumeId);
   const [analyses, setAnalyses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -88,7 +89,8 @@ export default function DashboardPage() {
   };
 
   const handleResume = (analysis) => {
-    // Navigate to translator and load the saved analysis
+    // Pass the analysis ID to the translator for loading (#517)
+    setPendingResumeId(analysis.id);
     setActiveTab('translator');
   };
 

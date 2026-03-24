@@ -37,6 +37,7 @@ const useAppStore = create((set) => {
     activeTab: getInitialTab(),
     adminOpen: false,
     updateStatus: null,
+    pendingResumeId: null,
 
     // ── Actions ──
     setActiveTab: (tab) => {
@@ -49,6 +50,7 @@ const useAppStore = create((set) => {
         }
       }
     },
+    setPendingResumeId: (id) => set({ pendingResumeId: id }),
     setAdminOpen: (open) => set({ adminOpen: open }),
     toggleAdmin: () => set((s) => ({ adminOpen: !s.adminOpen })),
 

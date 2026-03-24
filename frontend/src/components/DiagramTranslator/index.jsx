@@ -11,6 +11,7 @@ import useWorkflow from './useWorkflow';
 import useSSE from '../../hooks/useSSE';
 import useSessionExpiry from '../../hooks/useSessionExpiry';
 import useBeforeUnload from '../../hooks/useBeforeUnload';
+import useAppStore from '../../stores/useAppStore';
 
 const UploadStep = lazy(() => import('./UploadStep'));
 const GuidedQuestions = lazy(() => import('./GuidedQuestions'));
@@ -124,6 +125,34 @@ export default function DiagramTranslator() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ── Resume analysis from Dashboard (#517) ──
+  const pendingResumeId = useAppStore(s => s.pendingResumeId);
+  const setPendingResumeId = useAppStore(s => s.setPendingResumeId);
+  useEffect(() => {
+    if (!pendingResumeId) return;
+    const resumeId = pendingResumeId;
+    setPendingResumeId(null);
+    (async () => {
+      try {
+        const data = await api.get(`/history/${resumeId}`);
+        if (data && data.diagram_id) {
+          set({
+            diagramId: data.diagram_id,
+            analysis: data.analysis || null,
+            questions: data.questions || [],
+            answers: data.answers || {},
+            iacCode: data.iac_code || null,
+            iacFormat: data.iac_format || 'terraform',
+            hldData: data.hld_data || null,
+            step: data.iac_code ? 'iac' : data.analysis ? 'results' : 'upload',
+          });
+        }
+      } catch {
+        set({ error: 'Could not load saved analysis. It may have expired.' });
+      }
+    })();
+  }, [pendingResumeId, setPendingResumeId, set]);
 
   // ── Auto-trigger HLD generation when entering HLD tab (#400) ──
   useEffect(() => {
