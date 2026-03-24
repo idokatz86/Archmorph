@@ -350,7 +350,7 @@ async def scim_delete_user(
         raise ArchmorphException(404, f"User '{user_id}' not found")
 
     _scim_user_store.delete(store_key)
-    logger.info("SCIM user deprovisioned: %s", user_id)
+    logger.info("SCIM user deprovisioned: %s", str(user_id).replace('\n', '').replace('\r', ''))
     return Response(status_code=204)
 
 

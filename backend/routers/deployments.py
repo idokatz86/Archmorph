@@ -52,18 +52,21 @@ async def preview_deployment(
     logger.info("Received deployment preview request for provider: %s", str(payload.provider).replace('\n', '').replace('\r', ''))
     
     if payload.provider.lower() == "azure":
-        _preview_failed = False
-        result = None
-        try:
-            result = await azure_service.preview_deployment(payload.model_dump())
-        except Exception:
-            _preview_failed = True
-            logger.error("Deployment preview failed")
-        if _preview_failed:
+        result = await _safe_preview(azure_service, payload)
+        if result is None:
             raise HTTPException(status_code=500, detail="Deployment preview failed.")
         return {"status": "success", "data": result}
     else:
         raise HTTPException(status_code=501, detail="Preview not fully implemented for the requested provider")
+
+
+async def _safe_preview(azure_service, payload):
+    """Run preview, return result or None on failure."""
+    try:
+        return await azure_service.preview_deployment(payload.model_dump())
+    except Exception:
+        logger.error("Deployment preview failed")
+        return None
 
 @router.post("/execute")
 async def execute_deployment(
@@ -80,17 +83,21 @@ async def execute_deployment(
     logger.info("Executing deployment %s for provider: %s", str(job_id).replace('\n', '').replace('\r', ''), str(payload.provider).replace('\n', '').replace('\r', ''))
     
     if payload.provider.lower() == "azure":
-        _failed = False
-        try:
-            result = await azure_service.deploy_infrastructure(job_id, payload.model_dump())
-        except Exception:
-            _failed = True
-            logger.error("Deployment execution failed for job %s", str(job_id).replace('\n', '').replace('\r', ''))
-        if _failed:
+        result = await _safe_execute(azure_service, job_id, payload)
+        if result is None:
             raise HTTPException(status_code=500, detail="Deployment failed. Please try again.")
         return DeploymentResponse(job_id=job_id, status=result["status"], message=result["message"])
     else:
         raise HTTPException(status_code=501, detail="Deploy not fully implemented for the requested provider")
+
+
+async def _safe_execute(azure_service, job_id, payload):
+    """Run deployment, return result or None on failure."""
+    try:
+        return await azure_service.deploy_infrastructure(job_id, payload.model_dump())
+    except Exception:
+        logger.error("Deployment execution failed for job %s", str(job_id).replace('\n', '').replace('\r', ''))
+        return None
 
 @router.get("/{job_id}/stream")
 async def stream_deployment_logs(job_id: str):
