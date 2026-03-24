@@ -7,7 +7,7 @@ Lightweight — no external dependencies, persists to session store.
 
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
