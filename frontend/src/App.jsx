@@ -27,6 +27,7 @@ const CanvasEditor = lazy(() => import('./components/CanvasEditor/CanvasEditor')
 const CommandPalette = lazy(() => import('./components/CommandPalette'));
 const DashboardPage = lazy(() => import('./components/DashboardPage'));
 const PlaygroundPage = lazy(() => import('./components/PlaygroundPage'));
+const ApiDocs = lazy(() => import('./components/ApiDocs'));
 
 
 function TabFallback() {
@@ -98,6 +99,7 @@ export default function App() {
             {activeTab === 'roadmap' && <Roadmap />}
             {activeTab === 'drift' && <DriftDashboard />}
             {activeTab === 'canvas' && <CanvasEditor />}
+            {activeTab === 'api-docs' && <ApiDocs />}
             {activeTab === 'legal' && <LegalPages onBack={() => setActiveTab('translator')} />}
 
           </Suspense>

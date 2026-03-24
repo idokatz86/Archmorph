@@ -49,7 +49,7 @@ export default function Nav({ activeTab, setActiveTab, updateStatus }) {
                 <CloudCog className="w-5 h-5 text-cta" />
               </div>
               <div>
-                <h1 className="text-lg font-bold tracking-tight"><span className="text-text-primary">Arch</span><span className="text-cta">morph</span></h1>
+                <h1 className="text-lg font-bold font-semibold tracking-tight"><span className="text-text-primary">Arch</span><span className="text-cta">morph</span></h1>
                 <p className="text-[10px] text-text-muted font-medium uppercase tracking-wider">Modernize Any Cloud</p>
               </div>
             </div>
@@ -62,7 +62,7 @@ export default function Nav({ activeTab, setActiveTab, updateStatus }) {
                   aria-current={activeTab === tab.id ? 'page' : undefined}
                   className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-all duration-200 cursor-pointer relative ${
                     activeTab === tab.id
-                      ? 'bg-cta/10 text-cta'
+                      ? 'bg-cta/10 text-cta shadow-[0_0_12px_-3px] shadow-cta/30'
                       : 'text-text-secondary hover:text-text-primary hover:bg-secondary'
                   }`}
                 >

@@ -244,3 +244,76 @@ export function Tooltip({ children, content, position = 'top' }) {
     </div>
   );
 }
+
+/* ── Wave 1: Additional form primitives (#510) ── */
+
+export const Textarea = forwardRef(function Textarea({ label, error, helpText, className = '', id, ...rest }, ref) {
+  const textareaId = id || (label ? label.toLowerCase().replace(/\s+/g, '-') : undefined);
+  const errorId = error ? `${textareaId}-error` : undefined;
+  const helpId = helpText && !error ? `${textareaId}-help` : undefined;
+  return (
+    <div className={`flex flex-col gap-1 ${className}`}>
+      {label && <label htmlFor={textareaId} className="text-sm font-medium text-text-secondary">{label}</label>}
+      <textarea
+        ref={ref}
+        id={textareaId}
+        aria-invalid={error ? 'true' : undefined}
+        aria-describedby={errorId || helpId || undefined}
+        className={`w-full px-3 py-2 text-sm bg-secondary border rounded-lg text-text-primary placeholder:text-text-muted transition-colors duration-150 resize-y min-h-[80px] focus:outline-none focus:ring-2 focus:ring-cta/50 focus:border-cta ${
+          error ? 'border-danger ring-1 ring-danger/30' : 'border-border hover:border-border-light'
+        }`}
+        {...rest}
+      />
+      {error && <p id={errorId} className="text-xs text-danger flex items-center gap-1"><AlertCircle className="w-3 h-3" />{error}</p>}
+      {helpText && !error && <p id={helpId} className="text-xs text-text-muted">{helpText}</p>}
+    </div>
+  );
+});
+
+export function Checkbox({ label, checked, onChange, disabled, className = '', id }) {
+  const checkboxId = id || (label ? `cb-${label.toLowerCase().replace(/\s+/g, '-')}` : undefined);
+  return (
+    <label htmlFor={checkboxId} className={`inline-flex items-center gap-2 cursor-pointer select-none ${disabled ? 'opacity-50 cursor-not-allowed' : ''} ${className}`}>
+      <input
+        type="checkbox"
+        id={checkboxId}
+        checked={checked}
+        onChange={onChange}
+        disabled={disabled}
+        className="sr-only peer"
+      />
+      <span className="w-4 h-4 rounded border border-border bg-secondary flex items-center justify-center transition-colors peer-checked:bg-cta peer-checked:border-cta peer-focus-visible:ring-2 peer-focus-visible:ring-cta/50">
+        {checked && (
+          <svg className="w-3 h-3 text-surface" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+        )}
+      </span>
+      {label && <span className="text-sm text-text-primary">{label}</span>}
+    </label>
+  );
+}
+
+export function RadioGroup({ label, name, options = [], value, onChange, className = '' }) {
+  return (
+    <fieldset className={`flex flex-col gap-1 ${className}`}>
+      {label && <legend className="text-sm font-medium text-text-secondary mb-1">{label}</legend>}
+      <div className="flex flex-col gap-2">
+        {options.map((opt) => (
+          <label key={opt.value} className="inline-flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="radio"
+              name={name}
+              value={opt.value}
+              checked={value === opt.value}
+              onChange={(e) => onChange?.(e.target.value)}
+              className="sr-only peer"
+            />
+            <span className="w-4 h-4 rounded-full border border-border bg-secondary flex items-center justify-center transition-colors peer-checked:border-cta peer-focus-visible:ring-2 peer-focus-visible:ring-cta/50">
+              {value === opt.value && <span className="w-2 h-2 rounded-full bg-cta" />}
+            </span>
+            <span className="text-sm text-text-primary">{opt.label}</span>
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  );
+}

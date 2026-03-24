@@ -211,3 +211,12 @@
   height: 6rem;
   border-radius: 0.75rem;
 }
+
+/* UX Wave 1 — Micro-interactions (#508) */
+.animate-fade-in { animation: fadeIn 0.3s ease-out; }
+.animate-slide-up { animation: slideUp 0.3s ease-out; }
+.animate-slide-down { animation: slideDown 0.2s ease-out; }
+.animate-pulse-once { animation: pulseOnce 0.6s ease-out; }
+
+@keyframes slideDown { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes pulseOnce { 0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); } }

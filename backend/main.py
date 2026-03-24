@@ -101,6 +101,9 @@ from routers.network_routes import router as network_router  # noqa: E402
 from routers.share_routes import router as share_routes_router  # noqa: E402
 from routers.diff_routes import router as diff_routes_router  # noqa: E402
 from routers.analytics_routes import router as analytics_router  # noqa: E402
+from routers.sso_routes import router as sso_router  # noqa: E402
+from routers.terraform_import_routes import router as terraform_import_router  # noqa: E402
+from routers.cost_comparison_routes import router as cost_comparison_router  # noqa: E402
 from routers.v1 import build_v1_router  # noqa: E402
 from api_versioning import VersionMiddleware  # noqa: E402
 from audit_logging import audit_logger, AuditEventType  # noqa: E402, F401
@@ -381,6 +384,9 @@ app.include_router(network_router)
 app.include_router(share_routes_router)
 app.include_router(diff_routes_router)
 app.include_router(analytics_router)
+app.include_router(sso_router)
+app.include_router(terraform_import_router)
+app.include_router(cost_comparison_router)
 
 # ─────────────────────────────────────────────────────────────
 # API v1 Versioned Routes (/api/v1/* mirrors /api/*)
