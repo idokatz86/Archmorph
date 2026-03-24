@@ -107,7 +107,7 @@ async def submit_entry(
     }
     _gallery_store[entry_id] = entry
 
-    logger.info("Gallery entry submitted: %s (%s → %s)", entry_id, body.source_cloud, body.target_cloud)
+    logger.info("Gallery entry submitted: %s (%s → %s)", entry_id, str(body.source_cloud).replace('\n', '').replace('\r', ''), str(body.target_cloud).replace('\n', '').replace('\r', ''))
     return {"entry_id": entry_id, "status": "submitted"}
 
 

@@ -68,7 +68,7 @@ async def start_recording(
     }
     _replay_store[replay_id] = replay
 
-    logger.info("Replay recording started: %s for analysis %s", replay_id, body.analysis_id)
+    logger.info("Replay recording started: %s for analysis %s", replay_id, str(body.analysis_id).replace('\n', '').replace('\r', ''))
     return {"replay_id": replay_id, "analysis_id": body.analysis_id}
 
 

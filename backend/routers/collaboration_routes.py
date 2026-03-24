@@ -80,7 +80,7 @@ async def create_session(
     _session_store[session_id] = session
     _change_store[session_id] = []
 
-    logger.info("Collab session created: %s for analysis %s", session_id, body.analysis_id)
+    logger.info("Collab session created: %s for analysis %s", session_id, str(body.analysis_id).replace('\n', '').replace('\r', ''))
     return CreateSessionResponse(
         session_id=session_id,
         share_code=share_code,
@@ -129,7 +129,7 @@ async def join_session(
     })
     _session_store[session_id] = session
 
-    logger.info("User %s joined session %s as %s", body.user_id, session_id, body.role)
+    logger.info("User %s joined session %s as %s", str(body.user_id).replace('\n', '').replace('\r', ''), str(session_id).replace('\n', '').replace('\r', ''), str(body.role).replace('\n', '').replace('\r', ''))
     return {"status": "joined", "session_id": session_id, "role": body.role}
 
 
