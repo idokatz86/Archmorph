@@ -313,92 +313,88 @@ flowchart TB
 
 ```mermaid
 flowchart LR
-    subgraph Upload["1️⃣ Upload"]
-        A[📤 Upload Diagram<br/>PNG/JPG/SVG/PDF/Draw.io<br/>or Import TF/ARM/CFN]
+    subgraph Input["Phase 1: Input"]
+        A1[📤 Upload Diagram<br/>PNG/SVG/PDF/Draw.io/Visio]
+        A2[📥 Import IaC<br/>TF State / ARM / CF]
+        A3[🔍 Live Cloud Scan<br/>AWS / Azure / GCP]
+        A4[🎮 Demo Playground<br/>Sample Diagrams]
+        A5[🤖 AI Vision Analysis<br/>GPT-4.1 + Cache]
     end
     
-    subgraph Analysis["2️⃣ AI Analysis"]
-        B[🤖 GPT-4o Vision<br/>Service Detection + Cache]
+    subgraph Analysis["Phase 2: Analysis"]
+        B1[❓ Guided Questions<br/>32 Rules · 8 Categories]
+        B2[📊 Service Mappings<br/>Confidence + Transparency]
+        B3[🔗 Dependency Graph<br/>React Flow · 6 Edge Types]
+        B4[💬 Migration Chat<br/>Q&A Advisor]
+        B5[🤝 Collaboration<br/>Real-Time · Share Codes]
     end
     
-    subgraph Questions["3️⃣ Guided Questions"]
-        C[❓ 8-18 Questions<br/>SKU/Compliance/DR/Region<br/>+ Inter-Question Constraints]
+    subgraph Deliverables["Phase 3: Deliverables"]
+        C1[📝 IaC Code<br/>Terraform/Bicep/CF]
+        C2[📄 HLD Document<br/>13 Sections + WAF]
+        C3[💰 Cost Analysis<br/>3-Cloud TCO Compare]
+        C4[🚀 One-Click Deploy<br/>Preview + Execute]
+        C5[📐 Diagram Export<br/>Excalidraw/Draw.io/Visio]
+        C6[📑 PDF Report<br/>6-Section Branded]
+        C7[📅 Timeline<br/>7-Phase Migration]
+        C8[⚠️ Risk + Runbook<br/>Assessment + Steps]
+        C9[🎬 Replay + Gallery<br/>Animated · Public Stories]
     end
     
-    subgraph Results["4️⃣ Results"]
-        D[📊 Multi-Cloud Mappings<br/>Confidence Scores<br/>+ Transparency Explanations]
-    end
+    A1 --> A5
+    A2 --> A5
+    A3 --> A5
+    A4 --> A5
+    A5 --> B1 --> B2
+    B2 --> B3
+    B2 --> B4
+    B2 --> B5
+    B2 --> C1
+    B2 --> C2
+    B2 --> C3
+    B2 --> C4
+    B2 --> C5
+    B2 --> C6
+    B2 --> C7
+    B2 --> C8
+    B2 --> C9
     
-    subgraph Export["5️⃣ Export"]
-        E[📐 Diagram Export<br/>Excalidraw/Draw.io/Visio]
-        F[📝 IaC Generator<br/>Terraform/Bicep/CFN<br/>+ Security Scan]
-        G[💰 Cost Estimate<br/>Cross-Cloud Comparison]
-        H[📄 HLD Document<br/>13 Sections + WAF]
-        L[📑 PDF Report<br/>6-Section Branded]
-    end
-    
-    subgraph Intelligence["6️⃣ Intelligence"]
-        I[🧠 AI Suggestions<br/>Few-Shot Learning]
-        J[📋 Compliance Map<br/>GDPR/HIPAA/SOC2]
-        K[⚠️ Migration Risk<br/>Assessment + Runbook]
-        M[📅 Migration Timeline<br/>7-Phase DAG]
-        N[🔗 Dependency Graph<br/>React Flow Canvas]
-    end
-    
-    subgraph Platform["7️⃣ Platform"]
-        O[🤖 Agent PaaS<br/>ReAct + Tools + RAG]
-        P[💵 Cost Dashboard<br/>Token Metering + Budgets]
-        Q[🔐 Auth + RBAC<br/>Social Login + Orgs]
-    end
-    
-    A --> B --> C --> D --> E
-    D --> F
-    D --> G
-    D --> H
-    D --> L
-    D --> I
-    D --> J
-    D --> K
-    D --> M
-    D --> N
-    O --> P
-    Q -.-> O
-    
-    style Upload fill:#3B82F6,color:#fff
-    style Analysis fill:#8B5CF6,color:#fff
-    style Questions fill:#F59E0B,color:#fff
-    style Results fill:#22C55E,color:#fff
-    style Export fill:#06B6D4,color:#fff
-    style Intelligence fill:#EC4899,color:#fff
-    style Platform fill:#F97316,color:#fff
+    style Input fill:#1e3a5f,color:#fff
+    style Analysis fill:#1a2e05,color:#fff
+    style Deliverables fill:#2d1b4e,color:#fff
 ```
 
 ### Step-by-Step Flow
 
 ```
-Upload Diagram → AI Analysis → Guided Questions → Results & Export → Generate IaC → Cost Estimate
+Input (Upload / Scan / Import) → AI Analysis → Guided Questions → Collaboration → Deliverables (IaC / HLD / Cost / Deploy)
 ```
 
-1. **Upload** — User uploads an AWS or GCP architecture diagram, or imports existing IaC (Terraform/ARM/CloudFormation)
-2. **AI Analysis** — GPT-4o Vision detects services, connections, and annotations (with TTL cache)
-3. **Feature Flags** — Feature availability checked via flags system (percentage rollout + user targeting)
-4. **Guided Questions** — 8–18 contextual questions refine migration choices (SKU, compliance, networking, DR, security, deployment region) with inter-question constraints
-5. **Results** — Multi-cloud service mappings grouped by zone with confidence scores and transparency explanations
-6. **Dependency Graph** — Interactive React Flow canvas showing service connections with 6 typed edges
-7. **Diagram Export** — Download translated architecture as Excalidraw, Draw.io, or Visio
-8. **IaC Generation** — Generate Terraform HCL, Bicep, or CloudFormation with syntax highlighting and security scanning
-9. **Cost Estimation** — Region-aware monthly cost breakdown with cross-cloud comparison and token observability
-10. **HLD Generation** — AI-powered High-Level Design document with WAF assessment
-11. **HLD Export** — Download HLD as Word, PDF, or PowerPoint with branded formatting
-12. **PDF Report** — Download branded 6-section analysis report
-13. **Migration Timeline** — Auto-generated phased plan with dependency ordering and parallel workstreams
-14. **IaC Chat** — Interactive code modification via GPT-4o assistant
-15. **AI Suggestions** — Intelligent service mapping with few-shot learning and admin review queue
-16. **Compliance Mapping** — GDPR/HIPAA/SOC2/FedRAMP compliance assessment
-17. **RAG Search** — Upload reference documents for grounded AI responses
-18. **Agent PaaS** — Create agents with tools and RAG collections for automated workflows
-14. **Migration Risk** — Risk assessment with automated runbook generation
-15. **Migration Intelligence** — ML-powered pattern matching for migration optimization
+**Phase 1 — Input** (choose one or more entry points):
+1. **Upload Diagram** — PNG, JPG, SVG, PDF, Draw.io (.drawio), or Visio (.vsdx) architecture diagram
+2. **Import IaC** — Upload existing Terraform state (v3/v4), CloudFormation template, or ARM deployment JSON
+3. **Live Cloud Scan** — Connect to AWS/Azure/GCP with secure credentials (AES-256, 1hr TTL) and scan live infrastructure
+4. **Demo Playground** — Try with sample diagrams, no sign-up required
+5. **AI Vision Analysis** — GPT-4.1 detects services, connections, and annotations (with TTL cache)
+
+**Phase 2 — Analysis** (collaborative, real-time):
+6. **Guided Questions** — 8–18 contextual questions refine migration (SKU, compliance, networking, DR, security, region) with inter-question constraints
+7. **Service Mappings** — Multi-cloud mappings with confidence scores and transparency explanations
+8. **Dependency Graph** — Interactive React Flow canvas with 6 typed edges and dagre layout
+9. **Migration Chat** — GPT-4o Q&A advisor for migration questions
+10. **Collaboration** — Invite team members via share code with role-based access (architect/devops/manager/security)
+
+**Phase 3 — Deliverables** (tabbed interface):
+11. **IaC Code** — Terraform HCL, Bicep, or CloudFormation with security scanning and IaC Chat assistant
+12. **HLD Document** — 13-section AI-generated design document with WAF assessment, export as DOCX/PDF/PPTX
+13. **Cost Analysis** — Side-by-side Azure vs AWS vs GCP TCO with optimization recommendations
+14. **One-Click Deploy** — Preview (plan/what-if) and execute deployment to any target cloud with rollback
+15. **Diagram Export** — Download as Excalidraw, Draw.io, or Visio with cloud-specific stencils
+16. **PDF Report** — 6-section branded analysis report
+17. **Migration Timeline** — 7-phase plan with topological dependency ordering and parallel workstreams
+18. **Risk Assessment** — Risk scoring with automated runbook generation
+19. **Migration Replay** — Animated timeline playback for presentations (play/pause/speed controls)
+20. **Migration Gallery** — Submit anonymized success stories to the public gallery
 
 ---
 
