@@ -1,14 +1,14 @@
 # Archmorph
 
-**AI-Powered Cloud Architecture Translator to Azure**
+**AI-Powered Multi-Cloud Architecture Translator & Migration Platform**
 
-Convert AWS and GCP architecture diagrams into Azure equivalents with guided migration questions, interactive diagram exports, ready-to-deploy Terraform/Bicep infrastructure code, dynamic cost estimates, and a self-updating service catalog.
+Translate cloud architectures between AWS, Azure, and GCP — scan live infrastructure, analyze diagrams, generate IaC, compare costs, and deploy to any target cloud. Features real-time collaboration, enterprise SSO, migration gallery, and a self-updating 405+ service catalog.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Azure](https://img.shields.io/badge/cloud-Azure-0078D4.svg)
+![Multi-Cloud](https://img.shields.io/badge/cloud-AWS%20%7C%20Azure%20%7C%20GCP-0078D4.svg)
 ![Version](https://img.shields.io/badge/version-4.1.0-22C55E.svg)
 ![Status](https://img.shields.io/badge/status-Production-22C55E.svg)
-![Tests](https://img.shields.io/badge/tests-1446%20passing-22C55E.svg)
+![Tests](https://img.shields.io/badge/tests-1471%20passing-22C55E.svg)
 ![Python](https://img.shields.io/badge/python-3.12-3776AB.svg)
 ![React](https://img.shields.io/badge/react-19.1-61DAFB.svg)
 ![Vibe Coding](https://img.shields.io/badge/built_with-Vibe_Coding-FF69B4.svg)
@@ -18,10 +18,12 @@ Convert AWS and GCP architecture diagrams into Azure equivalents with guided mig
 
 ## Overview
 
-Archmorph uses Azure OpenAI GPT-4.1 (with GPT-4o fallback) to analyze cloud architecture diagrams, identify services, ask guided migration questions with inter-question constraints, map services to Azure equivalents with confidence scores and transparency explanations, export architecture diagrams in multiple formats, generate deployable infrastructure as code with security scanning, estimate costs using the Azure Retail Prices API, automatically discover and integrate new cloud services into its catalog, and provide a comprehensive icon registry with multi-format library export.
+Archmorph is an end-to-end cloud migration platform. It scans live AWS/Azure/GCP infrastructure, analyzes architecture diagrams using GPT-4.1 vision, maps services across clouds with confidence scoring, generates deployable IaC (Terraform/Bicep/CloudFormation), compares costs across all three clouds, and deploys to any target. It supports real-time multi-stakeholder collaboration, enterprise SSO (SAML/SCIM), Terraform state import, migration replay for presentations, and a public migration gallery.
 
 **Key Capabilities:**
-- Upload architecture diagrams (PNG, JPG, SVG, PDF, Draw.io, Visio)
+- Upload architecture diagrams (PNG, JPG, SVG, PDF, Draw.io, Visio) or import existing IaC (Terraform/ARM/CloudFormation)
+- **Live Cloud Scanner** — connect to AWS/Azure/GCP accounts and scan all infrastructure with secure credential vault (AES-256, 1hr TTL, zero persistence)
+- **One-Click Deploy** — deploy generated IaC to any target cloud with preview (plan/what-if) and blue-green rollback
 - Auto-detect AWS/GCP services with AI vision across a **405+ service catalog** (145 AWS, 143 Azure, 117 GCP — grows automatically)
 - **Guided migration questions** — 32 contextual questions across 8 categories with **inter-question constraint system** that dynamically filters options based on compliance and data residency choices
 - Map to Azure equivalents with **confidence scores and transparency explanations** showing why each level was assigned
@@ -163,6 +165,17 @@ flowchart TB
                 RAG[RAG Pipeline<br/>Ingest/Embed/Search]
                 AgentPaaS[Agent PaaS<br/>ReAct Execution]
                 ReportGen[PDF Report<br/>6-Section Export]
+                Scanner[Cloud Scanner<br/>AWS/Azure/GCP Live]
+                CredVault[Credential Vault<br/>AES-256 + 1hr TTL]
+                DeployEng[Deploy Engine<br/>Preview + Execute]
+                SSO[SSO / SAML / SCIM<br/>Enterprise Auth]
+                Collab[Collaboration<br/>Real-Time Sessions]
+                Replay[Migration Replay<br/>Animated Timeline]
+                Gallery[Migration Gallery<br/>Public Stories]
+                TFImport[TF State Import<br/>tfstate/ARM/CF]
+                MultiCost[Multi-Cloud Cost<br/>3-Cloud TCO]
+                Analytics[Product Analytics<br/>Funnel Tracking]
+                Billing[Stripe Billing<br/>Metered Usage]
             end
             ErrorEnv[Error Envelope<br/>Middleware]
             FeatureFlags[Feature Flags<br/>% rollout + targeting]
@@ -210,6 +223,16 @@ flowchart TB
     AgentPaaS --> RAG
     API --> MigTimeline
     API --> ReportGen
+    API --> Scanner --> CredVault
+    API --> DeployEng
+    API --> SSO
+    API --> Collab
+    API --> Replay
+    API --> Gallery
+    API --> TFImport
+    API --> MultiCost
+    API --> Analytics
+    API --> Billing
     API --> Auth
     API --> Pricing
     API --> DB
@@ -268,6 +291,17 @@ flowchart TB
 | API Versioning | v1 prefix mirror for all routes | Middleware |
 | WAF | OWASP CRS 3.2 | Azure Front Door Premium |
 | Testing | pytest (1446 tests) + Vitest + Playwright E2E | CI/CD |
+| Cloud Scanner | AWS/Azure/GCP live infra scanner | In-process engine |
+| Credential Vault | AES-256 encrypted, 1hr TTL, zero-persist | In-process engine |
+| Deploy Engine | Preview (plan/what-if) + execute + rollback | In-process engine |
+| SSO / SAML / SCIM | SAML 2.0 ACS + SCIM v2.0 provisioning | Middleware |
+| Collaboration | Real-time multi-stakeholder sessions | In-process engine |
+| Migration Replay | Animated analysis timeline playback | In-process engine |
+| Migration Gallery | Public anonymized success stories | In-process engine |
+| TF State Import | tfstate/ARM/CF → architecture diagrams | In-process engine |
+| Multi-Cloud Cost | Side-by-side Azure/AWS/GCP TCO | In-process engine |
+| Product Analytics | PostHog + backend funnel tracking | In-process engine |
+| Stripe Billing | Metered usage billing + quotas | In-process engine |
 
 > 📐 **Detailed Diagrams:** [architecture.excalidraw](docs/architecture.excalidraw) | [application-flow.excalidraw](docs/application-flow.excalidraw) — Open in [Excalidraw](https://excalidraw.com)
 
@@ -432,7 +466,7 @@ Dynamic pricing powered by the [Azure Retail Prices API](https://prices.azure.co
 
 ## API Reference
 
-### Core Endpoints (~172 total across 25 router modules)
+### Core Endpoints (200+ total across 59 router modules)
 
 > **Note:** All `/api/*` routes are also available at `/api/v1/*` for versioned API access.
 
@@ -542,42 +576,17 @@ Dynamic pricing powered by the [Azure Retail Prices API](https://prices.azure.co
 
 | Suite | Framework | Tests | Command |
 |-------|-----------|-------|---------|
-| Backend unit | pytest | 1609 | `cd backend && python -m pytest tests/ -v` |
+| Backend unit | pytest | 1446 | `cd backend && python -m pytest tests/ -v` |
 | Frontend unit | Vitest | 22 | `cd frontend && npx vitest run` |
-| E2E | Playwright | 34 | `npx playwright test` |
-| **Total** | | **1665** | |
+| E2E | Playwright | 3 | `npx playwright test` |
+| **Total** | | **1471** | |
 
 ### Coverage
 
 - **70+ test files** covering all API endpoints and router modules
-- **89 core API tests** covering the full translation flow
-- **65 audit logging tests** covering structured logs, risk levels, queries
-- **64 journey analytics tests** covering user journey tracking
-- **58 icon registry tests** covering SVG sanitization, registry ops, all 3 library builders, API routes, and Pydantic models
-- **57 session UX tests** covering session expiry, before-unload, focus trap
-- **56 contract tests** covering API contract validation
-- **55 middleware tests** covering correlation ID, logging, versioning, and feature flags middleware
-- **50 compliance mapper tests** covering GDPR/HIPAA/SOC2/FedRAMP frameworks
-- **48 AI suggestion tests** covering service recommendations
-- **46 coverage gap tests** covering edge cases and uncovered paths
-- **45 service updater tests** covering auto-discovery, fuzzy matching, and catalog integration
-- **44 migration risk tests** covering risk assessment and runbook generation
-- **42 migration intelligence tests** covering ML pattern matching
-- **40 error envelope tests** covering structured error middleware
-- **38 infrastructure import tests** covering TF/ARM/CFN parsing
-- **36 HLD generator tests** covering AI document generation and WAF assessment
-- **34 cost comparison tests** covering cross-cloud pricing
-- **33 guided questions tests** covering rule evaluation and deduplication
-- **32 prompt injection guard tests** covering input sanitization
-- **30 living architecture tests** covering drift detection
-- **28 analytics tests** covering funnel tracking, metrics persistence, and Azure Blob Storage
-- **28 pricing tests** covering Azure Retail Prices API integration and caching
-- **27 HLD export tests** covering Word/PDF/PowerPoint generation and diagram inclusion
-- **26 chaos engineering tests** covering fault injection, recovery, and resilience
-- **24 roadmap tests** covering feature requests and bug reports
-- **21 auth tests** covering JWT session management, login/logout, token revocation
+- 1446 backend tests covering the full translation flow, analytics, collaboration, gallery, replay, scanner, deploy, SSO, TF import, cost comparison, and all existing features
 - **22 frontend Vitest tests** covering component rendering and interactions
-- **34 Playwright E2E tests** covering full translation flow, diagram export, IaC generation, chat widget, services browser, admin dashboard
+- **3 Playwright E2E tests** covering golden-path UI flows
 - All backend tests run against a test FastAPI client; E2E tests run against the deployed app
 
 ---
@@ -593,34 +602,34 @@ Archmorph/
 │   │   ├── index.css                # Global styles, fonts, scrollbar
 │   │   ├── main.jsx                 # Entry point
 │   │   ├── components/
-│   │   │   ├── AISuggestionPanel.jsx # AI service recommendation panel
-│   │   │   ├── AdminDashboard.jsx   # Admin metrics & monitoring panel
-│   │   │   ├── ChatWidget.jsx       # AI chatbot assistant overlay
-│   │   │   ├── CompliancePanel.jsx  # Compliance framework mapping
-│   │   │   ├── CookieBanner.jsx     # GDPR cookie consent banner
 │   │   │   ├── DiagramTranslator/   # Main diagram upload & translation flow
 │   │   │   │   ├── index.jsx            # Root component with useWorkflow hook
 │   │   │   │   ├── UploadStep.jsx       # Diagram upload + infra import
 │   │   │   │   ├── AnalysisResults.jsx  # AI analysis results display
 │   │   │   │   ├── GuidedQuestions.jsx  # Guided questions with constraints
-│   │   │   │   ├── ExportPanel.jsx      # Diagram export panel
 │   │   │   │   ├── IaCViewer.jsx        # IaC code viewer with security scan
 │   │   │   │   ├── CostPanel.jsx        # Cost estimation + comparison
-│   │   │   │   ├── HLDPanel.jsx         # HLD generation & export
+│   │   │   │   ├── HLDTab.jsx           # HLD generation & export
+│   │   │   │   ├── DeployPanel.jsx      # One-click deployment
 │   │   │   │   └── useWorkflow.js       # Workflow state machine hook
-│   │   │   ├── ErrorBoundary.jsx    # React error boundary
-│   │   │   ├── FeedbackWidget.jsx   # NPS and feedback collection
-│   │   │   ├── InfraImportPanel.jsx # Import existing TF/ARM/CFN
+│   │   │   ├── ScannerWizard/       # Live cloud scanner flow
+│   │   │   │   ├── ConnectStep.jsx      # Cloud provider + credentials
+│   │   │   │   ├── ScanStep.jsx         # Scan execution + progress
+│   │   │   │   ├── ReviewStep.jsx       # Results review
+│   │   │   │   └── index.jsx            # 3-step wizard flow
+│   │   │   ├── CanvasEditor/        # Interactive architecture canvas
+│   │   │   ├── DriftDashboard/      # Infrastructure drift monitoring
+│   │   │   ├── Auth/                # Social auth + user profiles
+│   │   │   ├── CollabWorkspace.jsx  # Real-time collaboration panel
+│   │   │   ├── MigrationReplay.jsx  # Animated replay viewer
+│   │   │   ├── MigrationGallery.jsx # Public migration gallery
+│   │   │   ├── ApiDocs.jsx          # API developer portal
+│   │   │   ├── EmptyState.jsx       # Reusable empty state component
+│   │   │   ├── PhaseIndicator.jsx   # 3-phase progress indicator
 │   │   │   ├── LandingPage.jsx      # Marketing landing page
-│   │   │   ├── LegalPages.jsx       # Privacy policy, terms of service
-│   │   │   ├── MigrationRiskPanel.jsx # Migration risk assessment
-│   │   │   ├── MonitoringDashboard.jsx # Observability dashboard
-│   │   │   ├── Nav.jsx              # Navigation bar
-│   │   │   ├── OrganizationSettings.jsx # Multi-tenant org settings
-│   │   │   ├── Roadmap.jsx          # Product roadmap timeline
-│   │   │   ├── ServicesBrowser.jsx  # Service catalog browser
-│   │   │   ├── Toast.jsx            # Toast notification system
-│   │   │   └── ui.jsx               # Shared UI components
+│   │   │   ├── Nav.jsx              # Navigation bar (9 tabs + Gallery)
+│   │   │   ├── ui.jsx               # Design system (Button, Badge, Card, Input, Select, Modal, Tabs, etc.)
+│   │   │   └── ... (109 total)      # + additional components
 │   │   ├── hooks/
 │   │   │   ├── useBeforeUnload.js   # Unsaved changes protection
 │   │   │   ├── useFocusTrap.js      # Modal focus trap (accessibility)
@@ -633,32 +642,31 @@ Archmorph/
 │   └── package.json
 ├── backend/                         # FastAPI service
 │   ├── main.py                      # App factory, middleware (181 lines)
-│   ├── routers/                     # 25 FastAPI router modules
+│   ├── routers/                     # 59 FastAPI router modules
 │   │   ├── services.py              # Service catalog routes
 │   │   ├── diagrams.py              # Diagram analysis routes
 │   │   ├── chat.py                  # Chat & IaC chat routes
 │   │   ├── admin.py                 # Admin dashboard routes
-│   │   ├── auth.py                  # Auth routes
-│   │   ├── billing.py               # Billing & subscription routes
-│   │   ├── dashboard.py             # User dashboard routes
-│   │   ├── feature_flags.py         # Feature flag management routes
-│   │   ├── feedback.py              # Feedback & NPS routes
-│   │   ├── health.py                # Health check routes
+│   │   ├── auth.py                  # Social auth routes (MS/Google/GitHub)
+│   │   ├── sso_routes.py            # SAML/SCIM enterprise SSO
+│   │   ├── collaboration_routes.py  # Real-time collaboration sessions
+│   │   ├── replay_routes.py         # Migration replay timeline
+│   │   ├── gallery_routes.py        # Public migration gallery
+│   │   ├── scanner_routes.py        # Live cloud infrastructure scanner
+│   │   ├── credentials.py           # Secure credential vault
+│   │   ├── deployments.py           # Deploy engine (preview + execute)
+│   │   ├── terraform_import_routes.py # TF state/ARM/CF import
+│   │   ├── cost_comparison_routes.py # Multi-cloud cost compare
+│   │   ├── analytics_routes.py      # Product analytics ingestion
+│   │   ├── agents.py                # Agent PaaS CRUD
+│   │   ├── executions.py            # Agent execution + ReAct loop
+│   │   ├── rag_routes.py            # RAG pipeline routes
+│   │   ├── drift.py                 # Infrastructure drift detection
+│   │   ├── feature_flags.py         # Feature flag management
+│   │   ├── organizations.py         # Multi-tenant org management
 │   │   ├── jobs.py                  # Background job & SSE routes
-│   │   ├── journey_analytics.py     # User journey tracking routes
-│   │   ├── legal.py                 # Legal & privacy routes
-│   │   ├── marketplace.py           # Template marketplace routes
-│   │   ├── migration.py             # Migration intelligence routes
-│   │   ├── organizations.py         # Multi-tenant org routes
-│   │   ├── privacy.py               # Privacy & data management routes
-│   │   ├── roadmap.py               # Roadmap routes
-│   │   ├── samples.py               # Sample diagram routes
-│   │   ├── shared.py                # Shared utility routes
-│   │   ├── templates.py             # Template gallery routes
-│   │   ├── terraform.py             # Terraform preview routes
 │   │   ├── v1.py                    # API v1 prefix router
-│   │   ├── versioning.py            # Architecture versioning routes
-│   │   └── webhooks.py              # Webhook integration routes
+│   │   └── ... (59 total)           # + 35 more domain routers
 │   ├── admin_auth.py                # JWT session management (HS256, 1h TTL)
 │   ├── ai_suggestion.py             # AI-powered service recommendations
 │   ├── compliance_mapper.py         # GDPR/HIPAA/SOC2/FedRAMP compliance mapping
@@ -712,7 +720,7 @@ Archmorph/
 │   │   ├── gcp_services.py          # 117 GCP services
 │   │   ├── mappings.py              # 122 cross-cloud mappings
 │   │   └── azure_pricing.py         # Azure Retail Prices API + cache
-│   ├── tests/                       # 70+ test files, 1609 tests
+│   ├── tests/                       # 70+ test files, 1446 tests
 │   ├── Dockerfile
 │   └── requirements.txt
 ├── e2e/
@@ -767,7 +775,7 @@ The CI/CD workflow (`.github/workflows/ci.yml`) runs 8 jobs:
 2. **sast-semgrep** — Semgrep SAST scan (OWASP Top 10, security-audit, Python rules)
 3. **secret-detection** — Gitleaks full-history secret scanning
 4. **sbom** — CycloneDX SBOM generation (Python + npm, 90-day artifact retention)
-5. **backend-tests** — 1609 pytest tests (matrix: Python 3.11 + 3.12)
+5. **backend-tests** — 1446 pytest tests (matrix: Python 3.11 + 3.12)
 6. **frontend-build** — Vite production build + npm audit
 7. **deploy-backend** — Docker build → ACR push → Trivy container scan → Container Apps revision (blue-green with instant rollback)
 8. **deploy-frontend** — Azure Static Web Apps (automatic)
@@ -833,9 +841,10 @@ See [docs/DEPLOYMENT_COSTS.md](docs/DEPLOYMENT_COSTS.md) for full breakdown.
 | v3.5.0 — Customer Intelligence | Done | Confidence deep-dive (strengths/limitations/migration notes per mapping), 7-step workflow (Upload→Analyze→Customize→Results→IaC→HLD→Pricing), HLD auto-generation tab, dedicated Pricing tab with cost drivers, SKU alternatives, optimization recommendations, source vs target comparison, custom domain archmorphai.com |
 | v3.6.0 — Platform Hardening & UX | Done | Dark mode toggle with light/full theme, skeleton loaders, focus-visible a11y, reduced-motion support, Cache-Control headers on read endpoints, HLD v2 with 10 professional sections, contextual help tooltips, confidence deep-dive UI (Strengths/Limitations/Migration tabs per mapping) |
 | v3.8.0 — Complete Migration Flow | Done | Migration package ZIP export (IaC + HLD + costs), before/after architecture visualization, guided onboarding tour, CI coverage gate (60%), stale bot, migration Q&A chat advisor |
-| v3.8.1 — UX Polish & Bug Bash | In Progress | Fix HLD generation 500 crashes, recover missing Map layers, unblock IaC dynamic modifications, populate Coming Soon tab, and Drift Alpha warnings |
-| v4.0 — Performance & Scale | Planned | Connection pooling, read replicas, CDN edge caching, WebSocket live collaboration |
-| v5.0 — Advanced | Planned | Pulumi output, Azure Migrate integration, multi-diagram projects, team collaboration |
+| v3.8.1 — UX Polish & Bug Bash | Done | Fix HLD generation 500 crashes, recover missing Map layers, unblock IaC dynamic modifications, populate Coming Soon tab, and Drift Alpha warnings |
+| v4.0.0 — Platform Scale | Done | RAG pipeline, AI Agent PaaS PoC, cost/token observability, AI mapping auto-suggestions, migration timeline generator, service dependency graph, social auth, user profiles, RBAC/multi-tenant, PDF report export, DevOps modernization (uv, Trivy, Helm) |
+| v4.1.0 — Enterprise & Collaboration | Done | SSO/SAML/SCIM, Terraform state import, multi-cloud cost comparison engine, API developer portal, real-time collaborative workspace, migration replay, migration gallery, product analytics funnel, UX Wave 1 & 2 polish, live cloud scanner (AWS/Azure/GCP), secure credential vault, one-click deploy engine, scanner wizard UI, Stripe billing |
+| v5.0 — Next | Planned | VS Code extension, Pulumi/CDK output, multi-diagram projects, GitHub/GitLab IaC PR integration |
 
 ---
 
