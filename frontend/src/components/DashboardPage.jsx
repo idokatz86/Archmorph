@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Clock, Bookmark, BookmarkCheck, Trash2, Play, FileText, Upload, Search } from 'lucide-react';
 import { Card, Button, Badge, EmptyState, Skeleton } from './ui';
 import api from '../services/apiClient';
-import { useAppStore } from '../stores/appStore';
+import useAppStore from '../stores/useAppStore';
 
 /**
  * Wave 3: Dashboard — Analysis History Hub (#517).
