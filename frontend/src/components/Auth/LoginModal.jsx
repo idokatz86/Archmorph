@@ -76,11 +76,11 @@ export default function LoginModal({ isOpen, onClose }) {
     <div className="fixed inset-0 z-[100] flex items-center justify-center">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-fade-in"
         onClick={onClose}
       />
       {/* Modal */}
-      <div className="relative z-10 w-full max-w-sm mx-4 bg-surface border border-border rounded-2xl shadow-2xl p-6">
+      <div className="relative z-10 w-full max-w-sm mx-4 bg-surface border border-border rounded-2xl shadow-2xl p-6 animate-modal-in">
         {/* Close button */}
         <button
           onClick={onClose}
