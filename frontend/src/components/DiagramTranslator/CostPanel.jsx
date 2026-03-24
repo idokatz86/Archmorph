@@ -1,6 +1,6 @@
-import React, { useState, useCallback, useEffect } from 'react';
-import { BarChart3, Info, Download, TrendingDown } from 'lucide-react';
-import { Card } from '../ui';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import { BarChart3, Info, Download, TrendingDown, PieChart } from 'lucide-react';
+import { Card, EmptyState, ProgressBar } from '../ui';
 
 const RESERVED_OPTIONS = [
   { value: 'none', label: 'Pay-as-you-go' },
@@ -9,6 +9,98 @@ const RESERVED_OPTIONS = [
 ];
 
 const RI_DISCOUNTS = { none: 0, '1yr': 0.30, '3yr': 0.50 };
+
+/* ── Wave 3: Cost Bar Chart (#515) ── */
+function CostBarChart({ services, maxCost }) {
+  const sorted = [...services].sort((a, b) => (b.monthly_high || 0) - (a.monthly_high || 0)).slice(0, 12);
+  return (
+    <div className="space-y-2">
+      {sorted.map((s, i) => {
+        const pct = maxCost > 0 ? ((s.monthly_high || 0) / maxCost) * 100 : 0;
+        return (
+          <div key={i} className="stagger-item">
+            <div className="flex items-center justify-between text-xs mb-0.5">
+              <span className="text-text-secondary truncate max-w-[60%]">{s.service}</span>
+              <span className="font-mono text-text-primary font-medium">${(s.monthly_high || 0).toLocaleString()}</span>
+            </div>
+            <div className="h-2 bg-secondary rounded-full overflow-hidden">
+              <div className="h-full bg-cta rounded-full transition-all duration-700 ease-out" style={{ width: `${pct}%` }} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ── Wave 3: Cost Donut Chart (#515) ── */
+function CostDonut({ categories }) {
+  const COLORS = ['#22C55E', '#3B82F6', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899', '#06B6D4', '#F97316'];
+  const total = categories.reduce((sum, c) => sum + c.cost, 0);
+  if (total === 0) return null;
+
+  let cumulative = 0;
+  const segments = categories.map((cat, i) => {
+    const pct = (cat.cost / total) * 100;
+    const startAngle = (cumulative / 100) * 360;
+    cumulative += pct;
+    const endAngle = (cumulative / 100) * 360;
+    const largeArc = pct > 50 ? 1 : 0;
+    const toRad = (d) => (d - 90) * (Math.PI / 180);
+    const r = 40;
+    const x1 = 50 + r * Math.cos(toRad(startAngle));
+    const y1 = 50 + r * Math.sin(toRad(startAngle));
+    const x2 = 50 + r * Math.cos(toRad(endAngle));
+    const y2 = 50 + r * Math.sin(toRad(endAngle));
+    return { ...cat, color: COLORS[i % COLORS.length], pct, d: `M 50 50 L ${x1} ${y1} A ${r} ${r} 0 ${largeArc} 1 ${x2} ${y2} Z` };
+  });
+
+  return (
+    <div className="flex items-center gap-4">
+      <svg viewBox="0 0 100 100" className="w-24 h-24 flex-shrink-0" aria-label="Cost distribution by category">
+        {segments.map((seg, i) => (
+          <path key={i} d={seg.d} fill={seg.color} opacity={0.85} className="transition-opacity hover:opacity-100" />
+        ))}
+        <circle cx="50" cy="50" r="22" fill="var(--color-surface)" />
+        <text x="50" y="48" textAnchor="middle" className="text-[8px] font-bold fill-text-primary">${Math.round(total).toLocaleString()}</text>
+        <text x="50" y="57" textAnchor="middle" className="text-[5px] fill-text-muted">/month</text>
+      </svg>
+      <div className="flex flex-col gap-1 text-xs min-w-0">
+        {segments.map((seg, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: seg.color }} />
+            <span className="text-text-secondary truncate">{seg.name}</span>
+            <span className="text-text-muted ml-auto font-mono">{Math.round(seg.pct)}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ── Wave 3: Cost Comparison Card (#515) ── */
+function CostComparisonCard({ payg, ri1yr, ri3yr }) {
+  if (!payg || payg <= 0) return null;
+  return (
+    <div className="grid grid-cols-3 gap-2">
+      <div className="bg-surface rounded-lg p-3 text-center border border-border">
+        <p className="text-xs text-text-muted mb-1">Pay-as-you-go</p>
+        <p className="text-base font-bold text-text-primary">${payg.toLocaleString()}</p>
+        <p className="text-[10px] text-text-muted">/month</p>
+      </div>
+      <div className="bg-surface rounded-lg p-3 text-center border border-cta/30">
+        <p className="text-xs text-text-muted mb-1">1yr Reserved</p>
+        <p className="text-base font-bold text-cta">${ri1yr.toLocaleString()}</p>
+        <p className="text-[10px] text-cta">save 30%</p>
+      </div>
+      <div className="bg-surface rounded-lg p-3 text-center border border-cta/50">
+        <p className="text-xs text-text-muted mb-1">3yr Reserved</p>
+        <p className="text-base font-bold text-cta">${ri3yr.toLocaleString()}</p>
+        <p className="text-[10px] text-cta">save 50%</p>
+      </div>
+    </div>
+  );
+}
 
 export default function CostPanel({ costEstimate, diagramId, api }) {
   const [overrides, setOverrides] = useState({});
@@ -105,7 +197,32 @@ export default function CostPanel({ costEstimate, diagramId, api }) {
     }
   };
 
-  if (!costEstimate) return null;
+  if (!costEstimate) return (
+    <Card className="p-6">
+      <EmptyState
+        icon={BarChart3}
+        title="Cost Analysis"
+        description="Cost estimates will appear here after IaC code is generated. Upload a diagram and generate infrastructure code to see pricing."
+      />
+    </Card>
+  );
+
+  // Group services by category for donut chart
+  const categoryGroups = useMemo(() => {
+    const groups = {};
+    pricedServices.forEach(s => {
+      const name = s.service?.toLowerCase() || '';
+      const cat = name.includes('sql') || name.includes('storage') || name.includes('cosmos') || name.includes('redis') ? 'Data'
+        : name.includes('function') || name.includes('app service') || name.includes('container') || name.includes('vm') ? 'Compute'
+        : name.includes('vnet') || name.includes('gateway') || name.includes('cdn') || name.includes('front door') || name.includes('load') ? 'Networking'
+        : name.includes('key vault') || name.includes('firewall') || name.includes('sentinel') || name.includes('defender') ? 'Security'
+        : name.includes('monitor') || name.includes('insight') || name.includes('log') ? 'Monitoring'
+        : 'Other';
+      if (!groups[cat]) groups[cat] = 0;
+      groups[cat] += (s.monthly_high || 0);
+    });
+    return Object.entries(groups).map(([name, cost]) => ({ name, cost })).sort((a, b) => b.cost - a.cost);
+  }, [pricedServices]);
 
   return (
     <Card className="p-6">
@@ -148,23 +265,28 @@ export default function CostPanel({ costEstimate, diagramId, api }) {
             </div>
           </div>
 
-          {/* RI Savings Summary */}
+          {/* RI Comparison Cards (#515) */}
           {savingsSummary && savingsSummary.payg > 0 && (
-            <div className="bg-green-50 dark:bg-green-900/20 rounded-lg p-3 mb-4 border border-green-200 dark:border-green-800">
-              <div className="flex items-center gap-1.5 mb-2">
-                <TrendingDown className="w-4 h-4 text-green-600" />
-                <span className="text-xs font-semibold text-green-700 dark:text-green-400">Reserved Instance Savings</span>
-              </div>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div>
-                  <p className="text-text-muted">1yr RI</p>
-                  <p className="font-medium text-green-700 dark:text-green-400">Save ${savingsSummary.savings1yr.toLocaleString()}/mo (30%)</p>
-                </div>
-                <div>
-                  <p className="text-text-muted">3yr RI</p>
-                  <p className="font-medium text-green-700 dark:text-green-400">Save ${savingsSummary.savings3yr.toLocaleString()}/mo (50%)</p>
-                </div>
-              </div>
+            <div className="mb-4">
+              <CostComparisonCard payg={savingsSummary.payg} ri1yr={savingsSummary.ri1yr} ri3yr={savingsSummary.ri3yr} />
+            </div>
+          )}
+
+          {/* Cost Distribution + Bar Chart (#515) */}
+          {pricedServices.length > 1 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+              <Card className="p-4 border-border/50">
+                <h4 className="text-xs font-semibold text-text-secondary mb-3 flex items-center gap-1.5">
+                  <PieChart className="w-3.5 h-3.5" /> Category Distribution
+                </h4>
+                <CostDonut categories={categoryGroups} />
+              </Card>
+              <Card className="p-4 border-border/50">
+                <h4 className="text-xs font-semibold text-text-secondary mb-3 flex items-center gap-1.5">
+                  <BarChart3 className="w-3.5 h-3.5" /> Top Services by Cost
+                </h4>
+                <CostBarChart services={pricedServices} maxCost={Math.max(...pricedServices.map(s => s.monthly_high || 0), 1)} />
+              </Card>
             </div>
           )}
 

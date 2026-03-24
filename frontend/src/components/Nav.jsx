@@ -29,7 +29,7 @@ export default function Nav({ activeTab, setActiveTab, updateStatus }) {
 
   const NAV_ITEMS = [
     { id: 'landing', label: 'Home', icon: Home },
-    // { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard }, // Hidden for beta
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'translator', label: 'Translator', icon: Layers },
     // { id: 'templates', label: 'Templates', icon: Sparkles }, // Hidden for beta
     { id: 'services', label: 'Services', icon: Server },
@@ -48,7 +48,7 @@ export default function Nav({ activeTab, setActiveTab, updateStatus }) {
                 <CloudCog className="w-5 h-5 text-cta" />
               </div>
               <div>
-                <h1 className="text-lg font-bold text-text-primary tracking-tight">Archmorph</h1>
+                <h1 className="text-lg font-bold tracking-tight"><span className="text-text-primary">Arch</span><span className="text-cta">morph</span></h1>
                 <p className="text-[10px] text-text-muted font-medium uppercase tracking-wider">Modernize Any Cloud</p>
               </div>
             </div>
@@ -59,7 +59,7 @@ export default function Nav({ activeTab, setActiveTab, updateStatus }) {
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
                   aria-current={activeTab === tab.id ? 'page' : undefined}
-                  className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors duration-200 cursor-pointer ${
+                  className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-all duration-200 cursor-pointer relative ${
                     activeTab === tab.id
                       ? 'bg-cta/10 text-cta'
                       : 'text-text-secondary hover:text-text-primary hover:bg-secondary'
@@ -67,6 +67,9 @@ export default function Nav({ activeTab, setActiveTab, updateStatus }) {
                 >
                   <tab.icon className="w-4 h-4" />
                   {tab.label}
+                  {activeTab === tab.id && (
+                    <span className="absolute -bottom-[9px] left-2 right-2 h-[2px] bg-cta rounded-full" />
+                  )}
                 </button>
               ))}
             </nav>
@@ -79,14 +82,18 @@ export default function Nav({ activeTab, setActiveTab, updateStatus }) {
               )}
               <button
                 onClick={toggleTheme}
-                className="p-2 rounded-lg hover:bg-secondary transition-colors cursor-pointer"
+                className="relative w-14 h-7 rounded-full bg-secondary border border-border hover:border-border-light transition-all duration-300 cursor-pointer flex items-center px-1"
                 aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
                 title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
               >
-                {theme === 'dark'
-                  ? <Sun className="w-4 h-4 text-text-secondary hover:text-warning" />
-                  : <Moon className="w-4 h-4 text-text-secondary hover:text-info" />
-                }
+                <span className={`absolute w-5 h-5 rounded-full bg-cta/20 flex items-center justify-center transition-transform duration-300 ${theme === 'dark' ? 'translate-x-0' : 'translate-x-7'}`}>
+                  {theme === 'dark'
+                    ? <Moon className="w-3 h-3 text-info" />
+                    : <Sun className="w-3 h-3 text-warning" />
+                  }
+                </span>
+                <Sun className="w-3 h-3 text-text-muted/40 ml-auto mr-0.5" />
+                <Moon className="w-3 h-3 text-text-muted/40 ml-0.5" />
               </button>
               <button
                 onClick={() => feedbackRef.current?.open()}

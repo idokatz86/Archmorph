@@ -1,5 +1,9 @@
-from typing import Protocol, List, Dict, Any, AsyncIterator
+from typing import Protocol, List, Dict, Any, AsyncIterator, Optional
+import logging
 import os
+import random
+
+logger = logging.getLogger(__name__)
 
 class ModelClient(Protocol):
     """
@@ -105,25 +109,149 @@ def get_model_client(provider: str, config: Dict[str, Any]) -> ModelClient:
 
 class ModelRouter:
     """
-    Given constraints and strategy, routes the request to the correct ModelClient.
+    Routes model requests to the optimal ModelClient based on strategy.
+
+    Strategies:
+      - default / fixed:       First active endpoint (original behavior)
+      - fallback_chain:        Try endpoints in priority order, fallback on error
+      - cost_optimized:        Select cheapest endpoint by input token cost
+      - latency_optimized:     Select endpoint with lowest reported latency
+      - round_robin:           Distribute requests evenly across active endpoints
     """
+
+    _rr_counter: int = 0  # class-level round-robin counter
+
     def __init__(self, db_session, org_id: str):
         self.db = db_session
         self.org_id = org_id
 
-    def route(self, strategy: str, constraints: Dict[str, Any] = None) -> ModelClient:
+    def _get_active_endpoints(self):
         from models.model_registry import ModelEndpoint
-        
-        # simplified priority router
-        endpoints = self.db.query(ModelEndpoint).filter(
+
+        return self.db.query(ModelEndpoint).filter(
             ModelEndpoint.organization_id == self.org_id,
             ModelEndpoint.is_active.is_(True)
         ).all()
-        
+
+    def route(self, strategy: str = "default", constraints: Dict[str, Any] = None) -> ModelClient:
+        constraints = constraints or {}
+        endpoints = self._get_active_endpoints()
+
         if not endpoints:
-            # Fallback to dev local env
+            logger.info("No active endpoints for org %s, using env fallback", self.org_id)
             return get_model_client("azure-openai", {})
 
-        # pick first available
-        best_endpoint = endpoints[0]
-        return get_model_client(best_endpoint.provider, best_endpoint.connection_config)
+        if strategy in ("default", "fixed"):
+            return self._route_fixed(endpoints)
+        elif strategy == "fallback_chain":
+            return self._route_fallback_chain(endpoints)
+        elif strategy == "cost_optimized":
+            return self._route_cost_optimized(endpoints, constraints)
+        elif strategy == "latency_optimized":
+            return self._route_latency_optimized(endpoints)
+        elif strategy == "round_robin":
+            return self._route_round_robin(endpoints)
+        else:
+            logger.warning("Unknown routing strategy '%s', using fixed", strategy)
+            return self._route_fixed(endpoints)
+
+    def _route_fixed(self, endpoints) -> ModelClient:
+        """Pick the first active endpoint."""
+        ep = endpoints[0]
+        return get_model_client(ep.provider, ep.connection_config)
+
+    def _route_fallback_chain(self, endpoints) -> ModelClient:
+        """Return a FallbackClient that tries endpoints in order."""
+        clients = [get_model_client(ep.provider, ep.connection_config) for ep in endpoints]
+        return FallbackModelClient(clients)
+
+    def _route_cost_optimized(self, endpoints, constraints: Dict[str, Any]) -> ModelClient:
+        """Select the cheapest endpoint based on pricing metadata."""
+        def _cost_key(ep):
+            pricing = ep.pricing or {}
+            return pricing.get("input_cost_per_1k", 999.0)
+
+        # Filter by required capabilities if specified
+        required_caps = constraints.get("requires", [])
+        candidates = endpoints
+        if required_caps:
+            candidates = [
+                ep for ep in endpoints
+                if all(ep.capabilities.get(cap) for cap in required_caps)
+            ]
+            if not candidates:
+                candidates = endpoints  # fallback: ignore filter
+
+        cheapest = min(candidates, key=_cost_key)
+        logger.debug(
+            "Cost-optimized routing selected %s (%s) at $%.4f/1k input",
+            cheapest.name, cheapest.provider,
+            (cheapest.pricing or {}).get("input_cost_per_1k", 0),
+        )
+        return get_model_client(cheapest.provider, cheapest.connection_config)
+
+    def _route_latency_optimized(self, endpoints) -> ModelClient:
+        """Select the endpoint with lowest reported latency."""
+        def _latency_key(ep):
+            caps = ep.capabilities or {}
+            return caps.get("avg_latency_ms", 9999)
+
+        fastest = min(endpoints, key=_latency_key)
+        logger.debug(
+            "Latency-optimized routing selected %s (%s) at ~%dms",
+            fastest.name, fastest.provider,
+            (fastest.capabilities or {}).get("avg_latency_ms", 0),
+        )
+        return get_model_client(fastest.provider, fastest.connection_config)
+
+    def _route_round_robin(self, endpoints) -> ModelClient:
+        """Distribute requests evenly across endpoints."""
+        idx = ModelRouter._rr_counter % len(endpoints)
+        ModelRouter._rr_counter += 1
+        ep = endpoints[idx]
+        logger.debug("Round-robin routing selected %s (index %d)", ep.name, idx)
+        return get_model_client(ep.provider, ep.connection_config)
+
+
+class FallbackModelClient:
+    """Wraps multiple ModelClients and tries them in order."""
+
+    def __init__(self, clients: List[ModelClient]):
+        self._clients = clients
+
+    async def chat(self, messages, tools=None, **kwargs):
+        last_error = None
+        for i, client in enumerate(self._clients):
+            try:
+                return await client.chat(messages, tools=tools, **kwargs)
+            except Exception as exc:
+                last_error = exc
+                logger.warning(
+                    "Fallback client %d/%d failed: %s — trying next",
+                    i + 1, len(self._clients), exc,
+                )
+        raise last_error  # All clients exhausted
+
+    async def chat_stream(self, messages, tools=None, **kwargs):
+        last_error = None
+        for i, client in enumerate(self._clients):
+            try:
+                async for chunk in client.chat_stream(messages, tools=tools, **kwargs):
+                    yield chunk
+                return
+            except Exception as exc:
+                last_error = exc
+                logger.warning(
+                    "Fallback stream client %d/%d failed: %s — trying next",
+                    i + 1, len(self._clients), exc,
+                )
+        raise last_error
+
+    def supports_tools(self) -> bool:
+        return self._clients[0].supports_tools() if self._clients else False
+
+    def supports_vision(self) -> bool:
+        return self._clients[0].supports_vision() if self._clients else False
+
+    def get_context_window(self) -> int:
+        return self._clients[0].get_context_window() if self._clients else 128000

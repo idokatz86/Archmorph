@@ -1,9 +1,9 @@
 import React, { useRef, useCallback, useEffect, Suspense, lazy } from 'react';
 import {
   Upload, ChevronRight, CheckCircle, XCircle, X,
-  Loader2, Eye, Clock,
+  Loader2, Eye, Clock, FileCode, FileText, DollarSign, Rocket,
 } from 'lucide-react';
-import { Button, Card } from '../ui';
+import { Button, Card, ErrorCard, Tabs } from '../ui';
 import { API_BASE } from '../../constants';
 import api from '../../services/apiClient';
 import { saveSession, loadSession, clearSession, updateSessionCache, cacheImage, loadCachedImage } from '../../services/sessionCache';
@@ -22,15 +22,27 @@ const PricingTab = lazy(() => import('./PricingTab'));
 const MigrationChat = lazy(() => import('./MigrationChat'));
 const DeployPanel = lazy(() => import('./DeployPanel'));
 
-const STEPS = [
-  { id: 'upload', label: 'Upload', canNav: true },
-  { id: 'analyzing', label: 'Analyzing', canNav: false },
-  { id: 'questions', label: 'Customize' },
-  { id: 'results', label: 'Results' },
-  { id: 'iac', label: 'IaC Code' },
-  { id: 'hld', label: 'HLD' },
-  { id: 'pricing', label: 'Pricing' },
-  { id: 'deploy', label: 'Deploy' },
+/* ── Wave 2: 3-Phase layout (#512) ──
+ * Phase 1 — Input:        upload, analyzing, questions
+ * Phase 2 — Analysis:     results (+ dependency graph, migration chat)
+ * Phase 3 — Deliverables: tabbed (IaC, HLD, Pricing, Deploy)
+ */
+const PHASES = [
+  { id: 'input', label: 'Input', steps: ['upload', 'analyzing', 'questions'] },
+  { id: 'analysis', label: 'Analysis', steps: ['results'] },
+  { id: 'deliverables', label: 'Deliverables', steps: ['iac', 'hld', 'pricing', 'deploy'] },
+];
+
+function getPhase(stepId) {
+  for (const p of PHASES) { if (p.steps.includes(stepId)) return p.id; }
+  return 'input';
+}
+
+const DELIVERABLE_TABS = [
+  { id: 'iac', label: 'IaC Code', icon: FileCode },
+  { id: 'hld', label: 'HLD Document', icon: FileText },
+  { id: 'pricing', label: 'Pricing', icon: DollarSign },
+  { id: 'deploy', label: 'Deploy', icon: Rocket },
 ];
 
 export default function DiagramTranslator() {
@@ -657,66 +669,119 @@ export default function DiagramTranslator() {
     set({ exportingPackage: false });
   };
 
-  // ── Render ──
-  const steps = STEPS.map(s => ({
-    ...s,
-    canNav: s.id === 'upload' ? true
-      : s.id === 'questions' || s.id === 'results' ? !!state.analysis
-      : s.id === 'iac' ? !!state.iacCode
-      : s.id === 'hld' ? !!state.iacCode  // Can access HLD after IaC
-      : s.id === 'pricing' ? !!state.iacCode  // Can access Pricing after IaC
-      : s.id === 'deploy' ? !!state.iacCode  // Can access Deploy after IaC
+  // ── Render (#512 — 3-phase layout) ──
+  const currentPhase = getPhase(state.step);
+  const phaseIndex = PHASES.findIndex(p => p.id === currentPhase);
+
+  // Deliverables tab state — when in deliverables phase, use step as active tab
+  const activeDeliverable = PHASES[2].steps.includes(state.step) ? state.step : 'iac';
+
+  // Build deliverable tabs with content
+  const deliverableTabs = DELIVERABLE_TABS.map(tab => ({
+    ...tab,
+    content: (
+      tab.id === 'iac' && state.iacCode ? (
+        <IaCViewer
+          iacCode={state.iacCode}
+          previousIacCode={state.previousIacCode}
+          iacFormat={state.iacFormat}
+          copyFeedback={state.copyFeedback}
+          iacChatOpen={state.iacChatOpen}
+          iacChatMessages={state.iacChatMessages}
+          iacChatInput={state.iacChatInput}
+          iacChatLoading={state.iacChatLoading}
+          iacChatEndRef={iacChatEndRef}
+          iacChatInputRef={iacChatInputRef}
+          onCopyWithFeedback={copyWithFeedback}
+          onToggleChat={() => {
+            set({ iacChatOpen: !state.iacChatOpen });
+            setTimeout(() => iacChatInputRef.current?.focus(), 100);
+          }}
+          onOpenChatWithMessage={handleOpenChatWithMessage}
+          onResetChat={handleResetChat}
+          onSendChat={handleIacChat}
+          onSetChatInput={(v) => set({ iacChatInput: v })}
+        />
+      ) : tab.id === 'hld' ? (
+        <HLDTab
+          hldData={state.hldData}
+          hldLoading={state.hldLoading}
+          hldTab={state.hldTab}
+          hldExportLoading={state.hldExportLoading}
+          hldIncludeDiagrams={state.hldIncludeDiagrams}
+          copyFeedback={state.copyFeedback}
+          error={state.error}
+          onGenerateHld={handleGenerateHld}
+          onSetHldTab={(tab) => set({ hldTab: tab })}
+          onSetHldIncludeDiagrams={(v) => set({ hldIncludeDiagrams: v })}
+          onHldExport={handleHldExport}
+          onCopyWithFeedback={copyWithFeedback}
+          onSetStep={(step) => set({ step })}
+        />
+      ) : tab.id === 'pricing' ? (
+        <PricingTab
+          costBreakdown={state.costBreakdown}
+          loading={state.costBreakdownLoading}
+          onSetStep={(step) => set({ step })}
+          onExportPackage={handleExportPackage}
+          exportingPackage={state.exportingPackage}
+        />
+      ) : tab.id === 'deploy' ? (
+        <DeployPanel isLoading={false} templateSource={state.iacCode} canvasState={state.analysis} />
+      ) : null
+    ),
+  }));
       : false,
   }));
 
   return (
     <div className="space-y-6">
-      {/* Progress Steps */}
-      <div className="flex items-center justify-center gap-2 text-xs font-medium">
-        {steps.map((s, i, arr) => {
-          const isActive = state.step === s.id;
-          const isPast = arr.findIndex(x => x.id === state.step) > i;
-          const clickable = s.canNav && !isActive && state.step !== 'analyzing';
+      {/* Phase Bar (#512 — 3-phase progress) */}
+      <div className="flex items-center justify-center gap-3 text-sm font-medium">
+        {PHASES.map((phase, i) => {
+          const isCurrent = phase.id === currentPhase;
+          const isPast = i < phaseIndex;
+          const isClickable = (phase.id === 'input') ||
+            (phase.id === 'analysis' && !!state.analysis) ||
+            (phase.id === 'deliverables' && !!state.iacCode);
+          const firstStep = phase.steps[0];
           return (
-            <React.Fragment key={s.id}>
-              {clickable ? (
-                <button
-                  type="button"
-                  onClick={() => set({ step: s.id })}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all duration-150 cursor-pointer border-none bg-transparent select-none ${
-                    isPast ? 'text-cta hover:bg-cta/15 hover:scale-105' : 'text-text-muted hover:bg-cta/10 hover:text-cta'
-                  }`}
-                  title={`Go to ${s.label}`}
-                >
-                  {isPast ? <CheckCircle className="w-3.5 h-3.5" /> : <span className="w-5 h-5 rounded-full border border-current flex items-center justify-center text-[10px]">{i + 1}</span>}
-                  <span className={`underline decoration-dotted underline-offset-2 ${isActive ? '' : 'hidden sm:inline'}`}>{s.label}</span>
-                </button>
-              ) : (
-                <div
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-colors ${
-                    isActive ? 'bg-cta/15 text-cta' :
-                    isPast ? 'text-cta' : 'text-text-muted'
-                  }`}
-                >
-                  {isPast ? <CheckCircle className="w-3.5 h-3.5" /> : <span className="w-5 h-5 rounded-full border border-current flex items-center justify-center text-[10px]">{i + 1}</span>}
-                  <span className={isActive ? '' : 'hidden sm:inline'}>{s.label}</span>
-                </div>
+            <React.Fragment key={phase.id}>
+              <button
+                type="button"
+                onClick={() => isClickable && set({ step: firstStep })}
+                disabled={!isClickable}
+                className={`flex items-center gap-2 px-4 py-2 rounded-full transition-all duration-200 select-none ${
+                  isCurrent
+                    ? 'bg-cta/15 text-cta font-semibold'
+                    : isPast
+                      ? 'text-cta cursor-pointer hover:bg-cta/10'
+                      : 'text-text-muted'
+                } ${isClickable && !isCurrent ? 'cursor-pointer' : ''} ${!isClickable ? 'opacity-50 cursor-default' : ''}`}
+              >
+                {isPast ? (
+                  <CheckCircle className="w-4 h-4" />
+                ) : (
+                  <span className={`w-6 h-6 rounded-full border-2 flex items-center justify-center text-xs font-bold ${isCurrent ? 'border-cta' : 'border-current'}`}>{i + 1}</span>
+                )}
+                <span className="hidden sm:inline">{phase.label}</span>
+              </button>
+              {i < PHASES.length - 1 && (
+                <div className={`w-8 h-0.5 rounded-full transition-colors ${isPast ? 'bg-cta' : 'bg-border'}`} />
               )}
-              {i < arr.length - 1 && <ChevronRight className="w-4 h-4 text-text-muted" />}
             </React.Fragment>
           );
         })}
       </div>
 
-      {/* Error */}
+      {/* Error (#509 — structured error card) */}
       {state.error && (
-        <Card className="p-4 border-danger/30" role="alert" aria-live="assertive">
-          <div className="flex items-center gap-3">
-            <XCircle className="w-5 h-5 text-danger shrink-0" aria-hidden="true" />
-            <p className="text-sm text-danger">{state.error}</p>
-            <button onClick={() => set({ error: null })} className="ml-auto cursor-pointer hover:bg-secondary rounded-lg p-1 transition-colors" aria-label="Dismiss error" title="Dismiss"><X className="w-4 h-4 text-text-muted" /></button>
-          </div>
-        </Card>
+        <ErrorCard
+          title="Analysis Error"
+          message={state.error}
+          onRetry={() => { set({ error: null, step: 'upload' }); }}
+          retryLabel="Re-upload Diagram"
+        />
       )}
 
       {/* Session expiry warning (#261) */}
@@ -731,7 +796,8 @@ export default function DiagramTranslator() {
       )}
 
       <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 animate-spin text-cta" /></div>}>
-      {/* Step: Upload */}
+
+      {/* ═══ Phase 1: Input (Upload + Analyzing + Questions) ═══ */}
       {state.step === 'upload' && (
         <UploadStep
           dragOver={state.dragOver}
@@ -751,7 +817,6 @@ export default function DiagramTranslator() {
         />
       )}
 
-      {/* Step: Analyzing */}
       {state.step === 'analyzing' && (
         <Card className="p-8">
           <div className="max-w-2xl mx-auto">
@@ -766,8 +831,8 @@ export default function DiagramTranslator() {
                   <span>{msg}</span>
                 </div>
               ))}
+              <span className="inline-block w-1.5 h-4 bg-cta/60 animate-pulse ml-5" aria-hidden="true" />
             </div>
-            {/* Cancel button (#304) */}
             <div className="mt-6 flex justify-end">
               <Button
                 variant="ghost"
@@ -785,7 +850,6 @@ export default function DiagramTranslator() {
         </Card>
       )}
 
-      {/* Step: Questions */}
       {state.step === 'questions' && (
         <GuidedQuestions
           analysis={state.analysis}
@@ -800,7 +864,7 @@ export default function DiagramTranslator() {
         />
       )}
 
-      {/* Step: Results */}
+      {/* ═══ Phase 2: Analysis (Results + Migration Chat) ═══ */}
       {state.step === 'results' && state.analysis && (
         <AnalysisResults
           analysis={state.analysis}
@@ -820,75 +884,25 @@ export default function DiagramTranslator() {
         />
       )}
 
-      {/* Migration Q&A Chat — visible on Results, IaC, HLD steps (#258) */}
+      {/* Migration Q&A Chat — visible on Analysis + Deliverables phases (#258) */}
       {state.diagramId && state.analysis && ['results', 'iac', 'hld'].includes(state.step) && (
         <MigrationChat diagramId={state.diagramId} />
       )}
 
-      {/* Step: IaC Code */}
-      {state.step === 'iac' && state.iacCode && (
-        <div className="space-y-6">
-          <IaCViewer
-            iacCode={state.iacCode}
-            previousIacCode={state.previousIacCode}
-            iacFormat={state.iacFormat}
-            copyFeedback={state.copyFeedback}
-            iacChatOpen={state.iacChatOpen}
-            iacChatMessages={state.iacChatMessages}
-            iacChatInput={state.iacChatInput}
-            iacChatLoading={state.iacChatLoading}
-            iacChatEndRef={iacChatEndRef}
-            iacChatInputRef={iacChatInputRef}
-            onCopyWithFeedback={copyWithFeedback}
-            onToggleChat={() => {
-              set({ iacChatOpen: !state.iacChatOpen });
-              setTimeout(() => iacChatInputRef.current?.focus(), 100);
-            }}
-            onOpenChatWithMessage={handleOpenChatWithMessage}
-            onResetChat={handleResetChat}
-            onSendChat={handleIacChat}
-            onSetChatInput={(v) => set({ iacChatInput: v })}
-          />
+      {/* ═══ Phase 3: Deliverables (Tabbed — IaC | HLD | Pricing | Deploy) ═══ */}
+      {PHASES[2].steps.includes(state.step) && state.iacCode && (
+        <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <Button onClick={() => set({ step: 'results' })} variant="ghost" icon={Eye}>Back to Results</Button>
-            <Button onClick={() => set({ step: 'hld' })} variant="primary">Next: HLD Document →</Button>
+            <Button onClick={() => set({ step: 'results' })} variant="ghost" size="sm" icon={Eye}>Back to Analysis</Button>
           </div>
+          <Tabs
+            tabs={deliverableTabs}
+            activeTab={activeDeliverable}
+            onChange={(tabId) => set({ step: tabId })}
+          />
         </div>
       )}
 
-      {/* Step: HLD (#400 — auto-generating dedicated tab) */}
-      {state.step === 'hld' && (
-        <HLDTab
-          hldData={state.hldData}
-          hldLoading={state.hldLoading}
-          hldTab={state.hldTab}
-          hldExportLoading={state.hldExportLoading}
-          hldIncludeDiagrams={state.hldIncludeDiagrams}
-          copyFeedback={state.copyFeedback}
-          error={state.error}
-          onGenerateHld={handleGenerateHld}
-          onSetHldTab={(tab) => set({ hldTab: tab })}
-          onSetHldIncludeDiagrams={(v) => set({ hldIncludeDiagrams: v })}
-          onHldExport={handleHldExport}
-          onCopyWithFeedback={copyWithFeedback}
-          onSetStep={(step) => set({ step })}
-        />
-      )}
-
-      {/* Step: Pricing (#401 — dedicated deep cost breakdown) */}
-      {state.step === 'pricing' && (
-        <PricingTab
-          costBreakdown={state.costBreakdown}
-          loading={state.costBreakdownLoading}
-          onSetStep={(step) => set({ step })}
-          onExportPackage={handleExportPackage}
-          exportingPackage={state.exportingPackage}
-        />
-      )}
-
-      {state.step === 'deploy' && (
-        <DeployPanel isLoading={false} templateSource={state.iacCode} canvasState={state.analysis} />
-      )}
       </Suspense>
     </div>
   );

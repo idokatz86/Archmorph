@@ -24,6 +24,7 @@ const LandingPage = lazy(() => import('./components/LandingPage'));
 const OnboardingTour = lazy(() => import('./components/OnboardingTour'));
 const CanvasEditor = lazy(() => import('./components/CanvasEditor/CanvasEditor'));
 const CommandPalette = lazy(() => import('./components/CommandPalette'));
+const DashboardPage = lazy(() => import('./components/DashboardPage'));
 
 
 function TabFallback() {
@@ -87,6 +88,7 @@ export default function App() {
         <ErrorBoundary>
           <Suspense fallback={<TabFallback />}>
             {activeTab === 'landing' && <LandingPage onGetStarted={() => setActiveTab('translator')} />}
+            {activeTab === 'dashboard' && <DashboardPage />}
             {activeTab === 'translator' && <DiagramTranslator />}
             {activeTab === 'services' && <ServicesBrowser />}
             {activeTab === 'roadmap' && <Roadmap />}

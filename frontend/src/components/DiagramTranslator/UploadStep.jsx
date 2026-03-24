@@ -35,7 +35,7 @@ export default function UploadStep({
           onClick={() => !selectedFile && fileInputRef.current?.click()}
           className={`relative rounded-2xl border-2 border-dashed p-8 mb-6 transition-all duration-200 cursor-pointer ${
             dragOver
-              ? 'border-cta bg-cta/10 scale-[1.02]'
+              ? 'border-cta bg-cta/10 scale-[1.02] drop-zone-glow'
               : selectedFile
                 ? 'border-cta/40 bg-cta/5'
                 : 'border-border hover:border-cta/40 hover:bg-secondary/50'

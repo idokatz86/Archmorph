@@ -61,36 +61,53 @@ function SummaryBar({ mappings }) {
   const gapCount = mappings.filter(m => getGaps(m).length > 0).length;
 
   const automatable = total > 0 ? Math.round((high / total) * 100) : 0;
-  const needsReview = med + low + noMatch;
+  const avgConfidence = total > 0 ? Math.round(mappings.reduce((s, m) => s + (m.confidence || 0), 0) / total * 100) : 0;
+  const dominantEffort = effortHigh > effortMed ? 'High' : effortMed > effortLow ? 'Medium' : 'Low';
 
   return (
-    <Card className="p-4">
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs">
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      {/* Services Mapped */}
+      <Card className="p-4">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs text-text-muted font-medium">Services Mapped</span>
+          <span className="text-2xl font-bold text-text-primary">{total}</span>
+        </div>
+        <div className="flex gap-1 h-2 rounded-full overflow-hidden bg-secondary">
+          {high > 0 && <div className="bg-cta transition-all" style={{ width: `${(high / total) * 100}%` }} title={`${high} high confidence`} />}
+          {med > 0 && <div className="bg-warning transition-all" style={{ width: `${(med / total) * 100}%` }} title={`${med} medium confidence`} />}
+          {(low + noMatch) > 0 && <div className="bg-danger transition-all" style={{ width: `${((low + noMatch) / total) * 100}%` }} title={`${low + noMatch} low/none`} />}
+        </div>
+        <p className="text-[10px] text-text-muted mt-1.5">{avgConfidence}% avg confidence</p>
+      </Card>
+
+      {/* Migration Effort */}
+      <Card className="p-4">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs text-text-muted font-medium">Migration Effort</span>
+          <span className={`text-lg font-bold ${dominantEffort === 'Low' ? 'text-cta' : dominantEffort === 'Medium' ? 'text-warning' : 'text-danger'}`}>{dominantEffort}</span>
+        </div>
+        <div className="flex gap-3 text-xs">
+          <span className="text-cta font-medium">{effortLow} easy</span>
+          <span className="text-warning font-medium">{effortMed} moderate</span>
+          <span className="text-danger font-medium">{effortHigh} complex</span>
+        </div>
+        <p className="text-[10px] text-text-muted mt-1.5">{automatable}% automatable</p>
+      </Card>
+
+      {/* Gaps Found */}
+      <Card className="p-4">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs text-text-muted font-medium">Gaps Found</span>
+          <span className={`text-2xl font-bold ${gapCount === 0 ? 'text-cta' : gapCount <= 3 ? 'text-warning' : 'text-danger'}`}>{gapCount}</span>
+        </div>
         <div className="flex items-center gap-1.5">
-          <span className="font-bold text-text-primary text-lg">{total}</span>
-          <span className="text-text-muted">services total</span>
+          <AlertTriangle className={`w-3.5 h-3.5 ${gapCount === 0 ? 'text-cta' : 'text-warning'}`} />
+          <span className="text-xs text-text-secondary">
+            {gapCount === 0 ? 'All services map cleanly' : `${gapCount} service${gapCount > 1 ? 's' : ''} need${gapCount === 1 ? 's' : ''} attention`}
+          </span>
         </div>
-        <div className="h-6 w-px bg-border hidden sm:block" />
-        <div className="flex items-center gap-3">
-          <span className="text-cta font-semibold">{high} high</span>
-          <span className="text-warning font-semibold">{med} med</span>
-          <span className="text-danger font-semibold">{low} low</span>
-          {noMatch > 0 && <span className="text-text-muted font-semibold">{noMatch} none</span>}
-        </div>
-        <div className="h-6 w-px bg-border hidden sm:block" />
-        <div className="flex items-center gap-2 text-text-muted">
-          Effort: <span className="text-cta">{effortLow} low</span> / <span className="text-warning">{effortMed} med</span> / <span className="text-danger">{effortHigh} high</span>
-        </div>
-        <div className="h-6 w-px bg-border hidden sm:block" />
-        <div className="flex items-center gap-1.5">
-          <AlertTriangle className="w-3.5 h-3.5 text-warning" />
-          <span className="text-text-muted">{gapCount} with gaps</span>
-        </div>
-      </div>
-      <p className="text-xs text-text-secondary mt-2">
-        {automatable}% high-confidence.{needsReview > 0 ? ` ${needsReview} service${needsReview > 1 ? 's' : ''} need${needsReview === 1 ? 's' : ''} review.` : ' All services map cleanly.'}
-      </p>
-    </Card>
+      </Card>
+    </div>
   );
 }
 

@@ -39,7 +39,7 @@ export function ToastProvider({ children }) {
 
   const addToast = useCallback((message, type = 'info', duration = 5000) => {
     const id = ++toastId;
-    setToasts((prev) => [...prev.slice(-4), { id, message, type }]); // max 5 visible
+    setToasts((prev) => [...prev.slice(-4), { id, message, type, duration }]); // max 5 visible
     if (duration > 0) {
       timers.current[id] = setTimeout(() => dismiss(id), duration);
     }
@@ -73,7 +73,7 @@ export function ToastProvider({ children }) {
           return (
             <div
               key={t.id}
-              className={`pointer-events-auto flex items-center gap-2 px-4 py-3 rounded-lg border shadow-lg backdrop-blur-sm text-sm animate-slide-in ${COLORS[t.type]}`}
+              className={`pointer-events-auto flex items-center gap-2 px-4 py-3 rounded-lg border shadow-lg backdrop-blur-sm text-sm animate-slide-in relative overflow-hidden ${COLORS[t.type]}`}
               role="alert"
             >
               <Icon className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
@@ -85,6 +85,12 @@ export function ToastProvider({ children }) {
               >
                 <X className="w-3.5 h-3.5" />
               </button>
+              {t.duration > 0 && (
+                <span
+                  className="toast-timer"
+                  style={{ animationDuration: `${t.duration}ms` }}
+                />
+              )}
             </div>
           );
         })}

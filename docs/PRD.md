@@ -1,7 +1,7 @@
 # Archmorph — Cloud Architecture Translator to Azure
 ## Product Requirements Document (PRD)
-**Version:** 4.0.0
-**Date:** March 23, 2026
+**Version:** 4.1.0
+**Date:** March 24, 2026
 **Author:** Ido Katz
 
 ---
@@ -898,6 +898,49 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | **AI Agent PaaS** | Control/Runtime design with routing/memory/policy | Engineering | P1 | #319 |
 | **Live Cloud Discovery & Auto-Deploy** | End-to-end migration execution platform | Engineering | P1 | #321 |
 | **GitHub Actions billing** | All CI workflows blocked since Feb 25; requires billing fix | DevOps | Urgent | #320 |
+
+---
+
+## 12. v4.1 Strategic & Technical Gaps (March 24, 2026 — Cross-Functional Review)
+
+Identified by CEO Master + CTO Master cross-functional review with all agent hierarchy participation.
+
+### 12.1 Strategic Gaps (CEO Review)
+
+| # | Gap | Priority | Business Impact | Owner | SP |
+|---|-----|----------|----------------|-------|----|
+| S1 | Activate Stripe billing in production | P0 | Zero revenue — billing archived, not live | CRO + Backend | 5 |
+| S2 | Self-serve onboarding funnel with product analytics | P0 | No funnel metrics = blind PLG motion | PM + FE | 8 |
+| S3 | Interactive demo / playground (no sign-up) | P0 | PLG requires zero-friction try-it-now | UX + FE | 5 |
+| S4 | Customer testimonials / case study framework | P1 | Zero social proof for investors | CRO + PM | 3 |
+| S5 | SOC 2 Type I readiness & compliance dashboard | P1 | Blocks enterprise deals | CISO + CLO | 8 |
+| S6 | SSO / SAML / SCIM integration | P1 | Blocks enterprise deals >$10K ARR | CISO + Backend | 8 |
+| S7 | Terraform state import / reverse engineering | P1 | "10x moat" — existing infra to diagram | CTO + Cloud | 13 |
+| S8 | Public API documentation & developer portal | P1 | PLG for developers needs self-serve docs | API + PM | 5 |
+| S9 | Multi-cloud cost comparison engine | P1 | Side-by-side Azure/AWS/GCP cost = differentiator | Cloud + Backend | 8 |
+| S10 | Waitlist / early access with referral loop | P1 | No growth loop for pre-seed traction | CRO + FE | 3 |
+| S11 | Investor data room & metrics dashboard | P1 | No structured data room for fundraising | Venture + PM | 5 |
+| S12 | GitHub/GitLab integration for IaC push | P2 | Push Terraform as PR = one-click workflow | DevOps + Backend | 5 |
+| S13 | Migration risk scoring & blast radius analysis | P2 | Advisory layer enterprises pay premium for | Cloud + Backend | 8 |
+| S14 | Slack / Teams notification integrations | P2 | Enterprise teams live in these tools | Backend | 3 |
+| S15 | White-label / embed SDK for partners | P2 | MSP distribution channel = B2B2B revenue | CTO + API | 13 |
+
+### 12.2 Technical Gaps (CTO Review)
+
+| # | Gap | Priority | Risk Domain | Owner | SP |
+|---|-----|----------|-------------|-------|----|
+| T1 | In-memory state sprawl breaks horizontal scaling | P1 | Architecture | Backend | 13 |
+| T2 | 52 routers with monolith coupling via shared.py | P2 | Architecture | VP R&D | 8 |
+| T3 | OpenTelemetry instrumentation is superficial | P2 | Observability | DevOps | 8 |
+| T4 | No resilience patterns beyond OpenAI retry | P2 | Reliability | Backend | 5 |
+| T5 | pgvector missing HNSW index + scaling plan | P2 | Data/Performance | Performance | 8 |
+| T6 | Cost metering is volatile in-memory state | P2 | AI/LLM Cost | PM | 5 |
+| T7 | Only 1 Playwright E2E spec — critical funnel untested | P2 | Testing | QA | 8 |
+| T8 | No shared API schema between FE/BE | P2 | Contract Drift | FE + API | 5 |
+| T9 | Load tests skip LLM-bound endpoints | P2 | Performance | Performance | 5 |
+| T10 | Alembic defaults to SQLite — prod/dev parity broken | P1 | DX/Reliability | DevOps | 3 |
+| T11 | Model router has no fallback chain | P2 | AI/Reliability | Cloud | 5 |
+| T12 | No local dev Docker Compose with full stack | P3 | DX/Onboarding | DevOps | 5 |
 
 ---
 

@@ -4,6 +4,10 @@ Uses GPT-4o to suggest Azure equivalents for unknown / low-confidence
 source-cloud services, with dependency-graph-aware reasoning.
 Integrates with the existing CROSS_CLOUD_MAPPINGS catalogue and
 provides an admin review queue for human-in-the-loop vetting.
+
+Feedback persistence: Approved/rejected decisions are stored in the
+suggestion_feedback DB table (migration 009) and loaded as few-shot
+examples on startup. In-memory cache is a hot read-through layer.
 """
 
 import json
@@ -30,11 +34,12 @@ _review_queue: Dict[str, Dict[str, Any]] = {}  # suggestion_id → suggestion
 _review_lock = threading.Lock()
 
 # ─────────────────────────────────────────────────────────
-# Learning feedback store — approved/rejected decisions
-# used as few-shot examples for future GPT suggestions
+# Learning feedback store — DB-backed with in-memory cache.
+# On startup, load from DB. New entries written to both.
 # ─────────────────────────────────────────────────────────
-_feedback_store: List[Dict[str, Any]] = []  # chronologically ordered
+_feedback_cache: List[Dict[str, Any]] = []  # hot read-through cache
 _feedback_lock = threading.Lock()
+_feedback_loaded = False  # lazy load flag
 _AUTO_APPROVE_THRESHOLD = 0.9  # confidence > this → auto-approved
 
 # Known catalogue lookup for fast matching
@@ -96,10 +101,13 @@ Rules:
 
 def _build_few_shot_examples(source_provider: str, max_examples: int = 5) -> str:
     """Build few-shot examples from approved feedback for the GPT prompt."""
+    # Ensure feedback is loaded from DB
+    _load_feedback_from_db()
+
     examples = []
     with _feedback_lock:
         approved = [
-            fb for fb in _feedback_store
+            fb for fb in _feedback_cache
             if fb.get("decision") == "approved"
             and fb.get("source_provider", "").lower() == source_provider.lower()
         ]
@@ -128,8 +136,46 @@ def _build_few_shot_examples(source_provider: str, max_examples: int = 5) -> str
     )
 
 
+def _load_feedback_from_db() -> None:
+    """Load persisted feedback from the database into the in-memory cache (lazy, once)."""
+    global _feedback_loaded
+    if _feedback_loaded:
+        return
+
+    try:
+        from database import SessionLocal
+        from models.suggestion_feedback import SuggestionFeedback
+
+        db = SessionLocal()
+        try:
+            rows = db.query(SuggestionFeedback).order_by(
+                SuggestionFeedback.recorded_at.asc()
+            ).limit(500).all()
+
+            with _feedback_lock:
+                _feedback_cache.clear()
+                for row in rows:
+                    _feedback_cache.append({
+                        "source_service": row.source_service,
+                        "source_provider": row.source_provider,
+                        "azure_service": row.azure_service,
+                        "confidence": row.confidence,
+                        "category": row.category or "",
+                        "decision": row.decision,
+                        "reviewer": row.reviewer or "",
+                        "recorded_at": row.recorded_at.isoformat() if row.recorded_at else "",
+                    })
+            _feedback_loaded = True
+            logger.info("Loaded %d feedback entries from DB", len(rows))
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.warning("Could not load feedback from DB (non-fatal): %s", exc)
+        _feedback_loaded = True  # Don't retry on every call
+
+
 def _record_feedback(suggestion: Dict[str, Any], decision: str, reviewer: str) -> None:
-    """Record an approved/rejected decision for learning feedback."""
+    """Record an approved/rejected decision — persists to DB and updates in-memory cache."""
     entry = {
         "source_service": suggestion.get("source_service", ""),
         "source_provider": suggestion.get("source_provider", ""),
@@ -140,8 +186,41 @@ def _record_feedback(suggestion: Dict[str, Any], decision: str, reviewer: str) -
         "reviewer": reviewer,
         "recorded_at": datetime.now(timezone.utc).isoformat(),
     }
+
+    # Update in-memory cache
     with _feedback_lock:
-        _feedback_store.append(entry)
+        _feedback_cache.append(entry)
+
+    # Persist to database
+    try:
+        from database import SessionLocal
+        from models.suggestion_feedback import SuggestionFeedback
+
+        db = SessionLocal()
+        try:
+            record = SuggestionFeedback(
+                source_service=entry["source_service"],
+                source_provider=entry["source_provider"],
+                azure_service=entry["azure_service"],
+                confidence=entry["confidence"],
+                category=entry["category"],
+                decision=decision,
+                reviewer=reviewer,
+            )
+            db.add(record)
+            db.commit()
+            logger.info(
+                "Persisted feedback: %s → %s (%s)",
+                entry["source_service"], entry["azure_service"], decision,
+            )
+        except Exception as exc:
+            db.rollback()
+            logger.error("Failed to persist feedback to DB: %s", exc)
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.warning("DB unavailable for feedback persistence: %s", exc)
+
     logger.info("Recorded feedback: %s → %s (%s)", entry["source_service"], entry["azure_service"], decision)
 
 
@@ -877,8 +956,9 @@ def get_review_stats() -> Dict[str, Any]:
 
     approval_rate = round(approved / reviewed, 3) if reviewed > 0 else 0.0
 
+    _load_feedback_from_db()
     with _feedback_lock:
-        feedback_total = len(_feedback_store)
+        feedback_total = len(_feedback_cache)
 
     return {
         "total": total,
