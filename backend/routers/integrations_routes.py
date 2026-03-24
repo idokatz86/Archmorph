@@ -71,7 +71,7 @@ def _post_json(url: str, payload: Dict[str, Any], headers: Optional[Dict[str, st
             "status_code": exc.code,
             "error_body": exc.read().decode("utf-8", errors="replace")[:500],
         }
-    except Exception as exc:
+    except Exception:
         return {"success": False, "status_code": None, "error": "Request failed"}
 
 
