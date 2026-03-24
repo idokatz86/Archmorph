@@ -55,7 +55,7 @@ async def preview_deployment(
         try:
             result = await azure_service.preview_deployment(payload.model_dump())
         except Exception:
-            logger.exception("Deployment preview failed")
+            logger.error("Deployment preview failed")
             raise HTTPException(status_code=500, detail="Deployment preview failed.") from None
         return {"status": "success", "data": result}
     else:
@@ -79,7 +79,7 @@ async def execute_deployment(
         try:
             result = await azure_service.deploy_infrastructure(job_id, payload.model_dump())
         except Exception:
-            logger.exception("Deployment execution failed for job %s", str(job_id).replace('\n', '').replace('\r', ''))
+            logger.error("Deployment execution failed for job %s", str(job_id).replace('\n', '').replace('\r', ''))
             raise HTTPException(status_code=500, detail="Deployment failed. Please try again.") from None
         return DeploymentResponse(job_id=job_id, status=result["status"], message=result["message"])
     else:
