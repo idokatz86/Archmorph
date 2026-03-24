@@ -1,7 +1,5 @@
-import React, { useRef, useState, useEffect } from 'react';
-import { CloudCog, Layers, Server, Activity, Rocket, MessageSquare, Shield, Home, LayoutDashboard, Sparkles, Menu, X, Moon, Sun, PenTool, Image } from 'lucide-react';
-import { Badge } from './ui';
-import { APP_VERSION } from '../constants';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
+import { CloudCog, Layers, Server, Activity, Rocket, MessageSquare, LayoutDashboard, Sparkles, Menu, X, Moon, Sun, PenTool, Image, ChevronDown, Search } from 'lucide-react';
 import FeedbackWidget from './FeedbackWidget';
 import { UserMenu } from './Auth';
 
@@ -22,46 +20,189 @@ function useTheme() {
   return { theme, toggle };
 }
 
+const PRIMARY_ITEMS = [
+  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'translator', label: 'Translator', icon: Layers },
+  { id: 'services', label: 'Services', icon: Server },
+  { id: 'canvas', label: 'Canvas', icon: PenTool },
+];
+
+const MORE_ITEMS = [
+  { id: 'playground', label: 'Playground', icon: Sparkles },
+  { id: 'drift', label: 'Drift', icon: Activity },
+  { id: 'roadmap', label: 'Roadmap', icon: Rocket },
+  { id: 'gallery', label: 'Gallery', icon: Image },
+];
+
+const ALL_ITEMS = [...PRIMARY_ITEMS, ...MORE_ITEMS];
+
+function MoreDropdown({ activeTab, setActiveTab }) {
+  const [open, setOpen] = useState(false);
+  const [focusIdx, setFocusIdx] = useState(-1);
+  const containerRef = useRef(null);
+  const itemRefs = useRef([]);
+  const hasActiveChild = MORE_ITEMS.some(item => item.id === activeTab);
+
+  // Close on click outside
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e) {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setOpen(false);
+        setFocusIdx(-1);
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [open]);
+
+  // Close on Escape, arrow key navigation
+  const handleKeyDown = useCallback((e) => {
+    if (!open) {
+      if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        setOpen(true);
+        setFocusIdx(0);
+      }
+      return;
+    }
+
+    switch (e.key) {
+      case 'Escape':
+        e.preventDefault();
+        setOpen(false);
+        setFocusIdx(-1);
+        containerRef.current?.querySelector('[aria-haspopup]')?.focus();
+        break;
+      case 'ArrowDown':
+        e.preventDefault();
+        setFocusIdx(i => (i + 1) % MORE_ITEMS.length);
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        setFocusIdx(i => (i - 1 + MORE_ITEMS.length) % MORE_ITEMS.length);
+        break;
+      case 'Home':
+        e.preventDefault();
+        setFocusIdx(0);
+        break;
+      case 'End':
+        e.preventDefault();
+        setFocusIdx(MORE_ITEMS.length - 1);
+        break;
+      case 'Tab':
+        setOpen(false);
+        setFocusIdx(-1);
+        break;
+      default:
+        break;
+    }
+  }, [open]);
+
+  // Focus the active item when focusIdx changes
+  useEffect(() => {
+    if (open && focusIdx >= 0) {
+      itemRefs.current[focusIdx]?.focus();
+    }
+  }, [open, focusIdx]);
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        aria-haspopup="true"
+        aria-expanded={open}
+        onClick={() => { setOpen(v => !v); setFocusIdx(-1); }}
+        onKeyDown={handleKeyDown}
+        className={`flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium rounded-lg transition-all duration-200 cursor-pointer relative ${
+          hasActiveChild
+            ? 'bg-cta/10 text-cta shadow-[0_0_12px_-3px] shadow-cta/30'
+            : 'text-text-secondary hover:text-text-primary hover:bg-secondary'
+        }`}
+      >
+        More
+        <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+        {hasActiveChild && (
+          <span className="absolute -bottom-[7px] left-2 right-2 h-[2px] bg-cta rounded-full" />
+        )}
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          aria-label="More navigation"
+          onKeyDown={handleKeyDown}
+          className="absolute top-full right-0 mt-1.5 w-44 rounded-lg bg-surface border border-border shadow-lg shadow-black/20 py-1 z-50"
+        >
+          {MORE_ITEMS.map((item, idx) => (
+            <button
+              key={item.id}
+              ref={el => { itemRefs.current[idx] = el; }}
+              role="menuitem"
+              tabIndex={focusIdx === idx ? 0 : -1}
+              aria-current={activeTab === item.id ? 'page' : undefined}
+              onClick={() => { setActiveTab(item.id); setOpen(false); setFocusIdx(-1); }}
+              className={`flex items-center gap-2.5 w-full px-3 py-2 text-[13px] font-medium transition-colors cursor-pointer ${
+                activeTab === item.id
+                  ? 'bg-cta/10 text-cta'
+                  : 'text-text-secondary hover:text-text-primary hover:bg-secondary'
+              }`}
+            >
+              <item.icon className="w-4 h-4" />
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Nav({ activeTab, setActiveTab, updateStatus }) {
   const feedbackRef = useRef(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { theme, toggle: toggleTheme } = useTheme();
 
-  const NAV_ITEMS = [
-    { id: 'landing', label: 'Home', icon: Home },
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'playground', label: 'Playground', icon: Sparkles },
-    { id: 'translator', label: 'Translator', icon: Layers },
-    // { id: 'templates', label: 'Templates', icon: Sparkles }, // Hidden for beta
-    { id: 'services', label: 'Services', icon: Server },
-    { id: 'canvas', label: 'Canvas', icon: PenTool },
-    { id: 'drift', label: 'Drift', icon: Activity },
-    { id: 'roadmap', label: 'Roadmap', icon: Rocket },
-    { id: 'gallery', label: 'Gallery', icon: Image },
-  ];
+  const catalogLive = updateStatus?.scheduler_running;
+  const catalogLabel = catalogLive ? 'Catalog syncing — live updates active' : 'Catalog idle';
 
   return (
     <>
       <header className="sticky top-0 z-50 bg-surface/80 backdrop-blur-xl border-b border-border">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-cta/15 flex items-center justify-center">
+          <div className="flex items-center justify-between h-14">
+            {/* Logo — clickable to go Home (#1), catalog dot as tooltip (#10), tagline removed (#2) */}
+            <button
+              onClick={() => setActiveTab('landing')}
+              className="flex items-center gap-2.5 cursor-pointer group"
+              aria-label="Go to home"
+              title={catalogLabel}
+            >
+              <div className="relative w-8 h-8 rounded-lg bg-cta/15 flex items-center justify-center">
                 <CloudCog className="w-5 h-5 text-cta" />
+                {updateStatus && (
+                  <span
+                    className={`absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full ring-2 ring-surface/80 ${
+                      catalogLive ? 'bg-cta animate-pulse' : 'bg-text-muted'
+                    }`}
+                    role="status"
+                    aria-label={catalogLabel}
+                  />
+                )}
               </div>
-              <div>
-                <h1 className="text-lg font-bold font-semibold tracking-tight"><span className="text-text-primary">Arch</span><span className="text-cta">morph</span></h1>
-                <p className="text-[10px] text-text-muted font-medium uppercase tracking-wider">Modernize Any Cloud</p>
-              </div>
-            </div>
-            {/* Desktop navigation */}
-            <nav aria-label="Main navigation" className="hidden md:flex items-center gap-1">
-              {NAV_ITEMS.map(tab => (
+              <h1 className="text-base font-bold tracking-tight group-hover:opacity-80 transition-opacity">
+                <span className="text-text-primary">Arch</span>
+                <span className="text-cta">morph</span>
+              </h1>
+            </button>
+
+            {/* Desktop navigation — primary 4 + More dropdown (#3, #8) */}
+            <nav aria-label="Main navigation" className="hidden md:flex items-center gap-0.5">
+              {PRIMARY_ITEMS.map(tab => (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
                   aria-current={activeTab === tab.id ? 'page' : undefined}
-                  className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-all duration-200 cursor-pointer relative ${
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium rounded-lg transition-all duration-200 cursor-pointer relative ${
                     activeTab === tab.id
                       ? 'bg-cta/10 text-cta shadow-[0_0_12px_-3px] shadow-cta/30'
                       : 'text-text-secondary hover:text-text-primary hover:bg-secondary'
@@ -70,48 +211,50 @@ export default function Nav({ activeTab, setActiveTab, updateStatus }) {
                   <tab.icon className="w-4 h-4" />
                   {tab.label}
                   {activeTab === tab.id && (
-                    <span className="absolute -bottom-[9px] left-2 right-2 h-[2px] bg-cta rounded-full" />
+                    <span className="absolute -bottom-[7px] left-2 right-2 h-[2px] bg-cta rounded-full" />
                   )}
                 </button>
               ))}
+              <MoreDropdown activeTab={activeTab} setActiveTab={setActiveTab} />
             </nav>
-            <div className="flex items-center gap-3">
-              {updateStatus && (
-                <div className="hidden sm:flex items-center gap-2 text-xs text-text-muted">
-                  <div className={`w-2 h-2 rounded-full ${updateStatus.scheduler_running ? 'bg-cta animate-pulse' : 'bg-text-muted'}`} role="status" aria-label={updateStatus.scheduler_running ? 'Catalog live' : 'Catalog idle'} />
-                  <span>Catalog {updateStatus.scheduler_running ? 'Live' : 'Idle'}</span>
-                </div>
-              )}
+
+            {/* Right controls — tightened gap (#9), icon-only theme (#6), search (#7), badges removed (#4) */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  const event = new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true });
+                  document.dispatchEvent(event);
+                }}
+                className="p-1.5 rounded-lg hover:bg-secondary transition-colors cursor-pointer"
+                aria-label="Open command palette"
+                title="Search (⌘K)"
+              >
+                <Search className="w-4 h-4 text-text-secondary" />
+              </button>
               <button
                 onClick={toggleTheme}
-                className="relative w-14 h-7 rounded-full bg-secondary border border-border hover:border-border-light transition-all duration-300 cursor-pointer flex items-center px-1"
+                className="p-1.5 rounded-lg hover:bg-secondary transition-colors cursor-pointer"
                 aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
                 title={theme === 'dark' ? 'Light mode' : 'Dark mode'}
               >
-                <span className={`absolute w-5 h-5 rounded-full bg-cta/20 flex items-center justify-center transition-transform duration-300 ${theme === 'dark' ? 'translate-x-0' : 'translate-x-7'}`}>
-                  {theme === 'dark'
-                    ? <Moon className="w-3 h-3 text-info" />
-                    : <Sun className="w-3 h-3 text-warning" />
-                  }
-                </span>
-                <Sun className="w-3 h-3 text-text-muted/40 ml-auto mr-0.5" />
-                <Moon className="w-3 h-3 text-text-muted/40 ml-0.5" />
+                {theme === 'dark'
+                  ? <Moon className="w-4 h-4 text-text-secondary" />
+                  : <Sun className="w-4 h-4 text-warning" />
+                }
               </button>
               <button
                 onClick={() => feedbackRef.current?.open()}
-                className="p-2 rounded-lg hover:bg-secondary transition-colors cursor-pointer"
-                aria-label="Give Feedback"
-                title="Give Feedback"
+                className="p-1.5 rounded-lg hover:bg-secondary transition-colors cursor-pointer"
+                aria-label="Give feedback"
+                title="Give feedback"
               >
-                <MessageSquare className="w-4 h-4 text-text-secondary hover:text-text-primary" />
+                <MessageSquare className="w-4 h-4 text-text-secondary" />
               </button>
               <UserMenu />
-              <span className="hidden lg:inline-flex items-center gap-1 text-[10px] text-text-muted font-mono"><kbd className="px-1 py-0.5 rounded bg-secondary border border-border/50">⌘K</kbd></span>
-              <Badge variant="azure" className="hidden sm:inline-flex">v{APP_VERSION}</Badge>
               {/* Mobile hamburger */}
               <button
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                className="md:hidden p-2 rounded-lg hover:bg-secondary transition-colors cursor-pointer"
+                className="md:hidden p-1.5 rounded-lg hover:bg-secondary transition-colors cursor-pointer"
                 aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
                 aria-expanded={mobileMenuOpen}
               >
@@ -120,11 +263,12 @@ export default function Nav({ activeTab, setActiveTab, updateStatus }) {
             </div>
           </div>
         </div>
-        {/* Mobile menu dropdown */}
+
+        {/* Mobile menu — all items visible (#5) */}
         {mobileMenuOpen && (
           <nav className="md:hidden border-t border-border bg-surface/95 backdrop-blur-xl" aria-label="Mobile navigation">
             <div className="max-w-7xl mx-auto px-4 py-3 space-y-1">
-              {NAV_ITEMS.map(tab => (
+              {ALL_ITEMS.map(tab => (
                 <button
                   key={tab.id}
                   onClick={() => { setActiveTab(tab.id); setMobileMenuOpen(false); }}
