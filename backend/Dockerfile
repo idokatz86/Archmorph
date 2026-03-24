@@ -26,6 +26,9 @@ RUN pip install --no-cache-dir --upgrade "pip>=26.0" setuptools wheel && \
 # ── Stage 2: Runtime ─────────────────────────────────────────
 FROM python:3.12-slim-bookworm
 
+# Upgrade system pip to fix CVE-2026-1703 and CVE-2025-8869
+RUN pip install --no-cache-dir --upgrade "pip>=26.0"
+
 # Runtime-only system deps (libpq for psycopg2, curl for healthcheck)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends libpq5 curl && \
