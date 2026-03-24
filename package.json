@@ -1,6 +1,6 @@
 {
   "name": "archmorph",
-  "version": "4.0.0",
+  "version": "4.1.0",
   "description": "AI-Powered Cloud Architecture Translator to Azure",
   "private": true,
   "scripts": {

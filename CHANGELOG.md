@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.1.0] - 2026-03-24
+
+### Added
+- **Self-Serve Onboarding Funnel** (#492) — Product analytics event tracking (PostHog + backend ingestion), funnel metrics (page_view → upgrade_to_pro), session-based anonymous tracking
+- **Interactive Demo Playground** (#493) — Try-before-signup sandbox with sample diagrams, guided walkthrough, no authentication required
+- **SSO / SAML / SCIM Integration** (#496) — Enterprise SSO with SAML 2.0 Assertion Consumer Service, Single Logout, SCIM v2.0 user/group provisioning with JIT
+- **Terraform State Import** (#497) — Upload terraform.tfstate (v3/v4), CloudFormation templates, or ARM deployments to auto-generate architecture diagrams. ~165 resource type mappings across AWS/Azure/GCP
+- **Public API Developer Portal** (#498) — API documentation page with Swagger/Redoc links, category overview, curl examples, "Try it" integration
+- **Multi-Cloud Cost Comparison** (#499) — Side-by-side Azure vs AWS vs GCP cost estimation with TCO analysis and per-category savings recommendations
+- **Real-Time Collaborative Workspace** (#251) — Multi-stakeholder migration sessions with share codes, role-based participants (architect/devops/manager/security), change tracking
+- **Migration Replay** (#254) — Animated analysis timeline for presentations with play/pause/speed controls, event-by-event playback, JSON export
+- **Migration Gallery** (#256) — Public anonymized success stories with cloud badges, complexity indicators, likes, filterable by source/target cloud
+
+### Changed
+- **UX Wave 1** (#508-511) — Micro-interaction animations (fade-in, slide-up, scale-in), reusable EmptyState component, Textarea/Checkbox/RadioGroup form primitives, nav active-tab glow effect, font-semibold wordmark
+- **UX Wave 2** (#512-513) — 3-phase progress indicator (PhaseIndicator.jsx), design system primitives expansion
+- **Redis State Migration** (#494) — Session store upgraded from in-memory to Redis/PostgreSQL for horizontal scaling
+- **Alembic PostgreSQL Parity** (#495) — Enforced PostgreSQL for dev/prod parity, eliminated SQLite default
+- **APP_VERSION** bumped to 4.0.0 in frontend constants
+
+### Fixed
+- Unused imports in analytics_routes.py (ruff lint)
+- Missing posthog-js frontend dependency
+- CodeQL security alerts: defusedxml for SAML XML parsing, stack-trace exposure fixes, log sanitization
+
 ## [4.0.0] - 2026-03-23
 
 ### Added

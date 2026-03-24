@@ -6,7 +6,7 @@ Convert AWS and GCP architecture diagrams into Azure equivalents with guided mig
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Azure](https://img.shields.io/badge/cloud-Azure-0078D4.svg)
-![Version](https://img.shields.io/badge/version-4.0.0-22C55E.svg)
+![Version](https://img.shields.io/badge/version-4.1.0-22C55E.svg)
 ![Status](https://img.shields.io/badge/status-Production-22C55E.svg)
 ![Tests](https://img.shields.io/badge/tests-1446%20passing-22C55E.svg)
 ![Python](https://img.shields.io/badge/python-3.12-3776AB.svg)
@@ -48,6 +48,14 @@ Archmorph uses Azure OpenAI GPT-4.1 (with GPT-4o fallback) to analyze cloud arch
 - **Migration risk assessment** — risk scoring with automated runbook generation
 - **Migration intelligence** — ML-powered analysis with historical pattern matching
 - **Infrastructure import** — import existing Terraform/ARM/CloudFormation configurations
+- **Terraform State Import** — reverse-engineer existing infrastructure from tfstate/CloudFormation/ARM into architecture diagrams
+- **Multi-Cloud Cost Comparison** — side-by-side Azure vs AWS vs GCP TCO analysis with savings recommendations
+- **SSO / SAML / SCIM** — enterprise SSO with SAML 2.0, SCIM v2.0 user/group provisioning, JIT
+- **Real-time Collaboration** — multi-stakeholder migration workspace with share codes and role-based participants
+- **Migration Replay** — animated analysis timeline for presentations with playback controls
+- **Migration Gallery** — public anonymized success stories, filterable by cloud and complexity
+- **Product Analytics** — funnel tracking (PostHog + backend), session-based event ingestion
+- **API Developer Portal** — Swagger/Redoc integration with category overview and curl examples
 - **Living architecture** — real-time architecture drift detection and versioning
 - **Social authentication** — Microsoft, Google, GitHub sign-in (Azure SWA + JWT fallback)
 - **User profiles** — preferences, avatar, GDPR-compliant account deletion
