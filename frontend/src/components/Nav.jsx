@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { CloudCog, Layers, Server, Activity, Rocket, MessageSquare, Shield, Home, LayoutDashboard, Sparkles, Menu, X, Moon, Sun, PenTool } from 'lucide-react';
+import { CloudCog, Layers, Server, Activity, Rocket, MessageSquare, Shield, Home, LayoutDashboard, Sparkles, Menu, X, Moon, Sun, PenTool, Image } from 'lucide-react';
 import { Badge } from './ui';
 import { APP_VERSION } from '../constants';
 import FeedbackWidget from './FeedbackWidget';
@@ -37,6 +37,7 @@ export default function Nav({ activeTab, setActiveTab, updateStatus }) {
     { id: 'canvas', label: 'Canvas', icon: PenTool },
     { id: 'drift', label: 'Drift', icon: Activity },
     { id: 'roadmap', label: 'Roadmap', icon: Rocket },
+    { id: 'gallery', label: 'Gallery', icon: Image },
   ];
 
   return (
