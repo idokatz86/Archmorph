@@ -9,6 +9,7 @@ import { ToastProvider } from './components/Toast';
 import { AuthProvider } from './components/Auth';
 import { APP_VERSION } from './constants';
 import useAppStore from './stores/useAppStore';
+import { trackPageView } from './services/analytics';
 
 // Lazy-loaded tab components — only fetched when the user switches tabs (#173)
 const DiagramTranslator = lazy(() => import('./components/DiagramTranslator'));
@@ -25,6 +26,7 @@ const OnboardingTour = lazy(() => import('./components/OnboardingTour'));
 const CanvasEditor = lazy(() => import('./components/CanvasEditor/CanvasEditor'));
 const CommandPalette = lazy(() => import('./components/CommandPalette'));
 const DashboardPage = lazy(() => import('./components/DashboardPage'));
+const PlaygroundPage = lazy(() => import('./components/PlaygroundPage'));
 
 
 function TabFallback() {
@@ -52,6 +54,7 @@ export default function App() {
   useEffect(() => {
     const controller = new AbortController();
     fetchUpdateStatus(controller.signal);
+    trackPageView(activeTab);
     return () => controller.abort();
   }, [fetchUpdateStatus]);
 
@@ -89,6 +92,7 @@ export default function App() {
           <Suspense fallback={<TabFallback />}>
             {activeTab === 'landing' && <LandingPage onGetStarted={() => setActiveTab('translator')} />}
             {activeTab === 'dashboard' && <DashboardPage />}
+            {activeTab === 'playground' && <PlaygroundPage />}
             {activeTab === 'translator' && <DiagramTranslator />}
             {activeTab === 'services' && <ServicesBrowser />}
             {activeTab === 'roadmap' && <Roadmap />}

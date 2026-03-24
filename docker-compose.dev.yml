@@ -1,0 +1,33 @@
+# Archmorph Local Development Stack (#495)
+# Usage: docker compose -f docker-compose.dev.yml up -d postgres redis
+# Then run backend with: DATABASE_URL=postgresql://archmorph:archmorph_dev@localhost:5432/archmorph REDIS_URL=redis://localhost:6379/0 uvicorn main:app --reload
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: archmorph
+      POSTGRES_PASSWORD: archmorph_dev
+      POSTGRES_DB: archmorph
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U archmorph"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  pgdata:

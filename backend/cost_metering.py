@@ -240,11 +240,37 @@ class CostMeter:
         with self._lock:
             self._records.append(rec)
 
+        # Persist to DB (#494) — non-blocking, best-effort
+        self._persist_record(rec)
+
         # Check budgets asynchronously (non-blocking)
         if agent_id:
             self._check_budgets(agent_id)
 
         return rec
+
+    def _persist_record(self, rec: CostRecord) -> None:
+        """Persist cost record to PostgreSQL (best-effort, non-blocking)."""
+        try:
+            from database import SessionLocal
+            db = SessionLocal()
+            try:
+                from sqlalchemy import text
+                db.execute(text(
+                    "INSERT INTO cost_records (id, execution_id, agent_id, model, prompt_tokens, completion_tokens, total_tokens, cost_usd, caller) "
+                    "VALUES (:id, :eid, :aid, :model, :pt, :ct, :tt, :cost, :caller)"
+                ), {
+                    "id": rec.id, "eid": rec.execution_id, "aid": rec.agent_id,
+                    "model": rec.model, "pt": rec.prompt_tokens, "ct": rec.completion_tokens,
+                    "tt": rec.total_tokens, "cost": rec.cost_usd, "caller": rec.caller,
+                })
+                db.commit()
+            except Exception:
+                db.rollback()
+            finally:
+                db.close()
+        except Exception:
+            pass  # DB not available — in-memory still works
 
     # ── Aggregation helpers ──────────────────────────────────
     def _filter_records(

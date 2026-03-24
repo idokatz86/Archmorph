@@ -26,11 +26,13 @@ from session_store import get_store
 # ─────────────────────────────────────────────────────────────
 # Rate Limiting
 # ─────────────────────────────────────────────────────────────
+_redis_url = os.getenv("REDIS_URL", "")
+_rate_limit_storage = os.getenv("RATE_LIMIT_STORAGE", _redis_url or "memory://")
 limiter = Limiter(
     key_func=get_remote_address,
     enabled=os.getenv("RATE_LIMIT_ENABLED", "true").lower() != "false",
     default_limits=["200/minute"],  # Global burst protection (#377)
-    storage_uri=os.getenv("RATE_LIMIT_STORAGE", "memory://"),
+    storage_uri=_rate_limit_storage,
 )
 
 # ─────────────────────────────────────────────────────────────
@@ -77,19 +79,27 @@ async def verify_admin_key(
 
 
 # ─────────────────────────────────────────────────────────────
-# In-memory Stores (backed by SessionStore abstraction — Issue #69)
+# Stores (#494 — Redis-backed in production, InMemory for dev)
 # ─────────────────────────────────────────────────────────────
 
 # Session store for analysis results (TTL: 2 hours, max 500 sessions)
 SESSION_STORE = get_store("sessions", maxsize=500, ttl=7200)
 
-# Image store keyed by diagram_id → (image_bytes, content_type) (TTL: 2 hours)
-# Aligned with SESSION_STORE TTL (7200s) so images don't expire before sessions — Issue #264
-# Reduced from 200→50 to limit memory ceiling (50×10MB=500MB vs 2GB) — Issue #294
+# Image store keyed by diagram_id -> (image_bytes, content_type) (TTL: 2 hours)
+# Aligned with SESSION_STORE TTL (7200s) so images don't expire before sessions
+# Reduced from 200->50 to limit memory ceiling (50x10MB=500MB vs 2GB) — Issue #294
 IMAGE_STORE = get_store("images", maxsize=int(os.getenv("IMAGE_STORE_MAXSIZE", "50")), ttl=7200)
 
 # Share links store (TTL: 24 hours, max 100)
 SHARE_STORE = get_store("shares", maxsize=100, ttl=86400)
+
+# Production guard: warn if in-memory stores are used in production (#494)
+_env = os.getenv("ENVIRONMENT", "development").lower()
+if _env in ("production", "prod", "staging") and not _redis_url:
+    logger.warning(
+        "PRODUCTION WITHOUT REDIS: SESSION_STORE, IMAGE_STORE, SHARE_STORE are in-memory. "
+        "Data will be LOST on deploy/restart. Set REDIS_URL to fix. (#494)"
+    )
 
 # ─────────────────────────────────────────────────────────────
 # Environment & Config

@@ -12,7 +12,7 @@
 import { create } from 'zustand';
 import api from '../services/apiClient';
 
-const VALID_TABS = new Set(['landing', 'translator', 'services', 'roadmap', 'legal']);
+const VALID_TABS = new Set(['landing', 'dashboard', 'playground', 'translator', 'services', 'roadmap', 'legal']);
 
 /** Read initial tab from URL hash, default to 'landing' */
 function getInitialTab() {

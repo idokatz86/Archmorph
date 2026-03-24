@@ -28,15 +28,17 @@ from agent_tools import (
     get_tool_schemas,
 )
 
+from session_store import get_store
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/agent-paas", tags=["Agent PaaS PoC"])
 
 # ─────────────────────────────────────────────────────────────
-# In-memory stores
+# Stores — Redis-backed in production (#494)
 # ─────────────────────────────────────────────────────────────
-AGENT_STORE: Dict[str, Dict[str, Any]] = {}
-EXECUTION_STORE: Dict[str, Dict[str, Any]] = {}
+AGENT_STORE = get_store("paas_agents", maxsize=500, ttl=0)  # No TTL for agents
+EXECUTION_STORE = get_store("paas_executions", maxsize=1000, ttl=86400)  # 24h TTL
 
 # GPT-4o pricing (per 1M tokens)
 MODEL_PRICING = {
