@@ -731,8 +731,6 @@ export default function DiagramTranslator() {
       ) : null
     ),
   }));
-      : false,
-  }));
 
   return (
     <div className="space-y-6">
