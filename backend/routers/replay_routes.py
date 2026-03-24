@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
 
 from error_envelope import ArchmorphException
+from log_sanitizer import safe
 from routers.shared import limiter, verify_api_key
 from session_store import get_store
 
@@ -68,7 +69,7 @@ async def start_recording(
     }
     _replay_store[replay_id] = replay
 
-    logger.info("Replay recording started: %s for analysis %s", replay_id, str(body.analysis_id).replace('\n', '').replace('\r', ''))
+    logger.info("Replay recording started: %s for analysis %s", replay_id, safe(body.analysis_id))
     return {"replay_id": replay_id, "analysis_id": body.analysis_id}
 
 

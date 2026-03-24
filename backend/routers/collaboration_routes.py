@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
 from error_envelope import ArchmorphException
+from log_sanitizer import safe
 from routers.shared import limiter, verify_api_key
 from session_store import get_store
 
@@ -80,7 +81,7 @@ async def create_session(
     _session_store[session_id] = session
     _change_store[session_id] = []
 
-    logger.info("Collab session created: %s for analysis %s", session_id, str(body.analysis_id).replace('\n', '').replace('\r', ''))
+    logger.info("Collab session created: %s for analysis %s", session_id, safe(body.analysis_id))
     return CreateSessionResponse(
         session_id=session_id,
         share_code=share_code,
@@ -129,7 +130,7 @@ async def join_session(
     })
     _session_store[session_id] = session
 
-    logger.info("User %s joined session %s as %s", str(body.user_id).replace('\n', '').replace('\r', ''), str(session_id).replace('\n', '').replace('\r', ''), str(body.role).replace('\n', '').replace('\r', ''))
+    logger.info("User %s joined session %s as %s", safe(body.user_id), safe(session_id), safe(body.role))
     return {"status": "joined", "session_id": session_id, "role": body.role}
 
 

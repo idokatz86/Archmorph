@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
 
 from error_envelope import ArchmorphException
+from log_sanitizer import safe
 from routers.shared import limiter, verify_api_key
 from session_store import get_store
 
@@ -107,7 +108,7 @@ async def submit_entry(
     }
     _gallery_store[entry_id] = entry
 
-    logger.info("Gallery entry submitted: %s (%s → %s)", entry_id, str(body.source_cloud).replace('\n', '').replace('\r', ''), str(body.target_cloud).replace('\n', '').replace('\r', ''))
+    logger.info("Gallery entry submitted: %s (%s → %s)", entry_id, safe(body.source_cloud), safe(body.target_cloud))
     return {"entry_id": entry_id, "status": "submitted"}
 
 
