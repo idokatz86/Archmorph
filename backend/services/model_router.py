@@ -1,4 +1,4 @@
-from typing import Protocol, List, Dict, Any, AsyncIterator, Optional
+from typing import Protocol, List, Dict, Any, AsyncIterator
 import logging
 import os
 
