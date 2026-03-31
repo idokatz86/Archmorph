@@ -52,4 +52,5 @@ anthropic
 pgvector
 tiktoken
 langchain
+langchain-core>=1.2.22  # CVE-2026-34070 path traversal fix
 azure-communication-email==1.1.0
