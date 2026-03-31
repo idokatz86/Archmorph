@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import DOMPurify from 'dompurify';
 import {
   Calendar, Rocket, Clock, Lightbulb, CheckCircle2, Loader2, ChevronDown, ChevronRight,
   Bug, Sparkles, Send, ExternalLink, GitBranch, Filter, Search, Code, Server, Layers,
@@ -74,7 +75,7 @@ function ReleaseCard({ release, isExpanded, onToggle }) {
               {release.highlights?.map((feature, idx) => (
                 <li key={idx} className="flex items-start gap-2 text-sm text-text-secondary">
                   <Sparkles className="w-3.5 h-3.5 text-cta shrink-0 mt-0.5" />
-                  <span dangerouslySetInnerHTML={{ __html: feature.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-cta hover:underline">$1</a>') }} />
+                  <span dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(feature.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="text-cta hover:underline">$1</a>'), { ALLOWED_TAGS: ['a', 'b', 'i', 'em', 'strong', 'code', 'span'], ALLOWED_ATTR: ['href', 'target', 'rel', 'class'] }) }} />
                 </li>
               ))}
             </ul>

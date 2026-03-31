@@ -85,7 +85,7 @@ def _bing_search(query: str, count: int = 5) -> List[Dict[str, str]]:
         {"q": query, "count": count, "mkt": "en-US", "safeSearch": "Strict"}
     )
     req = urllib.request.Request(url, headers={"Ocp-Apim-Subscription-Key": _BING_SEARCH_KEY})
-    with urllib.request.urlopen(req, timeout=10) as resp:
+    with urllib.request.urlopen(req, timeout=10) as resp:  # nosec B310 — URL is hardcoded HTTPS to Bing API
         data = json.loads(resp.read().decode())
 
     results = []
@@ -168,10 +168,10 @@ def _sandboxed_exec(code: str, timeout_ms: int = 5000) -> Dict[str, Any]:
 
     # Block dangerous patterns before execution
     _BLOCKED_PATTERNS = [
-        r"\bimport\s+(os|sys|subprocess|socket|shutil|pathlib|ctypes|multiprocessing)\b",
-        r"\b(open|exec|eval|compile|__import__|globals|locals|getattr|setattr|delattr)\s*\(",
-        r"\b(os\.|sys\.|subprocess\.|socket\.)",
-        r"__builtins__",
+        r"\bimport\s+(os|sys|subprocess|socket|shutil|pathlib|ctypes|multiprocessing|importlib|code|codeop|pty|commands)\b",
+        r"\b(open|exec|eval|compile|__import__|globals|locals|getattr|setattr|delattr|vars|dir|breakpoint|exit|quit|help|input|memoryview)\s*\(",
+        r"\b(os\.|sys\.|subprocess\.|socket\.|importlib\.)",
+        r"__builtins__|__subclasses__|__class__|__mro__|__bases__|__loader__|__spec__",
     ]
     for pattern in _BLOCKED_PATTERNS:
         if re.search(pattern, code):
@@ -198,7 +198,7 @@ def _sandboxed_exec(code: str, timeout_ms: int = 5000) -> Dict[str, Any]:
         restricted_globals = {"__builtins__": safe_builtins}
 
         with contextlib.redirect_stdout(stdout_capture):
-            exec(code, restricted_globals)  # noqa: S102 — intentionally sandboxed
+            exec(code, restricted_globals)  # nosec B102 # noqa: S102 — intentionally sandboxed with blocklist + restricted builtins
 
         output = stdout_capture.getvalue()[:10_000]
         return {"status": "success", "output": output or "(no output)", "execution_time_ms": timeout_ms}

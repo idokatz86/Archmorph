@@ -39,7 +39,10 @@ GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 
 # JWT session secret — MUST be set in production
-JWT_SECRET = os.getenv("JWT_SECRET", "archmorph-dev-secret-change-in-production")
+_jwt_secret_env = os.getenv("JWT_SECRET", "")
+if not _jwt_secret_env and os.getenv("ENV", "development").lower() in ("production", "prod", "staging"):
+    raise RuntimeError("JWT_SECRET environment variable must be set in production/staging")
+JWT_SECRET = _jwt_secret_env or "archmorph-dev-secret-change-in-production"  # nosec B105 — dev-only default
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRY_HOURS = int(os.getenv("JWT_EXPIRY_HOURS", "24"))
 JWT_REFRESH_EXPIRY_HOURS = int(os.getenv("JWT_REFRESH_EXPIRY_HOURS", "168"))  # 7 days

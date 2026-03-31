@@ -192,7 +192,8 @@ class FileStore(SessionStore):
     """
 
     def __init__(self, name: str, maxsize: int = 500, ttl: int = 7200):
-        self._base = Path(os.getenv("SESSION_FILE_DIR", "/tmp/archmorph_sessions")) / name  # noqa: S108
+        import tempfile
+        self._base = Path(os.getenv("SESSION_FILE_DIR", os.path.join(tempfile.gettempdir(), "archmorph_sessions"))) / name
         self._base.mkdir(parents=True, exist_ok=True)
         self._ttl = ttl
         self._maxsize = maxsize

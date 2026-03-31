@@ -50,10 +50,12 @@ async def verify_api_key(api_key: Optional[str] = Security(API_KEY_HEADER)):
     """Verify API key if authentication is enabled."""
     global _api_key_warning_logged
     if not API_KEY:
+        if os.getenv("ENV", "development").lower() in ("production", "prod", "staging"):
+            raise ArchmorphException(status_code=500, detail="Server misconfiguration: API key not set")
         if not _api_key_warning_logged:
-            logger.warning("ARCHMORPH_API_KEY not set \u2014 API authentication is disabled")
+            logger.warning("ARCHMORPH_API_KEY not set — API authentication is disabled (dev mode only)")
             _api_key_warning_logged = True
-        return  # Auth disabled — dev mode
+        return  # Auth disabled — dev mode only
     if not secrets.compare_digest(api_key or "", API_KEY):
         raise ArchmorphException(status_code=401, detail="Invalid or missing API key")
 

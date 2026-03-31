@@ -42,10 +42,11 @@ def _post_json(url: str, payload: Dict[str, Any], headers: Optional[Dict[str, st
     }
     hostname = (parsed.hostname or "").lower()
     # Allow *.atlassian.net for Jira, *.webhook.office.com for Teams
+    # Use dot-prefixed matching to prevent subdomain spoofing (e.g. evil-atlassian.net)
     host_ok = (
         hostname in _ALLOWED_HOSTS
-        or hostname.endswith(".atlassian.net")
-        or hostname.endswith(".webhook.office.com")
+        or hostname.endswith(".atlassian.net") and hostname.count(".") >= 2
+        or hostname.endswith(".webhook.office.com") and hostname.count(".") >= 3
     )
     if not host_ok:
         return {"success": False, "status_code": 0, "body": "Hostname not in allowlist"}
@@ -59,7 +60,7 @@ def _post_json(url: str, payload: Dict[str, Any], headers: Optional[Dict[str, st
     ctx = ssl.create_default_context()
 
     try:
-        with urllib.request.urlopen(req, timeout=15, context=ctx) as resp:  # noqa: S310
+        with urllib.request.urlopen(req, timeout=15, context=ctx) as resp:  # nosec B310 # noqa: S310 — URL validated against allowlist above
             return {
                 "success": True,
                 "status_code": resp.status,
