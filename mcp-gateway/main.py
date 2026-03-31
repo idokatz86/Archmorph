@@ -39,9 +39,49 @@ def _call_llm_for_mcp_generation(format_type: str, prompt: str, context: Dict[st
         
     format_instructions = ""
     if format_type == "excalidraw":
-        format_instructions = "Output strictly valid Excalidraw JSON. Start with '{' and end with '}'. Do not use Markdown code blocks or wrappers like ```json."
+        format_instructions = (
+            "Output strictly valid Excalidraw JSON. Start with '{' and end with '}'. "
+            "Do not use Markdown code blocks or wrappers like ```json.\n\n"
+            "CRITICAL Excalidraw rules:\n"
+            "- roughness: 0 for professional diagrams.\n"
+            "- All shape labels: fontSize >= 16. Diagram title: fontSize >= 24. Absolute minimum: 14.\n"
+            "- Zone backgrounds: opacity 25-40, strokeStyle 'dashed'. Place zones BEFORE shapes in elements array.\n"
+            "- Maximum 4 distinct fill colours per diagram.\n"
+            "- Colour palette (fill / stroke):\n"
+            "  Frontend: #a5d8ff / #1971c2, Backend: #d0bfff / #7048e8,\n"
+            "  Database: #b2f2bb / #2f9e44, Queue: #fff3bf / #fab005,\n"
+            "  External: #ffc9c9 / #e03131, Zone bg: #e9ecef / #868e96\n"
+            "- Column pitch: 440px (230 box + 210 gap for labeled arrows).\n"
+            "- Row pitch: 350px (160 box + 190 gap).\n"
+            "- Zone padding: >= 50px on all sides.\n"
+            "- Element order: zone backgrounds -> shapes -> arrows -> text labels.\n"
+            "- Arrows: use startElementId/endElementId for binding. strokeStyle 'dashed' for async flows."
+        )
     elif format_type == "drawio":
-        format_instructions = "Output strictly valid Draw.io XML graph schema. Start with <mxfile> and end with </mxfile>. Do not use Markdown code blocks or wrappers like ```xml."
+        format_instructions = (
+            "Output strictly valid Draw.io XML. Start with <mxfile> and end with </mxfile>. "
+            "Do not use Markdown code blocks or wrappers like ```xml.\n\n"
+            "CRITICAL Draw.io icon rules:\n"
+            "- For Azure services, use Azure2 image style: "
+            "image;aspect=fixed;html=1;points=[];align=center;image=img/lib/azure2/<category>/<Icon_Name>.svg;\n"
+            "- Do NOT use old shape=mxgraph.azure.* style — it does not render in modern draw.io.\n"
+            "- Common Azure2 icon paths:\n"
+            "  compute/Function_Apps.svg, compute/Virtual_Machine.svg, compute/Kubernetes_Services.svg,\n"
+            "  databases/Azure_Cosmos_DB.svg, databases/SQL_Database.svg, databases/Cache_Redis.svg,\n"
+            "  networking/Virtual_Networks.svg, networking/Load_Balancers.svg, networking/Front_Doors.svg,\n"
+            "  networking/Application_Gateways.svg, networking/Firewalls.svg, networking/Private_Endpoint.svg,\n"
+            "  app_services/App_Services.svg, app_services/API_Management_Services.svg,\n"
+            "  security/Key_Vaults.svg, management_governance/Monitor.svg,\n"
+            "  integration/Service_Bus.svg, integration/Logic_Apps.svg,\n"
+            "  storage/Storage_Accounts.svg, identity/Managed_Identities.svg\n\n"
+            "Layout guidelines:\n"
+            "- Use pageWidth=1900 pageHeight=1500 for complex infrastructure diagrams.\n"
+            "- VNets: thick borders (strokeWidth=4). Subnets: dashed borders (strokeWidth=2, dashPattern=8 8).\n"
+            "- Position resources inside their subnet containers.\n"
+            "- Label traffic flows with protocols/ports. Use edgeStyle=orthogonalEdgeStyle.\n"
+            "- Place Monitor/Log Analytics/Sentinel OUTSIDE VNet boundaries.\n"
+            "- Emit one mxCell per line (not minified single-line XML)."
+        )
     elif format_type == "visio":
         format_instructions = "Output strictly valid Visio VDX/XML schema. Start with <VisioDocument> and end with </VisioDocument>. Do not use Markdown code blocks or wrappers like ```xml."
 

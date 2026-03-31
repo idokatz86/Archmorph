@@ -19,6 +19,7 @@ from typing import Any
 # ---------------------------------------------------------------------------
 
 import os
+import re
 
 _data_file_AZURE_STENCILS = os.path.join(os.path.dirname(__file__), 'assets', 'diagram_stencils.json')
 try:
@@ -26,6 +27,26 @@ try:
         AZURE_STENCILS = json.load(_f)
 except FileNotFoundError:
     AZURE_STENCILS = [] if False else {}
+
+# ---------------------------------------------------------------------------
+# Azure2 icon catalog (648 icons) for fuzzy matching
+# ---------------------------------------------------------------------------
+
+_AZURE2_CATALOG_PATH = os.path.join(
+    os.path.dirname(__file__), '..', '.github', 'skills',
+    'drawio-mcp-diagramming', 'references', 'azure2-complete-catalog.txt',
+)
+_AZURE2_CATALOG: list[str] = []
+try:
+    with open(_AZURE2_CATALOG_PATH, 'r') as _cf:
+        for _line in _cf:
+            _line = _line.strip()
+            if _line and not _line.startswith('Matched') and _line.endswith('.svg'):
+                _AZURE2_CATALOG.append(_line)
+except FileNotFoundError:
+    pass
+
+_DRAWIO_DEFAULT_ICON = "img/lib/azure2/general/Module.svg"
 
 
 # Pastel zone backgrounds
@@ -54,42 +75,68 @@ _AZURE_SECONDARY = "#50E6FF"
 # Public helpers
 # ---------------------------------------------------------------------------
 
+def _search_azure2_catalog(service_name: str) -> str | None:
+    """Fuzzy-match a service name against the Azure2 icon catalog (648 icons).
+
+    Returns an ``img/lib/azure2/...`` path or None.
+    """
+    if not _AZURE2_CATALOG:
+        return None
+    # Normalise: "Azure Cosmos DB" → ["cosmos", "db"]
+    tokens = re.split(r'[\s_\-/]+', service_name.lower())
+    # Remove noise words
+    tokens = [t for t in tokens if t not in ('azure', 'service', 'services', 'microsoft', 'for', 'the')]
+
+    best: str | None = None
+    best_score = 0
+    for path in _AZURE2_CATALOG:
+        path_lower = path.lower()
+        score = sum(1 for t in tokens if t in path_lower)
+        if score > best_score:
+            best_score = score
+            best = path
+    if best and best_score >= 1:
+        return f"img/lib/azure2/{best}"
+    return None
+
+
 def get_azure_stencil_id(service_name: str, target: str = "drawio") -> str:
     """Return the stencil / shape identifier for *service_name*.
 
-    Parameters
-    ----------
-    service_name:
-        Azure service display name (e.g. ``"IoT Hub"``).
-    target:
-        ``"drawio"`` or ``"visio"``.
-
-    Returns
-    -------
-    str
-        The stencil string, or a generic fallback when the service is unknown.
+    For ``target="drawio"`` returns an Azure2 image path
+    (``img/lib/azure2/<category>/<Icon>.svg``).
+    For ``target="visio"`` returns the Visio stencil name.
     """
     entry = AZURE_STENCILS.get(service_name)
     if entry:
-        return entry.get(target, "mxgraph.azure.general")
-    # Fuzzy fallback – try partial match
+        val = entry.get(target)
+        if val:
+            return val
+    # Fuzzy fallback – try partial match against stencils JSON
     lower = service_name.lower()
     for name, ids in AZURE_STENCILS.items():
         if lower in name.lower() or name.lower() in lower:
-            return ids.get(target, "mxgraph.azure.general")
+            val = ids.get(target)
+            if val:
+                return val
 
-    # Fallback to Icon Registry (405 icons vs 36 hardcoded)
+    # Fallback to Azure2 catalog fuzzy search (648 icons)
+    if target == "drawio":
+        catalog_hit = _search_azure2_catalog(service_name)
+        if catalog_hit:
+            return catalog_hit
+
+    # Fallback to Icon Registry
     try:
         from icons.registry import resolve_icon
 
         icon_entry = resolve_icon(service_name, provider="azure")
         if icon_entry:
-            # Return the canonical ID as a reference; callers can embed the SVG
             return icon_entry.meta.id
     except Exception:  # noqa: BLE001  # nosec B110 - falls through to default icon
         pass
 
-    return "mxgraph.azure.general" if target == "drawio" else "Azure General"
+    return _DRAWIO_DEFAULT_ICON if target == "drawio" else "Azure General"
 
 
 def _resolve_icon_svg(azure_name: str) -> str | None:
@@ -294,7 +341,7 @@ def _exc_arrow(
         mid_x = (start_x + end_x) / 2
         mid_y = (start_y + end_y) / 2
         elements.append(
-            _exc_text(mid_x, mid_y - 14, label, size=12, color=color)
+            _exc_text(mid_x, mid_y - 14, label, size=14, color=color)
         )
     return elements
 
@@ -306,20 +353,32 @@ def _generate_excalidraw(analysis: dict) -> dict:
 
     elements: list[dict] = []
 
-    # Layout constants
-    zone_w = 320
-    zone_h_base = 160
-    svc_h = 44
-    svc_spacing = 52
-    zone_pad = 60
+    # Layout constants — aligned with Excalidraw MCP skill canvas-patterns
+    zone_w = 360
+    zone_h_base = 180
+    svc_h = 52
+    svc_spacing = 60
+    zone_pad = 80
     cols = min(len(zones), 4) or 1
     margin_x = 80
     margin_y = 120
-    title_h = 50
+    title_h = 60
 
-    # ── Title ──
+    # Semantic zone colours from Excalidraw MCP skill colour palette
+    _EXC_ZONE_COLORS = [
+        {"bg": "#a5d8ff", "stroke": "#1971c2"},   # Frontend / UI
+        {"bg": "#d0bfff", "stroke": "#7048e8"},   # Backend / API
+        {"bg": "#b2f2bb", "stroke": "#2f9e44"},   # Database
+        {"bg": "#fff3bf", "stroke": "#fab005"},   # Queue / Events
+        {"bg": "#e599f7", "stroke": "#9c36b5"},   # AI / ML
+        {"bg": "#ffc9c9", "stroke": "#e03131"},   # External
+        {"bg": "#ffe8cc", "stroke": "#fd7e14"},   # Cache
+        {"bg": "#ffec99", "stroke": "#f08c00"},   # Storage
+    ]
+
+    # ── Title ── (fontSize ≥ 24 per skill typography rules)
     elements.append(
-        _exc_text(margin_x, 20, title, size=28, color=_AZURE_PRIMARY, bold=True)
+        _exc_text(margin_x, 20, title, size=24, color="#1e1e1e", bold=True)
     )
 
     # Build a mapping from service aws name → azure name + confidence
@@ -360,14 +419,15 @@ def _generate_excalidraw(analysis: dict) -> dict:
     cloud_w = max_x - cloud_x + 30
     cloud_h = max_y - cloud_y + 30
 
+    # ── Cloud boundary (zone background — dashed, low opacity per skill rules) ──
     elements.append(
         _exc_rect(
             cloud_x, cloud_y, cloud_w, cloud_h,
-            stroke=_AZURE_PRIMARY, dash=[8, 4], opacity=60,
+            stroke=_AZURE_PRIMARY, dash=[8, 4], opacity=30,
         )
     )
     elements.append(
-        _exc_text(cloud_x + 10, cloud_y + 6, "Azure Cloud", size=14, color=_AZURE_PRIMARY)
+        _exc_text(cloud_x + 10, cloud_y + 6, "Azure Cloud", size=16, color="#868e96")
     )
 
     # ── Zone rectangles + services ──
@@ -376,19 +436,22 @@ def _generate_excalidraw(analysis: dict) -> dict:
         idx = zp["idx"]
         zone = zp["zone"]
         zx, zy, zw, zh = zp["x"], zp["y"], zp["w"], zp["h"]
-        bg = _ZONE_COLORS[idx % len(_ZONE_COLORS)]
+        zone_colors = _EXC_ZONE_COLORS[idx % len(_EXC_ZONE_COLORS)]
         gid = _uid()
 
         zone_name = zone.get("name", f"Zone {idx + 1}")
         zone_number = zone.get("number", idx + 1)
 
-        # Zone rect
+        # Zone rect — dashed stroke, opacity 30 per skill rules (zones are backgrounds)
         elements.append(
-            _exc_rect(zx, zy, zw, zh, stroke=_AZURE_PRIMARY, bg=bg, fill="solid", radius=12, group=gid)
+            _exc_rect(zx, zy, zw, zh, stroke=zone_colors["stroke"],
+                       bg=zone_colors["bg"], fill="solid", radius=12,
+                       group=gid, dash=[8, 4], opacity=35)
         )
-        # Zone label
+        # Zone label (fontSize ≥ 16 per skill typography rules)
         elements.append(
-            _exc_text(zx + 10, zy + 8, f"{zone_name} (#{zone_number})", size=16, color=_AZURE_PRIMARY, group=gid, bold=True)
+            _exc_text(zx + 10, zy + 8, f"{zone_name} (#{zone_number})",
+                       size=16, color=zone_colors["stroke"], group=gid, bold=True)
         )
 
         # Services inside zone
@@ -457,22 +520,22 @@ def _generate_excalidraw(analysis: dict) -> dict:
                     "groupIds": [gid],
                 }
                 elements.append(img_el)
-                # Label beside icon
+                # Label beside icon (fontSize ≥ 14 per skill rules)
                 label = f"{aws_name} → {azure_name}" if aws_name != azure_name else azure_name
                 elements.append(
-                    _exc_text(sx + 44, sy + 6, label, size=13, color="#1a1a1a", group=gid)
+                    _exc_text(sx + 44, sy + 6, label, size=14, color="#1a1a1a", group=gid)
                 )
                 elements.append(
-                    _exc_text(sx + 44, sy + 26, f"[{confidence}]", size=10, color=conf_color, group=gid)
+                    _exc_text(sx + 44, sy + 28, f"[{confidence}]", size=14, color=conf_color, group=gid)
                 )
             else:
                 label = f"{aws_name} → {azure_name}" if aws_name != azure_name else azure_name
                 elements.append(
-                    _exc_text(sx + 8, sy + 6, label, size=13, color="#1a1a1a", group=gid)
+                    _exc_text(sx + 8, sy + 6, label, size=14, color="#1a1a1a", group=gid)
                 )
-                # small confidence indicator text
+                # confidence indicator (fontSize ≥ 14 per skill rules)
                 elements.append(
-                    _exc_text(sx + 8, sy + 26, f"[{confidence}]", size=10, color=conf_color, group=gid)
+                    _exc_text(sx + 8, sy + 28, f"[{confidence}]", size=14, color=conf_color, group=gid)
                 )
 
         zone_center_map[idx] = (zx + zw / 2, zy + zh / 2)
@@ -498,15 +561,15 @@ def _generate_excalidraw(analysis: dict) -> dict:
     # ── Legend ──
     legend_y = max_y + 30
     elements.append(
-        _exc_text(margin_x, legend_y, "Confidence:", size=14, color="#333333", bold=True)
+        _exc_text(margin_x, legend_y, "Confidence:", size=16, color="#495057", bold=True)
     )
     for li, (level, color) in enumerate(_CONFIDENCE_COLORS.items()):
-        lx = margin_x + 120 + li * 140
+        lx = margin_x + 140 + li * 160
         elements.append(
-            _exc_rect(lx, legend_y, 16, 16, stroke=color, bg=color, fill="solid")
+            _exc_rect(lx, legend_y, 18, 18, stroke=color, bg=color, fill="solid")
         )
         elements.append(
-            _exc_text(lx + 22, legend_y, level.capitalize(), size=13, color=color)
+            _exc_text(lx + 24, legend_y, level.capitalize(), size=14, color=color)
         )
 
     doc = {
@@ -652,8 +715,7 @@ def _generate_drawio(analysis: dict) -> dict:
                 confidence = str(raw_conf)
             conf_color = _CONFIDENCE_COLORS.get(confidence, _CONFIDENCE_COLORS["medium"])
 
-            stencil = get_azure_stencil_id(azure_name, "drawio")
-            icon_uri = _resolve_icon_svg(azure_name)
+            azure2_icon = get_azure_stencil_id(azure_name, "drawio")
             label = f"{aws_name} → {azure_name}" if aws_name != azure_name else azure_name
 
             sx = 16
@@ -661,51 +723,33 @@ def _generate_drawio(analysis: dict) -> dict:
             sw = zone_w - 32
             sh = svc_h
 
-            # Use embedded icon image when available, fall back to stencil shape
-            if icon_uri:
-                # Icon cell (left side)
-                icon_id = next_id()
-                icon_style = (
-                    f"shape=image;image={icon_uri};"
-                    f"verticalLabelPosition=bottom;verticalAlign=top;"
-                    f"aspect=fixed;imageAspect=0;"
-                )
-                icon_cell = ET.SubElement(
-                    root_cell, "mxCell",
-                    id=icon_id, value="",
-                    style=icon_style,
-                    vertex="1", parent=zid,
-                )
-                icon_cell.append(_mx_geom(sx + 4, sy + 5, 40, 40))
-                # Label cell (right of icon)
-                lbl_id = next_id()
-                lbl_style = (
-                    f"text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;"
-                    f"rounded=1;strokeColor={conf_color};fillColor=#FFFFFF;"
-                    f"fontSize=12;fontColor=#1a1a1a;spacingLeft=4;"
-                )
-                lbl_cell = ET.SubElement(
-                    root_cell, "mxCell",
-                    id=lbl_id, value=label,
-                    style=lbl_style,
-                    vertex="1", parent=zid,
-                )
-                lbl_cell.append(_mx_geom(sx + 48, sy, sw - 48, sh))
-            else:
-                svc_style = (
-                    f"shape={stencil};whiteSpace=wrap;html=1;rounded=1;"
-                    f"strokeColor={conf_color};fillColor=#FFFFFF;fontSize=12;"
-                    f"fontColor=#1a1a1a;align=left;spacingLeft=8;"
-                )
-                sid = next_id()
-                svc_cell = ET.SubElement(
-                    root_cell, "mxCell",
-                    id=sid,
-                    value=label,
-                    style=svc_style,
-                    vertex="1", parent=zid,
-                )
-                svc_cell.append(_mx_geom(sx, sy, sw, sh))
+            # Azure2 icon cell (left side) — uses image style for reliable rendering
+            icon_id = next_id()
+            icon_style = (
+                f"image;aspect=fixed;html=1;points=[];align=center;"
+                f"image={azure2_icon};"
+            )
+            icon_cell = ET.SubElement(
+                root_cell, "mxCell",
+                id=icon_id, value="",
+                style=icon_style,
+                vertex="1", parent=zid,
+            )
+            icon_cell.append(_mx_geom(sx + 4, sy + 5, 40, 40))
+            # Label cell (right of icon)
+            lbl_id = next_id()
+            lbl_style = (
+                f"text;html=1;align=left;verticalAlign=middle;whiteSpace=wrap;"
+                f"rounded=1;strokeColor={conf_color};fillColor=#FFFFFF;"
+                f"fontSize=12;fontColor=#1a1a1a;spacingLeft=4;"
+            )
+            lbl_cell = ET.SubElement(
+                root_cell, "mxCell",
+                id=lbl_id, value=label,
+                style=lbl_style,
+                vertex="1", parent=zid,
+            )
+            lbl_cell.append(_mx_geom(sx + 48, sy, sw - 48, sh))
 
     # ── Cloud boundary geometry ──
     if zone_rects:
