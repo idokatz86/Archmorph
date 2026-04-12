@@ -61,7 +61,7 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          python -m pytest --tb=short -q -n auto \
+          python -m pytest --tb=short -q -n auto --dist loadfile \
             --cov=. --cov-report=term-missing --cov-config=.coveragerc \
             --cov-context=test --cov-fail-under=75
         env:

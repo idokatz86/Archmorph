@@ -49,10 +49,10 @@ export const options = {
   },
   thresholds: {
     http_req_duration: ['p(95)<2000', 'p(99)<5000'],
-    http_req_failed: ['rate<0.01'],
-    errors: ['rate<0.01'],
-    chat_latency: ['p(95)<5000'],       // LLM endpoints get 5s p95
-    catalog_latency: ['p(95)<1500'],     // Catalog should be fast
+    http_req_failed: ['rate<0.10'],       // Allow up to 10% (401s from auth-gated endpoints in CI)
+    errors: ['rate<0.01'],                // Custom metric: only 5xx counts as error
+    chat_latency: ['p(95)<5000'],
+    catalog_latency: ['p(95)<1500'],
   },
 };
 
