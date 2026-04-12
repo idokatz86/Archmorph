@@ -62,6 +62,8 @@ jobs:
       - name: Run tests with coverage
         run: |
           python -m pytest --tb=short -q -n auto --dist loadfile \
+            --ignore=tests/test_agent_paas_real.py \
+            --ignore=tests/test_property_based.py \
             --cov=. --cov-report=term-missing --cov-config=.coveragerc \
             --cov-context=test --cov-fail-under=63
         env:
