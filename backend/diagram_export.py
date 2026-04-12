@@ -263,7 +263,9 @@ def _drawio_page_migration_overview(root, title, mappings, zones):
 
     cid = [2]
     def nid():
-        r = str(cid[0]); cid[0] += 1; return r
+        r = str(cid[0])
+        cid[0] += 1
+        return r
 
     # Title cartouche
     tid = nid()
@@ -320,7 +322,9 @@ def _drawio_page_target_architecture(root, title, mappings, zones):
 
     cid = [2]
     def nid():
-        r = str(cid[0]); cid[0] += 1; return r
+        r = str(cid[0])
+        cid[0] += 1
+        return r
 
     # Title
     tid = nid()
@@ -380,7 +384,9 @@ def _drawio_page_mapping_detail(root, title, mappings):
 
     cid = [2]
     def nid():
-        r = str(cid[0]); cid[0] += 1; return r
+        r = str(cid[0])
+        cid[0] += 1
+        return r
 
     # Title
     tid = nid()
@@ -445,7 +451,9 @@ def _drawio_page_connection_topology(root, title, mappings, connections):
 
     cid = [2]
     def nid():
-        r = str(cid[0]); cid[0] += 1; return r
+        r = str(cid[0])
+        cid[0] += 1
+        return r
 
     # Title
     tid = nid()
