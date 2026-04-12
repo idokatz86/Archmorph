@@ -75,6 +75,16 @@ jobs:
           path: backend/htmlcov/
           retention-days: 30
 
+      - name: Export OpenAPI schema
+        run: python export_openapi.py > openapi.json
+
+      - name: Upload OpenAPI schema
+        uses: actions/upload-artifact@v7
+        with:
+          name: openapi-schema
+          path: backend/openapi.json
+          retention-days: 30
+
       - name: Generate Backend SBOM
         run: |
           uv pip install --system cyclonedx-bom
