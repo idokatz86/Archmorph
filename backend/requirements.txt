@@ -43,6 +43,8 @@ pytest
 pytest-asyncio
 pytest-cov
 pytest-xdist
+hypothesis
+polyfactory
 azure-mgmt-resourcegraph
 azure-mgmt-subscription
 azure-mgmt-resource

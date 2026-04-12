@@ -1,5 +1,6 @@
 [run]
 source = .
+dynamic_context = test_function
 omit =
     tests/*
     alembic/*
@@ -10,7 +11,7 @@ omit =
 [report]
 show_missing = true
 precision = 1
-fail_under = 60
+fail_under = 75
 exclude_lines =
     pragma: no cover
     def __repr__
@@ -21,3 +22,4 @@ exclude_lines =
 
 [html]
 directory = htmlcov
+show_contexts = true

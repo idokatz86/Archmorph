@@ -112,21 +112,26 @@ class UserSession:
 # ─────────────────────────────────────────────────────────────
 # In-Memory Analytics Storage
 # ─────────────────────────────────────────────────────────────
-# Events buffer (TTL: 24 hours, max 100k events)
-EVENTS_BUFFER: TTLCache = TTLCache(maxsize=100000, ttl=86400)
+# Capacity constants (#317 — extract magic numbers)
+MAX_EVENTS_BUFFER = 100_000
+EVENTS_TTL_SECONDS = 86400           # 24 hours
+MAX_SESSIONS = 10_000
+SESSIONS_TTL_SECONDS = 14400         # 4 hours
+MAX_METRICS_ENTRIES = 10_000
+MAX_ITEMS_PER_METRIC = 1000
 
-# Sessions (TTL: 4 hours, max 10k)
-SESSIONS: TTLCache = TTLCache(maxsize=10000, ttl=14400)
+EVENTS_BUFFER: TTLCache = TTLCache(maxsize=MAX_EVENTS_BUFFER, ttl=EVENTS_TTL_SECONDS)
+SESSIONS: TTLCache = TTLCache(maxsize=MAX_SESSIONS, ttl=SESSIONS_TTL_SECONDS)
 
 # Metrics counters (bounded to prevent unbounded memory growth — Issue #94)
-COUNTERS: LRUCache = LRUCache(maxsize=10000)
-GAUGES: LRUCache = LRUCache(maxsize=10000)
-HISTOGRAMS: LRUCache = LRUCache(maxsize=10000)
-TIMERS: LRUCache = LRUCache(maxsize=10000)
+COUNTERS: LRUCache = LRUCache(maxsize=MAX_METRICS_ENTRIES)
+GAUGES: LRUCache = LRUCache(maxsize=MAX_METRICS_ENTRIES)
+HISTOGRAMS: LRUCache = LRUCache(maxsize=MAX_METRICS_ENTRIES)
+TIMERS: LRUCache = LRUCache(maxsize=MAX_METRICS_ENTRIES)
 
 # Performance tracking
-REQUEST_LATENCIES: LRUCache = LRUCache(maxsize=10000)
-ERROR_COUNTS: LRUCache = LRUCache(maxsize=10000)
+REQUEST_LATENCIES: LRUCache = LRUCache(maxsize=MAX_METRICS_ENTRIES)
+ERROR_COUNTS: LRUCache = LRUCache(maxsize=MAX_METRICS_ENTRIES)
 
 
 def _safe_increment(cache: LRUCache, key: str, amount: int = 1) -> int:
@@ -309,7 +314,7 @@ def record_histogram(name: str, value: float, tags: Optional[Dict[str, str]] = N
     key = name
     if tags:
         key = f"{name}:{','.join(f'{k}={v}' for k, v in sorted(tags.items()))}"
-    _safe_append(HISTOGRAMS, key, value, max_items=1000)
+    _safe_append(HISTOGRAMS, key, value, max_items=MAX_ITEMS_PER_METRIC)
     # Forward to observability for OTel export
     _obs_record_histogram(name, value, tags)
 
@@ -319,7 +324,7 @@ def record_timing(name: str, duration_ms: float, tags: Optional[Dict[str, str]] 
     key = name
     if tags:
         key = f"{name}:{','.join(f'{k}={v}' for k, v in sorted(tags.items()))}"
-    _safe_append(TIMERS, key, duration_ms, max_items=1000)
+    _safe_append(TIMERS, key, duration_ms, max_items=MAX_ITEMS_PER_METRIC)
 
 
 class Timer:
@@ -345,7 +350,7 @@ class Timer:
 def track_request_latency(endpoint: str, method: str, latency_ms: float, status_code: int):
     """Track API request latency."""
     key = f"{method}:{endpoint}"
-    _safe_append(REQUEST_LATENCIES, key, latency_ms, max_items=1000)
+    _safe_append(REQUEST_LATENCIES, key, latency_ms, max_items=MAX_ITEMS_PER_METRIC)
     
     if status_code >= 400:
         _safe_increment(ERROR_COUNTS, key)
