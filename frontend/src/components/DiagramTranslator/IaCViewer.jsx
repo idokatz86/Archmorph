@@ -1,9 +1,6 @@
 import React, { useMemo } from 'react';
-import Prism from 'prismjs';
+import Prism from '../../lib/prism';
 import DOMPurify from 'dompurify';
-import 'prismjs/components/prism-hcl';
-import 'prismjs/components/prism-json';
-import 'prismjs/components/prism-yaml';
 import {
   FileCode, FileText, Download, Check, Sparkles, Bot,
   Plus, RotateCcw, Send, Loader2, CheckCircle, GitPullRequest,
