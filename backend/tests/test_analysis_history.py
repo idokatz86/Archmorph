@@ -6,7 +6,6 @@ from analysis_history import (
     get_analysis,
     delete_analysis,
     toggle_bookmark,
-    MAX_HISTORY_PER_USER,
 )
 
 

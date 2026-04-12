@@ -9,7 +9,6 @@ from shareable_reports import (
     _extract_executive_view,
     _extract_technical_view,
     _extract_financial_view,
-    DEFAULT_EXPIRY_DAYS,
 )
 
 

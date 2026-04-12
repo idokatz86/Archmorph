@@ -10,7 +10,6 @@ from architecture_diff import (
     _diff_confidence,
     _diff_cost,
     _service_key,
-    MAX_VERSIONS_PER_DIAGRAM,
 )
 
 

@@ -1,13 +1,10 @@
 """Tests for cost_metering.py — token cost tracking and budget management."""
 
-from datetime import datetime, timezone, timedelta
 from cost_metering import (
     CostMeter,
     calculate_cost,
     BudgetCreateRequest,
-    BudgetUpdateRequest,
     BudgetPeriod,
-    MODEL_PRICING,
 )
 
 
