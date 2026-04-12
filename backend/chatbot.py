@@ -27,8 +27,10 @@ _GITHUB_TOKEN: Optional[str] = None
 _GITHUB_CLIENT: Optional[Any] = None  # Cached PyGithub client (#103 — S-018)
 GITHUB_REPO = os.getenv("GITHUB_REPO", "idokatz86/Archmorph")
 
-# Conversation history per session (TTL: 2 hours, max 500 sessions)
-CHAT_SESSIONS: TTLCache = TTLCache(maxsize=500, ttl=7200)
+# Conversation history per session (#317 — named constants)
+MAX_CHAT_SESSIONS = 500
+CHAT_SESSION_TTL_SECONDS = 7200      # 2 hours
+CHAT_SESSIONS: TTLCache = TTLCache(maxsize=MAX_CHAT_SESSIONS, ttl=CHAT_SESSION_TTL_SECONDS)
 _session_lock = threading.Lock()       # protects CHAT_SESSIONS mutation (#127)
 _github_client_lock = threading.Lock() # protects _GITHUB_CLIENT init (#128)
 
@@ -288,7 +290,6 @@ def process_chat_message(
     with _session_lock:
         if session_id not in CHAT_SESSIONS:
             CHAT_SESSIONS[session_id] = []
-        # Copy the list to avoid mutating a shared reference
         history = list(CHAT_SESSIONS[session_id])
 
     history.append({
@@ -298,84 +299,86 @@ def process_chat_message(
     })
 
     # ── Handle confirmation of pending actions ──
-    msg_lower = message.lower().strip()
-    if msg_lower in ("yes", "y", "confirm", "create it", "go ahead", "do it", "sure", "ok", "submit"):
-        # Check for pending issue draft
-        for entry in reversed(history[:-1]):  # Exclude current message
-            if entry.get("role") == "assistant" and entry.get("pending_action"):
-                pending = entry["pending_action"]
-                
-                if pending.get("type") == "bug":
-                    result = _create_github_issue(
-                        f"[Bug] {pending['title']}",
-                        f"## Bug Report\n\n**Reported via:** Archmorph AI Assistant\n\n### Description\n{pending['description']}\n\n---\n*Auto-generated from chat*",
-                        ["bug", "triage"],
-                    )
-                elif pending.get("type") == "feature":
-                    result = _create_github_issue(
-                        f"[Feature Request] {pending['title']}",
-                        f"## Feature Request\n\n**Requested via:** Archmorph AI Assistant\n\n### Description\n{pending['description']}\n\n---\n*Auto-generated from chat*",
-                        ["enhancement", "feature-request"],
-                    )
-                else:
-                    result = _create_github_issue(
-                        pending["title"],
-                        pending.get("description", ""),
-                        pending.get("labels", ["triage"]),
-                    )
-                
-                if result["success"]:
-                    reply = (
-                        f"Done! I've created the issue.\n\n"
-                        f"**#{result['issue_number']}** — {result['title']}\n\n"
-                        f"[View on GitHub]({result['issue_url']})"
-                    )
-                    action_type = f"{pending.get('type', 'issue')}_created"
-                else:
-                    reply = f"I couldn't create the issue: {result.get('error', 'Unknown error')}"
-                    action_type = None
-                    result = None
-                
-                history.append({
-                    "role": "assistant",
-                    "content": reply,
-                    "ts": datetime.now(timezone.utc).isoformat()
-                })
-                with _session_lock:
-                    CHAT_SESSIONS[session_id] = history
-                return {"reply": reply, "action": action_type, "data": result}
+    result = _handle_pending_confirmation(session_id, message, history)
+    if result is not None:
+        return result
 
     # ── Call GPT-4o AI assistant ──
-    ai_response = _call_ai_assistant(message, history[:-1])  # Exclude current msg (added to messages in function)
-    
+    return _handle_ai_response(session_id, message, history)
+
+
+def _find_pending_action(history: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Find the most recent pending action in conversation history."""
+    for entry in reversed(history[:-1]):
+        if entry.get("role") == "assistant" and entry.get("pending_action"):
+            return entry["pending_action"]
+    return None
+
+
+def _handle_pending_confirmation(
+    session_id: str,
+    message: str,
+    history: List[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    """Handle user confirmation of a pending bug/feature action. Returns None if no confirmation."""
+    msg_lower = message.lower().strip()
+    confirm_words = {"yes", "y", "confirm", "create it", "go ahead", "do it", "sure", "ok", "submit"}
+    if msg_lower not in confirm_words:
+        return None
+
+    pending = _find_pending_action(history)
+    if pending is None:
+        return None
+
+    issue_type = pending.get("type", "issue")
+    title_prefix = {"bug": "[Bug] ", "feature": "[Feature Request] "}.get(issue_type, "")
+    body_heading = {"bug": "Bug Report", "feature": "Feature Request"}.get(issue_type, "Issue")
+    labels = {"bug": ["bug", "triage"], "feature": ["enhancement", "feature-request"]}.get(issue_type, ["triage"])
+
+    result = _create_github_issue(
+        f"{title_prefix}{pending['title']}",
+        f"## {body_heading}\n\n**Reported via:** Archmorph AI Assistant\n\n### Description\n{pending['description']}\n\n---\n*Auto-generated from chat*",
+        labels,
+    )
+
+    if result["success"]:
+        reply = (
+            f"Done! I've created the issue.\n\n"
+            f"**#{result['issue_number']}** — {result['title']}\n\n"
+            f"[View on GitHub]({result['issue_url']})"
+        )
+        action_type = f"{issue_type}_created"
+    else:
+        reply = f"I couldn't create the issue: {result.get('error', 'Unknown error')}"
+        action_type = None
+        result = None
+
+    history.append({
+        "role": "assistant",
+        "content": reply,
+        "ts": datetime.now(timezone.utc).isoformat()
+    })
+    with _session_lock:
+        CHAT_SESSIONS[session_id] = history
+    return {"reply": reply, "action": action_type, "data": result}
+
+
+def _handle_ai_response(
+    session_id: str,
+    message: str,
+    history: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Call GPT-4o and process the response, including action detection."""
+    ai_response = _call_ai_assistant(message, history[:-1])
+
     reply = ai_response["reply"]
     action = ai_response.get("action")
     action_result = None
     pending_action = None
-    
-    # ── Handle AI-detected actions ──
+
     if action:
-        action_type = action.get("action", "")
-        
-        if action_type == "create_bug":
-            pending_action = {
-                "type": "bug",
-                "title": action.get("title", "Bug Report"),
-                "description": action.get("description", ""),
-            }
-            reply += f"\n\n---\n**Ready to create bug report:**\n- **Title:** {pending_action['title']}\n\nReply **yes** to submit this to GitHub, or provide more details."
-            action_result = "issue_draft"
-            
-        elif action_type == "create_feature":
-            pending_action = {
-                "type": "feature",
-                "title": action.get("title", "Feature Request"),
-                "description": action.get("description", ""),
-            }
-            reply += f"\n\n---\n**Ready to create feature request:**\n- **Title:** {pending_action['title']}\n\nReply **yes** to submit this to GitHub, or provide more details."
-            action_result = "issue_draft"
-    
-    # Store response with any pending action
+        pending_action, action_result, reply = _process_ai_action(action, reply)
+
     history_entry = {
         "role": "assistant",
         "content": reply,
@@ -383,17 +386,38 @@ def process_chat_message(
     }
     if pending_action:
         history_entry["pending_action"] = pending_action
-    
+
     history.append(history_entry)
     with _session_lock:
         CHAT_SESSIONS[session_id] = history
-    
+
     return {
         "reply": reply,
         "action": action_result,
         "data": pending_action,
         "ai_powered": True,
     }
+
+
+def _process_ai_action(
+    action: Dict[str, Any], reply: str
+) -> tuple:
+    """Process an AI-detected action (bug or feature request). Returns (pending_action, action_result, reply)."""
+    action_type = action.get("action", "")
+    type_map = {"create_bug": "bug", "create_feature": "feature"}
+
+    issue_type = type_map.get(action_type)
+    if issue_type is None:
+        return None, None, reply
+
+    label = "bug report" if issue_type == "bug" else "feature request"
+    pending = {
+        "type": issue_type,
+        "title": action.get("title", label.title()),
+        "description": action.get("description", ""),
+    }
+    reply += f"\n\n---\n**Ready to create {label}:**\n- **Title:** {pending['title']}\n\nReply **yes** to submit this to GitHub, or provide more details."
+    return pending, "issue_draft", reply
 
 
 def get_chat_history(session_id: str) -> List[Dict[str, str]]:

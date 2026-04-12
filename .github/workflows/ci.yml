@@ -48,7 +48,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           cache-dependency-glob: backend/requirements.txt
@@ -61,9 +61,9 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          python -m pytest --tb=short -q \
+          python -m pytest --tb=short -q -n auto --dist loadfile \
             --cov=. --cov-report=term-missing --cov-config=.coveragerc \
-            --cov-fail-under=60
+            --cov-context=test --cov-fail-under=62
         env:
           AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
           AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}

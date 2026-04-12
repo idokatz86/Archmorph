@@ -53,7 +53,8 @@ JWKS_CACHE: TTLCache = TTLCache(maxsize=10, ttl=3600)
 # User session cache — configurable TTL (default 1 hour).
 # Previously 300s (5 min) which caused frequent 401 errors mid-workflow (Issue #266).
 USER_CACHE_TTL = int(os.getenv("USER_CACHE_TTL", "3600"))
-USER_CACHE: TTLCache = TTLCache(maxsize=1000, ttl=USER_CACHE_TTL)
+MAX_USER_CACHE_ENTRIES = 1000
+USER_CACHE: TTLCache = TTLCache(maxsize=MAX_USER_CACHE_ENTRIES, ttl=USER_CACHE_TTL)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -260,12 +261,15 @@ class User:
 
 
 # In-memory user store (bounded — Issue #94; replace with database in production)
-USER_STORE: TTLCache = TTLCache(maxsize=50000, ttl=86400)
+MAX_USER_STORE_ENTRIES = 50_000
+USER_STORE_TTL_SECONDS = 86400       # 24 hours
+USER_STORE: TTLCache = TTLCache(maxsize=MAX_USER_STORE_ENTRIES, ttl=USER_STORE_TTL_SECONDS)
 
 # Anonymous session tracking (IP-based for unauthenticated users)
 # TTL reduced to 24h to align with maxsize capacity — prevents premature
 # eviction resetting quotas (#103 — S-024)
-ANONYMOUS_USAGE: TTLCache = TTLCache(maxsize=10000, ttl=86400)  # 24 hours
+MAX_ANONYMOUS_SESSIONS = 10_000
+ANONYMOUS_USAGE: TTLCache = TTLCache(maxsize=MAX_ANONYMOUS_SESSIONS, ttl=USER_STORE_TTL_SECONDS)
 
 # Lock for protecting usage counter increments (Issue #95)
 _usage_lock = threading.Lock()
@@ -687,7 +691,8 @@ class LeadCapture:
 
 
 # Lead storage (bounded deque — Issue #94; replace with database in production)
-LEAD_STORE: deque = deque(maxlen=10000)
+MAX_LEAD_ENTRIES = 10_000
+LEAD_STORE: deque = deque(maxlen=MAX_LEAD_ENTRIES)
 
 
 def capture_lead(

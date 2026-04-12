@@ -123,9 +123,11 @@ class AuditEvent:
 # In-memory store (shared between legacy functions and AuditLogger)
 # ─────────────────────────────────────────────────────────────
 
+MAX_ALERT_BUFFER = 1000
+
 _audit_lock = threading.Lock()
 _audit_log: deque = deque(maxlen=AUDIT_LOG_MAX_ENTRIES)
-_alerts: deque = deque(maxlen=1000)
+_alerts: deque = deque(maxlen=MAX_ALERT_BUFFER)
 
 
 # ─────────────────────────────────────────────────────────────

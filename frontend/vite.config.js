@@ -19,9 +19,13 @@ export default defineConfig({
     // Issue #182 — Chunk splitting for better caching & smaller initial load
     rollupOptions: {
       output: {
-        manualChunks: {
-          'vendor-react': ['react', 'react-dom'],
-          'vendor-ui': ['lucide-react', 'prismjs'],
+        manualChunks(id) {
+          if (id.includes('node_modules/react-dom') || id.includes('node_modules/react/')) {
+            return 'vendor-react';
+          }
+          if (id.includes('node_modules/lucide-react') || id.includes('node_modules/prismjs')) {
+            return 'vendor-ui';
+          }
         },
       },
     },

@@ -30,7 +30,9 @@ FROM python:3.12-slim-bookworm
 RUN pip install --no-cache-dir --upgrade "pip>=26.0"
 
 # Runtime-only system deps (libpq for psycopg2, curl for healthcheck)
+# Also upgrade openssl to patch CVE-2026-28390 (HIGH)
 RUN apt-get update && \
+    apt-get upgrade -y libssl3 && \
     apt-get install -y --no-install-recommends libpq5 curl && \
     rm -rf /var/lib/apt/lists/*
 
