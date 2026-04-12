@@ -59,8 +59,9 @@ def _post_json(url: str, payload: Dict[str, Any], headers: Optional[Dict[str, st
     req = urllib.request.Request(sanitized_url, data=data, headers=hdrs, method="POST")
     ctx = ssl.create_default_context()
 
+    from circuit_breakers import webhook_breaker
     try:
-        with urllib.request.urlopen(req, timeout=15, context=ctx) as resp:  # nosec B310 # noqa: S310 — URL validated against allowlist above
+        with webhook_breaker.call(urllib.request.urlopen, req, timeout=15, context=ctx) as resp:  # nosec B310 # noqa: S310 — URL validated against allowlist above
             return {
                 "success": True,
                 "status_code": resp.status,

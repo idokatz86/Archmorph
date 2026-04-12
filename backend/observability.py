@@ -112,6 +112,15 @@ class SpanContext:
         if self._otel_span is not None:
             self._otel_span.add_event(name, attributes=attributes or {})
 
+    def set_attribute(self, key: str, value: Any):
+        """Set a span attribute."""
+        self.attributes[key] = value
+        if self._otel_span is not None:
+            try:
+                self._otel_span.set_attribute(key, value)
+            except Exception:
+                pass  # Best-effort — attribute may be invalid type
+
     def set_status(self, status: str, message: str = ""):
         """Set span status."""
         self.status = status

@@ -640,6 +640,79 @@ export default function ResultsTable({ analysis, activeView, onViewChange }) {
                                     </div>
                                   )}
 
+                                  {/* Confidence Provenance Detail (#431) */}
+                                  {m.confidence_provenance && (
+                                    <div className="space-y-3 mt-3">
+                                      {/* Score Decomposition */}
+                                      {m.confidence_provenance.score_decomposition && (
+                                        <div className="pl-3 border-l-2 border-info/30 space-y-1">
+                                          <p className="text-text-secondary font-semibold text-xs">Score breakdown:</p>
+                                          {Object.entries(m.confidence_provenance.score_decomposition.components || {}).map(([key, comp]) => (
+                                            <div key={key} className="flex items-center gap-2 text-text-muted text-xs">
+                                              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: comp.score >= 80 ? '#22C55E' : comp.score >= 60 ? '#F59E0B' : '#EF4444' }} />
+                                              <span className="capitalize">{key.replace(/_/g, ' ')}</span>
+                                              <span className="text-text-secondary font-medium">{Math.round(comp.score)}%</span>
+                                              <span className="text-text-muted/60">×{comp.weight}</span>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
+
+                                      {/* Feature Parity */}
+                                      {m.confidence_provenance.feature_parity && (
+                                        <div className="pl-3 border-l-2 border-cta/30 space-y-1">
+                                          <p className="text-text-secondary font-semibold text-xs">
+                                            Feature parity: <span className="text-cta">{m.confidence_provenance.feature_parity.parity_score}</span>
+                                          </p>
+                                          <div className="flex flex-wrap gap-1">
+                                            {(m.confidence_provenance.feature_parity.matched_features || []).map((f, i) => (
+                                              <span key={i} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-green-500/10 text-green-400">✓ {f}</span>
+                                            ))}
+                                            {(m.confidence_provenance.feature_parity.missing_features || []).map((f, i) => (
+                                              <span key={i} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-red-500/10 text-red-400">✗ {f}</span>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {/* Migration Guidance */}
+                                      {m.confidence_provenance.migration_guidance && (
+                                        <div className="pl-3 border-l-2 border-purple-500/30 space-y-1">
+                                          <p className="text-text-secondary font-semibold text-xs">
+                                            Migration effort: <span className={
+                                              m.confidence_provenance.migration_guidance.estimated_effort === 'low' ? 'text-green-400' :
+                                              m.confidence_provenance.migration_guidance.estimated_effort === 'medium' ? 'text-yellow-400' : 'text-red-400'
+                                            }>{m.confidence_provenance.migration_guidance.estimated_effort}</span>
+                                          </p>
+                                          {m.confidence_provenance.migration_guidance.migration_notes && (
+                                            <p className="text-text-muted text-xs">{m.confidence_provenance.migration_guidance.migration_notes}</p>
+                                          )}
+                                          {(m.confidence_provenance.migration_guidance.breaking_changes || []).length > 0 && (
+                                            <div className="space-y-0.5">
+                                              {m.confidence_provenance.migration_guidance.breaking_changes.map((bc, i) => (
+                                                <div key={i} className="flex items-start gap-1 text-[10px] text-red-400">
+                                                  <span>⚠</span><span>{bc}</span>
+                                                </div>
+                                              ))}
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+
+                                      {/* Azure Docs Links */}
+                                      {(m.confidence_provenance.azure_docs || []).length > 0 && (
+                                        <div className="pl-3 border-l-2 border-blue-500/30">
+                                          <div className="flex flex-wrap gap-2">
+                                            {m.confidence_provenance.azure_docs.map((doc, i) => (
+                                              <a key={i} href={doc.url} target="_blank" rel="noopener noreferrer"
+                                                className="text-[10px] text-info hover:underline">📄 {doc.title}</a>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+
                                   {/* Gaps */}
                                   {m._gaps.length > 0 && (
                                     <div className="pl-3 border-l-2 border-warning/30 space-y-1 mt-2">

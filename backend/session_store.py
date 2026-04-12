@@ -409,8 +409,9 @@ class RedisStore(SessionStore):
         return f"{self._prefix}:{key}"
 
     def get(self, key: str, default: Any = None) -> Any:
+        from circuit_breakers import redis_breaker
         try:
-            raw = self._redis.get(self._key(key))
+            raw = redis_breaker.call(self._redis.get, self._key(key))
         except Exception as exc:
             logger.warning("Redis GET failed for '%s': %s — returning default", key, exc)
             return default
@@ -427,15 +428,17 @@ class RedisStore(SessionStore):
             return raw
 
     def set(self, key: str, value: Any, ttl: Optional[int] = None) -> None:
+        from circuit_breakers import redis_breaker
         try:
             payload = self._json.dumps(value, default=str)
-            self._redis.setex(self._key(key), ttl or self._ttl, payload)
+            redis_breaker.call(self._redis.setex, self._key(key), ttl or self._ttl, payload)
         except Exception as exc:
             logger.warning("Redis SET failed for '%s': %s — data not persisted", key, exc)
 
     def delete(self, key: str) -> None:
+        from circuit_breakers import redis_breaker
         try:
-            self._redis.delete(self._key(key))
+            redis_breaker.call(self._redis.delete, self._key(key))
         except Exception as exc:
             logger.warning("Redis DELETE failed for '%s': %s", key, exc)
 

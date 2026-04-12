@@ -6,7 +6,7 @@ Consolidates 3 router files into one importable package (#503).
 
 from fastapi import APIRouter
 
-from routers.admin import router as admin_router
+from routers.admin_core import router as admin_router
 from routers.feature_flags import router as feature_flags_router
 from routers.analytics_routes import router as analytics_router
 

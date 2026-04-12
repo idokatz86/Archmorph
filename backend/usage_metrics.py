@@ -146,7 +146,8 @@ def _load_metrics():
     blob = _get_blob_client()
     if blob:
         try:
-            data = blob.download_blob().readall()
+            from circuit_breakers import blob_breaker
+            data = blob_breaker.call(lambda: blob.download_blob().readall())
             _metrics = json.loads(data)
             _ensure_keys(_metrics)
             logger.info("Loaded usage metrics from Azure Blob Storage")
@@ -179,7 +180,8 @@ def _save_metrics():
     blob = _get_blob_client()
     if blob:
         try:
-            blob.upload_blob(payload, overwrite=True)
+            from circuit_breakers import blob_breaker
+            blob_breaker.call(blob.upload_blob, payload, overwrite=True)
             logger.debug("Saved usage metrics to Azure Blob Storage")
             saved = True
         except Exception as exc:

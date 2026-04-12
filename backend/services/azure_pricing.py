@@ -1004,7 +1004,8 @@ def _load_cache() -> dict[str, Any]:
     blob = _get_blob_client()
     if blob:
         try:
-            raw = blob.download_blob().readall()
+            from circuit_breakers import blob_breaker
+            raw = blob_breaker.call(lambda: blob.download_blob().readall())
             data = json.loads(raw)
             if _is_cache_valid(data):
                 _price_cache = data
@@ -1049,7 +1050,8 @@ def _save_cache(data: dict[str, Any]) -> None:
     blob = _get_blob_client()
     if blob:
         try:
-            blob.upload_blob(payload, overwrite=True)
+            from circuit_breakers import blob_breaker
+            blob_breaker.call(blob.upload_blob, payload, overwrite=True)
             logger.info("Saved Azure pricing cache to Blob Storage")
             saved = True
         except Exception as exc:

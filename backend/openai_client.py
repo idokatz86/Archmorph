@@ -311,19 +311,38 @@ def cached_chat_completion(
         # Make the actual API call (outside cache lock — different keys
         # are fully concurrent now).
         client = get_openai_client()
-        try:
-            response = openai_retry(client.chat.completions.create)(**api_kwargs)
-        except RETRYABLE_EXCEPTIONS as primary_exc:
-            # If a fallback model is configured, try it before giving up (#285)
-            if AZURE_OPENAI_FALLBACK_DEPLOYMENT and AZURE_OPENAI_FALLBACK_DEPLOYMENT != deployment:
-                logger.warning(
-                    "Primary model %s failed (%s), falling back to %s",
-                    deployment, primary_exc, AZURE_OPENAI_FALLBACK_DEPLOYMENT,
-                )
-                fallback_kwargs = {**api_kwargs, "model": AZURE_OPENAI_FALLBACK_DEPLOYMENT}
-                response = openai_retry(client.chat.completions.create)(**fallback_kwargs)
-            else:
-                raise
+
+        # ── OpenTelemetry LLM span (#502) ────────────────────
+        from observability import trace_span
+        with trace_span("llm.chat_completion", attributes={
+            "llm.model": deployment,
+            "llm.temperature": temperature or 0,
+            "llm.max_tokens": max_tokens or 0,
+            "llm.message_count": len(messages),
+        }) as span:
+            try:
+                response = openai_retry(client.chat.completions.create)(**api_kwargs)
+            except RETRYABLE_EXCEPTIONS as primary_exc:
+                # If a fallback model is configured, try it before giving up (#285)
+                if AZURE_OPENAI_FALLBACK_DEPLOYMENT and AZURE_OPENAI_FALLBACK_DEPLOYMENT != deployment:
+                    logger.warning(
+                        "Primary model %s failed (%s), falling back to %s",
+                        deployment, primary_exc, AZURE_OPENAI_FALLBACK_DEPLOYMENT,
+                    )
+                    fallback_kwargs = {**api_kwargs, "model": AZURE_OPENAI_FALLBACK_DEPLOYMENT}
+                    response = openai_retry(client.chat.completions.create)(**fallback_kwargs)
+                    if span:
+                        span.set_attribute("llm.fallback", True)
+                        span.set_attribute("llm.fallback_model", AZURE_OPENAI_FALLBACK_DEPLOYMENT)
+                else:
+                    raise
+
+            # Record token usage on the span
+            usage = getattr(response, "usage", None)
+            if usage and span:
+                span.set_attribute("llm.prompt_tokens", usage.prompt_tokens or 0)
+                span.set_attribute("llm.completion_tokens", usage.completion_tokens or 0)
+                span.set_attribute("llm.total_tokens", (usage.prompt_tokens or 0) + (usage.completion_tokens or 0))
 
         # Detect GPT output truncation — finish_reason "length" means the
         # response was cut off at max_tokens (Issue #278).

@@ -25,6 +25,7 @@
   "author": "idokatz86",
   "license": "MIT",
   "devDependencies": {
+    "@axe-core/playwright": "^4.11.1",
     "@playwright/test": "^1.58.2",
     "playwright": "^1.58.2",
     "puppeteer": "^24.39.1"

@@ -6,7 +6,7 @@ Consolidates 8 router files into one importable package (#503).
 
 from fastapi import APIRouter
 
-from routers.infra import router as infra_router
+from routers.infra_import import router as infra_router
 from routers.terraform import router as terraform_router
 from routers.terraform_import_routes import router as terraform_import_router
 from routers.tf_backend import router as tf_backend_router

@@ -75,6 +75,15 @@ async def health():
     if not catalog_ok:
         unhealthy = True
 
+    # ── Circuit breakers (#506) ────────────────────────────
+    try:
+        from circuit_breakers import get_breaker_status, is_healthy as breakers_healthy
+        checks["circuit_breakers"] = get_breaker_status()
+        if not breakers_healthy():
+            unhealthy = True
+    except Exception:
+        checks["circuit_breakers"] = "import_error"
+
     # ── Determine overall status ──────────────────────────
     if unhealthy:
         status = "unhealthy"

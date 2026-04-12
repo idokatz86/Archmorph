@@ -36,6 +36,10 @@ if APPLICATIONINSIGHTS_CONNECTION_STRING:
 else:
     logging.getLogger(__name__).info("APPLICATIONINSIGHTS_CONNECTION_STRING not set — telemetry disabled")
 
+# Deep OTEL auto-instrumentation (#502)
+from otel_instrumentation import configure_auto_instrumentation  # noqa: E402
+configure_auto_instrumentation()
+
 from database import init_db  # noqa: E402
 from version import __version__  # noqa: E402
 from service_updater import start_scheduler, stop_scheduler  # noqa: E402
@@ -63,10 +67,10 @@ from routers.policies import router as policies_router  # noqa: E402
 from routers.models import router as models_router  # noqa: E402
 from routers.insights import router as insights_router  # noqa: E402
 from routers.sharing import router as sharing_router  # noqa: E402
-from routers.infra import router as infra_router  # noqa: E402
+from routers.infra import domain_router as infra_router  # noqa: E402
 from routers.suggestions import router as suggestions_router  # noqa: E402
 from routers.services import router as services_router  # noqa: E402
-from routers.admin import router as admin_router  # noqa: E402
+from routers.admin import domain_router as admin_router  # noqa: E402
 from routers.chat import router as chat_router  # noqa: E402
 from routers.roadmap import router as roadmap_router  # noqa: E402
 from routers.samples import router as samples_router  # noqa: E402

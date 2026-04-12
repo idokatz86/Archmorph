@@ -124,8 +124,17 @@ AsyncSessionLocal = async_sessionmaker(class_=AsyncSession, autocommit=False, au
 # ─────────────────────────────────────────────────────────────
 
 def get_db() -> Generator[Session, None, None]:
-    """FastAPI dependency — yields a DB session, auto-closes on exit."""
-    db = SessionLocal()
+    """FastAPI dependency — yields a DB session, auto-closes on exit.
+
+    Wrapped with the PostgreSQL circuit breaker (#506) to prevent cascade
+    failures when the database is unreachable.
+    """
+    from circuit_breakers import db_breaker
+    import pybreaker
+    try:
+        db = db_breaker.call(SessionLocal)
+    except pybreaker.CircuitBreakerError:
+        raise RuntimeError("Database circuit breaker is open — service temporarily unavailable")
     try:
         yield db
     finally:
