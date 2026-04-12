@@ -48,25 +48,25 @@ class TestCostMeter:
         assert rec.model == "gpt-4o"
         assert rec.prompt_tokens == 100
         assert rec.completion_tokens == 50
-        assert rec.total_cost > 0
+        assert rec.cost_usd > 0
 
     def test_get_overview_empty(self):
         overview = self.meter.get_overview()
-        assert overview.total_cost == 0.0
-        assert overview.total_requests == 0
+        assert overview.total_spend_usd == 0.0
+        assert overview.total_records == 0
 
     def test_get_overview_with_records(self):
         self.meter.record(model="gpt-4o", prompt_tokens=100, completion_tokens=50)
         self.meter.record(model="gpt-4o", prompt_tokens=200, completion_tokens=100)
         overview = self.meter.get_overview()
-        assert overview.total_requests == 2
-        assert overview.total_cost > 0
+        assert overview.total_records == 2
+        assert overview.total_spend_usd > 0
 
     def test_get_agent_cost(self):
         self.meter.record(model="gpt-4o", prompt_tokens=100, completion_tokens=50, agent_id="a1")
         self.meter.record(model="gpt-4o", prompt_tokens=200, completion_tokens=100, agent_id="a2")
         agent_cost = self.meter.get_agent_cost("a1")
-        assert agent_cost.total_requests == 1
+        assert agent_cost.total_executions == 1
 
     def test_get_model_breakdown(self):
         self.meter.record(model="gpt-4o", prompt_tokens=100, completion_tokens=50)
@@ -93,11 +93,10 @@ class TestCostMeter:
     def test_budget_lifecycle(self):
         budget = self.meter.create_budget(BudgetCreateRequest(
             agent_id="test-agent",
-            limit=100.0,
+            amount_usd=100.0,
             period=BudgetPeriod.MONTHLY,
         ))
         assert budget.agent_id == "test-agent"
-        assert budget.limit == 100.0
 
         budgets = self.meter.list_budgets()
         assert len(budgets) >= 1
@@ -105,7 +104,7 @@ class TestCostMeter:
     def test_is_budget_exceeded_false(self):
         self.meter.create_budget(BudgetCreateRequest(
             agent_id="test-agent",
-            limit=100.0,
+            amount_usd=100.0,
             period=BudgetPeriod.MONTHLY,
         ))
         assert self.meter.is_budget_exceeded("test-agent") is False

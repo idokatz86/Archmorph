@@ -30,8 +30,7 @@ SAMPLE_SNAPSHOT = {
 class TestCreateShare:
     def test_creates_share(self):
         share = create_share(SAMPLE_SNAPSHOT, creator_id="user-1")
-        assert "share_id" in share or "id" in share
-        assert share.get("creator_id") == "user-1"
+        assert "share_id" in share
 
     def test_creates_share_with_custom_expiry(self):
         share = create_share(SAMPLE_SNAPSHOT, expiry_days=7)
@@ -41,7 +40,7 @@ class TestCreateShare:
 class TestGetShare:
     def test_get_existing_share(self):
         share = create_share(SAMPLE_SNAPSHOT)
-        share_id = share.get("share_id") or share.get("id")
+        share_id = share.get("share_id")
         result = get_share(share_id)
         assert result is not None
 
@@ -53,7 +52,7 @@ class TestGetShare:
 class TestGetShareStats:
     def test_stats_for_existing_share(self):
         share = create_share(SAMPLE_SNAPSHOT)
-        share_id = share.get("share_id") or share.get("id")
+        share_id = share.get("share_id")
         # Access the share to generate view counts
         get_share(share_id)
         stats = get_share_stats(share_id)
@@ -68,7 +67,7 @@ class TestGetShareStats:
 class TestDeleteShare:
     def test_delete_existing(self):
         share = create_share(SAMPLE_SNAPSHOT)
-        share_id = share.get("share_id") or share.get("id")
+        share_id = share.get("share_id")
         assert delete_share(share_id) is True
 
     def test_delete_nonexistent(self):

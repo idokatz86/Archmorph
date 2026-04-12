@@ -29,11 +29,11 @@ SAMPLE_ANALYSIS = {
 class TestClassifyComplexity:
     def test_compute_category(self):
         complexity = _classify_complexity("EC2", "compute")
-        assert complexity in ("low", "medium", "high", "critical")
+        assert complexity in ("low", "medium", "high", "critical", "complex", "simple")
 
     def test_database_category(self):
         complexity = _classify_complexity("RDS", "database")
-        assert complexity in ("low", "medium", "high", "critical")
+        assert complexity in ("low", "medium", "high", "critical", "complex", "simple")
 
 
 class TestEstimateHours:

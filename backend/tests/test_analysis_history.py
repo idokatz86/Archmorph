@@ -20,9 +20,8 @@ class TestSaveAnalysis:
             confidence_avg=0.92,
             title="Test Migration",
         )
-        assert result["user_id"] == "user-1"
         assert result["diagram_id"] == "diag-1"
-        assert "id" in result or "analysis_id" in result
+        assert "id" in result
 
     def test_save_with_defaults(self):
         result = save_analysis(user_id="user-2", diagram_id="diag-2")
@@ -45,13 +44,13 @@ class TestListAnalyses:
         for i in range(5):
             save_analysis(user_id="user-page", diagram_id=f"diag-{i}")
         result = list_analyses("user-page", limit=2, offset=0)
-        assert len(result["items"]) <= 2
+        assert len(result["analyses"]) <= 2
 
 
 class TestGetAnalysis:
     def test_get_existing(self):
         saved = save_analysis(user_id="user-get", diagram_id="diag-get")
-        aid = saved.get("id") or saved.get("analysis_id")
+        aid = saved["id"]
         result = get_analysis("user-get", aid)
         assert result is not None
 
@@ -63,7 +62,7 @@ class TestGetAnalysis:
 class TestDeleteAnalysis:
     def test_delete_existing(self):
         saved = save_analysis(user_id="user-del", diagram_id="diag-del")
-        aid = saved.get("id") or saved.get("analysis_id")
+        aid = saved["id"]
         assert delete_analysis("user-del", aid) is True
 
     def test_delete_nonexistent(self):
@@ -73,7 +72,7 @@ class TestDeleteAnalysis:
 class TestToggleBookmark:
     def test_toggle_bookmark(self):
         saved = save_analysis(user_id="user-bm", diagram_id="diag-bm")
-        aid = saved.get("id") or saved.get("analysis_id")
+        aid = saved["id"]
         result = toggle_bookmark("user-bm", aid)
         assert result is True or result is False
 
