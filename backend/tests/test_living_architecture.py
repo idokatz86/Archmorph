@@ -1,6 +1,5 @@
 """Tests for living_architecture.py — health monitoring and drift detection."""
 
-import pytest
 from living_architecture import (
     _register_architecture,
     _compute_health,
@@ -56,7 +55,7 @@ class TestComputeHealth:
 
     def test_health_for_unknown_arch_raises(self):
         import pytest
-        with pytest.raises(Exception):  # May be ArchmorphException or ValueError
+        with pytest.raises(Exception):
             _compute_health("nonexistent-arch-xyz")
 
 

@@ -69,6 +69,6 @@ class TestAnalyzeImage:
 
         # Should handle gracefully - may return None or raise
         try:
-            result = analyze_image(png_bytes, "test-error-diagram")
+            analyze_image(png_bytes, "test-error-diagram")
         except Exception:
             pass  # Expected - some implementations re-raise
