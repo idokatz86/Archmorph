@@ -63,7 +63,7 @@ jobs:
         run: |
           python -m pytest --tb=short -q -n auto \
             --cov=. --cov-report=term-missing --cov-config=.coveragerc \
-            --cov-fail-under=75
+            --cov-context=test --cov-fail-under=75
         env:
           AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
           AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
