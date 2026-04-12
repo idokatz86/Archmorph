@@ -5,7 +5,6 @@ Tests edge cases: unicode input, oversized payloads, malformed data,
 boundary values, and injection attempts.
 """
 
-import pytest
 from hypothesis import given, settings, HealthCheck
 from hypothesis import strategies as st
 from fastapi.testclient import TestClient
@@ -106,7 +105,7 @@ class TestDiagramUploadPropertyTests:
             "/api/diagrams/upload",
             files={"file": ("test.png", data, "image/png")},
         )
-        assert resp.status_code < 500, f"Server error on random upload"
+        assert resp.status_code < 500, "Server error on random upload"
 
 
 class TestAnalyticsPropertyTests:
