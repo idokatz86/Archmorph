@@ -26,11 +26,8 @@ export default defineConfig({
           if (id.includes('node_modules/lucide-react')) {
             return 'vendor-ui';
           }
-          // prismjs must NOT be in a separate chunk — language plugins
-          // reference a global `Prism` that must be set before they load
-          if (id.includes('node_modules/prismjs')) {
-            return 'vendor-prism';
-          }
+          // prismjs must NOT be chunked separately — language plugins
+          // reference a global `Prism` that the app wrapper sets first
         },
       },
     },
