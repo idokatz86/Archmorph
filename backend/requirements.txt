@@ -20,7 +20,13 @@ slowapi
 cachetools
 defusedxml
 azure-monitor-opentelemetry
+opentelemetry-instrumentation-fastapi
+opentelemetry-instrumentation-sqlalchemy
+opentelemetry-instrumentation-redis
+opentelemetry-instrumentation-httpx
+opentelemetry-instrumentation-logging
 tenacity
+pybreaker
 psutil
 python-json-logger
 PyJWT[crypto]
