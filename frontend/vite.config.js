@@ -23,8 +23,13 @@ export default defineConfig({
           if (id.includes('node_modules/react-dom') || id.includes('node_modules/react/')) {
             return 'vendor-react';
           }
-          if (id.includes('node_modules/lucide-react') || id.includes('node_modules/prismjs')) {
+          if (id.includes('node_modules/lucide-react')) {
             return 'vendor-ui';
+          }
+          // prismjs must NOT be in a separate chunk — language plugins
+          // reference a global `Prism` that must be set before they load
+          if (id.includes('node_modules/prismjs')) {
+            return 'vendor-prism';
           }
         },
       },
