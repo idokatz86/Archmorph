@@ -148,14 +148,20 @@ async def apply_guided_answers(request: Request, diagram_id: str, answers: Dict[
 # ─────────────────────────────────────────────────────────────
 @router.post("/api/diagrams/{diagram_id}/export-diagram")
 @limiter.limit("10/minute")
-async def export_architecture_diagram(request: Request, diagram_id: str, format: str = "excalidraw"):
-    """Generate an architecture diagram in Excalidraw, Draw.io, or Visio format."""
+async def export_architecture_diagram(request: Request, diagram_id: str, format: str = "excalidraw", multi_page: bool = False):
+    """Generate an architecture diagram in Excalidraw, Draw.io, or Visio format.
+
+    Set multi_page=true for presentation-ready 4-page exports (Draw.io only, #479).
+    """
     if format not in ("excalidraw", "drawio", "vsdx"):
         raise ArchmorphException(400, "Format must be 'excalidraw', 'drawio', or 'vsdx'")
 
     analysis = get_or_recreate_session(diagram_id)
     if not analysis:
         raise ArchmorphException(404, f"No analysis found for diagram {diagram_id}. Run /analyze first.")
+
+    if multi_page:
+        analysis["multi_page"] = True
 
     try:
         content = await mcp_client.generate_diagram(format, analysis)

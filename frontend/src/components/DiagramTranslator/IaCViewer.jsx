@@ -6,7 +6,7 @@ import 'prismjs/components/prism-json';
 import 'prismjs/components/prism-yaml';
 import {
   FileCode, FileText, Download, Check, Sparkles, Bot,
-  Plus, RotateCcw, Send, Loader2, CheckCircle,
+  Plus, RotateCcw, Send, Loader2, CheckCircle, GitPullRequest,
 } from 'lucide-react';
 import { Button, Card } from '../ui';
 import { ContextualHint } from '../OnboardingTour';
@@ -91,6 +91,23 @@ export default function IaCViewer({
               a.href = url; a.download = iacFormat === 'terraform' ? 'main.tf' : iacFormat === 'cloudformation' ? 'template.yaml' : (iacFormat === 'pulumi' || iacFormat === 'aws-cdk') ? 'index.ts' : 'main.bicep'; a.click();
               URL.revokeObjectURL(url);
             }} variant="secondary" size="sm" icon={Download}>Download</Button>
+            <Button onClick={() => {
+              const repo = prompt('Enter GitHub repo (owner/repo):');
+              if (!repo) return;
+              const token = prompt('Enter GitHub Personal Access Token:');
+              if (!token) return;
+              fetch('/api/integrations/github/push-pr', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ repo, iac_code: iacCode, iac_format: iacFormat, github_token: token }),
+              })
+                .then(r => r.json())
+                .then(data => {
+                  if (data.pr_url) { window.open(data.pr_url, '_blank'); }
+                  else { alert(data.detail || data.error || 'Failed to create PR'); }
+                })
+                .catch(() => alert('Failed to push to GitHub'));
+            }} variant="secondary" size="sm" icon={GitPullRequest}>Push to GitHub</Button>
           </div>
         </div>
         <div className="bg-surface rounded-lg border border-border overflow-auto max-h-[600px]">

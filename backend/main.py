@@ -99,6 +99,7 @@ from routers.compliance_routes import router as compliance_router  # noqa: E402
 from routers.api_keys_routes import router as api_keys_router  # noqa: E402
 from routers.webhook_routes import router as webhook_routes_router  # noqa: E402
 from routers.integrations_routes import router as integrations_router  # noqa: E402
+from routers.github_integration import router as github_integration_router  # noqa: E402
 from routers.sku_routes import router as sku_router  # noqa: E402
 from routers.provenance import router as provenance_router  # noqa: E402
 from routers.network_routes import router as network_router  # noqa: E402
@@ -385,6 +386,7 @@ app.include_router(compliance_router)
 app.include_router(api_keys_router)
 app.include_router(webhook_routes_router)
 app.include_router(integrations_router)
+app.include_router(github_integration_router)
 app.include_router(sku_router)
 app.include_router(provenance_router)
 app.include_router(network_router)

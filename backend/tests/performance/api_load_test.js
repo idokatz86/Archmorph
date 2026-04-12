@@ -3,54 +3,67 @@ import { check, group } from 'k6';
 import { Rate, Trend } from 'k6/metrics';
 
 /**
- * Archmorph Load Test (Issue #290)
+ * Archmorph Load Test (Issues #290, #507)
  * 
- * Validates SLA targets from backend/performance_config.py:
+ * Mixed traffic scenario matching production patterns:
+ *   - 70% static/cached endpoints (health, services, flags, roadmap)
+ *   - 20% cached LLM paths (chat with repeat queries)  
+ *   - 10% uncached LLM paths (chat with unique queries)
+ *
+ * SLA targets from backend/performance_config.py:
  *   - p95 latency < 2000ms (fast endpoints)
  *   - p99 latency < 5000ms 
- *   - Error rate < 1%
+ *   - Error rate < 1% (5xx only)
  *   - Throughput: 100 RPS sustained
  *
- * Endpoints tested:
- *   1. GET  /api/health           — baseline throughput
- *   2. POST /api/chat             — LLM-bound chatbot
- *   3. GET  /api/services         — service catalog
- *   4. GET  /api/feature-flags    — feature flags
- *   5. POST /api/diagrams/upload  — file upload path
+ * Also validates:
+ *   - 429 rate limit handling under pressure
+ *   - LLM endpoint capacity under TPM constraints
  */
 
 // Custom metrics
 const errorRate = new Rate('errors');
 const chatLatency = new Trend('chat_latency', true);
 const catalogLatency = new Trend('catalog_latency', true);
+const rateLimitRate = new Rate('rate_limited');
 
 export const options = {
   scenarios: {
-    // Scenario 1: Sustained load on fast endpoints
-    fast_endpoints: {
+    // 70% — Static/cached endpoints
+    static_traffic: {
       executor: 'constant-arrival-rate',
-      rate: 80,
+      rate: 70,
       timeUnit: '1s',
       duration: '30s',
-      preAllocatedVUs: 40,
+      preAllocatedVUs: 35,
       maxVUs: 150,
-      exec: 'fastEndpoints',
+      exec: 'staticEndpoints',
     },
-    // Scenario 2: LLM-bound endpoints (lower rate — GPT calls are slow)
-    llm_endpoints: {
+    // 20% — Cached LLM (repeat queries hit cache)
+    cached_llm: {
       executor: 'constant-arrival-rate',
       rate: 20,
       timeUnit: '1s',
       duration: '30s',
-      preAllocatedVUs: 30,
-      maxVUs: 100,
-      exec: 'llmEndpoints',
+      preAllocatedVUs: 25,
+      maxVUs: 80,
+      exec: 'cachedLlmEndpoints',
+    },
+    // 10% — Uncached LLM (unique queries, full GPT round-trip)
+    uncached_llm: {
+      executor: 'constant-arrival-rate',
+      rate: 10,
+      timeUnit: '1s',
+      duration: '30s',
+      preAllocatedVUs: 15,
+      maxVUs: 50,
+      exec: 'uncachedLlmEndpoints',
     },
   },
   thresholds: {
     http_req_duration: ['p(95)<2000', 'p(99)<5000'],
-    http_req_failed: ['rate<0.10'],       // Allow up to 10% (401s from auth-gated endpoints in CI)
-    errors: ['rate<0.01'],                // Custom metric: only 5xx counts as error
+    http_req_failed: ['rate<0.10'],
+    errors: ['rate<0.01'],
     chat_latency: ['p(95)<5000'],
     catalog_latency: ['p(95)<1500'],
   },
@@ -59,58 +72,71 @@ export const options = {
 const BASE_URL = __ENV.API_BASE_URL || 'http://localhost:8000';
 const API_KEY = __ENV.API_KEY || '';
 
-// Reusable headers
 const jsonHeaders = { 'Content-Type': 'application/json' };
 if (API_KEY) {
   jsonHeaders['X-API-Key'] = API_KEY;
 }
 
-export function fastEndpoints() {
-  group('Health Check', () => {
-    const res = http.get(`${BASE_URL}/api/health`);
-    const ok = check(res, {
-      'health: status 200': (r) => r.status === 200,
-      'health: latency < 500ms': (r) => r.timings.duration < 500,
-    });
-    errorRate.add(!ok);
-  });
+// Cached chat queries (will hit LLM cache after first call)
+const CACHED_QUERIES = [
+  'What is Archmorph?',
+  'What cloud services does Archmorph support?',
+  'How does the migration process work?',
+];
 
-  group('Service Catalog', () => {
-    const res = http.get(`${BASE_URL}/api/services`);
-    const ok = check(res, {
-      'services: status 2xx': (r) => r.status >= 200 && r.status < 300,
-      'services: latency < 2s': (r) => r.timings.duration < 2000,
-    });
-    catalogLatency.add(res.timings.duration);
-    errorRate.add(!ok);
-  });
+export function staticEndpoints() {
+  // Distribute across static endpoints
+  const endpoints = [
+    { path: '/api/health', name: 'health' },
+    { path: '/api/services', name: 'services' },
+    { path: '/api/flags', name: 'flags' },
+    { path: '/api/roadmap', name: 'roadmap' },
+    { path: '/api/versions', name: 'versions' },
+  ];
+  const ep = endpoints[__ITER % endpoints.length];
 
-  group('Feature Flags', () => {
-    const res = http.get(`${BASE_URL}/api/flags`);
-    const ok = check(res, {
-      'flags: status 2xx': (r) => r.status >= 200 && r.status < 300,
-      'flags: latency < 500ms': (r) => r.timings.duration < 500,
-    });
-    errorRate.add(!ok);
+  const res = http.get(`${BASE_URL}${ep.path}`);
+  const ok = check(res, {
+    [`${ep.name}: no server error`]: (r) => r.status < 500,
+    [`${ep.name}: latency < 2s`]: (r) => r.timings.duration < 2000,
   });
+  if (ep.name === 'services') catalogLatency.add(res.timings.duration);
+  rateLimitRate.add(res.status === 429);
+  errorRate.add(res.status >= 500);
 }
 
-export function llmEndpoints() {
-  group('Chatbot', () => {
-    const payload = JSON.stringify({
-      session_id: `k6-load-${__VU}-${__ITER}`,
-      message: 'What cloud services does Archmorph support?',
-    });
-    const res = http.post(`${BASE_URL}/api/chat`, payload, {
-      headers: jsonHeaders,
-      timeout: '10s',
-    });
-    // Chat may require auth (401) in CI — only fail on 5xx
-    const ok = check(res, {
-      'chat: no server error': (r) => r.status < 500,
-      'chat: latency < 10s': (r) => r.timings.duration < 10000,
-    });
-    chatLatency.add(res.timings.duration);
-    errorRate.add(res.status >= 500);
+export function cachedLlmEndpoints() {
+  const query = CACHED_QUERIES[__ITER % CACHED_QUERIES.length];
+  const payload = JSON.stringify({
+    session_id: `k6-cached-${__VU}`,
+    message: query,
   });
+  const res = http.post(`${BASE_URL}/api/chat`, payload, {
+    headers: jsonHeaders,
+    timeout: '10s',
+  });
+  check(res, {
+    'cached-chat: no server error': (r) => r.status < 500,
+  });
+  chatLatency.add(res.timings.duration);
+  rateLimitRate.add(res.status === 429);
+  errorRate.add(res.status >= 500);
+}
+
+export function uncachedLlmEndpoints() {
+  // Unique query per iteration to bypass cache
+  const payload = JSON.stringify({
+    session_id: `k6-uncached-${__VU}-${__ITER}`,
+    message: `Explain the migration strategy for service-${__VU}-${__ITER} from AWS to Azure`,
+  });
+  const res = http.post(`${BASE_URL}/api/chat`, payload, {
+    headers: jsonHeaders,
+    timeout: '15s',
+  });
+  check(res, {
+    'uncached-chat: no server error': (r) => r.status < 500,
+  });
+  chatLatency.add(res.timings.duration);
+  rateLimitRate.add(res.status === 429);
+  errorRate.add(res.status >= 500);
 }
