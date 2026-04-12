@@ -132,18 +132,6 @@ def get_roadmap() -> Dict[str, Any]:
             "highlights": gh_ideas,
         })
 
-            
-    # ------ GITHUB SYNC INJECTION ------
-    gh_ideas = fetch_github_ideas()
-    if gh_ideas:
-        ideas.insert(0, {
-            "version": "Live Sync",
-            "name": "Community Feedback & GitHub Issues",
-            "date": "Auto-Updated",
-            "status": ReleaseStatus.IDEA,
-            "highlights": gh_ideas,
-        })
-
     
     # Calculate statistics
     total_features = sum(

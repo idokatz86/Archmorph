@@ -4,8 +4,12 @@ Health, version, and contact routes.
 Issue #161 — Health endpoint now performs real dependency checks and returns
 ``"degraded"`` or ``"unhealthy"`` when critical subsystems fail, so that
 Kubernetes liveness/readiness probes can detect genuine failures.
+
+Performance fix: dependency checks are cached for 10 seconds to avoid
+blocking Redis/OpenAI connections on every request under high traffic.
 """
 
+import time
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
@@ -17,12 +21,20 @@ from routers.shared import ENVIRONMENT
 
 router = APIRouter()
 
+# ── Cached dependency checks (avoid blocking I/O on every request) ─────
+_dep_checks_cache: dict | None = None
+_dep_checks_ts: float = 0
+_DEP_CACHE_TTL = 10  # seconds
 
-@router.get("/api/health")
-async def health():
-    update_status = get_update_status()
 
-    # Track dependency health — each check sets ("ok"|"degraded"|"error", detail)
+def _run_dependency_checks() -> tuple[dict[str, str], bool, bool]:
+    """Run expensive dependency probes and return (checks, degraded, unhealthy)."""
+    global _dep_checks_cache, _dep_checks_ts
+
+    now = time.monotonic()
+    if _dep_checks_cache is not None and now - _dep_checks_ts < _DEP_CACHE_TTL:
+        return _dep_checks_cache
+
     checks: dict[str, str] = {}
     degraded = False
     unhealthy = False
@@ -34,7 +46,6 @@ async def health():
             checks["openai"] = "not_configured"
             degraded = True
         else:
-            # Verify client can be instantiated (catches bad creds at startup)
             client = get_openai_client()
             checks["openai"] = "ok" if client else "error"
             if not client:
@@ -66,7 +77,6 @@ async def health():
             checks["redis"] = "not_configured"
     except Exception:
         checks["redis"] = "error"
-        # Redis failure degrades session persistence but app still works with in-memory store
         degraded = True
 
     # ── Service catalog sanity ────────────────────────────
@@ -83,6 +93,17 @@ async def health():
             unhealthy = True
     except Exception:
         checks["circuit_breakers"] = "import_error"
+
+    result = (checks, degraded, unhealthy)
+    _dep_checks_cache = result
+    _dep_checks_ts = now
+    return result
+
+
+@router.get("/api/health")
+async def health():
+    update_status = get_update_status()
+    checks, degraded, unhealthy = _run_dependency_checks()
 
     # ── Determine overall status ──────────────────────────
     if unhealthy:

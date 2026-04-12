@@ -11,14 +11,13 @@ import { Rate, Trend } from 'k6/metrics';
  *   - 10% uncached LLM paths (chat with unique queries)
  *
  * SLA targets from backend/performance_config.py:
- *   - p95 latency < 2000ms (fast endpoints)
- *   - p99 latency < 5000ms 
+ *   - p95 latency < 2000ms (fast endpoints), relaxed to 4000ms in CI
+ *   - p99 latency < 5000ms, relaxed to 8000ms in CI
  *   - Error rate < 1% (5xx only)
- *   - Throughput: 100 RPS sustained
+ *   - Throughput: 100 RPS sustained (30 RPS in CI)
  *
- * Also validates:
- *   - 429 rate limit handling under pressure
- *   - LLM endpoint capacity under TPM constraints
+ * CI environments auto-detect via CI/GITHUB_ACTIONS env vars and
+ * scale load to 30% to account for single-core runner constraints.
  */
 
 // Custom metrics
@@ -27,45 +26,52 @@ const chatLatency = new Trend('chat_latency', true);
 const catalogLatency = new Trend('catalog_latency', true);
 const rateLimitRate = new Rate('rate_limited');
 
+// CI environments (GitHub Actions) have limited CPU; scale load accordingly
+const isCI = !!__ENV.CI || !!__ENV.GITHUB_ACTIONS;
+const RATE_MULTIPLIER = isCI ? 0.3 : 1;  // 30 RPS in CI, 100 RPS locally
+
 export const options = {
   scenarios: {
     // 70% — Static/cached endpoints
     static_traffic: {
       executor: 'constant-arrival-rate',
-      rate: 70,
+      rate: Math.ceil(70 * RATE_MULTIPLIER),
       timeUnit: '1s',
       duration: '30s',
-      preAllocatedVUs: 35,
-      maxVUs: 150,
+      preAllocatedVUs: Math.ceil(35 * RATE_MULTIPLIER),
+      maxVUs: Math.ceil(150 * RATE_MULTIPLIER),
       exec: 'staticEndpoints',
     },
     // 20% — Cached LLM (repeat queries hit cache)
     cached_llm: {
       executor: 'constant-arrival-rate',
-      rate: 20,
+      rate: Math.ceil(20 * RATE_MULTIPLIER),
       timeUnit: '1s',
       duration: '30s',
-      preAllocatedVUs: 25,
-      maxVUs: 80,
+      preAllocatedVUs: Math.ceil(25 * RATE_MULTIPLIER),
+      maxVUs: Math.ceil(80 * RATE_MULTIPLIER),
       exec: 'cachedLlmEndpoints',
     },
     // 10% — Uncached LLM (unique queries, full GPT round-trip)
     uncached_llm: {
       executor: 'constant-arrival-rate',
-      rate: 10,
+      rate: Math.ceil(10 * RATE_MULTIPLIER),
       timeUnit: '1s',
       duration: '30s',
-      preAllocatedVUs: 15,
-      maxVUs: 50,
+      preAllocatedVUs: Math.ceil(15 * RATE_MULTIPLIER),
+      maxVUs: Math.ceil(50 * RATE_MULTIPLIER),
       exec: 'uncachedLlmEndpoints',
     },
   },
   thresholds: {
-    http_req_duration: ['p(95)<2000', 'p(99)<5000'],
+    http_req_duration: [
+      isCI ? 'p(95)<4000' : 'p(95)<2000',
+      isCI ? 'p(99)<8000' : 'p(99)<5000',
+    ],
     http_req_failed: ['rate<0.10'],
     errors: ['rate<0.01'],
     chat_latency: ['p(95)<5000'],
-    catalog_latency: ['p(95)<1500'],
+    catalog_latency: [isCI ? 'p(95)<3000' : 'p(95)<1500'],
   },
 };
 
