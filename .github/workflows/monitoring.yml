@@ -228,7 +228,7 @@ jobs:
 
       - name: Check for existing open issue
         id: check_issue
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const issues = await github.rest.issues.listForRepo({
@@ -283,7 +283,7 @@ jobs:
           EOF
 
       - name: Create or Update Issue
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         if: github.event.inputs.create_issues != 'false'
         with:
           script: |
