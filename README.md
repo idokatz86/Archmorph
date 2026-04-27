@@ -26,7 +26,7 @@ Archmorph is an AI-assisted cloud migration workbench. The live path analyzes up
 |--------|---------|--------------|
 | Live | Usable in the current product path | Diagram upload, sample playground, AI service mapping, guided questions, IaC/HLD/report export, cost estimates, service catalog, admin analytics, auth shell, CI/security scanning |
 | Beta | Implemented but needs hardening, deeper tests, or production validation | RAG, Agent PaaS proof, cost/token observability, collaboration, gallery, replay, Terraform state import, multi-cloud cost comparison, social auth/RBAC |
-| Scaffold | UI/routes/models exist, but execution needs integration or operator review | Live cloud scanner, deploy engine, credential vault, SSO/SAML/SCIM, drift/living architecture, Stripe billing |
+| Scaffold | UI/routes/models exist, but execution needs integration or operator review | Live cloud scanner, deploy engine, credential vault, SSO/SAML/SCIM, live drift/living architecture, Stripe billing |
 | Planned | Not production-ready yet | VS Code extension, PR-based IaC workflow, multi-diagram projects |
 
 **Key Capabilities:**
@@ -67,11 +67,11 @@ Archmorph is an AI-assisted cloud migration workbench. The live path analyzes up
 - **Migration Gallery** — public anonymized success stories, filterable by cloud and complexity
 - **Product Analytics** — funnel tracking (PostHog + backend), session-based event ingestion
 - **API Developer Portal** — Swagger/Redoc integration with category overview and curl examples
-- **Living architecture scaffold** — drift/versioning APIs exist; live environment drift monitoring is not a hardened production workflow yet
+- **Living architecture scaffold** — drift/versioning APIs include saved baselines, repeat compares, finding decisions, and Markdown report export; live environment monitoring still requires tenant-specific scanner validation
 - **Social authentication** — Microsoft, Google, GitHub sign-in (Azure SWA + JWT fallback)
 - **User profiles** — preferences, avatar, GDPR-compliant account deletion
 - **RBAC & multi-tenant isolation** — 4-role hierarchy (viewer/member/admin/owner), org management, tier-based quotas
-- **Admin dashboard** — conversion funnel, daily metrics, session tracking
+- **Admin dashboard** — conversion funnel, daily metrics, session tracking, runtime health, release gate view, audit stream, and guarded feature flag controls
 - **Persistent analytics** — Azure Blob Storage with background flush and crash-safe shutdown
 - **Toast notification system** — non-blocking success/error/warning notifications with auto-dismiss
 - **Session expiry warning** — countdown banner with session extension capability
@@ -82,7 +82,7 @@ Archmorph is an AI-assisted cloud migration workbench. The live path analyzes up
 - **CI/CD security** — Semgrep SAST, Gitleaks secret detection, Trivy container scanning, CycloneDX SBOM
 - **Multi-stage Docker** — optimized build with ~50% image size reduction, uv for fast installs
 - **API versioning** — all `/api/*` routes mirrored at `/api/v1/*` for stable integrations
-- **Feature flags system** — percentage rollout + user targeting with admin API
+- **Feature flags system** — percentage rollout + user targeting with audited admin API and runtime dashboard toggles
 - **Comprehensive audit logging** — structured JSON with risk levels, alerting rules, compliance queries
 - **Session persistence** — pluggable SessionStore with InMemory and Redis backends
 - **GPT response caching** — content-hash TTLCache for GPT-4o responses with configurable timeout and fallback model
@@ -284,7 +284,7 @@ flowchart TB
 | Migration Intelligence | ML-powered pattern matching | In-process engine |
 | Migration Timeline | 7-phase DAG, topo sort, JSON/MD/CSV export | In-process engine |
 | Infrastructure Import | TF/ARM/CloudFormation parser | In-process engine |
-| Living Architecture | Drift detection & change tracking | In-process engine |
+| Living Architecture | Drift baselines, compare history, finding decisions, report export | In-process engine |
 | RAG Pipeline | Document ingest, embed, hybrid search (vector+BM25) | In-process engine |
 | Agent PaaS | Agent CRUD, ReAct loop, tool execution | In-process engine |
 | Cost Metering | Token tracking, budgets, alerts, CSV export | In-process engine |
@@ -550,7 +550,19 @@ Dynamic pricing powered by the [Azure Retail Prices API](https://prices.azure.co
 |----------|--------|-------------|
 | `/api/flags` | GET | List all feature flags |
 | `/api/flags/{name}` | GET | Get specific flag status |
-| `/api/flags/{name}` | PUT | Update flag configuration (admin) |
+| `/api/flags/{name}` | PATCH | Update flag configuration (admin) |
+
+### Drift Baselines
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/drift/detect` | POST | Run one-off drift detection |
+| `/api/drift/baselines` | POST | Create a saved drift baseline and optional first audit |
+| `/api/drift/baselines` | GET | List saved drift baselines with last audit status |
+| `/api/drift/baselines/{id}` | GET | Get a baseline with history and last result |
+| `/api/drift/baselines/{id}/compare` | POST | Compare live state against a saved baseline |
+| `/api/drift/baselines/{id}/findings/{finding_id}` | PATCH | Accept, reject, defer, or reopen a finding |
+| `/api/drift/baselines/{id}/report` | GET | Export the latest audit as Markdown |
 
 > **Note:** All routes also available at `/api/v1/*`
 
