@@ -264,6 +264,7 @@ The PRD distinguishes three maturity levels. **Live** features are usable in the
 - **Health scoring** — 5 weighted dimensions: Availability (25%), Cost Efficiency (20%), Compliance (20%), Performance (20%), Security (15%)
 - **Status classification** — healthy (≥80), warning (≥60), critical (<60) per dimension and overall
 - **Drift detection** — identifies configuration drift, missing tags, version skew, network exposure, unencrypted resources
+- **Drift baselines** — `/api/drift/baselines` stores intended-state snapshots, repeat compare history, deterministic finding IDs, accepted/rejected/deferred decisions, and Markdown report export
 - **Cost anomaly alerts** — detects deviation from expected daily spend with percentage thresholds
 - **Recommendations** — actionable remediation suggestions per drift/anomaly finding
 - **Registration API** — `POST /living-architecture/register` to onboard an architecture for monitoring
@@ -789,6 +790,13 @@ The PRD distinguishes three maturity levels. **Live** features are usable in the
 | `/api/living-architecture/{id}/drifts` | GET | Get drift detection findings (v3.0) |
 | `/api/living-architecture/{id}/cost-anomalies` | GET | Get cost anomaly alerts (v3.0) |
 | `/api/living-architecture/registered` | GET | List registered architectures (v3.0) |
+| `/api/drift/detect` | POST | Run one-off environmental drift detection |
+| `/api/drift/baselines` | POST | Create a drift baseline with optional first compare |
+| `/api/drift/baselines` | GET | List drift baselines with latest audit summary |
+| `/api/drift/baselines/{id}` | GET | Get a drift baseline, history, and last result |
+| `/api/drift/baselines/{id}/compare` | POST | Compare live state against a saved baseline |
+| `/api/drift/baselines/{id}/findings/{finding_id}` | PATCH | Accept, reject, defer, or reopen a finding |
+| `/api/drift/baselines/{id}/report` | GET | Export latest drift audit as Markdown |
 | `/api/migration-intelligence/events` | POST | Submit anonymized migration event (v3.0) |
 | `/api/migration-intelligence/patterns` | GET | Get top migration patterns (v3.0) |
 | `/api/migration-intelligence/confidence` | GET | Query community confidence for a service pair (v3.0) |
