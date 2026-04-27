@@ -705,7 +705,7 @@ class TestAuditDecorators:
             return {"ok": True}
 
         request = self._make_request("/api/admin/config")
-        result = asyncio.get_event_loop().run_until_complete(my_route(request=request))
+        result = asyncio.run(my_route(request=request))
         assert result == {"ok": True}
 
         actions = audit_logger.get_admin_actions()
@@ -718,7 +718,7 @@ class TestAuditDecorators:
             return {"data": "tf"}
 
         request = self._make_request("/api/export/terraform")
-        result = asyncio.get_event_loop().run_until_complete(my_export(request=request))
+        result = asyncio.run(my_export(request=request))
         assert result == {"data": "tf"}
 
         exports = audit_logger.get_exports()
@@ -731,7 +731,7 @@ class TestAuditDecorators:
             return {"token": "abc"}
 
         request = self._make_request("/api/login")
-        result = asyncio.get_event_loop().run_until_complete(login(request=request))
+        result = asyncio.run(login(request=request))
         assert result["token"] == "abc"
 
         logs = get_audit_logs(event_type="auth.login")
@@ -744,7 +744,7 @@ class TestAuditDecorators:
 
         request = self._make_request("/api/login")
         with pytest.raises(ValueError):
-            asyncio.get_event_loop().run_until_complete(login(request=request))
+            asyncio.run(login(request=request))
 
         failures = audit_logger.get_failed_logins()
         assert len(failures) >= 1
@@ -756,7 +756,7 @@ class TestAuditDecorators:
 
         request = self._make_request("/api/admin/danger")
         with pytest.raises(RuntimeError):
-            asyncio.get_event_loop().run_until_complete(dangerous(request=request))
+            asyncio.run(dangerous(request=request))
 
         # Should have logged a security event
         logs = get_audit_logs(event_type="security.alert")

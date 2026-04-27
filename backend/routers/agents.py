@@ -4,9 +4,13 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models.agent import Agent, AgentVersion
 from models.tenant import Organization
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 import uuid
 import datetime
+
+
+def utc_now_naive() -> datetime.datetime:
+    return datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
@@ -47,8 +51,7 @@ class AgentResponseSchema(BaseModel):
     status: str
     organization_id: str
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 @router.post("", response_model=AgentResponseSchema, status_code=201)
 def create_agent(agent_data: AgentCreateSchema, db: Session = Depends(get_db)):
@@ -127,7 +130,7 @@ def update_agent(agent_id: str, agent_data: AgentUpdateSchema, db: Session = Dep
         agent.memory_config = agent_data.memory_config.model_dump()
         
     agent.version = new_version
-    agent.updated_at = datetime.datetime.utcnow()
+    agent.updated_at = utc_now_naive()
     db.commit()
     db.refresh(agent)
     

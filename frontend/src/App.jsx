@@ -10,6 +10,7 @@ import { AuthProvider } from './components/Auth';
 import { APP_VERSION } from './constants';
 import useAppStore from './stores/useAppStore';
 import { trackPageView } from './services/analytics';
+import { isFeatureEnabled } from './featureFlags';
 
 // Lazy-loaded tab components — only fetched when the user switches tabs (#173)
 const DiagramTranslator = lazy(() => import('./components/DiagramTranslator'));
@@ -105,7 +106,7 @@ export default function App() {
             {activeTab === 'translator' && <DiagramTranslator />}
             {activeTab === 'services' && <ServicesBrowser />}
             {activeTab === 'roadmap' && <Roadmap />}
-            {activeTab === 'drift' && <DriftDashboard />}
+            {activeTab === 'drift' && isFeatureEnabled('livingArchitectureDrift') && <DriftDashboard />}
             {activeTab === 'canvas' && <CanvasEditor />}
             {activeTab === 'api-docs' && <ApiDocs />}
             {activeTab === 'gallery' && <MigrationGallery />}

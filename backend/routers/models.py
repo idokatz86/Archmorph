@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from database import get_db
 from routers.auth import get_current_user
@@ -27,8 +27,7 @@ class ModelEndpointResponseSchema(BaseModel):
     capabilities: Dict[str, Any]
     pricing: Dict[str, Any]
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 @router.post("/", response_model=ModelEndpointResponseSchema, status_code=status.HTTP_201_CREATED)
 def register_model(payload: ModelEndpointCreateSchema, db: Session = Depends(get_db), user: dict = Depends(RequireRole(['admin', 'super_admin']))):

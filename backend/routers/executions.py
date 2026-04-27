@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from database import get_db
 from routers.auth import get_current_user
@@ -26,8 +26,7 @@ class ExecutionResponseSchema(BaseModel):
     output_data: Optional[Dict[str, Any]] = None
     error_message: Optional[str] = None
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 @router.post("/", response_model=ExecutionResponseSchema, status_code=status.HTTP_202_ACCEPTED)
 async def start_execution(

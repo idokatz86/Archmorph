@@ -8,11 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Added a post-deploy smoke job that verifies the deployed frontend, hash-routed product paths, API health, and OpenAPI schema after production deploys.
+- Added disabled-by-default feature flags for scaffolded deploy, drift, cloud scanner, SSO/SCIM, and billing capabilities, with frontend gating for drift and deploy surfaces.
+- Added a release checklist covering required secrets, quality gates, manual smoke checks, scaffolded feature approvals, and rollback evidence.
 - Tightened CI gates: backend tests no longer ignore Agent PaaS/property-based suites, and frontend lint/Vitest now fail the build instead of using `continue-on-error`.
 - Updated README and PRD language to distinguish live, beta, scaffold, and planned capabilities instead of presenting all enterprise surfaces as production-ready.
 - Refreshed landing page messaging with capability status labels, preview-safe trust copy, and a sample-diagram CTA that routes to the playground.
 
 ### Fixed
+- Cleaned low-risk backend deprecation warnings for Pydantic model config, FastAPI `Query(pattern=...)`, timezone-aware UTC timestamp generation, and async decorator tests.
 - Repaired `test_agent_paas_real.py` with isolated in-memory SQLite, seeded tenant data, and realistic auth overrides so the suite can run in CI.
 - Fixed frontend Vitest setup with a complete `localStorage` mock and aligned component tests with current Nav, DiagramTranslator, CostPanel, LandingPage, AnalysisResults, and AdminDashboard behavior.
 - Fixed `CostPanel.jsx` hook ordering so frontend lint passes cleanly.

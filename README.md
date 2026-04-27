@@ -759,6 +759,8 @@ Archmorph/
 
 Deployment is automated through GitHub Actions for the configured staging/production branches. Keep cloud credentials and deployment values in GitHub Secrets; do not commit secrets or local `terraform.tfvars` values.
 
+Before promoting a build, use the release checklist in [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md).
+
 ### Azure Resources
 
 | Resource | SKU | Region |
@@ -779,11 +781,13 @@ The CI/CD workflow (`.github/workflows/ci.yml`) runs the main quality gates:
 2. **frontend-build** — installs npm dependencies, runs ESLint, runs Vitest, builds Vite output, generates frontend SBOM, and runs Grype
 3. **upload-sarif** — uploads Grype SARIF when available without blocking successful builds on upload rate limits
 4. **deploy-staging / deploy-production** — branch-gated Azure Container Apps and Static Web Apps deployment using GitHub Secrets and OIDC
+5. **post-deploy-smoke** — deployed frontend/API smoke checks for root, sample routes, health, and OpenAPI schema
 
 Additional workflows:
 - **security.yml** — SAST/DAST/SCA security pipeline (Semgrep, Bandit, CodeQL, Trivy, Gitleaks)
 - **sbom.yml** — CycloneDX + Grype SBOM generation and vulnerability scanning
 - **rollback.yml** — Blue-green deployment rollback trigger
+- **monitoring.yml** — Scheduled and manual deployed health checks
 
 ### Manual Deploy (if needed)
 

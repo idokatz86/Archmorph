@@ -86,7 +86,7 @@ async def model_breakdown():
 
 @router.get("/timeseries", response_model=List[TimeseriesPoint])
 async def timeseries(
-    granularity: str = Query("hourly", regex="^(hourly|daily|weekly)$"),
+    granularity: str = Query("hourly", pattern="^(hourly|daily|weekly)$"),
     since: Optional[str] = Query(None, description="ISO datetime lower bound"),
     until: Optional[str] = Query(None, description="ISO datetime upper bound"),
 ):

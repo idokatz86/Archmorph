@@ -69,6 +69,7 @@ describe('Nav', () => {
     render(<Nav {...defaultProps} />)
     await user.click(screen.getByRole('button', { name: /More/ }))
     expect(screen.getByText('Roadmap')).toBeInTheDocument()
+    expect(screen.queryByText('Drift')).not.toBeInTheDocument()
   })
 
   it('shows catalog live status when scheduler is running', () => {

@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from routers.shared import limiter, verify_api_key
 
@@ -94,8 +94,8 @@ class SlackNotifyRequest(BaseModel):
     cost_estimate: Optional[str] = Field(None, description="Monthly cost estimate string")
     summary: str = Field("", max_length=1000, description="Optional analysis summary text")
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "webhook_url": "https://hooks.slack.com/services/T.../B.../xxx",
                 "diagram_id": "diag-abc123",
@@ -105,6 +105,7 @@ class SlackNotifyRequest(BaseModel):
                 "summary": "Migration from AWS to Azure — 12 services mapped",
             }
         }
+    )
 
 
 class TeamsNotifyRequest(BaseModel):

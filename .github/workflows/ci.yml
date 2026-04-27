@@ -24,6 +24,7 @@ permissions:
 
 env:
   API_URL: ${{ secrets.API_URL }}
+  FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -507,3 +508,20 @@ jobs:
           app_location: frontend/dist
           output_location: ''
           skip_app_build: true
+
+  # ============================================
+  # POST-DEPLOY SMOKE
+  # ============================================
+  post-deploy-smoke:
+    needs: [deploy-backend, deploy-frontend]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run deployed app smoke checks
+        run: bash scripts/deployment_smoke.sh
+        env:
+          API_URL: ${{ env.API_URL }}
+          FRONTEND_URL: ${{ env.FRONTEND_URL }}
