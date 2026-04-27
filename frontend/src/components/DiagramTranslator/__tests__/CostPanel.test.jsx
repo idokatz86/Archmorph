@@ -3,14 +3,14 @@ import { render, screen } from '@testing-library/react'
 import CostPanel from '../../DiagramTranslator/CostPanel'
 
 describe('CostPanel', () => {
-  it('renders nothing when costEstimate is null', () => {
-    const { container } = render(<CostPanel costEstimate={null} />)
-    expect(container.innerHTML).toBe('')
+  it('renders an empty state when costEstimate is null', () => {
+    render(<CostPanel costEstimate={null} />)
+    expect(screen.getByText('Cost Analysis')).toBeInTheDocument()
   })
 
-  it('renders nothing when costEstimate is undefined', () => {
-    const { container } = render(<CostPanel />)
-    expect(container.innerHTML).toBe('')
+  it('renders an empty state when costEstimate is undefined', () => {
+    render(<CostPanel />)
+    expect(screen.getByText('Cost Analysis')).toBeInTheDocument()
   })
 
   it('renders title when costEstimate provided', () => {
@@ -53,8 +53,8 @@ describe('CostPanel', () => {
       ],
     }
     render(<CostPanel costEstimate={costEstimate} />)
-    expect(screen.getByText('Azure VM')).toBeInTheDocument()
-    expect(screen.getByText('Azure SQL')).toBeInTheDocument()
+    expect(screen.getAllByText('Azure VM').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Azure SQL').length).toBeGreaterThan(0)
   })
 
   it('shows pricing calculator link', () => {
@@ -95,7 +95,7 @@ describe('CostPanel', () => {
       ],
     }
     render(<CostPanel costEstimate={costEstimate} />)
-    expect(screen.getByText('Azure VM')).toBeInTheDocument()
+    expect(screen.getAllByText('Azure VM').length).toBeGreaterThan(0)
     expect(screen.getByText(/without pricing data/i)).toBeInTheDocument()
     expect(screen.getByText(/Custom Service/)).toBeInTheDocument()
   })

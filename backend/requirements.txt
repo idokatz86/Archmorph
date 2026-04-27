@@ -2,7 +2,7 @@ fastapi
 uvicorn[standard]
 gunicorn  # Production process manager with worker recycling (#301)
 pydantic
-python-multipart
+python-multipart>=0.0.26
 httpx
 azure-storage-blob
 azure-identity
@@ -12,8 +12,8 @@ sqlalchemy
 asyncpg
 aiosqlite
 alembic
-python-dotenv
-pillow
+python-dotenv>=1.2.2
+pillow>=12.2.0
 apscheduler
 PyGithub
 slowapi
@@ -29,7 +29,7 @@ tenacity
 pybreaker
 psutil
 python-json-logger
-PyJWT[crypto]
+PyJWT[crypto]>=2.12.0
 email-validator
 redis
 stripe
@@ -39,13 +39,23 @@ python-docx>=1.1.0
 fpdf2
 python-pptx
 
+# Security-pinned dependencies
+cryptography>=46.0.7
+langchain-core>=1.2.28
+langsmith>=0.7.31
+lxml>=6.1.0
+pyasn1>=0.6.3
+pygments>=2.20.0
+pypdf>=6.10.2
+requests>=2.33.0
+
 # RAG pipeline dependencies (Issue #395)
 pdfplumber>=0.11.0
 beautifulsoup4>=4.12.0
 numpy>=1.26.0
 
 # Test dependencies
-pytest
+pytest>=9.0.3
 pytest-asyncio
 pytest-cov
 pytest-xdist

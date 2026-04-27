@@ -538,7 +538,7 @@ class TestMetrics:
     def _get_admin_token(self, client, monkeypatch):
         """Log in via POST /api/admin/login and return Bearer header dict."""
         monkeypatch.setattr("admin_auth.ADMIN_SECRET", "test-admin-key")
-        monkeypatch.setattr("admin_auth.JWT_SECRET", "test-admin-key:test-salt")
+        monkeypatch.setattr("admin_auth.JWT_SECRET", "test-admin-key-test-salt-32-byte-value")
         resp = client.post("/api/admin/login", json={"key": "test-admin-key"})
         assert resp.status_code == 200
         token = resp.json()["token"]
@@ -551,13 +551,13 @@ class TestMetrics:
 
     def test_admin_metrics_endpoint_no_auth(self, client, monkeypatch):
         monkeypatch.setattr("admin_auth.ADMIN_SECRET", "test-admin-key")
-        monkeypatch.setattr("admin_auth.JWT_SECRET", "test-admin-key:test-salt")
+        monkeypatch.setattr("admin_auth.JWT_SECRET", "test-admin-key-test-salt-32-byte-value")
         resp = client.get("/api/admin/metrics")
         assert resp.status_code == 401
 
     def test_admin_metrics_endpoint_invalid_token(self, client, monkeypatch):
         monkeypatch.setattr("admin_auth.ADMIN_SECRET", "test-admin-key")
-        monkeypatch.setattr("admin_auth.JWT_SECRET", "test-admin-key:test-salt")
+        monkeypatch.setattr("admin_auth.JWT_SECRET", "test-admin-key-test-salt-32-byte-value")
         resp = client.get("/api/admin/metrics", headers={"Authorization": "Bearer bogus-token"})
         assert resp.status_code == 401
 

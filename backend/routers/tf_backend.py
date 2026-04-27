@@ -2,7 +2,7 @@ import json
 import logging
 from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import datetime, timezone
 
 from database import get_db
 from models.deployment_state import DeploymentState
@@ -13,6 +13,10 @@ LOCK_STORE = get_store("tf_locks", maxsize=500, ttl=3600)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/terraform/state", tags=["Terraform State Backend"])
+
+
+def utc_now_naive() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 def get_deployment_state(db: Session, project_id: str, environment: str):
     state = db.query(DeploymentState).filter(
@@ -53,7 +57,7 @@ async def update_tf_state(project_id: str, environment: str, request: Request, d
     
     state.previous_state_json = state.state_json
     state.state_json = payload
-    state.updated_at = datetime.utcnow()
+    state.updated_at = utc_now_naive()
     
     db.commit()
     return Response(status_code=200)
@@ -83,7 +87,7 @@ async def lock_tf_state(project_id: str, environment: str, request: Request, db:
     
     state.lock_id = req_lock_id
     state.lock_info = lock_info
-    state.locked_at = datetime.utcnow()
+    state.locked_at = utc_now_naive()
     db.commit()
     
     return Response(status_code=200)

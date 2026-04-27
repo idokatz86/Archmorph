@@ -14,7 +14,7 @@ const FEATURES = [
   {
     icon: Code,
     title: 'Terraform, Bicep & CloudFormation',
-    desc: 'Generate production-ready IaC in all three formats with secure credential handling, Key Vault integration, and an interactive chat assistant to refine your code.',
+    desc: 'Generate review-ready IaC in all three formats with secure credential handling, Key Vault integration patterns, and an interactive chat assistant to refine your code.',
   },
   {
     icon: FileText,
@@ -24,7 +24,7 @@ const FEATURES = [
   {
     icon: GitBranch,
     title: 'Architecture Versioning',
-    desc: 'Track every change with version history, side-by-side diffs, and one-click restore. Terraform plan previews before you deploy.',
+    desc: 'Track important changes with version history, side-by-side diffs, and restore-oriented workflows as your migration plan evolves.',
   },
   {
     icon: BarChart3,
@@ -34,12 +34,12 @@ const FEATURES = [
   {
     icon: Activity,
     title: 'Living Architecture',
-    desc: 'Monitor deployed architectures with health scoring across 5 dimensions, drift detection, and cost anomaly alerts.',
+    desc: 'Preview health scoring, drift findings, and cost anomaly concepts before connecting them to production monitoring workflows.',
   },
   {
     icon: Shield,
     title: 'Enterprise Security',
-    desc: 'Zero Trust WAF, SAST scanning, secret detection, audit logging with risk levels, and GDPR-compliant EU data residency.',
+    desc: 'Security headers, SAST scanning, secret detection, audit logging patterns, and explicit review gates for enterprise-only integrations.',
   },
   {
     icon: MessageSquare,
@@ -64,7 +64,13 @@ const STATS = [
   { value: '405+', label: 'Cloud services cataloged' },
   { value: '120+', label: 'Cross-cloud mappings' },
   { value: '3', label: 'IaC formats supported' },
-  { value: '100%', label: 'Free — no limits' },
+  { value: 'Preview', label: 'Free while hardening' },
+];
+
+const CAPABILITY_STATUS = [
+  { label: 'Live', value: 'Diagram analysis, guided questions, IaC, HLD, cost estimate, exports' },
+  { label: 'Beta', value: 'Collaboration, replay, gallery, multi-cloud cost comparison, API portal' },
+  { label: 'Scaffold', value: 'One-click deploy, SSO/SCIM, live cloud scanner, drift monitoring' },
 ];
 
 const FAQS = [
@@ -86,11 +92,11 @@ const FAQS = [
   },
   {
     q: 'Can I use the generated code in production?',
-    a: 'Yes. Generated IaC follows cloud best practices with secure credential handling (Key Vault / Secrets Manager), validated syntax, and security scanning. Use the built-in Terraform plan preview to review resources before deploying.',
+    a: 'Use it as an accelerator and review artifact. Generated IaC follows security-oriented patterns, but production use should go through your normal architecture, security, and change-management review before deployment.',
   },
   {
     q: 'Is Archmorph really free?',
-    a: 'Yes — 100% free with no usage limits. Unlimited analyses, IaC generation, HLD exports, and all features. No credit card required, no trial period, no hidden fees.',
+    a: 'The current preview is free to use while the platform is being hardened. Some enterprise integrations are intentionally labeled beta or scaffold until their production validation is complete.',
   },
 ];
 
@@ -118,7 +124,7 @@ function FAQItem({ q, a }) {
   );
 }
 
-export default function LandingPage({ onGetStarted }) {
+export default function LandingPage({ onGetStarted, onTrySample }) {
   return (
     <div className="min-h-screen" data-testid="landing-page">
       {/* Hero */}
@@ -136,7 +142,7 @@ export default function LandingPage({ onGetStarted }) {
           <p className="text-lg text-text-secondary max-w-2xl mx-auto mb-8">
             Upload AWS, GCP, or Azure architecture diagrams and translate them in any direction.
             Get instant equivalents with Terraform, Bicep, or CloudFormation code, HLD documents, 
-            cost estimates, and step-by-step migration runbooks — all powered by GPT-4o.
+            cost estimates, and step-by-step migration planning artifacts — all designed for architect review.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <button
@@ -148,19 +154,30 @@ export default function LandingPage({ onGetStarted }) {
               <ArrowRight className="w-4 h-4" />
             </button>
             <button
-              onClick={() => {
-                // Future functionality: directly drop a sample into the app state
-                onGetStarted();
-              }}
+              onClick={onTrySample || onGetStarted}
               className="flex items-center gap-2 px-8 py-3.5 bg-surface text-text-primary border border-border/50 rounded-xl font-semibold hover:bg-secondary/20 transition-colors text-sm"
             >
               Try a sample diagram
             </button>
           </div>
           <div className="flex flex-wrap items-center justify-center gap-6 mt-8 text-xs text-text-muted">
-            <span className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-cta" /> 100% free forever</span>
+            <span className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-cta" /> Free preview</span>
             <span className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-cta" /> No account required</span>
             <span className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-cta" /> GDPR compliant</span>
+          </div>
+        </div>
+      </section>
+
+      {/* Capability status */}
+      <section className="py-12 border-y border-border/50 bg-secondary/10">
+        <div className="max-w-5xl mx-auto px-4">
+          <div className="grid gap-4 md:grid-cols-3">
+            {CAPABILITY_STATUS.map((item) => (
+              <div key={item.label} className="rounded-xl border border-border/50 bg-surface/60 p-4">
+                <div className="text-xs font-semibold uppercase tracking-wide text-cta mb-2">{item.label}</div>
+                <p className="text-sm text-text-secondary leading-relaxed">{item.value}</p>
+              </div>
+            ))}
           </div>
         </div>
       </section>
@@ -187,7 +204,7 @@ export default function LandingPage({ onGetStarted }) {
               End-to-end cloud migration platform
             </h2>
             <p className="text-text-muted max-w-lg mx-auto">
-              From diagram analysis to production-ready infrastructure — everything you need to translate, plan, and execute cloud migrations.
+              From diagram analysis to stakeholder-ready migration artifacts — everything you need to translate, compare, and plan cloud migrations.
             </p>
           </div>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -217,7 +234,7 @@ export default function LandingPage({ onGetStarted }) {
             <h2 className="text-2xl sm:text-3xl font-bold text-text-primary mb-3">
               How it works
             </h2>
-            <p className="text-text-muted">Four steps from diagram to production-ready infrastructure</p>
+            <p className="text-text-muted">Four steps from diagram to an architecture review package</p>
           </div>
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
             {HOW_IT_WORKS.map((item, i) => (
@@ -257,7 +274,7 @@ export default function LandingPage({ onGetStarted }) {
             Ready to modernize your architecture?
           </h2>
           <p className="text-text-muted mb-6">
-            100% free — no account, no limits, no credit card. Start translating your cloud architecture now.
+            Free preview — no account or credit card required. Start translating your cloud architecture now.
           </p>
           <button
             onClick={onGetStarted}

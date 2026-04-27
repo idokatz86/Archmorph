@@ -197,16 +197,6 @@ export default function CostPanel({ costEstimate, diagramId, api }) {
     }
   };
 
-  if (!costEstimate) return (
-    <Card className="p-6">
-      <EmptyState
-        icon={BarChart3}
-        title="Cost Analysis"
-        description="Cost estimates will appear here after IaC code is generated. Upload a diagram and generate infrastructure code to see pricing."
-      />
-    </Card>
-  );
-
   // Group services by category for donut chart
   const categoryGroups = useMemo(() => {
     const groups = {};
@@ -223,6 +213,16 @@ export default function CostPanel({ costEstimate, diagramId, api }) {
     });
     return Object.entries(groups).map(([name, cost]) => ({ name, cost })).sort((a, b) => b.cost - a.cost);
   }, [pricedServices]);
+
+  if (!costEstimate) return (
+    <Card className="p-6">
+      <EmptyState
+        icon={BarChart3}
+        title="Cost Analysis"
+        description="Cost estimates will appear here after IaC code is generated. Upload a diagram and generate infrastructure code to see pricing."
+      />
+    </Card>
+  );
 
   return (
     <Card className="p-6">

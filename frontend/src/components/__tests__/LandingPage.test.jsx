@@ -6,6 +6,7 @@ import LandingPage from '../LandingPage';
 describe('LandingPage', () => {
   const defaultProps = {
     onGetStarted: vi.fn(),
+    onTrySample: vi.fn(),
   };
 
   beforeEach(() => {
@@ -46,7 +47,13 @@ describe('LandingPage', () => {
     render(<LandingPage {...defaultProps} />);
     expect(screen.getByText('405+')).toBeInTheDocument();
     expect(screen.getByText('120+')).toBeInTheDocument();
-    expect(screen.getByText('100%')).toBeInTheDocument();
+    expect(screen.getByText('Preview')).toBeInTheDocument();
+  });
+
+  it('routes sample CTA to the playground callback', () => {
+    render(<LandingPage {...defaultProps} />);
+    fireEvent.click(screen.getByText('Try a sample diagram'));
+    expect(defaultProps.onTrySample).toHaveBeenCalledTimes(1);
   });
 
   it('renders how-it-works section with 4 steps', () => {
@@ -83,9 +90,9 @@ describe('LandingPage', () => {
     expect(defaultProps.onGetStarted).toHaveBeenCalledTimes(1);
   });
 
-  it('renders trust badges (100% free, no account, GDPR)', () => {
+  it('renders trust badges (preview, no account, GDPR)', () => {
     render(<LandingPage {...defaultProps} />);
-    expect(screen.getByText('100% free forever')).toBeInTheDocument();
+    expect(screen.getByText('Free preview')).toBeInTheDocument();
     expect(screen.getByText('No account required')).toBeInTheDocument();
     expect(screen.getByText('GDPR compliant')).toBeInTheDocument();
   });

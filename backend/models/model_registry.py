@@ -1,7 +1,7 @@
 import uuid
-from datetime import datetime
 from sqlalchemy import Column, String, DateTime, JSON, ForeignKey, Boolean
 from database import Base
+from models.time_utils import utc_now_naive
 
 class ModelEndpoint(Base):
     __tablename__ = "model_endpoints"
@@ -18,5 +18,5 @@ class ModelEndpoint(Base):
     capabilities = Column(JSON, default=dict) # vision, tools, max_tokens
     pricing = Column(JSON, default=dict) # input_cost, output_cost per 1k
     
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now_naive)
+    updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)

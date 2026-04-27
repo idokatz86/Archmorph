@@ -1,5 +1,5 @@
-import datetime
 import logging
+from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 from google.cloud import asset_v1
 from google.oauth2 import service_account
@@ -76,7 +76,7 @@ class GCPScanner:
                     provider=CloudProvider.GCP,
                     scanned_regions=[],
                     resource_count=0,
-                    scan_timestamp=datetime.datetime.utcnow().isoformat()
+                    scan_timestamp=datetime.now(timezone.utc).isoformat()
                 ),
                 resources=[]
             )
@@ -133,7 +133,7 @@ class GCPScanner:
                 provider=CloudProvider.GCP,
                 scanned_regions=list(scanned_regions),
                 resource_count=len(discovered_resources),
-                scan_timestamp=datetime.datetime.utcnow().isoformat()
+                scan_timestamp=datetime.now(timezone.utc).isoformat()
             ),
             resources=discovered_resources
         )

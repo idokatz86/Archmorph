@@ -6,6 +6,7 @@ and service categories to extract architecture metadata.
 from __future__ import annotations
 import logging
 import concurrent.futures
+from datetime import timezone, datetime
 from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
@@ -66,7 +67,6 @@ class AWSScanner:
                 if future.exception():
                     logger.error("Error during AWS scan: %s", future.exception())
 
-        import datetime
         from models.infrastructure import LiveArchitectureSchema, ScanMetadata, CloudProvider, CloudResource, ResourceType
         
         resources_list = []
@@ -92,7 +92,7 @@ class AWSScanner:
                 provider=CloudProvider.AWS,
                 scanned_regions=[self.default_region],
                 resource_count=len(resources_list),
-                scan_timestamp=datetime.datetime.utcnow().isoformat()
+                scan_timestamp=datetime.now(timezone.utc).isoformat()
             ),
             resources=resources_list
         )

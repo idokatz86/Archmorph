@@ -60,6 +60,31 @@ DEFAULT_FLAGS: Dict[str, Flag] = {
         enabled=True,
         description="Enable dark mode toggle in the frontend",
     ),
+    "deploy_engine": Flag(
+        name="deploy_engine",
+        enabled=False,
+        description="Enable scaffolded one-click deployment flows after production readiness review",
+    ),
+    "living_architecture_drift": Flag(
+        name="living_architecture_drift",
+        enabled=False,
+        description="Enable scaffolded drift detection and live architecture monitoring",
+    ),
+    "live_cloud_scanner": Flag(
+        name="live_cloud_scanner",
+        enabled=False,
+        description="Enable live cloud inventory scanner routes for configured tenants",
+    ),
+    "enterprise_sso_scim": Flag(
+        name="enterprise_sso_scim",
+        enabled=False,
+        description="Enable enterprise SAML SSO and SCIM provisioning preview routes",
+    ),
+    "stripe_billing": Flag(
+        name="stripe_billing",
+        enabled=False,
+        description="Enable scaffolded billing and subscription management surfaces",
+    ),
 }
 
 
