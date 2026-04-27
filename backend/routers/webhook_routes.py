@@ -11,7 +11,7 @@ import logging
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from routers.shared import limiter, verify_api_key
 from webhooks import (
@@ -39,14 +39,15 @@ class CreateWebhookRequest(BaseModel):
     description: str = Field("", max_length=256, description="Human-readable description")
     secret: Optional[str] = Field(None, description="HMAC secret (auto-generated if omitted)")
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "url": "https://example.com/webhook",
                 "events": ["analysis.completed", "iac.generated"],
                 "description": "My CI pipeline hook",
             }
         }
+    )
 
 
 class UpdateWebhookRequest(BaseModel):

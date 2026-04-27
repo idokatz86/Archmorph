@@ -62,5 +62,8 @@ backend/data/
 
 # Backup files
 *.bak
+frontend/fix_*.py
+frontend/fix_*.js
+frontend/test.py
 
 !backend/data/*.json

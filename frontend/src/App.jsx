@@ -10,6 +10,7 @@ import { AuthProvider } from './components/Auth';
 import { APP_VERSION } from './constants';
 import useAppStore from './stores/useAppStore';
 import { trackPageView } from './services/analytics';
+import { isFeatureEnabled } from './featureFlags';
 
 // Lazy-loaded tab components — only fetched when the user switches tabs (#173)
 const DiagramTranslator = lazy(() => import('./components/DiagramTranslator'));
@@ -94,13 +95,18 @@ export default function App() {
       <main id="main-content" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <ErrorBoundary>
           <Suspense fallback={<TabFallback />}>
-            {activeTab === 'landing' && <LandingPage onGetStarted={() => setActiveTab('translator')} />}
+            {activeTab === 'landing' && (
+              <LandingPage
+                onGetStarted={() => setActiveTab('translator')}
+                onTrySample={() => setActiveTab('playground')}
+              />
+            )}
             {activeTab === 'dashboard' && <DashboardPage />}
             {activeTab === 'playground' && <PlaygroundPage />}
             {activeTab === 'translator' && <DiagramTranslator />}
             {activeTab === 'services' && <ServicesBrowser />}
             {activeTab === 'roadmap' && <Roadmap />}
-            {activeTab === 'drift' && <DriftDashboard />}
+            {activeTab === 'drift' && isFeatureEnabled('livingArchitectureDrift') && <DriftDashboard />}
             {activeTab === 'canvas' && <CanvasEditor />}
             {activeTab === 'api-docs' && <ApiDocs />}
             {activeTab === 'gallery' && <MigrationGallery />}

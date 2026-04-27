@@ -1,7 +1,7 @@
 import uuid
-from datetime import datetime
 from sqlalchemy import Column, String, DateTime, JSON, ForeignKey, Boolean
 from database import Base
+from models.time_utils import utc_now_naive
 
 class AgentPolicy(Base):
     __tablename__ = "agent_policies"
@@ -19,8 +19,8 @@ class AgentPolicy(Base):
     rules = Column(JSON, default=dict)
     enforcement_level = Column(String, default="block") # block, flag, audit, ignore
     
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now_naive)
+    updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)
 
 class AgentPolicyBinding(Base):
     """Maps agents to specific policies"""
@@ -30,4 +30,4 @@ class AgentPolicyBinding(Base):
     agent_id = Column(String, ForeignKey("agents.id", ondelete="CASCADE"), nullable=False, index=True)
     policy_id = Column(String, ForeignKey("agent_policies.id", ondelete="CASCADE"), nullable=False, index=True)
     
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now_naive)

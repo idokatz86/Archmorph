@@ -1,8 +1,8 @@
 import os
 import uuid
-from datetime import datetime
 from sqlalchemy import Column, String, DateTime, JSON, ForeignKey, Integer, Float
 from database import Base
+from models.time_utils import utc_now_naive
 
 # Conditionally use pgvector for postgres, fallback to JSON/String for sqlite in tests
 if os.getenv("TESTING", "false").lower() == "true":
@@ -27,8 +27,8 @@ class AgentMemoryDocument(Base):
     embedding_model = Column(String, nullable=True) # e.g., text-embedding-3-small
     metadata_json = Column(JSON, default=dict)
     
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now_naive)
+    updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)
 
 class AgentEpisodicMemory(Base):
     __tablename__ = "agent_episodic_memories"
@@ -42,7 +42,7 @@ class AgentEpisodicMemory(Base):
     tags = Column(JSON, default=list)
     embedding = Column(Vector(1536), nullable=True) # OpenAI text-embedding-3-small dimension
     
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now_naive)
 
 class AgentEntityMemory(Base):
     __tablename__ = "agent_entity_memories"
@@ -55,5 +55,5 @@ class AgentEntityMemory(Base):
     attributes = Column(JSON, default=dict)
     embedding = Column(Vector(1536), nullable=True) # OpenAI text-embedding-3-small dimension
     
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now_naive)
+    updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)

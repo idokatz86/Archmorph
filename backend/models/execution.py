@@ -1,8 +1,8 @@
 import uuid
-from datetime import datetime
 from sqlalchemy import Column, String, DateTime, JSON, ForeignKey, Float, Integer
 from sqlalchemy.orm import relationship
 from database import Base
+from models.time_utils import utc_now_naive
 
 class Execution(Base):
     __tablename__ = "executions"
@@ -25,7 +25,7 @@ class Execution(Base):
     
     error_message = Column(String, nullable=True)
     
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now_naive)
     completed_at = Column(DateTime, nullable=True)
     
     agent = relationship("Agent", backref="executions")

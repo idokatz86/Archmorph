@@ -12,6 +12,7 @@ import useSSE from '../../hooks/useSSE';
 import useSessionExpiry from '../../hooks/useSessionExpiry';
 import useBeforeUnload from '../../hooks/useBeforeUnload';
 import useAppStore from '../../stores/useAppStore';
+import { isFeatureEnabled } from '../../featureFlags';
 
 const UploadStep = lazy(() => import('./UploadStep'));
 const GuidedQuestions = lazy(() => import('./GuidedQuestions'));
@@ -43,8 +44,8 @@ const DELIVERABLE_TABS = [
   { id: 'iac', label: 'IaC Code', icon: FileCode },
   { id: 'hld', label: 'HLD Document', icon: FileText },
   { id: 'pricing', label: 'Pricing', icon: DollarSign },
-  { id: 'deploy', label: 'Deploy', icon: Rocket },
-];
+  { id: 'deploy', label: 'Deploy', icon: Rocket, feature: 'deployEngine' },
+].filter(tab => !tab.feature || isFeatureEnabled(tab.feature));
 
 export default function DiagramTranslator() {
   const {

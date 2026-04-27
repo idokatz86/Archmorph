@@ -38,7 +38,7 @@ class BaseRepository:
 
     def get_by_id(self, record_id: int) -> Optional[Any]:
         """Get a record by primary key."""
-        return self.db.query(self.model).get(record_id)
+        return self.db.get(self.model, record_id)
 
     def get_by(self, **filters) -> Optional[Any]:
         """Get a single record matching all filters."""

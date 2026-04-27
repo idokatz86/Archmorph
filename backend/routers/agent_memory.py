@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Dict, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from database import get_db
 from routers.auth import get_current_user
@@ -17,8 +17,7 @@ class DocumentResponseSchema(BaseModel):
     status: str
     chunk_count: int
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class EpisodeResponseSchema(BaseModel):
     id: str
@@ -26,8 +25,7 @@ class EpisodeResponseSchema(BaseModel):
     importance_score: float
     tags: List[str]
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 class EntityResponseSchema(BaseModel):
     id: str
@@ -35,8 +33,7 @@ class EntityResponseSchema(BaseModel):
     entity_type: str
     attributes: Dict[str, Any]
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 def _get_agent_verified(agent_id: str, db: Session, user: dict):
     org_id = user.get("org_id", "default_org")
