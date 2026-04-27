@@ -70,6 +70,7 @@ After deployment, verify:
 - `${API_ROOT}/openapi.json` loads and reports `Archmorph API`.
 - A sample diagram can complete analysis without requiring production-only secrets.
 - Export actions that are part of the live path still produce files.
+- Drift baseline smoke: run the sample drift audit, accept/reject one non-green finding, and export the Markdown report.
 
 ## 5. Scaffolded Feature Gate
 
@@ -90,6 +91,7 @@ Before enabling any scaffolded feature, confirm:
 - Rollback or disablement path is documented.
 - Tests cover the enabled tenant path.
 - Customer-facing copy clearly states preview/beta status when appropriate.
+- Admin release gate shows the expected version/SHA metadata and required smoke checks before the flag is enabled.
 
 ## 6. Rollback
 
