@@ -29,7 +29,7 @@ tenacity
 pybreaker
 psutil
 python-json-logger
-PyJWT[crypto]>=2.12.0
+PyJWT[crypto]>=2.12.1
 email-validator
 redis
 stripe
