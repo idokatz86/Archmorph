@@ -172,7 +172,7 @@ async def lifespan(app: FastAPI):
         max_workers=_THREAD_POOL_SIZE,
         thread_name_prefix="archmorph-worker",
     )
-    asyncio.get_event_loop().set_default_executor(_executor)
+    asyncio.get_running_loop().set_default_executor(_executor)
     logger.info("Thread pool configured: %d workers", _THREAD_POOL_SIZE)
 
     yield

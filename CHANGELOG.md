@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Added drift baselines with compare history, deterministic finding IDs, finding accept/reject decisions, and Markdown report export.
+- Wired the Drift dashboard to create a baseline, rerun live/sample compares, resolve findings, and download drift reports.
+- Added an admin release gate view for deployment metadata and required smoke checks, plus confirmation before enabling risky scaffold feature flags.
+- Added admin dashboard health and feature flag tabs with live monitoring, audit visibility, and runtime flag toggles.
+- Upgraded drift detection from a placeholder overlay to a usable sample audit flow with summary counts, recommendations, and richer backend drift scoring.
+- Audit-log feature flag updates through the existing admin configuration audit event stream.
+- Added a post-deploy smoke job that verifies the deployed frontend, hash-routed product paths, API health, and OpenAPI schema after production deploys.
+- Added disabled-by-default feature flags for scaffolded deploy, drift, cloud scanner, SSO/SCIM, and billing capabilities, with frontend gating for drift and deploy surfaces.
+- Added a release checklist covering required secrets, quality gates, manual smoke checks, scaffolded feature approvals, and rollback evidence.
+- Tightened CI gates: backend tests no longer ignore Agent PaaS/property-based suites, and frontend lint/Vitest now fail the build instead of using `continue-on-error`.
+- Updated README and PRD language to distinguish live, beta, scaffold, and planned capabilities instead of presenting all enterprise surfaces as production-ready.
+- Refreshed landing page messaging with capability status labels, preview-safe trust copy, and a sample-diagram CTA that routes to the playground.
+
+### Fixed
+- Cleaned low-risk backend deprecation warnings for Pydantic model config, FastAPI `Query(pattern=...)`, timezone-aware UTC timestamp generation, and async decorator tests.
+- Repaired `test_agent_paas_real.py` with isolated in-memory SQLite, seeded tenant data, and realistic auth overrides so the suite can run in CI.
+- Fixed frontend Vitest setup with a complete `localStorage` mock and aligned component tests with current Nav, DiagramTranslator, CostPanel, LandingPage, AnalysisResults, and AdminDashboard behavior.
+- Fixed `CostPanel.jsx` hook ordering so frontend lint passes cleanly.
+
+### Removed
+- Deleted transient frontend repair scripts and ignored future `frontend/fix_*` scratch files.
+
 ## [4.1.0] - 2026-03-24
 
 ### Added
@@ -25,7 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **UX Wave 2** (#512-513) — 3-phase progress indicator (PhaseIndicator.jsx), design system primitives expansion
 - **Redis State Migration** (#494) — Session store upgraded from in-memory to Redis/PostgreSQL for horizontal scaling
 - **Alembic PostgreSQL Parity** (#495) — Enforced PostgreSQL for dev/prod parity, eliminated SQLite default
-- **APP_VERSION** bumped to 4.0.0 in frontend constants
+- **APP_VERSION** bumped to 4.1.0 in frontend constants
 
 ### Fixed
 - Unused imports in analytics_routes.py (ruff lint)
@@ -108,20 +131,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Planned (Sprint #465 - March 15)
 - Tracked UX Polish and Bug Fixes planned for immediate resolution: Fix HLD generation 500/429 crashes, restore missing layout layers in Interactive Map, unblock IaC assistance dynamic modifications, populate the 'Coming Soon' tab safely, and place Alpha warning text above Drift Detection.
-
-## [3.8.0] - 2026-03-09
-
-### Added
-- **Dynamic GitHub Roadmap Sync** — Community feature requests in GitHub automatically sync directly to the Roadmap tab's "Ideas" column allowing for live up-to-date tracking natively in the frontend.
-- **Vibe-Coding Disclaimer Banner** — Global dismissible banner to outline the experimental and fast-paced nature of the application for users.
-
-### Changed
-- `LegalPages.jsx` — Overhauled the Terms of Service. Stripped out references to 'Subscription & Billing'. Clarified the free-of-charge, "as-is" vibe-coding nature of the tool for legal clarity.
-- `ci.yml` — Fully optimized GitHub Actions CI pipeline removing duplicate node builds via Artifact caching reducing build time tremendously.
-- `ci.yml` — Appended Azure CLI idempotency skips causing duplicate deployments to fast-skip saving over 60 seconds per CI pipeline.
-- `security.yml` — Sliced redundantly overlapping SAST/SCA scanners (bandit, semgrep, test-trivy) leaving just a core optimized list (CodeQL, Grype) saving 40% Action minutes.
-- `roadmap.py` — Now features a 15-minute runtime cache on `fetch_github_ideas` to manage API rate limits efficiently.
-
 
 ## [3.8.0] - 2026-03-09
 

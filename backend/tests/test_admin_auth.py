@@ -34,7 +34,7 @@ class TestAdminAuth:
     def test_create_and_validate_token(self, monkeypatch):
         import admin_auth
         monkeypatch.setattr(admin_auth, "ADMIN_SECRET", "test-key")
-        monkeypatch.setattr(admin_auth, "JWT_SECRET", "test-key:salt")
+        monkeypatch.setattr(admin_auth, "JWT_SECRET", "test-key-salt-with-32-byte-value-123")
 
         token = admin_auth.create_session_token()
         assert isinstance(token, str)
@@ -48,7 +48,7 @@ class TestAdminAuth:
     def test_validate_invalid_token(self, monkeypatch):
         import admin_auth
         monkeypatch.setattr(admin_auth, "ADMIN_SECRET", "test-key")
-        monkeypatch.setattr(admin_auth, "JWT_SECRET", "test-key:salt")
+        monkeypatch.setattr(admin_auth, "JWT_SECRET", "test-key-salt-with-32-byte-value-123")
 
         result = admin_auth.validate_session_token("garbage.token.here")
         assert result is None
@@ -63,7 +63,7 @@ class TestAdminAuth:
     def test_revoke_token(self, monkeypatch):
         import admin_auth
         monkeypatch.setattr(admin_auth, "ADMIN_SECRET", "test-key")
-        monkeypatch.setattr(admin_auth, "JWT_SECRET", "test-key:salt")
+        monkeypatch.setattr(admin_auth, "JWT_SECRET", "test-key-salt-with-32-byte-value-123")
         # Reset revocation set
         admin_auth._revoked_tokens.clear()
 
@@ -80,7 +80,7 @@ class TestAdminAuth:
     def test_revoke_invalid_token(self, monkeypatch):
         import admin_auth
         monkeypatch.setattr(admin_auth, "ADMIN_SECRET", "test-key")
-        monkeypatch.setattr(admin_auth, "JWT_SECRET", "test-key:salt")
+        monkeypatch.setattr(admin_auth, "JWT_SECRET", "test-key-salt-with-32-byte-value-123")
 
         result = admin_auth.revoke_token("not-a-valid-jwt")
         assert result is False
@@ -91,7 +91,7 @@ class TestAdminAuth:
         import jwt
 
         monkeypatch.setattr(admin_auth, "ADMIN_SECRET", "test-key")
-        monkeypatch.setattr(admin_auth, "JWT_SECRET", "test-key:salt")
+        monkeypatch.setattr(admin_auth, "JWT_SECRET", "test-key-salt-with-32-byte-value-123")
 
         # Create a token that expired 10 minutes ago
         now = datetime.now(timezone.utc)
@@ -101,7 +101,7 @@ class TestAdminAuth:
             "exp": now - timedelta(minutes=10),
             "jti": "expired-jti",
         }
-        token = jwt.encode(payload, "test-key:salt", algorithm="HS256")
+        token = jwt.encode(payload, "test-key-salt-with-32-byte-value-123", algorithm="HS256")
         result = admin_auth.validate_session_token(token)
         assert result is None
 
@@ -117,7 +117,7 @@ class TestAdminLoginEndpoint:
 
     def test_login_success(self, client, monkeypatch):
         monkeypatch.setattr("admin_auth.ADMIN_SECRET", "test-admin-key")
-        monkeypatch.setattr("admin_auth.JWT_SECRET", "test-admin-key:test-salt")
+        monkeypatch.setattr("admin_auth.JWT_SECRET", "test-admin-key-test-salt-32-byte-value")
         resp = client.post("/api/admin/login", json={"key": "test-admin-key"})
         assert resp.status_code == 200
         data = resp.json()
@@ -142,7 +142,7 @@ class TestAdminLoginEndpoint:
         """Login → use token → logout → token rejected."""
         import admin_auth
         monkeypatch.setattr("admin_auth.ADMIN_SECRET", "test-admin-key")
-        monkeypatch.setattr("admin_auth.JWT_SECRET", "test-admin-key:test-salt")
+        monkeypatch.setattr("admin_auth.JWT_SECRET", "test-admin-key-test-salt-32-byte-value")
         admin_auth._revoked_tokens.clear()
 
         # Login
@@ -166,7 +166,7 @@ class TestAdminLoginEndpoint:
 
     def test_monitoring_endpoint_with_token(self, client, monkeypatch):
         monkeypatch.setattr("admin_auth.ADMIN_SECRET", "test-admin-key")
-        monkeypatch.setattr("admin_auth.JWT_SECRET", "test-admin-key:test-salt")
+        monkeypatch.setattr("admin_auth.JWT_SECRET", "test-admin-key-test-salt-32-byte-value")
 
         # Login
         resp = client.post("/api/admin/login", json={"key": "test-admin-key"})

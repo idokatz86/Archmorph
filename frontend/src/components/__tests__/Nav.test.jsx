@@ -13,6 +13,10 @@ vi.mock('../FeedbackWidget', () => {
   }
 })
 
+vi.mock('../Auth', () => ({
+  UserMenu: () => <button type="button">User</button>,
+}))
+
 import Nav from '../Nav'
 
 describe('Nav', () => {
@@ -28,19 +32,23 @@ describe('Nav', () => {
 
   it('renders the Archmorph brand', () => {
     render(<Nav {...defaultProps} />)
-    expect(screen.getByText('Archmorph')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Go to home' })).toBeInTheDocument()
+    expect(screen.getByText('Arch')).toBeInTheDocument()
+    expect(screen.getByText('morph')).toBeInTheDocument()
   })
 
-  it('renders Cloud Translator subtitle', () => {
+  it('renders command and theme controls', () => {
     render(<Nav {...defaultProps} />)
-    expect(screen.getByText('Modernize Any Cloud')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open command palette' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Switch to .* mode/ })).toBeInTheDocument()
   })
 
   it('renders navigation tabs', () => {
     render(<Nav {...defaultProps} />)
     expect(screen.getByText('Translator')).toBeInTheDocument()
     expect(screen.getByText('Services')).toBeInTheDocument()
-    expect(screen.getByText('Roadmap')).toBeInTheDocument()
+    expect(screen.getByText('Canvas')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /More/ })).toBeInTheDocument()
   })
 
   it('highlights the active tab', () => {
@@ -56,23 +64,26 @@ describe('Nav', () => {
     expect(defaultProps.setActiveTab).toHaveBeenCalledWith('services')
   })
 
-  it('shows version badge', () => {
+  it('opens the more navigation menu', async () => {
+    const user = userEvent.setup()
     render(<Nav {...defaultProps} />)
-    expect(screen.getByText(/^v\d+\.\d+\.\d+$/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /More/ }))
+    expect(screen.getByText('Roadmap')).toBeInTheDocument()
+    expect(screen.queryByText('Drift')).not.toBeInTheDocument()
   })
 
   it('shows catalog live status when scheduler is running', () => {
     render(<Nav {...defaultProps} updateStatus={{ scheduler_running: true }} />)
-    expect(screen.getByText('Catalog Live')).toBeInTheDocument()
+    expect(screen.getByRole('status', { name: /Catalog syncing/ })).toBeInTheDocument()
   })
 
   it('shows catalog idle status when scheduler is not running', () => {
     render(<Nav {...defaultProps} updateStatus={{ scheduler_running: false }} />)
-    expect(screen.getByText('Catalog Idle')).toBeInTheDocument()
+    expect(screen.getByRole('status', { name: 'Catalog idle' })).toBeInTheDocument()
   })
 
   it('renders feedback button', () => {
     render(<Nav {...defaultProps} />)
-    expect(screen.getByTitle('Give Feedback')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Give feedback' })).toBeInTheDocument()
   })
 })

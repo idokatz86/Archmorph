@@ -8,6 +8,24 @@ configure({ asyncUtilTimeout: 5000 })
 // Make Prism available globally for language component plugins (prism-yaml, etc.)
 global.Prism = Prism
 
+const localStorageMock = (() => {
+  let store = {}
+  return {
+    getItem: vi.fn((key) => (key in store ? store[key] : null)),
+    setItem: vi.fn((key, value) => { store[key] = String(value) }),
+    removeItem: vi.fn((key) => { delete store[key] }),
+    clear: vi.fn(() => { store = {} }),
+    key: vi.fn((index) => Object.keys(store)[index] || null),
+    get length() { return Object.keys(store).length },
+  }
+})()
+
+Object.defineProperty(window, 'localStorage', {
+  value: localStorageMock,
+  writable: true,
+})
+global.localStorage = localStorageMock
+
 // Mock fetch globally with a safe default response
 global.fetch = vi.fn().mockResolvedValue({
   ok: true,

@@ -1,6 +1,6 @@
-import datetime
 from sqlalchemy import Column, String, JSON, DateTime, Integer
 from database import Base
+from models.time_utils import utc_now_naive
 
 class DeploymentState(Base):
     __tablename__ = "deployment_state"
@@ -18,5 +18,5 @@ class DeploymentState(Base):
     # Rollback tracking
     previous_state_json = Column(JSON, nullable=True) 
 
-    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)
 

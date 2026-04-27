@@ -7,9 +7,9 @@ Uses the same TESTING env var pattern as models/memory.py for SQLite fallback.
 
 import os
 import uuid
-from datetime import datetime
 from sqlalchemy import Column, String, DateTime, JSON, ForeignKey, Integer, Text
 from database import Base
+from models.time_utils import utc_now_naive
 
 # Conditionally use pgvector for postgres, fallback to JSON/String for sqlite in tests
 if os.getenv("TESTING", "false").lower() == "true":
@@ -35,8 +35,8 @@ class DocumentCollection(Base):
     embedding_model = Column(String, default="text-embedding-3-small")
     metadata_json = Column(JSON, default=dict)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now_naive)
+    updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)
 
 
 class RAGDocument(Base):
@@ -55,8 +55,8 @@ class RAGDocument(Base):
     error_message = Column(String, nullable=True)
     metadata_json = Column(JSON, default=dict)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now_naive)
+    updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)
 
 
 class DocumentChunk(Base):
@@ -80,4 +80,4 @@ class DocumentChunk(Base):
     embedding = Column(Vector(1536), nullable=True)  # text-embedding-3-small = 1536 dims
     metadata_json = Column(JSON, default=dict)
 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now_naive)

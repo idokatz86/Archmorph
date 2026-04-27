@@ -1,4 +1,4 @@
-import datetime
+from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 from azure.identity import DefaultAzureCredential, ClientSecretCredential
 from azure.mgmt.resourcegraph import ResourceGraphClient
@@ -98,7 +98,7 @@ class AzureScanner:
                     provider=CloudProvider.AZURE,
                     scanned_regions=[],
                     resource_count=0,
-                    scan_timestamp=datetime.datetime.utcnow().isoformat()
+                    scan_timestamp=datetime.now(timezone.utc).isoformat()
                 ),
                 resources=[]
             )
@@ -151,7 +151,7 @@ class AzureScanner:
                 provider=CloudProvider.AZURE,
                 scanned_regions=list(scanned_regions),
                 resource_count=len(discovered_resources),
-                scan_timestamp=datetime.datetime.utcnow().isoformat()
+                scan_timestamp=datetime.now(timezone.utc).isoformat()
             ),
             resources=discovered_resources
         )

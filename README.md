@@ -2,13 +2,13 @@
 
 **AI-Powered Multi-Cloud Architecture Translator & Migration Platform**
 
-Translate cloud architectures between AWS, Azure, and GCP — scan live infrastructure, analyze diagrams, generate IaC, compare costs, and deploy to any target cloud. Features real-time collaboration, enterprise SSO, migration gallery, and a self-updating 405+ service catalog.
+Translate AWS and GCP architecture diagrams into Azure-ready migration artifacts: service mappings, guided questions, IaC drafts, HLD exports, cost estimates, and reviewable migration packages. Archmorph is in preview/stabilization; some enterprise surfaces are implemented as beta or scaffolded workflows.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Multi-Cloud](https://img.shields.io/badge/cloud-AWS%20%7C%20Azure%20%7C%20GCP-0078D4.svg)
 ![Version](https://img.shields.io/badge/version-4.1.0-22C55E.svg)
-![Status](https://img.shields.io/badge/status-Production-22C55E.svg)
-![Tests](https://img.shields.io/badge/tests-1471%20passing-22C55E.svg)
+![Status](https://img.shields.io/badge/status-Preview%20Stabilizing-F59E0B.svg)
+![Tests](https://img.shields.io/badge/tests-CI%20Enforced-22C55E.svg)
 ![Python](https://img.shields.io/badge/python-3.12-3776AB.svg)
 ![React](https://img.shields.io/badge/react-19.1-61DAFB.svg)
 ![Vibe Coding](https://img.shields.io/badge/built_with-Vibe_Coding-FF69B4.svg)
@@ -18,12 +18,21 @@ Translate cloud architectures between AWS, Azure, and GCP — scan live infrastr
 
 ## Overview
 
-Archmorph is an end-to-end cloud migration platform. It scans live AWS/Azure/GCP infrastructure, analyzes architecture diagrams using GPT-4.1 vision, maps services across clouds with confidence scoring, generates deployable IaC (Terraform/Bicep/CloudFormation), compares costs across all three clouds, and deploys to any target. It supports real-time multi-stakeholder collaboration, enterprise SSO (SAML/SCIM), Terraform state import, migration replay for presentations, and a public migration gallery.
+Archmorph is an AI-assisted cloud migration workbench. The live path analyzes uploaded architecture diagrams, maps AWS/GCP services to Azure equivalents with confidence scoring, asks guided migration questions, generates IaC drafts, prepares HLD/report exports, and estimates costs. Adjacent platform capabilities such as scanner, deploy, collaboration, SSO/SCIM, billing, gallery, and drift are present in the codebase at varying maturity levels and are labeled below so operators know what is ready to trust.
+
+### Capability Status
+
+| Status | Meaning | Capabilities |
+|--------|---------|--------------|
+| Live | Usable in the current product path | Diagram upload, sample playground, AI service mapping, guided questions, IaC/HLD/report export, cost estimates, service catalog, admin analytics, auth shell, CI/security scanning |
+| Beta | Implemented but needs hardening, deeper tests, or production validation | RAG, Agent PaaS proof, cost/token observability, collaboration, gallery, replay, Terraform state import, multi-cloud cost comparison, social auth/RBAC |
+| Scaffold | UI/routes/models exist, but execution needs integration or operator review | Live cloud scanner, deploy engine, credential vault, SSO/SAML/SCIM, live drift/living architecture, Stripe billing |
+| Planned | Not production-ready yet | VS Code extension, PR-based IaC workflow, multi-diagram projects |
 
 **Key Capabilities:**
 - Upload architecture diagrams (PNG, JPG, SVG, PDF, Draw.io, Visio) or import existing IaC (Terraform/ARM/CloudFormation)
-- **Live Cloud Scanner** — connect to AWS/Azure/GCP accounts and scan all infrastructure with secure credential vault (AES-256, 1hr TTL, zero persistence)
-- **One-Click Deploy** — deploy generated IaC to any target cloud with preview (plan/what-if) and blue-green rollback
+- **Cloud Scanner scaffold** — AWS/Azure/GCP scan routes and wizard are present; production credential flow and provider validation still need hardening
+- **Deploy scaffold** — generated IaC can be reviewed; direct deployment/rollback paths are not treated as production-ready yet
 - Auto-detect AWS/GCP services with AI vision across a **405+ service catalog** (145 AWS, 143 Azure, 117 GCP — grows automatically)
 - **Guided migration questions** — 32 contextual questions across 8 categories with **inter-question constraint system** that dynamically filters options based on compliance and data residency choices
 - Map to Azure equivalents with **confidence scores and transparency explanations** showing why each level was assigned
@@ -52,17 +61,17 @@ Archmorph is an end-to-end cloud migration platform. It scans live AWS/Azure/GCP
 - **Infrastructure import** — import existing Terraform/ARM/CloudFormation configurations
 - **Terraform State Import** — reverse-engineer existing infrastructure from tfstate/CloudFormation/ARM into architecture diagrams
 - **Multi-Cloud Cost Comparison** — side-by-side Azure vs AWS vs GCP TCO analysis with savings recommendations
-- **SSO / SAML / SCIM** — enterprise SSO with SAML 2.0, SCIM v2.0 user/group provisioning, JIT
+- **SSO / SAML / SCIM scaffold** — enterprise auth routes exist, but require tenant-specific configuration and production validation before use
 - **Real-time Collaboration** — multi-stakeholder migration workspace with share codes and role-based participants
 - **Migration Replay** — animated analysis timeline for presentations with playback controls
 - **Migration Gallery** — public anonymized success stories, filterable by cloud and complexity
 - **Product Analytics** — funnel tracking (PostHog + backend), session-based event ingestion
 - **API Developer Portal** — Swagger/Redoc integration with category overview and curl examples
-- **Living architecture** — real-time architecture drift detection and versioning
+- **Living architecture scaffold** — drift/versioning APIs include saved baselines, repeat compares, finding decisions, and Markdown report export; live environment monitoring still requires tenant-specific scanner validation
 - **Social authentication** — Microsoft, Google, GitHub sign-in (Azure SWA + JWT fallback)
 - **User profiles** — preferences, avatar, GDPR-compliant account deletion
 - **RBAC & multi-tenant isolation** — 4-role hierarchy (viewer/member/admin/owner), org management, tier-based quotas
-- **Admin dashboard** — conversion funnel, daily metrics, session tracking
+- **Admin dashboard** — conversion funnel, daily metrics, session tracking, runtime health, release gate view, audit stream, and guarded feature flag controls
 - **Persistent analytics** — Azure Blob Storage with background flush and crash-safe shutdown
 - **Toast notification system** — non-blocking success/error/warning notifications with auto-dismiss
 - **Session expiry warning** — countdown banner with session extension capability
@@ -73,7 +82,7 @@ Archmorph is an end-to-end cloud migration platform. It scans live AWS/Azure/GCP
 - **CI/CD security** — Semgrep SAST, Gitleaks secret detection, Trivy container scanning, CycloneDX SBOM
 - **Multi-stage Docker** — optimized build with ~50% image size reduction, uv for fast installs
 - **API versioning** — all `/api/*` routes mirrored at `/api/v1/*` for stable integrations
-- **Feature flags system** — percentage rollout + user targeting with admin API
+- **Feature flags system** — percentage rollout + user targeting with audited admin API and runtime dashboard toggles
 - **Comprehensive audit logging** — structured JSON with risk levels, alerting rules, compliance queries
 - **Session persistence** — pluggable SessionStore with InMemory and Redis backends
 - **GPT response caching** — content-hash TTLCache for GPT-4o responses with configurable timeout and fallback model
@@ -275,7 +284,7 @@ flowchart TB
 | Migration Intelligence | ML-powered pattern matching | In-process engine |
 | Migration Timeline | 7-phase DAG, topo sort, JSON/MD/CSV export | In-process engine |
 | Infrastructure Import | TF/ARM/CloudFormation parser | In-process engine |
-| Living Architecture | Drift detection & change tracking | In-process engine |
+| Living Architecture | Drift baselines, compare history, finding decisions, report export | In-process engine |
 | RAG Pipeline | Document ingest, embed, hybrid search (vector+BM25) | In-process engine |
 | Agent PaaS | Agent CRUD, ReAct loop, tool execution | In-process engine |
 | Cost Metering | Token tracking, budgets, alerts, CSV export | In-process engine |
@@ -541,7 +550,19 @@ Dynamic pricing powered by the [Azure Retail Prices API](https://prices.azure.co
 |----------|--------|-------------|
 | `/api/flags` | GET | List all feature flags |
 | `/api/flags/{name}` | GET | Get specific flag status |
-| `/api/flags/{name}` | PUT | Update flag configuration (admin) |
+| `/api/flags/{name}` | PATCH | Update flag configuration (admin) |
+
+### Drift Baselines
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/drift/detect` | POST | Run one-off drift detection |
+| `/api/drift/baselines` | POST | Create a saved drift baseline and optional first audit |
+| `/api/drift/baselines` | GET | List saved drift baselines with last audit status |
+| `/api/drift/baselines/{id}` | GET | Get a baseline with history and last result |
+| `/api/drift/baselines/{id}/compare` | POST | Compare live state against a saved baseline |
+| `/api/drift/baselines/{id}/findings/{finding_id}` | PATCH | Accept, reject, defer, or reopen a finding |
+| `/api/drift/baselines/{id}/report` | GET | Export the latest audit as Markdown |
 
 > **Note:** All routes also available at `/api/v1/*`
 
@@ -572,18 +593,17 @@ Dynamic pricing powered by the [Azure Retail Prices API](https://prices.azure.co
 
 | Suite | Framework | Tests | Command |
 |-------|-----------|-------|---------|
-| Backend unit | pytest | 1446 | `cd backend && python -m pytest tests/ -v` |
-| Frontend unit | Vitest | 22 | `cd frontend && npx vitest run` |
+| Backend unit | pytest | 76 files | `cd backend && python -m pytest --tb=short -q -n auto --dist loadfile --cov=. --cov-report=term-missing --cov-config=.coveragerc --cov-context=test --cov-fail-under=63` |
+| Frontend unit | Vitest | 261 | `cd frontend && npx vitest run` |
 | E2E | Playwright | 3 | `npx playwright test` |
-| **Total** | | **1471** | |
+| Frontend lint | ESLint | hard gate | `cd frontend && npm run lint` |
 
 ### Coverage
 
-- **70+ test files** covering all API endpoints and router modules
-- 1446 backend tests covering the full translation flow, analytics, collaboration, gallery, replay, scanner, deploy, SSO, TF import, cost comparison, and all existing features
-- **22 frontend Vitest tests** covering component rendering and interactions
+- **76 backend test files** covering the translation flow, analytics, auth/RBAC, RAG/Agent PaaS proof paths, policies, models, and property-based checks
+- **261 frontend Vitest tests** covering component rendering, navigation, storage/session behavior, and interaction contracts
 - **3 Playwright E2E tests** covering golden-path UI flows
-- All backend tests run against a test FastAPI client; E2E tests run against the deployed app
+- CI now treats backend coverage, frontend lint, and frontend tests as hard gates. Previously ignored backend tests are included.
 
 ---
 
@@ -749,7 +769,9 @@ Archmorph/
 
 ## Deployment
 
-Deployment is fully automated via **GitHub Actions CI/CD** on every push to `main`.
+Deployment is automated through GitHub Actions for the configured staging/production branches. Keep cloud credentials and deployment values in GitHub Secrets; do not commit secrets or local `terraform.tfvars` values.
+
+Before promoting a build, use the release checklist in [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md).
 
 ### Azure Resources
 
@@ -765,21 +787,19 @@ Deployment is fully automated via **GitHub Actions CI/CD** on every push to `mai
 
 ### CI/CD Pipeline
 
-The CI/CD workflow (`.github/workflows/ci.yml`) runs 8 jobs:
+The CI/CD workflow (`.github/workflows/ci.yml`) runs the main quality gates:
 
-1. **backend-lint** — Ruff linting + Bandit security scan + pip-audit
-2. **sast-semgrep** — Semgrep SAST scan (OWASP Top 10, security-audit, Python rules)
-3. **secret-detection** — Gitleaks full-history secret scanning
-4. **sbom** — CycloneDX SBOM generation (Python + npm, 90-day artifact retention)
-5. **backend-tests** — 1446 pytest tests (matrix: Python 3.11 + 3.12)
-6. **frontend-build** — Vite production build + npm audit
-7. **deploy-backend** — Docker build → ACR push → Trivy container scan → Container Apps revision (blue-green with instant rollback)
-8. **deploy-frontend** — Azure Static Web Apps (automatic)
+1. **backend-tests** — installs with `uv`, runs Ruff, executes pytest with coverage threshold, exports OpenAPI, generates backend SBOM, and runs Grype
+2. **frontend-build** — installs npm dependencies, runs ESLint, runs Vitest, builds Vite output, generates frontend SBOM, and runs Grype
+3. **upload-sarif** — uploads Grype SARIF when available without blocking successful builds on upload rate limits
+4. **deploy-staging / deploy-production** — branch-gated Azure Container Apps and Static Web Apps deployment using GitHub Secrets and OIDC
+5. **post-deploy-smoke** — deployed frontend/API smoke checks for root, sample routes, health, and OpenAPI schema
 
 Additional workflows:
 - **security.yml** — SAST/DAST/SCA security pipeline (Semgrep, Bandit, CodeQL, Trivy, Gitleaks)
 - **sbom.yml** — CycloneDX + Grype SBOM generation and vulnerability scanning
 - **rollback.yml** — Blue-green deployment rollback trigger
+- **monitoring.yml** — Scheduled and manual deployed health checks
 
 ### Manual Deploy (if needed)
 
@@ -820,7 +840,7 @@ See [docs/DEPLOYMENT_COSTS.md](docs/DEPLOYMENT_COSTS.md) for full breakdown.
 | Phase | Status | Features |
 |-------|--------|----------|
 | v1.0 — MVP | Done | AWS/GCP → Azure mapping, Terraform/Bicep output, basic cost estimation |
-| v2.0 — Production | Done | Guided questions, diagram export, daily service sync, 405-service catalog, secure IaC, chatbot, admin dashboard |
+| v2.0 — Foundation | Done | Guided questions, diagram export, daily service sync, 405-service catalog, secure IaC, chatbot, admin dashboard |
 | v2.1 — Pricing | Done | Dynamic Azure pricing, deployment region question, monthly cache, SKU multipliers |
 | v2.2 — Self-Updating | Done | Auto-integration of new services, fuzzy name matching, category auto-classification, dry-run CLI |
 | v2.5 — Audit & Quality | Done | 34 audit improvements, comprehensive test coverage |
@@ -839,7 +859,7 @@ See [docs/DEPLOYMENT_COSTS.md](docs/DEPLOYMENT_COSTS.md) for full breakdown.
 | v3.8.0 — Complete Migration Flow | Done | Migration package ZIP export (IaC + HLD + costs), before/after architecture visualization, guided onboarding tour, CI coverage gate (60%), stale bot, migration Q&A chat advisor |
 | v3.8.1 — UX Polish & Bug Bash | Done | Fix HLD generation 500 crashes, recover missing Map layers, unblock IaC dynamic modifications, populate Coming Soon tab, and Drift Alpha warnings |
 | v4.0.0 — Platform Scale | Done | RAG pipeline, AI Agent PaaS PoC, cost/token observability, AI mapping auto-suggestions, migration timeline generator, service dependency graph, social auth, user profiles, RBAC/multi-tenant, PDF report export, DevOps modernization (uv, Trivy, Helm) |
-| v4.1.0 — Enterprise & Collaboration | Done | SSO/SAML/SCIM, Terraform state import, multi-cloud cost comparison engine, API developer portal, real-time collaborative workspace, migration replay, migration gallery, product analytics funnel, UX Wave 1 & 2 polish, live cloud scanner (AWS/Azure/GCP), secure credential vault, one-click deploy engine, scanner wizard UI, Stripe billing |
+| v4.1.0 — Enterprise & Collaboration Preview | Mixed | Product analytics, UX Wave 1/2, Terraform import, replay/gallery/collaboration, RAG/Agent PaaS, and cost observability are implemented or beta. Live scanner, deploy engine, credential vault, SSO/SCIM, drift, and Stripe billing remain scaffolded/hardening work. |
 | v5.0 — Next | Planned | VS Code extension, Pulumi/CDK output, multi-diagram projects, GitHub/GitLab IaC PR integration |
 
 ---

@@ -702,7 +702,7 @@ class TestAdminDashboardDataIntegrity:
     def test_admin_metrics_structure(self, client, clean_session, monkeypatch):
         """Admin metrics have correct structure."""
         monkeypatch.setattr("admin_auth.ADMIN_SECRET", "test-admin-key")
-        monkeypatch.setattr("admin_auth.JWT_SECRET", "test-admin-key:test-salt")
+        monkeypatch.setattr("admin_auth.JWT_SECRET", "test-admin-key-test-salt-32-byte-value")
         resp = client.post("/api/admin/login", json={"key": "test-admin-key"})
         assert resp.status_code == 200
         token = resp.json()["token"]
@@ -733,7 +733,7 @@ class TestAdminDashboardDataIntegrity:
     def test_admin_audit_endpoint(self, client, clean_session, monkeypatch):
         """Admin audit endpoint returns audit log data."""
         monkeypatch.setattr("admin_auth.ADMIN_SECRET", "test-admin-key")
-        monkeypatch.setattr("admin_auth.JWT_SECRET", "test-admin-key:test-salt")
+        monkeypatch.setattr("admin_auth.JWT_SECRET", "test-admin-key-test-salt-32-byte-value")
         resp = client.post("/api/admin/login", json={"key": "test-admin-key"})
         token = resp.json()["token"]
         headers = {"Authorization": f"Bearer {token}"}
@@ -746,7 +746,7 @@ class TestAdminDashboardDataIntegrity:
     def test_admin_monitoring_endpoint(self, client, clean_session, monkeypatch):
         """Admin monitoring endpoint returns monitoring data."""
         monkeypatch.setattr("admin_auth.ADMIN_SECRET", "test-admin-key")
-        monkeypatch.setattr("admin_auth.JWT_SECRET", "test-admin-key:test-salt")
+        monkeypatch.setattr("admin_auth.JWT_SECRET", "test-admin-key-test-salt-32-byte-value")
         resp = client.post("/api/admin/login", json={"key": "test-admin-key"})
         token = resp.json()["token"]
         headers = {"Authorization": f"Bearer {token}"}

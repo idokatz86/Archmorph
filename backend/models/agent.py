@@ -1,8 +1,8 @@
 import uuid
-from datetime import datetime
 from sqlalchemy import Column, String, DateTime, JSON, ForeignKey
 from sqlalchemy.orm import relationship
 from database import Base
+from models.time_utils import utc_now_naive
 
 class Agent(Base):
     __tablename__ = "agents"
@@ -22,8 +22,8 @@ class Agent(Base):
     metadata_json = Column(JSON, default=dict)
     
     created_by = Column(String, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now_naive)
+    updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)
 
     organization = relationship("Organization", backref="agents")
 
@@ -34,7 +34,7 @@ class AgentVersion(Base):
     agent_id = Column(String, ForeignKey("agents.id"), nullable=False, index=True)
     version = Column(String, nullable=False)
     config_snapshot = Column(JSON, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now_naive)
     created_by = Column(String, nullable=True)
 
     agent = relationship("Agent", backref="version_history")
