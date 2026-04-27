@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Added drift baselines with compare history, deterministic finding IDs, finding accept/reject decisions, and Markdown report export.
+- Wired the Drift dashboard to create a baseline, rerun live/sample compares, resolve findings, and download drift reports.
+- Added an admin release gate view for deployment metadata and required smoke checks, plus confirmation before enabling risky scaffold feature flags.
 - Added admin dashboard health and feature flag tabs with live monitoring, audit visibility, and runtime flag toggles.
 - Upgraded drift detection from a placeholder overlay to a usable sample audit flow with summary counts, recommendations, and richer backend drift scoring.
 - Audit-log feature flag updates through the existing admin configuration audit event stream.

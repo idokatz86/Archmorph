@@ -37,6 +37,7 @@ export default function AdminDashboard({ onClose }) {
   const [recent, setRecent] = useState([]);
   const [costs, setCosts] = useState(null);
   const [monitoring, setMonitoring] = useState(null);
+  const [releaseStatus, setReleaseStatus] = useState(null);
   const [auditSummary, setAuditSummary] = useState(null);
   const [auditLogs, setAuditLogs] = useState([]);
   const [flags, setFlags] = useState({});
@@ -82,6 +83,7 @@ export default function AdminDashboard({ onClose }) {
     setRecent([]);
     setCosts(null);
     setMonitoring(null);
+    setReleaseStatus(null);
     setAuditSummary(null);
     setAuditLogs([]);
     setFlags({});
@@ -94,15 +96,17 @@ export default function AdminDashboard({ onClose }) {
       api.auth('GET', '/admin/metrics/recent?limit=30', { token, signal }).catch(() => null),
       api.auth('GET', '/admin/costs', { token, signal }).catch(() => null),
       api.auth('GET', '/admin/monitoring', { token, signal }).catch(() => null),
+      api.auth('GET', '/admin/release-status', { token, signal }).catch(() => null),
       api.auth('GET', '/admin/audit/summary', { token, signal }).catch(() => null),
       api.auth('GET', '/admin/audit?limit=20', { token, signal }).catch(() => null),
       api.get('/flags', signal).catch(() => null),
-    ]).then(([f, d, r, c, mon, audit, logs, flagData]) => {
+    ]).then(([f, d, r, c, mon, release, audit, logs, flagData]) => {
       setFunnel(f);
       setDaily(d?.data || []);
       setRecent(r?.events || []);
       setCosts(c);
       setMonitoring(mon);
+      setReleaseStatus(release);
       setAuditSummary(audit);
       setAuditLogs(logs?.logs || []);
       setFlags(flagData?.flags || {});
@@ -112,6 +116,11 @@ export default function AdminDashboard({ onClose }) {
   const toggleFlag = async (name) => {
     const current = flags[name];
     if (!current || !sessionToken) return;
+    const riskyFlags = new Set(['deploy_engine', 'living_architecture_drift', 'live_cloud_scanner', 'enterprise_sso_scim', 'stripe_billing']);
+    if (!current.enabled && riskyFlags.has(name)) {
+      const ok = window.confirm(`Enable ${formatFlagName(name)}? Confirm that tenant credentials, rollback, and customer-facing preview copy are ready.`);
+      if (!ok) return;
+    }
     setFlagUpdating(name);
     try {
       const updated = await api.auth('PATCH', `/flags/${name}`, {
@@ -555,6 +564,34 @@ export default function AdminDashboard({ onClose }) {
                   <p className="text-sm text-text-muted text-center py-4">No audit events yet</p>
                 )}
               </div>
+            </Card>
+
+            <Card className="p-6">
+              <h3 className="text-sm font-semibold text-text-primary mb-4 flex items-center gap-2">
+                <ShieldAlert className="w-4 h-4 text-cta" />
+                Release Gate
+              </h3>
+              <div className="grid grid-cols-2 gap-2 mb-4">
+                <div className="bg-surface rounded-lg p-3">
+                  <p className="text-[11px] text-text-muted">Version</p>
+                  <p className="text-sm font-bold text-text-primary truncate">{releaseStatus?.version || 'unknown'}</p>
+                </div>
+                <div className="bg-surface rounded-lg p-3">
+                  <p className="text-[11px] text-text-muted">Environment</p>
+                  <p className="text-sm font-bold text-text-primary truncate">{releaseStatus?.environment || 'unknown'}</p>
+                </div>
+              </div>
+              <div className="space-y-2">
+                {(releaseStatus?.smoke_checks || []).map(check => (
+                  <div key={check.name} className="flex items-center justify-between py-2 px-3 bg-surface rounded-lg">
+                    <span className="text-sm text-text-primary">{check.name}</span>
+                    <Badge variant="medium">{check.status}</Badge>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[11px] text-text-muted mt-4">
+                SHA: {releaseStatus?.git_sha || 'unknown'}
+              </p>
             </Card>
           </div>
         </>)}

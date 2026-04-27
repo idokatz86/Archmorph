@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AlertTriangle, FlaskConical, RefreshCw, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Download, FlaskConical, RefreshCw, Save, ShieldCheck, XCircle } from 'lucide-react';
 import { Card } from '../ui';
 import EmptyState from '../EmptyState';
 import api from '../../services/apiClient';
@@ -44,11 +44,14 @@ const DriftVisualizerContent = ({ driftResults: initialDrift, onSync }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [driftResults, setDriftResults] = useState(initialDrift || null);
+  const [baselineId, setBaselineId] = useState(null);
+  const [baselineName, setBaselineName] = useState('Archmorph production sample');
   const [finopsResults, setFinopsResults] = useState(null);
   const [complianceResults, setComplianceResults] = useState(null);
   const [selectedProvider, setSelectedProvider] = useState('azure');
   const [activeTab, setActiveTab] = useState('drift');
   const [showCredentialsModal, setShowCredentialsModal] = useState(false);
+  const [decisionUpdating, setDecisionUpdating] = useState(null);
 
   const simulateConnection = () => {
     setShowCredentialsModal(true);
@@ -58,8 +61,15 @@ const DriftVisualizerContent = ({ driftResults: initialDrift, onSync }) => {
     setLoading(true);
     setError(null);
     try {
-      const sampleDrift = await api.post('/drift/detect', SAMPLE_DRIFT_PAYLOAD);
-      setDriftResults(sampleDrift);
+      const baseline = await api.post('/drift/baselines', {
+        name: baselineName || 'Archmorph production sample',
+        designed_state: SAMPLE_DRIFT_PAYLOAD.designed_state,
+        live_state: SAMPLE_DRIFT_PAYLOAD.live_state,
+        source: 'sample',
+      });
+      setBaselineId(baseline.baseline_id);
+      setBaselineName(baseline.name);
+      setDriftResults(baseline.last_result);
       setFinopsResults(null);
       setActiveTab('drift');
     } catch (err) {
@@ -87,8 +97,20 @@ const DriftVisualizerContent = ({ driftResults: initialDrift, onSync }) => {
         live_state: { nodes: scanResponse?.data?.resources || [] }
       };
       
-      const realDrift = await api.post('/drift/detect', driftPayload);
-      setDriftResults(realDrift);
+      if (baselineId) {
+        const realDrift = await api.post(`/drift/baselines/${baselineId}/compare`, { live_state: driftPayload.live_state });
+        setDriftResults(realDrift);
+      } else {
+        const baseline = await api.post('/drift/baselines', {
+          name: `${selectedProvider.toUpperCase()} live scan`,
+          designed_state: driftPayload.designed_state,
+          live_state: driftPayload.live_state,
+          source: selectedProvider,
+        });
+        setBaselineId(baseline.baseline_id);
+        setBaselineName(baseline.name);
+        setDriftResults(baseline.last_result);
+      }
       
       if (scanResponse?.data?.finops) {
         setFinopsResults(scanResponse.data.finops);
@@ -97,6 +119,41 @@ const DriftVisualizerContent = ({ driftResults: initialDrift, onSync }) => {
       setError(err?.message || "Failed to scan live infrastructure. Make sure you connected your cloud account.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const updateFindingDecision = async (finding, decision) => {
+    if (!baselineId || !finding.finding_id) return;
+    setDecisionUpdating(finding.finding_id);
+    try {
+      const updated = await api.patch(`/drift/baselines/${baselineId}/findings/${finding.finding_id}`, { decision });
+      setDriftResults(prev => ({
+        ...prev,
+        detailed_findings: (prev?.detailed_findings || []).map(item => (
+          item.finding_id === finding.finding_id ? { ...item, ...updated } : item
+        )),
+      }));
+    } catch (err) {
+      setError(err?.message || 'Failed to update drift finding.');
+    } finally {
+      setDecisionUpdating(null);
+    }
+  };
+
+  const exportReport = async () => {
+    if (!baselineId) return;
+    setError(null);
+    try {
+      const report = await api.get(`/drift/baselines/${baselineId}/report`);
+      const blob = new Blob([report.content], { type: 'text/markdown;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${baselineName.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-drift-report.md`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err?.message || 'Failed to export drift report.');
     }
   };
 
@@ -219,7 +276,32 @@ const DriftVisualizerContent = ({ driftResults: initialDrift, onSync }) => {
             </p>
           </div>
         </div>
-        <h3 className="text-2xl font-semibold leading-none tracking-tight">Architecture Drift Detection</h3>
+        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+          <div>
+            <h3 className="text-2xl font-semibold leading-none tracking-tight">Architecture Drift Detection</h3>
+            <p className="text-sm text-slate-500 mt-2">
+              {baselineId ? `${baselineName} · ${baselineId}` : 'Create a baseline to track drift decisions over time.'}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={runSampleAudit}
+              disabled={loading}
+              className="px-3 py-2 bg-slate-100 text-slate-700 text-sm font-medium rounded hover:bg-slate-200 disabled:opacity-50 inline-flex items-center gap-2"
+            >
+              <Save className="w-4 h-4" />
+              New Sample Baseline
+            </button>
+            <button
+              onClick={exportReport}
+              disabled={!baselineId}
+              className="px-3 py-2 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 disabled:opacity-50 inline-flex items-center gap-2"
+            >
+              <Download className="w-4 h-4" />
+              Export Report
+            </button>
+          </div>
+        </div>
         {driftResults.summary && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-4">
             {[
@@ -245,7 +327,7 @@ const DriftVisualizerContent = ({ driftResults: initialDrift, onSync }) => {
           </button>
           
           {finopsResults && (
-            <button 
+            <button
               className={`px-4 py-2 font-medium flex items-center justify-center ${activeTab === 'finops' ? 'border-b-2 border-green-600 text-green-600' : 'text-slate-500 hover:text-slate-700'}`}
               onClick={() => setActiveTab('finops')}
             >
@@ -259,17 +341,27 @@ const DriftVisualizerContent = ({ driftResults: initialDrift, onSync }) => {
       <div className="p-6">
         {activeTab === 'drift' ? (
           <>
-            <div className="flex justify-between items-center mb-6 p-4 bg-slate-50 rounded-md">
+            <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-6 p-4 bg-slate-50 rounded-md">
           <div>
             <span className="text-sm font-medium text-slate-500">Overall Health Score</span>
             <div className="text-2xl font-bold">{(driftResults.overall_score * 100).toFixed(0)}%</div>
           </div>
-          <button 
-            onClick={onSync}
-            className="px-4 py-2 bg-blue-600 text-white font-medium rounded shadow hover:bg-blue-700"
-          >
-            Sync Real to Diagram
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={onSync}
+              className="px-4 py-2 bg-blue-600 text-white font-medium rounded shadow hover:bg-blue-700"
+            >
+              Sync Real to Diagram
+            </button>
+            <button
+              onClick={exportReport}
+              disabled={!baselineId}
+              className="px-4 py-2 bg-slate-900 text-white font-medium rounded shadow hover:bg-slate-800 disabled:opacity-50 inline-flex items-center gap-2"
+            >
+              <Download className="w-4 h-4" />
+              Report
+            </button>
+          </div>
         </div>
 
         <div className="space-y-4">
@@ -282,17 +374,47 @@ const DriftVisualizerContent = ({ driftResults: initialDrift, onSync }) => {
                   <th className="px-4 py-2">Status</th>
                   <th className="px-4 py-2">Message</th>
                   <th className="px-4 py-2">Recommendation</th>
+                  <th className="px-4 py-2">Decision</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {driftResults.detailed_findings?.map((finding, idx) => (
-                  <tr key={idx} className="hover:bg-slate-50">
+                  <tr key={finding.finding_id || idx} className="hover:bg-slate-50">
                     <td className="px-4 py-3 font-medium">{finding.id}</td>
                     <td className="px-4 py-3">
                       <DriftBadge status={finding.status} />
                     </td>
                     <td className="px-4 py-3 text-slate-600">{finding.message}</td>
                     <td className="px-4 py-3 text-slate-600">{finding.recommendation}</td>
+                    <td className="px-4 py-3">
+                      {finding.status === 'green' ? (
+                        <span className="text-xs text-slate-500">No action</span>
+                      ) : (
+                        <div className="flex flex-col gap-2 min-w-32">
+                          <span className="text-xs font-medium text-slate-600 capitalize">{finding.resolution_status || 'open'}</span>
+                          <div className="flex gap-1">
+                            <button
+                              onClick={() => updateFindingDecision(finding, 'accepted')}
+                              disabled={!baselineId || decisionUpdating === finding.finding_id}
+                              title="Accept finding"
+                              aria-label={`Accept finding ${finding.id}`}
+                              className="p-1.5 rounded bg-green-50 text-green-700 hover:bg-green-100 disabled:opacity-50"
+                            >
+                              <CheckCircle2 className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => updateFindingDecision(finding, 'rejected')}
+                              disabled={!baselineId || decisionUpdating === finding.finding_id}
+                              title="Reject finding"
+                              aria-label={`Reject finding ${finding.id}`}
+                              className="p-1.5 rounded bg-red-50 text-red-700 hover:bg-red-100 disabled:opacity-50"
+                            >
+                              <XCircle className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
