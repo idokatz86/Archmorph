@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import AdminDashboard from '../AdminDashboard'
 
@@ -46,17 +46,19 @@ describe('AdminDashboard', () => {
   it('enables Sign In button when key is entered', async () => {
     const user = userEvent.setup()
     render(<AdminDashboard onClose={mockOnClose} />)
-    await user.type(screen.getByPlaceholderText('Admin key'), 'secret')
+    fireEvent.change(screen.getByPlaceholderText('Admin key'), { target: { value: 'secret' } })
     const submitBtn = screen.getByText('Sign In')
-    expect(submitBtn.closest('button')).not.toBeDisabled()
+    await waitFor(() => expect(submitBtn.closest('button')).not.toBeDisabled())
   })
 
   it('shows error on invalid admin key', async () => {
     fetch.mockResolvedValue({ ok: false, status: 401, headers: new Headers({ 'content-type': 'application/json' }), json: () => Promise.resolve({ error: { message: 'Invalid admin key' } }) })
     const user = userEvent.setup()
     render(<AdminDashboard onClose={mockOnClose} />)
-    await user.type(screen.getByPlaceholderText('Admin key'), 'wrong')
-    await user.click(screen.getByText('Sign In'))
+    fireEvent.change(screen.getByPlaceholderText('Admin key'), { target: { value: 'wrong' } })
+    const submitBtn = screen.getByText('Sign In').closest('button')
+    await waitFor(() => expect(submitBtn).not.toBeDisabled())
+    await user.click(submitBtn)
     expect(await screen.findByText('Invalid admin key')).toBeInTheDocument()
   })
 
@@ -64,7 +66,7 @@ describe('AdminDashboard', () => {
     fetch.mockRejectedValue(new TypeError('Connection error'))
     const user = userEvent.setup()
     render(<AdminDashboard onClose={mockOnClose} />)
-    await user.type(screen.getByPlaceholderText('Admin key'), 'key')
+    fireEvent.change(screen.getByPlaceholderText('Admin key'), { target: { value: 'key' } })
     await user.click(screen.getByText('Sign In'))
     expect(await screen.findByText('Network error — check your connection.')).toBeInTheDocument()
   })
@@ -73,7 +75,7 @@ describe('AdminDashboard', () => {
     fetch.mockResolvedValue({ ok: false, status: 503, headers: new Headers({ 'content-type': 'application/json' }), json: () => Promise.resolve({ error: 'Admin API not configured on server' }) })
     const user = userEvent.setup()
     render(<AdminDashboard onClose={mockOnClose} />)
-    await user.type(screen.getByPlaceholderText('Admin key'), 'key')
+    fireEvent.change(screen.getByPlaceholderText('Admin key'), { target: { value: 'key' } })
     await user.click(screen.getByText('Sign In'))
     expect(await screen.findByText('Admin API not configured on server', {}, { timeout: 8000 })).toBeInTheDocument()
   })
@@ -91,7 +93,7 @@ describe('AdminDashboard', () => {
 
     const user = userEvent.setup()
     render(<AdminDashboard onClose={mockOnClose} />)
-    await user.type(screen.getByPlaceholderText('Admin key'), 'valid-key')
+    fireEvent.change(screen.getByPlaceholderText('Admin key'), { target: { value: 'valid-key' } })
     await user.click(screen.getByText('Sign In'))
 
     await waitFor(() => {

@@ -8,11 +8,22 @@
 
 ## 1. Executive Summary
 
-Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams into any target cloud (Azure, AWS, or GCP). It analyzes uploaded diagrams — including Visio (.vsdx) files — using GPT-4o vision, identifies cloud services, allows users to add services via natural language, asks guided migration questions with smart deduplication and inter-question constraints to refine the translation, maps services to target cloud counterparts with confidence scores enhanced by community migration intelligence and confidence transparency explanations, exports translated architecture diagrams in multiple formats, generates ready-to-deploy Terraform/Bicep/CloudFormation infrastructure code with IaC security scanning, provides dynamic cost estimates based on the Azure Retail Prices API with 134 service pricing entries, automatically discovers and integrates new cloud services into its catalog, generates comprehensive AI-powered High-Level Design (HLD) documents with DOCX/PDF/PPTX export, provides an interactive IaC chat assistant with prompt guard, analyzes architecture against Azure Well-Architected Framework (WAF), provides cost optimization recommendations, includes sample diagrams for onboarding, collects NPS feedback, supports shareable analysis links, provides social authentication (Microsoft, Google, GitHub) with RBAC and multi-tenant org isolation, implements usage quotas and lead capture, generates migration runbooks with step-by-step task tracking, supports architecture versioning with change history, provides Terraform plan previews, comprehensive application analytics, includes E2E monitoring with automatic GitHub issue creation, features a modular router architecture (18+ FastAPI router modules), API versioning with v1 prefix, a feature flags system with percentage rollout and user targeting, comprehensive audit logging with risk levels and compliance queries, pluggable session persistence (InMemory/Redis), GPT-4o response caching with vision analysis cache, Zero Trust WAF via Azure Front Door, a user dashboard with analysis history and bookmarks, a template gallery with 10 pre-built architecture patterns, internationalization (en/es/fr), living architecture health monitoring with drift detection, migration intelligence with community confidence scoring, a white-label SDK for partner branding, a global toast notification system, browser close protection, gunicorn process management with worker recycling, async CPU-bound handler offloading, speculative parallel vision analysis, WCAG accessibility improvements, a RAG pipeline for document ingestion and grounded AI responses, an AI Agent PaaS proof of concept with ReAct execution and tool calling, a cost and token observability dashboard with budget management, a migration timeline generator with topological dependency ordering, an interactive service dependency graph visualization, AI-powered cross-cloud mapping auto-suggestions with few-shot learning, full analysis PDF report export with branded formatting, user profile management with GDPR-compliant account deletion, enterprise SSO/SAML/SCIM integration with JIT provisioning, Terraform state import for reverse-engineering existing infrastructure, multi-cloud cost comparison engine (Azure vs AWS vs GCP TCO), real-time collaborative migration workspaces with role-based participants, migration replay for animated presentation timelines, a public migration gallery with anonymized success stories, product analytics funnel tracking with PostHog integration, and a public API developer portal with Swagger/Redoc documentation.
+Archmorph is an AI-assisted cloud migration workbench in preview/stabilization. Its live product path converts uploaded AWS/GCP architecture diagrams into Azure migration artifacts: detected services, confidence-scored mappings, guided migration questions, IaC drafts, HLD/report exports, and cost estimates. The platform codebase also contains beta and scaffolded enterprise modules for collaboration, replay, gallery, RAG/Agent PaaS, Terraform state import, scanner, deploy, SSO/SCIM, drift, and billing.
+
+The PRD distinguishes three maturity levels. **Live** features are usable in the core flow and should remain protected by CI. **Beta** features are implemented but need production validation, UX hardening, or broader tests. **Scaffold** features have routes, UI, or models present but must not be described as production-ready until cloud/provider execution is verified.
 
 **Problem:** Organizations migrating to Azure spend weeks manually mapping source architecture to Azure services. This process is error-prone, requires deep multi-cloud expertise, and lacks tooling for interactive refinement.
 
-**Solution:** Automated diagram analysis and service translation with multi-cloud target support (Azure/AWS/GCP), natural language service addition, smart question deduplication with inter-question constraints, confidence-scored mappings enhanced by community migration intelligence with transparency explanations, multi-format diagram export, Visio (.vsdx) import, self-updating service catalog with auto-integration, generated IaC with Terraform/Bicep/CloudFormation with IaC security scanning and secure credential handling, region-aware pricing with optimized targeted queries, AI-powered HLD generation with DOCX/PDF/PPTX export, interactive IaC chat assistant with prompt guard, WAF best practices linting, cost optimization tips, sample diagram onboarding, dynamic GitHub issues natively integrated into the roadmap, transparent vibe-coding project status, NPS feedback collection, shareable links, social authentication (Microsoft/Google/GitHub) with RBAC and multi-tenant org isolation, tier-based quotas, migration runbook generation, architecture versioning, Terraform plan preview, comprehensive analytics, Azure Monitor integration with alerts, an integrated chatbot assistant, modular router architecture with API versioning, feature flags, comprehensive audit logging, session persistence, GPT response caching with vision analysis cache, Zero Trust WAF, user dashboard with bookmarks, template gallery, i18n (en/es/fr), living architecture health monitoring, white-label partner SDK, global toast notification system, beforeunload protection for active sessions, gunicorn process management with worker recycling, WCAG accessibility improvements, RAG pipeline for document ingestion and grounded responses, AI Agent PaaS with ReAct execution, cost and token observability dashboard, migration timeline generator with dependency ordering, service dependency graph visualization, AI cross-cloud mapping auto-suggestions, full analysis PDF report export, and user profile management.
+**Solution:** Keep the core migration workflow fast and reviewable: upload or select a sample diagram, analyze it with Azure OpenAI, map services against the catalog, capture migration constraints, generate IaC/HLD/cost artifacts, and export a package for human review. Enterprise modules continue behind explicit beta/scaffold labeling until scanner, deploy, SSO/SCIM, drift, and billing paths meet production gates.
+
+### 1.1 Capability Maturity
+
+| Maturity | Capabilities |
+|----------|--------------|
+| Live | Diagram upload, sample playground, service mapping, guided questions, IaC/HLD/report export, cost estimates, service catalog, admin analytics, auth shell, API versioning, CI/security gates |
+| Beta | RAG, Agent PaaS proof, cost/token observability, collaboration, migration gallery, migration replay, Terraform state import, multi-cloud cost comparison, social auth/RBAC |
+| Scaffold | Live cloud scanner, credential vault, deploy engine, SSO/SAML/SCIM, living architecture/drift, Stripe billing |
+| Planned | VS Code extension, PR-based IaC workflows, multi-diagram projects |
 
 ---
 
@@ -173,7 +184,7 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 
 ### 3.26 Modular Router Architecture (v2.12.0)
 - **main.py decomposition** — reduced from 2,189 lines to 181 lines (app factory + middleware registration)
-- **13 FastAPI router modules** under `backend/routers/`: services, diagrams, iac, hld, chat, admin, auth, feedback, roadmap, flags, icons, versioning, misc
+- **60 FastAPI router modules** under `backend/routers/`, grouped by domain routes, API versioning, auth/RBAC, analytics, RAG/Agent PaaS, imports, collaboration, scanner/deploy scaffolds, and operational APIs
 - **Clean separation of concerns** — each router owns its own endpoints, dependencies, and error handling
 - **Frontend decomposition** — DiagramTranslator.jsx split from 1,201 lines into 9 sub-components with useReducer state machine
 - **Structured JSON logging** — `logging_config.py` with CorrelationIdMiddleware for request tracing
@@ -670,7 +681,7 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | Session Store | Pluggable backends (InMemory default, Redis for production) |
 | GPT Response Cache | Content-hash TTLCache for GPT-4o responses, Blob Storage pricing cache |
 | API Versioning | Middleware-based v1 prefix mirror for all routes |
-| Router Architecture | 13 FastAPI router modules (main.py reduced to 181-line app factory) |
+| Router Architecture | 60 FastAPI router modules (main.py as app factory/middleware registration) |
 | NL Service Builder | In-process GPT-4o engine (fuzzy Azure service matching, alias support, confidence scoring) |
 | Smart Question Dedup | In-process engine (implicit answer detection, smart defaults from analysis) |
 | E2E Monitoring | GitHub Actions workflow (Azure Monitor + App Insights health checks, auto GitHub issue creation) |
@@ -684,7 +695,7 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | Application Analytics | Persistent metrics via Azure Blob Storage (background flush, crash-safe shutdown, event tracking, sessions, funnels) |
 | Azure Monitoring | Application Insights + Azure Monitor (alerts, workbooks, Log Analytics queries) |
 
-### 8.2 API Endpoints (~118+ total)
+### 8.2 API Endpoints (200+ total, including v1 mirrored routes)
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
@@ -811,7 +822,7 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | Phase | Status | Features |
 |-------|--------|----------|
 | **v1.0 — MVP** | Done | Diagram upload, AWS/GCP → Azure mapping, Terraform/Bicep output, basic cost estimation |
-| **v2.0 — Production** | Done | Guided questions (32 across 8 categories), diagram export (Excalidraw/Draw.io/Visio with stencils), daily auto-updating service catalog (APScheduler), 405-service catalog, secure IaC credentials, design system UI with Lucide icons, chatbot assistant, admin dashboard |
+| **v2.0 — Foundation** | Done | Guided questions (32 across 8 categories), diagram export (Excalidraw/Draw.io/Visio with stencils), daily auto-updating service catalog (APScheduler), 405-service catalog, secure IaC credentials, design system UI with Lucide icons, chatbot assistant, admin dashboard |
 | **v2.1 — Pricing & Polish** | Done | Dynamic Azure pricing via Retail Prices API, deployment region question, region-aware cost estimates, monthly pricing cache, SKU strategy multipliers |
 | **v2.2 — Self-Updating Catalog** | Done | Auto-integration of new services into catalog files, fuzzy name matching, category auto-classification (55 keyword hints), dry-run CLI mode, cumulative auto-added tracking |
 | **v2.3 — Real Pricing & GCP Validation** | Done | Real Azure pricing (134 entries + 56 aliases), 6-step price resolution, optimized targeted API queries, session key fix, full GCP → Azure E2E validation (5 diagrams, 50/50 steps pass), 184 unit tests |
@@ -829,7 +840,7 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | **v3.0.1 — Sprint 1: Production Critical** | Done | Error envelope middleware with correlation IDs, Visio import parser, white-label theming engine, session restore & UX improvements, API versioning with /v1/ prefix, best-practice validation engine, cost optimizer engine, migration assessment & risk scoring, compliance mapper (GDPR/HIPAA/SOC2/PCI DSS), living architecture health monitoring, AI-powered service suggestions |
 | **v3.0.2 — Sprint 2: Reliability & DX** | Done | API client rewrite with retry/backoff/timeout, user-friendly error messages, configurable OpenAI timeout & fallback model, GPT output truncation detection, vision analysis cache (TTLCache), IaC security scanning (8 rules), session cache for IaC/HLD persistence, session expiry countdown warning, cancel analysis button, error clearing on new file, mobile responsive buttons, Docker Compose (PostgreSQL 16 + Redis 7), configurable user cache TTL |
 | **v3.0.3 — Sprint 3: Advanced Features** | Done | Azure/GCP services pagination fix, prompt guard for IaC chat, migration runbook generator, CloudFormation IaC format, Terraform plan preview, architecture versioning with diff, migration intelligence with community data, infrastructure import from live cloud, organization & team management, journey analytics, dependency graph visualization, risk score & compliance panels, URL hash sync, feature flags system, admin dashboard with analytics |
-| **v3.1.0 — Landing Page Redesign** | Done | Complete landing page redesign with 9 feature cards, stats bar (405+ services), 100% free forever messaging, updated FAQs, removed beta language, 1,900+ tests |
+| **v3.1.0 — Landing Page Redesign** | Done | Landing page redesign with feature cards, stats bar, updated FAQs, and preview-friendly messaging |
 | **v3.2.0 — Confidence Transparency** | Done | Confidence score transparency with human-readable explanations, visual confidence badges, tooltip explanations, critical stabilization fixes (HLD 404, memory leaks, CORS, version sync) |
 | **v3.3.0 — Stabilization & Quality** | Done | 13 stability issues closed, DiagramTranslator lazy-loaded, ChatWidget migrated to apiClient, dead components removed, HLD export fixed, SSE deduplication, AbortController cleanup, session leak prevention |
 | **v3.4.0 — Performance & Accessibility** | Done | Gunicorn process manager with worker recycling, asyncio.to_thread for CPU-bound handlers, speculative parallel classify+analyze (saves 10-30s), toast notification system, beforeunload guard, accessibility fixes (ARIA labels, keyboard nav), pre-commit hooks (ruff, eslint, prettier), roadmap data updated, dead code removed |
@@ -838,7 +849,7 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | **v3.8.0 — Complete Migration Flow** | Done | Migration package ZIP export (IaC + HLD + costs), before/after architecture visualization, guided onboarding tour, CI coverage gate (60%), stale bot, migration Q&A chat advisor |
 | **v3.8.1 — UX Polish & Bug Bash** | Done | Fix HLD generation 500 crashes, recover missing Map layers, unblock IaC dynamic modifications, populate Coming Soon tab, and Drift Alpha warnings |
 | **v3.9.0 — AI Upgrade & Architecture Map** | Done | GPT-4.1 with 32K output tokens, interactive Architecture Map (dagre layout, confidence rings, effort badges, typed edges, zone grouping, MiniMap), email notifications via Azure Communication Services, IaC diff highlighting, parallel IaC+HLD generation, limitations UX redesign, Deploy/Drift Coming Soon overlays |
-| **v4.0 — Platform Maturity** | Planned | Multi-diagram project support, Pulumi & CDK IaC output, VS Code extension, real infrastructure scanning via cloud SDKs, end-to-end migration wizard, interactive before/after architecture visualization, one-click Deploy to Azure |
+| **v4.0 — Platform Maturity** | Mixed | RAG, Agent PaaS proof, cost/token observability, AI mapping suggestions, migration timeline, service dependency graph, social auth, user profiles, RBAC/multi-tenant, PDF report export, and DevOps modernization are implemented/beta. Scanner/deploy paths remain hardening work. |
 
 ---
 
@@ -861,7 +872,7 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | Item | Decision | Owner | Priority | Issue |
 |------|----------|-------|----------|-------|
 | **Split diagrams.py god router** | 1,173 LOC → focused sub-routers (upload, export, IaC, HLD) | Engineering | Medium | #284 |
-| **Code coverage gate in CI** | Blocked by #320 (GitHub Actions billing); add pytest --cov-fail-under=70 once CI restored | Engineering | Medium | #288 |
+| **Code coverage gate in CI** | Active at `--cov-fail-under=63`; raise gradually as legacy coverage improves | Engineering | Medium | #288 |
 | **Load testing** | SLA targets in performance_config.py untested; k6/Locust benchmark needed | Engineering | Medium | #290 |
 | **Cyclomatic complexity gate** | 8 deeply nested functions, 5 over 100 lines; add radon/xenon | Engineering | Low | #315 |
 | **Magic numbers & docstrings** | 138 missing docstrings; extract hardcoded constants | Engineering | Low | #317 |
@@ -897,7 +908,7 @@ Archmorph is an AI-powered tool that converts AWS and GCP architecture diagrams 
 | **Public API & webhooks** | Enterprise integrations (Slack, Teams, Jira) | Engineering | P2 | #259 |
 | **AI Agent PaaS** | Control/Runtime design with routing/memory/policy | Engineering | P1 | #319 |
 | **Live Cloud Discovery & Auto-Deploy** | End-to-end migration execution platform | Engineering | P1 | #321 |
-| **GitHub Actions billing** | All CI workflows blocked since Feb 25; requires billing fix | DevOps | Urgent | #320 |
+| **GitHub Actions reliability** | Keep CI billing/runners healthy; backend coverage, frontend lint, and frontend tests are hard gates | DevOps | High | #320 |
 
 ---
 

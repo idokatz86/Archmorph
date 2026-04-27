@@ -71,8 +71,10 @@ describe('AnalysisResults', () => {
     expect(screen.getByText('88%')).toBeInTheDocument()
   })
 
-  it('renders zone cards', () => {
+  it('renders zone cards in map view', async () => {
+    const user = userEvent.setup()
     render(<AnalysisResults {...defaultProps} />)
+    await user.click(screen.getByText('Map'))
     expect(screen.getByText('Frontend')).toBeInTheDocument()
     expect(screen.getByText('Backend')).toBeInTheDocument()
   })

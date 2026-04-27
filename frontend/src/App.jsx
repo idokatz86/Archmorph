@@ -94,7 +94,12 @@ export default function App() {
       <main id="main-content" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <ErrorBoundary>
           <Suspense fallback={<TabFallback />}>
-            {activeTab === 'landing' && <LandingPage onGetStarted={() => setActiveTab('translator')} />}
+            {activeTab === 'landing' && (
+              <LandingPage
+                onGetStarted={() => setActiveTab('translator')}
+                onTrySample={() => setActiveTab('playground')}
+              />
+            )}
             {activeTab === 'dashboard' && <DashboardPage />}
             {activeTab === 'playground' && <PlaygroundPage />}
             {activeTab === 'translator' && <DiagramTranslator />}

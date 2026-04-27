@@ -3,15 +3,40 @@ from main import app
 from database import get_db, Base
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 from routers.auth import get_current_user
+from models.tenant import Organization
+from rbac import get_current_user_required
 
-# Setup test DB
-SQLALCHEMY_DATABASE_URL = "sqlite:///./test_fastapi.db"
-engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
+# Setup isolated test DB
+SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
+engine = create_engine(
+    SQLALCHEMY_DATABASE_URL,
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
+)
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-Base.metadata.drop_all(bind=engine)
 Base.metadata.create_all(bind=engine)
+
+with TestingSessionLocal() as db:
+    db.merge(Organization(
+        org_id="default_org",
+        name="Test Org",
+        slug="test-org",
+        plan="enterprise",
+        max_members=10,
+        max_analyses_per_month=1000,
+    ))
+    db.commit()
+
+
+class AuthenticatedTestUser(dict):
+    def __getattr__(self, name):
+        try:
+            return self[name]
+        except KeyError as exc:
+            raise AttributeError(name) from exc
 
 def override_get_db():
     db = TestingSessionLocal()
@@ -21,10 +46,17 @@ def override_get_db():
         db.close()
 
 def override_get_current_user():
-    return {"user_id": "test_user", "organization_id": "default", "roles": ["admin"]}
+    return AuthenticatedTestUser({
+        "id": "test_user",
+        "user_id": "test_user",
+        "org_id": "default_org",
+        "organization_id": "default_org",
+        "roles": ["admin"],
+    })
 
 app.dependency_overrides[get_db] = override_get_db
 app.dependency_overrides[get_current_user] = override_get_current_user
+app.dependency_overrides[get_current_user_required] = override_get_current_user
 client = TestClient(app)
 
 def test_models_registry_get():
