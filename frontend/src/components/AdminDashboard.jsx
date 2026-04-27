@@ -2,16 +2,32 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Shield, X, Filter, Activity, BarChart3, AlertTriangle, TrendingUp,
   Zap, Eye, Loader2, DollarSign, LogIn, LogOut, Lock, KeyRound,
+  Server, ToggleLeft, ToggleRight, Clock, Gauge, ShieldAlert,
 } from 'lucide-react';
 import { Badge, Button, Card } from './ui';
-import { API_BASE } from '../constants';
 import api from '../services/apiClient';
 import useFocusTrap from '../hooks/useFocusTrap';
 
 const STEP_COLORS = ['#22C55E', '#3B82F6', '#A855F7', '#F59E0B', '#EF4444', '#06B6D4'];
 const TABS = [
   { key: 'analytics', label: 'Analytics', icon: BarChart3 },
+  { key: 'health', label: 'Health', icon: Server },
+  { key: 'flags', label: 'Flags', icon: ToggleRight },
 ];
+
+const FEATURE_FLAG_ORDER = [
+  'deploy_engine',
+  'living_architecture_drift',
+  'live_cloud_scanner',
+  'enterprise_sso_scim',
+  'stripe_billing',
+  'new_ai_model',
+  'roadmap_v2',
+  'export_pptx',
+  'dark_mode',
+];
+
+const formatFlagName = (name) => name.replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase());
 
 export default function AdminDashboard({ onClose }) {
   const [activeTab, setActiveTab] = useState('analytics');
@@ -20,6 +36,11 @@ export default function AdminDashboard({ onClose }) {
   const [daily, setDaily] = useState([]);
   const [recent, setRecent] = useState([]);
   const [costs, setCosts] = useState(null);
+  const [monitoring, setMonitoring] = useState(null);
+  const [auditSummary, setAuditSummary] = useState(null);
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [flags, setFlags] = useState({});
+  const [flagUpdating, setFlagUpdating] = useState(null);
   const [loading, setLoading] = useState(false);
   const trapRef = useFocusTrap();  // Focus trap (#104 — F-010)
 
@@ -60,6 +81,49 @@ export default function AdminDashboard({ onClose }) {
     setDaily([]);
     setRecent([]);
     setCosts(null);
+    setMonitoring(null);
+    setAuditSummary(null);
+    setAuditLogs([]);
+    setFlags({});
+  };
+
+  const refreshAdminData = useCallback((token, signal) => {
+    return Promise.all([
+      api.auth('GET', '/admin/metrics/funnel', { token, signal }).catch(() => null),
+      api.auth('GET', '/admin/metrics/daily?days=14', { token, signal }).catch(() => null),
+      api.auth('GET', '/admin/metrics/recent?limit=30', { token, signal }).catch(() => null),
+      api.auth('GET', '/admin/costs', { token, signal }).catch(() => null),
+      api.auth('GET', '/admin/monitoring', { token, signal }).catch(() => null),
+      api.auth('GET', '/admin/audit/summary', { token, signal }).catch(() => null),
+      api.auth('GET', '/admin/audit?limit=20', { token, signal }).catch(() => null),
+      api.get('/flags', signal).catch(() => null),
+    ]).then(([f, d, r, c, mon, audit, logs, flagData]) => {
+      setFunnel(f);
+      setDaily(d?.data || []);
+      setRecent(r?.events || []);
+      setCosts(c);
+      setMonitoring(mon);
+      setAuditSummary(audit);
+      setAuditLogs(logs?.logs || []);
+      setFlags(flagData?.flags || {});
+    });
+  }, []);
+
+  const toggleFlag = async (name) => {
+    const current = flags[name];
+    if (!current || !sessionToken) return;
+    setFlagUpdating(name);
+    try {
+      const updated = await api.auth('PATCH', `/flags/${name}`, {
+        token: sessionToken,
+        body: { enabled: !current.enabled },
+      });
+      setFlags(prev => ({ ...prev, [name]: updated }));
+      const logs = await api.auth('GET', '/admin/audit?limit=20', { token: sessionToken }).catch(() => null);
+      setAuditLogs(logs?.logs || []);
+    } finally {
+      setFlagUpdating(null);
+    }
   };
 
   // ── Fetch dashboard data once authenticated ──
@@ -73,26 +137,14 @@ export default function AdminDashboard({ onClose }) {
       .then(m => {
         if (m === null || m === undefined) return;
         setMetrics(m);
-        // Token is valid — fetch remaining data
-        return Promise.all([
-          api.auth('GET', '/admin/metrics/funnel', { token: sessionToken, signal: controller.signal }).catch(() => null),
-          api.auth('GET', '/admin/metrics/daily?days=14', { token: sessionToken, signal: controller.signal }).catch(() => null),
-          api.auth('GET', '/admin/metrics/recent?limit=30', { token: sessionToken, signal: controller.signal }).catch(() => null),
-          api.auth('GET', '/admin/costs', { token: sessionToken, signal: controller.signal }).catch(() => null),
-        ]).then(([f, d, r, c]) => {
-          setFunnel(f);
-          setDaily(d?.data || []);
-          setRecent(r?.events || []);
-          setCosts(c);
-          setLoading(false);
-        });
+        return refreshAdminData(sessionToken, controller.signal).then(() => setLoading(false));
       })
       .catch(err => {
         if (err.status === 401) setSessionToken(null);
         setLoading(false);
       });
     return () => controller.abort();
-  }, [sessionToken]);
+  }, [sessionToken, refreshAdminData]);
 
   // Close on Escape key (#104 — F-009)
   useEffect(() => {
@@ -423,6 +475,125 @@ export default function AdminDashboard({ onClose }) {
           )}
         </Card>
         </>)}
+
+        {activeTab === 'health' && (<>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {[
+              { label: 'Requests', value: monitoring?.overview?.total_requests || 0, icon: Activity, color: 'cta' },
+              { label: 'Error Rate', value: `${monitoring?.overview?.error_rate_pct || 0}%`, icon: ShieldAlert, color: (monitoring?.overview?.error_rate_pct || 0) > 2 ? 'danger' : 'cta' },
+              { label: 'P95 Latency', value: `${monitoring?.latency?.p95_ms || 0}ms`, icon: Gauge, color: 'info' },
+              { label: 'Uptime', value: monitoring?.overview?.uptime || '0h 0m', icon: Clock, color: 'cta' },
+            ].map(s => {
+              const colorMap = {
+                cta: 'bg-cta/10 text-cta',
+                danger: 'bg-danger/10 text-danger',
+                info: 'bg-info/10 text-info',
+              };
+              const [bgClass, textClass] = (colorMap[s.color] || colorMap.cta).split(' ');
+              return (
+                <Card key={s.label} className="p-4">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-lg ${bgClass} flex items-center justify-center`}>
+                      <s.icon className={`w-5 h-5 ${textClass}`} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xl font-bold text-text-primary truncate">{s.value}</p>
+                      <p className="text-xs text-text-muted">{s.label}</p>
+                    </div>
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <Card className="p-6">
+              <h3 className="text-sm font-semibold text-text-primary mb-4 flex items-center gap-2">
+                <Server className="w-4 h-4 text-cta" />
+                Top Endpoints
+              </h3>
+              <div className="space-y-2 max-h-80 overflow-auto">
+                {(monitoring?.top_endpoints || []).slice(0, 10).map(endpoint => (
+                  <div key={endpoint.endpoint} className="flex items-center gap-3 py-2 px-3 bg-surface rounded-lg">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-text-primary truncate">{endpoint.endpoint}</p>
+                      <p className="text-[10px] text-text-muted">{endpoint.errors || 0} errors</p>
+                    </div>
+                    <span className="text-xs font-semibold text-text-primary">{endpoint.requests} req</span>
+                  </div>
+                ))}
+                {(monitoring?.top_endpoints || []).length === 0 && (
+                  <p className="text-sm text-text-muted text-center py-6">No endpoint telemetry yet</p>
+                )}
+              </div>
+            </Card>
+
+            <Card className="p-6">
+              <h3 className="text-sm font-semibold text-text-primary mb-4 flex items-center gap-2">
+                <Shield className="w-4 h-4 text-cta" />
+                Audit Summary
+              </h3>
+              <div className="grid grid-cols-2 gap-2 mb-4">
+                <div className="bg-surface rounded-lg p-3">
+                  <p className="text-[11px] text-text-muted">Events</p>
+                  <p className="text-lg font-bold text-text-primary">{auditSummary?.total_events || 0}</p>
+                </div>
+                <div className="bg-surface rounded-lg p-3">
+                  <p className="text-[11px] text-text-muted">Alerts</p>
+                  <p className="text-lg font-bold text-text-primary">{auditSummary?.total_alerts || 0}</p>
+                </div>
+              </div>
+              <div className="space-y-1.5 max-h-56 overflow-auto">
+                {auditLogs.map((event, idx) => (
+                  <div key={`${event.timestamp}-${idx}`} className="flex items-center gap-2 py-1.5 text-sm">
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${event.severity === 'warning' ? 'bg-warning' : event.severity === 'error' ? 'bg-danger' : 'bg-cta/50'}`} />
+                    <span className="text-text-primary flex-1 truncate">{event.details?.action || event.event_type}</span>
+                    <span className="text-[10px] text-text-muted shrink-0">{new Date(event.timestamp).toLocaleString()}</span>
+                  </div>
+                ))}
+                {auditLogs.length === 0 && (
+                  <p className="text-sm text-text-muted text-center py-4">No audit events yet</p>
+                )}
+              </div>
+            </Card>
+          </div>
+        </>)}
+
+        {activeTab === 'flags' && (
+          <Card className="p-6">
+            <h3 className="text-sm font-semibold text-text-primary mb-4 flex items-center gap-2">
+              <ToggleRight className="w-4 h-4 text-cta" />
+              Runtime Feature Gates
+            </h3>
+            <div className="space-y-2">
+              {FEATURE_FLAG_ORDER.filter(name => flags[name]).map(name => {
+                const flag = flags[name];
+                const enabled = Boolean(flag.enabled);
+                return (
+                  <div key={name} className="flex items-center gap-4 py-3 px-4 bg-surface rounded-lg">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-text-primary">{formatFlagName(name)}</p>
+                      <p className="text-xs text-text-muted truncate">{flag.description}</p>
+                      <p className="text-[10px] text-text-muted mt-1">Rollout {flag.rollout_percentage}%</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => toggleFlag(name)}
+                      disabled={flagUpdating === name}
+                      className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${enabled ? 'bg-cta/15 text-cta hover:bg-cta/20' : 'bg-secondary text-text-muted hover:text-text-primary'}`}
+                    >
+                      {flagUpdating === name ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : enabled ? <ToggleRight className="w-3.5 h-3.5" /> : <ToggleLeft className="w-3.5 h-3.5" />}
+                      {enabled ? 'Enabled' : 'Disabled'}
+                    </button>
+                  </div>
+                );
+              })}
+              {Object.keys(flags).length === 0 && (
+                <p className="text-sm text-text-muted text-center py-6">No feature flags available</p>
+              )}
+            </div>
+          </Card>
+        )}
       </div>
     </div>
   );

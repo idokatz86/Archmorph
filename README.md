@@ -26,7 +26,7 @@ Archmorph is an AI-assisted cloud migration workbench. The live path analyzes up
 |--------|---------|--------------|
 | Live | Usable in the current product path | Diagram upload, sample playground, AI service mapping, guided questions, IaC/HLD/report export, cost estimates, service catalog, admin analytics, auth shell, CI/security scanning |
 | Beta | Implemented but needs hardening, deeper tests, or production validation | RAG, Agent PaaS proof, cost/token observability, collaboration, gallery, replay, Terraform state import, multi-cloud cost comparison, social auth/RBAC |
-| Scaffold | UI/routes/models exist, but execution needs integration or operator review | Live cloud scanner, deploy engine, credential vault, SSO/SAML/SCIM, drift/living architecture, Stripe billing |
+| Scaffold | UI/routes/models exist, but execution needs integration or operator review | Live cloud scanner, deploy engine, credential vault, SSO/SAML/SCIM, live drift/living architecture, Stripe billing |
 | Planned | Not production-ready yet | VS Code extension, PR-based IaC workflow, multi-diagram projects |
 
 **Key Capabilities:**
@@ -67,11 +67,11 @@ Archmorph is an AI-assisted cloud migration workbench. The live path analyzes up
 - **Migration Gallery** — public anonymized success stories, filterable by cloud and complexity
 - **Product Analytics** — funnel tracking (PostHog + backend), session-based event ingestion
 - **API Developer Portal** — Swagger/Redoc integration with category overview and curl examples
-- **Living architecture scaffold** — drift/versioning APIs exist; live environment drift monitoring is not a hardened production workflow yet
+- **Living architecture scaffold** — drift/versioning APIs exist, including a sample audit path; live environment drift monitoring is not a hardened production workflow yet
 - **Social authentication** — Microsoft, Google, GitHub sign-in (Azure SWA + JWT fallback)
 - **User profiles** — preferences, avatar, GDPR-compliant account deletion
 - **RBAC & multi-tenant isolation** — 4-role hierarchy (viewer/member/admin/owner), org management, tier-based quotas
-- **Admin dashboard** — conversion funnel, daily metrics, session tracking
+- **Admin dashboard** — conversion funnel, daily metrics, session tracking, runtime health, audit stream, and feature flag controls
 - **Persistent analytics** — Azure Blob Storage with background flush and crash-safe shutdown
 - **Toast notification system** — non-blocking success/error/warning notifications with auto-dismiss
 - **Session expiry warning** — countdown banner with session extension capability
@@ -82,7 +82,7 @@ Archmorph is an AI-assisted cloud migration workbench. The live path analyzes up
 - **CI/CD security** — Semgrep SAST, Gitleaks secret detection, Trivy container scanning, CycloneDX SBOM
 - **Multi-stage Docker** — optimized build with ~50% image size reduction, uv for fast installs
 - **API versioning** — all `/api/*` routes mirrored at `/api/v1/*` for stable integrations
-- **Feature flags system** — percentage rollout + user targeting with admin API
+- **Feature flags system** — percentage rollout + user targeting with audited admin API and runtime dashboard toggles
 - **Comprehensive audit logging** — structured JSON with risk levels, alerting rules, compliance queries
 - **Session persistence** — pluggable SessionStore with InMemory and Redis backends
 - **GPT response caching** — content-hash TTLCache for GPT-4o responses with configurable timeout and fallback model

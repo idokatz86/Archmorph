@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Added admin dashboard health and feature flag tabs with live monitoring, audit visibility, and runtime flag toggles.
+- Upgraded drift detection from a placeholder overlay to a usable sample audit flow with summary counts, recommendations, and richer backend drift scoring.
+- Audit-log feature flag updates through the existing admin configuration audit event stream.
 - Added a post-deploy smoke job that verifies the deployed frontend, hash-routed product paths, API health, and OpenAPI schema after production deploys.
 - Added disabled-by-default feature flags for scaffolded deploy, drift, cloud scanner, SSO/SCIM, and billing capabilities, with frontend gating for drift and deploy surfaces.
 - Added a release checklist covering required secrets, quality gates, manual smoke checks, scaffolded feature approvals, and rollback evidence.

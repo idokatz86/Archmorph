@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AlertTriangle, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, FlaskConical, RefreshCw, ShieldCheck } from 'lucide-react';
 import { Card } from '../ui';
 import EmptyState from '../EmptyState';
 import api from '../../services/apiClient';
@@ -20,28 +20,24 @@ const DriftBadge = ({ status }) => {
 };
 
 export const DriftVisualizer = ({ driftResults: initialDrift, onSync }) => {
-  // Feature is in development — show greyscale placeholder
-  return (
-    <div className="relative w-full">
-      {/* Coming Soon overlay */}
-      <div className="absolute inset-0 z-10 flex items-start justify-center pt-12 pointer-events-none">
-        <div className="bg-surface/95 backdrop-blur-sm border border-border rounded-xl px-8 py-5 shadow-xl text-center pointer-events-auto">
-          <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-cta/10 flex items-center justify-center">
-            <ShieldCheck className="w-6 h-6 text-cta" />
-          </div>
-          <h3 className="text-lg font-bold text-text-primary">Coming Soon</h3>
-          <p className="text-sm text-text-muted mt-1 max-w-xs">
-            Drift Detection is under active development.<br />
-            Connect your live cloud environment to detect architectural drift between your design and reality.
-          </p>
-        </div>
-      </div>
-      {/* Greyscaled content underneath */}
-      <div className="grayscale opacity-40 pointer-events-none select-none" aria-hidden="true">
-        <DriftVisualizerContent driftResults={initialDrift} onSync={onSync} />
-      </div>
-    </div>
-  );
+  return <DriftVisualizerContent driftResults={initialDrift} onSync={onSync} />;
+};
+
+const SAMPLE_DRIFT_PAYLOAD = {
+  designed_state: {
+    nodes: [
+      { id: 'web-app-prod', name: 'Frontend App', type: 'static_web_app', region: 'westeurope', sku: 'standard' },
+      { id: 'api-prod', name: 'API Container', type: 'container_app', region: 'westeurope', sku: 'consumption' },
+      { id: 'postgres-prod', name: 'PostgreSQL', type: 'postgres', region: 'westeurope', sku: 'b1ms' },
+    ],
+  },
+  live_state: {
+    nodes: [
+      { resource_id: 'web-app-prod', name: 'Frontend App', resource_type: 'static_web_app', region: 'westeurope', sku: 'standard' },
+      { resource_id: 'api-prod', name: 'API Container', resource_type: 'container_app', region: 'westeurope', sku: 'dedicated' },
+      { resource_id: 'redis-prod', name: 'Redis Cache', resource_type: 'redis', region: 'westeurope', sku: 'basic' },
+    ],
+  },
 };
 
 const DriftVisualizerContent = ({ driftResults: initialDrift, onSync }) => {
@@ -56,6 +52,21 @@ const DriftVisualizerContent = ({ driftResults: initialDrift, onSync }) => {
 
   const simulateConnection = () => {
     setShowCredentialsModal(true);
+  };
+
+  const runSampleAudit = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const sampleDrift = await api.post('/drift/detect', SAMPLE_DRIFT_PAYLOAD);
+      setDriftResults(sampleDrift);
+      setFinopsResults(null);
+      setActiveTab('drift');
+    } catch (err) {
+      setError(err?.message || 'Failed to run sample drift audit.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleCredentialsSuccess = async (sessionToken) => {
@@ -175,6 +186,14 @@ const DriftVisualizerContent = ({ driftResults: initialDrift, onSync }) => {
             )}
             {loading ? 'Evaluating infrastructure...' : 'Connect Cloud Account'}
           </button>
+          <button
+            onClick={runSampleAudit}
+            disabled={loading}
+            className="mt-3 px-4 py-2 bg-slate-900 text-white font-medium rounded shadow hover:bg-slate-800 disabled:opacity-50 inline-flex items-center gap-2"
+          >
+            {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <FlaskConical className="w-4 h-4" />}
+            Run Sample Drift Audit
+          </button>
         </div>
       </EmptyState>
       {showCredentialsModal && (
@@ -201,6 +220,21 @@ const DriftVisualizerContent = ({ driftResults: initialDrift, onSync }) => {
           </div>
         </div>
         <h3 className="text-2xl font-semibold leading-none tracking-tight">Architecture Drift Detection</h3>
+        {driftResults.summary && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-4">
+            {[
+              ['Matched', driftResults.summary.matched],
+              ['Modified', driftResults.summary.modified],
+              ['Shadow', driftResults.summary.shadow],
+              ['Missing', driftResults.summary.missing],
+            ].map(([label, value]) => (
+              <div key={label} className="bg-slate-50 border border-slate-100 rounded-md p-3">
+                <p className="text-xs text-slate-500">{label}</p>
+                <p className="text-xl font-bold text-slate-900">{value}</p>
+              </div>
+            ))}
+          </div>
+        )}
         
         <div className="flex pt-4 mt-2">
           <button 
@@ -247,6 +281,7 @@ const DriftVisualizerContent = ({ driftResults: initialDrift, onSync }) => {
                   <th className="px-4 py-2">Resource ID</th>
                   <th className="px-4 py-2">Status</th>
                   <th className="px-4 py-2">Message</th>
+                  <th className="px-4 py-2">Recommendation</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -257,6 +292,7 @@ const DriftVisualizerContent = ({ driftResults: initialDrift, onSync }) => {
                       <DriftBadge status={finding.status} />
                     </td>
                     <td className="px-4 py-3 text-slate-600">{finding.message}</td>
+                    <td className="px-4 py-3 text-slate-600">{finding.recommendation}</td>
                   </tr>
                 ))}
               </tbody>
