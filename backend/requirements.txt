@@ -2,7 +2,7 @@ fastapi
 uvicorn[standard]
 gunicorn  # Production process manager with worker recycling (#301)
 pydantic
-python-multipart>=0.0.26
+python-multipart>=0.0.27
 httpx
 azure-storage-blob
 azure-identity
