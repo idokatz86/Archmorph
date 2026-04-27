@@ -6,6 +6,7 @@ Admin Authentication, Metrics, Monitoring, Audit, Observability, Analytics route
 from fastapi import APIRouter, Depends, Header, Query, Request
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any
+import os
 import time
 import logging
 
@@ -248,6 +249,30 @@ async def admin_monitoring_dashboard(request: Request, _admin=Depends(verify_adm
         "latency": latency_global,
         "status_codes": status_breakdown,
         "top_endpoints": top_endpoints,
+    }
+
+
+@router.get("/api/admin/release-status")
+@limiter.limit("30/minute")
+async def admin_release_status(request: Request, _admin=Depends(verify_admin_key)):
+    """Return deployment metadata and release gate status for operators."""
+    return {
+        "version": os.getenv("APP_VERSION", "unknown"),
+        "environment": os.getenv("ENVIRONMENT", "production"),
+        "git_sha": os.getenv("GIT_SHA", os.getenv("GITHUB_SHA", "unknown")),
+        "deployed_at": os.getenv("DEPLOYED_AT", "unknown"),
+        "smoke_checks": [
+            {"name": "Frontend root", "status": "required"},
+            {"name": "Translator route", "status": "required"},
+            {"name": "Playground route", "status": "required"},
+            {"name": "API health", "status": "required"},
+            {"name": "OpenAPI schema", "status": "required"},
+        ],
+        "rollback": {
+            "preferred_workflow": "rollback.yml",
+            "backend_strategy": "Container Apps keeps the previous blue revision for traffic rollback",
+            "frontend_strategy": "Redeploy the previous Static Web Apps artifact or revert and redeploy",
+        },
     }
 
 
