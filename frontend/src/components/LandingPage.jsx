@@ -161,7 +161,7 @@ export default function LandingPage({ onGetStarted, onTrySample }) {
             </button>
           </div>
           <div className="flex flex-wrap items-center justify-center gap-6 mt-8 text-xs text-text-muted">
-            <span className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-cta" /> Free preview</span>
+            <span className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-cta" /> 100% free</span>
             <span className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-cta" /> No account required</span>
             <span className="flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5 text-cta" /> GDPR compliant</span>
           </div>
@@ -274,7 +274,7 @@ export default function LandingPage({ onGetStarted, onTrySample }) {
             Ready to modernize your architecture?
           </h2>
           <p className="text-text-muted mb-6">
-            Free preview — no account or credit card required. Start translating your cloud architecture now.
+            100% free — no account, subscription, billing setup, or credit card required. Start translating your cloud architecture now.
           </p>
           <button
             onClick={onGetStarted}
