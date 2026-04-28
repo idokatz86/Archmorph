@@ -144,6 +144,13 @@ docker compose -f docker-compose.yml -f docker-compose.parity.yml up --build
 This overlay keeps everything local, but starts the backend with production-like persistence guards:
 `ENVIRONMENT=production`, `ENFORCE_POSTGRES=true`, `REQUIRE_REDIS=true`, PostgreSQL via `DATABASE_URL`, Redis via `REDIS_URL`, and Gunicorn/Uvicorn workers instead of the reload server.
 
+**Refresh the API contract snapshot after intentional backend route/schema changes:**
+```bash
+cd backend
+python export_openapi.py > openapi.snapshot.json
+python check_openapi_contract.py
+```
+
 ---
 
 ## Architecture

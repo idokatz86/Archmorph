@@ -55,7 +55,7 @@ The backend must start with PostgreSQL, Redis, `ENFORCE_POSTGRES=true`, and `REQ
 
 The `CI/CD` workflow must pass before release:
 
-- `backend-tests`: Ruff, pytest, coverage threshold, OpenAPI export, backend SBOM, Grype.
+- `backend-tests`: Ruff, pytest, coverage threshold, OpenAPI export, committed OpenAPI contract snapshot check, backend SBOM, Grype.
 - `frontend-build`: ESLint, Vitest, Vite build, frontend SBOM, Grype.
 - `upload-sarif`: SARIF upload attempted for available scans.
 - `deploy-backend`: ACR build, Trivy container gate, Container Apps blue-green deploy, production health verify.
