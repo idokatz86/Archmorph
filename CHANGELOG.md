@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Captured release evidence for the green `904132a592a1e9744a6a98ab54ddaa56c7f91059` dependency/security checkpoint.
 - Added drift baselines with compare history, deterministic finding IDs, finding accept/reject decisions, and Markdown report export.
 - Wired the Drift dashboard to create a baseline, rerun live/sample compares, resolve findings, and download drift reports.
 - Added an admin release gate view for deployment metadata and required smoke checks, plus confirmation before enabling risky scaffold feature flags.
@@ -22,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Refreshed landing page messaging with capability status labels, preview-safe trust copy, and a sample-diagram CTA that routes to the playground.
 
 ### Fixed
+- Removed noisy frontend React `act(...)` test warnings around App navigation, ServicesBrowser loading, and Roadmap loading, and removed the deprecated backend `TestClient(timeout=...)` usage.
 - Cleaned low-risk backend deprecation warnings for Pydantic model config, FastAPI `Query(pattern=...)`, timezone-aware UTC timestamp generation, and async decorator tests.
 - Repaired `test_agent_paas_real.py` with isolated in-memory SQLite, seeded tenant data, and realistic auth overrides so the suite can run in CI.
 - Fixed frontend Vitest setup with a complete `localStorage` mock and aligned component tests with current Nav, DiagramTranslator, CostPanel, LandingPage, AnalysisResults, and AdminDashboard behavior.

@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import App from '../App'
+import useAppStore from '../stores/useAppStore'
 
 // Mock child components to isolate App tests
 vi.mock('../components/Nav', () => ({
@@ -39,58 +41,77 @@ vi.mock('../components/LegalPages', () => ({
 vi.mock('../components/CookieBanner', () => ({
   default: () => null,
 }))
+vi.mock('../components/OnboardingTour', () => ({
+  default: () => null,
+}))
+vi.mock('../components/Auth', () => ({
+  AuthProvider: ({ children }) => <>{children}</>,
+}))
 // PricingPage removed — feature temporarily disabled
 
 describe('App', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    window.history.replaceState(null, '', '/')
+    useAppStore.setState({ activeTab: 'landing', adminOpen: false, updateStatus: null, pendingResumeId: null })
     fetch.mockResolvedValue({ json: () => Promise.resolve({}) })
   })
 
-  it('renders without crashing', () => {
-    render(<App />)
+  const renderSettledApp = async () => {
+    const result = render(<App />)
+    await screen.findByTestId('landing')
+    await screen.findByTestId('chat-widget')
+    return result
+  }
+
+  it('renders without crashing', async () => {
+    await renderSettledApp()
     expect(screen.getByTestId('nav')).toBeInTheDocument()
   })
 
-  it('shows landing page by default', () => {
-    render(<App />)
+  it('shows landing page by default', async () => {
+    await renderSettledApp()
     // Default tab is now 'landing' (#211)
     expect(screen.queryByTestId('translator')).not.toBeInTheDocument()
   })
 
-  it('does not render a beta preview banner', () => {
-    render(<App />)
+  it('does not render a beta preview banner', async () => {
+    await renderSettledApp()
     expect(screen.queryByText(/Beta Preview/)).not.toBeInTheDocument()
   })
 
-  it('renders footer with version info', () => {
-    render(<App />)
+  it('renders footer with version info', async () => {
+    await renderSettledApp()
     expect(screen.getByText(/Archmorph v/)).toBeInTheDocument()
   })
 
   it('renders chat widget', async () => {
-    render(<App />)
+    await renderSettledApp()
     expect(await screen.findByTestId('chat-widget')).toBeInTheDocument()
   })
 
-  it('fetches service-updates status on mount', () => {
-    render(<App />)
-    expect(fetch).toHaveBeenCalledWith(
-      expect.stringContaining('/service-updates/status'),
-      expect.objectContaining({ signal: expect.any(AbortSignal) })
-    )
+  it('fetches service-updates status on mount', async () => {
+    await renderSettledApp()
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/service-updates/status'),
+        expect.objectContaining({ signal: expect.any(AbortSignal) })
+      )
+    })
   })
 
   it('switches to services tab when nav triggers it', async () => {
-    const { getByText } = render(<App />)
-    await getByText('Services').click()
+    const user = userEvent.setup()
+    const { getByText } = await renderSettledApp()
+    await user.click(getByText('Services'))
     expect(await screen.findByTestId('services')).toBeInTheDocument()
     expect(screen.queryByTestId('translator')).not.toBeInTheDocument()
   })
 
   it('switches to roadmap tab', async () => {
-    const { getByText } = render(<App />)
-    await getByText('Roadmap').click()
+    const user = userEvent.setup()
+    const { getByText } = await renderSettledApp()
+    await user.click(getByText('Roadmap'))
     expect(await screen.findByTestId('roadmap')).toBeInTheDocument()
   })
 })

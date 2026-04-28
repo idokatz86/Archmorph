@@ -237,7 +237,7 @@ class TestJobsRouter:
         job_manager.complete(job.job_id, result={"done": True})
         # TestClient doesn't support real SSE streaming, but we can verify
         # the endpoint exists and returns the right content type
-        res = test_client.get(f"/api/jobs/{job.job_id}/stream", timeout=5)
+        res = test_client.get(f"/api/jobs/{job.job_id}/stream")
         assert res.status_code == 200
         assert "text/event-stream" in res.headers.get("content-type", "")
 

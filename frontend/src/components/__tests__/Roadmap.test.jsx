@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import Roadmap from '../Roadmap'
 
@@ -37,9 +37,10 @@ describe('Roadmap', () => {
     })
   })
 
-  it('shows loading spinner initially', () => {
+  it('shows loading spinner initially', async () => {
     render(<Roadmap />)
     expect(document.querySelector('.animate-spin')).toBeInTheDocument()
+    await screen.findByText('Roadmap & Timeline')
   })
 
   it('renders roadmap title after loading', async () => {

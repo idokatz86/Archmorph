@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import ServicesBrowser from '../ServicesBrowser'
 
@@ -30,10 +30,11 @@ describe('ServicesBrowser', () => {
       .mockResolvedValueOnce(mockJsonResponse(mockCategories))
   })
 
-  it('shows loading state initially', () => {
+  it('shows loading state initially', async () => {
     render(<ServicesBrowser />)
     // The spinner is an SVG from lucide-react with animate-spin class
     expect(document.querySelector('.animate-spin')).toBeInTheDocument()
+    await screen.findByText('EC2')
   })
 
   it('renders stats after loading', async () => {
