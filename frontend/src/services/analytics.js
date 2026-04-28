@@ -16,6 +16,7 @@
 const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 const POSTHOG_KEY = import.meta.env.VITE_POSTHOG_KEY || '';
 const ANALYTICS_ENABLED = import.meta.env.VITE_ANALYTICS_ENABLED !== 'false';
+const LAST_SEEN_KEY = 'archmorph-last-seen-date';
 
 // Session ID for anonymous tracking
 let _sessionId = null;
@@ -118,6 +119,21 @@ export function trackFunnel(step, properties = {}) {
  */
 export function trackPageView(tabName) {
   track('page_view', { tab: tabName });
+  trackFunnel('page_view', { tab: tabName });
+  trackReturningUser();
+}
+
+export function trackReturningUser() {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const lastSeen = localStorage.getItem(LAST_SEEN_KEY);
+    if (lastSeen && lastSeen !== today) {
+      trackFunnel('returning_user', { last_seen: lastSeen });
+    }
+    localStorage.setItem(LAST_SEEN_KEY, today);
+  } catch {
+    // localStorage may be blocked; analytics should never affect UX.
+  }
 }
 
 /**

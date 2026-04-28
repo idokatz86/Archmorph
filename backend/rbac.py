@@ -394,6 +394,6 @@ class RequireQuota:
             raise ArchmorphException(
                 429,
                 f"Monthly analysis quota exceeded ({status['used']}/{status['limit']}). "
-                "Upgrade your plan for more.",
+                "Contact the project maintainer if you need a higher safeguard limit.",
             )
         return user
