@@ -1,0 +1,19 @@
+# Archmorph production-parity local overlay.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.parity.yml up --build
+# This keeps local services on Docker, but enables the same DB/session guards used for production.
+
+services:
+  backend:
+    environment:
+      ENVIRONMENT: production
+      ENFORCE_POSTGRES: "true"
+      REQUIRE_REDIS: "true"
+      DATABASE_URL: "postgresql://archmorph:archmorph_dev@postgres:5432/archmorph"
+      REDIS_URL: "redis://redis:6379/0"
+      WEB_CONCURRENCY: "2"
+      RATE_LIMIT_ENABLED: "false"
+    command: ["gunicorn", "-c", "gunicorn.conf.py", "main:app"]
+
+  frontend:
+    environment:
+      VITE_API_BASE: "http://localhost:8000/api"

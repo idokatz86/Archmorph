@@ -45,6 +45,14 @@ Production guard env vars:
 
 ## 3. Required Quality Gates
 
+Before production promotion, run the local production-parity guard mode at least once after configuration changes:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.parity.yml up --build
+```
+
+The backend must start with PostgreSQL, Redis, `ENFORCE_POSTGRES=true`, and `REQUIRE_REDIS=true`; the admin release gate should report no database/session blockers.
+
 The `CI/CD` workflow must pass before release:
 
 - `backend-tests`: Ruff, pytest, coverage threshold, OpenAPI export, backend SBOM, Grype.
