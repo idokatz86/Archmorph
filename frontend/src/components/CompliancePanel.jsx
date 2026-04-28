@@ -6,17 +6,17 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { Shield, ShieldCheck, ShieldX, Loader2, AlertTriangle, RefreshCw, ChevronDown, ChevronUp, ExternalLink } from 'lucide-react';
+import { Shield, ShieldCheck, ShieldX, Loader2, AlertTriangle, RefreshCw, ChevronDown, ChevronUp, ExternalLink, Hospital, CreditCard, LockKeyhole, BadgeCheck, ClipboardCheck, Landmark } from 'lucide-react';
 import { Card, Badge, Button } from './ui';
 import api from '../services/apiClient';
 
 const FRAMEWORK_ICONS = {
-  HIPAA: '🏥',
-  'PCI-DSS': '💳',
-  'SOC 2': '🔒',
-  GDPR: '🇪🇺',
-  'ISO 27001': '📋',
-  FedRAMP: '🏛️',
+  HIPAA: Hospital,
+  'PCI-DSS': CreditCard,
+  'SOC 2': LockKeyhole,
+  GDPR: BadgeCheck,
+  'ISO 27001': ClipboardCheck,
+  FedRAMP: Landmark,
 };
 
 function ScoreRing({ score, size = 48 }) {
@@ -50,7 +50,7 @@ function ScoreRing({ score, size = 48 }) {
 
 function FrameworkCard({ framework }) {
   const [open, setOpen] = useState(false);
-  const icon = FRAMEWORK_ICONS[framework.framework] || '📋';
+  const FrameworkIcon = FRAMEWORK_ICONS[framework.framework] || ClipboardCheck;
   const gapCount = framework.gaps?.length || 0;
 
   return (
@@ -59,7 +59,7 @@ function FrameworkCard({ framework }) {
         <ScoreRing score={framework.score} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="text-lg">{icon}</span>
+            <FrameworkIcon className="w-4 h-4 text-cta" aria-hidden="true" />
             <h4 className="text-sm font-semibold text-text-primary truncate">{framework.framework}</h4>
           </div>
           <p className="text-xs text-text-muted mt-0.5">

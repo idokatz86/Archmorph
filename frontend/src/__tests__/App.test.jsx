@@ -38,6 +38,9 @@ vi.mock('../components/LandingPage', () => ({
 vi.mock('../components/LegalPages', () => ({
   default: () => <div data-testid="legal">LegalPages</div>,
 }))
+vi.mock('../components/PlaygroundPage', () => ({
+  default: () => <div data-testid="playground">PlaygroundPage</div>,
+}))
 vi.mock('../components/CookieBanner', () => ({
   default: () => null,
 }))
@@ -53,13 +56,13 @@ describe('App', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     window.history.replaceState(null, '', '/')
-    useAppStore.setState({ activeTab: 'landing', adminOpen: false, updateStatus: null, pendingResumeId: null })
+    useAppStore.setState({ activeTab: 'playground', adminOpen: false, updateStatus: null, pendingResumeId: null, pendingSample: null })
     fetch.mockResolvedValue({ json: () => Promise.resolve({}) })
   })
 
   const renderSettledApp = async () => {
     const result = render(<App />)
-    await screen.findByTestId('landing')
+    await screen.findByTestId('playground')
     await screen.findByTestId('chat-widget')
     return result
   }
@@ -69,9 +72,9 @@ describe('App', () => {
     expect(screen.getByTestId('nav')).toBeInTheDocument()
   })
 
-  it('shows landing page by default', async () => {
+  it('shows the playground by default', async () => {
     await renderSettledApp()
-    // Default tab is now 'landing' (#211)
+    expect(screen.getByTestId('playground')).toBeInTheDocument()
     expect(screen.queryByTestId('translator')).not.toBeInTheDocument()
   })
 

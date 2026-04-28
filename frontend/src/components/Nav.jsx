@@ -173,7 +173,7 @@ export default function Nav({ activeTab, setActiveTab, updateStatus }) {
           <div className="flex items-center justify-between h-14">
             {/* Logo — clickable to go Home (#1), catalog dot as tooltip (#10), tagline removed (#2) */}
             <button
-              onClick={() => setActiveTab('landing')}
+              onClick={() => setActiveTab('playground')}
               className="flex items-center gap-2.5 cursor-pointer group"
               aria-label="Go to home"
               title={catalogLabel}

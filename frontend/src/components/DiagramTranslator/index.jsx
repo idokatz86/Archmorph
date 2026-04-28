@@ -130,6 +130,8 @@ export default function DiagramTranslator() {
   // ── Resume analysis from Dashboard (#517) ──
   const pendingResumeId = useAppStore(s => s.pendingResumeId);
   const setPendingResumeId = useAppStore(s => s.setPendingResumeId);
+  const pendingSample = useAppStore(s => s.pendingSample);
+  const setPendingSample = useAppStore(s => s.setPendingSample);
   useEffect(() => {
     if (!pendingResumeId) return;
     const resumeId = pendingResumeId;
@@ -486,6 +488,13 @@ export default function DiagramTranslator() {
       set({ error: 'Failed to load sample: ' + err.message, step: 'upload' });
     }
   };
+
+  useEffect(() => {
+    if (!pendingSample) return;
+    setPendingSample(null);
+    handleLoadSample(pendingSample);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingSample]);
 
   const handleApplyAnswers = async () => {
     set({ loading: true });
