@@ -31,7 +31,6 @@ class TestFeatureFlagsCore:
         assert "living_architecture_drift" in flags
         assert "live_cloud_scanner" in flags
         assert "enterprise_sso_scim" in flags
-        assert "stripe_billing" in flags
 
     def test_default_values(self):
         ff = self._make_fresh()
@@ -43,7 +42,6 @@ class TestFeatureFlagsCore:
         assert ff.is_enabled("living_architecture_drift") is False
         assert ff.is_enabled("live_cloud_scanner") is False
         assert ff.is_enabled("enterprise_sso_scim") is False
-        assert ff.is_enabled("stripe_billing") is False
 
     def test_unknown_flag_returns_false(self):
         ff = self._make_fresh()
@@ -201,6 +199,5 @@ class TestFeatureFlagsAPI:
             "living_architecture_drift",
             "live_cloud_scanner",
             "enterprise_sso_scim",
-            "stripe_billing",
         }
         assert expected.issubset(set(flags.keys()))

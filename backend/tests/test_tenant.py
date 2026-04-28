@@ -47,7 +47,7 @@ class TestInviteStatus:
 class TestPlanLimits:
     def test_plans_defined(self):
         assert "free" in PLAN_LIMITS
-        assert "pro" in PLAN_LIMITS
+        assert "team" in PLAN_LIMITS
         assert "enterprise" in PLAN_LIMITS
 
     def test_free_limits(self):

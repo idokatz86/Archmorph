@@ -37,7 +37,7 @@ class Organization(Base):
     org_id = Column(String(36), unique=True, nullable=False, index=True)  # UUID
     name = Column(String(200), nullable=False)
     slug = Column(String(100), unique=True, nullable=False, index=True)
-    plan = Column(String(20), nullable=False, default="free")  # free|pro|team|enterprise
+    plan = Column(String(20), nullable=False, default="free")  # free|team|enterprise
     max_members = Column(Integer, nullable=False, default=5)
     max_analyses_per_month = Column(Integer, nullable=False, default=5)
     storage_prefix = Column(String(100), nullable=True)  # Blob storage container prefix

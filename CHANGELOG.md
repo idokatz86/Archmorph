@@ -8,11 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Clarified the product is 100% free for customers, removed Pro/billing language from the playground and active customer-facing surfaces, and renamed paid-conversion analytics to free-product activation tracking.
 - Added an OpenAPI contract snapshot gate so backend route/schema drift fails CI unless the committed API baseline is updated intentionally.
 - Added a local production-parity Compose overlay plus guard tests for PostgreSQL/Redis enforcement without requiring a staging environment.
 - Consolidated the first-run product experience around the playground/migration review flow, fixed hash routing for all visible app tabs, and replaced remaining active emoji icons with Lucide icons.
 - Removed Archmorph's staging deployment path from GitHub Actions and updated release guidance for a production-only environment model.
-- Added server-side production gates and readiness metadata for live scanner, deployment execution/rollback, SSO/SCIM, Redis-backed session persistence, and PostgreSQL production parity; billing remains disabled/out of scope.
+- Added server-side production gates and readiness metadata for live scanner, deployment execution/rollback, SSO/SCIM, Redis-backed session persistence, and PostgreSQL production parity; no customer billing path is required.
 - Refreshed README, PRD, architecture diagram, and application flow diagram for the April 28 release-hardening checkpoint, including React/Vite versions, test counts, drift baselines, admin release gates, post-deploy smoke, and gated scanner/deploy posture.
 - Captured release evidence for the green `904132a592a1e9744a6a98ab54ddaa56c7f91059` dependency/security checkpoint.
 - Added drift baselines with compare history, deterministic finding IDs, finding accept/reject decisions, and Markdown report export.
@@ -22,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Upgraded drift detection from a placeholder overlay to a usable sample audit flow with summary counts, recommendations, and richer backend drift scoring.
 - Audit-log feature flag updates through the existing admin configuration audit event stream.
 - Added a post-deploy smoke job that verifies the deployed frontend, hash-routed product paths, API health, and OpenAPI schema after production deploys.
-- Added disabled-by-default feature flags for scaffolded deploy, drift, cloud scanner, SSO/SCIM, and billing capabilities, with frontend gating for drift and deploy surfaces.
+- Added disabled-by-default feature flags for scaffolded deploy, drift, cloud scanner, and SSO/SCIM capabilities, with frontend gating for drift and deploy surfaces.
 - Added a release checklist covering required secrets, quality gates, manual smoke checks, scaffolded feature approvals, and rollback evidence.
 - Tightened CI gates: backend tests no longer ignore Agent PaaS/property-based suites, and frontend lint/Vitest now fail the build instead of using `continue-on-error`.
 - Updated README and PRD language to distinguish live, beta, scaffold, and planned capabilities instead of presenting all enterprise surfaces as production-ready.
@@ -41,7 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [4.1.0] - 2026-03-24
 
 ### Added
-- **Self-Serve Onboarding Funnel** (#492) — Product analytics event tracking (PostHog + backend ingestion), funnel metrics (page_view → upgrade_to_pro), session-based anonymous tracking
+- **Self-Serve Onboarding Funnel** (#492) — Product analytics event tracking (PostHog + backend ingestion), activation funnel metrics (page_view → returning_user), session-based anonymous tracking
 - **Interactive Demo Playground** (#493) — Try-before-signup sandbox with sample diagrams, guided walkthrough, no authentication required
 - **SSO / SAML / SCIM Integration** (#496) — Enterprise SSO with SAML 2.0 Assertion Consumer Service, Single Logout, SCIM v2.0 user/group provisioning with JIT
 - **Terraform State Import** (#497) — Upload terraform.tfstate (v3/v4), CloudFormation templates, or ARM deployments to auto-generate architecture diagrams. ~165 resource type mappings across AWS/Azure/GCP
@@ -74,7 +75,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Service Dependency Graph Visualization** (#233) — Interactive React Flow canvas with dagre layout, custom service nodes (confidence badges, category colors), 6 typed edges (traffic/database/auth/control/security/storage), zone grouping, click-to-reveal detail panel, SVG export
 - **Social Authentication** (#246) — Microsoft, Google, GitHub sign-in via Azure SWA built-in auth + JWT fallback for non-SWA deployments, `x-ms-client-principal` header parsing, AuthProvider React context, LoginModal, UserMenu components
 - **User Profile** (#247) — Profile management with preferences (source cloud, IaC format, role, company), GDPR-compliant account deletion, ProfilePage modal, Zustand auth store with localStorage persistence
-- **RBAC & Multi-Tenant Isolation** (#238) — 4-role hierarchy (viewer < member < admin < owner), organization CRUD, member invitation/management, tier-based quotas (free=5/mo, pro=100/mo, enterprise=unlimited), org-scoped audit logging, 11 API endpoints
+- **RBAC & Multi-Tenant Isolation** (#238) — 4-role hierarchy (viewer < member < admin < owner), organization CRUD, member invitation/management, usage safeguards, org-scoped audit logging, 11 API endpoints
 - **Full Analysis PDF Report Export** (#236) — 6-section branded PDF (cover, executive summary, service mappings table, cost estimates, risk summary, IaC appendix) via fpdf2, StreamingResponse download
 - **AI Agent PaaS HLD** (#380) — 1,720-line vendor-neutral High-Level Design document covering 11 subsystems across Control Plane and Runtime Plane, with 5 Mermaid diagrams
 - **Microsoft Technology Mapping** (#381) — 1,288-line document mapping every HLD component to concrete Azure services (Cosmos DB, Container Apps, AI Search, APIM, Entra ID, etc.) with 6 Mermaid diagrams, SKU recommendations, and cost estimates

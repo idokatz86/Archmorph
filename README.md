@@ -18,7 +18,7 @@ Translate AWS and GCP architecture diagrams into Azure-ready migration artifacts
 
 ## Overview
 
-Archmorph is an AI-assisted cloud migration workbench. The live path analyzes uploaded architecture diagrams, maps AWS/GCP services to Azure equivalents with confidence scoring, asks guided migration questions, generates IaC drafts, prepares HLD/report exports, and estimates costs. Adjacent platform capabilities such as scanner, deploy, collaboration, SSO/SCIM, billing, gallery, and drift are present in the codebase at varying maturity levels and are labeled below so operators know what is ready to trust.
+Archmorph is an AI-assisted cloud migration workbench. The live path analyzes uploaded architecture diagrams, maps AWS/GCP services to Azure equivalents with confidence scoring, asks guided migration questions, generates IaC drafts, prepares HLD/report exports, and estimates costs. The application is 100% free for customers: there are no subscriptions, paid tiers, billing steps, or hidden customer charges. Adjacent platform capabilities such as scanner, deploy, collaboration, SSO/SCIM, gallery, and drift are present in the codebase at varying maturity levels and are labeled below so operators know what is ready to trust.
 
 ### Capability Status
 
@@ -26,7 +26,7 @@ Archmorph is an AI-assisted cloud migration workbench. The live path analyzes up
 |--------|---------|--------------|
 | Live | Usable in the current product path | Diagram upload, sample playground, AI service mapping, guided questions, IaC/HLD/report export, cost estimates, service catalog, admin analytics, auth shell, CI/security scanning |
 | Beta | Implemented but needs hardening, deeper tests, or production validation | RAG, Agent PaaS proof, cost/token observability, collaboration, gallery, replay, Terraform state import, multi-cloud cost comparison, social auth/RBAC |
-| Scaffold | UI/routes/models exist, but execution needs integration or operator review | Live cloud scanner, deploy engine, credential vault, SSO/SAML/SCIM, live drift/living architecture, Stripe billing |
+| Scaffold | UI/routes/models exist, but execution needs integration or operator review | Live cloud scanner, deploy engine, credential vault, SSO/SAML/SCIM, live drift/living architecture |
 | Planned | Not production-ready yet | VS Code extension, PR-based IaC workflow, multi-diagram projects |
 
 **Key Capabilities:**
@@ -199,7 +199,6 @@ flowchart TB
                 TFImport[TF State Import<br/>tfstate/ARM/CF]
                 MultiCost[Multi-Cloud Cost<br/>3-Cloud TCO]
                 Analytics[Product Analytics<br/>Funnel Tracking]
-                Billing[Stripe Billing<br/>Scaffold / gated]
             end
             ErrorEnv[Error Envelope<br/>Middleware]
             FeatureFlags[Feature Flags<br/>% rollout + targeting]
@@ -256,7 +255,6 @@ flowchart TB
     API --> TFImport
     API --> MultiCost
     API --> Analytics
-    API --> Billing
     API --> Auth
     API --> Pricing
     API --> DB
@@ -325,8 +323,6 @@ flowchart TB
 | TF State Import | tfstate/ARM/CF → architecture diagrams | In-process engine |
 | Multi-Cloud Cost | Side-by-side Azure/AWS/GCP TCO | In-process engine |
 | Product Analytics | PostHog + backend funnel tracking | In-process engine |
-| Stripe Billing | Metered usage billing + quotas scaffold | In-process engine |
-
 > 📐 **Detailed Diagrams:** [architecture.excalidraw](docs/architecture.excalidraw) | [application-flow.excalidraw](docs/application-flow.excalidraw) — Open in [Excalidraw](https://excalidraw.com)
 
 ---
@@ -794,7 +790,7 @@ Production hardening switches:
 - `DATABASE_URL` must point to PostgreSQL for production; set `ENFORCE_POSTGRES=true` to fail startup if SQLite is accidentally configured.
 - `REDIS_HOST` or `REDIS_URL` should be configured for horizontal scale; set `REQUIRE_REDIS=true` to fail startup instead of falling back to local file-backed stores.
 - `FEATURE_FLAG_LIVE_CLOUD_SCANNER`, `FEATURE_FLAG_DEPLOY_ENGINE`, and `FEATURE_FLAG_ENTERPRISE_SSO_SCIM` default to disabled and must only be enabled after the admin release gate and tenant validation pass.
-- Billing remains disabled/out of scope for this release.
+- No customer billing or subscription setup is required; Archmorph is free for customers.
 
 ### Azure Resources
 
@@ -882,7 +878,7 @@ See [docs/DEPLOYMENT_COSTS.md](docs/DEPLOYMENT_COSTS.md) for full breakdown.
 | v3.8.0 — Complete Migration Flow | Done | Migration package ZIP export (IaC + HLD + costs), before/after architecture visualization, guided onboarding tour, CI coverage gate (60%), stale bot, migration Q&A chat advisor |
 | v3.8.1 — UX Polish & Bug Bash | Done | Fix HLD generation 500 crashes, recover missing Map layers, unblock IaC dynamic modifications, populate Coming Soon tab, and Drift Alpha warnings |
 | v4.0.0 — Platform Scale | Done | RAG pipeline, AI Agent PaaS PoC, cost/token observability, AI mapping auto-suggestions, migration timeline generator, service dependency graph, social auth, user profiles, RBAC/multi-tenant, PDF report export, DevOps modernization (uv, Trivy, Helm) |
-| v4.1.0 — Enterprise & Collaboration Preview | Mixed | Product analytics, UX Wave 1/2, Terraform import, replay/gallery/collaboration, RAG/Agent PaaS, cost observability, drift baselines, admin release gates, and security evidence are implemented or beta. Live scanner, deploy engine, credential vault, SSO/SCIM production validation, and Stripe billing remain scaffolded/hardening work. |
+| v4.1.0 — Enterprise & Collaboration Preview | Mixed | Product analytics, UX Wave 1/2, Terraform import, replay/gallery/collaboration, RAG/Agent PaaS, cost observability, drift baselines, admin release gates, and security evidence are implemented or beta. Live scanner, deploy engine, credential vault, and SSO/SCIM production validation remain scaffolded/hardening work. |
 | v5.0 — Next | Planned | VS Code extension, Pulumi/CDK output, multi-diagram projects, GitHub/GitLab IaC PR integration |
 
 ---

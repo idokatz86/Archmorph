@@ -21,8 +21,8 @@ class TestUsageQuota:
         assert quota.hld_generations_per_month == 2
         assert quota.share_links_per_month == 3
     
-    def test_pro_tier_limits(self):
-        quota = UsageQuota.for_tier(UserTier.PRO)
+    def test_team_tier_limits(self):
+        quota = UsageQuota.for_tier(UserTier.TEAM)
         assert quota.analyses_per_month == 50
         assert quota.iac_downloads_per_month == 30
     

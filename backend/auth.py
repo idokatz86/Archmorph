@@ -70,7 +70,7 @@ class AuthProvider(str, Enum):
 
 class UserTier(str, Enum):
     FREE = "free"
-    PRO = "pro"
+    TEAM = "team"
     ENTERPRISE = "enterprise"
 
 
@@ -94,7 +94,7 @@ class UsageQuota:
                 cost_estimates_per_month=10,
                 share_links_per_month=3,
             )
-        elif tier == UserTier.PRO:
+        elif tier == UserTier.TEAM:
             return cls(
                 analyses_per_month=50,
                 iac_downloads_per_month=30,

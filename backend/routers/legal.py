@@ -98,12 +98,12 @@ TERMS_OF_SERVICE = {
             ),
         },
         {
-            "id": "subscription",
-            "title": "7. Subscription & Billing",
+            "id": "free_service",
+            "title": "7. Free Service",
             "content": (
-                "Paid plans are billed monthly or annually. You may cancel at any time; access continues until "
-                "the end of your billing period. Refunds are not provided for partial periods. Usage quotas "
-                "reset at the start of each billing cycle."
+                "Archmorph is provided free of charge. We do not require a subscription, payment method, "
+                "customer billing setup, or paid plan to access the Service. Any infrastructure cost estimates "
+                "shown by the Service refer only to cloud-provider costs for architectures you review or deploy."
             ),
         },
         {
@@ -168,8 +168,8 @@ PRIVACY_POLICY = {
             "id": "third_parties",
             "title": "4. Third-Party Services",
             "content": (
-                "We use: Azure OpenAI (AI processing), Azure Blob Storage (file storage), Stripe (payment "
-                "processing), Application Insights (monitoring). Each operates under their own privacy policy "
+                "We use: Azure OpenAI (AI processing), Azure Blob Storage (file storage), and Application "
+                "Insights (monitoring). Each operates under their own privacy policy "
                 "and data processing agreements."
             ),
         },

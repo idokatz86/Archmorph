@@ -80,7 +80,7 @@ RATE_LIMITS: Dict[str, Dict[str, str]] = {
         "suggest": "10/minute",
         "default": "30/minute",
     },
-    "pro": {
+    "team": {
         "analyze": "20/minute",
         "generate_iac": "15/minute",
         "generate_hld": "10/minute",

@@ -65,7 +65,7 @@ ANALYSIS_OWNER: Dict[str, Dict[str, str]] = {}
 # Plan-based quota limits (analyses/month)
 PLAN_QUOTAS: Dict[str, int] = {
     "free": 5,
-    "pro": 100,
+    "team": 100,
     "enterprise": -1,  # unlimited
 }
 

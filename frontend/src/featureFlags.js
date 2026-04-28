@@ -9,7 +9,6 @@ export const FEATURE_FLAGS = {
   livingArchitectureDrift: envFlag('LIVING_ARCHITECTURE_DRIFT', false),
   liveCloudScanner: envFlag('LIVE_CLOUD_SCANNER', false),
   enterpriseSsoScim: envFlag('ENTERPRISE_SSO_SCIM', false),
-  stripeBilling: envFlag('STRIPE_BILLING', false),
 };
 
 export function isFeatureEnabled(name) {

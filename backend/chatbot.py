@@ -79,8 +79,8 @@ Archmorph is an AI-powered Cloud Architecture Translator that:
 
 ## Current Version: {__version__} (February 2026)
 Recent features include:
-- Azure AD B2C authentication with user tiers (Free/Pro/Enterprise)
-- Usage quotas and lead capture
+- Azure AD B2C authentication with free customer access
+- Usage safeguards and lead capture
 - Migration runbook generator
 - Architecture versioning
 - Terraform plan preview

@@ -198,7 +198,7 @@
     "status": "released",
     "highlights": [
       "Azure AD B2C authentication",
-      "Usage quotas (Free/Pro/Enterprise)",
+      "Free access safeguards",
       "Lead capture for downloads",
       "Migration runbook generator",
       "Architecture versioning",
@@ -577,7 +577,7 @@
     "date": null,
     "status": "planned",
     "highlights": [
-      "[Venture Advisory] Investor readiness: analytics funnel, metered billing, competitive benchmarks, marketplace listing (#379)",
+      "[Venture Advisory] Adoption readiness: activation funnel, competitive benchmarks, marketplace listing (#379)",
       "[VP R&D] Engineering toolchain modernization: pytest-xdist, uv, Ruff pre-commit, structured concurrency (#369)",
       "[CTO] No load testing \u2014 SLA targets in performance_config.py untested (#290)",
       "[Differentiator] Public API, webhooks & enterprise integrations (Slack, Teams, Jira) (#259)",

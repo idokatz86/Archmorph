@@ -24,7 +24,6 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────
 PLAN_LIMITS: Dict[str, Dict[str, int]] = {
     "free": {"max_members": 3, "max_analyses_per_month": 5},
-    "pro": {"max_members": 10, "max_analyses_per_month": 100},
     "team": {"max_members": 50, "max_analyses_per_month": 500},
     "enterprise": {"max_members": 10000, "max_analyses_per_month": 100000},
 }
@@ -32,7 +31,7 @@ PLAN_LIMITS: Dict[str, Dict[str, int]] = {
 # RBAC permission matrix
 ROLE_PERMISSIONS: Dict[str, set] = {
     OrgRole.OWNER.value: {
-        "org:read", "org:update", "org:delete", "org:billing",
+        "org:read", "org:update", "org:delete",
         "member:read", "member:invite", "member:remove", "member:change_role",
         "analysis:read", "analysis:create", "analysis:delete",
         "settings:read", "settings:update",

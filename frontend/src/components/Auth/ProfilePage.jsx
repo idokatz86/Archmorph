@@ -162,7 +162,7 @@ export default function ProfilePage({ isOpen, onClose }) {
                 <p className="font-medium text-text-primary">{user.name || user.email || 'User'}</p>
                 <p className="text-xs text-text-muted">{user.email}</p>
                 <p className="text-[10px] text-text-muted mt-0.5 uppercase tracking-wider">
-                  {user.provider} &middot; {user.tier || 'free'}
+                  {user.provider} &middot; Free access
                 </p>
               </div>
             </div>

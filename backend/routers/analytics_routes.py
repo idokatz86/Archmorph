@@ -75,7 +75,7 @@ async def get_funnel():
     steps = [
         "page_view", "sign_up", "first_upload", "analysis_complete",
         "questions_answered", "iac_generated", "iac_downloaded",
-        "hld_exported", "cost_viewed", "upgrade_to_pro",
+        "hld_exported", "cost_viewed", "returning_user",
     ]
 
     results = []

@@ -64,7 +64,7 @@ const STATS = [
   { value: '405+', label: 'Cloud services cataloged' },
   { value: '120+', label: 'Cross-cloud mappings' },
   { value: '3', label: 'IaC formats supported' },
-  { value: 'Preview', label: 'Free while hardening' },
+  { value: '100%', label: 'Free for customers' },
 ];
 
 const CAPABILITY_STATUS = [
@@ -96,7 +96,7 @@ const FAQS = [
   },
   {
     q: 'Is Archmorph really free?',
-    a: 'The current preview is free to use while the platform is being hardened. Some enterprise integrations are intentionally labeled beta or scaffold until their production validation is complete.',
+    a: 'Yes. Archmorph is 100% free for customers, with no subscriptions, paid tiers, billing setup, or hidden fees. Some enterprise integrations are intentionally labeled beta or scaffold until their production validation is complete.',
   },
 ];
 

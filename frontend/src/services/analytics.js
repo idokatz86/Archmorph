@@ -4,8 +4,8 @@
  * Lightweight event tracking layer that:
  * 1. Sends events to backend /api/analytics/events endpoint
  * 2. Supports PostHog/Mixpanel integration when configured
- * 3. Tracks the core PLG funnel: sign_up → first_upload → analysis_complete →
- *    iac_generated → iac_downloaded → upgrade_to_pro
+ * 3. Tracks the free-product activation funnel: sign_up → first_upload →
+ *    analysis_complete → iac_generated → iac_downloaded → returning_user
  *
  * Usage:
  *   import { track, trackFunnel } from '../services/analytics';
@@ -98,7 +98,7 @@ const FUNNEL_STEPS = [
   'iac_downloaded',
   'hld_exported',
   'cost_viewed',
-  'upgrade_to_pro',
+  'returning_user',
 ];
 
 /**

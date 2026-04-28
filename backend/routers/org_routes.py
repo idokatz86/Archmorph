@@ -43,12 +43,12 @@ router = APIRouter(tags=["organizations"])
 
 class CreateOrgRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
-    plan: str = Field("free", pattern=r"^(free|pro|enterprise)$")
+    plan: str = Field("free", pattern=r"^(free|team|enterprise)$")
 
 
 class UpdateOrgRequest(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=200)
-    plan: Optional[str] = Field(None, pattern=r"^(free|pro|enterprise)$")
+    plan: Optional[str] = Field(None, pattern=r"^(free|team|enterprise)$")
 
 
 class AddMemberRequest(BaseModel):
