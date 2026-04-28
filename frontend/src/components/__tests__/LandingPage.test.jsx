@@ -47,7 +47,7 @@ describe('LandingPage', () => {
     render(<LandingPage {...defaultProps} />);
     expect(screen.getByText('405+')).toBeInTheDocument();
     expect(screen.getByText('120+')).toBeInTheDocument();
-    expect(screen.getByText('Preview')).toBeInTheDocument();
+    expect(screen.getByText('100%')).toBeInTheDocument();
   });
 
   it('routes sample CTA to the playground callback', () => {
@@ -90,9 +90,9 @@ describe('LandingPage', () => {
     expect(defaultProps.onGetStarted).toHaveBeenCalledTimes(1);
   });
 
-  it('renders trust badges (preview, no account, GDPR)', () => {
+  it('renders trust badges (free access, no account, GDPR)', () => {
     render(<LandingPage {...defaultProps} />);
-    expect(screen.getByText('Free preview')).toBeInTheDocument();
+    expect(screen.getByText('100% free')).toBeInTheDocument();
     expect(screen.getByText('No account required')).toBeInTheDocument();
     expect(screen.getByText('GDPR compliant')).toBeInTheDocument();
   });

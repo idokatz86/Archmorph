@@ -64,7 +64,7 @@ class TestRedisConfig:
 class TestRateLimits:
     def test_tiers_defined(self):
         assert "free" in RATE_LIMITS
-        assert "pro" in RATE_LIMITS
+        assert "team" in RATE_LIMITS
         assert "enterprise" in RATE_LIMITS
 
     def test_enterprise_has_more_keys(self):

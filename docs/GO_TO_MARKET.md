@@ -1,130 +1,143 @@
-# Archmorph — Go-To-Market Strategy (Issue #107)
+# Archmorph — Go-To-Market Strategy
 
 ## Executive Summary
 
-Archmorph is an AI-powered cloud architecture translator that converts AWS/GCP infrastructure into Azure equivalents with automated IaC generation, compliance mapping, and migration risk scoring. This GTM strategy targets cloud migration teams at mid-market and enterprise organizations.
+Archmorph is a free AI-powered cloud architecture translator that converts AWS/GCP infrastructure into Azure equivalents with automated IaC generation, HLD/report exports, compliance context, migration risk scoring, and Azure cost estimation. The go-to-market motion optimizes for adoption, trust, community proof, partner usage, and Azure migration influence. Customers do not need a subscription, paid tier, billing setup, or credit card to use the application.
 
 ---
 
-## 1. Ideal Customer Profile (ICP)
+## 1. Ideal Customer Profile
 
 ### Primary ICP: Cloud Migration Teams
+
 | Attribute | Description |
 |-----------|-------------|
-| **Company Size** | 200–5,000 employees |
+| **Company Size** | 200-5,000 employees |
 | **Industry** | SaaS, FinTech, Healthcare, E-commerce |
 | **Cloud Posture** | Running on AWS/GCP, exploring or mandated Azure migration |
 | **Decision Makers** | Cloud Architect, VP Engineering, CTO, CIO |
 | **Champions** | DevOps Engineers, Platform Engineers, Solutions Architects |
-| **Budget Authority** | IT/Cloud Operations (typically $50K–$500K migration budget) |
+| **Budget Context** | Existing IT/cloud operations or migration budget |
 | **Pain Points** | Manual mapping, IaC rewriting, compliance gaps, cost unknowns |
 
 ### Secondary ICP: Microsoft Partners & MSPs
-- Azure-focused consulting firms winning migration deals
-- Need tooling to accelerate delivery and reduce manual work
-- Volume licensing / white-label potential
 
-### Anti-ICP (Do Not Target)
-- Solo developers with hobby projects
-- Organizations already 100% on Azure
-- Companies with < 5 services to migrate
+- Azure-focused consulting firms winning migration deals
+- Partner teams that need fast architecture translation during discovery
+- Solution engineers building migration proposals and proof artifacts
+
+### Anti-ICP
+
+- Solo hobby projects with fewer than five services to migrate
+- Organizations already fully standardized on Azure
+- Teams seeking a managed migration service rather than a self-serve workbench
 
 ---
 
 ## 2. Value Proposition
 
 ### Headline
-**"Translate any cloud to Azure in minutes, not months."**
+
+**Translate any cloud to Azure in minutes, not months.**
 
 ### Positioning Statement
-For cloud architects and DevOps teams planning Azure migrations, Archmorph is the AI-powered architecture translator that eliminates manual service mapping, auto-generates production-ready IaC, and identifies migration risks before they become problems — unlike traditional consulting engagements that take weeks and cost hundreds of thousands.
+
+For cloud architects and DevOps teams planning Azure migrations, Archmorph is the free AI-powered architecture translator that eliminates manual service mapping, generates review-ready IaC and HLD artifacts, and identifies migration risks before they become problems.
 
 ### Key Differentiators
-1. **AI-Powered Mapping** — GPT-4o vision analyzes architecture diagrams directly (no manual input)
-2. **Complete IaC Generation** — Production-ready Terraform/Bicep, not just documentation
-3. **Migration Risk Scoring** — Quantified risk across 6 factors before migration starts
-4. **Compliance-Aware** — HIPAA, PCI-DSS, SOC 2, GDPR, ISO 27001 gap detection
-5. **Infrastructure Import** — Parse existing Terraform state / CloudFormation directly
-6. **Cost Comparison** — Side-by-side source vs Azure cost estimation
+
+1. **Free to use** — no paid tier, subscription, billing prompt, or credit-card requirement
+2. **AI-powered mapping** — GPT-4o vision analyzes architecture diagrams directly
+3. **Complete IaC generation** — Terraform/Bicep drafts, not just documentation
+4. **Migration risk scoring** — quantified risk across architecture, data, security, and operations
+5. **Compliance-aware output** — HIPAA, PCI-DSS, SOC 2, GDPR, ISO 27001 gap context
+6. **Cost context** — Azure Retail Prices API estimates for planning and FinOps review
 
 ---
 
-## 3. Pricing Strategy
+## 3. Free Access Model
 
-| Tier | Price | Target |
-|------|-------|--------|
-| **Free** | $0/mo | Individual developers, evaluation |
-| **Pro** | $29/mo ($290/yr) | Small teams, freelance architects |
-| **Enterprise** | $99/mo ($990/yr) | Companies, compliance-heavy orgs |
-| **Partner** | Custom | MSPs, consulting firms (volume) |
+Archmorph is positioned as a free customer tool. The product should avoid paid unlocks, Pro badges, subscription prompts, metered customer billing, or revenue-conversion language in customer-facing surfaces.
 
-### Monetization Levers
-- Per-analysis pricing for usage-based (Stripe metered)
-- SSO/RBAC/compliance features in Enterprise tier
-- White-label / API access for Partner tier
+| Area | Policy |
+|------|--------|
+| Customer access | Free |
+| Billing setup | Not required |
+| Credit card | Not required |
+| Feature unlocks | No paid unlocks |
+| Cost estimates | Cloud infrastructure estimates only, not app pricing |
+| Operator costs | Tracked separately in deployment cost documentation |
+
+Success is measured by adoption, completed migration analyses, artifact exports, partner reuse, feedback quality, and downstream Azure migration influence.
 
 ---
 
 ## 4. Launch Phases
 
-### Phase 1: Private Beta (Weeks 1-4)
-- **Goal**: 50 beta users, validate core functionality
-- **Channels**: LinkedIn outreach, Azure community Slack/Discord, direct invitations
-- **Success Metrics**: 10+ completed migrations, NPS > 40, < 5% churn
-- **Actions**:
-  - [ ] Create beta signup landing page
+### Phase 1: Private Preview
+
+- **Goal:** 50 design partners and migration practitioners
+- **Channels:** LinkedIn outreach, Azure community spaces, direct customer invitations
+- **Success metrics:** 10+ completed migration packages, NPS > 40, prioritized feedback backlog
+- **Actions:**
+  - [ ] Create free-preview signup path
   - [ ] Record 5-minute demo video
-  - [ ] Set up feedback collection (in-app widget)
+  - [ ] Set up feedback collection
   - [ ] Identify 10 design partners
 
-### Phase 2: Public Launch (Weeks 5-8)
-- **Goal**: 500 users, 50 paid subscriptions
-- **Channels**: Product Hunt launch, Twitter/X announcement, LinkedIn content series
-- **Success Metrics**: 10% free→Pro conversion, $1,450+ MRR
-- **Actions**:
-  - [ ] Product Hunt submission (Tuesday morning ET)
-  - [ ] Press kit and blog post
-  - [ ] Technical blog series (Medium, dev.to, Hashnode)
-  - [ ] Azure Marketplace listing submission
+### Phase 2: Public Launch
 
-### Phase 3: Growth (Months 3-6)
-- **Goal**: 2,000 users, 200 paid, $5,800+ MRR
-- **Channels**: SEO content, Azure partner network, conference talks
-- **Success Metrics**: < $50 CAC, LTV:CAC > 3:1
-- **Actions**:
-  - [ ] SEO content: "AWS to Azure migration guide" (top-10 keyword target)
+- **Goal:** 500 active users and repeatable free self-serve usage
+- **Channels:** Product Hunt, LinkedIn content, technical blogs, Azure community posts
+- **Success metrics:** 100+ completed analyses, 50+ exported packages, 30-day retention > 35%
+- **Actions:**
+  - [ ] Product Hunt submission
+  - [ ] Press kit and launch blog post
+  - [ ] Technical blog series
+  - [ ] Azure Marketplace listing evaluation as a free listing
+
+### Phase 3: Community Growth
+
+- **Goal:** 2,000 monthly active users and strong practitioner advocacy
+- **Channels:** SEO content, YouTube tutorials, Microsoft partner network, conference talks
+- **Success metrics:** organic traffic growth, partner referrals, exported package volume
+- **Actions:**
+  - [ ] SEO pillar page: AWS to Azure migration guide
   - [ ] YouTube tutorials and case studies
-  - [ ] Microsoft Partner Network registration
-  - [ ] Conference CFP submissions (KubeCon, Azure Summit, re:Invent)
+  - [ ] Partner enablement kit
+  - [ ] Conference CFP submissions
 
-### Phase 4: Enterprise (Months 6-12)
-- **Goal**: 10 enterprise contracts, $20K+ MRR
-- **Channels**: Direct sales, MSP partnerships, Azure Marketplace transact
-- **Success Metrics**: $50K+ ARR per enterprise, 95% retention
-- **Actions**:
-  - [ ] Enterprise sales playbook
-  - [ ] SOC 2 Type II audit
-  - [ ] Customer case studies (3+)
-  - [ ] White-label partner program
+### Phase 4: Enterprise Adoption
+
+- **Goal:** Trusted use by enterprise architecture and partner teams
+- **Channels:** Direct enablement, partner workshops, customer architecture sessions
+- **Success metrics:** reference customers, internal champion reuse, migration influence signals
+- **Actions:**
+  - [ ] Enterprise enablement playbook
+  - [ ] Security and compliance evidence pack
+  - [ ] Customer case studies
+  - [ ] Partner workshop format
 
 ---
 
 ## 5. Content Marketing Strategy
 
 ### Content Pillars
-1. **Migration Guides** — "Complete AWS → Azure Migration Guide" (SEO pillar page)
-2. **Technical Deep Dives** — Service-by-service mapping comparisons
-3. **Compliance & Security** — "HIPAA-Compliant Azure Migration Checklist"
-4. **Case Studies** — Real migration stories with before/after metrics
-5. **Tool Comparisons** — Archmorph vs manual mapping vs consulting
 
-### Content Calendar (Monthly)
+1. **Migration guides** — complete AWS to Azure and GCP to Azure migration guides
+2. **Technical deep dives** — service-by-service mapping comparisons
+3. **Compliance and security** — regulated migration checklists
+4. **Case studies** — before/after diagrams and artifact examples
+5. **Tool comparisons** — Archmorph vs manual mapping vs consulting-heavy workflows
+
+### Content Calendar
+
 | Week | Content Type | Topic |
-|------|-------------|-------|
-| 1 | Blog Post | Technical deep dive on a specific service mapping |
-| 2 | Video/Demo | Feature walkthrough or customer story |
-| 3 | Social Thread | Quick tips for cloud migration best practices |
-| 4 | White Paper | Compliance/security in multi-cloud migrations |
+|------|--------------|-------|
+| 1 | Blog post | Technical deep dive on a specific service mapping |
+| 2 | Video/demo | Feature walkthrough or customer story |
+| 3 | Social post | Cloud migration best-practice tips |
+| 4 | White paper | Compliance/security in multi-cloud migrations |
 
 ---
 
@@ -132,83 +145,66 @@ For cloud architects and DevOps teams planning Azure migrations, Archmorph is th
 
 | Channel | Strategy | KPI |
 |---------|----------|-----|
-| **SEO/Blog** | Pillar content for "AWS to Azure" keywords | Organic traffic, sign-ups |
-| **LinkedIn** | Thought leadership, technical posts | Engagement, profile visits |
-| **Twitter/X** | Launch announcements, dev community | Impressions, link clicks |
+| **SEO/Blog** | Pillar content for AWS/GCP to Azure keywords | Organic traffic, sign-ups |
+| **LinkedIn** | Thought leadership and technical posts | Engagement, profile visits |
 | **Product Hunt** | Coordinated launch day | Upvotes, sign-ups |
-| **Azure Marketplace** | Listed with transact enabled | Marketplace leads |
+| **Azure Marketplace** | Free listing or lead-generation listing | Marketplace leads |
 | **YouTube** | Tutorials, demos, comparison videos | Views, subscribers |
-| **Dev Communities** | reddit, HackerNews, Discord servers | Referral traffic |
-| **Conferences** | Speaking, sponsoring, demo booth | Leads, partnerships |
+| **Dev communities** | Reddit, Hacker News, Discord, Slack communities | Referral traffic |
+| **Conferences** | Speaking and demos | Leads, partner interest |
 
 ---
 
 ## 7. Competitive Positioning
 
 | Competitor | Strengths | Archmorph Advantage |
-|-----------|-----------|---------------------|
-| **Manual Mapping** | Full control | 10x faster, automated IaC |
-| **Consulting** | Expert guidance | 1/10th the cost, instant results |
-| **AWS Migration Hub** | AWS native | Azure-focused, multi-source |
-| **Azure Migrate** | Microsoft official | Diagram analysis, IaC generation |
-| **Cloudamize** | Assessment depth | AI-powered, IaC output |
-
-### Competitive Moat
-1. **AI Vision** — Analyze diagrams directly (no manual service listing)
-2. **IaC Generation** — Production-ready Terraform/Bicep output
-3. **Compliance Mapping** — Automated framework detection and gap analysis
-4. **Risk Scoring** — Quantified migration risk before commitment
+|------------|-----------|---------------------|
+| **Manual Mapping** | Full control | Faster, repeatable, exportable artifacts |
+| **Consulting** | Expert guidance | Instant first-pass analysis and lower discovery friction |
+| **AWS Migration Hub** | AWS native | Azure-focused, multi-source translation |
+| **Azure Migrate** | Microsoft official | Diagram analysis, IaC generation, HLD packaging |
+| **Cloudamize** | Assessment depth | AI-powered diagram intake and architecture artifact output |
 
 ---
 
-## 8. Success Metrics & OKRs
+## 8. Success Metrics
 
-### Q1 OKRs
 | Objective | Key Result | Target |
-|-----------|-----------|--------|
-| Product-Market Fit | NPS Score | > 40 |
-| User Growth | Monthly Active Users | 500 |
-| Revenue | Monthly Recurring Revenue | $1,500 |
-| Engagement | Analyses per user/month | > 3 |
-| Retention | 30-day retention | > 60% |
-
-### Q2 OKRs
-| Objective | Key Result | Target |
-|-----------|-----------|--------|
-| Scale | Monthly Active Users | 2,000 |
-| Revenue | MRR | $6,000 |
-| Enterprise | Enterprise contracts | 3 |
-| Partners | MSP partnerships | 2 |
-| Content | SEO ranking for "AWS to Azure" | Top 20 |
+|-----------|------------|--------|
+| Product-market fit | NPS score | > 40 |
+| User growth | Monthly active users | 500 |
+| Activation | Completed analyses | 100/month |
+| Artifact value | IaC/HLD/package exports | 50/month |
+| Retention | 30-day retention | > 35% |
+| Partner adoption | Partner-led analyses | 25/month |
 
 ---
 
 ## 9. Launch Checklist
 
-- [x] Core product (analysis, mapping, IaC, HLD, cost estimation)
-- [x] Stripe billing integration (Free/Pro/Enterprise)
-- [x] Legal docs (ToS, Privacy Policy, AI Disclaimer, Cookie Banner)
-- [x] Landing page with pricing
-- [x] Authentication (Azure AD B2C + GitHub OAuth)
-- [x] Monitoring & alerting (Application Insights, Azure Monitor)
-- [x] Security hardening (WAF, VNet, NSG, Key Vault)
+- [x] Core product: analysis, mapping, IaC, HLD, cost estimation
+- [x] Legal docs: ToS, Privacy Policy, AI Disclaimer, Cookie Banner
+- [x] Landing page with free-product positioning
+- [x] Authentication shell
+- [x] Monitoring and alerting: Application Insights, Azure Monitor
+- [x] Security hardening: WAF, VNet, NSG, Key Vault
 - [ ] Product Hunt preparation
-- [ ] Demo video (5 min)
+- [ ] Demo video
 - [ ] Press kit
 - [ ] Beta user onboarding emails
-- [ ] Analytics tracking (funnel: signup → analysis → IaC download → paid)
-- [ ] Customer support workflow (Zendesk/Intercom)
-- [ ] Azure Marketplace listing
+- [ ] Analytics tracking: signup to analysis to export to repeat use
+- [ ] Customer support workflow
+- [ ] Azure Marketplace free listing evaluation
 
 ---
 
 ## 10. Risk Register
 
 | Risk | Impact | Probability | Mitigation |
-|------|--------|------------|------------|
-| OpenAI API reliability | High | Medium | Fallback to rule-based mapping, caching |
-| Azure pricing changes | Medium | Low | Weekly price data refresh, manual override |
-| Low conversion rate | High | Medium | A/B test pricing, improve onboarding UX |
-| Enterprise sales cycle | Medium | High | Self-serve first, sales-assist later |
-| Competitor launch | Medium | Medium | Fast iteration, community building |
-| Compliance certification delay | High | Medium | Start SOC 2 audit early (Month 4) |
+|------|--------|-------------|------------|
+| OpenAI API reliability | High | Medium | Fallback to rule-based mapping and cache stable outputs |
+| Azure pricing changes | Medium | Low | Weekly price data refresh and manual override path |
+| Low activation | High | Medium | Improve sample playground, onboarding, and export clarity |
+| Enterprise security review delay | Medium | High | Maintain evidence pack and deployment documentation |
+| Competitor launch | Medium | Medium | Fast iteration and visible community proof |
+| Compliance certification delay | High | Medium | Start readiness work early and document controls |

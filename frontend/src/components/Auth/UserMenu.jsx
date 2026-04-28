@@ -93,7 +93,7 @@ export default function UserMenu() {
               <p className="text-xs text-text-muted truncate">{user.email}</p>
             )}
             <p className="text-[10px] text-text-muted mt-1 uppercase tracking-wider">
-              {user.provider} &middot; {user.tier || 'free'}
+              {user.provider} &middot; Free access
             </p>
           </div>
 

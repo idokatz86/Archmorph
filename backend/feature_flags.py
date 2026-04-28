@@ -82,11 +82,6 @@ DEFAULT_FLAGS: Dict[str, Flag] = {
         enabled=False,
         description="Enable enterprise SAML SSO and SCIM provisioning preview routes",
     ),
-    "stripe_billing": Flag(
-        name="stripe_billing",
-        enabled=False,
-        description="Enable scaffolded billing and subscription management surfaces",
-    ),
 }
 
 

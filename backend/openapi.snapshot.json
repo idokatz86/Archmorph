@@ -1731,7 +1731,7 @@
           },
           "plan": {
             "default": "free",
-            "pattern": "^(free|pro|enterprise)$",
+            "pattern": "^(free|team|enterprise)$",
             "title": "Plan",
             "type": "string"
           }
@@ -4673,7 +4673,7 @@
           "plan": {
             "anyOf": [
               {
-                "pattern": "^(free|pro|enterprise)$",
+                "pattern": "^(free|team|enterprise)$",
                 "type": "string"
               },
               {

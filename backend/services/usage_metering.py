@@ -1,33 +1,16 @@
-"""Usage Metering Service for Stripe billing (Issue #106).
+"""Usage metering service.
 
-Tracks per-organization & per-user usage, enforces quotas, and
-reports usage to Stripe for metered billing (if configured).
+Tracks per-organization and per-user usage for analytics, rate limits,
+and operational capacity planning. This service does not report usage
+to a payment provider or trigger customer billing.
 """
 
 import logging
-import os
 import threading
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
-
-# ─────────────────────────────────────────────────────────
-# Stripe metered billing config
-# ─────────────────────────────────────────────────────────
-STRIPE_METER_ANALYSIS = os.getenv("STRIPE_METER_ANALYSIS", "")
-STRIPE_METER_IAC = os.getenv("STRIPE_METER_IAC", "")
-STRIPE_METER_HLD = os.getenv("STRIPE_METER_HLD", "")
-
-_stripe_available = False
-try:
-    import stripe
-    if os.getenv("STRIPE_SECRET_KEY"):
-        stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
-        _stripe_available = True
-except ImportError:
-    pass
-
 
 # ─────────────────────────────────────────────────────────
 # In-memory usage tracking (replaced by DB in prod)
@@ -85,9 +68,6 @@ def record_usage(
         _usage[key][metric] = _usage[key].get(metric, 0) + count
 
     current = _usage[key][metric]
-
-    # Report to Stripe metered billing (async, non-blocking)
-    _report_to_stripe(org_id, metric, count)
 
     logger.debug(
         "Usage recorded: org=%s metric=%s count=%d total=%d user=%s",
@@ -161,30 +141,3 @@ def get_all_usage_stats() -> Dict[str, Any]:
         "aggregate_usage": total_usage,
         "period": datetime.now(timezone.utc).strftime("%Y-%m"),
     }
-
-
-def _report_to_stripe(org_id: str, metric: str, count: int) -> None:
-    """Report usage to Stripe for metered billing (best-effort)."""
-    if not _stripe_available:
-        return
-
-    meter_map = {
-        "analyses": STRIPE_METER_ANALYSIS,
-        "iac_downloads": STRIPE_METER_IAC,
-        "hld_generations": STRIPE_METER_HLD,
-    }
-
-    meter_id = meter_map.get(metric)
-    if not meter_id:
-        return
-
-    try:
-        stripe.billing.MeterEvent.create(
-            event_name=meter_id,
-            payload={
-                "value": str(count),
-                "stripe_customer_id": org_id,
-            },
-        )
-    except Exception as e:
-        logger.warning("Failed to report usage to Stripe: %s", e)

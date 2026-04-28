@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowRight, Cloud, Layers, FileCode, BarChart3, Lock, Globe2, Network, Boxes } from 'lucide-react';
+import { ArrowRight, Cloud, Layers, FileCode, BarChart3, Download, FileText, Globe2, Network, Boxes } from 'lucide-react';
 import { Button, Card, Badge } from './ui';
 import useAppStore from '../stores/useAppStore';
 
@@ -7,7 +7,7 @@ import useAppStore from '../stores/useAppStore';
  * Interactive Demo Playground (#493).
  * Zero-friction try-it-now experience — no sign-up required.
  * Pre-loads sample diagrams showing the full analysis flow.
- * Gates advanced features (download, export) behind sign-up CTA.
+ * Shows the free sample workflow without billing or subscription gates.
  */
 
 const PLAYGROUND_SAMPLES = [
@@ -38,13 +38,13 @@ const PLAYGROUND_SAMPLES = [
 ];
 
 const DEMO_FEATURES = [
-  { icon: Layers, label: 'AI service detection', available: true },
-  { icon: Cloud, label: 'Cross-cloud mapping', available: true },
-  { icon: FileCode, label: 'IaC code preview', available: true },
-  { icon: BarChart3, label: 'Cost estimation', available: true },
-  { icon: Lock, label: 'Download IaC code', available: false, gated: true },
-  { icon: Lock, label: 'Export HLD document', available: false, gated: true },
-  { icon: Lock, label: 'PDF report', available: false, gated: true },
+  { icon: Layers, label: 'AI service detection' },
+  { icon: Cloud, label: 'Cross-cloud mapping' },
+  { icon: FileCode, label: 'IaC code preview' },
+  { icon: BarChart3, label: 'Cost estimation' },
+  { icon: Download, label: 'Download IaC code' },
+  { icon: FileText, label: 'Export HLD document' },
+  { icon: FileText, label: 'PDF report' },
 ];
 
 export default function PlaygroundPage() {
@@ -95,10 +95,9 @@ export default function PlaygroundPage() {
         <h2 className="text-sm font-semibold text-text-primary mb-4">What you get in the playground</h2>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {DEMO_FEATURES.map((feat, i) => (
-            <div key={i} className={`flex items-center gap-2 text-xs ${feat.gated ? 'text-text-muted' : 'text-text-secondary'}`}>
-              <feat.icon className={`w-3.5 h-3.5 ${feat.gated ? 'text-text-muted' : 'text-cta'}`} />
+            <div key={i} className="flex items-center gap-2 text-xs text-text-secondary">
+              <feat.icon className="w-3.5 h-3.5 text-cta" />
               <span>{feat.label}</span>
-              {feat.gated && <Badge variant="default">Pro</Badge>}
             </div>
           ))}
         </div>
@@ -106,7 +105,7 @@ export default function PlaygroundPage() {
 
       {/* CTA */}
       <div className="text-center">
-        <p className="text-sm text-text-muted mb-3">Want full access? Downloads, exports, history, and more.</p>
+        <p className="text-sm text-text-muted mb-3">Use the same free workflow with your own architecture diagram.</p>
         <Button variant="primary" size="lg" icon={ArrowRight} onClick={() => setActiveTab('translator')}>
           Start with your own diagram
         </Button>

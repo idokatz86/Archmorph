@@ -8,13 +8,13 @@
 
 ## 1. Executive Summary
 
-Archmorph is an AI-assisted cloud migration workbench in preview/stabilization. Its live product path converts uploaded AWS/GCP architecture diagrams into Azure migration artifacts: detected services, confidence-scored mappings, guided migration questions, IaC drafts, HLD/report exports, and cost estimates. The platform codebase also contains beta and scaffolded enterprise modules for collaboration, replay, gallery, RAG/Agent PaaS, Terraform state import, scanner, deploy, SSO/SCIM, drift, and billing.
+Archmorph is an AI-assisted cloud migration workbench in preview/stabilization. Its live product path converts uploaded AWS/GCP architecture diagrams into Azure migration artifacts: detected services, confidence-scored mappings, guided migration questions, IaC drafts, HLD/report exports, and cost estimates. The application is 100% free for customers: no subscriptions, paid tiers, billing setup, or hidden fees are required. The platform codebase also contains beta and scaffolded enterprise modules for collaboration, replay, gallery, RAG/Agent PaaS, Terraform state import, scanner, deploy, SSO/SCIM, and drift.
 
 The PRD distinguishes three maturity levels. **Live** features are usable in the core flow and should remain protected by CI. **Beta** features are implemented but need production validation, UX hardening, or broader tests. **Scaffold** features have routes, UI, or models present but must not be described as production-ready until cloud/provider execution is verified.
 
 **Problem:** Organizations migrating to Azure spend weeks manually mapping source architecture to Azure services. This process is error-prone, requires deep multi-cloud expertise, and lacks tooling for interactive refinement.
 
-**Solution:** Keep the core migration workflow fast and reviewable: upload or select a sample diagram, analyze it with Azure OpenAI, map services against the catalog, capture migration constraints, generate IaC/HLD/cost artifacts, and export a package for human review. Enterprise modules continue behind explicit beta/scaffold labeling until scanner, deploy, SSO/SCIM, drift, and billing paths meet production gates.
+**Solution:** Keep the core migration workflow fast, free, and reviewable: upload or select a sample diagram, analyze it with Azure OpenAI, map services against the catalog, capture migration constraints, generate IaC/HLD/cost artifacts, and export a package for human review. Enterprise modules continue behind explicit beta/scaffold labeling until scanner, deploy, SSO/SCIM, and drift paths meet production gates.
 
 ### 1.1 Capability Maturity
 
@@ -22,7 +22,7 @@ The PRD distinguishes three maturity levels. **Live** features are usable in the
 |----------|--------------|
 | Live | Diagram upload, sample playground, service mapping, guided questions, IaC/HLD/report export, cost estimates, service catalog, admin analytics, auth shell, API versioning, CI/security gates |
 | Beta | RAG, Agent PaaS proof, cost/token observability, collaboration, migration gallery, migration replay, Terraform state import, multi-cloud cost comparison, social auth/RBAC |
-| Scaffold | Live cloud scanner, credential vault, deploy engine, SSO/SAML/SCIM production validation, Stripe billing |
+| Scaffold | Live cloud scanner, credential vault, deploy engine, SSO/SAML/SCIM production validation |
 | Beta/Hardening | Living architecture/drift baselines, admin release gates, release evidence, dependency/security remediation workflow |
 | Planned | VS Code extension, PR-based IaC workflows, multi-diagram projects |
 
@@ -291,7 +291,7 @@ The PRD distinguishes three maturity levels. **Live** features are usable in the
 
 ### 3.40 Multi-Tenant Foundation (v3.0.0)
 - **Alembic migration 002** — 5 new tables: organizations, team_members, invitations, user_analyses, saved_diagrams
-- **Organization model** — slug, display_name, plan (FREE/PRO/ENTERPRISE), owner relationship
+- **Organization model** — slug, display_name, free access profile, owner relationship
 - **Team members** — role-based (admin/member/viewer) with invitation workflow
 - **User analysis history** — per-user tracking with source/target provider, service count, confidence scores
 - **Saved diagrams** — user bookmarks with diagram_data JSON storage
@@ -413,17 +413,14 @@ The PRD distinguishes three maturity levels. **Live** features are usable in the
 - **Container scanning** (v2.11.1) — Trivy vulnerability scan (CRITICAL/HIGH) on every deployment
 - **SBOM generation** (v2.11.1) — CycloneDX Bill of Materials for Python and npm dependencies (90-day retention)
 
-### 3.16 User Authentication & Quotas (v2.9)
+### 3.16 User Authentication & Usage Safeguards (v2.9)
 - **Azure AD B2C** — Enterprise SSO with JWT validation, JWKS caching, user persistence
 - **GitHub OAuth** — Developer-friendly authentication with email access
-- **Anonymous users** — IP-based tracking with free tier limits
-- **User tiers:**
-  - **Free:** 5 analyses, 3 IaC downloads, 2 HLD generations, 10 cost estimates, 3 share links per month
-  - **Pro:** 50 analyses, 30 IaC downloads, 20 HLD generations, 100 cost estimates, 50 share links per month
-  - **Enterprise:** Unlimited usage
-- **Quota enforcement** — Real-time usage tracking with upgrade prompts at low quota
+- **Anonymous users** — IP-based tracking with abuse-prevention limits
+- **Free customer access** — no paid tiers, subscription gates, billing setup, or customer payment required
+- **Usage safeguards** — Real-time usage tracking for fair use, abuse prevention, and capacity planning
 - **Session management** — Secure session tokens with TTL-based expiration
-- **Lead capture** — Optional email capture before gated actions (IaC download, HLD, share)
+- **Lead capture** — Optional email capture for follow-up and feedback, not paid unlocks
 - **Marketing consent** — GDPR-compliant opt-in for marketing communications
 
 ### 3.17 Migration Runbook Generator (v2.9)
@@ -593,7 +590,7 @@ The PRD distinguishes three maturity levels. **Live** features are usable in the
 |------|-------------|
 | Viewer | View projects, download exports |
 | Editor | Upload diagrams, run analysis, answer guided questions |
-| Admin | Manage team, API keys, billing, trigger service updates, access admin dashboard |
+| Admin | Manage team, API keys, service updates, and admin dashboard access |
 
 ### 5.3 API Key Management (Phase 3)
 - Keys scoped per project
@@ -642,7 +639,7 @@ The PRD distinguishes three maturity levels. **Live** features are usable in the
 | Max services per diagram | 50 | v1.0 |
 | Max services per project | 200 (across multiple diagrams) | v1.0 |
 | Concurrent analyses | 10 per user | v1.0 |
-| Data retention | 90 days (free), unlimited (paid) | v1.0 |
+| Data retention | 90 days by default, configurable for enterprise deployments | v1.0 |
 | **Accessibility** | WCAG 2.1 AA | v1.0 |
 | Guided question response | ≤2s per question set generation | v2.0 |
 | Diagram export | ≤5s for all formats | v2.0 |
@@ -840,7 +837,7 @@ The PRD distinguishes three maturity levels. **Live** features are usable in the
 | **v2.6 — Icon Registry & Security** | Done | Icon Registry (405 icons, 3 library formats, SVG sanitization, thread-safe, persistent, auto-load), security hardening (timing-safe auth, security headers, ZIP slip protection, XSS prevention, Dependabot), diagram export bridge to registry |
 | **v2.7 — NL Builder & Monitoring** | Done | Natural Language Service Builder (add Azure services via text after diagram analysis), Smart Question Deduplication (filters questions based on implicit user answers), E2E Monitoring (Azure Monitor + Application Insights health checks, automatic GitHub issue creation), enhanced test coverage (21 service builder tests, integration tests, E2E monitoring workflow) |
 | **v2.8 — UX & Insights** | Done | Sample diagrams for onboarding (4 pre-built AWS/GCP examples), WAF Best Practices Linter (5 pillars, 15+ rules), Cost Optimization recommendations (7 categories, RI/Spot/tiering), NPS & Feedback collection (surveys, feature ratings, bug reports), share links (24h TTL), question progress bar, Feedback Widget UI, 438 unit tests |
-| **v2.9 — Enterprise Security** | Done | Azure AD B2C authentication, GitHub OAuth, User tiers (Free/Pro/Enterprise), Usage quotas, Lead capture, Migration runbook generator (7 phases), Architecture versioning with restore, Terraform plan preview, Application analytics, Azure Monitor alerts & workbook |
+| **v2.9 — Enterprise Security** | Done | Azure AD B2C authentication, GitHub OAuth, free customer access safeguards, Lead capture, Migration runbook generator (7 phases), Architecture versioning with restore, Terraform plan preview, Application analytics, Azure Monitor alerts & workbook |
 | **v2.10 — AI Assistant & Roadmap** | Done | GPT-4o AI Assistant (natural language, context-aware), Product Roadmap UI (timeline from Day 0), Feature request system (GitHub integration), Bug report system (GitHub integration), Buy Me a Coffee support link |
 | **v2.11.0 — Admin & Analytics** | Done | JWT admin auth (HS256, 1h TTL, in-memory revocation), persistent analytics (Azure Blob Storage with background flush), conversion funnel, security headers middleware |
 | **v2.11.1 — UX Polish & Document Export** | Done | HLD export (DOCX/PDF/PPTX), 15 UX improvements, CI/CD security (Semgrep SAST, Gitleaks secret detection, Trivy container scan, CycloneDX SBOM), Python 3.11+3.12 matrix testing, 747 tests in 30 files across 82 endpoints |
@@ -859,7 +856,7 @@ The PRD distinguishes three maturity levels. **Live** features are usable in the
 | **v3.8.1 — UX Polish & Bug Bash** | Done | Fix HLD generation 500 crashes, recover missing Map layers, unblock IaC dynamic modifications, populate Coming Soon tab, and Drift Alpha warnings |
 | **v3.9.0 — AI Upgrade & Architecture Map** | Done | GPT-4.1 with 32K output tokens, interactive Architecture Map (dagre layout, confidence rings, effort badges, typed edges, zone grouping, MiniMap), email notifications via Azure Communication Services, IaC diff highlighting, parallel IaC+HLD generation, limitations UX redesign, Deploy/Drift Coming Soon overlays |
 | **v4.0 — Platform Maturity** | Mixed | RAG, Agent PaaS proof, cost/token observability, AI mapping suggestions, migration timeline, service dependency graph, social auth, user profiles, RBAC/multi-tenant, PDF report export, and DevOps modernization are implemented/beta. Scanner/deploy paths remain hardening work. |
-| **v4.1 — Release Hardening** | Mixed | Drift baselines, admin release gate, post-deploy smoke, dependency/security remediation, release evidence, and warning cleanup are implemented. Live scanner/deploy execution, SSO/SCIM tenant validation, and billing remain scaffolded/operator-gated. |
+| **v4.1 — Release Hardening** | Mixed | Drift baselines, admin release gate, post-deploy smoke, dependency/security remediation, release evidence, and warning cleanup are implemented. Live scanner/deploy execution and SSO/SCIM tenant validation remain scaffolded/operator-gated. Customer billing is not part of the release path. |
 
 ---
 
@@ -918,7 +915,7 @@ The PRD distinguishes three maturity levels. **Live** features are usable in the
 | **Public API & webhooks** | Enterprise integrations (Slack, Teams, Jira) | Engineering | P2 | #259 |
 | **AI Agent PaaS** | Control/Runtime design with routing/memory/policy | Engineering | P1 | #319 |
 | **Live Cloud Discovery & Auto-Deploy** | End-to-end migration execution platform | Engineering | P1 | #321 |
-| **GitHub Actions reliability** | Keep CI billing/runners healthy; backend coverage, frontend lint, and frontend tests are hard gates | DevOps | High | #320 |
+| **GitHub Actions reliability** | Keep CI runners healthy; backend coverage, frontend lint, and frontend tests are hard gates | DevOps | High | #320 |
 
 ---
 
@@ -930,7 +927,7 @@ Identified by CEO Master + CTO Master cross-functional review with all agent hie
 
 | # | Gap | Priority | Business Impact | Owner | SP |
 |---|-----|----------|----------------|-------|----|
-| S1 | Billing intentionally deferred | P0 | No production billing in current release scope; free/preview positioning remains explicit | CRO + Backend | 5 |
+| S1 | Free access positioning | P0 | No production billing in current release scope; 100% free customer positioning remains explicit | CRO + Backend | 5 |
 | S2 | Self-serve onboarding funnel with product analytics | P0 | No funnel metrics = blind PLG motion | PM + FE | 8 |
 | S3 | Interactive demo / playground (no sign-up) | P0 | PLG requires zero-friction try-it-now | UX + FE | 5 |
 | S4 | Customer testimonials / case study framework | P1 | Zero social proof for investors | CRO + PM | 3 |
