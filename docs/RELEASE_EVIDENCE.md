@@ -52,4 +52,4 @@ This file records production readiness evidence for release checkpoints. Keep se
 - Compose overlay: `docker-compose.parity.yml` starts the backend with `ENVIRONMENT=production`, `ENFORCE_POSTGRES=true`, `REQUIRE_REDIS=true`, PostgreSQL via `DATABASE_URL`, Redis via `REDIS_URL`, and Gunicorn/Uvicorn workers.
 - Guard tests: `backend/tests/test_production_parity.py` verifies enforced PostgreSQL readiness, enforced Redis readiness, and fail-closed behavior when either guard is misconfigured.
 - Validation: `/Users/idokatz/VSCode/Archmorph/backend/.venv/bin/python -m ruff check backend/tests/test_production_parity.py` passed.
-- Validation: `/Users/idokatz/VSCode/Archmorph/backend/.venv/bin/python -m pytest tests/test_database.py tests/test_session_store.py tests/test_production_parity.py -q --no-cov` passed with `45` tests.
+- Validation: `/Users/idokatz/VSCode/Archmorph/backend/.venv/bin/python -m pytest backend/tests/test_database.py backend/tests/test_session_store.py backend/tests/test_production_parity.py -q --no-cov` passed with `45` tests.

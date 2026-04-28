@@ -133,7 +133,7 @@ npm run dev
 
 **Docker Compose (full stack):**
 ```bash
-docker-compose up -d   # PostgreSQL 16 + Redis 7 + Backend + Frontend
+docker compose up -d   # PostgreSQL 16 + Redis 7 + Backend + Frontend
 ```
 
 **Production-parity local guard mode:**

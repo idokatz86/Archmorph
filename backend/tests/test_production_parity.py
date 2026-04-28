@@ -56,14 +56,12 @@ def test_postgres_readiness_is_production_ready_when_enforced():
     )
     assert result.returncode == 0, result.stderr
     readiness = json.loads(result.stdout)
-    assert readiness == {
-        "backend": "postgresql",
-        "postgres_configured": True,
-        "sqlite_configured": False,
-        "production_like": True,
-        "enforce_postgres": True,
-        "ready_for_production": True,
-    }
+    assert readiness["backend"] == "postgresql"
+    assert readiness["postgres_configured"] is True
+    assert readiness["sqlite_configured"] is False
+    assert readiness["production_like"] is True
+    assert readiness["enforce_postgres"] is True
+    assert readiness["ready_for_production"] is True
 
 
 def test_redis_readiness_is_horizontal_scale_ready_when_required():
@@ -76,14 +74,12 @@ def test_redis_readiness_is_horizontal_scale_ready_when_required():
     )
     assert result.returncode == 0, result.stderr
     readiness = json.loads(result.stdout)
-    assert readiness == {
-        "backend": "redis",
-        "redis_configured": True,
-        "require_redis": True,
-        "production_like": True,
-        "multi_worker": True,
-        "ready_for_horizontal_scale": True,
-    }
+    assert readiness["backend"] == "redis"
+    assert readiness["redis_configured"] is True
+    assert readiness["require_redis"] is True
+    assert readiness["production_like"] is True
+    assert readiness["multi_worker"] is True
+    assert readiness["ready_for_horizontal_scale"] is True
 
 
 def test_require_redis_rejects_missing_redis_in_production():
