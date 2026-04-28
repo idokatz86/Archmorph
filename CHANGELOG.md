@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Refreshed README, PRD, architecture diagram, and application flow diagram for the April 28 release-hardening checkpoint, including React/Vite versions, test counts, drift baselines, admin release gates, post-deploy smoke, and gated scanner/deploy posture.
 - Captured release evidence for the green `904132a592a1e9744a6a98ab54ddaa56c7f91059` dependency/security checkpoint.
 - Added drift baselines with compare history, deterministic finding IDs, finding accept/reject decisions, and Markdown report export.
 - Wired the Drift dashboard to create a baseline, rerun live/sample compares, resolve findings, and download drift reports.

@@ -1,7 +1,7 @@
 # Archmorph — Cloud Architecture Translator to Azure
 ## Product Requirements Document (PRD)
 **Version:** 4.1.0
-**Date:** March 24, 2026
+**Date:** April 28, 2026
 **Author:** Ido Katz
 
 ---
@@ -22,7 +22,8 @@ The PRD distinguishes three maturity levels. **Live** features are usable in the
 |----------|--------------|
 | Live | Diagram upload, sample playground, service mapping, guided questions, IaC/HLD/report export, cost estimates, service catalog, admin analytics, auth shell, API versioning, CI/security gates |
 | Beta | RAG, Agent PaaS proof, cost/token observability, collaboration, migration gallery, migration replay, Terraform state import, multi-cloud cost comparison, social auth/RBAC |
-| Scaffold | Live cloud scanner, credential vault, deploy engine, SSO/SAML/SCIM, living architecture/drift, Stripe billing |
+| Scaffold | Live cloud scanner, credential vault, deploy engine, SSO/SAML/SCIM production validation, Stripe billing |
+| Beta/Hardening | Living architecture/drift baselines, admin release gates, release evidence, dependency/security remediation workflow |
 | Planned | VS Code extension, PR-based IaC workflows, multi-diagram projects |
 
 ---
@@ -658,7 +659,7 @@ The PRD distinguishes three maturity levels. **Live** features are usable in the
 
 | Layer | Technology |
 |-------|------------|
-| Frontend | React 19.1, Vite 7.3, TailwindCSS 4.2, Lucide React (icons), Prism.js (syntax highlighting), react-i18next (i18n) |
+| Frontend | React 19.2, Vite 8.0, TailwindCSS 4.2, Lucide React (icons), Prism.js (syntax highlighting), react-i18next (i18n) |
 | Backend | Python 3.12, FastAPI, Gunicorn (UvicornWorker) |
 | AI | Azure OpenAI GPT-4.1 (deployment `gpt-4.1`, model 2025-04-14) with GPT-4o fallback |
 | Database | PostgreSQL (Azure Flexible Server) |
@@ -670,7 +671,7 @@ The PRD distinguishes three maturity levels. **Live** features are usable in the
 | Diagram Export | In-process engine (Excalidraw, Draw.io, Visio with 36 Azure stencils + 405-icon registry fallback) |
 | Pricing | Azure Retail Prices API with 30-day disk cache (134 service entries, 56 aliases, targeted queries) |
 | IaC | Terraform (infra), Bicep + CloudFormation support in-app |
-| Testing | pytest (backend, 1653+ tests in 35+ files), E2E flow test (65 steps across 5 diagrams), Playwright (35+ browser tests), integration tests, contract tests (56), chaos tests (26), coverage gap tests (46), middleware tests (55), pre-commit hooks (ruff, eslint, prettier) |
+| Testing | pytest (1554 backend tests), Vitest (262 frontend tests), Playwright smoke (17 browser tests), integration tests, contract tests, chaos tests, coverage gap tests, middleware tests, pre-commit hooks (ruff, eslint, prettier) |
 | Best Practices | In-process WAF linter (5 pillars, 15+ rules, quick wins, pillar scores) |
 | Cost Optimizer | In-process engine (7 categories, RI/Spot/tiering/auto-shutdown recommendations) |
 | Feedback | In-process NPS/feature/bug collection (30-day trend, admin dashboard) |
@@ -686,7 +687,7 @@ The PRD distinguishes three maturity levels. **Live** features are usable in the
 | NL Service Builder | In-process GPT-4o engine (fuzzy Azure service matching, alias support, confidence scoring) |
 | Smart Question Dedup | In-process engine (implicit answer detection, smart defaults from analysis) |
 | E2E Monitoring | GitHub Actions workflow (Azure Monitor + App Insights health checks, auto GitHub issue creation) |
-| Living Architecture | In-process engine (5-dimension health scoring, drift detection, cost anomaly alerts, registration API) |
+| Living Architecture | In-process engine (saved drift baselines, compare history, finding decisions, Markdown reports; live scanner validation still gated) |
 | Migration Intelligence | In-process engine (anonymous event pipeline, community confidence scoring, 18 seed patterns, trending analysis) |
 | White-Label SDK | In-process engine (config-driven branding, partner API keys, embeddable widgets, 7 color tokens) |
 | Authentication | In-process (Azure AD B2C JWT validation, GitHub OAuth, session tokens, usage quotas) |
@@ -858,6 +859,7 @@ The PRD distinguishes three maturity levels. **Live** features are usable in the
 | **v3.8.1 — UX Polish & Bug Bash** | Done | Fix HLD generation 500 crashes, recover missing Map layers, unblock IaC dynamic modifications, populate Coming Soon tab, and Drift Alpha warnings |
 | **v3.9.0 — AI Upgrade & Architecture Map** | Done | GPT-4.1 with 32K output tokens, interactive Architecture Map (dagre layout, confidence rings, effort badges, typed edges, zone grouping, MiniMap), email notifications via Azure Communication Services, IaC diff highlighting, parallel IaC+HLD generation, limitations UX redesign, Deploy/Drift Coming Soon overlays |
 | **v4.0 — Platform Maturity** | Mixed | RAG, Agent PaaS proof, cost/token observability, AI mapping suggestions, migration timeline, service dependency graph, social auth, user profiles, RBAC/multi-tenant, PDF report export, and DevOps modernization are implemented/beta. Scanner/deploy paths remain hardening work. |
+| **v4.1 — Release Hardening** | Mixed | Drift baselines, admin release gate, post-deploy smoke, dependency/security remediation, release evidence, and warning cleanup are implemented. Live scanner/deploy execution, SSO/SCIM tenant validation, and billing remain scaffolded/operator-gated. |
 
 ---
 

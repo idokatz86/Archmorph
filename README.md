@@ -10,7 +10,7 @@ Translate AWS and GCP architecture diagrams into Azure-ready migration artifacts
 ![Status](https://img.shields.io/badge/status-Preview%20Stabilizing-F59E0B.svg)
 ![Tests](https://img.shields.io/badge/tests-CI%20Enforced-22C55E.svg)
 ![Python](https://img.shields.io/badge/python-3.12-3776AB.svg)
-![React](https://img.shields.io/badge/react-19.1-61DAFB.svg)
+![React](https://img.shields.io/badge/react-19.2-61DAFB.svg)
 ![Vibe Coding](https://img.shields.io/badge/built_with-Vibe_Coding-FF69B4.svg)
 
 
@@ -146,7 +146,7 @@ docker-compose up -d   # PostgreSQL 16 + Redis 7 + Backend + Frontend
 flowchart TB
     subgraph Azure["☁️ Azure Cloud"]
         subgraph Frontend["Static Web Apps"]
-            UI[React 19 + Vite 7.3<br/>TailwindCSS + Zustand]
+            UI[React 19.2 + Vite 8.0<br/>TailwindCSS + Zustand]
         end
         
         WAF[Azure Front Door<br/>WAF / OWASP CRS 3.2]
@@ -167,24 +167,24 @@ flowchart TB
                 MigIntel[Migration Intelligence<br/>ML Pattern Matching]
                 MigTimeline[Migration Timeline<br/>7-Phase DAG + Topo Sort]
                 InfraImport[Infra Import<br/>TF/ARM/CFN]
-                Living[Living Architecture<br/>Drift Detection]
+                Living[Living Architecture<br/>Drift Baselines]
                 CostComp[Cost Comparison<br/>Cross-Cloud Analysis]
                 CostOpt[Cost Optimizer<br/>Savings Recommendations]
                 CostMeter[Cost Metering<br/>Token/Budget Tracking]
                 RAG[RAG Pipeline<br/>Ingest/Embed/Search]
                 AgentPaaS[Agent PaaS<br/>ReAct Execution]
                 ReportGen[PDF Report<br/>6-Section Export]
-                Scanner[Cloud Scanner<br/>AWS/Azure/GCP Live]
+                Scanner[Cloud Scanner<br/>Scaffold / gated]
                 CredVault[Credential Vault<br/>AES-256 + 1hr TTL]
-                DeployEng[Deploy Engine<br/>Preview + Execute]
-                SSO[SSO / SAML / SCIM<br/>Enterprise Auth]
+                DeployEng[Deploy Engine<br/>Preview + gated execute]
+                SSO[SSO / SAML / SCIM<br/>Tenant validation gated]
                 Collab[Collaboration<br/>Real-Time Sessions]
                 Replay[Migration Replay<br/>Animated Timeline]
                 Gallery[Migration Gallery<br/>Public Stories]
                 TFImport[TF State Import<br/>tfstate/ARM/CF]
                 MultiCost[Multi-Cloud Cost<br/>3-Cloud TCO]
                 Analytics[Product Analytics<br/>Funnel Tracking]
-                Billing[Stripe Billing<br/>Metered Usage]
+                Billing[Stripe Billing<br/>Scaffold / gated]
             end
             ErrorEnv[Error Envelope<br/>Middleware]
             FeatureFlags[Feature Flags<br/>% rollout + targeting]
@@ -259,8 +259,8 @@ flowchart TB
 
 | Component | Technology | Azure Service |
 |-----------|------------|---------------|
-| Frontend | React 19.1, Vite 7.3, TailwindCSS 4.2, Zustand, Lucide React | Static Web Apps |
-| Backend API | Python 3.12, FastAPI 0.128, Gunicorn + Uvicorn | Container Apps |
+| Frontend | React 19.2, Vite 8.0, TailwindCSS 4.2, Zustand, Lucide React | Static Web Apps |
+| Backend API | Python 3.12, FastAPI, Gunicorn + Uvicorn | Container Apps |
 | AI Engine | GPT-4.1 (vision + chat) with GPT-4o fallback | Azure OpenAI |
 | Container Registry | Docker | Azure Container Registry |
 | Database | PostgreSQL 16 | Flexible Server |
@@ -299,18 +299,18 @@ flowchart TB
 | Job Queue + SSE | Background task processing with Server-Sent Events | In-process |
 | API Versioning | v1 prefix mirror for all routes | Middleware |
 | WAF | OWASP CRS 3.2 | Azure Front Door Premium |
-| Testing | pytest (1446 tests) + Vitest + Playwright E2E | CI/CD |
-| Cloud Scanner | AWS/Azure/GCP live infra scanner | In-process engine |
-| Credential Vault | AES-256 encrypted, 1hr TTL, zero-persist | In-process engine |
-| Deploy Engine | Preview (plan/what-if) + execute + rollback | In-process engine |
-| SSO / SAML / SCIM | SAML 2.0 ACS + SCIM v2.0 provisioning | Middleware |
+| Testing | pytest (1554 tests) + Vitest (262 tests) + Playwright smoke (17 tests) | CI/CD |
+| Cloud Scanner | AWS/Azure/GCP scanner scaffold, gated before tenant use | In-process engine |
+| Credential Vault | AES-256 encrypted, 1hr TTL, zero-persist scaffold | In-process engine |
+| Deploy Engine | Preview (plan/what-if) + operator-gated execute/rollback scaffold | In-process engine |
+| SSO / SAML / SCIM | SAML 2.0 ACS + SCIM v2.0 provisioning, pending tenant validation | Middleware |
 | Collaboration | Real-time multi-stakeholder sessions | In-process engine |
 | Migration Replay | Animated analysis timeline playback | In-process engine |
 | Migration Gallery | Public anonymized success stories | In-process engine |
 | TF State Import | tfstate/ARM/CF → architecture diagrams | In-process engine |
 | Multi-Cloud Cost | Side-by-side Azure/AWS/GCP TCO | In-process engine |
 | Product Analytics | PostHog + backend funnel tracking | In-process engine |
-| Stripe Billing | Metered usage billing + quotas | In-process engine |
+| Stripe Billing | Metered usage billing + quotas scaffold | In-process engine |
 
 > 📐 **Detailed Diagrams:** [architecture.excalidraw](docs/architecture.excalidraw) | [application-flow.excalidraw](docs/application-flow.excalidraw) — Open in [Excalidraw](https://excalidraw.com)
 
@@ -325,7 +325,7 @@ flowchart LR
     subgraph Input["Phase 1: Input"]
         A1[📤 Upload Diagram<br/>PNG/SVG/PDF/Draw.io/Visio]
         A2[📥 Import IaC<br/>TF State / ARM / CF]
-        A3[🔍 Live Cloud Scan<br/>AWS / Azure / GCP]
+        A3[🔍 Cloud Scan Scaffold<br/>AWS / Azure / GCP]
         A4[🎮 Demo Playground<br/>Sample Diagrams]
         A5[🤖 AI Vision Analysis<br/>GPT-4.1 + Cache]
     end
@@ -342,7 +342,7 @@ flowchart LR
         C1[📝 IaC Code<br/>Terraform/Bicep/CF]
         C2[📄 HLD Document<br/>13 Sections + WAF]
         C3[💰 Cost Analysis<br/>3-Cloud TCO Compare]
-        C4[🚀 One-Click Deploy<br/>Preview + Execute]
+        C4[🚀 Deploy Scaffold<br/>Preview + Execute gated]
         C5[📐 Diagram Export<br/>Excalidraw/Draw.io/Visio]
         C6[📑 PDF Report<br/>6-Section Branded]
         C7[📅 Timeline<br/>7-Phase Migration]
@@ -382,7 +382,7 @@ Input (Upload / Scan / Import) → AI Analysis → Guided Questions → Collabor
 **Phase 1 — Input** (choose one or more entry points):
 1. **Upload Diagram** — PNG, JPG, SVG, PDF, Draw.io (.drawio), or Visio (.vsdx) architecture diagram
 2. **Import IaC** — Upload existing Terraform state (v3/v4), CloudFormation template, or ARM deployment JSON
-3. **Live Cloud Scan** — Connect to AWS/Azure/GCP with secure credentials (AES-256, 1hr TTL) and scan live infrastructure
+3. **Cloud scan scaffold** — Connectors and credential-handling model exist, but live tenant scanning stays gated until provider validation is complete
 4. **Demo Playground** — Try with sample diagrams, no sign-up required
 5. **AI Vision Analysis** — GPT-4.1 detects services, connections, and annotations (with TTL cache)
 
@@ -397,7 +397,7 @@ Input (Upload / Scan / Import) → AI Analysis → Guided Questions → Collabor
 11. **IaC Code** — Terraform HCL, Bicep, or CloudFormation with security scanning and IaC Chat assistant
 12. **HLD Document** — 13-section AI-generated design document with WAF assessment, export as DOCX/PDF/PPTX
 13. **Cost Analysis** — Side-by-side Azure vs AWS vs GCP TCO with optimization recommendations
-14. **One-Click Deploy** — Preview (plan/what-if) and execute deployment to any target cloud with rollback
+14. **Deploy scaffold** — Preview (plan/what-if) and execute paths are feature-gated and require operator review before tenant use
 15. **Diagram Export** — Download as Excalidraw, Draw.io, or Visio with cloud-specific stencils
 16. **PDF Report** — 6-section branded analysis report
 17. **Migration Timeline** — 7-phase plan with topological dependency ordering and parallel workstreams
@@ -594,15 +594,15 @@ Dynamic pricing powered by the [Azure Retail Prices API](https://prices.azure.co
 | Suite | Framework | Tests | Command |
 |-------|-----------|-------|---------|
 | Backend unit | pytest | 76 files | `cd backend && python -m pytest --tb=short -q -n auto --dist loadfile --cov=. --cov-report=term-missing --cov-config=.coveragerc --cov-context=test --cov-fail-under=63` |
-| Frontend unit | Vitest | 261 | `cd frontend && npx vitest run` |
-| E2E | Playwright | 3 | `npx playwright test` |
+| Frontend unit | Vitest | 262 | `cd frontend && npx vitest run` |
+| Browser smoke | Playwright | 17 | `npx playwright test` |
 | Frontend lint | ESLint | hard gate | `cd frontend && npm run lint` |
 
 ### Coverage
 
 - **76 backend test files** covering the translation flow, analytics, auth/RBAC, RAG/Agent PaaS proof paths, policies, models, and property-based checks
-- **261 frontend Vitest tests** covering component rendering, navigation, storage/session behavior, and interaction contracts
-- **3 Playwright E2E tests** covering golden-path UI flows
+- **262 frontend Vitest tests** covering component rendering, navigation, storage/session behavior, and interaction contracts
+- **17 Playwright smoke tests** covering golden-path UI flows, React Flow canvas behavior, and critical accessibility checks
 - CI now treats backend coverage, frontend lint, and frontend tests as hard gates. Previously ignored backend tests are included.
 
 ---
@@ -736,7 +736,7 @@ Archmorph/
 │   │   ├── gcp_services.py          # 117 GCP services
 │   │   ├── mappings.py              # 122 cross-cloud mappings
 │   │   └── azure_pricing.py         # Azure Retail Prices API + cache
-│   ├── tests/                       # 70+ test files, 1446 tests
+│   ├── tests/                       # 70+ test files, 1554 tests
 │   ├── Dockerfile
 │   └── requirements.txt
 ├── e2e/
@@ -859,7 +859,7 @@ See [docs/DEPLOYMENT_COSTS.md](docs/DEPLOYMENT_COSTS.md) for full breakdown.
 | v3.8.0 — Complete Migration Flow | Done | Migration package ZIP export (IaC + HLD + costs), before/after architecture visualization, guided onboarding tour, CI coverage gate (60%), stale bot, migration Q&A chat advisor |
 | v3.8.1 — UX Polish & Bug Bash | Done | Fix HLD generation 500 crashes, recover missing Map layers, unblock IaC dynamic modifications, populate Coming Soon tab, and Drift Alpha warnings |
 | v4.0.0 — Platform Scale | Done | RAG pipeline, AI Agent PaaS PoC, cost/token observability, AI mapping auto-suggestions, migration timeline generator, service dependency graph, social auth, user profiles, RBAC/multi-tenant, PDF report export, DevOps modernization (uv, Trivy, Helm) |
-| v4.1.0 — Enterprise & Collaboration Preview | Mixed | Product analytics, UX Wave 1/2, Terraform import, replay/gallery/collaboration, RAG/Agent PaaS, and cost observability are implemented or beta. Live scanner, deploy engine, credential vault, SSO/SCIM, drift, and Stripe billing remain scaffolded/hardening work. |
+| v4.1.0 — Enterprise & Collaboration Preview | Mixed | Product analytics, UX Wave 1/2, Terraform import, replay/gallery/collaboration, RAG/Agent PaaS, cost observability, drift baselines, admin release gates, and security evidence are implemented or beta. Live scanner, deploy engine, credential vault, SSO/SCIM production validation, and Stripe billing remain scaffolded/hardening work. |
 | v5.0 — Next | Planned | VS Code extension, Pulumi/CDK output, multi-diagram projects, GitHub/GitLab IaC PR integration |
 
 ---
