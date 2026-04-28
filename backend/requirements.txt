@@ -47,7 +47,7 @@ lxml>=6.1.0
 pyasn1>=0.6.3
 pygments>=2.20.0
 pypdf>=6.10.2
-requests>=2.33.0
+requests>=2.33.1
 
 # RAG pipeline dependencies (Issue #395)
 pdfplumber>=0.11.0
