@@ -136,6 +136,13 @@ npm run dev
 docker-compose up -d   # PostgreSQL 16 + Redis 7 + Backend + Frontend
 ```
 
+**Refresh the API contract snapshot after intentional backend route/schema changes:**
+```bash
+cd backend
+python export_openapi.py > openapi.snapshot.json
+python check_openapi_contract.py
+```
+
 ---
 
 ## Architecture

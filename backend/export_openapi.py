@@ -14,8 +14,11 @@ and schema drift detection.
 """
 
 import json
-import sys
 import os
+import sys
+import warnings
+from contextlib import redirect_stdout
+from io import StringIO
 
 # Ensure backend modules are importable
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -25,13 +28,17 @@ os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
 os.environ.setdefault("LOG_LEVEL", "ERROR")
 os.environ.setdefault("DATABASE_URL", "sqlite:///./openapi_export.db")
 
-from main import app  # noqa: E402
+warnings.filterwarnings("ignore", message="Duplicate Operation ID.*")
+
+with redirect_stdout(StringIO()):
+    from main import app  # noqa: E402
 
 
 def export_schema():
     """Export the OpenAPI schema from the FastAPI app."""
-    schema = app.openapi()
-    return json.dumps(schema, indent=2, ensure_ascii=False)
+    with redirect_stdout(StringIO()):
+        schema = app.openapi()
+    return json.dumps(schema, indent=2, ensure_ascii=False, sort_keys=True)
 
 
 if __name__ == "__main__":

@@ -79,6 +79,9 @@ jobs:
       - name: Export OpenAPI schema
         run: python export_openapi.py > openapi.json
 
+      - name: Check OpenAPI contract snapshot
+        run: python check_openapi_contract.py
+
       - name: Upload OpenAPI schema
         uses: actions/upload-artifact@v4
         with:
