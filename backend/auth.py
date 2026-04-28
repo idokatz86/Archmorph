@@ -73,6 +73,12 @@ class UserTier(str, Enum):
     TEAM = "team"
     ENTERPRISE = "enterprise"
 
+    @classmethod
+    def _missing_(cls, value):
+        if value == "pro":
+            return cls.TEAM
+        return cls.FREE
+
 
 @dataclass
 class UsageQuota:

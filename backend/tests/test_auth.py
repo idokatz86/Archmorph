@@ -2,12 +2,15 @@
 Tests for Authentication Module
 """
 
+from datetime import datetime, timedelta, timezone
+
+import jwt
 
 from auth import (
     User, AuthProvider, UserTier, UsageQuota,
     get_anonymous_user, generate_session_token, get_user_from_session,
     capture_lead, get_leads_summary, is_auth_enabled, get_auth_config,
-    LEAD_STORE,
+    LEAD_STORE, JWT_ALGORITHM, JWT_SECRET,
 )
 
 
@@ -120,6 +123,27 @@ class TestSessionManagement:
         retrieved = get_user_from_session(token)
         assert retrieved is not None
         assert retrieved.id == user.id
+
+    def test_get_user_from_legacy_pro_session(self):
+        now = datetime.now(timezone.utc)
+        token = jwt.encode(
+            {
+                "sub": "legacy-pro-user",
+                "email": "legacy@example.com",
+                "provider": "github",
+                "tier": "pro",
+                "iat": now,
+                "exp": now + timedelta(hours=1),
+                "type": "access",
+            },
+            JWT_SECRET,
+            algorithm=JWT_ALGORITHM,
+        )
+
+        retrieved = get_user_from_session(token)
+
+        assert retrieved is not None
+        assert retrieved.tier == UserTier.TEAM
     
     def test_invalid_session_token(self):
         result = get_user_from_session("invalid-token")
