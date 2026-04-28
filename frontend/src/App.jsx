@@ -59,9 +59,12 @@ export default function App() {
   useEffect(() => {
     const controller = new AbortController();
     fetchUpdateStatus(controller.signal);
-    trackPageView(activeTab);
     return () => controller.abort();
   }, [fetchUpdateStatus]);
+
+  useEffect(() => {
+    trackPageView(activeTab);
+  }, [activeTab]);
 
   useEffect(() => () => clearTimeout(tapTimer.current), []);
 

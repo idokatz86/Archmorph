@@ -32,7 +32,7 @@ export default function IaCViewer({
   iacChatOpen, iacChatMessages, iacChatInput, iacChatLoading,
   iacChatEndRef, iacChatInputRef,
   onCopyWithFeedback, onToggleChat, onOpenChatWithMessage,
-  onResetChat, onSendChat, onSetChatInput,
+  onResetChat, onSendChat, onSetChatInput, onDownload,
 }) {
   // Compute which lines are new/changed compared to previous version
   const changedLineSet = useMemo(() => {
@@ -87,6 +87,7 @@ export default function IaCViewer({
               const a = document.createElement('a');
               a.href = url; a.download = iacFormat === 'terraform' ? 'main.tf' : iacFormat === 'cloudformation' ? 'template.yaml' : (iacFormat === 'pulumi' || iacFormat === 'aws-cdk') ? 'index.ts' : 'main.bicep'; a.click();
               URL.revokeObjectURL(url);
+              onDownload?.();
             }} variant="secondary" size="sm" icon={Download}>Download</Button>
             <Button onClick={() => {
               const repo = prompt('Enter GitHub repo (owner/repo):');
