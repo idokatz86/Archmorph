@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { LockKeyhole } from 'lucide-react';
 import api from '../../services/apiClient';
 
 // Helper component for Code Block with Copy
@@ -337,7 +338,7 @@ export function CloudCredentialsModal({ provider, onClose, onSuccess }) {
 
             <div className="mt-8 pt-6 border-t border-slate-100">
               <div className="mb-4 flex items-start text-xs text-slate-600 bg-slate-50 p-3 rounded">
-                <span className="mr-2 text-base leading-none">🔒</span>
+                <LockKeyhole className="mr-2 mt-0.5 h-4 w-4 shrink-0 text-slate-500" aria-hidden="true" />
                 <p>
                   <strong>Read-only access.</strong> Archmorph only requires read access to scan infrastructure states. We never request write permissions. All credentials are encrypted at rest using AES-256 and never shared.
                 </p>

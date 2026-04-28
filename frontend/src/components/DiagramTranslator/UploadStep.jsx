@@ -1,13 +1,13 @@
 import React from 'react';
-import { Upload, FileText, X } from 'lucide-react';
+import { Upload, FileText, X, Building2, Globe2, Boxes, Network } from 'lucide-react';
 import { Badge, Button, Card } from '../ui';
 import { ContextualHint } from '../OnboardingTour';
 
 const SAMPLES = [
-  { id: 'aws-hub-spoke', name: 'Hub & Spoke', icon: '🏛️', desc: 'Secure Landing Zone', provider: 'aws' },
-  { id: 'aws-iaas', name: 'Classic Web App', icon: '🌐', desc: 'Basic 3-tier Architecture', provider: 'aws' },
-  { id: 'aws-eks', name: 'Microservices', icon: '🐳', desc: 'EKS Containerized App', provider: 'aws' },
-  { id: 'gcp-gke', name: 'GKE Cluster', icon: '⚡', desc: 'Scalable K8s Platform', provider: 'gcp' }
+  { id: 'aws-hub-spoke', name: 'Hub & Spoke', icon: Building2, desc: 'Secure Landing Zone', provider: 'aws' },
+  { id: 'aws-iaas', name: 'Classic Web App', icon: Globe2, desc: 'Basic 3-tier Architecture', provider: 'aws' },
+  { id: 'aws-eks', name: 'Microservices', icon: Boxes, desc: 'EKS Containerized App', provider: 'aws' },
+  { id: 'gcp-gke', name: 'GKE Cluster', icon: Network, desc: 'Scalable K8s Platform', provider: 'gcp' }
 ];
 
 export default function UploadStep({
@@ -94,24 +94,32 @@ export default function UploadStep({
           <p className="text-sm text-text-secondary mb-4">Or try with a sample architecture:</p>
           <div className="grid grid-cols-2 gap-3">
             {SAMPLES.map(sample => (
-              <button
-                key={sample.id}
-                onClick={() => onLoadSample(sample)}
-                className={`p-3 rounded-lg bg-secondary hover:bg-secondary/80 transition-all text-left cursor-pointer border border-border hover:scale-[1.02] ${
-                  sample.provider === 'gcp' ? 'hover:border-[#EA4335]/50' : 'hover:border-[#FF9900]/50'
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  <span className="text-lg">{sample.icon}</span>
-                  <Badge variant={sample.provider}>{sample.provider.toUpperCase()}</Badge>
-                </div>
-                <p className="text-sm font-medium text-text-primary mt-1.5">{sample.name}</p>
-                <p className="text-xs text-text-muted">{sample.desc}</p>
-              </button>
+              <SampleButton key={sample.id} sample={sample} onLoadSample={onLoadSample} />
             ))}
           </div>
         </div>
       </div>
     </Card>
+  );
+}
+
+function SampleButton({ sample, onLoadSample }) {
+  const SampleIcon = sample.icon;
+  return (
+    <button
+      onClick={() => onLoadSample(sample)}
+      className={`p-3 rounded-lg bg-secondary hover:bg-secondary/80 transition-all text-left cursor-pointer border border-border hover:scale-[1.02] ${
+        sample.provider === 'gcp' ? 'hover:border-[#EA4335]/50' : 'hover:border-[#FF9900]/50'
+      }`}
+    >
+      <div className="flex items-center gap-2">
+        <span className="w-7 h-7 rounded-md bg-surface/70 flex items-center justify-center">
+          <SampleIcon className="w-4 h-4 text-cta" aria-hidden="true" />
+        </span>
+        <Badge variant={sample.provider}>{sample.provider.toUpperCase()}</Badge>
+      </div>
+      <p className="text-sm font-medium text-text-primary mt-1.5">{sample.name}</p>
+      <p className="text-xs text-text-muted">{sample.desc}</p>
+    </button>
   );
 }
