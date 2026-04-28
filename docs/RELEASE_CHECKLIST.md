@@ -4,7 +4,7 @@ Use this checklist before promoting a build to production or enabling scaffolded
 
 ## 1. Branch And Version
 
-- Release branch is `main` for production or `staging` for pre-production.
+- Release branch is `main` for production. Archmorph does not maintain a separate staging environment.
 - `frontend/src/constants.js` contains the intended `APP_VERSION`.
 - [CHANGELOG.md](../CHANGELOG.md) has an `[Unreleased]` entry describing the release.
 - Documentation reflects the actual feature maturity: `Live`, `Beta`, `Scaffold`, or `Planned`.
@@ -35,18 +35,13 @@ Application secrets:
 - `ACS_CONNECTION_STRING`
 - `ACS_SENDER_EMAIL`
 - `LOG_ANALYTICS_WORKSPACE_ID`
-- `DATABASE_URL` — PostgreSQL connection string for production/staging
+- `DATABASE_URL` — PostgreSQL connection string for production
 - `REDIS_HOST` or `REDIS_URL` — Redis-backed session/cache store for scaled deployments
 
 Production guard env vars:
 
 - `ENFORCE_POSTGRES=true`
 - `REQUIRE_REDIS=true`
-
-Staging-only overrides, when used:
-
-- `STAGING_RESOURCE_GROUP`
-- `STAGING_CONTAINER_APP_NAME`
 
 ## 3. Required Quality Gates
 

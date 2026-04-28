@@ -769,13 +769,13 @@ Archmorph/
 
 ## Deployment
 
-Deployment is automated through GitHub Actions for the configured staging/production branches. Keep cloud credentials and deployment values in GitHub Secrets; do not commit secrets or local `terraform.tfvars` values.
+Deployment is automated through GitHub Actions from `main` to production. Keep cloud credentials and deployment values in GitHub Secrets; do not commit secrets or local `terraform.tfvars` values.
 
 Before promoting a build, use the release checklist in [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md).
 
 Production hardening switches:
 
-- `DATABASE_URL` must point to PostgreSQL for production/staging; set `ENFORCE_POSTGRES=true` to fail startup if SQLite is accidentally configured.
+- `DATABASE_URL` must point to PostgreSQL for production; set `ENFORCE_POSTGRES=true` to fail startup if SQLite is accidentally configured.
 - `REDIS_HOST` or `REDIS_URL` should be configured for horizontal scale; set `REQUIRE_REDIS=true` to fail startup instead of falling back to local file-backed stores.
 - `FEATURE_FLAG_LIVE_CLOUD_SCANNER`, `FEATURE_FLAG_DEPLOY_ENGINE`, and `FEATURE_FLAG_ENTERPRISE_SSO_SCIM` default to disabled and must only be enabled after the admin release gate and tenant validation pass.
 - Billing remains disabled/out of scope for this release.
@@ -799,7 +799,7 @@ The CI/CD workflow (`.github/workflows/ci.yml`) runs the main quality gates:
 1. **backend-tests** — installs with `uv`, runs Ruff, executes pytest with coverage threshold, exports OpenAPI, generates backend SBOM, and runs Grype
 2. **frontend-build** — installs npm dependencies, runs ESLint, runs Vitest, builds Vite output, generates frontend SBOM, and runs Grype
 3. **upload-sarif** — uploads Grype SARIF when available without blocking successful builds on upload rate limits
-4. **deploy-staging / deploy-production** — branch-gated Azure Container Apps and Static Web Apps deployment using GitHub Secrets and OIDC
+4. **deploy-backend / deploy-frontend** — production Azure Container Apps and Static Web Apps deployment from `main` using GitHub Secrets and OIDC
 5. **post-deploy-smoke** — deployed frontend/API smoke checks for root, sample routes, health, and OpenAPI schema
 
 Additional workflows:

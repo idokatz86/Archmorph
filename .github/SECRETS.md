@@ -80,5 +80,5 @@ az staticwebapp secrets list --name YOUR_SWA_NAME --query properties.apiKey -o t
 - Never commit secrets to the repository
 - Use OIDC authentication instead of service principal secrets when possible
 - Rotate secrets periodically
-- Use environment-specific secrets for staging vs production
+- Use production GitHub environment secrets; Archmorph does not maintain a separate staging environment
 - The `SWA_DEPLOYMENT_TOKEN` is sensitive - regenerate if compromised

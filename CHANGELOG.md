@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Removed Archmorph's staging deployment path from GitHub Actions and updated release guidance for a production-only environment model.
 - Added server-side production gates and readiness metadata for live scanner, deployment execution/rollback, SSO/SCIM, Redis-backed session persistence, and PostgreSQL production parity; billing remains disabled/out of scope.
 - Refreshed README, PRD, architecture diagram, and application flow diagram for the April 28 release-hardening checkpoint, including React/Vite versions, test counts, drift baselines, admin release gates, post-deploy smoke, and gated scanner/deploy posture.
 - Captured release evidence for the green `904132a592a1e9744a6a98ab54ddaa56c7f91059` dependency/security checkpoint.
