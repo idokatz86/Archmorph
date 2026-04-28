@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Added an OpenAPI contract snapshot gate so backend route/schema drift fails CI unless the committed API baseline is updated intentionally.
+- Added a local production-parity Compose overlay plus guard tests for PostgreSQL/Redis enforcement without requiring a staging environment.
 - Consolidated the first-run product experience around the playground/migration review flow, fixed hash routing for all visible app tabs, and replaced remaining active emoji icons with Lucide icons.
 - Removed Archmorph's staging deployment path from GitHub Actions and updated release guidance for a production-only environment model.
 - Added server-side production gates and readiness metadata for live scanner, deployment execution/rollback, SSO/SCIM, Redis-backed session persistence, and PostgreSQL production parity; billing remains disabled/out of scope.

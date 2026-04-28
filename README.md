@@ -133,8 +133,16 @@ npm run dev
 
 **Docker Compose (full stack):**
 ```bash
-docker-compose up -d   # PostgreSQL 16 + Redis 7 + Backend + Frontend
+docker compose up -d   # PostgreSQL 16 + Redis 7 + Backend + Frontend
 ```
+
+**Production-parity local guard mode:**
+```bash
+docker compose -f docker-compose.yml -f docker-compose.parity.yml up --build
+```
+
+This overlay keeps everything local, but starts the backend with production-like persistence guards:
+`ENVIRONMENT=production`, `ENFORCE_POSTGRES=true`, `REQUIRE_REDIS=true`, PostgreSQL via `DATABASE_URL`, Redis via `REDIS_URL`, and Gunicorn/Uvicorn workers instead of the reload server.
 
 **Refresh the API contract snapshot after intentional backend route/schema changes:**
 ```bash
@@ -767,6 +775,7 @@ Archmorph/
 │   ├── architecture.excalidraw      # System architecture diagram
 │   └── application-flow.excalidraw  # Application flow diagram
 ├── docker-compose.yml               # Full-stack local development
+├── docker-compose.parity.yml        # Local production-parity overlay with Postgres/Redis guards
 ├── CONTRIBUTING.md
 ├── playwright.config.ts
 └── README.md
