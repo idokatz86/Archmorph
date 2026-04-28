@@ -52,7 +52,7 @@ requests>=2.33.0
 # RAG pipeline dependencies (Issue #395)
 pdfplumber>=0.11.0
 beautifulsoup4>=4.14.3
-numpy>=1.26.0
+numpy>=2.4.4
 
 # Test dependencies
 pytest>=9.0.3
