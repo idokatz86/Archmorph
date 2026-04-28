@@ -39,7 +39,9 @@ DATABASE_URL = os.getenv(
 
 # SQLite-specific: enable WAL mode for concurrent reads + write-ahead logging
 _IS_SQLITE = DATABASE_URL.startswith("sqlite")
+_IS_POSTGRES = DATABASE_URL.startswith(("postgresql://", "postgresql+psycopg://", "postgresql+asyncpg://"))
 _ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
+_ENFORCE_POSTGRES = os.getenv("ENFORCE_POSTGRES", "").lower() in ("1", "true", "yes")
 
 # Issue #287 — Warn loudly / fail if SQLite is used in production.
 # SQLite DB files are ephemeral in containerized deployments.
@@ -52,7 +54,7 @@ if _IS_SQLITE and _ENVIRONMENT in ("production", "prod", "staging"):
         _ENVIRONMENT,
     )
     # In strict mode, refuse to start with SQLite in production
-    if os.getenv("ENFORCE_POSTGRES", "").lower() in ("1", "true", "yes"):
+    if _ENFORCE_POSTGRES:
         raise RuntimeError(
             "ENFORCE_POSTGRES is set but DATABASE_URL points to SQLite. "
             "Set DATABASE_URL to a PostgreSQL connection string."
@@ -181,3 +183,24 @@ def drop_all() -> None:
 def get_engine():
     """Return the SQLAlchemy engine (for Alembic / advanced usage)."""
     return engine
+
+
+def database_backend() -> str:
+    """Return the configured database backend family."""
+    if _IS_SQLITE:
+        return "sqlite"
+    if _IS_POSTGRES:
+        return "postgresql"
+    return "other"
+
+
+def database_readiness() -> dict[str, object]:
+    """Return operator-facing database readiness metadata for release gates."""
+    return {
+        "backend": database_backend(),
+        "postgres_configured": _IS_POSTGRES,
+        "sqlite_configured": _IS_SQLITE,
+        "production_like": _ENVIRONMENT in ("production", "prod", "staging"),
+        "enforce_postgres": _ENFORCE_POSTGRES,
+        "ready_for_production": _IS_POSTGRES,
+    }

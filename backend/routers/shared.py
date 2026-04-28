@@ -99,8 +99,8 @@ SHARE_STORE = get_store("shares", maxsize=100, ttl=86400)
 _env = os.getenv("ENVIRONMENT", "development").lower()
 if _env in ("production", "prod", "staging") and not _redis_url:
     logger.warning(
-        "PRODUCTION WITHOUT REDIS: SESSION_STORE, IMAGE_STORE, SHARE_STORE are in-memory. "
-        "Data will be LOST on deploy/restart. Set REDIS_URL to fix. (#494)"
+        "PRODUCTION WITHOUT REDIS: SESSION_STORE, IMAGE_STORE, SHARE_STORE use file-backed local storage. "
+        "Data may be LOST on deploy/restart and will not scale across replicas. Set REDIS_URL or REDIS_HOST. (#494)"
     )
 
 # ─────────────────────────────────────────────────────────────

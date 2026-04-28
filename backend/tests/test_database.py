@@ -58,6 +58,12 @@ class TestDatabaseModule:
         except StopIteration:
             pass
 
+    def test_database_readiness_shape(self):
+        from database import database_readiness
+        readiness = database_readiness()
+        assert readiness["backend"] in {"sqlite", "postgresql", "other"}
+        assert "ready_for_production" in readiness
+
 
 # ─────────────────────────────────────────────────────────────
 # Model imports & table names

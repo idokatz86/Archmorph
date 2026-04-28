@@ -12,11 +12,12 @@ import secrets
 from typing import Any, Dict, List, Optional
 from xml.etree.ElementTree import Element, SubElement, tostring
 
-from fastapi import APIRouter, Header, Request
+from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from error_envelope import ArchmorphException
+from feature_flags import feature_flag_dependency, is_enabled
 from routers.shared import limiter
 from session_store import get_store
 
@@ -60,6 +61,25 @@ def _verify_scim_token(authorization: Optional[str]):
     token = authorization[7:]
     if not secrets.compare_digest(token, SCIM_BEARER_TOKEN):
         raise ArchmorphException(401, "Invalid SCIM bearer token")
+
+
+@router.get("/api/auth/sso/readiness")
+async def sso_readiness():
+    """Return SSO/SCIM readiness without exposing secrets."""
+    return {
+        "feature_enabled": is_enabled("enterprise_sso_scim"),
+        "saml": {
+            "configured": bool(SAML_ENTITY_ID and SAML_ACS_URL),
+            "entity_id_configured": bool(SAML_ENTITY_ID),
+            "acs_url_configured": bool(SAML_ACS_URL),
+            "idp_metadata_configured": bool(SAML_IDP_METADATA_URL),
+            "certificate_configured": bool(SAML_CERTIFICATE),
+        },
+        "scim": {
+            "configured": bool(SCIM_BEARER_TOKEN),
+            "bearer_token_configured": bool(SCIM_BEARER_TOKEN),
+        },
+    }
 
 
 # ─────────────────────────────────────────────────────────────
@@ -111,7 +131,10 @@ class SCIMUserPatch(BaseModel):
 # SAML Endpoints
 # ─────────────────────────────────────────────────────────────
 
-@router.post("/api/auth/saml/metadata")
+@router.post(
+    "/api/auth/saml/metadata",
+    dependencies=[Depends(feature_flag_dependency("enterprise_sso_scim"))],
+)
 @limiter.limit("10/minute")
 async def saml_metadata(request: Request):
     """Return SAML SP metadata as XML."""
@@ -144,7 +167,10 @@ async def saml_metadata(request: Request):
     return Response(content=xml_bytes, media_type="application/xml")
 
 
-@router.post("/api/auth/saml/acs")
+@router.post(
+    "/api/auth/saml/acs",
+    dependencies=[Depends(feature_flag_dependency("enterprise_sso_scim"))],
+)
 @limiter.limit("10/minute")
 async def saml_acs(request: Request):
     """SAML Assertion Consumer Service — process IdP response.
@@ -202,7 +228,10 @@ async def saml_acs(request: Request):
     }
 
 
-@router.post("/api/auth/saml/slo")
+@router.post(
+    "/api/auth/saml/slo",
+    dependencies=[Depends(feature_flag_dependency("enterprise_sso_scim"))],
+)
 @limiter.limit("10/minute")
 async def saml_slo(request: Request):
     """SAML Single Logout — process logout request/response from IdP."""
@@ -240,7 +269,10 @@ def _scim_user_resource(user_id: str, data: dict) -> dict:
     }
 
 
-@router.get("/api/auth/scim/v2/Users")
+@router.get(
+    "/api/auth/scim/v2/Users",
+    dependencies=[Depends(feature_flag_dependency("enterprise_sso_scim"))],
+)
 @limiter.limit("30/minute")
 async def scim_list_users(
     request: Request,
@@ -273,7 +305,11 @@ async def scim_list_users(
     }
 
 
-@router.post("/api/auth/scim/v2/Users", status_code=201)
+@router.post(
+    "/api/auth/scim/v2/Users",
+    status_code=201,
+    dependencies=[Depends(feature_flag_dependency("enterprise_sso_scim"))],
+)
 @limiter.limit("10/minute")
 async def scim_create_user(
     request: Request,
@@ -297,7 +333,10 @@ async def scim_create_user(
     return _scim_user_resource(user_id, user_data)
 
 
-@router.patch("/api/auth/scim/v2/Users/{user_id}")
+@router.patch(
+    "/api/auth/scim/v2/Users/{user_id}",
+    dependencies=[Depends(feature_flag_dependency("enterprise_sso_scim"))],
+)
 @limiter.limit("10/minute")
 async def scim_patch_user(
     request: Request,
@@ -335,7 +374,11 @@ async def scim_patch_user(
     return _scim_user_resource(user_id, user_data)
 
 
-@router.delete("/api/auth/scim/v2/Users/{user_id}", status_code=204)
+@router.delete(
+    "/api/auth/scim/v2/Users/{user_id}",
+    status_code=204,
+    dependencies=[Depends(feature_flag_dependency("enterprise_sso_scim"))],
+)
 @limiter.limit("10/minute")
 async def scim_delete_user(
     request: Request,
@@ -354,7 +397,10 @@ async def scim_delete_user(
     return Response(status_code=204)
 
 
-@router.get("/api/auth/scim/v2/Groups")
+@router.get(
+    "/api/auth/scim/v2/Groups",
+    dependencies=[Depends(feature_flag_dependency("enterprise_sso_scim"))],
+)
 @limiter.limit("30/minute")
 async def scim_list_groups(
     request: Request,

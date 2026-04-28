@@ -484,6 +484,7 @@ REDIS_URL = os.getenv("REDIS_URL", "")  # kept for backward compat
 REDIS_HOST = os.getenv("REDIS_HOST", "")  # Entra ID mode
 WORKER_COUNT = int(os.getenv("WEB_CONCURRENCY", os.getenv("UVICORN_WORKERS", "1")))
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
+REQUIRE_REDIS = os.getenv("REQUIRE_REDIS", os.getenv("ENFORCE_REDIS", "")).lower() in ("1", "true", "yes")
 
 
 def _is_multi_worker() -> bool:
@@ -494,6 +495,28 @@ def _is_multi_worker() -> bool:
 def _is_production() -> bool:
     """Detect if the application is running in a production-like environment."""
     return ENVIRONMENT in ("production", "prod", "staging")
+
+
+def session_store_backend() -> str:
+    """Return the backend family selected by current environment config."""
+    if redis_configured():
+        return "redis"
+    if _is_production() or _is_multi_worker():
+        return "file"
+    return "memory"
+
+
+def session_store_readiness() -> dict[str, Any]:
+    """Return operator-facing readiness metadata for release gates."""
+    backend = session_store_backend()
+    return {
+        "backend": backend,
+        "redis_configured": redis_configured(),
+        "require_redis": REQUIRE_REDIS,
+        "production_like": _is_production(),
+        "multi_worker": _is_multi_worker(),
+        "ready_for_horizontal_scale": backend == "redis",
+    }
 
 
 def get_store(name: str, *, maxsize: int = 500, ttl: int = 7200) -> SessionStore:
@@ -527,6 +550,8 @@ def get_store(name: str, *, maxsize: int = 500, ttl: int = 7200) -> SessionStore
                 )
             except Exception as exc:
                 logger.warning("Redis unavailable (%s) — falling back for '%s'", exc, name)
+                if REQUIRE_REDIS:
+                    raise RuntimeError("REQUIRE_REDIS is set but Redis is unavailable") from exc
                 if _is_production() or _is_multi_worker():
                     logger.warning(
                         "⚠️  PRODUCTION/MULTI-WORKER without Redis — using FileStore for '%s'. "
@@ -539,6 +564,8 @@ def get_store(name: str, *, maxsize: int = 500, ttl: int = 7200) -> SessionStore
         elif _is_production():
             # Issue #262/#286 — In production, NEVER use InMemoryStore.
             # Data is lost on every deploy/restart.
+            if REQUIRE_REDIS:
+                raise RuntimeError("REQUIRE_REDIS is set but REDIS_HOST/REDIS_URL is not configured")
             logger.error(
                 "🚨 PRODUCTION without REDIS_URL — using FileStore for '%s'. "
                 "ALL session data will be lost on container restart! "

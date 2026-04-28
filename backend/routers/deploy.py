@@ -8,6 +8,7 @@ from routers.auth import get_current_user
 from services.terraform_runner import TerraformRunner
 from services.security_compliance import analyze_security_compliance
 from services.finops_analyzer import calculate_costs
+from feature_flags import feature_flag_dependency
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,7 @@ async def run_preflight_check(
         "finops": cost_estimate
     }
 
-@router.post("/execute/{project_id}")
+@router.post("/execute/{project_id}", dependencies=[Depends(feature_flag_dependency("deploy_engine"))])
 async def execute_deployment(
     project_id: str,
     request: DeploymentRequest,

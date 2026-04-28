@@ -35,3 +35,13 @@ This file records production readiness evidence for release checkpoints. Keep se
 - Backend warning cleanup: removed deprecated Starlette `TestClient(timeout=...)` usage from the SSE stream test.
 - Frontend warning cleanup: made App tests reset shared Zustand state, mock auth/onboarding shell behavior, use `userEvent`, and wait for lazy components before assertions; made ServicesBrowser and Roadmap loading tests wait for their async fetches to settle.
 - Validation: backend Ruff, full backend Pytest, frontend ESLint, full Vitest, production Vite build, npm audit, Playwright smoke, and `git diff --check` all passed locally.
+
+## 2026-04-28 Production Gate Hardening Pass
+
+- Purpose: Continue release hardening without activating billing.
+- Server-side gates: live cloud scanner, deployment execute/rollback, and SSO/SCIM endpoints now fail closed unless `live_cloud_scanner`, `deploy_engine`, or `enterprise_sso_scim` are explicitly enabled.
+- Storage readiness: session store exposes Redis/File/Memory readiness metadata and supports `REQUIRE_REDIS=true` for scaled production promotion.
+- Database readiness: database layer exposes backend readiness metadata and supports `ENFORCE_POSTGRES=true` for production/staging promotion.
+- Identity readiness: SSO/SCIM readiness endpoint reports configured booleans without exposing secret values.
+- Validation: focused backend gate tests passed with `/Users/idokatz/VSCode/Archmorph/backend/.venv/bin/python -m pytest tests/test_feature_flags.py tests/test_session_store.py tests/test_database.py tests/test_deployments.py tests/test_release_gates.py -q --no-cov`.
+- Full backend gate: `/Users/idokatz/VSCode/Archmorph/backend/.venv/bin/python -m pytest --tb=short -q -n auto --dist loadfile --cov=. --cov-report=term-missing --cov-config=.coveragerc --cov-context=test --cov-fail-under=63` passed with total coverage `64.78%`.

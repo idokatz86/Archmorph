@@ -8,7 +8,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from session_store import InMemoryStore, SessionStore, get_store, reset_stores
+from session_store import InMemoryStore, SessionStore, get_store, reset_stores, session_store_readiness
 
 
 @pytest.fixture(autouse=True)
@@ -98,6 +98,11 @@ class TestGetStore:
         import session_store
         store = session_store.get_store("redis_fail_test")
         assert isinstance(store, InMemoryStore)
+
+    def test_session_store_readiness_shape(self):
+        readiness = session_store_readiness()
+        assert readiness["backend"] in {"memory", "file", "redis"}
+        assert "ready_for_horizontal_scale" in readiness
 
 
 class TestSessionStoreInterface:

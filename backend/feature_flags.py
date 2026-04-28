@@ -18,6 +18,8 @@ from dataclasses import dataclass, field, asdict
 from threading import Lock
 from typing import Any, Dict, List, Optional
 
+from error_envelope import ArchmorphException
+
 logger = logging.getLogger(__name__)
 
 ENVIRONMENT = os.getenv("ENVIRONMENT", "production")
@@ -269,3 +271,25 @@ def get_feature_flags() -> FeatureFlags:
 def is_enabled(flag_name: str, user: Optional[str] = None) -> bool:
     """Convenience shortcut for FeatureFlags.is_enabled()."""
     return get_feature_flags().is_enabled(flag_name, user)
+
+
+def require_enabled(flag_name: str, *, user: Optional[str] = None) -> None:
+    """Raise a product-safe 403 when a gated capability is disabled."""
+    if not is_enabled(flag_name, user=user):
+        raise ArchmorphException(
+            403,
+            f"Feature '{flag_name}' is disabled for this environment",
+            details={
+                "feature_flag": flag_name,
+                "operator_action": f"Enable FEATURE_FLAG_{flag_name.upper()} only after release-gate approval.",
+            },
+        )
+
+
+def feature_flag_dependency(flag_name: str):
+    """Return a FastAPI dependency that gates a route behind a feature flag."""
+    async def _dependency() -> bool:
+        require_enabled(flag_name)
+        return True
+
+    return _dependency

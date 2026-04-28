@@ -256,6 +256,11 @@ async def admin_monitoring_dashboard(request: Request, _admin=Depends(verify_adm
 @limiter.limit("30/minute")
 async def admin_release_status(request: Request, _admin=Depends(verify_admin_key)):
     """Return deployment metadata and release gate status for operators."""
+    from database import database_readiness
+    from session_store import session_store_readiness
+
+    database = database_readiness()
+    sessions = session_store_readiness()
     return {
         "version": os.getenv("APP_VERSION", "unknown"),
         "environment": os.getenv("ENVIRONMENT", "production"),
@@ -268,6 +273,18 @@ async def admin_release_status(request: Request, _admin=Depends(verify_admin_key
             {"name": "API health", "status": "required"},
             {"name": "OpenAPI schema", "status": "required"},
         ],
+        "readiness": {
+            "database": database,
+            "session_store": sessions,
+            "release_blockers": [
+                blocker
+                for blocker, blocked in {
+                    "PostgreSQL DATABASE_URL is required for production promotion": not database["ready_for_production"],
+                    "Redis REDIS_HOST or REDIS_URL is required for horizontal scale": not sessions["ready_for_horizontal_scale"],
+                }.items()
+                if blocked
+            ],
+        },
         "rollback": {
             "preferred_workflow": "rollback.yml",
             "backend_strategy": "Container Apps keeps the previous blue revision for traffic rollback",

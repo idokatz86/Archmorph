@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from pydantic import BaseModel
 
 from services.azure_deploy_service import AzureDeployService
+from feature_flags import feature_flag_dependency
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +69,7 @@ async def _safe_preview(azure_service, payload):
         logger.error("Deployment preview failed")
         return None
 
-@router.post("/execute")
+@router.post("/execute", dependencies=[Depends(feature_flag_dependency("deploy_engine"))])
 async def execute_deployment(
     payload: DeploymentExecuteRequest,
     background_tasks: BackgroundTasks,
@@ -117,7 +118,7 @@ async def get_deployment_status(job_id: str):
     # Return stub data
     return {"job_id": job_id, "status": "running"}
 
-@router.post("/{job_id}/rollback")
+@router.post("/{job_id}/rollback", dependencies=[Depends(feature_flag_dependency("deploy_engine"))])
 async def rollback_deployment(job_id: str):
     """
     POST /api/deployments/{job_id}/rollback

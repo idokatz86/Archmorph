@@ -887,7 +887,7 @@ The PRD distinguishes three maturity levels. **Live** features are usable in the
 | **Cyclomatic complexity gate** | 8 deeply nested functions, 5 over 100 lines; add radon/xenon | Engineering | Low | #315 |
 | **Magic numbers & docstrings** | 138 missing docstrings; extract hardcoded constants | Engineering | Low | #317 |
 | **Re-enable Template Gallery** | Disabled during stabilization; needs loading states and data verification | Engineering | Medium | #244 |
-| **Redis-backed session persistence** | Production-ready session store for multi-instance deployments | Engineering | P0 | #232 |
+| **Redis-backed session persistence** | Redis/File/Memory store abstraction exists; production promotion should set `REDIS_HOST`/`REDIS_URL` plus `REQUIRE_REDIS=true` for horizontal scale | Engineering | P0 | #232 |
 | **Service dependency graph** | Visualize detected service connections and data flows | Engineering | P1 | #233 |
 | **Cost estimate drill-down** | Per-service configuration (instance count, storage size) for refined pricing | Engineering | P2 | #234 |
 | **CLI tool for automation** | CLI for CI/CD integration and headless diagram analysis | Engineering | P2 | #235 |
@@ -903,8 +903,8 @@ The PRD distinguishes three maturity levels. **Live** features are usable in the
 | **Pulumi & CDK IaC output** | Additional IaC formats beyond Terraform/Bicep/CloudFormation | Engineering | P2 | #242 |
 | **Multi-diagram project support** | Multiple diagrams per project with unified analysis | Engineering | P2 | #241 |
 | **VS Code extension** | In-editor architecture translation and IaC generation | Engineering | P2 | #240 |
-| **Real infrastructure scanning** | Live cloud scanning via provider SDKs (AWS/Azure/GCP) | Engineering | P3 | #243 |
-| **One-click Deploy to Azure** | Deploy generated IaC directly to Azure subscription | Engineering | P1 | #248 |
+| **Real infrastructure scanning** | Provider scanners are route-gated behind `live_cloud_scanner`; tenant credential validation and provider-contract tests remain before beta enablement | Engineering | P3 | #243 |
+| **One-click Deploy to Azure** | Preview/preflight can run, but execute/rollback paths are gated behind `deploy_engine` and release controls | Engineering | P1 | #248 |
 | **Migration risk scorecard** | Comprehensive readiness assessment with risk factors | Engineering | P1 | #249 |
 | **Interactive before/after visualization** | Side-by-side source vs target architecture view | Engineering | P1 | #250 |
 | **End-to-end migration wizard** | Full migration package export with step-by-step flow | Engineering | P1 | #252 |
@@ -930,12 +930,12 @@ Identified by CEO Master + CTO Master cross-functional review with all agent hie
 
 | # | Gap | Priority | Business Impact | Owner | SP |
 |---|-----|----------|----------------|-------|----|
-| S1 | Activate Stripe billing in production | P0 | Zero revenue — billing archived, not live | CRO + Backend | 5 |
+| S1 | Billing intentionally deferred | P0 | No production billing in current release scope; free/preview positioning remains explicit | CRO + Backend | 5 |
 | S2 | Self-serve onboarding funnel with product analytics | P0 | No funnel metrics = blind PLG motion | PM + FE | 8 |
 | S3 | Interactive demo / playground (no sign-up) | P0 | PLG requires zero-friction try-it-now | UX + FE | 5 |
 | S4 | Customer testimonials / case study framework | P1 | Zero social proof for investors | CRO + PM | 3 |
 | S5 | SOC 2 Type I readiness & compliance dashboard | P1 | Blocks enterprise deals | CISO + CLO | 8 |
-| S6 | SSO / SAML / SCIM integration | P1 | Blocks enterprise deals >$10K ARR | CISO + Backend | 8 |
+| S6 | SSO / SAML / SCIM integration | P1 | Preview routes are feature-gated; tenant validation and signed assertion verification remain enterprise-readiness gates | CISO + Backend | 8 |
 | S7 | Terraform state import / reverse engineering | P1 | "10x moat" — existing infra to diagram | CTO + Cloud | 13 |
 | S8 | Public API documentation & developer portal | P1 | PLG for developers needs self-serve docs | API + PM | 5 |
 | S9 | Multi-cloud cost comparison engine | P1 | Side-by-side Azure/AWS/GCP cost = differentiator | Cloud + Backend | 8 |
@@ -950,16 +950,16 @@ Identified by CEO Master + CTO Master cross-functional review with all agent hie
 
 | # | Gap | Priority | Risk Domain | Owner | SP |
 |---|-----|----------|-------------|-------|----|
-| T1 | In-memory state sprawl breaks horizontal scaling | P1 | Architecture | Backend | 13 |
-| T2 | 52 routers with monolith coupling via shared.py | P2 | Architecture | VP R&D | 8 |
+| T1 | Session state needs enforced Redis in scaled production | P1 | Architecture | Backend | 13 |
+| T2 | 60 routers with coupling via shared.py | P2 | Architecture | VP R&D | 8 |
 | T3 | OpenTelemetry instrumentation is superficial | P2 | Observability | DevOps | 8 |
 | T4 | No resilience patterns beyond OpenAI retry | P2 | Reliability | Backend | 5 |
 | T5 | pgvector missing HNSW index + scaling plan | P2 | Data/Performance | Performance | 8 |
 | T6 | Cost metering is volatile in-memory state | P2 | AI/LLM Cost | PM | 5 |
-| T7 | Only 1 Playwright E2E spec — critical funnel untested | P2 | Testing | QA | 8 |
+| T7 | Playwright smoke coverage exists, but critical funnel depth still needs broader E2E scenarios | P2 | Testing | QA | 8 |
 | T8 | No shared API schema between FE/BE | P2 | Contract Drift | FE + API | 5 |
 | T9 | Load tests skip LLM-bound endpoints | P2 | Performance | Performance | 5 |
-| T10 | Alembic defaults to SQLite — prod/dev parity broken | P1 | DX/Reliability | DevOps | 3 |
+| T10 | PostgreSQL parity requires production `DATABASE_URL` plus `ENFORCE_POSTGRES=true`; Alembic uses env-driven database URL | P1 | DX/Reliability | DevOps | 3 |
 | T11 | Model router has no fallback chain | P2 | AI/Reliability | Cloud | 5 |
 | T12 | No local dev Docker Compose with full stack | P3 | DX/Onboarding | DevOps | 5 |
 

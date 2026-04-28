@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 from main import app
 from services.azure_deploy_service import AzureDeployService
 from routers.deployments import get_azure_deploy_service
+from feature_flags import get_feature_flags
 
 client = TestClient(app)
 
@@ -34,6 +35,14 @@ def mock_get_azure_deploy_service():
 # Override the dependency for the tests
 app.dependency_overrides[get_azure_deploy_service] = mock_get_azure_deploy_service
 
+
+@pytest.fixture(autouse=True)
+def reset_deploy_flag():
+    flags = get_feature_flags()
+    flags.update_flag("deploy_engine", {"enabled": False})
+    yield
+    flags.update_flag("deploy_engine", {"enabled": False})
+
 def test_preview_deployment_azure():
     payload = {
         "provider": "azure",
@@ -56,6 +65,7 @@ def test_preview_deployment_non_azure():
     assert response.status_code == 501
 
 def test_execute_deployment_azure():
+    get_feature_flags().update_flag("deploy_engine", {"enabled": True})
     payload = {
         "provider": "azure",
         "infrastructure_code": "test",
@@ -67,7 +77,18 @@ def test_execute_deployment_azure():
     assert data["status"] == "in_progress"
     assert "job_id" in data
 
+def test_execute_deployment_requires_feature_flag():
+    payload = {
+        "provider": "azure",
+        "infrastructure_code": "test",
+        "variables": {"resource_group": "test-rg"}
+    }
+    response = client.post("/api/deployments/execute", json=payload)
+    assert response.status_code == 403
+    assert response.json()["error"]["details"]["feature_flag"] == "deploy_engine"
+
 def test_execute_deployment_non_azure():
+    get_feature_flags().update_flag("deploy_engine", {"enabled": True})
     payload = {
         "provider": "gcp",
         "infrastructure_code": "test"
@@ -88,6 +109,7 @@ def test_get_deployment_status():
     assert response.json()["status"] == "running"
 
 def test_rollback_deployment():
+    get_feature_flags().update_flag("deploy_engine", {"enabled": True})
     job_id = "test-job-789"
     response = client.post(f"/api/deployments/{job_id}/rollback")
     assert response.status_code == 200

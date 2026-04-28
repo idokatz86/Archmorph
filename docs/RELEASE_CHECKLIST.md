@@ -35,6 +35,13 @@ Application secrets:
 - `ACS_CONNECTION_STRING`
 - `ACS_SENDER_EMAIL`
 - `LOG_ANALYTICS_WORKSPACE_ID`
+- `DATABASE_URL` — PostgreSQL connection string for production/staging
+- `REDIS_HOST` or `REDIS_URL` — Redis-backed session/cache store for scaled deployments
+
+Production guard env vars:
+
+- `ENFORCE_POSTGRES=true`
+- `REQUIRE_REDIS=true`
 
 Staging-only overrides, when used:
 
@@ -80,7 +87,8 @@ These flags default to disabled and require owner approval before enabling:
 - `living_architecture_drift`
 - `live_cloud_scanner`
 - `enterprise_sso_scim`
-- `stripe_billing`
+
+Billing remains intentionally disabled/out of scope for this release.
 
 Frontend opt-in flags use matching `VITE_FEATURE_FLAG_*` names, for example `VITE_FEATURE_FLAG_DEPLOY_ENGINE=true`.
 
@@ -92,6 +100,7 @@ Before enabling any scaffolded feature, confirm:
 - Tests cover the enabled tenant path.
 - Customer-facing copy clearly states preview/beta status when appropriate.
 - Admin release gate shows the expected version/SHA metadata and required smoke checks before the flag is enabled.
+- Admin release gate readiness has no database/session release blockers, or the blocker is explicitly accepted for a non-production environment.
 
 ## 6. Rollback
 

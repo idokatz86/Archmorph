@@ -773,6 +773,13 @@ Deployment is automated through GitHub Actions for the configured staging/produc
 
 Before promoting a build, use the release checklist in [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md).
 
+Production hardening switches:
+
+- `DATABASE_URL` must point to PostgreSQL for production/staging; set `ENFORCE_POSTGRES=true` to fail startup if SQLite is accidentally configured.
+- `REDIS_HOST` or `REDIS_URL` should be configured for horizontal scale; set `REQUIRE_REDIS=true` to fail startup instead of falling back to local file-backed stores.
+- `FEATURE_FLAG_LIVE_CLOUD_SCANNER`, `FEATURE_FLAG_DEPLOY_ENGINE`, and `FEATURE_FLAG_ENTERPRISE_SSO_SCIM` default to disabled and must only be enabled after the admin release gate and tenant validation pass.
+- Billing remains disabled/out of scope for this release.
+
 ### Azure Resources
 
 | Resource | SKU | Region |
@@ -883,6 +890,7 @@ See [docs/DEPLOYMENT_COSTS.md](docs/DEPLOYMENT_COSTS.md) for full breakdown.
 - **WAF:** Azure Front Door Premium with OWASP CRS 3.2, Zero Trust network configuration
 - **Audit logging:** Comprehensive structured JSON audit logs with risk levels, alerting rules, compliance queries
 - **Feature flags:** Controlled feature rollout with percentage-based and user-targeted flags
+- **Release gates:** Server-side feature gates block live scanner, deployment execution/rollback, and SSO/SCIM routes until operator-approved flags are enabled
 - **Blue-green deployment:** Instant rollback capability for production deployments
 - **Privacy:** Cookie consent banner, legal pages, GDPR-aware data handling
 - **GPT truncation detection:** Guards against incomplete AI responses

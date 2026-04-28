@@ -18,11 +18,16 @@ from scanners.azure_scanner import AzureScanner
 from scanners.gcp_scanner import GCPScanner
 from cost_optimizer import analyze_live_finops
 from compliance_mapper import analyze_live_compliance
+from feature_flags import feature_flag_dependency
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-@router.post("/api/scanner/run/{provider}", response_model=Dict[str, Any])
+@router.post(
+    "/api/scanner/run/{provider}",
+    response_model=Dict[str, Any],
+    dependencies=[Depends(feature_flag_dependency("live_cloud_scanner"))],
+)
 async def run_cloud_scan(
     provider: str,
     session_token: str = Depends(validate_session),
