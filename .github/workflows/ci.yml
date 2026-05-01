@@ -70,7 +70,7 @@ jobs:
           AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
 
       - name: Upload coverage report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-report
           path: backend/htmlcov/
@@ -83,7 +83,7 @@ jobs:
         run: python check_openapi_contract.py openapi.json
 
       - name: Upload OpenAPI schema
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: openapi-schema
           path: backend/openapi.json
@@ -103,7 +103,7 @@ jobs:
           fail-build: "false"
 
       - name: Upload Python Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: backend-sbom
           path: |
@@ -156,7 +156,7 @@ jobs:
           fail-build: "false"
 
       - name: Upload npm Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: frontend-sbom
           path: |
@@ -164,7 +164,7 @@ jobs:
             ${{ steps.grype-npm.outputs.sarif }}
 
       - name: Upload frontend dist
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: frontend-dist
           path: frontend/dist
