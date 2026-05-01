@@ -3,6 +3,30 @@ import { MessageSquare, Send, X, Loader2, Sparkles, ChevronDown, ChevronUp } fro
 import { Button, Card, Badge } from '../ui';
 import api from '../../services/apiClient';
 
+// Coerce arbitrary chat-API list items to a renderable string. Mirrors
+// `_coerce_to_str_list()` in backend/iac_chat.py and the helper in
+// IaCViewer.jsx — keep in sync. Defence-in-depth so legacy cached/in-memory
+// chat history with object items (e.g. `{type, message}` from GPT JSON mode)
+// cannot crash React with error #31.
+const toRenderableString = (item) => {
+  if (item == null) return '';
+  if (typeof item === 'string') return item;
+  if (typeof item === 'number' || typeof item === 'boolean') return String(item);
+  if (Array.isArray(item)) return item.map(toRenderableString).filter(Boolean).join(', ');
+  if (typeof item === 'object') {
+    for (const key of ['message', 'text', 'name', 'label', 'value', 'description']) {
+      const val = item[key];
+      if (typeof val === 'string' && val) return val;
+    }
+    try {
+      return JSON.stringify(item);
+    } catch {
+      return String(item);
+    }
+  }
+  return String(item);
+};
+
 const SUGGESTED_QUESTIONS = [
   'What are the biggest risks in this migration?',
   'Which services need the most rework?',
@@ -96,9 +120,13 @@ export default function MigrationChat({ diagramId }) {
               )}
               {Array.isArray(m.services) && m.services.length > 0 && (
                 <div className="flex flex-wrap gap-1 mt-1.5">
-                  {m.services.map((s, j) => (
-                    <Badge key={j} variant="azure" className="text-[9px]">{s}</Badge>
-                  ))}
+                  {m.services.map((s, j) => {
+                    const text = toRenderableString(s);
+                    if (!text) return null;
+                    return (
+                      <Badge key={j} variant="azure" className="text-[9px]">{text}</Badge>
+                    );
+                  })}
                 </div>
               )}
             </div>

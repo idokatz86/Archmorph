@@ -23,6 +23,7 @@ from services.azure_pricing import estimate_services_cost
 from terraform_preview import preview_terraform_plan
 from migration_risk import compute_risk_score
 from compliance_mapper import assess_compliance
+from utils.chat_coercion import coerce_to_str_list
 from iac_generator import generate_iac_code
 
 logger = logging.getLogger(__name__)
@@ -451,7 +452,11 @@ Diagram type: {analysis.get('diagram_type', 'unknown')}"""
         result = _json.loads(raw)
         return {
             "reply": result.get("reply", "I couldn't generate a response. Please try rephrasing."),
-            "related_services": result.get("related_services", []),
+            # Coerce to strings — GPT JSON mode occasionally returns objects
+            # (e.g. {type, message}) instead of strings; rendering those
+            # directly in JSX crashes React with error #31. Mirror the
+            # iac-chat fix (#623) at the API boundary.
+            "related_services": coerce_to_str_list(result.get("related_services", [])),
         }
     except Exception as exc:
         logger.error("Migration chat failed: %s", str(exc).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
