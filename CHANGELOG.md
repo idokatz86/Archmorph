@@ -48,6 +48,23 @@ Phase 2-5 follow-ups (AI fallback, admin review queue, frontend Architecture Hea
 
 **Per-agent Foundry model strategy** (locked pending #602 verification): `gpt-5.4` for vision_analyzer + hld_generator (1 M ctx, GA, multimodal + reasoning); `gpt-5.3-codex` for iac_generator (Codex-tuned, GA, Responses API); `gpt-5.4-mini` for mapping_suggester + agent_paas_react (cheaper mid-tier reasoning); `gpt-5.4-nano` for retention_anonymizer (smallest GA, deterministic); **`gpt-5-pro` locked for the GA judge in #604** (decoupled from production code → unbiased). Fallback: `gpt-5.4` everywhere if `gpt-5.5` Tier 5/6 quota is unavailable.
 
+### Changed
+
+#### Branch convergence (May 2026)
+
+Repo collapsed to a single long-lived branch (`main`). All in-flight feature, fix, and dependabot PRs merged; `prod`, `staging`, and four orphaned topic branches (`fix/pytest-instability`, `fix/storage-configuration`, `free-product-positioning`, `qa-master/playwright-parallel`) deleted. Forward releases ship by tag from `main` only; per-environment promotion is handled at the workflow / image level, not via branch lifecycle.
+
+- Architecture limitations engine landed via [PR #615](https://github.com/idokatz86/Archmorph/pull/615); follow-up polish in [#620](https://github.com/idokatz86/Archmorph/issues/620).
+- Production-Ready ALZ epic docs landed via [PR #606](https://github.com/idokatz86/Archmorph/pull/606); doc-polish follow-ups in [#621](https://github.com/idokatz86/Archmorph/issues/621).
+
+#### CI tooling — GitHub Actions dependency bumps
+
+- `docker/setup-buildx-action` 3 → 4 ([#564](https://github.com/idokatz86/Archmorph/pull/564)).
+- `azure/login` 2 → 3 ([#565](https://github.com/idokatz86/Archmorph/pull/565)).
+- `docker/build-push-action` 6 → 7 ([#566](https://github.com/idokatz86/Archmorph/pull/566)).
+- `actions/download-artifact` 4 → 8 ([#567](https://github.com/idokatz86/Archmorph/pull/567)).
+- `actions/upload-artifact` 4 → 7 ([#568](https://github.com/idokatz86/Archmorph/pull/568)).
+
 ## [4.2.0] - 2026-05-01
 
 ### Added
