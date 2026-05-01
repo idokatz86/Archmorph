@@ -716,10 +716,17 @@ def generate_landing_zone_svg(
         raise ValueError("analysis must be a dict")
 
     regions = infer_regions(analysis, dr_variant=dr_variant)
-    dr_mode = infer_dr_mode(analysis)
+    # Infer dr_mode and replication from the *effective* analysis (the regions
+    # we will actually render). Without this, a legacy analysis with no
+    # `regions`/`dr_mode` rendered as `dr_variant="dr"` would yield
+    # `dr_mode="single-region"` and empty replication, contradicting the
+    # two-region canvas.
+    effective_analysis = {**analysis, "regions": regions}
+    dr_mode = infer_dr_mode(effective_analysis)
+    effective_analysis = {**effective_analysis, "dr_mode": dr_mode}
     tiers = infer_tiers_from_mappings(analysis)
     actors = infer_actors(analysis)
-    replication = infer_replication(analysis)
+    replication = infer_replication(effective_analysis)
 
     title = analysis.get("title") or "Azure Landing Zone"
     subtitle_bits = [

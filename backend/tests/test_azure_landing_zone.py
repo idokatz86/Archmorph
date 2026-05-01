@@ -69,8 +69,9 @@ class TestGenerator:
         # `xmlns="..."` may only appear once on the root <svg> element.
         # Count raw occurrences in the bytes — a duplicate xmlns is invalid
         # even though some parsers will silently accept it.
-        assert content.count('xmlns="') == 1, (
-            f"Expected exactly one xmlns declaration, got {content.count('xmlns=')}"
+        xmlns_count = content.count('xmlns="')
+        assert xmlns_count == 1, (
+            f"Expected exactly one xmlns declaration, got {xmlns_count}"
         )
 
     def test_landing_zone_svg_primary_variant_dimensions(self):
