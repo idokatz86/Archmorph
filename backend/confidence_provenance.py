@@ -96,11 +96,14 @@ _FEATURE_PARITY: Dict[tuple, tuple] = {
         ["DynamoDB Accelerator / DAX (Cosmos has integrated cache)",
          "PartiQL (Cosmos uses SQL API)"],
     ),
-    ("Aurora", "SQL Database (Hyperscale)"): (
+    # #590 — Aurora is PostgreSQL/MySQL-compatible; previous SQL Hyperscale
+    # mapping was a wrong-engine defect.
+    ("Aurora", "Azure Database for PostgreSQL Flexible Server"): (
         ["High-performance relational DB", "Auto-scaling storage", "Read replicas",
          "Multi-AZ HA", "Automated backups", "Point-in-time restore",
          "Serverless option", "Global database"],
-        ["Aurora Multi-Master (Azure has active geo-replication)"],
+        ["Aurora Multi-Master (Azure uses zone-redundant HA + read replicas)",
+         "Aurora Backtrack (Azure uses point-in-time restore + flashback)"],
     ),
     ("ElastiCache", "Cache for Redis"): (
         ["Managed Redis", "Cluster mode", "Replication", "Encryption in transit",
@@ -446,10 +449,15 @@ _MIGRATION_GUIDANCE: Dict[tuple, Dict[str, Any]] = {
         "estimated_effort": "medium",
         "breaking_changes": ["PartiQL queries must be rewritten to Cosmos DB SQL API", "DAX caching requires Cosmos DB integrated cache or Azure Cache for Redis"],
     },
-    ("Aurora", "SQL Database (Hyperscale)"): {
-        "migration_notes": "Aurora maps to Azure SQL Database Hyperscale for similar performance characteristics. Aurora Serverless maps to SQL Database serverless tier. Multi-master requires active geo-replication pattern.",
+    # #590 — wrong-engine narrative replaced. Aurora is PostgreSQL/MySQL.
+    ("Aurora", "Azure Database for PostgreSQL Flexible Server"): {
+        "migration_notes": "Aurora PostgreSQL maps engine-correctly to Azure Database for PostgreSQL Flexible Server. Aurora MySQL → Azure Database for MySQL Flexible Server (separate row). Aurora Serverless v2 → Flexible Server's burstable tier; provisioned → General Purpose / Memory Optimized. Multi-master → zone-redundant HA + read replicas (active-active is not 1:1).",
         "estimated_effort": "medium",
-        "breaking_changes": ["Aurora Multi-Master needs redesign for active geo-replication"],
+        "breaking_changes": [
+            "Aurora Multi-Master requires re-architecture for HA + read-replica pattern",
+            "Aurora Backtrack → Azure point-in-time restore (different RTO/RPO semantics)",
+            "Pre-#590 callers that used the old SQL-Server-target mapping must update to PostgreSQL Flex — the engine has changed",
+        ],
     },
     ("ElastiCache", "Cache for Redis"): {
         "migration_notes": "ElastiCache Redis maps directly to Azure Cache for Redis. Cluster mode, persistence, and replication settings translate. Memcached workloads must migrate to Redis protocol.",
