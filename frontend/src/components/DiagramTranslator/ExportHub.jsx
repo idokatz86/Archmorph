@@ -96,8 +96,17 @@ async function generateDeliverable(diagramId, deliverable, format, hldIncludeDia
   if (id === 'diagram') {
     const data = await api.post(`/diagrams/${diagramId}/export-diagram?format=${format}`);
     const content = typeof data.content === 'string' ? data.content : JSON.stringify(data.content, null, 2);
+    // Visio export is legacy VDX 2003 XML — extension must be .vdx, not .vsdx.
+    // .vsdx is OOXML zip; if we labelled raw XML as .vsdx, Visio refuses to open.
     const ext = format === 'excalidraw' ? 'excalidraw' : format === 'drawio' ? 'drawio' : 'vdx';
-    return { blob: new Blob([content], { type: 'application/octet-stream' }), filename: data.filename || `archmorph-diagram.${ext}` };
+    // Use format-specific MIME types so the browser/OS can route the file
+    // correctly when saved (instead of a generic octet-stream).
+    const mime = format === 'excalidraw'
+      ? 'application/json'
+      : format === 'drawio'
+      ? 'application/xml'
+      : 'application/vnd.visio'; // VDX legacy XML
+    return { blob: new Blob([content], { type: mime }), filename: data.filename || `archmorph-diagram.${ext}` };
   }
 
   if (id === 'hld') {
