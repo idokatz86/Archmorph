@@ -269,7 +269,6 @@ async def admin_release_status(request: Request, _admin=Depends(verify_admin_key
         "smoke_checks": [
             {"name": "Frontend root", "status": "required"},
             {"name": "Translator route", "status": "required"},
-            {"name": "Playground route", "status": "required"},
             {"name": "API health", "status": "required"},
             {"name": "OpenAPI schema", "status": "required"},
         ],

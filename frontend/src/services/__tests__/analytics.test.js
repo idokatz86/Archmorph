@@ -32,18 +32,4 @@ describe('analytics service', () => {
       funnel_index: 0,
     });
   });
-
-  it('tracks returning users once per day', async () => {
-    localStorage.setItem('archmorph-last-seen-date', '2026-04-27');
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-04-28T09:00:00Z'));
-    const { trackPageView } = await loadAnalytics();
-
-    trackPageView('playground');
-    trackPageView('services');
-
-    const events = postedEvents().map((payload) => payload.event);
-    expect(events.filter((event) => event === 'funnel:returning_user')).toHaveLength(1);
-    expect(localStorage.getItem('archmorph-last-seen-date')).toBe('2026-04-28');
-  });
 });

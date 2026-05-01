@@ -15,7 +15,6 @@ import api from '../services/apiClient';
 const VALID_TABS = new Set([
   'landing',
   'dashboard',
-  'playground',
   'translator',
   'services',
   'roadmap',
@@ -27,11 +26,11 @@ const VALID_TABS = new Set([
   'replay',
 ]);
 
-/** Read initial tab from URL hash, default to the zero-friction playground. */
+/** Read initial tab from URL hash, default to the translator. */
 function getInitialTab() {
-  if (typeof window === 'undefined') return 'playground';
+  if (typeof window === 'undefined') return 'translator';
   const hash = window.location.hash.replace('#', '').replace('/', '');
-  return VALID_TABS.has(hash) ? hash : 'playground';
+  return VALID_TABS.has(hash) ? hash : 'translator';
 }
 
 const useAppStore = create((set) => {
@@ -51,22 +50,20 @@ const useAppStore = create((set) => {
     adminOpen: false,
     updateStatus: null,
     pendingResumeId: null,
-    pendingSample: null,
 
     // ── Actions ──
     setActiveTab: (tab) => {
       set({ activeTab: tab });
       // Sync URL hash (#310)
       if (typeof window !== 'undefined') {
-        const newHash = tab === 'playground' ? '' : `#${tab}`;
-        const currentHash = window.location.hash === '#playground' ? '' : window.location.hash;
+        const newHash = tab === 'translator' ? '' : `#${tab}`;
+        const currentHash = window.location.hash === '#translator' ? '' : window.location.hash;
         if (currentHash !== newHash) {
           window.history.pushState(null, '', newHash || window.location.pathname);
         }
       }
     },
     setPendingResumeId: (id) => set({ pendingResumeId: id }),
-    setPendingSample: (sample) => set({ pendingSample: sample }),
     setAdminOpen: (open) => set({ adminOpen: open }),
     toggleAdmin: () => set((s) => ({ adminOpen: !s.adminOpen })),
 

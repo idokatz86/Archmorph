@@ -131,8 +131,6 @@ export default function DiagramTranslator() {
   // ── Resume analysis from Dashboard (#517) ──
   const pendingResumeId = useAppStore(s => s.pendingResumeId);
   const setPendingResumeId = useAppStore(s => s.setPendingResumeId);
-  const pendingSample = useAppStore(s => s.pendingSample);
-  const setPendingSample = useAppStore(s => s.setPendingSample);
   useEffect(() => {
     if (!pendingResumeId) return;
     const resumeId = pendingResumeId;
@@ -285,11 +283,6 @@ export default function DiagramTranslator() {
       const uploadData = await api.post('/projects/demo-project/diagrams', formData, signal);
       const { diagram_id } = uploadData;
       set({ diagramId: diagram_id });
-      trackFunnel('first_upload', {
-        source: 'upload',
-        file_type: file.type || 'unknown',
-        size_kb: Math.round(file.size / 1024),
-      });
 
       // Cache uploaded image for session restore (#333)
       if (file.type.startsWith('image/') && file.size < 1_000_000) {
@@ -487,11 +480,6 @@ export default function DiagramTranslator() {
     try {
       const result = await api.post(`/samples/${sample.id}/analyze`);
       set({ diagramId: result.diagram_id, analysis: result });
-      trackFunnel('first_upload', {
-        source: 'sample',
-        sample_id: sample.id,
-        provider: sample.provider,
-      });
       for (const zone of (result.zones || [])) {
         const svcNames = (zone.services || []).map(s => s.source || s.name || '').filter(Boolean).slice(0, 3);
         addProgress(`Zone ${zone.id}: ${zone.name} (${svcNames.join(', ')})...`);
@@ -517,13 +505,6 @@ export default function DiagramTranslator() {
       set({ error: 'Failed to load sample: ' + err.message, step: 'upload' });
     }
   };
-
-  useEffect(() => {
-    if (!pendingSample) return;
-    setPendingSample(null);
-    handleLoadSample(pendingSample);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingSample]);
 
   const handleApplyAnswers = async () => {
     set({ loading: true });
