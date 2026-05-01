@@ -193,10 +193,21 @@ _ICON_CACHE: dict[str, Optional[str]] = {}
 
 
 def _icon_data_uri(icon_key: str) -> Optional[str]:
-    """Cached registry lookup."""
-    if icon_key not in _ICON_CACHE:
-        _ICON_CACHE[icon_key] = _resolve_data_uri(icon_key)
-    return _ICON_CACHE[icon_key]
+    """Cached registry lookup.
+
+    The registry can be empty at first lookup (lazy-loaded on demand by
+    `icons.registry._ensure_loaded`, see #587). To avoid permanently caching
+    a `None` from a pre-bootstrap miss, we only cache successful resolutions.
+    Subsequent lookups for unresolved keys re-hit the registry, which is
+    cheap once the store is populated.
+    """
+    cached = _ICON_CACHE.get(icon_key)
+    if cached is not None:
+        return cached
+    uri = _resolve_data_uri(icon_key)
+    if uri is not None:
+        _ICON_CACHE[icon_key] = uri
+    return uri
 
 
 def _img(icon_key: str, x: float, y: float, w: float, h: float) -> str:
