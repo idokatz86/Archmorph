@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import base64
 import re
+import time
 import xml.etree.ElementTree as ET
 from typing import Any, Literal, Optional
 
@@ -28,6 +29,18 @@ from azure_landing_zone_schema import (
     infer_regions,
     infer_replication,
     infer_tiers_from_mappings,
+)
+
+# #595 — Observability for the landing-zone-svg pipeline. The observability
+# module is a thin wrapper around the OpenTelemetry SDK + an in-memory store
+# for the admin dashboard. All four helpers below are best-effort and never
+# raise on instrumentation failure (verified by the observability test
+# suite), so it is safe to import unconditionally — even from contexts where
+# the OTel SDK is not configured (e.g. CLI scripts, unit tests).
+from observability import (
+    increment_counter,
+    record_histogram,
+    trace_span,
 )
 
 # ---------------------------------------------------------------------------
@@ -211,13 +224,27 @@ def _icon_data_uri(icon_key: str) -> Optional[str]:
 
 
 def _img(icon_key: str, x: float, y: float, w: float, h: float) -> str:
-    """Render an icon, falling back to a labelled tile when registry misses."""
+    """Render an icon, falling back to a labelled tile when registry misses.
+
+    #595 — emit ``archmorph.lz.icon_resolution_total{result="hit"|"fallback"}``
+    on every icon-slot render. This is the single source of truth for the
+    icon-resolution observability metric: the SLO + alert in
+    ``infra/observability/alerts.tf`` reads off these labels directly.
+    """
     uri = _icon_data_uri(icon_key)
     if uri:
+        increment_counter(
+            "archmorph.lz.icon_resolution_total",
+            tags={"result": "hit", "icon_key": icon_key},
+        )
         return (
             f'<image href="{uri}" x="{x}" y="{y}" '
             f'width="{w}" height="{h}" preserveAspectRatio="xMidYMid meet"/>'
         )
+    increment_counter(
+        "archmorph.lz.icon_resolution_total",
+        tags={"result": "fallback", "icon_key": icon_key},
+    )
     # Placeholder: filled rectangle with two-letter glyph.
     color = _ICON_TILE_COLOR.get(icon_key, COLOR_PRIMARY)
     glyph = _placeholder_glyph(icon_key)
@@ -779,125 +806,195 @@ def generate_landing_zone_svg(
 
     Returns ``{"format": "landing-zone-svg", "filename": ..., "content": ...}``.
     Raises :class:`ValueError` for invalid input or oversized output.
+
+    #595 — fully OTel-instrumented:
+      * Top-level span ``archmorph.lz.generate`` with attributes
+        ``dr_variant``, ``source_provider``, ``svg_size_bytes``.
+      * Sub-spans ``archmorph.lz.infer`` (schema inference) and
+        ``archmorph.lz.render`` (SVG part assembly).
+      * On success: ``archmorph.lz.svg_generation_duration_seconds`` +
+        ``archmorph.lz.svg_size_bytes`` histograms.
+      * On any raised exception: ``archmorph.lz.errors_total`` counter
+        with ``{stage, error_type}`` tags.
+      * Per-icon hit/fallback counter is emitted from ``_img()``.
     """
-    if dr_variant not in ("primary", "dr"):
-        raise ValueError(f"dr_variant must be 'primary' or 'dr', got {dr_variant!r}")
-    if not isinstance(analysis, dict):
-        raise ValueError("analysis must be a dict")
+    start = time.monotonic()
+    with trace_span(
+        "archmorph.lz.generate",
+        attributes={"dr_variant": str(dr_variant)},
+    ) as top_span:
+        try:
+            if dr_variant not in ("primary", "dr"):
+                increment_counter(
+                    "archmorph.lz.errors_total",
+                    tags={"stage": "validate", "error_type": "invalid_dr_variant"},
+                )
+                raise ValueError(
+                    f"dr_variant must be 'primary' or 'dr', got {dr_variant!r}"
+                )
+            if not isinstance(analysis, dict):
+                increment_counter(
+                    "archmorph.lz.errors_total",
+                    tags={"stage": "validate", "error_type": "bad_analysis_type"},
+                )
+                raise ValueError("analysis must be a dict")
 
-    # #576: source_provider is implicit (read from the analysis payload) and
-    # validated here. Default "aws" preserves backwards-compat with #571.
-    source_provider = _validate_source_provider(analysis.get("source_provider"))
+            # #576: source_provider is implicit (read from the analysis payload) and
+            # validated here. Default "aws" preserves backwards-compat with #571.
+            try:
+                source_provider = _validate_source_provider(
+                    analysis.get("source_provider")
+                )
+            except ValueError:
+                increment_counter(
+                    "archmorph.lz.errors_total",
+                    tags={"stage": "validate", "error_type": "bad_source_provider"},
+                )
+                raise
+            top_span.set_attribute("source_provider", source_provider)
 
-    regions = infer_regions(analysis, dr_variant=dr_variant)
-    # Infer dr_mode and replication from the *effective* analysis (the regions
-    # we will actually render). Without this, a legacy analysis with no
-    # `regions`/`dr_mode` rendered as `dr_variant="dr"` would yield
-    # `dr_mode="single-region"` and empty replication, contradicting the
-    # two-region canvas.
-    effective_analysis = {**analysis, "regions": regions}
-    dr_mode = infer_dr_mode(effective_analysis)
-    effective_analysis = {**effective_analysis, "dr_mode": dr_mode}
-    tiers = infer_tiers_from_mappings(analysis)
-    actors = infer_actors(analysis)
-    replication = infer_replication(effective_analysis)
+            with trace_span("archmorph.lz.infer"):
+                regions = infer_regions(analysis, dr_variant=dr_variant)
+                # Infer dr_mode and replication from the *effective* analysis (the regions
+                # we will actually render). Without this, a legacy analysis with no
+                # `regions`/`dr_mode` rendered as `dr_variant="dr"` would yield
+                # `dr_mode="single-region"` and empty replication, contradicting the
+                # two-region canvas.
+                effective_analysis = {**analysis, "regions": regions}
+                dr_mode = infer_dr_mode(effective_analysis)
+                effective_analysis = {**effective_analysis, "dr_mode": dr_mode}
+                tiers = infer_tiers_from_mappings(analysis)
+                actors = infer_actors(analysis)
+                replication = infer_replication(effective_analysis)
+            top_span.set_attribute("dr_mode", dr_mode)
 
-    title = analysis.get("title") or "Azure Landing Zone"
-    subtitle_bits = [
-        f"Regions: {', '.join(r['name'] for r in regions)}",
-        f"DR mode: {dr_mode}",
-    ]
-    if dr_variant == "dr":
-        subtitle_bits.append("Variant: full DR")
-    subtitle = " · ".join(subtitle_bits)
+            with trace_span("archmorph.lz.render"):
+                title = analysis.get("title") or "Azure Landing Zone"
+                subtitle_bits = [
+                    f"Regions: {', '.join(r['name'] for r in regions)}",
+                    f"DR mode: {dr_mode}",
+                ]
+                if dr_variant == "dr":
+                    subtitle_bits.append("Variant: full DR")
+                subtitle = " · ".join(subtitle_bits)
 
-    if dr_variant == "dr":
-        H = CANVAS_H_DR
-    else:
-        H = CANVAS_H_PRIMARY
+                if dr_variant == "dr":
+                    H = CANVAS_H_DR
+                else:
+                    H = CANVAS_H_PRIMARY
 
-    parts: list[str] = [
-        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {CANVAS_W} {H}" '
-        f'width="{CANVAS_W}" height="{H}">',
-        _defs(),
-        f'<rect width="{CANVAS_W}" height="{H}" fill="{COLOR_BG}"/>',
-        _tx(40, 38, _truncate(title, 90), "t-title"),
-        _tx(40, 60, _truncate(subtitle, 200), "t-sub"),
-        _actors_row(actors),
-        _front_door(regions, dr_mode),
-    ]
+                parts: list[str] = [
+                    f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {CANVAS_W} {H}" '
+                    f'width="{CANVAS_W}" height="{H}">',
+                    _defs(),
+                    f'<rect width="{CANVAS_W}" height="{H}" fill="{COLOR_BG}"/>',
+                    _tx(40, 38, _truncate(title, 90), "t-title"),
+                    _tx(40, 60, _truncate(subtitle, 200), "t-sub"),
+                    _actors_row(actors),
+                    _front_door(regions, dr_mode),
+                ]
 
-    # Region 1 stamp.
-    primary_role = regions[0].get("role", "primary")
-    primary_role_text = (
-        f"Active · {regions[0].get('traffic_pct', 100)}% traffic"
-        if primary_role == "primary" else f"{primary_role.title()} role"
-    )
-    parts.append(_region_stamp(
-        20, 290, regions[0], tiers,
-        status="primary",
-        role_text=primary_role_text,
-    ))
+                # Region 1 stamp.
+                primary_role = regions[0].get("role", "primary")
+                primary_role_text = (
+                    f"Active · {regions[0].get('traffic_pct', 100)}% traffic"
+                    if primary_role == "primary" else f"{primary_role.title()} role"
+                )
+                parts.append(_region_stamp(
+                    20, 290, regions[0], tiers,
+                    status="primary",
+                    role_text=primary_role_text,
+                ))
 
-    if dr_variant == "primary":
-        # Collapsed Region 2 banner if a second region is configured.
-        if len(regions) >= 2:
-            r2 = regions[1]
-            parts.append(
-                f'<rect x="20" y="1064" width="1760" height="56" rx="8" '
-                f'fill="#FFF5F4" stroke="{COLOR_RED}" stroke-width="1.5" '
-                f'stroke-dasharray="6 4"/>'
+                if dr_variant == "primary":
+                    # Collapsed Region 2 banner if a second region is configured.
+                    if len(regions) >= 2:
+                        r2 = regions[1]
+                        parts.append(
+                            f'<rect x="20" y="1064" width="1760" height="56" rx="8" '
+                            f'fill="#FFF5F4" stroke="{COLOR_RED}" stroke-width="1.5" '
+                            f'stroke-dasharray="6 4"/>'
+                        )
+                        parts.append(_img("region", 28, 1074, 22, 22))
+                        parts.append(_tx(60, 1086, f"{r2['name']} (DR · {r2.get('traffic_pct', 0)}% traffic)",
+                                         "t-card-h-lg"))
+                        parts.append(_tx(60, 1108,
+                                         "Symmetric stamp · paired region · standby for failover · "
+                                         "GRS for Storage · geo-replica DB · KV replication",
+                                         "t-meta"))
+                        parts.append(_tx(1772, 1086, f"{r2.get('traffic_pct', 0)}% traffic",
+                                         "t-edge-r", anchor="end"))
+                    parts.append(_legend(1140, source_provider=source_provider))
+                else:
+                    # Full DR — replication band + Region 2 stamp + legend.
+                    band_y = 1062
+                    parts.append(_replication_band(band_y, replication))
+                    r2_y = band_y + 78 + 12
+                    if len(regions) >= 2:
+                        r2 = regions[1]
+                        parts.append(_region_stamp(
+                            20, r2_y, r2, tiers,
+                            status="standby",
+                            role_text=f"Standby · {r2.get('traffic_pct', 0)}% traffic · automated failover",
+                        ))
+                    parts.append(_legend(r2_y + 776, source_provider=source_provider))
+
+                parts.append('</svg>')
+
+                svg_xml = '<?xml version="1.0" encoding="UTF-8"?>\n' + "\n".join(parts)
+
+            # Validate well-formed XML before returning.
+            try:
+                ET.fromstring(svg_xml)
+            except ET.ParseError as exc:
+                increment_counter(
+                    "archmorph.lz.errors_total",
+                    tags={"stage": "validate_xml", "error_type": "parse_error"},
+                )
+                raise ValueError(f"Generated SVG is not well-formed XML: {exc}") from exc
+
+            svg_bytes = len(svg_xml.encode("utf-8"))
+            if svg_bytes > MAX_SVG_BYTES:
+                increment_counter(
+                    "archmorph.lz.errors_total",
+                    tags={"stage": "size_check", "error_type": "oversized"},
+                )
+                raise ValueError(
+                    f"Generated SVG exceeds the {MAX_SVG_BYTES}-byte limit "
+                    f"(got {svg_bytes} bytes)"
+                )
+
+            zone_name = "diagram"
+            zones = analysis.get("zones") or []
+            if zones and isinstance(zones[0], dict) and zones[0].get("name"):
+                zone_name = _safe_filename_part(zones[0]["name"])
+
+            # Success: emit size + duration histograms.
+            duration_seconds = time.monotonic() - start
+            record_histogram("archmorph.lz.svg_size_bytes", float(svg_bytes))
+            record_histogram(
+                "archmorph.lz.svg_generation_duration_seconds", duration_seconds
             )
-            parts.append(_img("region", 28, 1074, 22, 22))
-            parts.append(_tx(60, 1086, f"{r2['name']} (DR · {r2.get('traffic_pct', 0)}% traffic)",
-                             "t-card-h-lg"))
-            parts.append(_tx(60, 1108,
-                             "Symmetric stamp · paired region · standby for failover · "
-                             "GRS for Storage · geo-replica DB · KV replication",
-                             "t-meta"))
-            parts.append(_tx(1772, 1086, f"{r2.get('traffic_pct', 0)}% traffic",
-                             "t-edge-r", anchor="end"))
-        parts.append(_legend(1140, source_provider=source_provider))
-    else:
-        # Full DR — replication band + Region 2 stamp + legend.
-        band_y = 1062
-        parts.append(_replication_band(band_y, replication))
-        r2_y = band_y + 78 + 12
-        if len(regions) >= 2:
-            r2 = regions[1]
-            parts.append(_region_stamp(
-                20, r2_y, r2, tiers,
-                status="standby",
-                role_text=f"Standby · {r2.get('traffic_pct', 0)}% traffic · automated failover",
-            ))
-        parts.append(_legend(r2_y + 776, source_provider=source_provider))
+            top_span.set_attribute("svg_size_bytes", svg_bytes)
+            top_span.set_attribute("duration_seconds", round(duration_seconds, 4))
 
-    parts.append('</svg>')
-
-    svg_xml = '<?xml version="1.0" encoding="UTF-8"?>\n' + "\n".join(parts)
-
-    # Validate well-formed XML before returning.
-    try:
-        ET.fromstring(svg_xml)
-    except ET.ParseError as exc:
-        raise ValueError(f"Generated SVG is not well-formed XML: {exc}") from exc
-
-    if len(svg_xml.encode("utf-8")) > MAX_SVG_BYTES:
-        raise ValueError(
-            f"Generated SVG exceeds the {MAX_SVG_BYTES}-byte limit "
-            f"(got {len(svg_xml.encode('utf-8'))} bytes)"
-        )
-
-    zone_name = "diagram"
-    zones = analysis.get("zones") or []
-    if zones and isinstance(zones[0], dict) and zones[0].get("name"):
-        zone_name = _safe_filename_part(zones[0]["name"])
-
-    return {
-        "format": "landing-zone-svg",
-        "filename": f"archmorph-{zone_name}-landing-zone-{dr_variant}.svg",
-        "content": svg_xml,
-    }
+            return {
+                "format": "landing-zone-svg",
+                "filename": f"archmorph-{zone_name}-landing-zone-{dr_variant}.svg",
+                "content": svg_xml,
+            }
+        except ValueError:
+            # Already accounted for above (tagged with the offending stage).
+            raise
+        except Exception as exc:
+            # Unexpected — bucket as render-stage with the exception class as
+            # error_type so the alert can fire on the previously-unobserved
+            # failure modes.
+            increment_counter(
+                "archmorph.lz.errors_total",
+                tags={"stage": "render", "error_type": type(exc).__name__},
+            )
+            raise
 
 
 def _truncate(text: str, n: int) -> str:
