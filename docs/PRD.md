@@ -6,9 +6,42 @@
 
 ---
 
+## 0. CTO Direction (May 1, 2026)
+
+> **Authority:** CTO Master. **Status:** Binding. Supersedes prior product/marketing framing throughout this PRD.
+
+### Mission
+
+Archmorph is an internal engineering workbench. The value spine is `diagram → vision analysis → cross-cloud mapping → IaC (Terraform/Bicep) → Azure Landing Zone → drift / cost`. Every shippable change advances that spine. Anything else is overhead and gets cut.
+
+### Operating Principles
+
+1. Value spine is law. Off-spine changes get cut on sight.
+2. The user is an engineer at a terminal — full flow runs end-to-end in under 60 seconds. No marketing pages, no cookie banners, no sign-up modals.
+3. Every output is machine-checkable (parse, schema-validate, round-trip tested).
+4. Engineering observability over product analytics. OpenTelemetry + Application Insights only. PostHog, funnel tracking, retention cohorts — banned.
+5. Identity is Entra ID. Period. No SSO matrices, no SAML, no SCIM, no social auth.
+6. Single tenant, single org. Roles: `engineer | reader` via Entra group claims.
+7. Reduction beats addition.
+
+### Cut-candidate sections in this document
+
+The following sections describe surfaces flagged for removal in the spine consolidation PRs (PR-1 → PR-3, see README Spine Consolidation Plan). They remain in this document for historical traceability only and **must not** be cited as roadmap items in new work:
+
+- **§3.39 White-Label SDK** — internal tool has no partners.
+- **§3.40 Multi-Tenant Foundation** — single tenant.
+- **§12.1 Strategic Gaps (CEO Review)** rows S1 (free positioning), S2 (onboarding funnel), S4 (testimonials), S6 (SSO/SAML/SCIM), S10 (waitlist), S11 (investor data room).
+- All `Built-in diagram editor`, `Migration Gallery`, "100% free for customers" framing, and partner branding references throughout.
+
+### Banned vocabulary
+
+`delight`, `delightful`, `empower`, `empowering`, `enterprise-grade`, `world-class`, `powerful`, `magical`, `seamless`, `effortless`, `game-changing`, `cutting-edge`, `revolutionary`, `blazing-fast`, `next-generation`, `unleash`, `supercharge`, `robust` (use "tested"), `best-in-class`, `one-stop`, `beautiful`, `beloved`, `loved by`, `customers` (we have none), `users` (use "engineers"), `freemium`, `PLG`, `growth-loop`, `conversion`, `funnel`, `activation`, `retention-cohort`, `case study`, `testimonial`, `social proof`.
+
+---
+
 ## 1. Executive Summary
 
-Archmorph is an AI-assisted cloud migration workbench in preview/stabilization. Its live product path converts uploaded AWS/GCP architecture diagrams into Azure migration artifacts: detected services, confidence-scored mappings, guided migration questions, IaC drafts, HLD/report exports, and cost estimates. The application is 100% free for customers: no subscriptions, paid tiers, billing setup, or hidden fees are required. The platform codebase also contains beta and scaffolded enterprise modules for collaboration, replay, gallery, RAG/Agent PaaS, Terraform state import, scanner, deploy, SSO/SCIM, and drift.
+Archmorph is an internal engineering workbench used to convert AWS/GCP architecture diagrams into Azure migration artifacts: detected services, confidence-scored mappings, guided migration questions, IaC drafts, HLD/report exports, and cost estimates. It exists for platform engineers and cloud engineers running migrations. It is not a product, has no customers, and ships nothing for sale. The platform codebase also contains beta and scaffolded modules for collaboration, replay, RAG/Agent PaaS, Terraform state import, scanner, deploy, SSO/SCIM, and drift — several of these are flagged as cut-candidates in the CTO direction (May 1, 2026); see the README Spine Consolidation Plan for details.
 
 The PRD distinguishes three maturity levels. **Live** features are usable in the core flow and should remain protected by CI. **Beta** features are implemented but need production validation, UX hardening, or broader tests. **Scaffold** features have routes, UI, or models present but must not be described as production-ready until cloud/provider execution is verified.
 
@@ -20,8 +53,8 @@ The PRD distinguishes three maturity levels. **Live** features are usable in the
 
 | Maturity | Capabilities |
 |----------|--------------|
-| Live | Diagram upload, sample playground, service mapping, guided questions, IaC/HLD/report export, cost estimates, service catalog, admin analytics, auth shell, API versioning, CI/security gates |
-| Beta | RAG, Agent PaaS proof, cost/token observability, collaboration, migration gallery, migration replay, Terraform state import, multi-cloud cost comparison, social auth/RBAC, **Azure Landing Zone target diagram** (multi-source: AWS + GCP; T3 fidelity in progress under epic #586) |
+| Live | Diagram upload, service mapping, guided questions, IaC/HLD/report export, cost estimates, service catalog, admin analytics, auth shell, API versioning, CI/security gates |
+| Beta | RAG, Agent PaaS proof, cost/token observability, collaboration, migration replay, Terraform state import, multi-cloud cost comparison, social auth/RBAC, **Azure Landing Zone target diagram** (multi-source: AWS + GCP; T3 fidelity in progress under epic #586) |
 | Scaffold | Live cloud scanner, credential vault, deploy engine, SSO/SAML/SCIM production validation |
 | Beta/Hardening | Living architecture/drift baselines, admin release gates, release evidence, dependency/security remediation workflow |
 | Planned | VS Code extension, PR-based IaC workflows, multi-diagram projects |
@@ -282,7 +315,7 @@ The PRD distinguishes three maturity levels. **Live** features are usable in the
 
 ### 3.39 White-Label SDK (v3.0.0)
 - **Config-driven branding** — product name, tagline, logo, favicon, color palette (7 tokens), font families (3 slots)
-- **Feature flags per partner** — toggle powered-by badge, community patterns, template gallery, IaC generation, exports
+- **Feature flags per partner** — toggle powered-by badge, community patterns, IaC generation, exports
 - **Upload quotas** — configurable max_uploads_per_day per partner
 - **Partner API key management** — `am_wl_` prefixed keys with `X-Partner-Key` header authentication
 - **Embeddable widget** — auto-generated iframe snippet with configurable dimensions and allowed origins
@@ -974,9 +1007,7 @@ Only when 1–7 all green does the README/PRD Capability Status table flip ALZ r
 | **Guided onboarding tour** | Interactive walkthrough with achievement badges | Engineering | P2 | #257 |
 | **Contextual migration Q&A** | Chat on analysis results with migration-specific context | Engineering | P1 | #258 |
 | **Real-time collaborative workspace** | Multi-user simultaneous editing of migration projects | Engineering | P2 | #251 |
-| **Built-in diagram editor** | Canvas-based architecture diagram editor | Engineering | P2 | #253 |
 | **Migration replay** | Animated analysis timeline for presentations | Engineering | P3 | #254 |
-| **Migration Gallery** | Public anonymized success stories from community | Engineering | P2 | #256 |
 | **Public API & webhooks** | Enterprise integrations (Slack, Teams, Jira) | Engineering | P2 | #259 |
 | **AI Agent PaaS** | Control/Runtime design with routing/memory/policy | Engineering | P1 | #319 |
 | **Live Cloud Discovery & Auto-Deploy** | End-to-end migration execution platform | Engineering | P1 | #321 |
@@ -994,7 +1025,6 @@ Identified by CEO Master + CTO Master cross-functional review with all agent hie
 |---|-----|----------|----------------|-------|----|
 | S1 | Free access positioning | P0 | No production billing in current release scope; 100% free customer positioning remains explicit | CRO + Backend | 5 |
 | S2 | Self-serve onboarding funnel with product analytics | P0 | No funnel metrics = blind PLG motion | PM + FE | 8 |
-| S3 | Interactive demo / playground (no sign-up) | P0 | PLG requires zero-friction try-it-now | UX + FE | 5 |
 | S4 | Customer testimonials / case study framework | P1 | Zero social proof for investors | CRO + PM | 3 |
 | S5 | SOC 2 Type I readiness & compliance dashboard | P1 | Blocks enterprise deals | CISO + CLO | 8 |
 | S6 | SSO / SAML / SCIM integration | P1 | Preview routes are feature-gated; tenant validation and signed assertion verification remain enterprise-readiness gates | CISO + Backend | 8 |

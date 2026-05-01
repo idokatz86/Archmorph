@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+#### CTO direction — technical-only refocus (May 1, 2026)
+
+> Authority: CTO Master. Status: Binding. Supersedes prior product/marketing framing throughout README.md and docs/PRD.md.
+
+**Mission:** Archmorph is an internal engineering workbench. The value spine is `diagram → vision analysis → cross-cloud mapping → IaC (Terraform/Bicep) → Azure Landing Zone → drift / cost`. Every shippable change advances that spine. Anything else is overhead and gets cut.
+
+**Operating principles (7):**
+1. Value spine is law. Off-spine changes get cut on sight.
+2. The user is an engineer at a terminal — full flow runs end-to-end in under 60 seconds. No marketing pages, no cookie banners, no sign-up modals.
+3. Every output is machine-checkable (parse, schema-validate, round-trip tested).
+4. Engineering observability over product analytics. OpenTelemetry + Application Insights only. PostHog, funnel tracking, retention cohorts — banned.
+5. Identity is Entra ID. Period. No SSO matrices, no SAML, no SCIM, no social auth.
+6. Single tenant, single org. Roles: `engineer | reader` via Entra group claims.
+7. Reduction beats addition.
+
+**Three deletion PRs sequenced** after the already-merged Gallery → Playground → Canvas trio (#637/#638/#639, −1,637 LOC). Cumulative target: ≈ −2,800 to −3,750 LOC.
+
+| Order | PR | Removes | LOC delta | Risk |
+|---|---|---|---|---|
+| PR-1 | `chore: remove marketing surface` | `LandingPage.jsx` (291), `CookieBanner.jsx` (166), default-tab routing to landing, all `100% free for customers` mentions, related FE tests | ≈ −500 to −650 | Low |
+| PR-2 | `chore: remove product analytics + retention + onboarding funnel` | `analytics.js` (145), `analytics_routes.py` (111), `retention.py`, `retention_routes.py`, Day-7 retention tile, `EVENT_TAXONOMY.md`, `posthog-js` dep, S1 PRD row | ≈ −800 to −1,100 | Medium |
+| PR-3 | `chore: collapse multi-tenant + SSO scaffolds to single-tenant Entra ID` | `sso_routes.py` (438), `org_routes.py` (268), `profile_routes.py` (198), `feedback.py` (73), `feature_flags.py` (70), social auth providers, FE org/invite UIs, PRD §3.39 + §3.40 + §12.1 | ≈ −1,500 to −2,000 | High — auth blast radius |
+
+**v5.0 north-star roadmap (8 epics):** spine consolidation, ALZ production-ready (#586), GitHub IaC PR integration, drift loop closure, mapping coverage to 95%, CLI-first workflow, architecture limitations engine Phase 2, observability SLOs (analyze p95 <8s, alz p95 <1.5s, e2e p95 <30s).
+
+**New issue labels (adopt):** `value-spine-core`, `value-spine-adjacent`, `engineer-win`, `loc-debt`, `cut-candidate`, `defer-park`, `blocks-migration`, `mapping-staleness`, `arch-rule`, `observability`, `security`, `iac-output`, `alz`.
+
+**Retired labels (apply `archived`):** `product`, `marketing`, `growth`, `funnel`, `activation`, `retention`, `kpi-conversion`, `case-study`, `social-proof`, `waitlist`, `roadmap-marketing`, `whitelabel`, `multi-tenant`, `organizations`, `sso-saml`, `scim`, `gdpr-dsar`, `cookie-consent`, `pricing`, `tiers`, `billing`, `paid`, `freemium`.
+
+**Banned vocabulary in docs/PRs/commits:** `delight`, `delightful`, `empower`, `empowering`, `enterprise-grade`, `world-class`, `powerful`, `magical`, `seamless`, `effortless`, `game-changing`, `cutting-edge`, `revolutionary`, `blazing-fast`, `next-generation`, `unleash`, `supercharge`, `robust` (use "tested"), `best-in-class`, `one-stop`, `beautiful`, `beloved`, `loved by`, `customers`, `users` (use "engineers"), `freemium`, `PLG`, `growth-loop`, `conversion`, `funnel`, `activation`, `retention-cohort`, `case study`, `testimonial`, `social proof`.
+
+**PR/commit voice rules:** Lead with the engineer-win in one measurable sentence (`−10 min vs draw.io`, `fails CI on misconfigured Front Door + SFTP`, `reduces Aurora→MS SQL mis-routing to 0`). Imperative, scope-prefixed commit subjects ≤72 chars. PR descriptions answer: what spine segment touched, what's the measurable win, what tests assert it, net LOC delta. Third-person factual prose in README/PRD.
+
+### Removed
+
+#### CTO scope cleanup — three peripheral surfaces deleted (PRs [#637](https://github.com/idokatz86/Archmorph/pull/637), [#638](https://github.com/idokatz86/Archmorph/pull/638), [#639](https://github.com/idokatz86/Archmorph/pull/639))
+
+Per the owner rubric — internal tool only, NOT for sale, no marketing surface, no growth-funnel telemetry, every feature must give a measurable productivity / correctness / observability win to a platform or cloud engineer doing AWS/GCP→Azure migrations — the CTO verdict deleted three surfaces that did not feed the value spine `diagram → vision → cross-cloud mapping → IaC → ALZ → drift/cost`:
+
+- **Migration Gallery** ([#637](https://github.com/idokatz86/Archmorph/pull/637)) — community-stories surface; pure marketing/social-proof, served no engineer workflow. Deleted `frontend/src/components/MigrationGallery.jsx`, `backend/routers/gallery_routes.py`, supporting backend services, models, tests, frontend tests, and nav/store/command-palette wiring (10 files, −720 LOC).
+- **Demo Playground + default-tab fix** ([#638](https://github.com/idokatz86/Archmorph/pull/638)) — try-before-signup sandbox; not relevant to an internal tool with no signup. Deleted `frontend/src/components/PlaygroundPage.jsx`, removed marketing analytics steps (`first_upload`, `returning_user`), changed default landing tab from `playground` to `translator`. Includes a follow-up popstate fix so back/forward navigation handles the empty-hash translator route correctly (11 files, +14/−222 LOC).
+- **Canvas Editor** ([#639](https://github.com/idokatz86/Archmorph/pull/639)) — hand-rolled diagram editor that duplicated external tools (draw.io, Excalidraw, Lucidchart) without producing any IaC, ALZ, or drift output the spine consumes. Deleted `frontend/src/components/CanvasEditor/` (CanvasEditor.jsx + servicesPalette.js), App/Nav/CommandPalette/store wiring, Nav test assertion (7 files, −695 LOC). `@xyflow/react` retained for `DependencyGraph` and `ArchitectureFlow` inside the live `DiagramTranslator`.
+
+**Net delivered:** −1,637 LOC across 28 files, 3 nav entries removed, 1 attack surface removed (Canvas drag-drop palette state).
+
+**Intentionally kept (different concerns, verified):** `routers/deploy.py` `canvas_state` field (carries the analysis blob), `azure_landing_zone.py` `CANVAS_W` / `CANVAS_H_*` SVG export viewport constants, and all `"SageMaker Canvas"` AWS service-mapping references in the catalog.
+
+**Validation per PR:** backend pytest 1767 passed / 1 skipped / 2 xfailed, frontend vitest 271 passed (29 files), OpenAPI contract green, post-deploy smoke green on the merge SHA `29bbe068edc197c636d756e647e4d53df76a7db8`.
+
 ### Added
 
 #### Architecture limitations engine (PR [#615](https://github.com/idokatz86/Archmorph/pull/615); follow-up phases [#616](https://github.com/idokatz86/Archmorph/issues/616) [#617](https://github.com/idokatz86/Archmorph/issues/617) [#618](https://github.com/idokatz86/Archmorph/issues/618) [#619](https://github.com/idokatz86/Archmorph/issues/619))
