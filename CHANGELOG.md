@@ -23,6 +23,46 @@ A deterministic rule engine that flags structurally invalid Azure compositions d
 
 Phase 2-5 follow-ups (AI fallback, admin review queue, frontend Architecture Health panel, rule library expansion to 60-100) tracked separately.
 
+### Planned — Production-Ready ALZ (epic #586, target v4.3.0)
+
+**T2→T3 bridge — eight technical-debt issues (#587–#594)** to close the credibility gap surfaced by the post-merge CTO end-to-end review of `landing-zone-svg`: fix the icon-registry pipeline (D1, 100% icon-miss rate on cold imports), fix `_CATEGORY_TO_TIER` mis-bucketing (D2, observability/network-security tiers stay empty), make `_TIER1_CARDS` + `_vnet_block` + `_replication_band` data-driven (D3, kill hardcoded `10.0.0.0/16` and the static AVD/replication strip), wire `service_connections` through every renderer (D4), refresh stale mappings (Aurora wrong-engine, Cognito B2C, CloudFront CDN), add tier-population + min-real-icon test guardrails, ship a golden-file visual regression catcher, and stand up mappings ownership + CI freshness lint.
+
+**Production-readiness — eleven additional issues (#595–#605)** lifting the ALZ feature from Beta/demo-ware to **Live** at end of Sprint 3:
+- **#595 Observability** — OpenTelemetry spans + metrics (icon-resolution hit rate, latency p50/p95/p99, SVG size, error rate) + alerts on `landing-zone-svg` pipeline (Sprint 1, P0, Backend + DevOps).
+- **#596 CISO security review** — OWASP API Top 10 + threat model: data-URI handling, ZIP-slip on icon ingestion, prompt-injection vectors, retention-pipeline cross-talk, PII boundary (Sprint 1, P0, CISO).
+- **#597 Performance SLO** — p95 < 1.5 s primary / < 3 s DR, 100 RPS × 5 min Locust soak, 512 MB worker memory ceiling, multi-window burn-rate alerts (Sprint 2, P1, Performance).
+- **#598 Accessibility** — SVG titles/desc/role=img, WCAG 2.1 AA contrast, keyboard navigation, axe-core CI (Sprint 2, P1, UX + FE).
+- **#599 API stability** — locked OpenAPI 3.1 contract, `dr_variant` enum locked to `primary|secondary`, 90-day deprecation policy with `Deprecation`/`Sunset` headers, `oasdiff` breaking-change CI gate (Sprint 2, P1, API).
+- **#600 Golden PDF regression suite** — 3 redacted customer PDFs (AWS-only, GCP-only, mixed) + the original CTO-review PDF (redacted) checked in as `backend/tests/fixtures/golden_pdfs/`. Legal/Privacy review gates redaction; synthetic-equivalent fallback if blocked (Sprint 2, P0, QA + PM).
+- **#601 Frontend exposure** — closes #575: ExportHub option + `LandingZoneViewer` with DR toggle, pan/zoom, download, deep-linkable URL state, full E2E + unit coverage (Sprint 2, P1, FE + UX).
+- **#602 Foundry model evaluation spike** — bench `gpt-5.4` / `gpt-5.5` / `gpt-5.3-codex` / `mistral-document-ai-2512` against `gpt-4.1` for vision_analyzer / iac_generator / hld_generator / mapping_suggester / agent_paas_react / retention_anonymizer using #600 fixtures + `gpt-5-pro` rubric grader. Locks per-agent model picks (Sprint 1, P0, Backend + Cloud).
+- **#603 Customer-facing docs** — `docs/features/landing_zone.md` + sample gallery + FAQ (Sprint 3, P1, PM).
+- **#604 GA gate** — re-run the original CTO E2E with the same PDF; binary rubric (icon hit ≥95%, all 8 tiers populated, ≥3 service_connections rendered, golden-file pixel diff <2%, p95 SLO met, CISO sign-off) plus `gpt-5-pro` rubric judge that **must** return `production-ready` (Sprint 3, P0, QA).
+- **#605 Beta → Live promotion** — flip Capability Status table, cut v4.3.0 release with rendered before/after gallery, close epic #586 (Sprint 3, P0, PM + DevOps).
+
+**Sprint allocation**:
+- Sprint 1 (in flight): #587–#590 + #595, #596, #602
+- Sprint 2: #591–#594 + #597, #598, #599, #600, #601
+- Sprint 3 (GA): #603, #604, #605
+- Sprint 4: fix-forward headroom only (no new work)
+
+**Per-agent Foundry model strategy** (locked pending #602 verification): `gpt-5.4` for vision_analyzer + hld_generator (1 M ctx, GA, multimodal + reasoning); `gpt-5.3-codex` for iac_generator (Codex-tuned, GA, Responses API); `gpt-5.4-mini` for mapping_suggester + agent_paas_react (cheaper mid-tier reasoning); `gpt-5.4-nano` for retention_anonymizer (smallest GA, deterministic); **`gpt-5-pro` locked for the GA judge in #604** (decoupled from production code → unbiased). Fallback: `gpt-5.4` everywhere if `gpt-5.5` Tier 5/6 quota is unavailable.
+
+## [4.2.0] - 2026-05-01
+
+### Added
+- **Azure Landing Zone target diagram** (#571 / closes #572 #573 #574) — new `format=landing-zone-svg` export. Pure-stdlib SVG generator emits a Microsoft-style hub-and-spoke ALZ diagram: management groups, identity hub, network hub, ingress / compute / data / observability / storage / identity / security tiers, plus a DR variant (`dr_variant=secondary`, 1800×2120) showing region pairing and replication bands. All icons embedded as `data:image/svg+xml;base64,…` from the icon registry — no external URLs. Output validated via `ET.fromstring` and capped at 300KB. Round-trip tested: parse, no duplicate xmlns, region labels, legend present, `dr_variant` rejected on other formats.
+- **Multi-source provider for landing zone** (#576 / closes #577 #578 #579) — Landing Zone generator now supports `source_provider="aws"` (default, backwards-compatible with #571) and `source_provider="gcp"`. The provider is read implicitly from the analysis payload (no new query param); the schema is vendor-neutral and required zero changes for GCP. Per-provider legend lines (e.g. GCP: `GCP → Azure · GLB → App Gateway · GKE → AKS · Filestore → Azure Files · Pub/Sub → Event Hubs · Cloud SQL → Managed DB`). Hardened `_validate_source_provider`: `None` → `"aws"`, non-string → `ValueError`, empty/whitespace → `ValueError`, unknown → `ValueError`.
+- **Sprint 0 anonymized retention tracking** (#580) — privacy-safe HMAC-anon cohort tracking gated behind `RETENTION_TRACKING_ENABLED`. Three admin endpoints (`/api/admin/retention/{day7,baseline,taxonomy}`), 8 canonical events, KPI 0.35 documented. Admin dashboard gains a Day-7 retention tile (testid `retention-tile`).
+- **Local production-parity Compose overlay** plus guard tests for PostgreSQL/Redis enforcement without requiring a staging environment.
+- **OpenAPI contract snapshot gate** so backend route/schema drift fails CI unless the committed API baseline is updated intentionally.
+- **Admin release gate view** for deployment metadata and required smoke checks, plus confirmation before enabling risky scaffold feature flags.
+- **Admin dashboard health and feature flag tabs** with live monitoring, audit visibility, and runtime flag toggles.
+- **Drift baselines** with compare history, deterministic finding IDs, finding accept/reject decisions, and Markdown report export. Drift dashboard wired to create a baseline, rerun live/sample compares, resolve findings, and download reports.
+- **Post-deploy smoke job** that verifies the deployed frontend, hash-routed product paths, API health, and OpenAPI schema after production deploys.
+- **Release checklist** covering required secrets, quality gates, manual smoke checks, scaffolded feature approvals, and rollback evidence.
+- **Disabled-by-default feature flags** for scaffolded deploy, drift, cloud scanner, and SSO/SCIM capabilities, with frontend gating for drift and deploy surfaces.
+
 ### Changed
 
 #### Infrastructure consolidation (May 2026)
@@ -37,33 +77,33 @@ Net effect: roughly $18/mo in idle resource spend eliminated, IaC footprint matc
 
 #### Other changes
 
+- **APP_VERSION** bumped to 4.2.0 in frontend constants.
 - Clarified the product is 100% free for customers, removed Pro/billing language from the playground and active customer-facing surfaces, and renamed paid-conversion analytics to free-product activation tracking.
 - Added an OpenAPI contract snapshot gate so backend route/schema drift fails CI unless the committed API baseline is updated intentionally.
 - Added a local production-parity Compose overlay plus guard tests for PostgreSQL/Redis enforcement without requiring a staging environment.
 - Consolidated the first-run product experience around the playground/migration review flow, fixed hash routing for all visible app tabs, and replaced remaining active emoji icons with Lucide icons.
-- Removed Archmorph's staging deployment path from GitHub Actions and updated release guidance for a production-only environment model.
+- Removed Archmorph's staging deployment path from GitHub Actions; updated release guidance for a production-only environment model.
 - Added server-side production gates and readiness metadata for live scanner, deployment execution/rollback, SSO/SCIM, Redis-backed session persistence, and PostgreSQL production parity; no customer billing path is required.
 - Refreshed README, PRD, architecture diagram, and application flow diagram for the April 28 release-hardening checkpoint, including React/Vite versions, test counts, drift baselines, admin release gates, post-deploy smoke, and gated scanner/deploy posture.
 - Captured release evidence for the green `904132a592a1e9744a6a98ab54ddaa56c7f91059` dependency/security checkpoint.
-- Added drift baselines with compare history, deterministic finding IDs, finding accept/reject decisions, and Markdown report export.
-- Wired the Drift dashboard to create a baseline, rerun live/sample compares, resolve findings, and download drift reports.
-- Added an admin release gate view for deployment metadata and required smoke checks, plus confirmation before enabling risky scaffold feature flags.
-- Added admin dashboard health and feature flag tabs with live monitoring, audit visibility, and runtime flag toggles.
 - Upgraded drift detection from a placeholder overlay to a usable sample audit flow with summary counts, recommendations, and richer backend drift scoring.
 - Audit-log feature flag updates through the existing admin configuration audit event stream.
-- Added a post-deploy smoke job that verifies the deployed frontend, hash-routed product paths, API health, and OpenAPI schema after production deploys.
-- Added disabled-by-default feature flags for scaffolded deploy, drift, cloud scanner, and SSO/SCIM capabilities, with frontend gating for drift and deploy surfaces.
-- Added a release checklist covering required secrets, quality gates, manual smoke checks, scaffolded feature approvals, and rollback evidence.
 - Tightened CI gates: backend tests no longer ignore Agent PaaS/property-based suites, and frontend lint/Vitest now fail the build instead of using `continue-on-error`.
 - Updated README and PRD language to distinguish live, beta, scaffold, and planned capabilities instead of presenting all enterprise surfaces as production-ready.
 - Refreshed landing page messaging with capability status labels, preview-safe trust copy, and a sample-diagram CTA that routes to the playground.
 
 ### Fixed
-- Removed noisy frontend React `act(...)` test warnings around App navigation, ServicesBrowser loading, and Roadmap loading, and removed the deprecated backend `TestClient(timeout=...)` usage.
+- **Diagram export pipeline** (#569) — `_generate_vsdx` emitted duplicate `xmlns` attributes on the root element, making the file invalid Visio XML. Replaced manual `attrib={"xmlns": ...}` with `ET.register_namespace`. Router now labels VDX 2003 XML with the correct `.vdx` extension (was incorrectly `.vsdx`, the OOXML zip extension; real Visio refused raw XML at `.vsdx`). Added empty-content guard returning 502 instead of writing zero-byte files. Test suite rewritten to actually parse Excalidraw JSON / drawio XML / VDX XML and validate element/page counts (previous `assert "content" in result or "filename" in result` always passed). `e2e_flow_test.py` switched from `json={"format":...}` (which silently fell back to defaults) to `params={"format":...}` so format is sent as a query parameter as FastAPI declares it.
+- **MCP diagram fallback path** — `_fallback_generation` returned `None` on missing content; added `or ""` guard. MCP success path also falls back when payload is empty/non-string/invalid JSON.
+- **Frontend Blob MIME types** — `ExportHub.jsx` now sends format-specific MIMEs (`application/json` / `application/xml` / `application/vnd.visio`) instead of generic `octet-stream`.
+- Removed noisy frontend React `act(...)` test warnings around App navigation, ServicesBrowser loading, and Roadmap loading; removed the deprecated backend `TestClient(timeout=...)` usage.
 - Cleaned low-risk backend deprecation warnings for Pydantic model config, FastAPI `Query(pattern=...)`, timezone-aware UTC timestamp generation, and async decorator tests.
 - Repaired `test_agent_paas_real.py` with isolated in-memory SQLite, seeded tenant data, and realistic auth overrides so the suite can run in CI.
 - Fixed frontend Vitest setup with a complete `localStorage` mock and aligned component tests with current Nav, DiagramTranslator, CostPanel, LandingPage, AnalysisResults, and AdminDashboard behavior.
 - Fixed `CostPanel.jsx` hook ordering so frontend lint passes cleanly.
+
+### Known Issues
+- **Landing-zone fidelity** — post-merge CTO E2E review (May 1, 2026) flagged the new `landing-zone-svg` export as **demo-ware**: cold-import icon-store empties to 0/N hits because `_load_from_disk()` is only invoked from a FastAPI startup hook, `_CATEGORY_TO_TIER` mis-buckets `Management` / `DevTools` / `Integration` / WAF / Sentinel / Defender into `compute` and `identity`, `_TIER1_CARDS` / `_vnet_block` / `_replication_band` are static templates that ignore analysis input, and `service_connections` are not yet wired into the SVG/drawio/vdx renderers. Five mappings (Aurora wrong-engine, Cognito B2C name retired, CloudFront/CDN retiring, GuardDuty lossy, KMS missing FIPS tier) are stale. Tracked under epic #586 (T2→T3 bridge) with sub-issues #587–#594; targeted for Sprint 1 + Sprint 2.
 
 ### Removed
 - Deleted transient frontend repair scripts and ignored future `frontend/fix_*` scratch files.

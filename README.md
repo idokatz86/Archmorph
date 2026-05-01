@@ -6,7 +6,7 @@ Translate AWS and GCP architecture diagrams into Azure-ready migration artifacts
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Multi-Cloud](https://img.shields.io/badge/cloud-AWS%20%7C%20Azure%20%7C%20GCP-0078D4.svg)
-![Version](https://img.shields.io/badge/version-4.1.0-22C55E.svg)
+![Version](https://img.shields.io/badge/version-4.2.0-22C55E.svg)
 ![Status](https://img.shields.io/badge/status-Preview%20Stabilizing-F59E0B.svg)
 ![Tests](https://img.shields.io/badge/tests-CI%20Enforced-22C55E.svg)
 ![Python](https://img.shields.io/badge/python-3.12-3776AB.svg)
@@ -25,9 +25,25 @@ Archmorph is an AI-assisted cloud migration workbench. The live path analyzes up
 | Status | Meaning | Capabilities |
 |--------|---------|--------------|
 | Live | Usable in the current product path | Diagram upload, sample playground, AI service mapping, guided questions, IaC/HLD/report export, cost estimates, service catalog, admin analytics, auth shell, CI/security scanning |
-| Beta | Implemented but needs hardening, deeper tests, or production validation | RAG, Agent PaaS proof, cost/token observability, collaboration, gallery, replay, Terraform state import, multi-cloud cost comparison, social auth/RBAC |
+| Beta | Implemented but needs hardening, deeper tests, or production validation | RAG, Agent PaaS proof, cost/token observability, collaboration, gallery, replay, Terraform state import, multi-cloud cost comparison, social auth/RBAC, **Azure Landing Zone target diagram** (visual scaffold; production-ready push targeted for v4.3.0 under epic #586 — see [Production-Ready Roadmap](#production-ready-roadmap-azure-landing-zone-v430-target) below) |
 | Scaffold | UI/routes/models exist, but execution needs integration or operator review | Live cloud scanner, deploy engine, credential vault, SSO/SAML/SCIM, live drift/living architecture |
 | Planned | Not production-ready yet | VS Code extension, PR-based IaC workflow, multi-diagram projects |
+
+### Production-Ready Roadmap — Azure Landing Zone (v4.3.0 target)
+
+The post-merge CTO end-to-end review of `landing-zone-svg` (May 1, 2026) flagged the feature as **demo-ware** rather than production-ready. We're keeping it visibly Beta and shipping a 19-issue production-readiness push under epic [#586](https://github.com/idokatz86/Archmorph/issues/586) to flip it to **Live** at end of Sprint 3:
+
+| Track | Issues | Goal |
+|-------|--------|------|
+| **T2→T3 fidelity** (technical debt) | [#587](https://github.com/idokatz86/Archmorph/issues/587)–[#594](https://github.com/idokatz86/Archmorph/issues/594) | Fix icon registry (D1), tier mis-bucketing (D2), data-driven templates (D3), `service_connections` wiring (D4), mappings staleness, test guardrails, golden-file regression, CI freshness lint |
+| **Observability + perf** | [#595](https://github.com/idokatz86/Archmorph/issues/595), [#597](https://github.com/idokatz86/Archmorph/issues/597) | OTel spans + metrics + alerts; SLO p95 < 1.5 s primary / < 3 s DR; Locust soak 100 RPS × 5 min |
+| **Security + a11y + API** | [#596](https://github.com/idokatz86/Archmorph/issues/596), [#598](https://github.com/idokatz86/Archmorph/issues/598), [#599](https://github.com/idokatz86/Archmorph/issues/599) | OWASP API Top 10 pass, WCAG 2.1 AA + screen-reader semantics, locked OpenAPI 3.1 contract + 90-day deprecation policy |
+| **Frontend exposure** | [#601](https://github.com/idokatz86/Archmorph/issues/601) (closes [#575](https://github.com/idokatz86/Archmorph/issues/575)) | ExportHub option + `LandingZoneViewer` with DR toggle, pan/zoom, deep-link state |
+| **Quality assurance** | [#600](https://github.com/idokatz86/Archmorph/issues/600), [#604](https://github.com/idokatz86/Archmorph/issues/604) | Golden PDF regression suite (AWS/GCP/mixed/CTO-redacted); GA gate re-runs CTO E2E with `gpt-5-pro` rubric judge |
+| **Foundry model evaluation** | [#602](https://github.com/idokatz86/Archmorph/issues/602) | Bench `gpt-5.4` / `gpt-5.5` / `gpt-5.3-codex` / `mistral-document-ai-2512` vs current `gpt-4.1` to lock per-agent model picks (model freedom granted to specialist agents) |
+| **Docs + release** | [#603](https://github.com/idokatz86/Archmorph/issues/603), [#605](https://github.com/idokatz86/Archmorph/issues/605) | Customer-facing "What is the ALZ diagram?" doc + sample gallery; Beta → Live promotion + v4.3.0 release |
+
+**GA gate ([#604](https://github.com/idokatz86/Archmorph/issues/604))**: re-run the same PDF that produced the original demo-ware verdict. Pass requires icon hit rate ≥ 95%, all 8 tiers populated, ≥ 3 `service_connections` rendered, golden-file pixel diff < 2%, SLO budgets met, CISO sign-off, and `gpt-5-pro` judge returning `production-ready`. Anything less and Sprint 4 absorbs fix-forward — we don't ship.
 
 **Key Capabilities:**
 - Upload architecture diagrams (PNG, JPG, SVG, PDF, Draw.io, Visio) or import existing IaC (Terraform/ARM/CloudFormation)
@@ -37,6 +53,7 @@ Archmorph is an AI-assisted cloud migration workbench. The live path analyzes up
 - **Guided migration questions** — 32 contextual questions across 8 categories with **inter-question constraint system** that dynamically filters options based on compliance and data residency choices
 - Map to Azure equivalents with **confidence scores and transparency explanations** showing why each level was assigned
 - **Export architecture diagrams** as Excalidraw, Draw.io, or Visio with Azure stencils
+- **Azure Landing Zone target diagram** (Beta) — pure-stdlib `landing-zone-svg` export rendering a Microsoft-style hub-and-spoke ALZ (management groups, identity hub, network hub, ingress/compute/data/observability/storage/identity/security tiers) plus an optional `dr_variant=secondary` view with region pairing and replication bands. Multi-source provider: works for both `source_provider=aws` and `source_provider=gcp` (provider read implicitly from the analysis payload). All icons embedded as `data:` URIs — no external network calls. T3 fidelity follow-ups tracked under epic #586.
 - **Interactive Architecture Map** — dagre auto-layout with confidence rings, effort badges, typed edges, zone grouping, and full pan/zoom/drag interactivity
 - **Service Dependency Graph** — React Flow interactive graph with 6 typed edges (traffic/database/auth/control/security/storage), dagre layout, click-to-reveal detail panel, SVG export
 - **Email notifications** — Azure Communication Services integration for migration report delivery

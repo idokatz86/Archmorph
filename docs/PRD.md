@@ -1,7 +1,7 @@
 # Archmorph — Cloud Architecture Translator to Azure
 ## Product Requirements Document (PRD)
-**Version:** 4.1.0
-**Date:** April 28, 2026
+**Version:** 4.2.0
+**Date:** May 1, 2026
 **Author:** Ido Katz
 
 ---
@@ -21,7 +21,7 @@ The PRD distinguishes three maturity levels. **Live** features are usable in the
 | Maturity | Capabilities |
 |----------|--------------|
 | Live | Diagram upload, sample playground, service mapping, guided questions, IaC/HLD/report export, cost estimates, service catalog, admin analytics, auth shell, API versioning, CI/security gates |
-| Beta | RAG, Agent PaaS proof, cost/token observability, collaboration, migration gallery, migration replay, Terraform state import, multi-cloud cost comparison, social auth/RBAC |
+| Beta | RAG, Agent PaaS proof, cost/token observability, collaboration, migration gallery, migration replay, Terraform state import, multi-cloud cost comparison, social auth/RBAC, **Azure Landing Zone target diagram** (multi-source: AWS + GCP; T3 fidelity in progress under epic #586) |
 | Scaffold | Live cloud scanner, credential vault, deploy engine, SSO/SAML/SCIM production validation |
 | Beta/Hardening | Living architecture/drift baselines, admin release gates, release evidence, dependency/security remediation workflow |
 | Planned | VS Code extension, PR-based IaC workflows, multi-diagram projects |
@@ -519,6 +519,71 @@ The PRD distinguishes three maturity levels. **Live** features are usable in the
 - **Rate limiting** — 3 feature requests/hour, 5 bug reports/hour to prevent abuse
 - **Email capture** — Optional contact email for follow-up
 - **Success confirmation** — Toast notification with link to created issue
+
+### 3.57 Azure Landing Zone Target Diagram (v4.2.0) — Beta
+- **`format=landing-zone-svg` export** — pure-stdlib SVG generator emitting a Microsoft-style hub-and-spoke Azure Landing Zone diagram from any analyzed source architecture. Primary canvas 1800×1330; DR variant (`dr_variant=secondary`) 1800×2120 with region pairing and replication bands.
+- **Tiered layout** — management groups header, identity hub, network hub, then service tiers: ingress, compute, data, observability, storage, identity, security. Tiers are populated by `azure_landing_zone_schema.py`'s `_CATEGORY_TO_TIER` (vendor-neutral; categories from the analysis payload drive bucket selection).
+- **Multi-source provider** (#576) — supports both AWS source (default, backwards-compatible with #571) and GCP source. The provider is read **implicitly** from `analysis["source_provider"]` (no new query parameter); router stayed untouched. Per-provider legend lines (e.g. GCP: `GCP → Azure · GLB → App Gateway · GKE → AKS · Filestore → Azure Files · Pub/Sub → Event Hubs · Cloud SQL → Managed DB`). Hardened `_validate_source_provider`: `None` → `"aws"`, non-string → `ValueError`, empty/whitespace → `ValueError`, unknown → `ValueError`. `frozenset({"aws","gcp"})` keeps the supported set + legend dict in lockstep via module-load `assert`.
+- **Embedded icons only** — every `<image>` href is a `data:image/svg+xml;base64,…` URI resolved via `icons.registry.resolve_icon`; falls back to a coloured-tile placeholder when the registry has no match. No external URLs.
+- **Validation guarantees** — every emitted SVG passes `ET.fromstring`, has a single root `xmlns`, and is capped at 300KB. Invalid `dr_variant` rejected with HTTP 400; `dr_variant` on non-landing-zone formats also rejected.
+- **Test coverage** — 52 tests (29 schema + 13 generator round-trip + 10 GCP source). Asserts on parsed content shape (per #569 guardrail): canvas dimensions, region labels, legend present, no external URLs in `<image>` hrefs, legacy `{zones, mappings}` analyses still supported.
+- **Vendor-neutral schema** — the 5 inference helpers in `azure_landing_zone_schema.py` (`_regions`, `_dr_mode`, `_tiers`, `_actors`, `_replication`) accept legacy and current analysis payloads without provider-specific code paths. Adding a new source provider is ~50 LOC of code + tests.
+- **Known limitations** (tracked under epic #586 — T2→T3 bridge): cold-import icon-store empties to 0/N hits because `_load_from_disk()` is only invoked from a FastAPI startup hook (D1); `_CATEGORY_TO_TIER` mis-buckets `Management` / `DevTools` / `Integration` / WAF / Sentinel / Defender into `compute` and `identity` (D2); `_TIER1_CARDS` / `_vnet_block` / `_replication_band` are static templates that ignore analysis input (D3, hardcoded `10.0.0.0/16` and AVD/replication strip); `service_connections` are not yet wired into the SVG/drawio/vdx renderers (D4); five mappings are stale (Aurora wrong-engine, Cognito B2C name retired, CloudFront/CDN retiring, GuardDuty lossy, KMS missing FIPS tier). Eight follow-up issues (#587–#594) targeted for Sprint 1 + Sprint 2.
+- **Frontend deferred** (#575) — ExportHub option + LandingZoneViewer to land in a follow-up sprint; backend API is stable and consumable today via `format=landing-zone-svg` and optional `dr_variant=secondary`.
+
+#### 3.57.1 Production-Ready Push (epic #586 — v4.3.0 target)
+
+The post-merge CTO end-to-end review of `landing-zone-svg` (May 1, 2026) returned a verdict of **demo-ware**, not production-ready. The PRD owner (Ido Katz) has lifted the target from "T3 fidelity" to **full production-ready** for the ALZ feature and the surrounding pipeline (icons, mappings, renderers, observability, tests). Eleven additional issues (#595–#605) extend the original 8-issue technical-debt epic; combined backlog ships across Sprints 1–3, Sprint 4 reserved for fix-forward only.
+
+**Production-Ready Definition** — a capability is **Live** for Archmorph when, in this exact order:
+1. **Functional fidelity** — for the same input PDF, ≥ 95% of detected services resolve to a real Azure icon, all 8 tiers populate when input warrants it, and ≥ 3 `service_connections` render as edges in every export format (SVG, drawio, vdx).
+2. **Observability** — p50/p95/p99 latency, error rate, icon-resolution hit rate, and SVG-size distribution shipped to App Insights with one alert per metric.
+3. **Security review** — CISO Master sign-off on data-URI handling, ZIP-slip in icon ingestion, prompt-injection vectors, retention pipeline cross-talk, and OWASP API Top 10.
+4. **Performance SLOs met** — p95 < 1.5 s primary, < 3 s DR, peak 100 RPS for 5 min with no memory ceiling breach.
+5. **Re-test passes** — same CTO-review PDF (redacted, in repo at `backend/tests/fixtures/golden_pdfs/cto_alz_review_2026_05_01.pdf`), `gpt-5-pro` rubric grader returns `production-ready` verdict, golden-file pixel diff < 2%.
+6. **Frontend exposure** — ExportHub option + `LandingZoneViewer` shipped (#601, closes #575).
+7. **Docs + runbook + deprecation policy** signed off by PM Master.
+
+Only when 1–7 all green does the README/PRD Capability Status table flip ALZ row from **Beta → Live**.
+
+**Sprint allocation**:
+
+| Sprint | Theme | Issues |
+|--------|-------|--------|
+| 1 (in flight) | Stop the bleeding + measure | #587, #588, #589, #590, **#595, #596, #602** |
+| 2 | Rebuild on solid foundation | #591, #592, #593, #594, **#597, #598, #599, #600, #601** |
+| 3 | Ship | **#603, #604, #605** |
+| 4 | Fix-forward headroom (no new work) | reserved |
+
+**Per-agent Foundry model strategy** (May 1, 2026 catalog snapshot, locked pending #602 verification — model freedom granted, agents may swap after their own benchmark except #604 judge which is locked):
+
+| Workload | Recommended Foundry Model | Rationale |
+|----------|---------------------------|-----------|
+| `vision_analyzer` (PDF → services) | `gpt-5.4` (eval `gpt-5.5` + `mistral-document-ai-2512`) | 1 M ctx, GA, multimodal + reasoning; replaces today's `gpt-4.1` |
+| `iac_generator` + `iac_chat` | `gpt-5.3-codex` (fallback `gpt-5.4`) | GA, Codex-tuned, Responses API; better at HCL/Bicep |
+| `hld_generator` | `gpt-5.4` | 1 M in / 128 K out, structured outputs, vision |
+| `mapping_suggester` | `gpt-5.4-mini` | Mid-tier reasoning, cheap, identical capabilities to `gpt-5.4` at ~⅓ cost |
+| `agent_paas_react` | `gpt-5.4-mini` | Parallel tool calling + cost |
+| `retention_anonymizer` | `gpt-5.4-nano` | Smallest GA, fast, deterministic |
+| Embeddings (RAG) | `text-embedding-3-large` | Latest GA embedding; no migration needed |
+| Re-rank (RAG hybrid search) | `Cohere-rerank-v4.0-fast` | Drop-in upgrade |
+| **GA judge (#604)** | **`gpt-5-pro`** (locked) | Decoupled from any production model → unbiased verdict |
+
+**Avoid in production**: every `*-chat` Preview tag (`gpt-5.5-chat`, `gpt-5.4-chat`, `gpt-5.3-chat`, `gpt-5.2-chat`, `gpt-5-chat`), `o1-preview`, `gpt-4o-realtime-preview`, anything tagged Preview — Microsoft explicitly says "We don't recommend using preview models in production."
+
+**API-version bump required**: `2025-04-01-preview` → latest GA inference API (Responses API for o-series + gpt-5.x reasoning).
+
+**Risk register (top 5)**:
+
+| # | Risk | Likelihood | Impact | Owner | Mitigation |
+|---|------|------------|--------|-------|------------|
+| R1 | Foundry quota for `gpt-5.5` (Tier 5/6) blocked; regions don't include prod region | M | H | DevOps Master | Fall back to `gpt-5.4` everywhere; quota request filed Day 1 |
+| R2 | CTO-review PDF can't be redacted/checked in for legal reasons | M | H | PM Master | Synthetic equivalent that exercises same D1–D5 defects |
+| R3 | Frontend (#601) lands late, blocking Live promotion | M | M | FE Master | Decouple: backend can flip Beta → Live independently |
+| R4 | `gpt-5.3-codex` Responses API requires SDK bump that breaks `cached_chat_completion` cache key | L | M | Backend Master | Cache-key versioning hook validated in #602 |
+| R5 | CISO review (#596) finds blocker requiring architecture change | L | H | CISO Master | Threat-model session pre-allocated week of May 4–8 |
+
+**Re-test protocol (#604)**: at end of Sprint 3, CI executes `pytest backend/tests/test_cto_e2e_regression.py` against the same PDF that produced the demo-ware verdict, plus an `gpt-5-pro` LLM judge layer that compares before/after primary + DR canvas PNGs against the locked rubric and the original D1–D5 defect list. Output schema: `{"verdict": "production-ready|beta|demo-ware", "rationale": "<200 words>", "remaining_defects": [...]}`. Verdict **must** be `production-ready` for the gate to pass; output is posted as a comment on the GA PR alongside side-by-side before/after PNGs.
 
 ---
 
