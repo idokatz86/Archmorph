@@ -60,6 +60,59 @@ MAX_SVG_BYTES = 300 * 1024
 
 
 # ---------------------------------------------------------------------------
+# Source-provider contract (#576) — implicit, read from analysis dict.
+# ---------------------------------------------------------------------------
+# The schema is vendor-neutral; the only thing that varies per source provider
+# is the legend mapping line. Callers set ``analysis["source_provider"]`` to
+# one of the values in ``_SUPPORTED_SOURCE_PROVIDERS``. Missing → "aws"
+# (backwards-compatible with #571). Unknown → ValueError.
+
+_SUPPORTED_SOURCE_PROVIDERS: frozenset[str] = frozenset({"aws", "gcp"})
+
+_SOURCE_PROVIDER_LEGEND_LINE: dict[str, str] = {
+    "aws": (
+        "AWS → Azure · ALB → App Gateway · EKS → AKS · "
+        "EFS → Azure Files · Kafka → Event Hubs · RDS → Managed DB"
+    ),
+    "gcp": (
+        "GCP → Azure · GLB → App Gateway · GKE → AKS · "
+        "Filestore → Azure Files · Pub/Sub → Event Hubs · Cloud SQL → Managed DB"
+    ),
+}
+
+# Lockstep invariant — the supported set must match the legend table exactly.
+assert _SUPPORTED_SOURCE_PROVIDERS == frozenset(_SOURCE_PROVIDER_LEGEND_LINE), (
+    "source-provider constants drifted: "
+    f"{_SUPPORTED_SOURCE_PROVIDERS} vs {set(_SOURCE_PROVIDER_LEGEND_LINE)}"
+)
+
+
+def _validate_source_provider(value: object) -> str:
+    """Lowercase, default to ``"aws"`` only when ``None``, else strict-validate.
+
+    Contract:
+      * ``None`` (key missing in ``analysis``) → defaults to ``"aws"``.
+      * Non-string types → ``ValueError`` (mapped to HTTP 400 by the router).
+      * Empty / whitespace-only string → ``ValueError`` (do NOT silently default).
+      * Unknown known-string → ``ValueError``.
+    """
+    if value is None:
+        return "aws"
+    if not isinstance(value, str):
+        raise ValueError(
+            f"Unsupported source_provider: {value!r}. "
+            f"Expected a string in {sorted(_SUPPORTED_SOURCE_PROVIDERS)}."
+        )
+    provider = value.strip().lower()
+    if not provider or provider not in _SUPPORTED_SOURCE_PROVIDERS:
+        raise ValueError(
+            f"Unsupported source_provider: {value!r}. "
+            f"Expected one of {sorted(_SUPPORTED_SOURCE_PROVIDERS)}."
+        )
+    return provider
+
+
+# ---------------------------------------------------------------------------
 # Icon resolution — registry-first, fallback to coloured-tile placeholder
 # ---------------------------------------------------------------------------
 
@@ -322,8 +375,18 @@ def _front_door(regions: list[dict[str, Any]], dr_mode: str) -> str:
     return "\n".join(out)
 
 
-def _legend(y: int) -> str:
-    """7-column × 2-row icon grid + line-style key + AWS→Azure mapping line."""
+def _legend(y: int, source_provider: str = "aws") -> str:
+    """7-column × 2-row icon grid + line-style key + source→Azure mapping line.
+
+    ``source_provider`` selects the canonical mapping line printed in the
+    bottom-right of the legend. Must be one of
+    ``_SUPPORTED_SOURCE_PROVIDERS`` — validation should happen at the
+    public entry point (``generate_landing_zone_svg``).
+    """
+    if source_provider not in _SOURCE_PROVIDER_LEGEND_LINE:
+        # Defensive guard — callers should validate up front.
+        raise ValueError(f"Unsupported source_provider: {source_provider!r}")
+    mapping_line = _SOURCE_PROVIDER_LEGEND_LINE[source_provider]
     H = 124
     out = [
         f'<rect x="20" y="{y}" width="1760" height="{H}" rx="6" '
@@ -378,11 +441,7 @@ def _legend(y: int) -> str:
     )
     out.append(_tx(520, line_y + 6, "Cross-region replication", "t-legend"))
     out.append(_tx(720, line_y + 6, "Mapping:", "t-mapnote", weight="700"))
-    out.append(_tx(
-        780, line_y + 6,
-        "AWS → Azure · ALB → App Gateway · EKS → AKS · EFS → Azure Files · "
-        "Kafka → Event Hubs · RDS → Managed DB",
-        "t-mapnote"))
+    out.append(_tx(780, line_y + 6, mapping_line, "t-mapnote"))
     return "\n".join(out)
 
 
@@ -715,6 +774,10 @@ def generate_landing_zone_svg(
     if not isinstance(analysis, dict):
         raise ValueError("analysis must be a dict")
 
+    # #576: source_provider is implicit (read from the analysis payload) and
+    # validated here. Default "aws" preserves backwards-compat with #571.
+    source_provider = _validate_source_provider(analysis.get("source_provider"))
+
     regions = infer_regions(analysis, dr_variant=dr_variant)
     # Infer dr_mode and replication from the *effective* analysis (the regions
     # we will actually render). Without this, a legacy analysis with no
@@ -783,7 +846,7 @@ def generate_landing_zone_svg(
                              "t-meta"))
             parts.append(_tx(1772, 1086, f"{r2.get('traffic_pct', 0)}% traffic",
                              "t-edge-r", anchor="end"))
-        parts.append(_legend(1140))
+        parts.append(_legend(1140, source_provider=source_provider))
     else:
         # Full DR — replication band + Region 2 stamp + legend.
         band_y = 1062
@@ -796,7 +859,7 @@ def generate_landing_zone_svg(
                 status="standby",
                 role_text=f"Standby · {r2.get('traffic_pct', 0)}% traffic · automated failover",
             ))
-        parts.append(_legend(r2_y + 776))
+        parts.append(_legend(r2_y + 776, source_provider=source_provider))
 
     parts.append('</svg>')
 

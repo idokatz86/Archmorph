@@ -161,6 +161,12 @@ async def export_architecture_diagram(
     Set multi_page=true for presentation-ready 4-page exports (Draw.io only, #479).
     Set format=landing-zone-svg + dr_variant=primary|dr for the region-aware
     landing-zone diagram (#571).
+
+    Note (#576): the source provider for the landing-zone diagram is read
+    implicitly from ``analysis["source_provider"]`` (allowed: "aws"|"gcp",
+    default "aws"). It is intentionally NOT exposed as a query param so the
+    frontend stays untouched and the analyzer pipeline remains the single
+    source of truth. Unknown values raise ``ValueError`` → HTTP 400.
     """
     if format not in ("excalidraw", "drawio", "vsdx", "landing-zone-svg"):
         raise ArchmorphException(
