@@ -7,17 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed — Infrastructure consolidation (May 2026)
+### Changed
+
+#### Infrastructure consolidation (May 2026)
 
 Resource-group hygiene pass on `archmorph-rg-dev` (West Europe). Three orphaned / duplicated Azure resources retired without service impact:
 
 - **App Service `archmorph-backend` + plan `archmorph-backend-plan`** (Canada Central, B1) — deleted. Production traffic has been served exclusively by the `archmorph-api` Container App for months; the App Service was a stale parallel deployment.
-- **Container Registry `cafd43cfd4deacr`** (East US, Basic) — deleted. The `archmorph-mcp-gateway` Container App image (`archmorph-mcp-gateway:20260309101659330272`, plus the `:20260309103959778879` companion tag for safety) was server-side `az acr import`-ed into the primary `archmorphacm7pd` registry (West Europe), the Container App was reconfigured with the new registry credentials and image, the new revision (`archmorph-mcp-gateway--0000004`) was verified `Healthy` at 100% traffic with `/health` returning HTTP 200, and only then was the legacy registry binding removed and the registry deleted. Cuts cross-region image pulls and the second-registry monthly line item.
+- **Container Registry `cafd43cfd4deacr`** (East US, Basic) — deleted. The `archmorph-mcp-gateway` Container App image (`archmorph-mcp-gateway:20260309101659330272`, plus the `:20260309103959778879` companion tag for safety) was imported server-side into the primary `archmorphacm7pd` registry (West Europe) using `az acr import`, the Container App was reconfigured with the new registry credentials and image, the new revision (`archmorph-mcp-gateway--0000004`) was verified `Healthy` at 100% traffic with `/health` returning HTTP 200, and only then was the legacy registry binding removed and the registry deleted. Cuts cross-region image pulls and the second-registry monthly line item.
 - **Cognitive Services `secondnature-openai-whisper`** (originally in `archmorph-rg-dev`) — moved to its actual project resource group `rg-secondnature`. Note: `az resource move` returned a misleading `ResourceMoveFailed` referencing an unrelated linked-notification provider error, but the move itself completed — verification (presence in `rg-secondnature`, absence from `archmorph-rg-dev`) confirmed success.
 
 Net effect: roughly $18/mo in idle resource spend eliminated, IaC footprint matches reality except for the OpenAI account region. Follow-ups: [#607](https://github.com/idokatz86/Archmorph/issues/607) tracks the West Europe OpenAI cutover, [#608](https://github.com/idokatz86/Archmorph/issues/608) tracks the Terraform `var.openai_location` sync once the live account has been moved.
 
-### Changed
+#### Other changes
+
 - Clarified the product is 100% free for customers, removed Pro/billing language from the playground and active customer-facing surfaces, and renamed paid-conversion analytics to free-product activation tracking.
 - Added an OpenAPI contract snapshot gate so backend route/schema drift fails CI unless the committed API baseline is updated intentionally.
 - Added a local production-parity Compose overlay plus guard tests for PostgreSQL/Redis enforcement without requiring a staging environment.

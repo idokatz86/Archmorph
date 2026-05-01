@@ -799,12 +799,12 @@ Production hardening switches:
 | Container Apps (`archmorph-api`, `archmorph-mcp-gateway`) | Consumption | West Europe |
 | Static Web Apps | Free | West Europe |
 | Container Registry (`archmorphacm7pd`) | Basic | West Europe |
-| Azure OpenAI | S0 | East US¹ |
+| Azure OpenAI | S0 | East US [^1] |
 | PostgreSQL Flexible Server | Burstable B1ms | West Europe |
 | Azure Cache for Redis | Basic C0 | West Europe |
 | Application Insights | — | West Europe |
 
-¹ Tracked for consolidation into West Europe — see [#607](https://github.com/idokatz86/Archmorph/issues/607). The April 2026 hub used to also run an `archmorph-backend` App Service (Canada Central), a duplicate `cafd43cfd4deacr` registry (East US), and a stray `secondnature-openai-whisper` cognitive account. All three were retired during the May 2026 infra consolidation; the dev RG now hosts only the active Container Apps stack and supporting data services.
+[^1]: Tracked for consolidation into West Europe — see [#607](https://github.com/idokatz86/Archmorph/issues/607). The April 2026 hub used to also run an `archmorph-backend` App Service (Canada Central), a duplicate `cafd43cfd4deacr` registry (East US), and a stray `secondnature-openai-whisper` cognitive account. All three were retired during the May 2026 infra consolidation; the dev RG now hosts only the active Container Apps stack and supporting data services.
 
 ### CI/CD Pipeline
 

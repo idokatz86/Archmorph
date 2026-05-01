@@ -662,7 +662,7 @@ The PRD distinguishes three maturity levels. **Live** features are usable in the
 | Database | PostgreSQL (Azure Flexible Server) |
 | Storage | Azure Blob Storage |
 | Hosting | Azure Container Apps (API + MCP gateway), Static Web Apps (frontend) |
-| Container Registry | Single Azure Container Registry (`archmorphacm7pd`, Basic, West Europe). Legacy East US `cafd43cfd4deacr` retired May 2026 — see CHANGELOG. |
+| Container Registry | Single Azure Container Registry (`archmorphacm7pd`, Basic, West Europe). Legacy East US `cafd43cfd4deacr` retired May 2026 — see [CHANGELOG](../CHANGELOG.md). |
 | Scheduler | APScheduler 3.10 (CronTrigger, daily service sync + auto-add) |
 | Guided Questions | In-process engine (32 questions, 8 categories) |
 | Diagram Export | In-process engine (Excalidraw, Draw.io, Visio with 36 Azure stencils + 405-icon registry fallback) |
