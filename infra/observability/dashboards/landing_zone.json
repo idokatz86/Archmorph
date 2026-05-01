@@ -1,0 +1,123 @@
+{
+  "_comment": "Archmorph — Landing-Zone-SVG observability workbook (#595).",
+  "_comment2": "Import via Azure Portal → Application Insights → Workbooks → New → Edit → Advanced Editor → paste this JSON. The five tiles below read directly off the customMetrics emitted by backend/azure_landing_zone.py. The metric names match the OTel instrument names verbatim — do not rename without updating tests/test_landing_zone_observability.py and infra/observability/alerts.tf.",
+  "_parent_epic": "https://github.com/idokatz86/Archmorph/issues/586",
+  "_sub_issue": "https://github.com/idokatz86/Archmorph/issues/595",
+  "version": "Notebook/1.0",
+  "items": [
+    {
+      "type": 1,
+      "content": {
+        "json": "# Landing Zone SVG — Observability\n\nProduction-readiness dashboard for the `landing-zone-svg` export pipeline.\n\nMetrics: `archmorph.lz.icon_resolution_total`, `archmorph.lz.svg_generation_duration_seconds`, `archmorph.lz.svg_size_bytes`, `archmorph.lz.errors_total`.\n\nReference: [#595](https://github.com/idokatz86/Archmorph/issues/595) (parent epic [#586](https://github.com/idokatz86/Archmorph/issues/586))."
+      },
+      "name": "header"
+    },
+    {
+      "type": 9,
+      "content": {
+        "version": "KqlParameterItem/1.0",
+        "parameters": [
+          {
+            "id": "timeRange",
+            "version": "KqlParameterItem/1.0",
+            "name": "TimeRange",
+            "type": 4,
+            "isRequired": true,
+            "value": {"durationMs": 86400000},
+            "typeSettings": {
+              "selectableValues": [
+                {"durationMs": 1800000},
+                {"durationMs": 3600000},
+                {"durationMs": 14400000},
+                {"durationMs": 86400000},
+                {"durationMs": 604800000}
+              ]
+            }
+          }
+        ]
+      },
+      "name": "params"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "customMetrics\n| where name == 'archmorph.lz.icon_resolution_total'\n| extend result = tostring(customDimensions.result)\n| summarize total = sum(valueCount) by result, bin(timestamp, 5m)\n| render timechart",
+        "size": 0,
+        "title": "Icon resolution rate (hit vs fallback) — 5m buckets",
+        "timeContext": {"durationMs": 0, "rangeParameter": "TimeRange"},
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components"
+      },
+      "name": "icon-resolution-timechart"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "customMetrics\n| where name == 'archmorph.lz.icon_resolution_total'\n| extend result = tostring(customDimensions.result)\n| summarize total = sum(valueCount) by result\n| extend pct = round(100.0 * total / toscalar(customMetrics | where name == 'archmorph.lz.icon_resolution_total' | summarize sum(valueCount)), 1)\n| project result, total, ['% of total'] = pct",
+        "size": 0,
+        "title": "Icon resolution — totals by result",
+        "timeContext": {"durationMs": 0, "rangeParameter": "TimeRange"},
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "table"
+      },
+      "name": "icon-resolution-totals"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "customMetrics\n| where name == 'archmorph.lz.svg_generation_duration_seconds'\n| summarize p50 = percentile(value, 50), p95 = percentile(value, 95), p99 = percentile(value, 99) by bin(timestamp, 5m)\n| render timechart",
+        "size": 0,
+        "title": "SVG generation duration (p50/p95/p99 seconds) — 5m buckets",
+        "timeContext": {"durationMs": 0, "rangeParameter": "TimeRange"},
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components"
+      },
+      "name": "svg-duration-percentiles"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "customMetrics\n| where name == 'archmorph.lz.svg_size_bytes'\n| summarize p50_bytes = percentile(value, 50), p95_bytes = percentile(value, 95), p99_bytes = percentile(value, 99), max_bytes = max(value) by bin(timestamp, 15m)\n| render timechart",
+        "size": 0,
+        "title": "SVG size in bytes (p50/p95/p99/max) — 15m buckets",
+        "timeContext": {"durationMs": 0, "rangeParameter": "TimeRange"},
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components"
+      },
+      "name": "svg-size-percentiles"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "customMetrics\n| where name == 'archmorph.lz.errors_total'\n| extend stage = tostring(customDimensions.stage), error_type = tostring(customDimensions.error_type)\n| summarize errors = sum(valueCount) by stage, error_type\n| order by errors desc",
+        "size": 0,
+        "title": "Errors by stage + error_type (cumulative over time range)",
+        "timeContext": {"durationMs": 0, "rangeParameter": "TimeRange"},
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components",
+        "visualization": "table"
+      },
+      "name": "errors-breakdown"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "customMetrics\n| where name == 'archmorph.lz.errors_total'\n| summarize errors = sum(valueCount) by bin(timestamp, 5m)\n| render timechart",
+        "size": 0,
+        "title": "Errors over time (5m buckets)",
+        "timeContext": {"durationMs": 0, "rangeParameter": "TimeRange"},
+        "queryType": 0,
+        "resourceType": "microsoft.insights/components"
+      },
+      "name": "errors-timechart"
+    }
+  ],
+  "$schema": "https://github.com/Microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json"
+}

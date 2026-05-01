@@ -37,7 +37,13 @@ CROSS_CLOUD_MAPPINGS = [
     # DATABASE
     # ═══════════════════════════════════════════════════════════
     {"aws": "RDS", "azure": "SQL Database", "gcp": "Cloud SQL", "category": "Database", "confidence": 0.90, "notes": "Managed relational database (multi-engine)"},
-    {"aws": "Aurora", "azure": "SQL Database (Hyperscale)", "gcp": "AlloyDB", "category": "Database", "confidence": 0.85, "notes": "High-performance managed relational DB"},
+    # #590 — Aurora is PostgreSQL- or MySQL-compatible; SQL Database is Microsoft
+    # SQL Server. The previous "SQL Database (Hyperscale)" mapping silently moves
+    # the customer to a different engine + a SQL Server licence cost surprise.
+    # Split into two engine-correct rows; both reference Azure's flexible-server
+    # offering (current Azure GA recommendation as of 2026-05-01).
+    {"aws": "Aurora PostgreSQL", "azure": "Azure Database for PostgreSQL Flexible Server", "gcp": "AlloyDB", "category": "Database", "confidence": 0.90, "notes": "Engine-correct PostgreSQL mapping. Aurora PG → Azure DB for PostgreSQL Flexible Server. (Pre-#590 mapped to SQL Server — wrong engine.)", "last_reviewed": "2026-05-01"},
+    {"aws": "Aurora MySQL", "azure": "Azure Database for MySQL Flexible Server", "gcp": "Cloud SQL for MySQL", "category": "Database", "confidence": 0.90, "notes": "Engine-correct MySQL mapping. Aurora MySQL → Azure DB for MySQL Flexible Server.", "last_reviewed": "2026-05-01"},
     {"aws": "DynamoDB", "azure": "Cosmos DB", "gcp": "Firestore / Bigtable", "category": "Database", "confidence": 0.85, "notes": "Managed NoSQL — Cosmos DB is multi-model"},
     {"aws": "ElastiCache", "azure": "Cache for Redis", "gcp": "Memorystore", "category": "Database", "confidence": 0.95, "notes": "Managed Redis/Memcached"},
     {"aws": "Redshift", "azure": "Synapse Analytics", "gcp": "BigQuery", "category": "Database", "confidence": 0.90, "notes": "Data warehouse — different architectures"},
@@ -53,7 +59,9 @@ CROSS_CLOUD_MAPPINGS = [
     # NETWORKING
     # ═══════════════════════════════════════════════════════════
     {"aws": "VPC", "azure": "Virtual Network", "gcp": "VPC", "category": "Networking", "confidence": 0.95, "notes": "Virtual private cloud networking"},
-    {"aws": "CloudFront", "azure": "CDN / Front Door", "gcp": "Cloud CDN", "category": "Networking", "confidence": 0.90, "notes": "Content delivery network"},
+    # #590 — Azure CDN Standard is retiring; modern equivalent is Azure Front
+    # Door (Standard/Premium with built-in CDN).
+    {"aws": "CloudFront", "azure": "Front Door", "gcp": "Cloud CDN", "category": "Networking", "confidence": 0.90, "notes": "Content delivery + global routing. Azure CDN Standard is retiring — use Front Door Standard/Premium.", "last_reviewed": "2026-05-01"},
     {"aws": "Route 53", "azure": "Azure DNS / Traffic Manager", "gcp": "Cloud DNS", "category": "Networking", "confidence": 0.90, "notes": "DNS service — Route 53 includes health checks"},
     {"aws": "API Gateway", "azure": "API Management", "gcp": "Apigee", "category": "Networking", "confidence": 0.85, "notes": "API management — different feature depth"},
     {"aws": "ELB", "azure": "Load Balancer / Application Gateway", "gcp": "Cloud Load Balancing", "category": "Networking", "confidence": 0.90, "notes": "Load balancing (L4/L7)"},
@@ -70,11 +78,18 @@ CROSS_CLOUD_MAPPINGS = [
     # SECURITY
     # ═══════════════════════════════════════════════════════════
     {"aws": "IAM", "azure": "Entra ID / RBAC", "gcp": "Cloud IAM", "category": "Security", "confidence": 0.90, "notes": "Identity and access management"},
-    {"aws": "Cognito", "azure": "Entra External ID (B2C)", "gcp": "Identity Platform", "category": "Security", "confidence": 0.90, "notes": "Customer identity management"},
-    {"aws": "GuardDuty", "azure": "Defender for Cloud", "gcp": "Security Command Center", "category": "Security", "confidence": 0.85, "notes": "Threat detection and security insights"},
+    # #590 — Microsoft retired the "B2C" sub-brand in late 2024; the product is
+    # now "Entra External ID". Drop the parenthetical to avoid stale branding.
+    {"aws": "Cognito", "azure": "Entra External ID", "gcp": "Identity Platform", "category": "Security", "confidence": 0.90, "notes": "Customer identity management. (Pre-#590 said ‘Entra External ID (B2C)’ — the B2C name was retired late 2024.)", "last_reviewed": "2026-05-01"},
+    # #590 — GuardDuty (detection) maps to Defender for Cloud + Microsoft
+    # Sentinel (SIEM) together; either alone loses architectural intent.
+    {"aws": "GuardDuty", "azure": "Defender for Cloud + Microsoft Sentinel", "gcp": "Security Command Center", "category": "Security", "confidence": 0.85, "notes": "Threat detection + SIEM. Defender for Cloud detects; Sentinel is the SIEM/SOAR pair. Pre-#590 only listed Defender (lossy).", "last_reviewed": "2026-05-01"},
     {"aws": "Inspector", "azure": "Defender for Cloud", "gcp": "Web Security Scanner", "category": "Security", "confidence": 0.80, "notes": "Vulnerability assessment"},
     {"aws": "Macie", "azure": "Information Protection", "gcp": "Cloud DLP", "category": "Security", "confidence": 0.85, "notes": "Sensitive data discovery and protection"},
-    {"aws": "KMS", "azure": "Key Vault", "gcp": "Cloud KMS", "category": "Security", "confidence": 0.95, "notes": "Encryption key management"},
+    {"aws": "KMS", "azure": "Key Vault", "gcp": "Cloud KMS", "category": "Security", "confidence": 0.95, "notes": "Encryption key management (software-protected)", "last_reviewed": "2026-05-01"},
+    # #590 — Add the FIPS 140-3 / Dedicated-HSM tier explicitly. KMS Custom Key
+    # Stores backed by CloudHSM map to Azure Managed HSM, not generic Key Vault.
+    {"aws": "KMS (FIPS 140-3)", "azure": "Managed HSM", "gcp": "Cloud HSM", "category": "Security", "confidence": 0.90, "notes": "FIPS 140-3 / dedicated-HSM-backed key management. Use when KMS is configured with a CloudHSM Custom Key Store.", "last_reviewed": "2026-05-01"},
     {"aws": "Secrets Manager", "azure": "Key Vault (Secrets)", "gcp": "Secret Manager", "category": "Security", "confidence": 0.95, "notes": "Secrets management — Azure vaults combine keys+secrets"},
     {"aws": "WAF", "azure": "Web Application Firewall", "gcp": "Cloud Armor", "category": "Security", "confidence": 0.90, "notes": "Web application firewall"},
     {"aws": "Shield", "azure": "DDoS Protection", "gcp": "Cloud Armor (DDoS)", "category": "Security", "confidence": 0.90, "notes": "DDoS mitigation"},

@@ -64,12 +64,91 @@ _ASSET_CACHE: TTLCache = TTLCache(maxsize=200, ttl=3600)
 # Thread lock for mutable state (reentrant for nested calls)
 _LOCK = threading.RLock()
 
-# Persistence file path (alongside this module)
-_PERSIST_DIR = Path(os.getenv(
-    "ICON_REGISTRY_DATA_DIR",
-    str(Path(__file__).resolve().parent.parent / "data"),
-))
-_PERSIST_FILE = _PERSIST_DIR / "icon_registry.json"
+# Persistence file path — resolved at CALL time so test fixtures that
+# monkeypatch `ICON_REGISTRY_DATA_DIR` after import (transitive imports via
+# `azure_landing_zone` happen before fixture setup runs) still take effect.
+# Same lesson as `_autoload_disabled()` above (#587).
+_DEFAULT_PERSIST_DIR = Path(__file__).resolve().parent.parent / "data"
+
+
+def _persist_dir() -> Path:
+    return Path(os.getenv("ICON_REGISTRY_DATA_DIR", str(_DEFAULT_PERSIST_DIR)))
+
+
+def _persist_file() -> Path:
+    return _persist_dir() / "icon_registry.json"
+
+
+# Lazy-load gate (#587 — D1 fix).
+# Set True once `_ensure_loaded()` has run, regardless of whether disk-load
+# or builtin-pack ingestion succeeded. Prevents unbounded reload attempts on
+# every lookup if the disk cache is empty / corrupted, while still letting
+# tests and explicit callers force a reload via `clear_all()` or
+# `ensure_registry_loaded(force=True)`.
+_LOAD_ATTEMPTED: bool = False
+
+
+def _autoload_disabled() -> bool:
+    """Whether autoload is disabled via env var.
+
+    Read at call-time (not module-import time) so test setup that mutates
+    `os.environ` after a transitive import via `azure_landing_zone` still
+    takes effect. Cheap enough for the lookup hot path.
+    """
+    return os.getenv("ICON_REGISTRY_AUTOLOAD", "1").lower() in ("0", "false", "no")
+
+
+def _ensure_loaded(*, force: bool = False) -> None:
+    """Idempotently bootstrap the icon registry on first lookup (#587).
+
+    Originally `_load_from_disk()` and `load_builtin_packs()` ran only from
+    the FastAPI startup hook in `main.lifespan`, so any cold-import context
+    (CLI scripts, isolated workers, unit tests, the SVG generator imported
+    before the app spins up) saw `_ICON_STORE = {}` and `resolve_icon` returned
+    `None` for every service. The CTO E2E review on May 1, 2026 measured a
+    100% icon-miss rate on the `landing-zone-svg` pipeline as a result.
+
+    This function is the single bootstrap entry point: thread-safe via
+    `_LOCK`, gated on `_LOAD_ATTEMPTED` so the load happens at most once per
+    process, and a no-op when the store already has icons. `clear_all()`
+    resets the gate so tests start fresh.
+    """
+    global _LOAD_ATTEMPTED
+    if _autoload_disabled() and not force:
+        return
+    if _LOAD_ATTEMPTED and not force:
+        return
+    with _LOCK:
+        if _LOAD_ATTEMPTED and not force:
+            return
+        # If somebody already ingested icons via `ingest_icon_pack(...)` we
+        # respect that and just flip the gate — don't double-load.
+        if _ICON_STORE:
+            _LOAD_ATTEMPTED = True
+            return
+        try:
+            if _load_from_disk():
+                logger.info("Icon registry lazily restored from disk on first lookup")
+            else:
+                loaded = load_builtin_packs()
+                if loaded:
+                    logger.info("Icon registry lazily auto-loaded %s builtin pack(s)", str(loaded))
+        except Exception as exc:  # noqa: BLE001 — bootstrap is best-effort, never raise on lookup paths
+            logger.warning("Icon registry lazy-load failed: %s", str(exc).replace('\n', '').replace('\r', ''))
+        finally:
+            _LOAD_ATTEMPTED = True
+
+
+def ensure_registry_loaded(*, force: bool = False) -> int:
+    """Public wrapper around the lazy-load gate.
+
+    Use from non-FastAPI entry points (CLI tools, batch jobs, scripts) when
+    you want a deterministic load before the first lookup. Returns the icon
+    count after loading. Pass ``force=True`` to bypass the gate (e.g. after
+    ingesting a new pack to disk and wanting a process-local refresh).
+    """
+    _ensure_loaded(force=force)
+    return len(_ICON_STORE)
 
 
 def _canonical_id(name: str, provider: str, category: str) -> str:
@@ -212,6 +291,7 @@ def ingest_icon_pack(
 
 def get_icon(icon_id: str) -> Optional[IconEntry]:
     """Look up a single icon by canonical ID."""
+    _ensure_loaded()
     return _ICON_STORE.get(icon_id)
 
 
@@ -223,7 +303,10 @@ def resolve_icon(
     """Resolve the best icon for a given service.
 
     Searches by ``service_id`` first, then falls back to fuzzy name match.
+    Lazily bootstraps the registry on first lookup (#587).
     """
+    _ensure_loaded()
+
     # Exact service_id match
     for entry in _ICON_STORE.values():
         if entry.meta.service_id and entry.meta.service_id.lower() == service_id.lower():
@@ -247,6 +330,7 @@ def search_icons(
     pack_id: Optional[str] = None,
 ) -> list[IconMeta]:
     """Search registered icons with optional filters."""
+    _ensure_loaded()
     results: list[IconMeta] = []
 
     # Restrict to pack if specified
@@ -281,6 +365,7 @@ def get_pack_icons(pack_id: str) -> list[IconEntry]:
 
 def list_packs() -> list[dict[str, Any]]:
     """Return all registered pack IDs and their icon counts."""
+    _ensure_loaded()
     return [
         {"pack_id": pid, "icon_count": len(ids)}
         for pid, ids in sorted(_PACK_INDEX.items())
@@ -299,11 +384,19 @@ def set_cached_asset(cache_key: str, data: bytes) -> None:
 
 
 def clear_all() -> None:
-    """Clear all icons, packs, and caches. For testing."""
+    """Clear all icons, packs, and caches, and reset the lazy-load gate.
+
+    For testing. Resetting `_LOAD_ATTEMPTED` is essential — without it, tests
+    that clear the store after a load would leave the gate flipped, hiding
+    a regression where lookups silently miss because the lazy-load no longer
+    runs.
+    """
+    global _LOAD_ATTEMPTED
     with _LOCK:
         _ICON_STORE.clear()
         _PACK_INDEX.clear()
         _ASSET_CACHE.clear()
+        _LOAD_ATTEMPTED = False
 
 
 def delete_pack(pack_id: str) -> dict[str, Any]:
@@ -331,8 +424,9 @@ def delete_pack(pack_id: str) -> dict[str, Any]:
 
 def _save_to_disk() -> None:
     """Persist the current icon registry state to a JSON sidecar file."""
+    persist_file = _persist_file()
     try:
-        _PERSIST_DIR.mkdir(parents=True, exist_ok=True)
+        persist_file.parent.mkdir(parents=True, exist_ok=True)
         with _LOCK:
             snapshot = {
                 "packs": {pid: ids for pid, ids in _PACK_INDEX.items()},
@@ -344,21 +438,22 @@ def _save_to_disk() -> None:
                     for cid, entry in _ICON_STORE.items()
                 },
             }
-        _PERSIST_FILE.write_text(
+        persist_file.write_text(
             json.dumps(snapshot, indent=2, default=str),
             encoding="utf-8",
         )
-        logger.debug("Registry persisted to %s (%s icons)", str(_PERSIST_FILE).replace('\n', '').replace('\r', ''), str(len(snapshot["icons"])).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
+        logger.debug("Registry persisted to %s (%s icons)", str(persist_file).replace('\n', '').replace('\r', ''), str(len(snapshot["icons"])).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
     except Exception as exc:  # noqa: BLE001 — icon pack loading is best-effort
         logger.warning("Failed to persist registry: %s", str(exc).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
 
 
 def _load_from_disk() -> bool:
     """Load registry state from the JSON sidecar file if it exists."""
-    if not _PERSIST_FILE.is_file():
+    persist_file = _persist_file()
+    if not persist_file.is_file():
         return False
     try:
-        raw = json.loads(_PERSIST_FILE.read_text(encoding="utf-8"))
+        raw = json.loads(persist_file.read_text(encoding="utf-8"))
         with _LOCK:
             for cid, data in raw.get("icons", {}).items():
                 meta = IconMeta(**data["meta"])

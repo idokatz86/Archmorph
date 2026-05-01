@@ -27,6 +27,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 # Disable rate limiting for tests
 os.environ["RATE_LIMIT_ENABLED"] = "false"
+# Disable lazy auto-load of builtin packs (#587) so fixture-driven tests
+# don't get contaminated by 400+ pre-loaded icons. The new lazy-load tests
+# in `test_icon_registry_lazy_load.py` exercise that path explicitly.
+os.environ["ICON_REGISTRY_AUTOLOAD"] = "0"
 
 from icons.svg_sanitizer import (
     SVGSanitizationError,

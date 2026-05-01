@@ -1,0 +1,91 @@
+{
+  "_comment": "Canonical AWS estate fixture for #588 — used as the standard input for LZ assertions. 35 services across all 19 catalog categories, 13 service_connections. Source-of-truth for tier-population and real-icon-ratio guardrails. Do not mutate without bumping the test thresholds in test_azure_landing_zone.py.",
+  "_meta": {
+    "issue": "#588",
+    "epic": "#586",
+    "service_count": 35,
+    "connection_count": 13,
+    "categories_covered": 19
+  },
+  "title": "Canonical AWS Estate (3-tier web + data + observability)",
+  "source_provider": "aws",
+  "target_provider": "azure",
+  "zones": [
+    {"id": 1, "name": "edge",          "number": 1, "services": []},
+    {"id": 2, "name": "ingress",       "number": 2, "services": []},
+    {"id": 3, "name": "compute",       "number": 3, "services": []},
+    {"id": 4, "name": "data",          "number": 4, "services": []},
+    {"id": 5, "name": "identity",      "number": 5, "services": []},
+    {"id": 6, "name": "observability", "number": 6, "services": []},
+    {"id": 7, "name": "storage",       "number": 7, "services": []}
+  ],
+  "actors": [
+    {"name": "End User",       "kind": "external", "subtitle": "Web + mobile clients"},
+    {"name": "Partner API",    "kind": "external", "subtitle": "B2B integration"},
+    {"name": "Internal Admin", "kind": "internal", "subtitle": "Operations team"}
+  ],
+  "regions": [
+    {"name": "East US",     "role": "primary", "traffic_pct": 100},
+    {"name": "West US 3",   "role": "standby", "traffic_pct": 0}
+  ],
+  "dr_mode": "active-standby",
+  "mappings": [
+    {"source_service": "Route 53",        "azure_service": "Azure DNS",            "category": "Networking",       "confidence": 0.95},
+    {"source_service": "CloudFront",      "azure_service": "Azure Front Door",     "category": "Edge",             "confidence": 0.90},
+    {"source_service": "WAF",             "azure_service": "Azure WAF",            "category": "Security",         "confidence": 0.95},
+    {"source_service": "Shield",          "azure_service": "DDoS Protection",      "category": "Security",         "confidence": 0.90},
+    {"source_service": "ALB",             "azure_service": "Application Gateway",  "category": "Networking",       "confidence": 0.95},
+    {"source_service": "API Gateway",     "azure_service": "API Management",       "category": "Networking",       "confidence": 0.90},
+
+    {"source_service": "EC2",             "azure_service": "Virtual Machines",     "category": "Compute",          "confidence": 0.95},
+    {"source_service": "EKS",             "azure_service": "AKS",                  "category": "Compute",          "confidence": 0.95},
+    {"source_service": "Lambda",          "azure_service": "Azure Functions",      "category": "Compute",          "confidence": 0.95},
+    {"source_service": "Fargate",         "azure_service": "Container Apps",       "category": "Compute",          "confidence": 0.90},
+    {"source_service": "Elastic Beanstalk","azure_service": "App Service",         "category": "Compute",          "confidence": 0.90},
+
+    {"source_service": "RDS",             "azure_service": "Azure SQL Database",   "category": "Database",         "confidence": 0.95},
+    {"source_service": "DynamoDB",        "azure_service": "Cosmos DB",            "category": "Database",         "confidence": 0.85},
+    {"source_service": "ElastiCache",     "azure_service": "Azure Cache for Redis","category": "Database",         "confidence": 0.95},
+
+    {"source_service": "S3",              "azure_service": "Blob Storage",         "category": "Storage",          "confidence": 0.95},
+    {"source_service": "EBS",             "azure_service": "Managed Disks",        "category": "Storage",          "confidence": 0.95},
+    {"source_service": "EFS",             "azure_service": "Azure Files",          "category": "Storage",          "confidence": 0.90},
+
+    {"source_service": "Kinesis",         "azure_service": "Event Hubs",           "category": "Analytics",        "confidence": 0.90},
+    {"source_service": "SNS",             "azure_service": "Service Bus",          "category": "Integration",      "confidence": 0.90},
+    {"source_service": "SQS",             "azure_service": "Service Bus Queues",   "category": "Integration",      "confidence": 0.90},
+    {"source_service": "EventBridge",     "azure_service": "Event Grid",           "category": "Integration",      "confidence": 0.90},
+    {"source_service": "Step Functions",  "azure_service": "Logic Apps",           "category": "Integration",      "confidence": 0.85},
+
+    {"source_service": "Cognito",         "azure_service": "Microsoft Entra ID",   "category": "Identity",         "confidence": 0.85},
+    {"source_service": "IAM",             "azure_service": "Entra ID",             "category": "Identity",         "confidence": 0.95},
+    {"source_service": "Secrets Manager", "azure_service": "Key Vault",            "category": "Security",         "confidence": 0.95},
+    {"source_service": "GuardDuty",       "azure_service": "Defender for Cloud",   "category": "Security",         "confidence": 0.85},
+    {"source_service": "Verified Access", "azure_service": "Conditional Access",   "category": "Zero Trust",       "confidence": 0.85},
+
+    {"source_service": "CloudWatch",      "azure_service": "Azure Monitor",        "category": "Observability",    "confidence": 0.95},
+    {"source_service": "CloudWatch Logs", "azure_service": "Log Analytics",        "category": "Observability",    "confidence": 0.95},
+    {"source_service": "X-Ray",           "azure_service": "Application Insights", "category": "Observability",    "confidence": 0.90},
+    {"source_service": "CloudTrail",      "azure_service": "Activity Log",         "category": "Management",       "confidence": 0.90},
+    {"source_service": "Systems Manager", "azure_service": "Azure Arc",            "category": "Management",       "confidence": 0.85},
+
+    {"source_service": "CodePipeline",    "azure_service": "Azure DevOps",         "category": "DevTools",         "confidence": 0.90},
+    {"source_service": "IoT Core",        "azure_service": "IoT Hub",              "category": "IoT",              "confidence": 0.90},
+    {"source_service": "Lake Formation",  "azure_service": "Microsoft Purview",    "category": "Data Governance",  "confidence": 0.85}
+  ],
+  "service_connections": [
+    {"source": "End User",            "target": "Azure Front Door",      "type": "traffic"},
+    {"source": "Azure Front Door",    "target": "Application Gateway",   "type": "traffic"},
+    {"source": "Azure Front Door",    "target": "Azure WAF",             "type": "inspection"},
+    {"source": "Application Gateway", "target": "AKS",                   "type": "traffic"},
+    {"source": "Application Gateway", "target": "App Service",           "type": "traffic"},
+    {"source": "AKS",                 "target": "Azure SQL Database",    "type": "database"},
+    {"source": "AKS",                 "target": "Azure Cache for Redis", "type": "database"},
+    {"source": "AKS",                 "target": "Service Bus",           "type": "storage"},
+    {"source": "Azure Functions",     "target": "Cosmos DB",             "type": "database"},
+    {"source": "Azure Functions",     "target": "Blob Storage",          "type": "storage"},
+    {"source": "AKS",                 "target": "Microsoft Entra ID",    "type": "auth"},
+    {"source": "AKS",                 "target": "Application Insights",  "type": "metrics"},
+    {"source": "Azure SQL Database",  "target": "Defender for Cloud",   "type": "security"}
+  ]
+}

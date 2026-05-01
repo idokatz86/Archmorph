@@ -8,6 +8,8 @@ Each helper is tested for:
 
 from __future__ import annotations
 
+import pytest
+
 from azure_landing_zone_schema import (
     DEFAULT_PRIMARY_REGION,
     DEFAULT_STANDBY_REGION,
@@ -166,6 +168,196 @@ class TestInferTiers:
         a = {"mappings": [{"source_service": "EFS", "azure_service": "Azure Files", "category": "Storage"}]}
         out = infer_tiers_from_mappings(a)
         assert out["storage"][0]["subtitle"] == "Replaces EFS"
+
+
+# ---------------------------------------------------------------------------
+# #589 — _CATEGORY_TO_TIER coverage (D2 fix)
+# ---------------------------------------------------------------------------
+
+class TestCategoryToTierCoverage:
+    """Guardrails for the D2 fix: every category in `services.mappings`
+    must have an explicit `_CATEGORY_TO_TIER` entry, and the entries we
+    added in #589 must route to the documented tier.
+
+    These tests prevent silent regressions: if someone adds a new category
+    to `CROSS_CLOUD_MAPPINGS` without wiring it into `_CATEGORY_TO_TIER`,
+    these tests fail loudly instead of letting that workload silently fall
+    into the "compute" tier.
+    """
+
+    def test_every_catalog_category_has_explicit_tier(self):
+        """Each distinct `category` in CROSS_CLOUD_MAPPINGS routes via an
+        explicit lookup, not the silent "compute" fallback."""
+        from azure_landing_zone_schema import _CATEGORY_TO_TIER
+        from services.mappings import CROSS_CLOUD_MAPPINGS
+
+        catalog_categories = {
+            (m.get("category") or "").strip().lower()
+            for m in CROSS_CLOUD_MAPPINGS
+            if m.get("category")
+        }
+        missing = catalog_categories - set(_CATEGORY_TO_TIER.keys())
+        assert not missing, (
+            f"_CATEGORY_TO_TIER missing explicit entries for {sorted(missing)}. "
+            f"Add each one with the correct tier so these workloads don't fall "
+            f"into the silent 'compute' default. See #589 (D2)."
+        )
+
+    def test_589_management_routes_to_observability(self):
+        """Azure Monitor / ARM / Resource Graph belong in the observability tier."""
+        a = {"mappings": [{"azure_service": "Azure Monitor", "category": "Management"}]}
+        out = infer_tiers_from_mappings(a)
+        assert any(s["name"] == "Azure Monitor" for s in out["observability"]), (
+            "Management category must route to observability, not compute (#589)."
+        )
+
+    def test_589_integration_routes_to_data(self):
+        """Service Bus / Event Grid / Logic Apps are event-driven data plumbing."""
+        a = {"mappings": [{"azure_service": "Service Bus", "category": "Integration"}]}
+        out = infer_tiers_from_mappings(a)
+        assert any(s["name"] == "Service Bus" for s in out["data"]), (
+            "Integration category must route to data, not compute (#589)."
+        )
+
+    def test_589_iot_routes_to_data(self):
+        a = {"mappings": [{"azure_service": "IoT Hub", "category": "IoT"}]}
+        out = infer_tiers_from_mappings(a)
+        assert any(s["name"] == "IoT Hub" for s in out["data"]), (
+            "IoT category must route to data, not compute (#589)."
+        )
+
+    def test_589_zero_trust_routes_to_identity(self):
+        a = {"mappings": [{"azure_service": "Conditional Access", "category": "Zero Trust"}]}
+        out = infer_tiers_from_mappings(a)
+        assert any(s["name"] == "Conditional Access" for s in out["identity"]), (
+            "Zero Trust category must route to identity, not compute (#589)."
+        )
+
+    def test_589_data_governance_routes_to_data(self):
+        a = {"mappings": [{"azure_service": "Microsoft Purview", "category": "Data Governance"}]}
+        out = infer_tiers_from_mappings(a)
+        assert any(s["name"] == "Microsoft Purview" for s in out["data"]), (
+            "Data Governance category must route to data, not compute (#589)."
+        )
+
+    def test_589_devtools_explicitly_compute(self):
+        """DevTools stays in compute by design, but must be EXPLICIT, not fallback."""
+        from azure_landing_zone_schema import _CATEGORY_TO_TIER
+        assert _CATEGORY_TO_TIER.get("devtools") == "compute", (
+            "DevTools must have an explicit compute mapping (#589) — relying on "
+            "the silent default makes future tier reassignments lossy."
+        )
+
+    def test_589_hybrid_routes_to_ingress(self):
+        """ExpressRoute / Arc are perimeter-side connectivity, not stateless workloads."""
+        a = {"mappings": [{"azure_service": "ExpressRoute", "category": "Hybrid"}]}
+        out = infer_tiers_from_mappings(a)
+        assert any(s["name"] == "ExpressRoute" for s in out["ingress"]), (
+            "Hybrid category must route to ingress (#589)."
+        )
+
+    def test_589_full_catalog_populates_all_tiers(self):
+        """A workload sampling every catalog category populates every tier
+        the catalog can populate. Pre-fix this surfaced 5 of 8 tiers as empty."""
+        from services.mappings import CROSS_CLOUD_MAPPINGS
+
+        # One mapping per distinct category — the worst case for tier coverage.
+        seen: set[str] = set()
+        sampled = []
+        for m in CROSS_CLOUD_MAPPINGS:
+            cat = (m.get("category") or "").strip().lower()
+            if cat and cat not in seen:
+                seen.add(cat)
+                sampled.append({
+                    "azure_service": m.get("azure", "?"),
+                    "source_service": m.get("aws", ""),
+                    "category": m.get("category", ""),
+                })
+
+        out = infer_tiers_from_mappings({"mappings": sampled})
+        # Pre-#589: only 4 tiers populated (compute / data / ingress / storage)
+        # because Management/Integration/IoT/Zero Trust silently fell to compute.
+        # Post-#589: identity (Security + Zero Trust), observability (Management),
+        # data (Integration + IoT + Data Governance + Database + Analytics),
+        # ingress (Networking + Edge + Hybrid), storage, compute all populate.
+        populated = {tier for tier, items in out.items() if items}
+        assert populated >= {"ingress", "compute", "data", "identity", "observability", "storage"}, (
+            f"Full-catalog sampling left tiers empty: {set(out) - populated}. "
+            f"Pre-fix this was the D2 symptom (#589)."
+        )
+
+
+# ---------------------------------------------------------------------------
+# #588 — schema-level tier-population guardrails (D1/D2 backstop)
+# ---------------------------------------------------------------------------
+
+class TestTierPopulationGuardrails:
+    """#588 — assert specific real-world workloads populate the right tiers.
+
+    The pre-existing schema tests accept an empty `observability` tier when
+    the input had 3 CloudWatch-family services, because they only check
+    that the tier *key* exists. These new tests assert the tier is non-empty
+    when it should be — backstops #589 (D2) and prevents new categories
+    from quietly emptying tiers as the catalog grows.
+    """
+
+    def test_observability_tier_populated_when_cloudwatch_present(self):
+        """CloudWatch / CloudWatch Logs / X-Ray must reach observability tier."""
+        a = {"mappings": [
+            {"source_service": "CloudWatch",      "azure_service": "Azure Monitor",       "category": "Observability"},
+            {"source_service": "CloudWatch Logs", "azure_service": "Log Analytics",       "category": "Observability"},
+            {"source_service": "X-Ray",           "azure_service": "Application Insights","category": "Observability"},
+        ]}
+        out = infer_tiers_from_mappings(a)
+        assert len(out["observability"]) >= 3, (
+            f"Observability tier has {len(out['observability'])} services; "
+            f"expected ≥3 for a CloudWatch-family workload. This is the "
+            f"original D2 symptom (#589)."
+        )
+        names = {s["name"] for s in out["observability"]}
+        assert {"Azure Monitor", "Log Analytics", "Application Insights"} <= names
+
+    def test_management_category_reaches_observability(self):
+        """CloudTrail (Management) must NOT silently fall to compute (#589)."""
+        a = {"mappings": [
+            {"source_service": "CloudTrail",      "azure_service": "Activity Log", "category": "Management"},
+            {"source_service": "Systems Manager", "azure_service": "Azure Arc",    "category": "Management"},
+        ]}
+        out = infer_tiers_from_mappings(a)
+        names_in_compute = {s["name"] for s in out["compute"]}
+        assert "Activity Log" not in names_in_compute, (
+            "Activity Log must NOT be in compute tier — it's a Management "
+            "(observability) service. Pre-#589 this was the silent regression."
+        )
+        names_in_obs = {s["name"] for s in out["observability"]}
+        assert {"Activity Log", "Azure Arc"} <= names_in_obs
+
+    @pytest.mark.xfail(
+        reason="Pending #591 — splits a dedicated 'security' tier (WAF / Sentinel "
+               "/ DDoS / Defender) out of 'identity'. Until then, Security-category "
+               "items legitimately route to identity. Test asserts the post-#591 "
+               "design and is the test-driven design for that issue.",
+        strict=False,
+    )
+    def test_network_security_tier_populated_when_waf_present(self):
+        """Post-#591: WAF / Shield / Sentinel / Defender route to a dedicated
+        security tier, not identity. Until #591 lands this xfail documents the
+        expected end-state."""
+        from azure_landing_zone_schema import _CATEGORY_TO_TIER  # noqa: F401
+        # The post-#591 tier-key isn't yet defined; once #591 introduces it
+        # this test will start passing (or strict=False will flip to strict=True).
+        a = {"mappings": [
+            {"source_service": "WAF",       "azure_service": "Azure WAF",          "category": "Security"},
+            {"source_service": "Shield",    "azure_service": "DDoS Protection",    "category": "Security"},
+            {"source_service": "GuardDuty", "azure_service": "Defender for Cloud", "category": "Security"},
+        ]}
+        out = infer_tiers_from_mappings(a)
+        # Expected post-#591 contract:
+        assert out.get("network-security") or out.get("security"), (
+            "Post-#591 contract: dedicated security tier must be non-empty "
+            "for WAF / Shield / GuardDuty. Pre-#591 these correctly route "
+            "to identity \u2014 marked xfail until #591 introduces the split."
+        )
 
 
 # ---------------------------------------------------------------------------

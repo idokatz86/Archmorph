@@ -291,10 +291,15 @@ DATABASE_SKU_MAPPINGS: List[DatabaseSKUMapping] = [
     DatabaseSKUMapping("db.m5.xlarge",  "aws", "RDS", "GP_Standard_D4ds_v4",  "PostgreSQL Flexible Server", 4, 16,  "General Purpose"),
     DatabaseSKUMapping("db.m5.2xlarge", "aws", "RDS", "GP_Standard_D8ds_v4",  "PostgreSQL Flexible Server", 8, 32,  "General Purpose"),
     DatabaseSKUMapping("db.m5.4xlarge", "aws", "RDS", "GP_Standard_D16ds_v4", "PostgreSQL Flexible Server", 16, 64, "General Purpose"),
-    # AWS Aurora → Azure SQL Hyperscale
-    DatabaseSKUMapping("db.r5.large (Aurora)",  "aws", "Aurora", "HS_Gen5_2",  "SQL Database Hyperscale", 2, 10.4, "Aurora → Azure SQL Hyperscale"),
-    DatabaseSKUMapping("db.r5.xlarge (Aurora)", "aws", "Aurora", "HS_Gen5_4",  "SQL Database Hyperscale", 4, 20.8, "Aurora → Azure SQL Hyperscale"),
-    DatabaseSKUMapping("db.r5.2xlarge (Aurora)", "aws", "Aurora", "HS_Gen5_8", "SQL Database Hyperscale", 8, 41.6, "Aurora → Azure SQL Hyperscale"),
+    # AWS Aurora → Azure Database for PostgreSQL Flexible Server (#590).
+    # Aurora is PostgreSQL/MySQL-compatible, NOT Microsoft SQL Server.
+    # Mapping to "SQL Hyperscale" was a wrong-engine defect; PostgreSQL
+    # Flexible Server matches Aurora's runtime engine class. (Aurora
+    # MySQL → Azure DB for MySQL Flexible Server; not in this SKU table
+    # because the size cliffs are identical.)
+    DatabaseSKUMapping("db.r5.large (Aurora)",  "aws", "Aurora", "GP_Standard_D2ds_v4", "PostgreSQL Flexible Server", 2, 16,  "Aurora → Azure DB for PostgreSQL Flex (engine-correct, #590)"),
+    DatabaseSKUMapping("db.r5.xlarge (Aurora)", "aws", "Aurora", "GP_Standard_D4ds_v4", "PostgreSQL Flexible Server", 4, 32,  "Aurora → Azure DB for PostgreSQL Flex (engine-correct, #590)"),
+    DatabaseSKUMapping("db.r5.2xlarge (Aurora)", "aws", "Aurora", "GP_Standard_D8ds_v4","PostgreSQL Flexible Server", 8, 64,  "Aurora → Azure DB for PostgreSQL Flex (engine-correct, #590)"),
     # GCP Cloud SQL → Azure
     DatabaseSKUMapping("db-f1-micro",       "gcp", "Cloud SQL", "B_Standard_B1ms",      "PostgreSQL Flexible Server", 1, 0.6,  "Shared-core micro"),
     DatabaseSKUMapping("db-g1-small",       "gcp", "Cloud SQL", "B_Standard_B1ms",      "PostgreSQL Flexible Server", 1, 1.7,  "Shared-core small"),

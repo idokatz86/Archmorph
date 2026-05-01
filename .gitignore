@@ -67,4 +67,6 @@ frontend/fix_*.js
 frontend/test.py
 
 !backend/data/*.json
+# Runtime caches written by tests / startup — should never be committed.
+backend/data/icon_registry.json
 .copilot-session/

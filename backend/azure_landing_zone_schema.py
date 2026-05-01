@@ -35,11 +35,24 @@ TIER_ORDER: tuple[str, ...] = (
 # Heuristic mapping from analysis-result categories to a tier bucket.
 # Lower-cased exact match; if a category is unknown it falls into "compute"
 # (the safe default for stateless workloads).
+#
+# #589 (D2 fix): the original mapping omitted 7 categories in active use by
+# `services.mappings.CROSS_CLOUD_MAPPINGS` (Management, DevTools, Integration,
+# IoT, Data Governance, Hybrid, Zero Trust, Business). They silently fell to
+# "compute", emptying the observability tier on workloads with Azure Monitor /
+# ARM tools and the data tier on event-driven workloads with Service Bus /
+# Event Grid. The CTO E2E review on 2026-05-01 measured 5 of 8 tiers as empty
+# on a workload that should have populated all 8. Each new key below is a
+# vendor-neutral routing decision; the comment beside it points at the
+# Azure-side resource(s) that drove the tier choice.
 _CATEGORY_TO_TIER: dict[str, str] = {
+    # Ingress / edge
     "networking": "ingress",
     "edge": "ingress",
     "ingress": "ingress",
     "loadbalancer": "ingress",
+    "hybrid": "ingress",          # ExpressRoute, Arc — perimeter / on-prem ingress
+    # Compute
     "compute": "compute",
     "container": "compute",
     "containers": "compute",
@@ -47,19 +60,32 @@ _CATEGORY_TO_TIER: dict[str, str] = {
     "ai/ml": "compute",
     "ai-ml": "compute",
     "ml": "compute",
+    "media": "compute",           # Media Services, transcoders — workload, not data
+    "migration": "compute",       # Azure Migrate, Database Migration — workload tools
+    "devtools": "compute",        # #589 — DevOps, Pipelines, Artifacts
+    "business": "compute",        # M365, Power Platform — productivity workloads
+    # Data
     "database": "data",
     "data": "data",
     "analytics": "data",
     "messaging": "data",
     "queue": "data",
     "stream": "data",
+    "integration": "data",        # #589 — Service Bus, Event Grid, Logic Apps
+    "iot": "data",                # #589 — IoT Hub, Stream Analytics, Digital Twins
+    "data governance": "data",    # #589 — Purview, Data Catalog
+    # Identity / security
     "identity": "identity",
     "security": "identity",
     "secrets": "identity",
+    "zero trust": "identity",     # #589 — Conditional Access, Entra ID Protection
+    # Observability
     "observability": "observability",
     "monitoring": "observability",
     "logging": "observability",
     "telemetry": "observability",
+    "management": "observability",  # #589 — Azure Monitor, ARM, Resource Graph
+    # Storage
     "storage": "storage",
     "files": "storage",
     "blob": "storage",
