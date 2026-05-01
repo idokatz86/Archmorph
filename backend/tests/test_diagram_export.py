@@ -3,7 +3,7 @@
 These tests do real round-trip parsing of each exporter's output. The
 previous coverage only checked that the result dict contained ``content`` or
 ``filename`` keys, which always passed regardless of whether the file was
-valid — masking the broken Visio output (#xxx).
+valid — masking the broken Visio output (#569).
 """
 import json
 import xml.etree.ElementTree as ET

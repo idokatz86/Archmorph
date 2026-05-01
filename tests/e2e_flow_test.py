@@ -11,7 +11,6 @@ Tests the full 9-step translation flow for each diagram:
 
 import json
 import sys
-import time
 import httpx
 
 API = "https://archmorph-api.icyisland-c0dee6ba.northeurope.azurecontainerapps.io"
@@ -194,7 +193,13 @@ def run_flow(d: dict):
     has_visio = "VisioDocument" in content
     correct_ext = filename.endswith(".vdx")
     # Detect the duplicate-xmlns regression that previously slipped past CI.
-    head = content[: content.find(">") + 1] if ">" in content else ""
+    # Strip the XML declaration (`<?xml ... ?>`) before scanning so we count
+    # xmlns on the real root element only.
+    body = content.lstrip()
+    if body.startswith("<?xml"):
+        decl_end = body.find("?>")
+        body = body[decl_end + 2 :].lstrip() if decl_end != -1 else ""
+    head = body[: body.find(">") + 1] if ">" in body else ""
     single_xmlns = head.count('xmlns="') == 1
     step(
         f"[{pid}] 5c. Export Visio",
@@ -219,7 +224,7 @@ def run_flow(d: dict):
     if ok and code:
         # Show first few resource blocks
         lines = code.split("\n")
-        resources = [l.strip() for l in lines if l.strip().startswith("resource")]
+        resources = [line.strip() for line in lines if line.strip().startswith("resource")]
         for r in resources[:5]:
             print(f"     {r}")
         if len(resources) > 5:

@@ -69,9 +69,29 @@ class DiagramMCPClient:
         title = analysis.get("title", "Azure Architecture Diagram")
         zones = analysis.get("zones", [])
         mappings = analysis.get("mappings", [])
+
+        def _service_name(s: Any) -> str | None:
+            """Normalize a service entry from any of several known shapes."""
+            if isinstance(s, str):
+                return s
+            if isinstance(s, dict):
+                # Vision analyzer schema (name/short_name), legacy mapping rows
+                # (azure_service/source_service), test fixtures (aws/azure/source).
+                for key in ("azure_service", "source_service", "azure", "aws", "source", "name", "short_name"):
+                    val = s.get(key)
+                    if val:
+                        return val
+            return None
+
         # Trim to keep the prompt under control on very large analyses.
         zones_summary = [
-            {"name": z.get("name"), "services": [s.get("azure_service") or s.get("source_service") or s.get("source") for s in z.get("services", [])]}
+            {
+                "name": z.get("name") if isinstance(z, dict) else None,
+                "services": [
+                    name for name in (_service_name(s) for s in (z.get("services", []) if isinstance(z, dict) else []))
+                    if name
+                ],
+            }
             for z in zones[:32]
         ]
         mappings_summary = [
