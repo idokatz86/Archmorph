@@ -1,19 +1,32 @@
 """
-Daily Cloud Service Catalog Updater
+Cloud Service Catalog Updater
 
-Periodically fetches service catalogs from AWS, Azure, and GCP pricing APIs,
+Fetches service catalogs from AWS, Azure, and GCP discovery APIs,
 compares them against the local catalogs, and writes newly discovered services
-to a JSON data file (data/discovered_services.json).
+to ``data/discovered_services.json`` (with optional Azure Blob persistence so
+discoveries survive container restarts on stateless platforms like Azure
+Container Apps).
 
 The services module merges this discovery file with the static Python catalogs
 at import time, so no Python source files are modified at runtime.
 
-Uses APScheduler BackgroundScheduler to run updates every 24 hours at 2:00 AM UTC.
+Scheduling model (issue #571):
+  Primary: external GitHub Actions cron (``.github/workflows/service-catalog-refresh.yml``)
+           POSTs to ``/api/service-updates/run-now`` every day at 02:00 UTC.
+           This is durable across container restarts and replica scaling.
+  Backup:  In-process APScheduler ``BackgroundScheduler`` runs the same job at
+           02:15 UTC. It is best-effort only — disabled when SCHEDULER_DISABLED=1
+           (set this in multi-replica deployments to avoid duplicate runs).
+
+Freshness contract:
+  ``get_freshness()`` returns the age of the last successful run. The /health
+  endpoint surfaces this and returns ``degraded`` when the age exceeds 36 hours.
 """
 
 import importlib
 import json
 import logging
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -51,8 +64,39 @@ AZURE_PRICES_URL = (
     "?api-version=2023-01-01-preview"
     "&$filter=priceType eq 'Consumption'"
 )
-GCP_PRICELIST_URL = (
-    "https://cloudpricingcalculator.appspot.com/static/data/pricelist.json"
+# Issue #571 — replaces the retired Cloud Pricing Calculator pricelist.json
+# (HTTP 404 since at least Q1 2026). Google APIs Discovery is public, requires
+# no authentication, and lists every Cloud + Workspace API.
+GCP_DISCOVERY_URL = "https://www.googleapis.com/discovery/v1/apis?preferred=true"
+
+# Names that look like Workspace / non-infra APIs are filtered out so the catalog
+# focuses on services with cross-cloud equivalents.
+_GCP_NON_INFRA_PREFIXES = (
+    "admin",
+    "adsense",
+    "androidenterprise",
+    "androidmanagement",
+    "androidpublisher",
+    "books",
+    "calendar",
+    "chat",
+    "chromemanagement",
+    "chromepolicy",
+    "classroom",
+    "docs",
+    "drive",
+    "forms",
+    "gmail",
+    "keep",
+    "meet",
+    "oauth2",
+    "people",
+    "sheets",
+    "slides",
+    "tasks",
+    "webfonts",
+    "webmasters",
+    "youtube",
 )
 
 # ---------------------------------------------------------------------------
@@ -115,6 +159,105 @@ def _write_state(state: dict[str, Any]) -> None:
     _DATA_DIR.mkdir(parents=True, exist_ok=True)
     with open(_UPDATES_FILE, "w", encoding="utf-8") as fh:
         json.dump(state, fh, indent=2, default=str)
+
+
+# ---------------------------------------------------------------------------
+# Durable blob persistence (issue #571)
+# ---------------------------------------------------------------------------
+#
+# Stateless container deployments (Azure Container Apps, etc.) wipe the local
+# filesystem on every restart, which previously caused all auto-discovered
+# services to vanish on each redeploy. We mirror discoveries to Azure Blob
+# Storage when configured, with the local file as fallback for dev / tests.
+#
+# Auth pattern matches services/azure_pricing.py:
+#   1. RBAC via DefaultAzureCredential when AZURE_STORAGE_ACCOUNT_URL is set
+#   2. Connection string when AZURE_STORAGE_CONNECTION_STRING is set
+#   3. Otherwise: local-disk only (dev / tests)
+
+DISCOVERED_BLOB_CONTAINER = os.getenv("DISCOVERED_BLOB_CONTAINER", "service-catalog")
+DISCOVERED_BLOB_NAME = os.getenv(
+    "DISCOVERED_BLOB_NAME", "discovered_services.json"
+)
+
+
+def _get_discovered_blob_client():
+    """Return a BlobClient for discovered_services.json, or None."""
+    account_url = os.getenv("AZURE_STORAGE_ACCOUNT_URL", "")
+    conn_str = os.getenv("AZURE_STORAGE_CONNECTION_STRING", "")
+    if not account_url and not conn_str:
+        return None
+    try:
+        from azure.storage.blob import BlobServiceClient
+
+        if account_url:
+            from azure.identity import DefaultAzureCredential
+
+            credential = DefaultAzureCredential(
+                managed_identity_client_id=os.getenv("AZURE_CLIENT_ID") or None
+            )
+            bsc = BlobServiceClient(account_url, credential=credential)
+        else:
+            bsc = BlobServiceClient.from_connection_string(conn_str)
+
+        container = bsc.get_container_client(DISCOVERED_BLOB_CONTAINER)
+        try:
+            container.get_container_properties()
+        except Exception:
+            container.create_container()
+            logger.info(
+                "Created blob container '%s' for discovered services",
+                DISCOVERED_BLOB_CONTAINER,
+            )
+        return container.get_blob_client(DISCOVERED_BLOB_NAME)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Discovered-services blob client unavailable (falling back to disk): %s",
+            exc,
+        )
+        return None
+
+
+def _load_discovered_from_blob() -> Optional[dict[str, list[dict[str, str]]]]:
+    """Load discovered_services.json from Azure Blob Storage (or None)."""
+    blob = _get_discovered_blob_client()
+    if blob is None:
+        return None
+    try:
+        raw = blob.download_blob().readall()
+        data = json.loads(raw)
+        if isinstance(data, dict):
+            # Hydrate the local cache so import-time consumers see it too.
+            try:
+                _DATA_DIR.mkdir(parents=True, exist_ok=True)
+                with open(_DISCOVERED_FILE, "w", encoding="utf-8") as fh:
+                    json.dump(data, fh, indent=2)
+            except OSError:
+                pass  # read-only filesystem is fine; blob is the source of truth
+            return data
+    except Exception as exc:  # noqa: BLE001
+        # ResourceNotFoundError on a fresh deployment is expected.
+        logger.debug("No discovered-services blob yet (%s)", type(exc).__name__)
+    return None
+
+
+def _save_discovered_to_blob(discovered: dict[str, list[dict[str, str]]]) -> None:
+    """Mirror discovered_services.json to Azure Blob Storage (best-effort)."""
+    blob = _get_discovered_blob_client()
+    if blob is None:
+        return
+    try:
+        blob.upload_blob(
+            json.dumps(discovered, indent=2).encode("utf-8"),
+            overwrite=True,
+        )
+        logger.info(
+            "Mirrored discovered services to blob %s/%s",
+            DISCOVERED_BLOB_CONTAINER,
+            DISCOVERED_BLOB_NAME,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to mirror discoveries to blob: %s", exc)
 
 
 # ---------------------------------------------------------------------------
@@ -339,11 +482,20 @@ def _make_service_entry(
 
 def _load_discovered_services() -> dict[str, list[dict[str, str]]]:
     """
-    Load previously discovered services from the JSON data file.
+    Load previously discovered services.
+
+    Source priority (issue #571 — stateless container fix):
+      1. Azure Blob Storage (durable across container restarts)
+      2. Local disk (``data/discovered_services.json``)
+      3. Empty
 
     Returns a dict keyed by provider ("aws", "azure", "gcp"),
     each containing a list of service entry dicts.
     """
+    blob_data = _load_discovered_from_blob()
+    if blob_data is not None:
+        return blob_data
+
     try:
         with open(_DISCOVERED_FILE, "r", encoding="utf-8") as fh:
             data = json.load(fh)
@@ -386,6 +538,9 @@ def _save_discovered_services(
     _DATA_DIR.mkdir(parents=True, exist_ok=True)
     with open(_DISCOVERED_FILE, "w", encoding="utf-8") as fh:
         json.dump(discovered, fh, indent=2)
+
+    # Mirror to durable blob storage so discoveries survive container restarts.
+    _save_discovered_to_blob(discovered)
 
     logger.info(
         "Saved %d new discovered services for %s to %s",
@@ -439,24 +594,28 @@ def _fetch_azure_services(client: httpx.Client) -> set[str]:
 
 
 def _fetch_gcp_services(client: httpx.Client) -> set[str]:
-    """Fetch GCP service names from the pricing calculator pricelist."""
-    logger.info("Fetching GCP pricelist ...")
-    resp = client.get(GCP_PRICELIST_URL)
+    """Fetch GCP service names from the Google APIs Discovery service.
+
+    Issue #571 — the legacy pricing calculator pricelist.json was retired and
+    silently 404'd for months. The Discovery API is the canonical, public,
+    unauthenticated catalog of every Google Cloud and Workspace API.
+    """
+    logger.info("Fetching GCP API discovery list ...")
+    resp = client.get(GCP_DISCOVERY_URL)
     resp.raise_for_status()
     data = resp.json()
-    pricelist = data.get("gcp_price_list", data)
+    items = data.get("items", [])
 
     services: set[str] = set()
-    for key in pricelist:
-        # Keys are typically like "CP-COMPUTEENGINE-VMIMAGE-..."
-        # Extract a normalised service prefix
-        parts = key.split("-")
-        if len(parts) >= 2:
-            services.add(parts[1] if parts[0] == "CP" else parts[0])
-        else:
-            services.add(key)
+    for item in items:
+        name = (item.get("name") or "").strip()
+        if not name:
+            continue
+        if name.startswith(_GCP_NON_INFRA_PREFIXES):
+            continue  # Workspace / consumer surfaces — out of scope for the catalog
+        services.add(name)
 
-    logger.info("GCP: fetched %d unique service prefixes", len(services))
+    logger.info("GCP: fetched %d infra-track service names", len(services))
     return services
 
 
@@ -626,14 +785,79 @@ def get_update_status() -> dict[str, Any]:
     }
 
 
+# Issue #571 — freshness contract surfaced via /health.
+# A successful run must occur within FRESHNESS_BUDGET_HOURS or the system is
+# considered degraded and the SLO is breached.
+FRESHNESS_BUDGET_HOURS = float(os.getenv("SERVICE_REFRESH_BUDGET_HOURS", "36"))
+
+
+def get_freshness() -> dict[str, Any]:
+    """Return last-successful-run age in hours and a stale flag.
+
+    Returns:
+        {
+          "last_check": ISO timestamp or None,
+          "age_hours": float or None,
+          "budget_hours": float,
+          "stale": bool,           # True when older than budget OR never run
+          "last_errors": dict | None,
+          "providers_failed": [str, ...]
+        }
+    """
+    state = _read_state()
+    last = state.get("last_check")
+    last_check_record = state["checks"][-1] if state.get("checks") else None
+    last_errors = (last_check_record or {}).get("errors") or None
+    providers_failed = sorted(last_errors.keys()) if isinstance(last_errors, dict) else []
+
+    age_hours: Optional[float] = None
+    stale = True
+    if last:
+        try:
+            ts = datetime.fromisoformat(str(last).replace("Z", "+00:00"))
+            age_seconds = (datetime.now(timezone.utc) - ts).total_seconds()
+            age_hours = round(age_seconds / 3600, 2)
+            stale = age_hours > FRESHNESS_BUDGET_HOURS
+        except (ValueError, TypeError):
+            age_hours = None
+            stale = True
+
+    return {
+        "last_check": last,
+        "age_hours": age_hours,
+        "budget_hours": FRESHNESS_BUDGET_HOURS,
+        "stale": stale,
+        "last_errors": last_errors,
+        "providers_failed": providers_failed,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Scheduler management
 # ---------------------------------------------------------------------------
 
 
 def start_scheduler() -> None:
-    """Start the background scheduler (daily at 02:00 UTC)."""
+    """Start the in-process backup scheduler.
+
+    Issue #571 — this is the **backup** path. The primary scheduler is the
+    GitHub Actions cron in ``.github/workflows/service-catalog-refresh.yml``
+    which hits ``/api/service-updates/run-now`` daily at 02:00 UTC, durable
+    across container restarts and replica scaling.
+
+    Set ``SCHEDULER_DISABLED=1`` to opt out of the in-process backup, which
+    you should do in any deployment that scales beyond a single replica
+    (otherwise N replicas fire N duplicate jobs).
+    """
     global _scheduler, _running  # noqa: PLW0603
+
+    if os.getenv("SCHEDULER_DISABLED", "").lower() in ("1", "true", "yes"):
+        logger.info(
+            "In-process scheduler disabled via SCHEDULER_DISABLED env var. "
+            "Relying on GitHub Actions cron (see workflow service-catalog-refresh.yml)."
+        )
+        _running = False
+        return
 
     if _running and _scheduler is not None:
         logger.warning("Scheduler is already running.")
@@ -642,15 +866,20 @@ def start_scheduler() -> None:
     _scheduler = BackgroundScheduler(timezone="UTC")
     _scheduler.add_job(
         run_update_now,
-        trigger=CronTrigger(hour=2, minute=0, timezone="UTC"),
+        # 02:15 UTC — 15 minutes after the GH Actions primary, so when both run
+        # the backup is a no-op (catalog already fresh).
+        trigger=CronTrigger(hour=2, minute=15, timezone="UTC"),
         id="cloud_service_update",
-        name="Daily cloud service catalog update",
+        name="Daily cloud service catalog update (backup)",
         replace_existing=True,
         misfire_grace_time=3600,
     )
     _scheduler.start()
     _running = True
-    logger.info("Scheduler started -- next run at 02:00 UTC daily.")
+    logger.info(
+        "Backup scheduler started — next run at 02:15 UTC daily "
+        "(primary is GitHub Actions cron at 02:00 UTC)."
+    )
 
 
 def stop_scheduler() -> None:

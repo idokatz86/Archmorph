@@ -1,0 +1,152 @@
+name: Daily Service Catalog Refresh
+
+# Issue #571 — primary scheduler for the cloud service catalog.
+#
+# The in-process APScheduler in service_updater.py was unreliable on Azure
+# Container Apps: container restarts, scale-to-zero, and multi-replica all
+# broke the daily run (last successful run was 46 days stale when discovered).
+#
+# This workflow is the durable replacement: it runs in GitHub's infrastructure,
+# can't be killed by container restarts, and posts the results back to the API
+# which writes them to durable blob storage.
+
+on:
+  schedule:
+    - cron: '0 2 * * *'  # 02:00 UTC every day
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for manual trigger (e.g. catch up after outage)'
+        required: false
+        default: 'manual refresh'
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  API_URL: ${{ secrets.API_URL }}
+
+concurrency:
+  group: service-catalog-refresh
+  cancel-in-progress: false  # let in-flight runs complete; refresh is idempotent
+
+jobs:
+  refresh:
+    name: Trigger /api/service-updates/run-now
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      status: ${{ steps.refresh.outputs.status }}
+      new_aws: ${{ steps.refresh.outputs.new_aws }}
+      new_azure: ${{ steps.refresh.outputs.new_azure }}
+      new_gcp: ${{ steps.refresh.outputs.new_gcp }}
+      errors: ${{ steps.refresh.outputs.errors }}
+    steps:
+      - name: Trigger refresh
+        id: refresh
+        env:
+          ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${API_URL:-}" ] || [ -z "${ADMIN_KEY:-}" ]; then
+            echo "::error::API_URL or ADMIN_KEY secret missing"
+            exit 1
+          fi
+
+          echo "POST ${API_URL}/api/service-updates/run-now"
+          # Up to 3 attempts with exponential backoff. Refresh is idempotent.
+          for attempt in 1 2 3; do
+            HTTP_CODE=$(curl -sS -o response.json -w "%{http_code}" \
+              --max-time 600 \
+              -X POST "${API_URL}/api/service-updates/run-now" \
+              -H "X-API-Key: ${ADMIN_KEY}" \
+              -H "Content-Type: application/json" \
+              -d '{}' || echo "000")
+
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "Refresh OK on attempt ${attempt}"
+              break
+            fi
+
+            echo "::warning::Attempt ${attempt} returned HTTP ${HTTP_CODE}"
+            if [ "$attempt" -lt 3 ]; then
+              sleep $((attempt * 30))
+            else
+              echo "::error::Refresh failed after 3 attempts (last HTTP ${HTTP_CODE})"
+              cat response.json || true
+              exit 1
+            fi
+          done
+
+          # Parse counts for downstream steps + summary
+          NEW_AWS=$(jq -r '(.new_services.aws // []) | length' response.json)
+          NEW_AZURE=$(jq -r '(.new_services.azure // []) | length' response.json)
+          NEW_GCP=$(jq -r '(.new_services.gcp // []) | length' response.json)
+          ERRORS=$(jq -r '.errors // {} | tojson' response.json)
+
+          echo "status=ok" >> "$GITHUB_OUTPUT"
+          echo "new_aws=${NEW_AWS}" >> "$GITHUB_OUTPUT"
+          echo "new_azure=${NEW_AZURE}" >> "$GITHUB_OUTPUT"
+          echo "new_gcp=${NEW_GCP}" >> "$GITHUB_OUTPUT"
+          echo "errors=${ERRORS}" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## Service catalog refresh"
+            echo ""
+            echo "| Provider | New services |"
+            echo "|---|---:|"
+            echo "| AWS | ${NEW_AWS} |"
+            echo "| Azure | ${NEW_AZURE} |"
+            echo "| GCP | ${NEW_GCP} |"
+            echo ""
+            echo "Errors: \`${ERRORS}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify freshness via /api/health
+        run: |
+          set -euo pipefail
+          BODY=$(curl -sS --max-time 30 "${API_URL}/api/health")
+          AGE=$(echo "$BODY" | jq -r '.service_catalog_refresh.age_hours // "null"')
+          STALE=$(echo "$BODY" | jq -r '.service_catalog_refresh.stale')
+          echo "post-refresh age=${AGE}h stale=${STALE}"
+          if [ "$STALE" != "false" ]; then
+            echo "::error::Refresh succeeded but /api/health still reports stale catalog"
+            exit 1
+          fi
+
+  alert:
+    name: Open issue if refresh failed
+    needs: refresh
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: File alert issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const today = new Date().toISOString().slice(0, 10);
+            const title = `[ALERT] Service catalog refresh failed (${today})`;
+            const body = [
+              '## Service catalog refresh failed',
+              '',
+              `Workflow run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              '',
+              'The daily catalog refresh did not complete. The catalog will go stale within 36h ',
+              'and `/api/health` will report `degraded` once the freshness budget is breached.',
+              '',
+              '### Triage',
+              '1. Check the workflow logs above for the failed HTTP code.',
+              '2. Hit `GET /api/health` and inspect `service_catalog_refresh`.',
+              '3. If the API is healthy, re-run the workflow with `workflow_dispatch`.',
+              '4. If the API is unreachable, this is a production outage — treat as P1.',
+              '',
+              '_Filed automatically by `.github/workflows/service-catalog-refresh.yml`._',
+            ].join('\n');
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: ['bug', 'production', 'critical', 'service-catalog'],
+            });

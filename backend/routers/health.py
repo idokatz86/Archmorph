@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse
 
 from version import __version__
 from services import AWS_SERVICES, AZURE_SERVICES, GCP_SERVICES, CROSS_CLOUD_MAPPINGS
-from service_updater import get_update_status
+from service_updater import get_update_status, get_freshness
 from api_versioning import get_api_versions
 from routers.shared import ENVIRONMENT
 
@@ -103,7 +103,26 @@ def _run_dependency_checks() -> tuple[dict[str, str], bool, bool]:
 @router.get("/api/health")
 async def health():
     update_status = get_update_status()
+    freshness = get_freshness()
     checks, degraded, unhealthy = _run_dependency_checks()
+
+    # Issue #571 — surface catalog freshness as a first-class health signal.
+    # Stale (no successful run within the budget) marks the system degraded.
+    if freshness["stale"]:
+        checks["service_catalog_refresh"] = (
+            f"stale ({freshness['age_hours']}h > {freshness['budget_hours']}h budget)"
+            if freshness["age_hours"] is not None
+            else "never_ran"
+        )
+        degraded = True
+    else:
+        checks["service_catalog_refresh"] = f"fresh ({freshness['age_hours']}h)"
+
+    if freshness["providers_failed"]:
+        checks["service_catalog_providers_failed"] = ",".join(
+            freshness["providers_failed"]
+        )
+        degraded = True
 
     # ── Determine overall status ──────────────────────────
     if unhealthy:
@@ -129,6 +148,7 @@ async def health():
             "mappings": len(CROSS_CLOUD_MAPPINGS),
         },
         "last_service_update": update_status.get("last_check"),
+        "service_catalog_refresh": freshness,
         "scheduler_running": update_status.get("scheduler_running", False),
     }
 

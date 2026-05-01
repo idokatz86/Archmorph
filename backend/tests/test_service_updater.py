@@ -329,3 +329,210 @@ class TestDiscoveredServices:
 
         assert fake_py.read_text() == original_content, \
             ".py file was modified -- service updater must only write to JSON"
+
+
+# ====================================================================
+# Issue #571 — GCP fetcher migration to Discovery API
+# ====================================================================
+
+class TestGcpFetcher:
+    def test_uses_discovery_api_url(self):
+        """The retired pricelist.json URL must not be used."""
+        from service_updater import GCP_DISCOVERY_URL
+        assert "googleapis.com/discovery" in GCP_DISCOVERY_URL
+        assert "cloudpricingcalculator" not in GCP_DISCOVERY_URL
+
+    def test_pricelist_constant_removed(self):
+        """The dead pricelist endpoint must be removed entirely."""
+        import service_updater
+        assert not hasattr(service_updater, "GCP_PRICELIST_URL"), (
+            "GCP_PRICELIST_URL still present — points to a 404 endpoint and "
+            "must be removed (issue #571)."
+        )
+
+    def test_filters_workspace_apis(self):
+        """Workspace / consumer APIs should be filtered out."""
+        from unittest.mock import MagicMock
+        from service_updater import _fetch_gcp_services
+
+        mock_client = MagicMock()
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {
+            "items": [
+                {"name": "compute"},
+                {"name": "storage"},
+                {"name": "bigquery"},
+                {"name": "gmail"},          # filtered
+                {"name": "calendar"},       # filtered
+                {"name": "youtube"},        # filtered
+                {"name": "aiplatform"},
+                {"name": ""},               # filtered (empty)
+            ]
+        }
+        mock_resp.raise_for_status = MagicMock()
+        mock_client.get.return_value = mock_resp
+
+        result = _fetch_gcp_services(mock_client)
+
+        assert "compute" in result
+        assert "storage" in result
+        assert "bigquery" in result
+        assert "aiplatform" in result
+        assert "gmail" not in result
+        assert "calendar" not in result
+        assert "youtube" not in result
+        assert "" not in result
+
+
+# ====================================================================
+# Issue #571 — freshness contract
+# ====================================================================
+
+class TestFreshness:
+    def test_never_run_is_stale(self, tmp_path):
+        from service_updater import get_freshness
+        with patch("service_updater._UPDATES_FILE", tmp_path / "missing.json"):
+            f = get_freshness()
+            assert f["last_check"] is None
+            assert f["age_hours"] is None
+            assert f["stale"] is True
+
+    def test_recent_run_is_fresh(self, tmp_path):
+        from datetime import datetime, timezone
+        import json as _json
+        from service_updater import get_freshness
+
+        state_file = tmp_path / "updates.json"
+        state_file.write_text(_json.dumps({
+            "last_check": datetime.now(timezone.utc).isoformat(),
+            "checks": [{"timestamp": datetime.now(timezone.utc).isoformat(),
+                        "new_services": {"aws": [], "azure": [], "gcp": []},
+                        "errors": None}],
+            "new_services_found": {"aws": [], "azure": [], "gcp": []},
+            "auto_added": {"aws": [], "azure": [], "gcp": []},
+        }), encoding="utf-8")
+
+        with patch("service_updater._UPDATES_FILE", state_file):
+            f = get_freshness()
+            assert f["stale"] is False
+            assert f["age_hours"] is not None
+            assert f["age_hours"] < 1.0
+
+    def test_old_run_is_stale(self, tmp_path):
+        from datetime import datetime, timezone, timedelta
+        import json as _json
+        from service_updater import get_freshness
+
+        old = (datetime.now(timezone.utc) - timedelta(hours=72)).isoformat()
+        state_file = tmp_path / "updates.json"
+        state_file.write_text(_json.dumps({
+            "last_check": old,
+            "checks": [{"timestamp": old,
+                        "new_services": {"aws": [], "azure": [], "gcp": []},
+                        "errors": None}],
+            "new_services_found": {"aws": [], "azure": [], "gcp": []},
+            "auto_added": {"aws": [], "azure": [], "gcp": []},
+        }), encoding="utf-8")
+
+        with patch("service_updater._UPDATES_FILE", state_file):
+            f = get_freshness()
+            assert f["stale"] is True
+            assert f["age_hours"] is not None
+            assert f["age_hours"] >= 36
+
+    def test_provider_failure_surfaced(self, tmp_path):
+        from datetime import datetime, timezone
+        import json as _json
+        from service_updater import get_freshness
+
+        now = datetime.now(timezone.utc).isoformat()
+        state_file = tmp_path / "updates.json"
+        state_file.write_text(_json.dumps({
+            "last_check": now,
+            "checks": [{"timestamp": now,
+                        "new_services": {"aws": [], "azure": [], "gcp": []},
+                        "errors": {"gcp": "HTTP 404 from GCP"}}],
+            "new_services_found": {"aws": [], "azure": [], "gcp": []},
+            "auto_added": {"aws": [], "azure": [], "gcp": []},
+        }), encoding="utf-8")
+
+        with patch("service_updater._UPDATES_FILE", state_file):
+            f = get_freshness()
+            assert "gcp" in f["providers_failed"]
+            assert f["last_errors"] == {"gcp": "HTTP 404 from GCP"}
+
+
+# ====================================================================
+# Issue #571 — scheduler opt-out for multi-replica deployments
+# ====================================================================
+
+class TestSchedulerOptOut:
+    def test_disabled_via_env(self):
+        import service_updater
+        from service_updater import start_scheduler, stop_scheduler
+
+        stop_scheduler()  # ensure clean baseline
+        with patch.dict(os.environ, {"SCHEDULER_DISABLED": "1"}):
+            start_scheduler()
+            assert service_updater._running is False
+            assert service_updater._scheduler is None
+        stop_scheduler()
+
+
+# ====================================================================
+# Issue #571 — durable blob persistence (best-effort)
+# ====================================================================
+
+class TestBlobPersistence:
+    def test_no_env_vars_returns_none(self):
+        """Without storage env vars, blob client must be None (disk-only mode)."""
+        from service_updater import _get_discovered_blob_client
+        with patch.dict(os.environ, {
+            "AZURE_STORAGE_ACCOUNT_URL": "",
+            "AZURE_STORAGE_CONNECTION_STRING": "",
+        }, clear=False):
+            assert _get_discovered_blob_client() is None
+
+    def test_save_to_blob_no_op_without_client(self, tmp_path):
+        """_save_discovered_to_blob must not raise when no client is configured."""
+        from service_updater import _save_discovered_to_blob
+        with patch.dict(os.environ, {
+            "AZURE_STORAGE_ACCOUNT_URL": "",
+            "AZURE_STORAGE_CONNECTION_STRING": "",
+        }, clear=False):
+            # Should silently no-op, not raise
+            _save_discovered_to_blob({"aws": [], "azure": [], "gcp": []})
+
+    def test_load_from_blob_returns_none_without_client(self):
+        from service_updater import _load_discovered_from_blob
+        with patch.dict(os.environ, {
+            "AZURE_STORAGE_ACCOUNT_URL": "",
+            "AZURE_STORAGE_CONNECTION_STRING": "",
+        }, clear=False):
+            assert _load_discovered_from_blob() is None
+
+    def test_blob_load_takes_priority_over_disk(self, tmp_path):
+        """When blob returns data, disk file is ignored as source of truth."""
+        from service_updater import _load_discovered_services
+        from unittest.mock import MagicMock
+
+        # Disk file with its own content
+        disc_file = tmp_path / "discovered.json"
+        disc_file.write_text(
+            '{"aws": [{"id": "aws-from-disk"}], "azure": [], "gcp": []}',
+            encoding="utf-8",
+        )
+
+        blob_payload = (
+            b'{"aws": [{"id": "aws-from-blob"}], "azure": [], "gcp": []}'
+        )
+        mock_blob = MagicMock()
+        mock_blob.download_blob.return_value.readall.return_value = blob_payload
+
+        with patch("service_updater._get_discovered_blob_client",
+                   return_value=mock_blob), \
+             patch("service_updater._DISCOVERED_FILE", disc_file), \
+             patch("service_updater._DATA_DIR", tmp_path):
+            result = _load_discovered_services()
+            assert result["aws"][0]["id"] == "aws-from-blob"
+
