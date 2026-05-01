@@ -23,6 +23,73 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+# ─────────────────────────────────────────────────────────────
+# Architecture-blocker gate (Issue #610)
+# ─────────────────────────────────────────────────────────────
+def _check_architecture_blockers(diagram_id: str, session: dict, force: bool) -> None:
+    """Refuse IaC generation when unresolved architecture blockers exist.
+
+    Reads ``session["architecture_issues"]`` (set by the analysis enrichment
+    pipeline). If any issue has severity=blocker:
+
+    - ``force=False`` → raise 409 with the blocker list and an override hint.
+    - ``force=True`` → log a warning and proceed (admin/expert override).
+    - No issues / no blockers → return silently.
+
+    Failures while inspecting the session are swallowed so the gate can never
+    break IaC generation for sessions that pre-date the engine.
+    """
+    try:
+        issues = session.get("architecture_issues") or []
+    except Exception:
+        return
+
+    blockers = [i for i in issues if isinstance(i, dict) and i.get("severity") == "blocker"]
+    if not blockers:
+        return
+
+    if force:
+        logger.warning(
+            "iac_blockers_overridden diagram=%s blocker_count=%d ids=%s",
+            str(diagram_id).replace("\n", "").replace("\r", ""),
+            len(blockers),
+            ",".join(b.get("rule_id", "?") for b in blockers),
+        )
+        record_event(
+            "iac_blockers_overridden",
+            {
+                "diagram_id": diagram_id,
+                "blocker_count": len(blockers),
+                "rule_ids": [b.get("rule_id") for b in blockers],
+            },
+        )
+        return
+
+    raise ArchmorphException(
+        409,
+        detail={
+            "error": "architecture_blocker_unresolved",
+            "message": (
+                "IaC generation is blocked because the architecture has "
+                f"{len(blockers)} unresolved blocker issue(s). "
+                "Resolve the issues, or pass ?force=true to override."
+            ),
+            "blockers": [
+                {
+                    "rule_id": b.get("rule_id"),
+                    "title": b.get("title"),
+                    "message": b.get("message"),
+                    "remediation": b.get("remediation"),
+                    "docs_url": b.get("docs_url"),
+                    "affected_services": b.get("affected_services", []),
+                }
+                for b in blockers
+            ],
+            "override_hint": "Append ?force=true to the request URL to generate anyway.",
+        },
+    )
+
+
 class IaCChatMessage(BaseModel):
     """Request body for IaC chat messages."""
     message: str = Field(..., min_length=1, max_length=5000)
@@ -35,13 +102,18 @@ class IaCChatMessage(BaseModel):
 # ─────────────────────────────────────────────────────────────
 @router.post("/api/diagrams/{diagram_id}/generate")
 @limiter.limit("5/minute")
-async def generate_iac(request: Request, diagram_id: str, format: str = "terraform", _auth=Depends(verify_api_key)):
-    """Generate Infrastructure as Code from the architecture analysis."""
+async def generate_iac(request: Request, diagram_id: str, format: str = "terraform", force: bool = False, _auth=Depends(verify_api_key)):
+    """Generate Infrastructure as Code from the architecture analysis.
+
+    ``force=true`` overrides the architecture-blocker gate (Issue #610).
+    """
     if format not in ["terraform", "bicep", "cloudformation"]:
         raise ArchmorphException(400, "Format must be 'terraform', 'bicep', or 'cloudformation'")
 
     session = SESSION_STORE.get(diagram_id, {})
     iac_params = session.get("iac_parameters", {})
+
+    _check_architecture_blockers(diagram_id, session, force)
 
     try:
         code = await asyncio.to_thread(
@@ -113,11 +185,17 @@ async def iac_chat_clear(request: Request, diagram_id: str):
 @router.post("/api/diagrams/{diagram_id}/generate-async")
 @limiter.limit("5/minute")
 async def generate_iac_async(
-    request: Request, diagram_id: str, format: str = "terraform", _auth=Depends(verify_api_key),
+    request: Request, diagram_id: str, format: str = "terraform", force: bool = False, _auth=Depends(verify_api_key),
 ):
-    """Start async IaC code generation. Returns 202 with job_id."""
+    """Start async IaC code generation. Returns 202 with job_id.
+
+    ``force=true`` overrides the architecture-blocker gate (Issue #610).
+    """
     if format not in ["terraform", "bicep", "cloudformation"]:
         raise ArchmorphException(400, "Format must be 'terraform', 'bicep', or 'cloudformation'")
+
+    session = SESSION_STORE.get(diagram_id, {})
+    _check_architecture_blockers(diagram_id, session, force)
 
     job = job_manager.submit("generate_iac", diagram_id=diagram_id)
     asyncio.create_task(_run_iac_job(job.job_id, diagram_id, format))
