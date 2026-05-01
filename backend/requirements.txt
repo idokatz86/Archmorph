@@ -46,6 +46,7 @@ lxml>=6.1.0
 pyasn1>=0.6.3
 pygments>=2.20.0
 pypdf>=6.10.2
+pypdfium2>=4.30.0  # PDF rasterization for vision analyzer (PDF uploads → PNG)
 requests>=2.33.1
 
 # RAG pipeline dependencies (Issue #395)
