@@ -149,34 +149,58 @@ def run_flow(d: dict):
             print(f"     IaC params: {json.dumps({k: v for k, v in list(iac_params.items())[:5]}, default=str)}")
 
     # ── Step 5a: Export Excalidraw ────────────────────────────
+    # NOTE: ``format`` is a query parameter on the FastAPI route, not a body
+    # field. Sending it via ``json=...`` silently falls back to the default
+    # ("excalidraw") for every call — which is how all three format tests
+    # passed for months while drawio/vsdx exports were broken.
     resp = client.post(
         f"/api/diagrams/{diagram_id}/export-diagram",
-        json={"format": "excalidraw"},
+        params={"format": "excalidraw"},
     )
     ok = resp.status_code == 200
     export_data = resp.json() if ok else {}
-    content_len = len(export_data.get("content", ""))
-    step(f"[{pid}] 5a. Export Excalidraw", ok, f"{content_len} chars")
+    content = export_data.get("content", "")
+    is_excalidraw = ok and content.startswith("{") and '"type": "excalidraw"' in content
+    step(
+        f"[{pid}] 5a. Export Excalidraw",
+        ok and is_excalidraw,
+        f"{len(content)} chars, valid_excalidraw={is_excalidraw}",
+    )
 
     # ── Step 5b: Export Draw.io ───────────────────────────────
     resp = client.post(
         f"/api/diagrams/{diagram_id}/export-diagram",
-        json={"format": "drawio"},
+        params={"format": "drawio"},
     )
     ok = resp.status_code == 200
     export_data = resp.json() if ok else {}
-    has_graph = "mxGraphModel" in export_data.get("content", "")
-    step(f"[{pid}] 5b. Export Draw.io", ok, f"has mxGraphModel={has_graph}")
+    content = export_data.get("content", "")
+    has_graph = "mxGraphModel" in content or "mxfile" in content
+    step(
+        f"[{pid}] 5b. Export Draw.io",
+        ok and has_graph,
+        f"{len(content)} chars, has mxGraphModel={has_graph}",
+    )
 
     # ── Step 5c: Export Visio ─────────────────────────────────
     resp = client.post(
         f"/api/diagrams/{diagram_id}/export-diagram",
-        json={"format": "vsdx"},
+        params={"format": "vsdx"},
     )
     ok = resp.status_code == 200
     export_data = resp.json() if ok else {}
-    has_visio = "VisioDocument" in export_data.get("content", "")
-    step(f"[{pid}] 5c. Export Visio", ok, f"has VisioDocument={has_visio}")
+    content = export_data.get("content", "")
+    filename = export_data.get("filename", "")
+    has_visio = "VisioDocument" in content
+    correct_ext = filename.endswith(".vdx")
+    # Detect the duplicate-xmlns regression that previously slipped past CI.
+    head = content[: content.find(">") + 1] if ">" in content else ""
+    single_xmlns = head.count('xmlns="') == 1
+    step(
+        f"[{pid}] 5c. Export Visio",
+        ok and has_visio and correct_ext and single_xmlns,
+        f"{len(content)} chars, has VisioDocument={has_visio}, ext_ok={correct_ext}, single_xmlns={single_xmlns}",
+    )
 
     # ── Step 6a: Generate Terraform ───────────────────────────
     resp = client.post(

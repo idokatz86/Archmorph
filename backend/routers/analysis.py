@@ -165,16 +165,22 @@ async def export_architecture_diagram(request: Request, diagram_id: str, format:
 
     try:
         content = await mcp_client.generate_diagram(format, analysis)
+        if not content or not isinstance(content, str) or not content.strip():
+            # MCP gateway returned empty payload and the local fallback also
+            # produced nothing usable. Fail loudly instead of writing an empty
+            # file the user cannot open.
+            raise ArchmorphException(502, "Diagram generation produced empty content")
         zones = analysis.get("zones", [])
         zone_name = zones[0].get("name", "diagram") if zones else "diagram"
-        if format == "vsdx":
-            format_ext = "vsdx"
-        else:
-            format_ext = format
+        # Visio export uses the legacy VDX 2003 XML format (single XML file).
+        # The on-disk extension must be ``.vdx`` — modern ``.vsdx`` is an
+        # OOXML zip container, which Visio refuses if the bytes are raw XML.
+        # The API ``format`` value remains ``"vsdx"`` for frontend stability.
+        format_ext = "vdx" if format == "vsdx" else format
         result = {
             "format": format,
             "filename": f"archmorph-{zone_name}.{format_ext}",
-            "content": content
+            "content": content,
         }
     except ValueError as exc:
         raise ArchmorphException(400, str(exc))

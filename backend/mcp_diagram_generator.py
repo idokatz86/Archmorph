@@ -37,7 +37,19 @@ class DiagramMCPClient:
                         json={"prompt": prompt, "context": analysis_data}
                     )
                     if response.status_code == 200:
-                        return response.json().get("diagram_payload", "")
+                        try:
+                            payload = response.json().get("diagram_payload", "")
+                        except ValueError as e:  # invalid JSON
+                            logger.warning(
+                                f"MCP Gateway returned non-JSON for {format_type}: {e}. Falling back."
+                            )
+                            return self._fallback_generation(format_type, analysis_data)
+                        if isinstance(payload, str) and payload.strip():
+                            return payload
+                        logger.warning(
+                            f"MCP Gateway returned empty payload for {format_type}. Falling back."
+                        )
+                        return self._fallback_generation(format_type, analysis_data)
                     else:
                         logger.warning(f"MCP Gateway returned status {response.status_code}. Retrying...")
             except httpx.ConnectError as e:
@@ -54,15 +66,34 @@ class DiagramMCPClient:
         return self._fallback_generation(format_type, analysis_data)
 
     def _build_prompt(self, analysis: Dict[str, Any]) -> str:
-        return f"Generate a highly detailed Azure architecture diagram for the following zones: {json.dumps(analysis.get('zones', []))}."
+        title = analysis.get("title", "Azure Architecture Diagram")
+        zones = analysis.get("zones", [])
+        mappings = analysis.get("mappings", [])
+        # Trim to keep the prompt under control on very large analyses.
+        zones_summary = [
+            {"name": z.get("name"), "services": [s.get("azure_service") or s.get("source_service") or s.get("source") for s in z.get("services", [])]}
+            for z in zones[:32]
+        ]
+        mappings_summary = [
+            {"from": m.get("source_service") or m.get("source"), "to": m.get("azure_service") or m.get("target"), "category": m.get("category")}
+            for m in mappings[:64]
+        ]
+        return (
+            f"Generate a clean, presentation-ready Azure architecture diagram titled '{title}'. "
+            f"Zones: {json.dumps(zones_summary)}. "
+            f"Service mappings: {json.dumps(mappings_summary)}. "
+            "Group services by zone, draw labelled connections only when implied by the mappings, "
+            "and use Microsoft Azure brand colours."
+        )
 
     def _fallback_generation(self, format_type: str, analysis_data: Dict[str, Any]) -> str:
-        # If MCP is offline or not configured, fallback to the legacy layout engine
+        # If MCP is offline, returns an empty/garbage payload, or is not configured,
+        # delegate to the deterministic in-process layout engine.
         from diagram_export import generate_diagram as diagram_export_generate
         if format_type in ["excalidraw", "drawio", "visio", "vsdx"]:
             real_format = "vsdx" if format_type == "visio" else format_type
             res = diagram_export_generate(analysis_data, real_format)
-            return res.get("content")
+            return res.get("content") or ""
         raise ValueError(f"Unsupported MCP format: {format_type}")
 
 # Singleton client
