@@ -318,3 +318,80 @@ class TestIacChatEndpoints:
         resp = client.delete("/api/diagrams/nonexistent-diagram/iac-chat")
         assert resp.status_code == 200
         assert resp.json()["cleared"] is False
+
+
+# ====================================================================
+# 4. Defensive coercion of changes_summary / services_added
+#    (Regression for React error #31 on {type, message} objects)
+# ====================================================================
+
+from iac_chat import _coerce_to_str_list
+
+
+class TestCoerceToStrList:
+    def test_strings_pass_through(self):
+        assert _coerce_to_str_list(["a", "b"]) == ["a", "b"]
+
+    def test_dict_with_message_key(self):
+        # The exact shape that triggered React error #31 in production.
+        out = _coerce_to_str_list([{"type": "add", "message": "Added VNet"}])
+        assert out == ["Added VNet"]
+
+    def test_dict_with_text_or_name_or_label_or_value(self):
+        assert _coerce_to_str_list([{"text": "x"}]) == ["x"]
+        assert _coerce_to_str_list([{"name": "Azure SQL"}]) == ["Azure SQL"]
+        assert _coerce_to_str_list([{"label": "lbl"}]) == ["lbl"]
+        assert _coerce_to_str_list([{"value": "v"}]) == ["v"]
+
+    def test_dict_with_no_known_key_serializes(self):
+        out = _coerce_to_str_list([{"foo": "bar"}])
+        assert out == ['{"foo": "bar"}']
+
+    def test_drops_none_keeps_falsy_strings(self):
+        assert _coerce_to_str_list([None, "", "x"]) == ["", "x"]
+
+    def test_non_list_input_returns_empty(self):
+        assert _coerce_to_str_list(None) == []
+        assert _coerce_to_str_list("not a list") == []
+        assert _coerce_to_str_list({"k": "v"}) == []
+
+    def test_numbers_and_bools_coerced(self):
+        assert _coerce_to_str_list([1, 2.5, True, False]) == ["1", "2.5", "True", "False"]
+
+    def test_nested_lists_stringified(self):
+        out = _coerce_to_str_list([["nested"]])
+        assert isinstance(out[0], str)
+
+    @patch("iac_chat.cached_chat_completion")
+    def test_process_iac_chat_normalizes_object_items(self, mock_completion):
+        # Simulate a misbehaving model returning {type, message} objects.
+        bad_response = {
+            "message": "Updated.",
+            "code": SAMPLE_TF_CODE,
+            "changes_summary": [
+                {"type": "add", "message": "Added VNet"},
+                {"type": "modify", "message": "Resized subnet"},
+                "plain string",
+            ],
+            "services_added": [{"name": "VNet"}, {"name": "NSG"}],
+        }
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = json.dumps(bad_response)
+        mock_response.choices[0].finish_reason = "stop"
+        mock_completion.return_value = mock_response
+
+        result = process_iac_chat(
+            diagram_id="coerce-test",
+            message="Add a VNet",
+            current_code=SAMPLE_TF_CODE,
+            iac_format="terraform",
+        )
+
+        assert result["error"] is False
+        # Every item must be a string (renderable in JSX without crashing React).
+        assert all(isinstance(c, str) for c in result["changes_summary"])
+        assert all(isinstance(s, str) for s in result["services_added"])
+        assert result["changes_summary"] == ["Added VNet", "Resized subnet", "plain string"]
+        assert result["services_added"] == ["VNet", "NSG"]
+
