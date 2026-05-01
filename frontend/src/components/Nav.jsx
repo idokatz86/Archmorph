@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
-import { CloudCog, Layers, Server, Activity, Rocket, MessageSquare, LayoutDashboard, Sparkles, Menu, X, Moon, Sun, PenTool, ChevronDown, Search } from 'lucide-react';
+import { CloudCog, Layers, Server, Activity, Rocket, MessageSquare, LayoutDashboard, Menu, X, Moon, Sun, PenTool, ChevronDown, Search } from 'lucide-react';
 import FeedbackWidget from './FeedbackWidget';
 import { UserMenu } from './Auth';
 import { isFeatureEnabled } from '../featureFlags';
@@ -29,7 +29,6 @@ const PRIMARY_ITEMS = [
 ];
 
 const MORE_ITEMS = [
-  { id: 'playground', label: 'Playground', icon: Sparkles },
   { id: 'drift', label: 'Drift', icon: Activity, feature: 'livingArchitectureDrift' },
   { id: 'roadmap', label: 'Roadmap', icon: Rocket },
 ].filter(item => !item.feature || isFeatureEnabled(item.feature));
@@ -172,7 +171,7 @@ export default function Nav({ activeTab, setActiveTab, updateStatus }) {
           <div className="flex items-center justify-between h-14">
             {/* Logo — clickable to go Home (#1), catalog dot as tooltip (#10), tagline removed (#2) */}
             <button
-              onClick={() => setActiveTab('playground')}
+              onClick={() => setActiveTab('translator')}
               className="flex items-center gap-2.5 cursor-pointer group"
               aria-label="Go to home"
               title={catalogLabel}

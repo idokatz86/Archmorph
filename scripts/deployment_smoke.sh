@@ -36,7 +36,6 @@ check_status() {
 
 check_status "Frontend root" "$FRONTEND_URL"
 check_status "Frontend translator route" "$FRONTEND_URL/#translator"
-check_status "Frontend playground route" "$FRONTEND_URL/#playground"
 
 HEALTH_BODY=$(curl -sS --max-time 30 "$API_URL/health")
 HEALTH_STATUS=$(echo "$HEALTH_BODY" | jq -r '.status // "unknown"')

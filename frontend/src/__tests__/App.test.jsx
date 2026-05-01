@@ -38,9 +38,6 @@ vi.mock('../components/LandingPage', () => ({
 vi.mock('../components/LegalPages', () => ({
   default: () => <div data-testid="legal">LegalPages</div>,
 }))
-vi.mock('../components/PlaygroundPage', () => ({
-  default: () => <div data-testid="playground">PlaygroundPage</div>,
-}))
 vi.mock('../components/CookieBanner', () => ({
   default: () => null,
 }))
@@ -56,13 +53,13 @@ describe('App', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     window.history.replaceState(null, '', '/')
-    useAppStore.setState({ activeTab: 'playground', adminOpen: false, updateStatus: null, pendingResumeId: null, pendingSample: null })
+    useAppStore.setState({ activeTab: 'translator', adminOpen: false, updateStatus: null, pendingResumeId: null })
     fetch.mockResolvedValue({ json: () => Promise.resolve({}) })
   })
 
   const renderSettledApp = async () => {
     const result = render(<App />)
-    await screen.findByTestId('playground')
+    await screen.findByTestId('translator')
     await screen.findByTestId('chat-widget')
     return result
   }
@@ -72,10 +69,10 @@ describe('App', () => {
     expect(screen.getByTestId('nav')).toBeInTheDocument()
   })
 
-  it('shows the playground by default', async () => {
+  it('shows the translator by default', async () => {
     await renderSettledApp()
-    expect(screen.getByTestId('playground')).toBeInTheDocument()
-    expect(screen.queryByTestId('translator')).not.toBeInTheDocument()
+    expect(screen.getByTestId('translator')).toBeInTheDocument()
+    expect(screen.queryByTestId('services')).not.toBeInTheDocument()
   })
 
   it('does not render a beta preview banner', async () => {

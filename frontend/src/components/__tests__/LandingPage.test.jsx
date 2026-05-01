@@ -50,7 +50,7 @@ describe('LandingPage', () => {
     expect(screen.getByText('100%')).toBeInTheDocument();
   });
 
-  it('routes sample CTA to the playground callback', () => {
+  it('routes sample CTA via the onTrySample callback', () => {
     render(<LandingPage {...defaultProps} />);
     fireEvent.click(screen.getByText('Try a sample diagram'));
     expect(defaultProps.onTrySample).toHaveBeenCalledTimes(1);
