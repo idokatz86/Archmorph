@@ -20,7 +20,6 @@ const VALID_TABS = new Set([
   'roadmap',
   'legal',
   'drift',
-  'canvas',
   'api-docs',
   'collab',
   'replay',

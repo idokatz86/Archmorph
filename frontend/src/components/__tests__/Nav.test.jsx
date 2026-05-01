@@ -47,7 +47,6 @@ describe('Nav', () => {
     render(<Nav {...defaultProps} />)
     expect(screen.getByText('Translator')).toBeInTheDocument()
     expect(screen.getByText('Services')).toBeInTheDocument()
-    expect(screen.getByText('Canvas')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /More/ })).toBeInTheDocument()
   })
 

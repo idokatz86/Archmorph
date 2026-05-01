@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
-  Upload, BarChart3, Code, FileText, DollarSign, PenTool,
+  Upload, BarChart3, Code, FileText, DollarSign,
   Download, Image, FileDown, MessageSquare, Moon, Sun,
   Copy, ExternalLink, Trash2, Search, Command,
 } from 'lucide-react';
@@ -29,7 +29,6 @@ function buildCommands(setActiveTab, toggleTheme, theme) {
     { id: 'nav-iac', label: 'Go to IaC', section: 'Navigation', shortcut: '3', icon: Code, action: () => setActiveTab('translator') },
     { id: 'nav-hld', label: 'Go to HLD', section: 'Navigation', shortcut: '4', icon: FileText, action: () => setActiveTab('translator') },
     { id: 'nav-cost', label: 'Go to Cost', section: 'Navigation', shortcut: '5', icon: DollarSign, action: () => setActiveTab('translator') },
-    { id: 'nav-canvas', label: 'Go to Canvas', section: 'Navigation', shortcut: 'C', icon: PenTool, action: () => setActiveTab('canvas') },
     // Actions
     { id: 'act-export-tf', label: 'Export Terraform', section: 'Actions', shortcut: '⇧⌘T', icon: Download, action: () => { /* dispatched via custom event */ document.dispatchEvent(new CustomEvent('archmorph:command', { detail: 'export-terraform' })); } },
     { id: 'act-export-diag', label: 'Export Diagram', section: 'Actions', shortcut: '⇧⌘D', icon: Image, action: () => { document.dispatchEvent(new CustomEvent('archmorph:command', { detail: 'export-diagram' })); } },
