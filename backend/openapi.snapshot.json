@@ -10668,7 +10668,7 @@
     },
     "/api/diagrams/{diagram_id}/generate": {
       "post": {
-        "description": "Generate Infrastructure as Code from the architecture analysis.",
+        "description": "Generate Infrastructure as Code from the architecture analysis.\n\n``force=true`` overrides the architecture-blocker gate (Issue #610).",
         "operationId": "generate_iac_api_diagrams__diagram_id__generate_post",
         "parameters": [
           {
@@ -10688,6 +10688,16 @@
               "default": "terraform",
               "title": "Format",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "force",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Force",
+              "type": "boolean"
             }
           }
         ],
@@ -10721,7 +10731,7 @@
     },
     "/api/diagrams/{diagram_id}/generate-async": {
       "post": {
-        "description": "Start async IaC code generation. Returns 202 with job_id.",
+        "description": "Start async IaC code generation. Returns 202 with job_id.\n\n``force=true`` overrides the architecture-blocker gate (Issue #610).",
         "operationId": "generate_iac_async_api_diagrams__diagram_id__generate_async_post",
         "parameters": [
           {
@@ -10741,6 +10751,16 @@
               "default": "terraform",
               "title": "Format",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "force",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Force",
+              "type": "boolean"
             }
           }
         ],
@@ -23046,7 +23066,7 @@
     },
     "/api/v1/diagrams/{diagram_id}/generate": {
       "post": {
-        "description": "Generate Infrastructure as Code from the architecture analysis.",
+        "description": "Generate Infrastructure as Code from the architecture analysis.\n\n``force=true`` overrides the architecture-blocker gate (Issue #610).",
         "operationId": "generate_iac_v1_api_v1_diagrams__diagram_id__generate_post",
         "parameters": [
           {
@@ -23066,6 +23086,16 @@
               "default": "terraform",
               "title": "Format",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "force",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Force",
+              "type": "boolean"
             }
           }
         ],
@@ -23102,7 +23132,7 @@
     },
     "/api/v1/diagrams/{diagram_id}/generate-async": {
       "post": {
-        "description": "Start async IaC code generation. Returns 202 with job_id.",
+        "description": "Start async IaC code generation. Returns 202 with job_id.\n\n``force=true`` overrides the architecture-blocker gate (Issue #610).",
         "operationId": "generate_iac_async_v1_api_v1_diagrams__diagram_id__generate_async_post",
         "parameters": [
           {
@@ -23122,6 +23152,16 @@
               "default": "terraform",
               "title": "Format",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "force",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Force",
+              "type": "boolean"
             }
           }
         ],

@@ -33,6 +33,7 @@ from auth import get_user_from_request_headers
 from analysis_history import maybe_save_from_session
 from sku_translator import get_sku_translator
 from confidence_provenance import build_provenance
+from architecture_rules import evaluate as evaluate_architecture_rules
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +86,38 @@ def _enrich_with_provenance(result: dict) -> dict:
     return result
 
 
+def _enrich_with_architecture_issues(result: dict) -> dict:
+    """Run the architecture-limitations engine against the analysis (Issue #610).
+
+    Adds two top-level keys to the result:
+      - architecture_issues: list of issue dicts (rule_id, severity, message, ...)
+      - architecture_issues_summary: { blocker, warning, info, total }
+
+    Failures are swallowed and logged: a broken rule must never break analysis.
+    """
+    try:
+        issues = evaluate_architecture_rules(result)
+        issue_dicts = [i.to_dict() for i in issues]
+        summary = {"blocker": 0, "warning": 0, "info": 0, "total": len(issue_dicts)}
+        for d in issue_dicts:
+            sev = d.get("severity")
+            if sev in summary:
+                summary[sev] += 1
+        result["architecture_issues"] = issue_dicts
+        result["architecture_issues_summary"] = summary
+    except Exception as exc:
+        logger.warning(
+            "architecture_rules evaluation failed: %s",
+            str(exc).replace("\n", " ").replace("\r", " "),
+        )
+        result.setdefault("architecture_issues", [])
+        result.setdefault(
+            "architecture_issues_summary",
+            {"blocker": 0, "warning": 0, "info": 0, "total": 0, "engine_error": True},
+        )
+    return result
+
+
 def _normalize_analysis(result: dict) -> dict:
     """Normalize GPT vision output so downstream code always sees consistent fields.
 
@@ -100,6 +133,7 @@ def _normalize_analysis(result: dict) -> dict:
 
     result = _enrich_with_sku(result)
     result = _enrich_with_provenance(result)
+    result = _enrich_with_architecture_issues(result)
     return result
 
 
