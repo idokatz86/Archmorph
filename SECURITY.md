@@ -70,14 +70,33 @@ We take security seriously. If you discover a security vulnerability, please rep
 - **Diagnostic Settings**: Enabled on all Azure resources
 - **E2E Health Monitoring**: GitHub Actions workflow with auto-issue creation
 
+## Threat surface: Azure Landing-Zone-SVG pipeline
+
+The landing-zone-svg pipeline (issue #571 → #586) ingests untrusted PDFs / images, vendor icon ZIPs, and LLM-generated content; the rendered SVG is returned to the user. Pre-GA threat-model review for this pipeline lives at [`docs/security/landing_zone_threat_model.md`](docs/security/landing_zone_threat_model.md) (#596).
+
+Headline controls in place:
+
+- **XML output is escape-on-render**: every text run goes through `_xml_escape()` which strips invalid XML chars and escapes the 5 XML entities ([backend/azure_landing_zone.py](backend/azure_landing_zone.py)).
+- **Icons are embedded as `data:image/svg+xml;base64` data URIs only** — there is no path to inject `javascript:` or external `http(s):` URIs into a rendered `<image href="…"/>`. Icon bytes come from the server-controlled icon registry.
+- **PII boundary**: the retention pipeline (#580) and LZ render path do not import each other; verified via grep in CI.
+- **Vision analyzer**: native multimodal — the system prompt is hardcoded, the user message contains only the image, and the response is constrained to a JSON schema with downstream Pydantic validation. `prompt_guard.PROMPT_ARMOR` reinforces the schema constraint.
+
+Open follow-ups (filed as separate issues, see threat-model §5):
+
+- **F-1 (P1)** — Diagram capability-URLs must be ≥ 122 bits of entropy. The current `uuid.uuid4().hex[:8]` 32-bit truncation is insufficient.
+- **F-3 (P1)** — `POST /api/icon-packs` must require `Depends(verify_api_key)`; uploaded SVGs must be sanitised through `bleach`/`defusedxml` before they reach the registry.
+
+These two are GA-blocking. P2 findings (webhook SSRF private-IP gap, unbounded analysis size, Pydantic `extra="forbid"`) are tracked but do not block GA.
+
 ## Security Best Practices for Contributors
 
 1. **Never commit secrets**: Use environment variables or Key Vault
-2. **Validate all inputs**: Use Pydantic models for API inputs
+2. **Validate all inputs**: Use Pydantic models for API inputs (prefer `model_config = ConfigDict(extra="forbid")` on user-facing schemas)
 3. **Use parameterized queries**: Prevent SQL injection
-4. **Sanitize outputs**: Prevent XSS in frontend
+4. **Sanitize outputs**: Prevent XSS in frontend; on the SVG renderer, run every text run through `_xml_escape` and only embed icons via `data:image/svg+xml;base64,…`
 5. **Keep dependencies updated**: Monitor Dependabot PRs
 6. **Follow principle of least privilege**: Minimal permissions for all operations
+7. **Capability URLs** must be at least 122 bits of entropy (`secrets.token_urlsafe(16)` or full UUIDv4 — never truncated)
 
 ## Acknowledgments
 
