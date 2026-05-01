@@ -16,9 +16,8 @@ Covers:
 from __future__ import annotations
 
 import importlib
-import os
 import re
-from datetime import datetime, timezone, timedelta, date
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 import pytest
@@ -155,7 +154,6 @@ class TestPrivacy:
 
     def test_disabled_module_records_nothing(self, monkeypatch):
         ret = _disable_retention(monkeypatch)
-        cohort_day = datetime.now(timezone.utc) - timedelta(days=7)
         # Direct call still works (used by tests), but cookie path is gated.
         # Validate the gate via record_visit_from_request below.
         assert ret.ENABLED is False
