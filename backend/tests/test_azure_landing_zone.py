@@ -214,3 +214,130 @@ class TestRouter:
         assert body["filename"].endswith("-dr.svg")
         root = ET.fromstring(body["content"])
         assert root.get("height") == str(CANVAS_H_DR)
+
+
+# ---------------------------------------------------------------------------
+# GCP source provider (#576, #577, #578, #579)
+# ---------------------------------------------------------------------------
+
+GCP_SAMPLE_ANALYSIS: dict = {
+    "title": "GCP-to-Azure Landing Zone",
+    "source_provider": "gcp",
+    "target_provider": "azure",
+    "zones": [{"id": 1, "name": "web-tier", "number": 1, "services": []}],
+    "mappings": [
+        {"source_service": "GKE",       "azure_service": "AKS",          "category": "Containers"},
+        {"source_service": "Cloud SQL", "azure_service": "Azure SQL",    "category": "Database"},
+        {"source_service": "GLB",       "azure_service": "App Gateway",  "category": "Networking"},
+        {"source_service": "Cloud Storage", "azure_service": "Blob Storage", "category": "Storage"},
+        {"source_service": "Cloud IAM", "azure_service": "Entra ID",     "category": "Identity"},
+        {"source_service": "Cloud Monitoring", "azure_service": "Azure Monitor", "category": "Monitoring"},
+        {"source_service": "Pub/Sub",   "azure_service": "Event Hubs",   "category": "Messaging"},
+        {"source_service": "Filestore", "azure_service": "Azure Files",  "category": "Storage"},
+    ],
+}
+
+
+GCP_DR_ANALYSIS: dict = {
+    **GCP_SAMPLE_ANALYSIS,
+    "dr_mode": "active-standby",
+    "regions": [
+        {"name": "East US",   "role": "primary", "traffic_pct": 100},
+        {"name": "West US 3", "role": "standby", "traffic_pct": 0},
+    ],
+}
+
+
+# Verbatim strings the legend must contain (or NOT contain) per provider.
+_AWS_LEGEND_FRAGMENT = "AWS → Azure"
+_AWS_EKS_FRAGMENT = "EKS → AKS"
+_GCP_LEGEND_FRAGMENT = "GCP → Azure"
+_GCP_GKE_FRAGMENT = "GKE → AKS"
+_GCP_PUBSUB_FRAGMENT = "Pub/Sub → Event Hubs"
+
+
+class TestGcpSource:
+    """Coverage for the implicit `analysis["source_provider"]` contract."""
+
+    def test_gcp_fixture_round_trip_parse(self):
+        """The GCP analysis dict renders into well-formed XML."""
+        result = generate_landing_zone_svg(GCP_SAMPLE_ANALYSIS, dr_variant="primary")
+        ET.fromstring(result["content"])  # raises ParseError if malformed
+
+    def test_gcp_legend_contains_gcp_to_azure(self):
+        """The GCP legend strip prints the canonical GCP→Azure mapping line."""
+        result = generate_landing_zone_svg(GCP_SAMPLE_ANALYSIS, dr_variant="primary")
+        assert _GCP_LEGEND_FRAGMENT in result["content"]
+        assert _GCP_GKE_FRAGMENT in result["content"]
+        assert _GCP_PUBSUB_FRAGMENT in result["content"]
+
+    def test_gcp_legend_does_not_contain_aws(self):
+        """The GCP legend strip must not leak the AWS mapping line."""
+        result = generate_landing_zone_svg(GCP_SAMPLE_ANALYSIS, dr_variant="primary")
+        assert _AWS_LEGEND_FRAGMENT not in result["content"]
+        assert _AWS_EKS_FRAGMENT not in result["content"]
+
+    def test_default_no_field_still_aws(self):
+        """Backwards-compat with #571: missing `source_provider` ⇒ AWS legend."""
+        legacy = {k: v for k, v in SAMPLE_ANALYSIS.items() if k != "source_provider"}
+        assert "source_provider" not in legacy  # guard the construction
+        result = generate_landing_zone_svg(legacy, dr_variant="primary")
+        assert _AWS_LEGEND_FRAGMENT in result["content"]
+        assert _GCP_LEGEND_FRAGMENT not in result["content"]
+
+    def test_invalid_provider_raises_value_error(self):
+        """Unknown provider → strict ValueError (mirrors `dr_variant`)."""
+        bad = {**GCP_SAMPLE_ANALYSIS, "source_provider": "azure"}
+        with pytest.raises(ValueError, match="Unsupported source_provider"):
+            generate_landing_zone_svg(bad, dr_variant="primary")
+
+        bad2 = {**GCP_SAMPLE_ANALYSIS, "source_provider": "alibaba"}
+        with pytest.raises(ValueError, match="alibaba"):
+            generate_landing_zone_svg(bad2, dr_variant="primary")
+
+    def test_empty_string_provider_raises_value_error(self):
+        """Empty / whitespace-only string must NOT silently default to AWS."""
+        for empty in ("", "   ", "\t"):
+            bad = {**SAMPLE_ANALYSIS, "source_provider": empty}
+            with pytest.raises(ValueError, match="Unsupported source_provider"):
+                generate_landing_zone_svg(bad, dr_variant="primary")
+
+    def test_non_string_provider_raises_value_error(self):
+        """Non-string types must raise ValueError → router maps to HTTP 400."""
+        for bogus in (123, ["aws"], {"name": "aws"}, True):
+            bad = {**SAMPLE_ANALYSIS, "source_provider": bogus}
+            with pytest.raises(ValueError, match="Unsupported source_provider"):
+                generate_landing_zone_svg(bad, dr_variant="primary")
+
+    def test_dr_plus_gcp_renders(self):
+        """DR variant × GCP source emits a valid SVG with the GCP legend."""
+        result = generate_landing_zone_svg(GCP_DR_ANALYSIS, dr_variant="dr")
+        root = ET.fromstring(result["content"])
+        assert root.get("height") == str(CANVAS_H_DR)
+        assert _GCP_LEGEND_FRAGMENT in result["content"]
+        assert _AWS_LEGEND_FRAGMENT not in result["content"]
+
+    def test_primary_plus_gcp_renders(self):
+        """Primary variant × GCP source emits a valid SVG with the GCP legend."""
+        result = generate_landing_zone_svg(GCP_SAMPLE_ANALYSIS, dr_variant="primary")
+        root = ET.fromstring(result["content"])
+        assert root.get("height") == str(CANVAS_H_PRIMARY)
+        assert _GCP_LEGEND_FRAGMENT in result["content"]
+
+    def test_case_insensitive_provider(self):
+        """`GCP`, `Gcp`, `gcp` must produce identical output."""
+        lower = {**GCP_SAMPLE_ANALYSIS, "source_provider": "gcp"}
+        upper = {**GCP_SAMPLE_ANALYSIS, "source_provider": "GCP"}
+        mixed = {**GCP_SAMPLE_ANALYSIS, "source_provider": "Gcp"}
+        a = generate_landing_zone_svg(lower, dr_variant="primary")["content"]
+        b = generate_landing_zone_svg(upper, dr_variant="primary")["content"]
+        c = generate_landing_zone_svg(mixed, dr_variant="primary")["content"]
+        assert a == b == c
+
+    def test_supported_providers_and_legend_table_in_lockstep(self):
+        """Module-load invariant: drift between the two constants is fatal."""
+        from azure_landing_zone import (
+            _SOURCE_PROVIDER_LEGEND_LINE,
+            _SUPPORTED_SOURCE_PROVIDERS,
+        )
+        assert _SUPPORTED_SOURCE_PROVIDERS == frozenset(_SOURCE_PROVIDER_LEGEND_LINE)

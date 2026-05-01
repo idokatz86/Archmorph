@@ -242,3 +242,36 @@ class TestInferReplication:
         rep = infer_replication(a)
         assert len(rep) == 1
         assert rep[0]["name"] == "Good"
+
+
+# ---------------------------------------------------------------------------
+# GCP source-provider sanity (#576, #578)
+# ---------------------------------------------------------------------------
+
+class TestSchemaGcpSource:
+    """The schema is vendor-neutral; this asserts the contract still holds
+    when ``mapping.source_service`` carries GCP-typical strings.
+    """
+
+    def test_infer_tiers_from_mappings_gcp_strings(self):
+        a = {"mappings": [
+            {"source_service": "GLB",        "azure_service": "App Gateway",   "category": "Networking"},
+            {"source_service": "GKE",        "azure_service": "AKS",            "category": "Containers"},
+            {"source_service": "Filestore",  "azure_service": "Azure Files",    "category": "Storage"},
+            {"source_service": "Pub/Sub",    "azure_service": "Event Hubs",     "category": "Messaging"},
+            {"source_service": "Cloud SQL",  "azure_service": "Azure SQL",      "category": "Database"},
+        ]}
+        out = infer_tiers_from_mappings(a)
+
+        # Categories are vendor-neutral and slot into the right tiers.
+        assert any(s["name"] == "App Gateway" for s in out["ingress"])
+        assert any(s["name"] == "AKS"          for s in out["compute"])
+        assert any(s["name"] == "Azure Files"  for s in out["storage"])
+        assert any(s["name"] == "Event Hubs"   for s in out["data"])
+        assert any(s["name"] == "Azure SQL"    for s in out["data"])
+
+        # Subtitles surface the GCP source string verbatim.
+        gke = next(s for s in out["compute"] if s["name"] == "AKS")
+        assert gke["subtitle"] == "Replaces GKE"
+        pubsub = next(s for s in out["data"] if s["name"] == "Event Hubs")
+        assert pubsub["subtitle"] == "Replaces Pub/Sub"
