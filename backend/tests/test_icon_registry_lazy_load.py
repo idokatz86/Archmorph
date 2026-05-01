@@ -20,11 +20,9 @@ autoload disabled to keep fixture-driven tests deterministic.
 
 from __future__ import annotations
 
-import importlib
 import os
 import sys
 import threading
-from pathlib import Path
 
 import pytest
 
