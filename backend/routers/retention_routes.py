@@ -14,7 +14,6 @@ Aggregate output only — no per-user data is returned.
 
 from __future__ import annotations
 
-import logging
 from datetime import date, datetime, timezone, timedelta
 from typing import Optional
 
@@ -24,8 +23,6 @@ from error_envelope import ArchmorphException
 from routers.shared import limiter, verify_admin_key
 
 import retention as retention_mod
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter()
 

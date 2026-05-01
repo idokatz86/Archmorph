@@ -220,9 +220,9 @@ def record_visit_from_request(request, response) -> Dict[str, Any]:
         if _should_skip_path(path):
             return {"recorded": False, "reason": "skipped_path"}
 
-        # Honor Do-Not-Track / Global Privacy Control where present.
-        dnt = request.headers.get("DNT") or request.headers.get("Sec-GPC")
-        if dnt == "1":
+        # Honor Do-Not-Track / Global Privacy Control independently — both must
+        # be respected even if the other is unset or set to "0".
+        if request.headers.get("DNT") == "1" or request.headers.get("Sec-GPC") == "1":
             return {"recorded": False, "reason": "dnt"}
 
         anon_value = request.cookies.get(ANON_COOKIE_NAME)
