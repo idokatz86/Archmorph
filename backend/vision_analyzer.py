@@ -22,15 +22,105 @@ logger = logging.getLogger(__name__)
 MAX_IMAGE_DIMENSION = 2048
 JPEG_QUALITY = 85
 
+# PDF rasterization (Issue: GPT-4o rejects application/pdf data URLs).
+# Render at ~150 DPI so text in architecture diagrams stays legible after the
+# downstream 2048px clamp. Cap pages to bound work and tokens for malicious
+# or oversized uploads.
+MAX_PDF_PAGES = 10
+PDF_RENDER_DPI = 150
+_PDF_PAGE_SEPARATOR_PX = 8
+
 # Thread-safe in-memory cache for vision results
 _vision_cache = TTLCache(maxsize=100, ttl=3600)
 _vision_cache_lock = threading.Lock()
+
+
+def _is_pdf(image_bytes: bytes, content_type: str) -> bool:
+    """Return True if the payload looks like a PDF.
+
+    Trusts the magic bytes over the declared content_type because browsers
+    sometimes send PDFs as application/octet-stream and our IMAGE_STORE
+    persists whatever the client claimed at upload time.
+    """
+    if content_type == "application/pdf":
+        return True
+    return len(image_bytes) >= 5 and image_bytes[:5] == b"%PDF-"
+
+
+def _rasterize_pdf_to_png(pdf_bytes: bytes) -> bytes:
+    """Render a PDF to a single PNG image suitable for vision analysis.
+
+    Multi-page PDFs are stitched vertically with a thin white separator so
+    the existing single-image vision pipeline keeps working unchanged.
+    Page count is capped at ``MAX_PDF_PAGES`` to bound work.
+
+    Raises ``ValueError`` if the PDF cannot be opened or has no pages.
+    """
+    # Imported lazily so the rest of the module (and its tests) can import
+    # without paying pypdfium2's startup cost or requiring the dep on
+    # non-PDF code paths.
+    import pypdfium2 as pdfium
+
+    try:
+        pdf = pdfium.PdfDocument(pdf_bytes)
+    except Exception as exc:  # pdfium raises a variety of low-level errors
+        raise ValueError(f"Unable to open PDF: {exc}") from exc
+
+    n_pages = len(pdf)
+    if n_pages == 0:
+        raise ValueError("PDF has no pages")
+    if n_pages > MAX_PDF_PAGES:
+        logger.warning(
+            "PDF has %d pages — only first %d will be rasterized",
+            n_pages, MAX_PDF_PAGES,
+        )
+        n_pages = MAX_PDF_PAGES
+
+    scale = PDF_RENDER_DPI / 72.0  # PDFium's base unit is 72 DPI
+    pages: list[Image.Image] = []
+    for i in range(n_pages):
+        page = pdf[i]
+        pil_page = page.render(scale=scale).to_pil()
+        if pil_page.mode != "RGB":
+            pil_page = pil_page.convert("RGB")
+        pages.append(pil_page)
+
+    if len(pages) == 1:
+        combined = pages[0]
+    else:
+        width = max(p.width for p in pages)
+        height = sum(p.height for p in pages) + _PDF_PAGE_SEPARATOR_PX * (len(pages) - 1)
+        combined = Image.new("RGB", (width, height), (255, 255, 255))
+        y = 0
+        for p in pages:
+            x = (width - p.width) // 2
+            combined.paste(p, (x, y))
+            y += p.height + _PDF_PAGE_SEPARATOR_PX
+
+    buf = io.BytesIO()
+    combined.save(buf, format="PNG", optimize=True)
+    logger.info(
+        "Rasterized PDF: %d page(s) → PNG %dx%d (%d bytes)",
+        n_pages, combined.width, combined.height, buf.tell(),
+    )
+    return buf.getvalue()
+
 
 def compress_image(image_bytes: bytes, content_type: str = "image/png") -> Tuple[bytes, str, int, int]:
     """
     Ensures image is max 2048px (maintaining aspect ratio), converting it to JPEG.
     Returns (compressed_bytes, new_content_type, width, height)
     """
+    # GPT-4o vision rejects application/pdf data URLs — rasterize first so
+    # the rest of the pipeline sees a normal raster image.
+    if _is_pdf(image_bytes, content_type):
+        try:
+            image_bytes = _rasterize_pdf_to_png(image_bytes)
+            content_type = "image/png"
+        except ValueError as exc:
+            logger.error("PDF rasterization failed: %s", exc)
+            raise
+
     try:
         with Image.open(io.BytesIO(image_bytes)) as img:
             # Handle EXIF orientation
