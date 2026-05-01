@@ -8,8 +8,6 @@ Each helper is tested for:
 
 from __future__ import annotations
 
-import pytest
-
 from azure_landing_zone_schema import (
     DEFAULT_PRIMARY_REGION,
     DEFAULT_STANDBY_REGION,
