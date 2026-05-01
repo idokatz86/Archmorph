@@ -1,0 +1,658 @@
+# Architecture Limitations Rule Library — Phase 1 seed (Issue #610).
+#
+# Each rule is evaluated by the engine in `backend/architecture_rules/engine.py`
+# against an analysis result produced by `vision_analyzer.py`. A rule fires
+# when its `predicate` returns a match; the resulting `ArchitectureIssue` is
+# attached to the analysis under `architecture_issues[]`.
+#
+# Rule schema:
+#   id              — stable kebab-case identifier (used by tests + UI)
+#   title           — short human-readable headline
+#   severity        — blocker | warning | info
+#   category        — protocol | network-topology | sku-prereq | identity-auth
+#                     | data-plane | region | tier-feature
+#   message         — markdown body (multi-line OK)
+#   remediation     — what to do instead
+#   docs_url        — authoritative Microsoft Learn link
+#   predicate       — name registered in predicates.py
+#   predicate_args  — kwargs passed to the predicate
+#   tags            — optional grouping
+#
+# Severity guidance:
+#   blocker — generated IaC will be wrong / non-functional. IaC gate fires.
+#   warning — works but has a significant gap.
+#   info    — best-practice / awareness nudge.
+#
+# When you add a rule:
+#   1. Pick or implement a predicate in predicates.py.
+#   2. Author the card here.
+#   3. Add at least one fixture-based unit test in
+#      tests/test_architecture_rules.py asserting the rule fires (or doesn't).
+
+rules:
+  # ────────────────────────────────────────────────────────────
+  # Category 1 — Protocol incompatibility
+  # ────────────────────────────────────────────────────────────
+
+  - id: front-door-protocol-mismatch
+    title: Azure Front Door only supports HTTP/HTTPS traffic
+    severity: blocker
+    category: protocol
+    message: |
+      Azure Front Door is an HTTP/HTTPS Layer-7 service. It cannot proxy
+      SFTP, SSH, FTP, SMTP, AMQP, MQTT, raw TCP, or any non-HTTP protocol.
+      The architecture as drawn shows traffic crossing Front Door over a
+      protocol it does not support — clients will not be able to reach
+      the backend.
+    remediation: |
+      • For SFTP traffic to Azure Storage: bypass Front Door and connect
+        the client directly to the storage account's SFTP endpoint. Use
+        a Private Endpoint or NAT Gateway / firewall for IP allow-listing.
+      • For raw TCP/UDP load balancing: use Standard Load Balancer.
+      • For non-HTTP protocols at the edge: use Azure Firewall, an NVA,
+        or expose the backend service directly with appropriate network
+        controls.
+    docs_url: https://learn.microsoft.com/azure/frontdoor/front-door-faq
+    predicate: path_uses_service_with_protocol_mismatch
+    predicate_args:
+      via: Front Door
+      allowed_protocols:
+        - http
+        - https
+        - websocket
+        - ws
+        - wss
+      disallowed_hint:
+        - sftp
+        - ssh
+        - ftp
+        - smtp
+        - amqp
+        - mqtt
+    tags: [frontdoor, protocol, l7]
+
+  - id: app-gateway-protocol-mismatch
+    title: Azure Application Gateway is HTTP/HTTPS only (L7)
+    severity: blocker
+    category: protocol
+    message: |
+      Azure Application Gateway is a Layer-7 HTTP/HTTPS reverse proxy
+      and Web Application Firewall. It does not handle SFTP, SSH, raw
+      TCP/UDP, AMQP, MQTT, or other non-HTTP protocols. Routing those
+      protocols through Application Gateway will fail.
+    remediation: |
+      • Use Standard Load Balancer for L4 (TCP/UDP) traffic.
+      • Use Azure Firewall or an NVA for protocol-agnostic edge traffic.
+      • For SFTP to Azure Storage, expose the storage SFTP endpoint
+        directly (private endpoint + NSG/firewall recommended).
+    docs_url: https://learn.microsoft.com/azure/application-gateway/overview
+    predicate: path_uses_service_with_protocol_mismatch
+    predicate_args:
+      via: Application Gateway
+      allowed_protocols:
+        - http
+        - https
+        - websocket
+        - ws
+        - wss
+      disallowed_hint:
+        - sftp
+        - ssh
+        - ftp
+        - smtp
+        - amqp
+        - mqtt
+    tags: [appgateway, protocol, l7]
+
+  - id: load-balancer-l4-only-info
+    title: Azure Load Balancer is L4 — no HTTP routing or path rules
+    severity: info
+    category: protocol
+    message: |
+      Azure Standard Load Balancer operates at Layer 4 (TCP/UDP) only.
+      It cannot inspect HTTP headers, perform path-based routing,
+      terminate TLS at the application layer, or apply WAF rules.
+      If your design relies on path/host routing, TLS termination, or
+      Web Application Firewall, Standard Load Balancer is the wrong tool.
+    remediation: |
+      • For HTTP path/host routing → Application Gateway (regional) or
+        Front Door (global).
+      • For WAF protection → Application Gateway WAF SKU or
+        Front Door Premium with WAF.
+      • For TLS offload at L7 → Application Gateway / Front Door.
+    docs_url: https://learn.microsoft.com/azure/load-balancer/load-balancer-overview
+    predicate: service_present
+    predicate_args:
+      name: Load Balancer
+    tags: [loadbalancer, l4, protocol]
+
+  - id: front-door-sftp-storage-blocker
+    title: Front Door cannot front Azure Storage SFTP — storage SFTP is SSH on port 22
+    severity: blocker
+    category: protocol
+    message: |
+      Azure Storage SFTP support exposes a Secure Shell File Transfer
+      Protocol endpoint (TCP 22, SSH-based). Azure Front Door is an
+      HTTP/HTTPS-only edge service and cannot proxy SSH/SFTP traffic.
+      Placing Front Door in front of a storage account's SFTP endpoint
+      means SFTP clients cannot reach the storage backend through it.
+    remediation: |
+      • Connect SFTP clients directly to the storage account's SFTP
+        endpoint: ``<account>.blob.core.windows.net`` on TCP/22.
+      • For network controls, use the storage account firewall, a
+        Private Endpoint inside a VNet, or an Azure Firewall in front
+        of the storage account — not Front Door.
+      • If you also need HTTPS (Blob REST) on the same account, that
+        path *can* go through Front Door; only SFTP traffic must
+        bypass Front Door.
+    docs_url: https://learn.microsoft.com/azure/storage/blobs/secure-file-transfer-protocol-support
+    predicate: services_all_present
+    predicate_args:
+      names:
+        - Front Door
+        - SFTP
+    tags: [frontdoor, storage, sftp, protocol]
+
+  # ────────────────────────────────────────────────────────────
+  # Category 2 — Network topology
+  # ────────────────────────────────────────────────────────────
+
+  - id: vnet-peering-non-transitive-warning
+    title: VNet peering is not transitive — hub-spoke needs explicit routes
+    severity: warning
+    category: network-topology
+    message: |
+      Multiple Virtual Networks were detected. Azure VNet peering is
+      **not transitive**: if VNet-A peers with VNet-B and VNet-B peers
+      with VNet-C, traffic from A still cannot reach C without explicit
+      routing through B.
+      Hub-and-spoke designs must route spoke-to-spoke traffic through
+      a Network Virtual Appliance, Azure Firewall, or VPN Gateway in
+      the hub.
+    remediation: |
+      • Confirm whether your design needs spoke-to-spoke connectivity.
+      • If yes, place an Azure Firewall (or NVA) in the hub and add
+        User-Defined Routes on each spoke pointing to it.
+      • Or use Azure Virtual WAN, which provides transitive routing.
+    docs_url: https://learn.microsoft.com/azure/virtual-network/virtual-network-peering-overview
+    predicate: service_count_at_least
+    predicate_args:
+      keywords:
+        - virtual network
+        - vnet
+      threshold: 2
+    tags: [vnet, peering, hub-spoke]
+
+  - id: apim-consumption-tier-vnet-info
+    title: API Management Consumption tier cannot join a VNet
+    severity: info
+    category: network-topology
+    message: |
+      Azure API Management was detected. The **Consumption** tier (the
+      cheapest, serverless option) does *not* support VNet integration
+      — there is no internal mode and no inbound private endpoint. If
+      your APIs need to reach private backends (or be reachable only
+      from inside a VNet), the Consumption tier is not viable.
+    remediation: |
+      • Choose Developer / Basic / Standard / Premium / Standard v2 for
+        VNet-injected scenarios.
+      • Premium and Standard v2 support both external and internal VNet
+        modes; Developer is the cheapest tier with VNet support but is
+        single-instance and not for production.
+    docs_url: https://learn.microsoft.com/azure/api-management/api-management-features
+    predicate: service_present
+    predicate_args:
+      name: API Management
+    tags: [apim, vnet, sku]
+
+  - id: functions-consumption-tier-vnet-info
+    title: Functions Consumption plan cannot integrate with a VNet
+    severity: info
+    category: network-topology
+    message: |
+      Azure Functions on the **Consumption** plan does not support
+      regional VNet integration or inbound private endpoints. If the
+      function needs to reach a private database, key vault, or other
+      service that is restricted to a VNet, the Consumption plan will
+      not work.
+    remediation: |
+      • Use the **Flex Consumption** or **Premium** plan for VNet
+        integration.
+      • For inbound private access to the function, use the Premium
+        or Dedicated plan plus a Private Endpoint.
+    docs_url: https://learn.microsoft.com/azure/azure-functions/functions-networking-options
+    predicate: service_present
+    predicate_args:
+      name: Azure Functions
+    tags: [functions, vnet, sku]
+
+  - id: container-apps-vnet-workload-profile-info
+    title: Container Apps VNet integration requires a workload-profile environment
+    severity: info
+    category: network-topology
+    message: |
+      Azure Container Apps was detected. To deploy into a VNet, the
+      Container Apps **Environment** must be created with a workload
+      profile (or as an internal Consumption-only environment with VNet
+      pre-provisioning). Existing environments cannot be retro-fitted
+      with a VNet — it is set at creation time.
+    remediation: |
+      • Create the Environment with `--infrastructure-subnet-resource-id`
+        and a workload profile if you need VNet integration.
+      • If the Environment already exists without a VNet, plan a
+        migration: stand up a new Environment, redeploy the apps,
+        cut over the ingress.
+    docs_url: https://learn.microsoft.com/azure/container-apps/networking
+    predicate: service_present
+    predicate_args:
+      name: Container Apps
+    tags: [containerapps, vnet, workload-profile]
+
+  # ────────────────────────────────────────────────────────────
+  # Category 3 — SKU prerequisites
+  # ────────────────────────────────────────────────────────────
+
+  - id: storage-sftp-requires-hns-info
+    title: Storage SFTP requires Hierarchical Namespace (ADLS Gen2)
+    severity: info
+    category: sku-prereq
+    message: |
+      To enable the SFTP endpoint on an Azure Storage account, the
+      account must have **Hierarchical Namespace** turned on (i.e., be
+      a Data Lake Storage Gen2 account). HNS cannot be enabled after
+      account creation. SFTP is also unavailable on Premium block-blob
+      accounts in some configurations and requires the local-user
+      authentication model.
+    remediation: |
+      • Create a new Standard general-purpose v2 storage account with
+        `--enable-hierarchical-namespace true` from the start.
+      • Configure local users (SFTP-specific) and key/password auth.
+      • Migrate existing data from the old account if needed.
+    docs_url: https://learn.microsoft.com/azure/storage/blobs/secure-file-transfer-protocol-support
+    predicate: services_all_present
+    predicate_args:
+      names:
+        - Storage
+        - SFTP
+    tags: [storage, sftp, hns]
+
+  - id: front-door-private-link-premium-info
+    title: Front Door Private Link origins require the Premium SKU
+    severity: info
+    category: sku-prereq
+    message: |
+      Azure Front Door + a Private Endpoint origin (e.g., a private
+      App Service, Storage account, or Application Gateway) requires
+      **Front Door Premium**. Standard SKU cannot connect to Private
+      Link origins; only public-IP origins are supported.
+    remediation: |
+      • Upgrade to Front Door Premium if you need Private Link origins.
+      • Or, if cost is a concern, expose the origin publicly with
+        IP allow-listing keyed on Front Door's `X-Azure-FDID` header
+        and the `AzureFrontDoor.Backend` service tag.
+    docs_url: https://learn.microsoft.com/azure/frontdoor/private-link
+    predicate: services_all_present
+    predicate_args:
+      names:
+        - Front Door
+        - Private
+    tags: [frontdoor, privatelink, sku]
+
+  - id: cosmos-db-free-tier-singleton-info
+    title: Azure Cosmos DB free tier is one per subscription
+    severity: info
+    category: sku-prereq
+    message: |
+      Azure Cosmos DB free tier (1000 RU/s + 25 GB free) is limited
+      to **one account per Azure subscription**. If a second Cosmos DB
+      account is created in the same subscription, free tier cannot
+      be applied to it.
+    remediation: |
+      • Decide which Cosmos account gets free tier and apply it
+        deliberately.
+      • For multi-environment work (dev/test/prod), put each in a
+        separate subscription if you want each to get free tier.
+      • Use serverless capacity for low-throughput workloads as an
+        alternative cost-control mechanism.
+    docs_url: https://learn.microsoft.com/azure/cosmos-db/free-tier
+    predicate: service_present
+    predicate_args:
+      name: Cosmos DB
+    tags: [cosmos, free-tier, sku]
+
+  - id: app-service-deployment-slots-tier-info
+    title: App Service deployment slots require Standard or higher
+    severity: info
+    category: sku-prereq
+    message: |
+      App Service **deployment slots** (used for blue/green deploys
+      and slot swaps) are not available on Free, Shared, or Basic
+      plans. Standard offers up to 5 slots, Premium offers 20.
+    remediation: |
+      • Use at minimum the Standard plan if you need slots.
+      • Premium V3 is recommended for production VNet-integrated
+        workloads with slot-based deployments.
+    docs_url: https://learn.microsoft.com/azure/app-service/overview-hosting-plans
+    predicate: service_present
+    predicate_args:
+      name: App Service
+    tags: [appservice, slots, sku]
+
+  # ────────────────────────────────────────────────────────────
+  # Category 4 — Identity / auth gaps
+  # ────────────────────────────────────────────────────────────
+
+  - id: storage-account-key-vs-rbac-info
+    title: Prefer Microsoft Entra (RBAC) over storage account keys
+    severity: info
+    category: identity-auth
+    message: |
+      Azure Storage was detected. Account keys grant full access to
+      the storage account and cannot be scoped to a single container,
+      blob, or operation. They are a frequent root cause of breach
+      blast-radius incidents when leaked. Microsoft Entra
+      authentication (RBAC + managed identity) is the recommended
+      mechanism for modern workloads.
+    remediation: |
+      • Disable shared-key access on the storage account where
+        feasible: ``az storage account update --allow-shared-key-access false``.
+      • Use system-assigned or user-assigned managed identities on
+        the calling services and assign the least-privilege built-in
+        role (``Storage Blob Data Contributor``, ``Storage Blob Data Reader``, etc.).
+      • Where SAS is unavoidable (browser uploads, partner integrations),
+        prefer **user-delegation SAS** signed by an Entra identity.
+    docs_url: https://learn.microsoft.com/azure/storage/common/authorize-data-access
+    predicate: service_present
+    predicate_args:
+      name: Storage
+    tags: [storage, identity, rbac]
+
+  - id: cosmos-mi-data-plane-warning
+    title: Cosmos DB data-plane RBAC needs explicit role assignment
+    severity: warning
+    category: identity-auth
+    message: |
+      Cosmos DB is detected. Managed identity for Cosmos DB
+      **data-plane** access (read/write documents) is not granted by
+      Reader / Contributor / Owner — those are control-plane only.
+      You must assign one of the **Cosmos DB built-in data-plane
+      roles** (e.g., ``Cosmos DB Built-in Data Reader`` or
+      ``Cosmos DB Built-in Data Contributor``) using
+      ``az cosmosdb sql role assignment create``.
+      Forgetting this is a common cause of 401/403 at runtime even
+      after the managed identity is correctly configured.
+    remediation: |
+      • Assign the Cosmos data-plane role to the application's
+        managed identity. Example for an API:
+        ``az cosmosdb sql role assignment create --account-name <acct> --resource-group <rg> --scope "/" --principal-id <objId> --role-definition-id 00000000-0000-0000-0000-000000000002``
+      • In Bicep/Terraform, model the role assignment alongside the
+        Cosmos account.
+      • Disable account keys after MI is wired and verified.
+    docs_url: https://learn.microsoft.com/azure/cosmos-db/how-to-setup-rbac
+    predicate: service_present
+    predicate_args:
+      name: Cosmos DB
+    tags: [cosmos, identity, rbac, data-plane]
+
+  - id: keyvault-rbac-vs-policy-info
+    title: Key Vault — prefer RBAC permission model over Access Policies
+    severity: info
+    category: identity-auth
+    message: |
+      Key Vault is detected. Microsoft now recommends the **Azure
+      RBAC** permission model over the legacy access-policies model.
+      Mixing the two within an organization is a common cause of
+      access-denied errors after refactors.
+    remediation: |
+      • Create new Key Vaults with `--enable-rbac-authorization true`.
+      • Assign built-in roles (``Key Vault Secrets User``,
+        ``Key Vault Crypto User``, etc.) to managed identities.
+      • Migrate existing access-policy vaults at a known maintenance
+        window — the model is per-vault and cannot be partially
+        applied.
+    docs_url: https://learn.microsoft.com/azure/key-vault/general/rbac-guide
+    predicate: service_present
+    predicate_args:
+      name: Key Vault
+    tags: [keyvault, identity, rbac]
+
+  # ────────────────────────────────────────────────────────────
+  # Category 5 — Data plane / message limits
+  # ────────────────────────────────────────────────────────────
+
+  - id: service-bus-message-size-info
+    title: Service Bus message size — 256 KB Standard, 100 MB Premium
+    severity: info
+    category: data-plane
+    message: |
+      Azure Service Bus enforces hard message-size limits:
+      • **Standard** tier: 256 KB per message.
+      • **Premium** tier: 100 MB per message.
+      Workloads that need to send larger payloads via Service Bus
+      Standard will fail with ``MessageSizeExceededException``. The
+      common pattern for this is the **Claim Check** integration
+      pattern: store the body in Blob Storage and send only a
+      reference through Service Bus.
+    remediation: |
+      • Adopt the Claim Check pattern (Blob + Service Bus reference
+        message).
+      • Or upgrade the namespace to Premium if 100 MB is enough.
+      • Compress payloads where appropriate.
+    docs_url: https://learn.microsoft.com/azure/service-bus-messaging/service-bus-quotas
+    predicate: service_present
+    predicate_args:
+      name: Service Bus
+    tags: [servicebus, message-size, data-plane]
+
+  - id: storage-queue-vs-service-bus-info
+    title: Storage Queue is 64 KB / message — consider Service Bus for richer scenarios
+    severity: info
+    category: data-plane
+    message: |
+      Azure Storage Queue is detected. Storage Queue messages are
+      capped at **64 KB** (48 KB if Base64-encoded), have no FIFO
+      guarantee, no sessions, no transactions, and limited dead-letter
+      semantics. For most application messaging needs, Azure Service
+      Bus is the more capable choice.
+    remediation: |
+      • For simple, very-high-volume work-queue scenarios with small
+        messages, Storage Queue is fine and cheap.
+      • For ordered delivery, sessions, transactions, dead-lettering,
+        topic/sub fan-out, or message sizes > 64 KB, switch to
+        Service Bus (Queues for unicast, Topics + Subscriptions for
+        fan-out).
+    docs_url: https://learn.microsoft.com/azure/service-bus-messaging/service-bus-azure-and-service-bus-queues-compared-contrasted
+    predicate: service_present
+    predicate_args:
+      name: Storage Queue
+    tags: [storage-queue, servicebus, data-plane]
+
+  - id: event-grid-without-deadletter-warning
+    title: Event Grid without a dead-letter destination loses events after retries
+    severity: warning
+    category: data-plane
+    message: |
+      Event Grid is detected without a clearly co-located storage
+      account or queue that could be used as a dead-letter target.
+      Event Grid retries failed deliveries for up to **24 hours by
+      default** (configurable on the subscription). After that,
+      events that still cannot be delivered are dropped — unless a
+      **dead-letter destination** (Blob Storage container) is
+      configured on the subscription.
+    remediation: |
+      • Provision a dedicated Storage Account container for
+        dead-lettering and configure it on every Event Grid
+        subscription that handles business-critical events.
+      • Build alerting on dead-letter blob count > 0.
+      • Document the retention policy of the DLQ container.
+    docs_url: https://learn.microsoft.com/azure/event-grid/manage-event-delivery
+    predicate: category_present_without_companion
+    predicate_args:
+      category: integration
+      companions:
+        - Storage
+        - Blob
+    tags: [eventgrid, dlq, data-plane]
+
+  # ────────────────────────────────────────────────────────────
+  # Category 6 — Region / sovereignty
+  # ────────────────────────────────────────────────────────────
+
+  - id: openai-region-availability-info
+    title: Azure OpenAI is region- and model-restricted — verify availability
+    severity: info
+    category: region
+    message: |
+      Azure OpenAI Service was detected. Different models, deployment
+      types (Standard / Provisioned / Global), and capacity tiers are
+      available in different regions. A model your code calls today
+      may not be deployable in your preferred region tomorrow.
+    remediation: |
+      • Check region & model availability before pinning a deployment
+        region (and revisit before contract renewal): Microsoft Learn
+        publishes a regularly-updated availability matrix.
+      • For latency-sensitive workloads, use the **Standard Global**
+        deployment type, which routes to capacity worldwide.
+      • For PTU (provisioned throughput), confirm the region has
+        capacity *before* committing.
+    docs_url: https://learn.microsoft.com/azure/ai-services/openai/concepts/models
+    predicate: service_present
+    predicate_args:
+      name: OpenAI
+    tags: [openai, region, model-availability]
+
+  - id: confidential-compute-region-info
+    title: Confidential Computing SKUs are limited to specific regions
+    severity: info
+    category: region
+    message: |
+      Azure Confidential Computing (Confidential VMs, Confidential
+      Containers on AKS, DCsv3/ECsv5 SKUs) is available only in a
+      subset of Azure regions and only on specific VM families. If
+      your design requires confidential compute, lock down the region
+      decision early.
+    remediation: |
+      • Verify region availability for the specific SKU you plan to
+        use (DCsv3, ECsv5, etc.) on Microsoft Learn.
+      • For AKS Confidential Containers, also verify the AKS
+        Confidential Containers preview/GA status in your region.
+    docs_url: https://learn.microsoft.com/azure/confidential-computing/overview-azure-products
+    predicate: service_present
+    predicate_args:
+      name: Confidential
+    tags: [confidential-computing, region, sku]
+
+  - id: azure-government-feature-gap-info
+    title: Azure Government has feature & service-availability gaps vs commercial
+    severity: info
+    category: region
+    message: |
+      Azure Government is mentioned. Azure Government clouds (US Gov
+      Virginia, Arizona, Texas — and the equivalent China /
+      sovereign clouds) lag the commercial cloud on **service
+      availability** and **feature flags** by weeks-to-months. Many
+      services that ship in commercial are not available, or are
+      available only in older API versions, in Government clouds.
+    remediation: |
+      • Cross-check every service in this design against the Azure
+        Government services-by-region matrix before committing.
+      • For services that exist in both, verify the API version and
+        regional endpoint match what your code expects (the endpoint
+        suffix differs from commercial: ``.usgovcloudapi.net``).
+    docs_url: https://learn.microsoft.com/azure/azure-government/documentation-government-services-supportedservices
+    predicate: service_present
+    predicate_args:
+      name: Government
+    tags: [government, sovereign, region]
+
+  # ────────────────────────────────────────────────────────────
+  # Category 7 — Tier feature dependencies
+  # ────────────────────────────────────────────────────────────
+
+  - id: sql-serverless-no-read-replicas-info
+    title: Azure SQL Serverless has no read-only replicas
+    severity: info
+    category: tier-feature
+    message: |
+      Azure SQL Database is detected. The **Serverless** compute tier
+      (Gen5 only) does not support read-only secondary replicas the
+      way Provisioned Hyperscale and Business Critical do. Workloads
+      that depend on offloading read traffic to a replica cannot use
+      Serverless without redesign.
+    remediation: |
+      • If read-replica offload is essential, use **Hyperscale**
+        (named replicas) or **Business Critical** (built-in HA
+        replicas + read-scale).
+      • If autopause is the main reason for picking Serverless,
+        consider Hyperscale's pause-resume capability instead.
+    docs_url: https://learn.microsoft.com/azure/azure-sql/database/serverless-tier-overview
+    predicate: service_present
+    predicate_args:
+      name: SQL Database
+    tags: [sql, serverless, replicas, tier]
+
+  - id: front-door-custom-domain-cert-tier-info
+    title: Front Door managed certificates require Standard or Premium SKU
+    severity: info
+    category: tier-feature
+    message: |
+      Front Door is detected. **Azure-managed TLS certificates** for
+      custom domains are available only on Front Door Standard /
+      Premium. The classic / Basic tier requires you to bring your
+      own certificate and manage rotation yourself.
+    remediation: |
+      • Use Front Door Standard or Premium and let Azure issue and
+        rotate certs automatically.
+      • If you must stay on classic, integrate with Key Vault and
+        automate cert renewal via a pipeline.
+    docs_url: https://learn.microsoft.com/azure/frontdoor/standard-premium/how-to-configure-https-custom-domain
+    predicate: service_present
+    predicate_args:
+      name: Front Door
+    tags: [frontdoor, tls, tier]
+
+  - id: functions-private-endpoint-tier-warning
+    title: Function Apps that consume private services should be on Premium / Flex Consumption
+    severity: warning
+    category: tier-feature
+    message: |
+      Azure Functions is detected alongside services typically used
+      with Private Endpoints (Storage, Cosmos DB, Service Bus, SQL).
+      The default **Consumption** plan cannot integrate with a VNet
+      and therefore cannot reach those private endpoints. Designs
+      that pair Functions with private services almost always need
+      **Flex Consumption** or **Premium**.
+    remediation: |
+      • Use the Flex Consumption plan if available in your region
+        (newer, cheaper than Premium for many workloads).
+      • Otherwise use the Premium plan with regional VNet integration.
+      • For pure public ingestion with no backend access, Consumption
+        is fine — but rare.
+    docs_url: https://learn.microsoft.com/azure/azure-functions/flex-consumption-plan
+    predicate: services_all_present
+    predicate_args:
+      names:
+        - Azure Functions
+        - Private
+    tags: [functions, vnet, tier]
+
+  - id: service-bus-sessions-tier-info
+    title: Service Bus message sessions require Standard or Premium
+    severity: info
+    category: tier-feature
+    message: |
+      Service Bus is detected. **Message sessions** (FIFO ordering
+      per session-id, request-response correlation, etc.) are
+      available on Standard and Premium tiers but not on the Basic
+      tier. Most application-level messaging patterns that rely on
+      ordering or correlation need sessions.
+    remediation: |
+      • Use at least the Standard tier if your application requires
+        sessions, transactions, topics & subscriptions, or auto-forward.
+      • Premium adds resource isolation, larger messages (100 MB),
+        and predictable latency.
+    docs_url: https://learn.microsoft.com/azure/service-bus-messaging/message-sessions
+    predicate: service_present
+    predicate_args:
+      name: Service Bus
+    tags: [servicebus, sessions, tier]
