@@ -192,12 +192,6 @@ def generate_diagram(analysis_result: dict, format: str) -> dict:
         raise ValueError(
             f"Unsupported format '{format}'. Choose from: {', '.join(generators)}"
         )
-    generators = {
-        "excalidraw": _generate_excalidraw,
-        "drawio": _generate_drawio,
-        "vsdx": _generate_vsdx,
-    }
-    gen = generators.get(format)
     if gen is None:
         raise ValueError(
             f"Unsupported format '{format}'. Choose from: {', '.join(generators)}"
@@ -1142,16 +1136,13 @@ def _generate_vsdx(analysis: dict) -> dict:
         confidence = m.get("confidence", "medium")
         svc_map[aws] = {"azure": azure, "confidence": confidence}
 
-    # Register default namespace so output is cleaner
+    # Register default namespace so the serializer emits a single ``xmlns``
+    # declaration on the root element. Setting ``xmlns`` again via ``attrib``
+    # produced an invalid duplicate attribute that broke Visio parsing.
     ET.register_namespace("", _VDX_NS)
+    ET.register_namespace("vx", "http://schemas.microsoft.com/visio/2006/extension")
 
-    vdx = ET.Element(
-        f"{{{_VDX_NS}}}VisioDocument",
-        attrib={
-            "xmlns": _VDX_NS,
-            "xmlns:vx": "http://schemas.microsoft.com/visio/2006/extension",
-        },
-    )
+    vdx = ET.Element(f"{{{_VDX_NS}}}VisioDocument")
 
     # DocumentProperties
     doc_props = ET.SubElement(vdx, f"{{{_VDX_NS}}}DocumentProperties")

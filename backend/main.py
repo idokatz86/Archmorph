@@ -112,6 +112,8 @@ from routers.cost_comparison_routes import router as cost_comparison_router  # n
 from routers.collaboration_routes import router as collaboration_router  # noqa: E402
 from routers.replay_routes import router as replay_router  # noqa: E402
 from routers.gallery_routes import router as gallery_router  # noqa: E402
+from routers.retention_routes import router as retention_router  # noqa: E402
+from retention import record_visit_from_request as _record_retention_visit  # noqa: E402
 from routers.v1 import build_v1_router  # noqa: E402
 from api_versioning import VersionMiddleware  # noqa: E402
 from audit_logging import audit_logger, AuditEventType  # noqa: E402, F401
@@ -321,6 +323,14 @@ class ArchmorphMiddleware(BaseHTTPMiddleware):
             except Exception as exc:  # nosec B110 - audit must never break request handling
                 logger.debug("audit error: %s", exc)
 
+        # ── Retention Tracking (Sprint 0 / E6) ──
+        # Records anonymized first-seen + return events when
+        # RETENTION_TRACKING_ENABLED=true.  Never raises.
+        try:
+            _record_retention_visit(request, response)
+        except Exception as exc:  # nosec B110 - retention must never break a request
+            logger.debug("retention error: %s", exc)
+
         return response
 
 
@@ -399,6 +409,7 @@ app.include_router(cost_comparison_router)
 app.include_router(collaboration_router)
 app.include_router(replay_router)
 app.include_router(gallery_router)
+app.include_router(retention_router)
 
 # ─────────────────────────────────────────────────────────────
 # API v1 Versioned Routes (/api/v1/* mirrors /api/*)
@@ -446,6 +457,7 @@ _all_routers = [
     (integrations_router, ""),
     (sku_router, ""),
     (provenance_router, ""),
+    (retention_router, ""),
 ]
 v1_router = build_v1_router(_all_routers)
 app.include_router(v1_router)
