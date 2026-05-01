@@ -30,6 +30,7 @@ const VALID_TABS = new Set([
 function getInitialTab() {
   if (typeof window === 'undefined') return 'translator';
   const hash = window.location.hash.replace('#', '').replace('/', '');
+  if (hash === '') return 'translator';
   return VALID_TABS.has(hash) ? hash : 'translator';
 }
 
@@ -38,7 +39,9 @@ const useAppStore = create((set) => {
   if (typeof window !== 'undefined') {
     window.addEventListener('popstate', () => {
       const hash = window.location.hash.replace('#', '').replace('/', '');
-      if (VALID_TABS.has(hash)) {
+      if (hash === '') {
+        set({ activeTab: 'translator' });
+      } else if (VALID_TABS.has(hash)) {
         set({ activeTab: hash });
       }
     });
