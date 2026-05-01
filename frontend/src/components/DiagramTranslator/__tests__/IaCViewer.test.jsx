@@ -94,4 +94,34 @@ describe('IaCViewer', () => {
     render(<IaCViewer {...defaultProps} iacChatOpen={true} />)
     expect(screen.getByText('Hello')).toBeInTheDocument()
   })
+
+  // Regression: React error #31 — backend chat handler occasionally returns
+  // changes/services as objects (e.g. {type, message}) instead of strings.
+  // Rendering them directly would crash with "Objects are not valid as a
+  // React child". The component must coerce safely.
+  it('renders changes/services even when items are objects (React #31 guard)', () => {
+    const messageWithObjects = {
+      role: 'assistant',
+      content: 'Updated.',
+      changes: [
+        { type: 'add', message: 'Added VNet' },
+        'plain string',
+        { name: 'Subnet' },
+      ],
+      services: [{ message: 'Azure VNet' }, 'NSG'],
+    }
+    render(
+      <IaCViewer
+        {...defaultProps}
+        iacChatOpen={true}
+        iacChatMessages={[messageWithObjects]}
+      />
+    )
+    // No crash + the extracted strings are visible.
+    expect(screen.getByText('Added VNet')).toBeInTheDocument()
+    expect(screen.getByText('plain string')).toBeInTheDocument()
+    expect(screen.getByText('Subnet')).toBeInTheDocument()
+    expect(screen.getByText('Azure VNet')).toBeInTheDocument()
+    expect(screen.getByText('NSG')).toBeInTheDocument()
+  })
 })

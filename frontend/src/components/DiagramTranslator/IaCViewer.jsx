@@ -8,6 +8,30 @@ import {
 import { Button, Card } from '../ui';
 import { ContextualHint } from '../OnboardingTour';
 
+// Coerce arbitrary chat-API list items to a renderable string. The backend's
+// JSON-mode prompt asks GPT for string arrays in `changes_summary` /
+// `services_added`, but the model occasionally returns objects (e.g. `{type,
+// message}`) which would otherwise crash React with error #31.
+// Key set mirrors `_coerce_to_str_list()` in backend/iac_chat.py — keep in sync.
+const toRenderableString = (item) => {
+  if (item == null) return '';
+  if (typeof item === 'string') return item;
+  if (typeof item === 'number' || typeof item === 'boolean') return String(item);
+  if (Array.isArray(item)) return item.map(toRenderableString).filter(Boolean).join(', ');
+  if (typeof item === 'object') {
+    for (const key of ['message', 'text', 'name', 'label', 'value', 'description']) {
+      const val = item[key];
+      if (typeof val === 'string' && val) return val;
+    }
+    try {
+      return JSON.stringify(item);
+    } catch {
+      return String(item);
+    }
+  }
+  return String(item);
+};
+
 const QUICK_ACTIONS = [
   { label: 'Add VNet & Subnets', msg: 'Add a Virtual Network with 3 subnets: frontend (10.0.1.0/24), backend (10.0.2.0/24), and data (10.0.3.0/24). Include NSGs for each subnet with appropriate rules.' },
   { label: 'Add Public IPs', msg: 'Add public IP addresses for the load balancer and application gateway. Use Standard SKU with static allocation.' },
@@ -185,7 +209,7 @@ export default function IaCViewer({
                         </p>
                         <ul className="space-y-0.5">
                           {msg.changes.map((c, ci) => (
-                            <li key={ci} className="text-[10px] text-text-muted flex items-start gap-1"><span className="text-cta mt-0.5">+</span> {c}</li>
+                            <li key={ci} className="text-[10px] text-text-muted flex items-start gap-1"><span className="text-cta mt-0.5">+</span> {toRenderableString(c)}</li>
                           ))}
                         </ul>
                       </div>
@@ -193,7 +217,7 @@ export default function IaCViewer({
                     {msg.services && msg.services.length > 0 && (
                       <div className="mt-1.5 flex flex-wrap gap-1">
                         {msg.services.map((s, si) => (
-                          <span key={si} className="inline-flex items-center px-1.5 py-0.5 text-[9px] font-medium rounded bg-cta/10 text-cta border border-cta/20">{s}</span>
+                          <span key={si} className="inline-flex items-center px-1.5 py-0.5 text-[9px] font-medium rounded bg-cta/10 text-cta border border-cta/20">{toRenderableString(s)}</span>
                         ))}
                       </div>
                     )}

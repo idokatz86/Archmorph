@@ -82,6 +82,40 @@ ALWAYS respond with a JSON object containing exactly these fields:
 IAC_CHAT_SESSIONS: TTLCache = TTLCache(maxsize=200, ttl=7200)
 
 
+def _coerce_to_str_list(items: Any) -> List[str]:
+    """Coerce ``changes_summary`` / ``services_added`` to a flat list of strings.
+
+    The system prompt asks GPT for string arrays, but the model occasionally
+    returns objects (e.g. ``{"type": "add", "message": "Added VNet"}``).
+    The frontend renders these items directly in JSX, so non-string values
+    crash React with error #31 ("Objects are not valid as a React child").
+    Normalize at the API boundary so the contract is honoured regardless of
+    model behaviour.
+    """
+    if not isinstance(items, list):
+        return []
+    out: List[str] = []
+    for item in items:
+        if item is None:
+            continue
+        if isinstance(item, str):
+            out.append(item)
+        elif isinstance(item, (int, float, bool)):
+            out.append(str(item))
+        elif isinstance(item, dict):
+            for key in ("message", "text", "name", "label", "value", "description"):
+                val = item.get(key)
+                if isinstance(val, str) and val:
+                    out.append(val)
+                    break
+            else:
+                # Last resort — serialize so the frontend never sees an object.
+                out.append(json.dumps(item, ensure_ascii=False))
+        else:
+            out.append(str(item))
+    return out
+
+
 def process_iac_chat(
     diagram_id: str,
     message: str,
@@ -222,8 +256,8 @@ def process_iac_chat(
                 code = re.sub(r"\n```$", "", code)
                 code = code.strip()
 
-        changes = result.get("changes_summary", [])
-        services = result.get("services_added", [])
+        changes = _coerce_to_str_list(result.get("changes_summary", []))
+        services = _coerce_to_str_list(result.get("services_added", []))
 
     except json.JSONDecodeError as exc:
         logger.error("Failed to parse IaC chat JSON: %s\nText snippet: %s", exc, raw_text[-500:])
