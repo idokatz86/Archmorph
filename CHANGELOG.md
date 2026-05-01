@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+#### Architecture limitations engine (PR [#615](https://github.com/idokatz86/Archmorph/pull/615); follow-up phases [#616](https://github.com/idokatz86/Archmorph/issues/616) [#617](https://github.com/idokatz86/Archmorph/issues/617) [#618](https://github.com/idokatz86/Archmorph/issues/618) [#619](https://github.com/idokatz86/Archmorph/issues/619))
+
+A deterministic rule engine that flags structurally invalid Azure compositions during analysis — the worked example being SFTP-via-Front-Door (Front Door is HTTP/HTTPS-only and cannot proxy port-22 SSH traffic to a storage SFTP endpoint).
+
+- **25 curated rules** across 7 categories (protocol, network-topology, sku-prereq, identity-auth, data-plane, region, tier-feature) authored from Microsoft Learn references.
+- **Predicate library** with 8 reusable matchers (service presence, connection protocols, path-via mismatches, category co-occurrence, count thresholds).
+- **YAML-driven rules** at [backend/data/architecture_rules.yaml](backend/data/architecture_rules.yaml); override path via `ARCHMORPH_ARCH_RULES_PATH`.
+- **Three severities**: `blocker` (IaC will be wrong), `warning` (works but has gaps), `info` (best-practice nudges).
+- **Analysis enrichment**: every analysis result now carries `architecture_issues[]` and `architecture_issues_summary{blocker, warning, info, total}`.
+- **IaC generation gate**: `POST /api/diagrams/{id}/generate` (and `/generate-async`) returns 409 when blockers exist; pass `?force=true` to override (logged via `iac_blockers_overridden` event).
+- 38 unit + integration tests covering predicates, YAML schema validation, golden scenarios, and the IaC blocker gate.
+
+Phase 2-5 follow-ups (AI fallback, admin review queue, frontend Architecture Health panel, rule library expansion to 60-100) tracked separately.
+
 ### Changed
 
 #### Infrastructure consolidation (May 2026)
