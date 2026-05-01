@@ -67,3 +67,4 @@ frontend/fix_*.js
 frontend/test.py
 
 !backend/data/*.json
+.copilot-session/
