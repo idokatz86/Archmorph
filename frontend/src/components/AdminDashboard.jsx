@@ -39,6 +39,7 @@ export default function AdminDashboard({ onClose }) {
   const [releaseStatus, setReleaseStatus] = useState(null);
   const [auditSummary, setAuditSummary] = useState(null);
   const [auditLogs, setAuditLogs] = useState([]);
+  const [retention, setRetention] = useState(null);
   const [flags, setFlags] = useState({});
   const [flagUpdating, setFlagUpdating] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -85,6 +86,7 @@ export default function AdminDashboard({ onClose }) {
     setReleaseStatus(null);
     setAuditSummary(null);
     setAuditLogs([]);
+    setRetention(null);
     setFlags({});
   };
 
@@ -98,8 +100,9 @@ export default function AdminDashboard({ onClose }) {
       api.auth('GET', '/admin/release-status', { token, signal }).catch(() => null),
       api.auth('GET', '/admin/audit/summary', { token, signal }).catch(() => null),
       api.auth('GET', '/admin/audit?limit=20', { token, signal }).catch(() => null),
+      api.auth('GET', '/admin/retention/baseline?lookback_days=30', { token, signal }).catch(() => null),
       api.get('/flags', signal).catch(() => null),
-    ]).then(([f, d, r, c, mon, release, audit, logs, flagData]) => {
+    ]).then(([f, d, r, c, mon, release, audit, logs, ret, flagData]) => {
       setFunnel(f);
       setDaily(d?.data || []);
       setRecent(r?.events || []);
@@ -108,6 +111,7 @@ export default function AdminDashboard({ onClose }) {
       setReleaseStatus(release);
       setAuditSummary(audit);
       setAuditLogs(logs?.logs || []);
+      setRetention(ret);
       setFlags(flagData?.flags || {});
     });
   }, []);
@@ -299,6 +303,91 @@ export default function AdminDashboard({ onClose }) {
           );
           })}
         </div>
+
+        {/* Day-7 Retention Tile (Sprint 0 / Retention Initiative E6) */}
+        {(() => {
+          const enabled = retention?.enabled ?? false;
+          const cohortTotal = retention?.total_cohort || 0;
+          const returnedTotal = retention?.total_returned || 0;
+          const rate = retention?.overall_day7_return_rate || 0;
+          const target = retention?.kpi_target || 0.35;
+          const ratePct = (rate * 100).toFixed(1);
+          const targetPct = (target * 100).toFixed(0);
+          const meetsTarget = rate >= target;
+          const trend = retention?.trend || [];
+          const maxCohort = Math.max(...trend.map(t => t.cohort_size || 0), 1);
+          return (
+            <div data-testid="retention-tile">
+            <Card className="p-6">
+              <div className="flex items-start justify-between mb-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-text-primary flex items-center gap-2">
+                    <Activity className="w-4 h-4 text-cta" />
+                    Day-7 Return Rate
+                    <Badge variant={enabled ? 'high' : 'default'}>
+                      {enabled ? 'Live' : 'Disabled'}
+                    </Badge>
+                  </h3>
+                  <p className="text-xs text-text-muted mt-1">
+                    First-time-user return within 7 ± 1 days. Rolling 30-day baseline.
+                    KPI target: {targetPct}%.
+                  </p>
+                </div>
+                <div className="text-right">
+                  <div className={`text-3xl font-bold ${meetsTarget ? 'text-cta' : 'text-warning'}`}>
+                    {ratePct}%
+                  </div>
+                  <div className="text-[10px] text-text-muted uppercase tracking-wider">
+                    Day-7 return
+                  </div>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-3 mb-4">
+                <div className="bg-secondary/20 rounded-lg p-3">
+                  <div className="text-xs text-text-muted">Cohort total</div>
+                  <div className="text-base font-bold text-text-primary">{cohortTotal.toLocaleString()}</div>
+                </div>
+                <div className="bg-secondary/20 rounded-lg p-3">
+                  <div className="text-xs text-text-muted">Returned</div>
+                  <div className="text-base font-bold text-text-primary">{returnedTotal.toLocaleString()}</div>
+                </div>
+                <div className="bg-secondary/20 rounded-lg p-3">
+                  <div className="text-xs text-text-muted">Status vs KPI</div>
+                  <div className={`text-base font-bold ${meetsTarget ? 'text-cta' : 'text-warning'}`}>
+                    {meetsTarget ? 'On target' : `−${(targetPct - ratePct).toFixed(1)} pp`}
+                  </div>
+                </div>
+              </div>
+              {!enabled && (
+                <p className="text-xs text-text-muted bg-secondary/10 rounded-lg px-3 py-2">
+                  Retention tracking is OFF. Set <code className="font-mono">RETENTION_TRACKING_ENABLED=true</code> after CISO sign-off.
+                </p>
+              )}
+              {trend.length > 0 && (
+                <div className="mt-2">
+                  <div className="text-[10px] text-text-muted uppercase tracking-wider mb-1">
+                    Per-cohort trend (oldest → newest)
+                  </div>
+                  <div className="flex items-end gap-0.5 h-12">
+                    {trend.map((t) => {
+                      const heightPct = (t.cohort_size / maxCohort) * 100;
+                      const above = (t.return_rate || 0) >= target;
+                      return (
+                        <div
+                          key={t.cohort_day}
+                          className={`flex-1 rounded-sm transition-all ${above ? 'bg-cta/70' : 'bg-warning/60'}`}
+                          style={{ height: `${Math.max(heightPct, 4)}%` }}
+                          title={`${t.cohort_day}: cohort ${t.cohort_size}, returned ${t.returned_day7_count}, rate ${(t.return_rate * 100).toFixed(1)}%`}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </Card>
+            </div>
+          );
+        })()}
 
         {/* Conversion Funnel */}
         <Card className="p-6">
