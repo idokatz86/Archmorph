@@ -24,7 +24,6 @@ const CookieBanner = lazy(() => import('./components/CookieBanner'));
 // PricingPage removed — feature temporarily disabled
 const LandingPage = lazy(() => import('./components/LandingPage'));
 const OnboardingTour = lazy(() => import('./components/OnboardingTour'));
-const CanvasEditor = lazy(() => import('./components/CanvasEditor/CanvasEditor'));
 const CommandPalette = lazy(() => import('./components/CommandPalette'));
 const DashboardPage = lazy(() => import('./components/DashboardPage'));
 const ApiDocs = lazy(() => import('./components/ApiDocs'));
@@ -107,7 +106,6 @@ export default function App() {
             {activeTab === 'services' && <ServicesBrowser />}
             {activeTab === 'roadmap' && <Roadmap />}
             {activeTab === 'drift' && isFeatureEnabled('livingArchitectureDrift') && <DriftDashboard />}
-            {activeTab === 'canvas' && <CanvasEditor />}
             {activeTab === 'api-docs' && <ApiDocs />}
             {activeTab === 'collab' && <CollabWorkspace />}
             {activeTab === 'replay' && <MigrationReplay />}
