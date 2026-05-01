@@ -295,6 +295,20 @@ class TestGcpSource:
         with pytest.raises(ValueError, match="alibaba"):
             generate_landing_zone_svg(bad2, dr_variant="primary")
 
+    def test_empty_string_provider_raises_value_error(self):
+        """Empty / whitespace-only string must NOT silently default to AWS."""
+        for empty in ("", "   ", "\t"):
+            bad = {**SAMPLE_ANALYSIS, "source_provider": empty}
+            with pytest.raises(ValueError, match="Unsupported source_provider"):
+                generate_landing_zone_svg(bad, dr_variant="primary")
+
+    def test_non_string_provider_raises_value_error(self):
+        """Non-string types must raise ValueError → router maps to HTTP 400."""
+        for bogus in (123, ["aws"], {"name": "aws"}, True):
+            bad = {**SAMPLE_ANALYSIS, "source_provider": bogus}
+            with pytest.raises(ValueError, match="Unsupported source_provider"):
+                generate_landing_zone_svg(bad, dr_variant="primary")
+
     def test_dr_plus_gcp_renders(self):
         """DR variant × GCP source emits a valid SVG with the GCP legend."""
         result = generate_landing_zone_svg(GCP_DR_ANALYSIS, dr_variant="dr")

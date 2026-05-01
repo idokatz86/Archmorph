@@ -87,10 +87,24 @@ assert _SUPPORTED_SOURCE_PROVIDERS == frozenset(_SOURCE_PROVIDER_LEGEND_LINE), (
 )
 
 
-def _validate_source_provider(value: str | None) -> str:
-    """Lowercase, default to ``"aws"``, raise ``ValueError`` on unknown."""
-    provider = (value or "aws").lower()
-    if provider not in _SUPPORTED_SOURCE_PROVIDERS:
+def _validate_source_provider(value: object) -> str:
+    """Lowercase, default to ``"aws"`` only when ``None``, else strict-validate.
+
+    Contract:
+      * ``None`` (key missing in ``analysis``) → defaults to ``"aws"``.
+      * Non-string types → ``ValueError`` (mapped to HTTP 400 by the router).
+      * Empty / whitespace-only string → ``ValueError`` (do NOT silently default).
+      * Unknown known-string → ``ValueError``.
+    """
+    if value is None:
+        return "aws"
+    if not isinstance(value, str):
+        raise ValueError(
+            f"Unsupported source_provider: {value!r}. "
+            f"Expected a string in {sorted(_SUPPORTED_SOURCE_PROVIDERS)}."
+        )
+    provider = value.strip().lower()
+    if not provider or provider not in _SUPPORTED_SOURCE_PROVIDERS:
         raise ValueError(
             f"Unsupported source_provider: {value!r}. "
             f"Expected one of {sorted(_SUPPORTED_SOURCE_PROVIDERS)}."
