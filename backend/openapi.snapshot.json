@@ -10514,7 +10514,7 @@
     },
     "/api/diagrams/{diagram_id}/export-diagram": {
       "post": {
-        "description": "Generate an architecture diagram in Excalidraw, Draw.io, or Visio format.\n\nSet multi_page=true for presentation-ready 4-page exports (Draw.io only, #479).",
+        "description": "Generate an architecture diagram in Excalidraw, Draw.io, Visio, or\nLanding-Zone-SVG format.\n\nSet multi_page=true for presentation-ready 4-page exports (Draw.io only, #479).\nSet format=landing-zone-svg + dr_variant=primary|dr for the region-aware\nlanding-zone diagram (#571).",
         "operationId": "export_architecture_diagram_api_diagrams__diagram_id__export_diagram_post",
         "parameters": [
           {
@@ -10544,6 +10544,16 @@
               "default": false,
               "title": "Multi Page",
               "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "dr_variant",
+            "required": false,
+            "schema": {
+              "default": "primary",
+              "title": "Dr Variant",
+              "type": "string"
             }
           }
         ],
@@ -22873,7 +22883,7 @@
     },
     "/api/v1/diagrams/{diagram_id}/export-diagram": {
       "post": {
-        "description": "Generate an architecture diagram in Excalidraw, Draw.io, or Visio format.\n\nSet multi_page=true for presentation-ready 4-page exports (Draw.io only, #479).",
+        "description": "Generate an architecture diagram in Excalidraw, Draw.io, Visio, or\nLanding-Zone-SVG format.\n\nSet multi_page=true for presentation-ready 4-page exports (Draw.io only, #479).\nSet format=landing-zone-svg + dr_variant=primary|dr for the region-aware\nlanding-zone diagram (#571).",
         "operationId": "export_architecture_diagram_v1_api_v1_diagrams__diagram_id__export_diagram_post",
         "parameters": [
           {
@@ -22903,6 +22913,16 @@
               "default": false,
               "title": "Multi Page",
               "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "dr_variant",
+            "required": false,
+            "schema": {
+              "default": "primary",
+              "title": "Dr Variant",
+              "type": "string"
             }
           }
         ],

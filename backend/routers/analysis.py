@@ -148,13 +148,37 @@ async def apply_guided_answers(request: Request, diagram_id: str, answers: Dict[
 # ─────────────────────────────────────────────────────────────
 @router.post("/api/diagrams/{diagram_id}/export-diagram")
 @limiter.limit("10/minute")
-async def export_architecture_diagram(request: Request, diagram_id: str, format: str = "excalidraw", multi_page: bool = False):
-    """Generate an architecture diagram in Excalidraw, Draw.io, or Visio format.
+async def export_architecture_diagram(
+    request: Request,
+    diagram_id: str,
+    format: str = "excalidraw",
+    multi_page: bool = False,
+    dr_variant: str = "primary",
+):
+    """Generate an architecture diagram in Excalidraw, Draw.io, Visio, or
+    Landing-Zone-SVG format.
 
     Set multi_page=true for presentation-ready 4-page exports (Draw.io only, #479).
+    Set format=landing-zone-svg + dr_variant=primary|dr for the region-aware
+    landing-zone diagram (#571).
     """
-    if format not in ("excalidraw", "drawio", "vsdx"):
-        raise ArchmorphException(400, "Format must be 'excalidraw', 'drawio', or 'vsdx'")
+    if format not in ("excalidraw", "drawio", "vsdx", "landing-zone-svg"):
+        raise ArchmorphException(
+            400,
+            "Format must be 'excalidraw', 'drawio', 'vsdx', or 'landing-zone-svg'",
+        )
+
+    # dr_variant only applies to the landing-zone-svg format.
+    if format != "landing-zone-svg" and dr_variant != "primary":
+        raise ArchmorphException(
+            400,
+            "dr_variant is only valid when format='landing-zone-svg'",
+        )
+    if format == "landing-zone-svg" and dr_variant not in ("primary", "dr"):
+        raise ArchmorphException(
+            400,
+            "dr_variant must be 'primary' or 'dr'",
+        )
 
     analysis = get_or_recreate_session(diagram_id)
     if not analysis:
@@ -162,6 +186,21 @@ async def export_architecture_diagram(request: Request, diagram_id: str, format:
 
     if multi_page:
         analysis["multi_page"] = True
+
+    # Landing-Zone-SVG path: synchronous, in-process, no MCP gateway round-trip.
+    if format == "landing-zone-svg":
+        try:
+            from azure_landing_zone import generate_landing_zone_svg
+
+            result = generate_landing_zone_svg(analysis, dr_variant=dr_variant)  # type: ignore[arg-type]
+        except ValueError as exc:
+            raise ArchmorphException(400, str(exc))
+        record_event("exports_landing_zone_svg", {
+            "diagram_id": diagram_id,
+            "dr_variant": dr_variant,
+        })
+        record_funnel_step(diagram_id, "export")
+        return result
 
     try:
         content = await mcp_client.generate_diagram(format, analysis)
