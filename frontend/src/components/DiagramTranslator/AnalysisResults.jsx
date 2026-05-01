@@ -10,6 +10,7 @@ import ExportPanel from './ExportPanel';
 import ResultsTable from './ResultsTable';
 import ExportHub from './ExportHub';
 import { HelpTooltip, HELP_CONTENT } from '../HelpTooltip';
+import { toRenderableString } from '../../utils/toRenderableString';
 
 const ArchitectureFlow = lazy(() => import('./ArchitectureFlow'));
 const DependencyGraph = lazy(() => import('./DependencyGraph'));
@@ -345,12 +346,19 @@ export default function AnalysisResults({
             Warnings and Recommendations
           </h3>
           <div className="space-y-2">
-            {analysis.warnings.map((w, i) => (
-              <div key={i} className="flex items-start gap-2 text-xs text-text-secondary">
-                <Info className="w-3.5 h-3.5 text-warning shrink-0 mt-0.5" />
-                <span>{w}</span>
-              </div>
-            ))}
+            {analysis.warnings.map((w, i) => {
+              // Backend GPT vision prompt asks for `{type, message}` objects;
+              // older / partial responses can also return plain strings. Coerce
+              // to text so we never render a raw object (would trigger React #31).
+              const text = toRenderableString(w);
+              if (!text) return null;
+              return (
+                <div key={i} className="flex items-start gap-2 text-xs text-text-secondary">
+                  <Info className="w-3.5 h-3.5 text-warning shrink-0 mt-0.5" />
+                  <span>{text}</span>
+                </div>
+              );
+            })}
           </div>
         </Card>
       )}

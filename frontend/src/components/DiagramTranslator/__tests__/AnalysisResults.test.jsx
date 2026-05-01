@@ -113,4 +113,22 @@ describe('AnalysisResults', () => {
     render(<AnalysisResults {...defaultProps} />)
     expect(screen.getByTestId('export-panel')).toBeInTheDocument()
   })
+
+  // Regression: GPT vision prompt tells the model to emit warnings as
+  // `{type, message}` objects. Rendering an object as a child crashes React
+  // with error #31. AnalysisResults must coerce object warnings to text.
+  it('renders object-shaped warnings without crashing', () => {
+    const objectWarnings = {
+      ...mockAnalysis,
+      warnings: [
+        { type: 'potential_mismatch', message: 'Service X may not map cleanly' },
+        'plain string still works',
+        { description: 'Falls back to description key' },
+      ],
+    }
+    render(<AnalysisResults {...defaultProps} analysis={objectWarnings} />)
+    expect(screen.getByText('Service X may not map cleanly')).toBeInTheDocument()
+    expect(screen.getByText('plain string still works')).toBeInTheDocument()
+    expect(screen.getByText('Falls back to description key')).toBeInTheDocument()
+  })
 })

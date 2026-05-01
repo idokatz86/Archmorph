@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { AlertTriangle, ShieldCheck, Info, Loader2 } from 'lucide-react';
 import { Card, Button } from '../ui';
 import api from '../../services/apiClient';
+import { toRenderableString } from '../../utils/toRenderableString';
 
 export default function RiskPanel({ diagramId }) {
   const [loading, setLoading] = useState(true);
@@ -85,12 +86,16 @@ export default function RiskPanel({ diagramId }) {
             <ShieldCheck className="w-5 h-5 mr-2" /> Actionable Mitigations
           </h3>
           <ul className="space-y-3">
-            {recommendations.map((rec, i) => (
-              <li key={i} className="flex gap-2 text-sm text-blue-800">
-                <span className="shrink-0 mt-0.5">•</span>
-                <span>{rec}</span>
-              </li>
-            ))}
+            {recommendations.map((rec, i) => {
+              const text = toRenderableString(rec);
+              if (!text) return null;
+              return (
+                <li key={i} className="flex gap-2 text-sm text-blue-800">
+                  <span className="shrink-0 mt-0.5">•</span>
+                  <span>{text}</span>
+                </li>
+              );
+            })}
           </ul>
         </Card>
       )}

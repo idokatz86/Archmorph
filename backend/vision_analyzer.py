@@ -13,6 +13,8 @@ from PIL import Image
 from cachetools import TTLCache
 import threading
 
+from utils.chat_coercion import coerce_to_str_list
+
 from openai_client import get_openai_client, AZURE_OPENAI_DEPLOYMENT, openai_retry
 from prompt_guard import PROMPT_ARMOR
 
@@ -287,7 +289,14 @@ def analyze_image(image_bytes: bytes, content_type: str = "image/png") -> Dict[s
         content = content.strip()
         
         result = json.loads(content)
-        
+
+        # Vision prompt asks GPT for warnings as `{type, message}` objects, but
+        # the React UI renders them inline (`<span>{w}</span>`). Flatten to
+        # strings at the API boundary so a single misbehaving response cannot
+        # crash the frontend with React error #31.
+        if isinstance(result, dict) and "warnings" in result:
+            result["warnings"] = coerce_to_str_list(result.get("warnings", []))
+
         with _vision_cache_lock:
             _vision_cache[cache_key] = result
             
