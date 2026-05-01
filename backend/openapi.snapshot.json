@@ -10514,7 +10514,7 @@
     },
     "/api/diagrams/{diagram_id}/export-diagram": {
       "post": {
-        "description": "Generate an architecture diagram in Excalidraw, Draw.io, Visio, or\nLanding-Zone-SVG format.\n\nSet multi_page=true for presentation-ready 4-page exports (Draw.io only, #479).\nSet format=landing-zone-svg + dr_variant=primary|dr for the region-aware\nlanding-zone diagram (#571).",
+        "description": "Generate an architecture diagram in Excalidraw, Draw.io, Visio, or\nLanding-Zone-SVG format.\n\nSet multi_page=true for presentation-ready 4-page exports (Draw.io only, #479).\nSet format=landing-zone-svg + dr_variant=primary|dr for the region-aware\nlanding-zone diagram (#571).\n\nNote (#576): the source provider for the landing-zone diagram is read\nimplicitly from ``analysis[\"source_provider\"]`` (allowed: \"aws\"|\"gcp\",\ndefault \"aws\"). It is intentionally NOT exposed as a query param so the\nfrontend stays untouched and the analyzer pipeline remains the single\nsource of truth. Unknown values raise ``ValueError`` → HTTP 400.",
         "operationId": "export_architecture_diagram_api_diagrams__diagram_id__export_diagram_post",
         "parameters": [
           {
@@ -22883,7 +22883,7 @@
     },
     "/api/v1/diagrams/{diagram_id}/export-diagram": {
       "post": {
-        "description": "Generate an architecture diagram in Excalidraw, Draw.io, Visio, or\nLanding-Zone-SVG format.\n\nSet multi_page=true for presentation-ready 4-page exports (Draw.io only, #479).\nSet format=landing-zone-svg + dr_variant=primary|dr for the region-aware\nlanding-zone diagram (#571).",
+        "description": "Generate an architecture diagram in Excalidraw, Draw.io, Visio, or\nLanding-Zone-SVG format.\n\nSet multi_page=true for presentation-ready 4-page exports (Draw.io only, #479).\nSet format=landing-zone-svg + dr_variant=primary|dr for the region-aware\nlanding-zone diagram (#571).\n\nNote (#576): the source provider for the landing-zone diagram is read\nimplicitly from ``analysis[\"source_provider\"]`` (allowed: \"aws\"|\"gcp\",\ndefault \"aws\"). It is intentionally NOT exposed as a query param so the\nfrontend stays untouched and the analyzer pipeline remains the single\nsource of truth. Unknown values raise ``ValueError`` → HTTP 400.",
         "operationId": "export_architecture_diagram_v1_api_v1_diagrams__diagram_id__export_diagram_post",
         "parameters": [
           {
