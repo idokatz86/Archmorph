@@ -169,6 +169,123 @@ class TestInferTiers:
 
 
 # ---------------------------------------------------------------------------
+# #589 — _CATEGORY_TO_TIER coverage (D2 fix)
+# ---------------------------------------------------------------------------
+
+class TestCategoryToTierCoverage:
+    """Guardrails for the D2 fix: every category in `services.mappings`
+    must have an explicit `_CATEGORY_TO_TIER` entry, and the entries we
+    added in #589 must route to the documented tier.
+
+    These tests prevent silent regressions: if someone adds a new category
+    to `CROSS_CLOUD_MAPPINGS` without wiring it into `_CATEGORY_TO_TIER`,
+    these tests fail loudly instead of letting that workload silently fall
+    into the "compute" tier.
+    """
+
+    def test_every_catalog_category_has_explicit_tier(self):
+        """Each distinct `category` in CROSS_CLOUD_MAPPINGS routes via an
+        explicit lookup, not the silent "compute" fallback."""
+        from azure_landing_zone_schema import _CATEGORY_TO_TIER
+        from services.mappings import CROSS_CLOUD_MAPPINGS
+
+        catalog_categories = {
+            (m.get("category") or "").strip().lower()
+            for m in CROSS_CLOUD_MAPPINGS
+            if m.get("category")
+        }
+        missing = catalog_categories - set(_CATEGORY_TO_TIER.keys())
+        assert not missing, (
+            f"_CATEGORY_TO_TIER missing explicit entries for {sorted(missing)}. "
+            f"Add each one with the correct tier so these workloads don't fall "
+            f"into the silent 'compute' default. See #589 (D2)."
+        )
+
+    def test_589_management_routes_to_observability(self):
+        """Azure Monitor / ARM / Resource Graph belong in the observability tier."""
+        a = {"mappings": [{"azure_service": "Azure Monitor", "category": "Management"}]}
+        out = infer_tiers_from_mappings(a)
+        assert any(s["name"] == "Azure Monitor" for s in out["observability"]), (
+            "Management category must route to observability, not compute (#589)."
+        )
+
+    def test_589_integration_routes_to_data(self):
+        """Service Bus / Event Grid / Logic Apps are event-driven data plumbing."""
+        a = {"mappings": [{"azure_service": "Service Bus", "category": "Integration"}]}
+        out = infer_tiers_from_mappings(a)
+        assert any(s["name"] == "Service Bus" for s in out["data"]), (
+            "Integration category must route to data, not compute (#589)."
+        )
+
+    def test_589_iot_routes_to_data(self):
+        a = {"mappings": [{"azure_service": "IoT Hub", "category": "IoT"}]}
+        out = infer_tiers_from_mappings(a)
+        assert any(s["name"] == "IoT Hub" for s in out["data"]), (
+            "IoT category must route to data, not compute (#589)."
+        )
+
+    def test_589_zero_trust_routes_to_identity(self):
+        a = {"mappings": [{"azure_service": "Conditional Access", "category": "Zero Trust"}]}
+        out = infer_tiers_from_mappings(a)
+        assert any(s["name"] == "Conditional Access" for s in out["identity"]), (
+            "Zero Trust category must route to identity, not compute (#589)."
+        )
+
+    def test_589_data_governance_routes_to_data(self):
+        a = {"mappings": [{"azure_service": "Microsoft Purview", "category": "Data Governance"}]}
+        out = infer_tiers_from_mappings(a)
+        assert any(s["name"] == "Microsoft Purview" for s in out["data"]), (
+            "Data Governance category must route to data, not compute (#589)."
+        )
+
+    def test_589_devtools_explicitly_compute(self):
+        """DevTools stays in compute by design, but must be EXPLICIT, not fallback."""
+        from azure_landing_zone_schema import _CATEGORY_TO_TIER
+        assert _CATEGORY_TO_TIER.get("devtools") == "compute", (
+            "DevTools must have an explicit compute mapping (#589) — relying on "
+            "the silent default makes future tier reassignments lossy."
+        )
+
+    def test_589_hybrid_routes_to_ingress(self):
+        """ExpressRoute / Arc are perimeter-side connectivity, not stateless workloads."""
+        a = {"mappings": [{"azure_service": "ExpressRoute", "category": "Hybrid"}]}
+        out = infer_tiers_from_mappings(a)
+        assert any(s["name"] == "ExpressRoute" for s in out["ingress"]), (
+            "Hybrid category must route to ingress (#589)."
+        )
+
+    def test_589_full_catalog_populates_all_tiers(self):
+        """A workload sampling every catalog category populates every tier
+        the catalog can populate. Pre-fix this surfaced 5 of 8 tiers as empty."""
+        from services.mappings import CROSS_CLOUD_MAPPINGS
+
+        # One mapping per distinct category — the worst case for tier coverage.
+        seen: set[str] = set()
+        sampled = []
+        for m in CROSS_CLOUD_MAPPINGS:
+            cat = (m.get("category") or "").strip().lower()
+            if cat and cat not in seen:
+                seen.add(cat)
+                sampled.append({
+                    "azure_service": m.get("azure", "?"),
+                    "source_service": m.get("aws", ""),
+                    "category": m.get("category", ""),
+                })
+
+        out = infer_tiers_from_mappings({"mappings": sampled})
+        # Pre-#589: only 4 tiers populated (compute / data / ingress / storage)
+        # because Management/Integration/IoT/Zero Trust silently fell to compute.
+        # Post-#589: identity (Security + Zero Trust), observability (Management),
+        # data (Integration + IoT + Data Governance + Database + Analytics),
+        # ingress (Networking + Edge + Hybrid), storage, compute all populate.
+        populated = {tier for tier, items in out.items() if items}
+        assert populated >= {"ingress", "compute", "data", "identity", "observability", "storage"}, (
+            f"Full-catalog sampling left tiers empty: {set(out) - populated}. "
+            f"Pre-fix this was the D2 symptom (#589)."
+        )
+
+
+# ---------------------------------------------------------------------------
 # infer_actors
 # ---------------------------------------------------------------------------
 
