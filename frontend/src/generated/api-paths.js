@@ -111,6 +111,3 @@ export const API_SKU = '/sku';
 
 // ── Collaboration ────────────────────────────────────────────
 export const API_COLLABORATION = '/collaboration';
-
-// ── Gallery ──────────────────────────────────────────────────
-export const API_GALLERY = '/gallery';

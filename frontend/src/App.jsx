@@ -31,7 +31,6 @@ const PlaygroundPage = lazy(() => import('./components/PlaygroundPage'));
 const ApiDocs = lazy(() => import('./components/ApiDocs'));
 const CollabWorkspace = lazy(() => import('./components/CollabWorkspace'));
 const MigrationReplay = lazy(() => import('./components/MigrationReplay'));
-const MigrationGallery = lazy(() => import('./components/MigrationGallery'));
 
 
 function TabFallback() {
@@ -112,7 +111,6 @@ export default function App() {
             {activeTab === 'drift' && isFeatureEnabled('livingArchitectureDrift') && <DriftDashboard />}
             {activeTab === 'canvas' && <CanvasEditor />}
             {activeTab === 'api-docs' && <ApiDocs />}
-            {activeTab === 'gallery' && <MigrationGallery />}
             {activeTab === 'collab' && <CollabWorkspace />}
             {activeTab === 'replay' && <MigrationReplay />}
             {activeTab === 'legal' && <LegalPages onBack={() => setActiveTab('translator')} />}

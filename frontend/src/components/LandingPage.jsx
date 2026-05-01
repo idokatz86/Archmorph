@@ -69,7 +69,7 @@ const STATS = [
 
 const CAPABILITY_STATUS = [
   { label: 'Live', value: 'Diagram analysis, guided questions, IaC, HLD, cost estimate, exports' },
-  { label: 'Beta', value: 'Collaboration, replay, gallery, multi-cloud cost comparison, API portal' },
+  { label: 'Beta', value: 'Collaboration, replay, multi-cloud cost comparison, API portal' },
   { label: 'Scaffold', value: 'One-click deploy, SSO/SCIM, live cloud scanner, drift monitoring' },
 ];
 

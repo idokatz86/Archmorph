@@ -23,7 +23,6 @@ const VALID_TABS = new Set([
   'drift',
   'canvas',
   'api-docs',
-  'gallery',
   'collab',
   'replay',
 ]);
