@@ -82,38 +82,12 @@ ALWAYS respond with a JSON object containing exactly these fields:
 IAC_CHAT_SESSIONS: TTLCache = TTLCache(maxsize=200, ttl=7200)
 
 
-def _coerce_to_str_list(items: Any) -> List[str]:
-    """Coerce ``changes_summary`` / ``services_added`` to a flat list of strings.
-
-    The system prompt asks GPT for string arrays, but the model occasionally
-    returns objects (e.g. ``{"type": "add", "message": "Added VNet"}``).
-    The frontend renders these items directly in JSX, so non-string values
-    crash React with error #31 ("Objects are not valid as a React child").
-    Normalize at the API boundary so the contract is honoured regardless of
-    model behaviour.
-    """
-    if not isinstance(items, list):
-        return []
-    out: List[str] = []
-    for item in items:
-        if item is None:
-            continue
-        if isinstance(item, str):
-            out.append(item)
-        elif isinstance(item, (int, float, bool)):
-            out.append(str(item))
-        elif isinstance(item, dict):
-            for key in ("message", "text", "name", "label", "value", "description"):
-                val = item.get(key)
-                if isinstance(val, str) and val:
-                    out.append(val)
-                    break
-            else:
-                # Last resort — serialize so the frontend never sees an object.
-                out.append(json.dumps(item, ensure_ascii=False))
-        else:
-            out.append(str(item))
-    return out
+# Coercion of GPT JSON-mode arrays to flat string lists. The shared
+# implementation lives in ``utils.chat_coercion`` so other chat routers
+# (e.g. ``/migration-chat``) can reuse the same defence without coupling
+# to this module's internals. The private alias is kept for backward
+# compatibility with existing imports/tests.
+from utils.chat_coercion import coerce_to_str_list as _coerce_to_str_list  # noqa: E402,F401
 
 
 def process_iac_chat(

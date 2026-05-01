@@ -29,11 +29,12 @@ def analyzed_diagram(client):
     IMAGE_STORE.clear()
 
     content = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
-    resp = client.post(
+    upload_resp = client.post(
         "/api/projects/proj-mchat/diagrams",
         files={"file": ("arch.png", io.BytesIO(content), "image/png")},
     )
-    diagram_id = resp.json()["diagram_id"]
+    assert upload_resp.status_code == 200, upload_resp.text
+    diagram_id = upload_resp.json()["diagram_id"]
 
     mock_analysis = {
         "diagram_type": "Test", "source_provider": "aws", "target_provider": "azure",
@@ -47,7 +48,8 @@ def analyzed_diagram(client):
         "confidence_summary": {"high": 1, "medium": 0, "low": 0, "average": 0.9},
     }
     with patch("routers.diagrams.analyze_image", return_value=mock_analysis):
-        client.post(f"/api/diagrams/{diagram_id}/analyze")
+        analyze_resp = client.post(f"/api/diagrams/{diagram_id}/analyze")
+    assert analyze_resp.status_code == 200, analyze_resp.text
 
     yield diagram_id
     SESSION_STORE.clear()
