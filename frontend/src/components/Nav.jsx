@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
-import { CloudCog, Layers, Server, Activity, Rocket, MessageSquare, LayoutDashboard, Sparkles, Menu, X, Moon, Sun, PenTool, Image, ChevronDown, Search } from 'lucide-react';
+import { CloudCog, Layers, Server, Activity, Rocket, MessageSquare, LayoutDashboard, Sparkles, Menu, X, Moon, Sun, PenTool, ChevronDown, Search } from 'lucide-react';
 import FeedbackWidget from './FeedbackWidget';
 import { UserMenu } from './Auth';
 import { isFeatureEnabled } from '../featureFlags';
@@ -32,7 +32,6 @@ const MORE_ITEMS = [
   { id: 'playground', label: 'Playground', icon: Sparkles },
   { id: 'drift', label: 'Drift', icon: Activity, feature: 'livingArchitectureDrift' },
   { id: 'roadmap', label: 'Roadmap', icon: Rocket },
-  { id: 'gallery', label: 'Gallery', icon: Image },
 ].filter(item => !item.feature || isFeatureEnabled(item.feature));
 
 const ALL_ITEMS = [...PRIMARY_ITEMS, ...MORE_ITEMS];

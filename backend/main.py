@@ -111,7 +111,6 @@ from routers.terraform_import_routes import router as terraform_import_router  #
 from routers.cost_comparison_routes import router as cost_comparison_router  # noqa: E402
 from routers.collaboration_routes import router as collaboration_router  # noqa: E402
 from routers.replay_routes import router as replay_router  # noqa: E402
-from routers.gallery_routes import router as gallery_router  # noqa: E402
 from routers.retention_routes import router as retention_router  # noqa: E402
 from retention import record_visit_from_request as _record_retention_visit  # noqa: E402
 from routers.v1 import build_v1_router  # noqa: E402
@@ -408,7 +407,6 @@ app.include_router(terraform_import_router)
 app.include_router(cost_comparison_router)
 app.include_router(collaboration_router)
 app.include_router(replay_router)
-app.include_router(gallery_router)
 app.include_router(retention_router)
 
 # ─────────────────────────────────────────────────────────────
