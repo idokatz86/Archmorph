@@ -64,12 +64,20 @@ _ASSET_CACHE: TTLCache = TTLCache(maxsize=200, ttl=3600)
 # Thread lock for mutable state (reentrant for nested calls)
 _LOCK = threading.RLock()
 
-# Persistence file path (alongside this module)
-_PERSIST_DIR = Path(os.getenv(
-    "ICON_REGISTRY_DATA_DIR",
-    str(Path(__file__).resolve().parent.parent / "data"),
-))
-_PERSIST_FILE = _PERSIST_DIR / "icon_registry.json"
+# Persistence file path — resolved at CALL time so test fixtures that
+# monkeypatch `ICON_REGISTRY_DATA_DIR` after import (transitive imports via
+# `azure_landing_zone` happen before fixture setup runs) still take effect.
+# Same lesson as `_autoload_disabled()` above (#587).
+_DEFAULT_PERSIST_DIR = Path(__file__).resolve().parent.parent / "data"
+
+
+def _persist_dir() -> Path:
+    return Path(os.getenv("ICON_REGISTRY_DATA_DIR", str(_DEFAULT_PERSIST_DIR)))
+
+
+def _persist_file() -> Path:
+    return _persist_dir() / "icon_registry.json"
+
 
 # Lazy-load gate (#587 — D1 fix).
 # Set True once `_ensure_loaded()` has run, regardless of whether disk-load
@@ -416,8 +424,9 @@ def delete_pack(pack_id: str) -> dict[str, Any]:
 
 def _save_to_disk() -> None:
     """Persist the current icon registry state to a JSON sidecar file."""
+    persist_file = _persist_file()
     try:
-        _PERSIST_DIR.mkdir(parents=True, exist_ok=True)
+        persist_file.parent.mkdir(parents=True, exist_ok=True)
         with _LOCK:
             snapshot = {
                 "packs": {pid: ids for pid, ids in _PACK_INDEX.items()},
@@ -429,21 +438,22 @@ def _save_to_disk() -> None:
                     for cid, entry in _ICON_STORE.items()
                 },
             }
-        _PERSIST_FILE.write_text(
+        persist_file.write_text(
             json.dumps(snapshot, indent=2, default=str),
             encoding="utf-8",
         )
-        logger.debug("Registry persisted to %s (%s icons)", str(_PERSIST_FILE).replace('\n', '').replace('\r', ''), str(len(snapshot["icons"])).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
+        logger.debug("Registry persisted to %s (%s icons)", str(persist_file).replace('\n', '').replace('\r', ''), str(len(snapshot["icons"])).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
     except Exception as exc:  # noqa: BLE001 — icon pack loading is best-effort
         logger.warning("Failed to persist registry: %s", str(exc).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
 
 
 def _load_from_disk() -> bool:
     """Load registry state from the JSON sidecar file if it exists."""
-    if not _PERSIST_FILE.is_file():
+    persist_file = _persist_file()
+    if not persist_file.is_file():
         return False
     try:
-        raw = json.loads(_PERSIST_FILE.read_text(encoding="utf-8"))
+        raw = json.loads(persist_file.read_text(encoding="utf-8"))
         with _LOCK:
             for cid, data in raw.get("icons", {}).items():
                 meta = IconMeta(**data["meta"])

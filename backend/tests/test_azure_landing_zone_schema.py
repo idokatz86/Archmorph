@@ -8,6 +8,8 @@ Each helper is tested for:
 
 from __future__ import annotations
 
+import pytest
+
 from azure_landing_zone_schema import (
     DEFAULT_PRIMARY_REGION,
     DEFAULT_STANDBY_REGION,
@@ -282,6 +284,79 @@ class TestCategoryToTierCoverage:
         assert populated >= {"ingress", "compute", "data", "identity", "observability", "storage"}, (
             f"Full-catalog sampling left tiers empty: {set(out) - populated}. "
             f"Pre-fix this was the D2 symptom (#589)."
+        )
+
+
+# ---------------------------------------------------------------------------
+# #588 — schema-level tier-population guardrails (D1/D2 backstop)
+# ---------------------------------------------------------------------------
+
+class TestTierPopulationGuardrails:
+    """#588 — assert specific real-world workloads populate the right tiers.
+
+    The pre-existing schema tests accept an empty `observability` tier when
+    the input had 3 CloudWatch-family services, because they only check
+    that the tier *key* exists. These new tests assert the tier is non-empty
+    when it should be — backstops #589 (D2) and prevents new categories
+    from quietly emptying tiers as the catalog grows.
+    """
+
+    def test_observability_tier_populated_when_cloudwatch_present(self):
+        """CloudWatch / CloudWatch Logs / X-Ray must reach observability tier."""
+        a = {"mappings": [
+            {"source_service": "CloudWatch",      "azure_service": "Azure Monitor",       "category": "Observability"},
+            {"source_service": "CloudWatch Logs", "azure_service": "Log Analytics",       "category": "Observability"},
+            {"source_service": "X-Ray",           "azure_service": "Application Insights","category": "Observability"},
+        ]}
+        out = infer_tiers_from_mappings(a)
+        assert len(out["observability"]) >= 3, (
+            f"Observability tier has {len(out['observability'])} services; "
+            f"expected ≥3 for a CloudWatch-family workload. This is the "
+            f"original D2 symptom (#589)."
+        )
+        names = {s["name"] for s in out["observability"]}
+        assert {"Azure Monitor", "Log Analytics", "Application Insights"} <= names
+
+    def test_management_category_reaches_observability(self):
+        """CloudTrail (Management) must NOT silently fall to compute (#589)."""
+        a = {"mappings": [
+            {"source_service": "CloudTrail",      "azure_service": "Activity Log", "category": "Management"},
+            {"source_service": "Systems Manager", "azure_service": "Azure Arc",    "category": "Management"},
+        ]}
+        out = infer_tiers_from_mappings(a)
+        names_in_compute = {s["name"] for s in out["compute"]}
+        assert "Activity Log" not in names_in_compute, (
+            "Activity Log must NOT be in compute tier — it's a Management "
+            "(observability) service. Pre-#589 this was the silent regression."
+        )
+        names_in_obs = {s["name"] for s in out["observability"]}
+        assert {"Activity Log", "Azure Arc"} <= names_in_obs
+
+    @pytest.mark.xfail(
+        reason="Pending #591 — splits a dedicated 'security' tier (WAF / Sentinel "
+               "/ DDoS / Defender) out of 'identity'. Until then, Security-category "
+               "items legitimately route to identity. Test asserts the post-#591 "
+               "design and is the test-driven design for that issue.",
+        strict=False,
+    )
+    def test_network_security_tier_populated_when_waf_present(self):
+        """Post-#591: WAF / Shield / Sentinel / Defender route to a dedicated
+        security tier, not identity. Until #591 lands this xfail documents the
+        expected end-state."""
+        from azure_landing_zone_schema import _CATEGORY_TO_TIER  # noqa: F401
+        # The post-#591 tier-key isn't yet defined; once #591 introduces it
+        # this test will start passing (or strict=False will flip to strict=True).
+        a = {"mappings": [
+            {"source_service": "WAF",       "azure_service": "Azure WAF",          "category": "Security"},
+            {"source_service": "Shield",    "azure_service": "DDoS Protection",    "category": "Security"},
+            {"source_service": "GuardDuty", "azure_service": "Defender for Cloud", "category": "Security"},
+        ]}
+        out = infer_tiers_from_mappings(a)
+        # Expected post-#591 contract:
+        assert out.get("network-security") or out.get("security"), (
+            "Post-#591 contract: dedicated security tier must be non-empty "
+            "for WAF / Shield / GuardDuty. Pre-#591 these correctly route "
+            "to identity \u2014 marked xfail until #591 introduces the split."
         )
 
 
