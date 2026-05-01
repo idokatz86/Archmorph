@@ -1,6 +1,6 @@
 # Architecture Limitations Engine
 
-> Status: Phase 1 (curated rules + IaC blocker gate) — [#610](https://github.com/idokatz86/Archmorph/issues/610)
+> Status: Phase 1 (curated rules + IaC blocker gate) — landed in PR [#615](https://github.com/idokatz86/Archmorph/pull/615). Subsequent phases tracked at [#616](https://github.com/idokatz86/Archmorph/issues/616) (AI fallback), [#617](https://github.com/idokatz86/Archmorph/issues/617) (admin review queue), [#618](https://github.com/idokatz86/Archmorph/issues/618) (frontend panel), [#619](https://github.com/idokatz86/Archmorph/issues/619) (rule-library expansion).
 
 ## Why this exists
 

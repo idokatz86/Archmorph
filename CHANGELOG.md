@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-#### Architecture limitations engine ([#610](https://github.com/idokatz86/Archmorph/issues/610))
+#### Architecture limitations engine (PR [#615](https://github.com/idokatz86/Archmorph/pull/615); follow-up phases [#616](https://github.com/idokatz86/Archmorph/issues/616) [#617](https://github.com/idokatz86/Archmorph/issues/617) [#618](https://github.com/idokatz86/Archmorph/issues/618) [#619](https://github.com/idokatz86/Archmorph/issues/619))
 
 A deterministic rule engine that flags structurally invalid Azure compositions during analysis — the worked example being SFTP-via-Front-Door (Front Door is HTTP/HTTPS-only and cannot proxy port-22 SSH traffic to a storage SFTP endpoint).
 
