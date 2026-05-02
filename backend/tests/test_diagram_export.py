@@ -42,6 +42,32 @@ SAMPLE_ANALYSIS = {
 }
 
 
+MIXED_CLOUD_ANALYSIS = {
+    "source_provider": "aws",
+    "source_providers": ["aws", "gcp"],
+    "target_provider": "azure",
+    "services_detected": 4,
+    "title": "Mixed Classic Handoff",
+    "zones": [
+        {
+            "id": 1,
+            "number": 1,
+            "name": "Source Platform",
+            "services": [
+                {"source_provider": "aws", "source_service": "EKS", "azure_service": "AKS", "confidence": 0.94},
+                {"source_provider": "gcp", "source_service": "Pub/Sub", "azure_service": "Event Hubs", "confidence": 0.87},
+                {"source_provider": "gcp", "source_service": "Cloud Storage", "azure_service": "Unmapped GCP Archive Target", "confidence": 0.72},
+            ],
+        }
+    ],
+    "mappings": [
+        {"source_provider": "aws", "source_service": "EKS", "azure_service": "AKS", "category": "Containers", "confidence": 0.94},
+        {"source_provider": "gcp", "source_service": "Pub/Sub", "azure_service": "Event Hubs", "category": "Messaging", "confidence": 0.87},
+        {"source_provider": "gcp", "source_service": "Cloud Storage", "azure_service": "Unmapped GCP Archive Target", "category": "Storage", "confidence": 0.72},
+    ],
+}
+
+
 class TestGetAzureStencilId:
     def test_known_service_drawio(self):
         stencil = get_azure_stencil_id("Azure Virtual Machines", target="drawio")
@@ -73,6 +99,48 @@ class TestGenerateDiagram:
         assert root.tag in ("mxfile", "mxGraphModel"), f"Unexpected root: {root.tag}"
         cells = root.findall(".//mxCell")
         assert len(cells) > 0, "Draw.io export had no mxCell elements"
+
+    def test_mixed_cloud_drawio_handoff_labels_sources_and_uses_deterministic_fallback(self):
+        result = generate_diagram(MIXED_CLOUD_ANALYSIS, format="drawio")
+        root = ET.fromstring(result["content"])
+        cells = root.findall(".//mxCell")
+        values = [cell.get("value") or "" for cell in cells]
+        styles = [cell.get("style") or "" for cell in cells]
+
+        assert "Azure Cloud" in values
+        assert "[AWS] EKS → AKS" in values
+        assert "[GCP] Pub/Sub → Event Hubs" in values
+        assert "[GCP] Cloud Storage → Unmapped GCP Archive Target" in values
+        assert any("image=img/lib/azure2/other/Targets_Management.svg;" in style for style in styles)
+
+    def test_mixed_cloud_drawio_multi_page_handoff_labels_source_providers(self):
+        analysis = {**MIXED_CLOUD_ANALYSIS, "multi_page": True}
+        result = generate_diagram(analysis, format="drawio")
+        root = ET.fromstring(result["content"])
+        values = [cell.get("value") or "" for cell in root.findall(".//mxCell")]
+
+        assert result["pages"] == 4
+        assert root.tag == "mxfile"
+        assert [diagram.get("name") for diagram in root.findall("diagram")] == [
+            "1 - Migration Overview",
+            "2 - Azure Target Architecture",
+            "3 - Service Mapping Detail",
+            "4 - Connection Topology",
+        ]
+        assert "[AWS] EKS" in values
+        assert "[GCP] Pub/Sub" in values
+        assert "[GCP] Cloud Storage" in values
+
+    def test_mixed_cloud_excalidraw_handoff_labels_sources_and_parses(self):
+        result = generate_diagram(MIXED_CLOUD_ANALYSIS, format="excalidraw")
+        doc = json.loads(result["content"])
+        texts = [element.get("text") for element in doc["elements"] if element.get("type") == "text"]
+
+        assert doc["type"] == "excalidraw"
+        assert "Azure Cloud" in texts
+        assert "[AWS] EKS → AKS" in texts
+        assert "[GCP] Pub/Sub → Event Hubs" in texts
+        assert "[GCP] Cloud Storage → Unmapped GCP Archive Target" in texts
 
     def test_vsdx_produces_valid_vdx_xml_visio_can_open(self):
         """The Visio exporter emits legacy VDX 2003 XML. Output must be valid

@@ -21,6 +21,8 @@ from typing import Any
 import os
 import re
 
+from source_provider import normalize_source_provider
+
 _data_file_AZURE_STENCILS = os.path.join(os.path.dirname(__file__), 'assets', 'diagram_stencils.json')
 try:
     with open(_data_file_AZURE_STENCILS, 'r') as _f:
@@ -69,6 +71,27 @@ _CONFIDENCE_COLORS = {
 
 _AZURE_PRIMARY = "#0078D4"
 _AZURE_SECONDARY = "#50E6FF"
+
+
+def _source_provider_label(value: Any) -> str:
+    return normalize_source_provider(value).upper()
+
+
+def _source_service_label(source_service: str, source_provider: Any) -> str:
+    return f"[{_source_provider_label(source_provider)}] {source_service}"
+
+
+def _migration_label(source_service: str, azure_service: str, source_provider: Any) -> str:
+    source = _source_service_label(source_service, source_provider)
+    return f"{source} → {azure_service}" if source_service != azure_service else source
+
+
+def _service_source_name(service: Any) -> str:
+    if isinstance(service, str):
+        return service
+    if isinstance(service, dict):
+        return str(service.get("source", service.get("aws", service.get("gcp", service.get("source_service", service.get("name", ""))))))
+    return str(service)
 
 
 # ---------------------------------------------------------------------------
@@ -272,9 +295,10 @@ def _drawio_page_migration_overview(root, title, mappings, zones):
     src_ids = {}
     for i, m in enumerate(mappings[:15]):
         src = m.get("source_service", "?")
+        label = _source_service_label(src, m.get("source_provider"))
         sid = nid()
         src_ids[src] = sid
-        cell = ET.SubElement(rt, "mxCell", id=sid, value=src,
+        cell = ET.SubElement(rt, "mxCell", id=sid, value=label,
                              style="rounded=1;whiteSpace=wrap;html=1;opacity=40;fillColor=#F1F5F9;strokeColor=#CBD5E1;fontColor=#94A3B8;fontFamily=Segoe UI;fontSize=12;",
                              vertex="1", parent="1")
         y = 160 + i * 70
@@ -404,12 +428,13 @@ def _drawio_page_mapping_detail(root, title, mappings):
     # Table rows
     for row_idx, m in enumerate(mappings[:20]):
         src = m.get("source_service", "?")
+        source_label = _source_service_label(src, m.get("source_provider"))
         tgt = m.get("azure_service", "?")
         cat = m.get("category", "—")
         conf = m.get("confidence", 0)
         conf_str = f"{int(conf * 100)}%" if isinstance(conf, (int, float)) and conf <= 1 else str(conf)
         notes = m.get("notes", "")[:60]
-        values = [src, tgt, cat, conf_str, notes]
+        values = [source_label, tgt, cat, conf_str, notes]
 
         rx = 40
         y = 160 + row_idx * 36
@@ -703,7 +728,11 @@ def _generate_excalidraw(analysis: dict) -> dict:
         aws = m.get("source_service") or m.get("aws_service") or m.get("source", "")
         azure = m.get("azure_service") or m.get("target", "")
         confidence = m.get("confidence", "medium")
-        svc_map[aws] = {"azure": azure, "confidence": confidence}
+        svc_map[aws] = {
+            "azure": azure,
+            "confidence": confidence,
+            "source_provider": m.get("source_provider", analysis.get("source_provider")),
+        }
 
     # Excalidraw file attachments for embedded icons
     exc_files: dict[str, dict] = {}
@@ -777,10 +806,13 @@ def _generate_excalidraw(analysis: dict) -> dict:
                 info = svc_map.get(aws_name, {})
                 azure_name = info.get("azure", aws_name)
                 raw_conf = info.get("confidence", "medium")
+                provider = info.get("source_provider", analysis.get("source_provider"))
             else:
-                aws_name = svc.get("source", svc.get("aws", svc.get("gcp", svc.get("source_service", svc.get("name", "")))))
+                aws_name = _service_source_name(svc)
+                info = svc_map.get(aws_name, {})
                 azure_name = svc.get("azure", svc.get("azure_service", aws_name))
                 raw_conf = svc.get("confidence", "medium")
+                provider = svc.get("source_provider", info.get("source_provider", analysis.get("source_provider")))
 
             if isinstance(raw_conf, (int, float)):
                 confidence = "high" if raw_conf >= 0.85 else "medium" if raw_conf >= 0.7 else "low"
@@ -837,7 +869,7 @@ def _generate_excalidraw(analysis: dict) -> dict:
                 }
                 elements.append(img_el)
                 # Label beside icon (fontSize ≥ 14 per skill rules)
-                label = f"{aws_name} → {azure_name}" if aws_name != azure_name else azure_name
+                label = _migration_label(aws_name, azure_name, provider)
                 elements.append(
                     _exc_text(sx + 44, sy + 6, label, size=14, color="#1a1a1a", group=gid)
                 )
@@ -845,7 +877,7 @@ def _generate_excalidraw(analysis: dict) -> dict:
                     _exc_text(sx + 44, sy + 28, f"[{confidence}]", size=14, color=conf_color, group=gid)
                 )
             else:
-                label = f"{aws_name} → {azure_name}" if aws_name != azure_name else azure_name
+                label = _migration_label(aws_name, azure_name, provider)
                 elements.append(
                     _exc_text(sx + 8, sy + 6, label, size=14, color="#1a1a1a", group=gid)
                 )
@@ -926,7 +958,11 @@ def _generate_drawio(analysis: dict) -> dict:
         aws = m.get("source_service") or m.get("aws_service") or m.get("source", "")
         azure = m.get("azure_service") or m.get("target", "")
         confidence = m.get("confidence", "medium")
-        svc_map[aws] = {"azure": azure, "confidence": confidence}
+        svc_map[aws] = {
+            "azure": azure,
+            "confidence": confidence,
+            "source_provider": m.get("source_provider", analysis.get("source_provider")),
+        }
 
     # Root XML
     root = ET.Element("mxfile", host="archmorph", type="device")
@@ -1019,10 +1055,13 @@ def _generate_drawio(analysis: dict) -> dict:
                 info = svc_map.get(aws_name, {})
                 azure_name = info.get("azure", aws_name)
                 raw_conf = info.get("confidence", "medium")
+                provider = info.get("source_provider", analysis.get("source_provider"))
             else:
-                aws_name = svc.get("source", svc.get("aws", svc.get("gcp", svc.get("source_service", svc.get("name", "")))))
+                aws_name = _service_source_name(svc)
+                info = svc_map.get(aws_name, {})
                 azure_name = svc.get("azure", svc.get("azure_service", aws_name))
                 raw_conf = svc.get("confidence", "medium")
+                provider = svc.get("source_provider", info.get("source_provider", analysis.get("source_provider")))
 
             # Normalise confidence to string key
             if isinstance(raw_conf, (int, float)):
@@ -1032,7 +1071,7 @@ def _generate_drawio(analysis: dict) -> dict:
             conf_color = _CONFIDENCE_COLORS.get(confidence, _CONFIDENCE_COLORS["medium"])
 
             azure2_icon = get_azure_stencil_id(azure_name, "drawio")
-            label = f"{aws_name} → {azure_name}" if aws_name != azure_name else azure_name
+            label = _migration_label(aws_name, azure_name, provider)
 
             sx = 16
             sy = 40 + si * svc_spacing
