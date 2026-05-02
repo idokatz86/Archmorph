@@ -246,22 +246,8 @@ class TestProductionReadyGuardrails:
             f"_ICON_SERVICE_IDS. See epic #586."
         )
 
-    @pytest.mark.xfail(
-        reason="#592 — `_ICON_SERVICE_IDS` map currently covers 20 of 35 "
-               "canonical service slots; raising to ≥ 90% requires expanding "
-               "the map to cover Service Bus, Event Grid, Cosmos DB, Defender, "
-               "Activity Log, Conditional Access, Container Apps, etc. This "
-               "test is the TDD anchor for that work and will start passing "
-               "once #592 lands.",
-        strict=True,
-    )
     def test_real_icon_ratio_meets_90pct_target(self, canonical_aws_estate):
-        """#592 target — real_icon_count ≥ 0.9 * total_image_count.
-
-        The original issue-#588 acceptance bullet, kept here as an explicit
-        TDD anchor. Strict xfail: if the ratio ever crosses 90%, this test
-        fails-the-build and the human must convert it to a real assertion.
-        """
+        """#592 target — real_icon_count ≥ 0.9 * total_image_count."""
         result = generate_landing_zone_svg(canonical_aws_estate, dr_variant="primary")
         real, placeholder = _count_real_vs_placeholder(result["content"])
         total = real + placeholder
