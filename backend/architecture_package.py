@@ -36,7 +36,7 @@ def generate_architecture_package(
         raise ValueError("analysis must be a dict")
 
     if format == "svg":
-        result = generate_landing_zone_svg(analysis, dr_variant=diagram)
+        result = generate_landing_zone_svg(_diagram_analysis(analysis, diagram), dr_variant=diagram)
         return {
             "format": "architecture-package-svg",
             "filename": result["filename"].replace("landing-zone", "architecture-package"),
@@ -44,11 +44,11 @@ def generate_architecture_package(
         }
 
     primary_svg = _namespace_svg_ids(
-        _strip_xml_declaration(generate_landing_zone_svg(analysis, dr_variant="primary")["content"]),
+        _strip_xml_declaration(generate_landing_zone_svg(_diagram_analysis(analysis, "primary"), dr_variant="primary")["content"]),
         "primary",
     )
     dr_svg = _namespace_svg_ids(
-        _strip_xml_declaration(generate_landing_zone_svg(analysis, dr_variant="dr")["content"]),
+        _strip_xml_declaration(generate_landing_zone_svg(_diagram_analysis(analysis, "dr"), dr_variant="dr")["content"]),
         "dr",
     )
     content = _render_html_package(analysis, primary_svg, dr_svg)
@@ -60,21 +60,28 @@ def generate_architecture_package(
 
 
 def _render_html_package(analysis: dict[str, Any], primary_svg: str, dr_svg: str) -> str:
-    title = html.escape(str(analysis.get("title") or "Azure Architecture Package"))
+    package_name = _package_name(analysis)
+    title = html.escape(f"Archmorph — {package_name} Architecture Package")
+    display_name = html.escape(package_name)
     source = html.escape(str(analysis.get("source_provider") or "AWS").upper())
     profile = _profile_from_analysis(analysis)
+    regions = infer_regions(analysis, dr_variant="primary")
+    target_region = html.escape(profile.get("region") or regions[0].get("name", "Selected Azure region"))
+    source_file = html.escape(str(analysis.get("source_filename") or analysis.get("filename") or "Customer architecture diagram"))
     intent_rows = "\n".join(
         f"<div><span>{html.escape(label)}</span><strong>{html.escape(value)}</strong></div>"
         for label, value in _profile_rows(profile)
     )
     talking_points = "\n".join(
-        f"<li>{html.escape(point)}</li>" for point in _talking_points(analysis, profile)
+        f"<div class=\"insight-row\"><div class=\"insight-h\">{html.escape(point[0])}</div><div class=\"insight-b\">{html.escape(point[1])}</div></div>"
+        for point in _talking_points(analysis, profile)
     )
     limitations = "\n".join(
-        f"<li>{html.escape(item)}</li>" for item in _limitations(analysis, profile)
+        f"<div class=\"insight-row\"><div class=\"insight-h\">{html.escape(item[0])}</div><div class=\"insight-b\">{html.escape(item[1])}</div></div>"
+        for item in _limitations(analysis, profile)
     )
     tier_summary = "\n".join(
-        f"<li><strong>{html.escape(tier.title())}</strong><span>{html.escape(', '.join(names) or 'No service inferred')}</span></li>"
+        f"<li><strong>{html.escape(tier.title())}</strong><span>{html.escape(', '.join(names) or 'Review required')}</span></li>"
         for tier, names in _tier_summary(analysis)
     )
 
@@ -85,22 +92,30 @@ def _render_html_package(analysis: dict[str, Any], primary_svg: str, dr_svg: str
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>{title}</title>
   <style>
-    :root {{ color-scheme: light; --ink:#172033; --muted:#526178; --line:#d9e0ea; --azure:#0078d4; --bg:#f6f8fb; --card:#ffffff; }}
+    :root {{ color-scheme: light; --ink:#111827; --muted:#526178; --line:#d9e0ea; --azure:#0078d4; --brand:#0078d4; --brand-2:#5c2d91; --bg:#f6f8fb; --card:#ffffff; --soft:#edf4ff; }}
     * {{ box-sizing: border-box; }}
     body {{ margin: 0; background: var(--bg); color: var(--ink); font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif; }}
-    header {{ padding: 22px 28px 16px; background: #fff; border-bottom: 1px solid var(--line); }}
+    .shell {{ max-width: 1440px; margin: 0 auto; padding: 18px 24px 32px; }}
+    header {{ display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; padding: 18px 20px; background: #fff; border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 10px 30px rgba(17, 24, 39, 0.06); }}
+    .brand {{ display: flex; align-items: center; gap: 12px; }}
+    .mark {{ width: 42px; height: 42px; border-radius: 8px; background: linear-gradient(135deg, var(--brand), var(--brand-2)); color: #fff; display: grid; place-items: center; font-weight: 800; }}
     h1 {{ margin: 0; font-size: 24px; line-height: 1.2; letter-spacing: 0; }}
-    header p {{ margin: 6px 0 0; color: var(--muted); font-size: 13px; }}
-    nav {{ display: flex; gap: 8px; padding: 12px 28px; background: #fff; border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 2; }}
-    button.tab {{ border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 8px; padding: 8px 12px; font: inherit; font-size: 13px; cursor: pointer; }}
-    button.tab[aria-selected="true"] {{ background: var(--azure); border-color: var(--azure); color: #fff; }}
-    main {{ padding: 20px 28px 32px; }}
+    header p {{ margin: 5px 0 0; color: var(--muted); font-size: 13px; }}
+    .meta-pills {{ display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; max-width: 540px; }}
+    .brand-pill {{ display: inline-flex; align-items: center; min-height: 28px; border-radius: 8px; padding: 5px 9px; background: var(--soft); color: #155f9f; font-size: 12px; font-weight: 700; }}
+    .story {{ display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 14px 0; padding: 12px 14px; background: #fff; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); font-size: 13px; }}
+    .story strong {{ color: var(--ink); }}
+    nav {{ display: grid; grid-template-columns: repeat(4, minmax(180px, 1fr)); gap: 10px; margin-bottom: 14px; position: sticky; top: 0; z-index: 2; background: rgba(246, 248, 251, 0.94); padding: 8px 0; backdrop-filter: blur(8px); }}
+    button.tab {{ border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 8px; padding: 11px 12px; font: inherit; font-size: 13px; font-weight: 750; cursor: pointer; text-align: left; box-shadow: 0 4px 14px rgba(17, 24, 39, 0.04); }}
+    button.tab span {{ display: block; margin-top: 4px; color: var(--muted); font-size: 11px; font-weight: 650; }}
+    button.tab[aria-selected="true"] {{ border-color: #b8d8f5; background: #edf4ff; color: #074f87; }}
+    main {{ padding: 0; }}
     section.panel {{ display: none; }}
     section.panel.active {{ display: block; }}
-    .diagram {{ overflow: auto; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 12px; }}
+    .diagram {{ overflow: auto; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 12px; box-shadow: 0 12px 34px rgba(17, 24, 39, 0.07); }}
     .diagram svg {{ width: 100%; min-width: 1100px; height: auto; display: block; }}
     .grid {{ display: grid; grid-template-columns: minmax(280px, 0.8fr) minmax(420px, 1.2fr); gap: 16px; align-items: start; }}
-    .block {{ background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }}
+    .block {{ background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 16px; box-shadow: 0 8px 24px rgba(17, 24, 39, 0.05); }}
     h2 {{ margin: 0 0 12px; font-size: 16px; }}
     ul {{ margin: 0; padding-left: 20px; }}
     li {{ margin: 8px 0; color: #27344a; line-height: 1.45; }}
@@ -113,26 +128,35 @@ def _render_html_package(analysis: dict[str, Any], primary_svg: str, dr_svg: str
     .tiers li {{ display: grid; grid-template-columns: 130px 1fr; gap: 12px; margin: 0; padding: 9px 0; border-bottom: 1px solid #edf1f6; }}
     .tiers li:last-child {{ border-bottom: 0; }}
     .tiers span {{ color: var(--muted); overflow-wrap: anywhere; }}
-    @media (max-width: 900px) {{ .grid {{ grid-template-columns: 1fr; }} nav {{ overflow-x: auto; }} main, header, nav {{ padding-left: 16px; padding-right: 16px; }} }}
+        .insight-list {{ display: grid; gap: 10px; }}
+        .insight-row {{ border: 1px solid #e7edf5; border-radius: 8px; padding: 12px; background: #fbfdff; }}
+        .insight-h {{ font-size: 13px; font-weight: 800; color: var(--ink); margin-bottom: 5px; }}
+        .insight-b {{ font-size: 13px; line-height: 1.5; color: #314158; }}
+        footer {{ margin-top: 16px; color: var(--muted); font-size: 12px; }}
+        @media (max-width: 900px) {{ .shell {{ padding: 12px; }} header {{ flex-direction: column; }} .meta-pills {{ justify-content: flex-start; }} .grid {{ grid-template-columns: 1fr; }} nav {{ grid-template-columns: 1fr; position: static; }} }}
   </style>
 </head>
 <body>
-  <header>
-    <h1>{title}</h1>
-    <p>{source} to Azure architecture package with target topology, customer intent, talking points, and known constraints.</p>
-  </header>
-  <nav aria-label="Architecture package sections">
-    <button class="tab" type="button" data-tab="as-is" aria-selected="true">Target Topology</button>
-    <button class="tab" type="button" data-tab="dr" aria-selected="false">DR Topology</button>
-    <button class="tab" type="button" data-tab="talking" aria-selected="false">Talking Points</button>
-    <button class="tab" type="button" data-tab="limits" aria-selected="false">Limitations</button>
-  </nav>
-  <main>
+    <div class="shell">
+    <header>
+        <div class="brand"><div class="mark">A↻</div><div><h1>{title}</h1><p>Cross-cloud architecture translation and Azure hardening package</p></div></div>
+        <div class="meta-pills"><span class="brand-pill">Customer / workload: {display_name}</span><span class="brand-pill">Source: {source}</span><span class="brand-pill">Target: Azure</span><span class="brand-pill">Region: {target_region}</span></div>
+    </header>
+    <div class="story"><strong>{source_file}</strong><span>→</span><span>Archmorph produced four review outputs:</span><span class="brand-pill">A · Target</span><span class="brand-pill">B · DR</span><span class="brand-pill">C · Talking Points</span><span class="brand-pill">D · Limitations</span></div>
+    <nav aria-label="Architecture package sections">
+        <button class="tab" type="button" data-tab="as-is" aria-selected="true">A — Target Azure Topology<span>customer-ready package</span></button>
+        <button class="tab" type="button" data-tab="dr" aria-selected="false">B — DR Topology<span>resilience review</span></button>
+        <button class="tab" type="button" data-tab="talking" aria-selected="false">C — Talking Points<span>customer-facing narrative</span></button>
+        <button class="tab" type="button" data-tab="limits" aria-selected="false">D — Services Limitations<span>technical gotchas</span></button>
+    </nav>
+    <main>
     <section id="as-is" class="panel active"><div class="diagram">{primary_svg}</div></section>
     <section id="dr" class="panel"><div class="diagram">{dr_svg}</div></section>
-    <section id="talking" class="panel"><div class="grid"><div class="block"><h2>Customer Intent</h2><div class="intent">{intent_rows}</div></div><div class="block"><h2>Recommended Narrative</h2><ul>{talking_points}</ul></div></div></section>
-    <section id="limits" class="panel"><div class="grid"><div class="block"><h2>Service Tiers</h2><ul class="tiers">{tier_summary}</ul></div><div class="block"><h2>Assumptions And Constraints</h2><ul>{limitations}</ul></div></div></section>
+        <section id="talking" class="panel"><div class="grid"><div class="block"><h2>Customer Intent</h2><div class="intent">{intent_rows}</div></div><div class="block"><h2>Recommended Narrative</h2><div class="insight-list">{talking_points}</div></div></div></section>
+        <section id="limits" class="panel"><div class="grid"><div class="block"><h2>Service Tiers</h2><ul class="tiers">{tier_summary}</ul></div><div class="block"><h2>Assumptions And Constraints</h2><div class="insight-list">{limitations}</div></div></div></section>
   </main>
+    <footer>Archmorph · {display_name} · {source} → Azure · generated from the customer-uploaded architecture diagram.</footer>
+    </div>
   <script>
     document.querySelectorAll('button.tab').forEach((button) => {{
       button.addEventListener('click', () => {{
@@ -165,6 +189,35 @@ def _profile_from_analysis(analysis: dict[str, Any]) -> dict[str, str]:
     return build_customer_intent_profile({k: v for k, v in inferred.items() if v})
 
 
+def _package_name(analysis: dict[str, Any]) -> str:
+    title = str(analysis.get("title") or "").strip()
+    if title and title.lower() not in {"azure architecture package", "azure landing zone", "architecture package"}:
+        return title
+
+    workload = analysis.get("workload") or analysis.get("workload_name") or analysis.get("application")
+    if workload:
+        return str(workload).strip()
+
+    zones = analysis.get("zones")
+    if isinstance(zones, list):
+        for zone in zones:
+            if isinstance(zone, dict) and zone.get("name"):
+                return str(zone["name"]).strip()
+
+    return "Azure"
+
+
+def _diagram_analysis(analysis: dict[str, Any], diagram: DiagramVariant) -> dict[str, Any]:
+    source = str(analysis.get("source_provider") or "AWS").upper()
+    package_name = _package_name(analysis)
+    title = (
+        f"{package_name} — DR Azure Topology ({source} → Azure)"
+        if diagram == "dr"
+        else f"{package_name} — Target Azure Topology ({source} → Azure)"
+    )
+    return {**analysis, "title": title}
+
+
 def _profile_rows(profile: dict[str, str]) -> list[tuple[str, str]]:
     labels = [
         ("environment", "Environment"),
@@ -180,7 +233,7 @@ def _profile_rows(profile: dict[str, str]) -> list[tuple[str, str]]:
     return [(label, profile.get(key, "Not specified")) for key, label in labels]
 
 
-def _talking_points(analysis: dict[str, Any], profile: dict[str, str]) -> list[str]:
+def _talking_points(analysis: dict[str, Any], profile: dict[str, str]) -> list[tuple[str, str]]:
     regions = infer_regions(analysis, dr_variant="primary")
     dr_mode = infer_dr_mode({**analysis, "regions": regions})
     mappings = [m for m in analysis.get("mappings", []) if isinstance(m, dict)]
@@ -189,32 +242,32 @@ def _talking_points(analysis: dict[str, Any], profile: dict[str, str]) -> list[s
     target_region = profile.get("region") or regions[0].get("name", "the selected Azure region")
 
     points = [
-        f"Translate the detected {source} estate into Azure landing-zone tiers so platform teams can review ingress, compute, data, identity, storage, and observability separately.",
-        f"Use {target_region} as the primary deployment anchor and align the topology to {profile.get('availability', 'the stated availability target')}.",
-        f"Apply {profile.get('network_isolation', 'VNet integration')} and {profile.get('data_residency', 'the stated data residency posture')} as design guardrails.",
-        f"Keep {profile.get('sku_strategy', 'balanced')} as the commercial posture for sizing and cost discussions.",
+        ("Lead with the source-to-target story", f"Translate the detected {source} estate into Azure landing-zone tiers so platform teams can review ingress, compute, data, identity, storage, and observability separately."),
+        ("Anchor the deployment region", f"Use {target_region} as the primary deployment anchor and align the topology to {profile.get('availability', 'the stated availability target')}."),
+        ("Make security boundaries explicit", f"Apply {profile.get('network_isolation', 'VNet integration')} and {profile.get('data_residency', 'the stated data residency posture')} as design guardrails."),
+        ("Keep cost posture visible", f"Keep {profile.get('sku_strategy', 'balanced')} as the commercial posture for sizing and cost discussions."),
     ]
     if high_conf:
-        points.append(f"{high_conf} service mappings are high-confidence and can move into implementation planning after owner review.")
+        points.append(("Move high-confidence services forward", f"{high_conf} service mappings are high-confidence and can move into implementation planning after owner review."))
     if dr_mode != "single-region":
-        points.append(f"The DR view should be reviewed as a {dr_mode} pattern before committing RTO/RPO or runbook ownership.")
+        points.append(("Review DR before commitment", f"The DR view should be reviewed as a {dr_mode} pattern before committing RTO/RPO or runbook ownership."))
     return points[:6]
 
 
-def _limitations(analysis: dict[str, Any], profile: dict[str, str]) -> list[str]:
+def _limitations(analysis: dict[str, Any], profile: dict[str, str]) -> list[tuple[str, str]]:
     warnings = [str(w) for w in analysis.get("warnings", []) if w]
     mappings = [m for m in analysis.get("mappings", []) if isinstance(m, dict)]
     low_conf = [m for m in mappings if float(m.get("confidence") or 0) < 0.8]
-    limits = warnings[:5]
+    limits = [("Review warning", warning) for warning in warnings[:5]]
     if low_conf:
         names = ", ".join(str(m.get("azure_service") or m.get("target") or "Unknown") for m in low_conf[:4])
-        limits.append(f"Low-confidence mappings need owner validation before deployment: {names}.")
+        limits.append(("Validate low-confidence mappings", f"Low-confidence mappings need owner validation before deployment: {names}."))
     if profile.get("compliance") and profile.get("compliance") != "None":
-        limits.append(f"Compliance scope is advisory until validated against the customer's control set: {profile['compliance']}.")
+        limits.append(("Validate compliance scope", f"Compliance scope is advisory until validated against the customer's control set: {profile['compliance']}."))
     if profile.get("rto") and profile.get("rto") != "Not required":
-        limits.append(f"RTO target {profile['rto']} requires backup, replication, failover, and operations runbook validation.")
+        limits.append(("Prove RTO/RPO operations", f"RTO target {profile['rto']} requires backup, replication, failover, and operations runbook validation."))
     if not limits:
-        limits.append("No blocking limitations were inferred, but service owners should validate networking, identity, and data dependencies before deployment.")
+        limits.append(("Owner validation required", "No blocking limitations were inferred, but service owners should validate networking, identity, and data dependencies before deployment."))
     return limits[:8]
 
 

@@ -16,8 +16,11 @@ from azure_landing_zone import (
     CANVAS_H_DR,
     CANVAS_H_PRIMARY,
     CANVAS_W,
+    _icon_data_uri,
+    _networking_services,
     generate_landing_zone_svg,
 )
+from azure_landing_zone_schema import infer_tiers_from_mappings
 
 # #588 — canonical AWS estate fixture used by the tier-population +
 # real-icon-ratio guardrails. Single source of truth so a future change
@@ -52,6 +55,24 @@ DR_ANALYSIS: dict = {
     "regions": [
         {"name": "East US",     "role": "primary", "traffic_pct": 100},
         {"name": "West US 3",   "role": "standby", "traffic_pct": 0},
+    ],
+}
+
+
+NETWORKING_ANALYSIS: dict = {
+    "title": "Networking Architecture Package",
+    "source_provider": "AWS",
+    "target_provider": "azure",
+    "zones": [{"id": 1, "name": "networking", "number": 1, "services": []}],
+    "mappings": [
+        {"source_service": "Transit Gateway", "azure_service": "Virtual WAN", "category": "Networking"},
+        {"source_service": "VPN Gateway", "azure_service": "Azure VPN Gateway", "category": "Networking"},
+        {"source_service": "Direct Connect", "azure_service": "ExpressRoute", "category": "Networking"},
+        {"source_service": "Network Firewall", "azure_service": "Azure Firewall", "category": "Security"},
+        {"source_service": "CloudFront", "azure_service": "Azure Front Door", "category": "Edge"},
+        {"source_service": "ALB", "azure_service": "Application Gateway", "category": "LoadBalancer"},
+        {"source_service": "Route 53", "azure_service": "Azure DNS", "category": "Networking"},
+        {"source_service": "PrivateLink", "azure_service": "Private Link", "category": "Networking"},
     ],
 }
 
@@ -150,6 +171,57 @@ class TestGenerator:
         texts = [t.text or "" for t in root.iter(f"{SVG_NS}text")]
         assert any("East US" in t for t in texts), "Default primary region missing"
 
+    def test_networking_package_renders_real_networking_icons(self):
+        result = generate_landing_zone_svg(NETWORKING_ANALYSIS, dr_variant="primary")
+        root = ET.fromstring(result["content"])
+        texts = [t.text or "" for t in root.iter(f"{SVG_NS}text")]
+        joined = " | ".join(texts)
+
+        for expected in [
+            "Network Services",
+            "Virtual WAN",
+            "VPN Gateway",
+            "ExpressRoute",
+            "Azure Firewall",
+            "Front Door",
+            "App Gateway",
+            "Azure DNS",
+            "Private Link",
+        ]:
+            assert expected in joined
+
+        services = _networking_services(infer_tiers_from_mappings(NETWORKING_ANALYSIS))
+        icons = {service["icon"] for service in services}
+        assert {
+            "virtualwan",
+            "vpn",
+            "expressroute",
+            "firewall",
+            "frontdoor",
+            "appgw",
+            "dns",
+            "privatelink",
+        }.issubset(icons)
+        assert all(_icon_data_uri(icon) for icon in icons)
+
+    def test_network_services_rail_is_gated_to_networking_heavy_packages(self):
+        result = generate_landing_zone_svg(SAMPLE_ANALYSIS, dr_variant="primary")
+        root = ET.fromstring(result["content"])
+        texts = [t.text or "" for t in root.iter(f"{SVG_NS}text")]
+        assert "Network Services" not in texts
+
+    def test_networking_dr_variant_does_not_duplicate_network_services_id(self):
+        analysis = {
+            **NETWORKING_ANALYSIS,
+            "dr_mode": "active-standby",
+            "regions": DR_ANALYSIS["regions"],
+        }
+        result = generate_landing_zone_svg(analysis, dr_variant="dr")
+        root = ET.fromstring(result["content"])
+        texts = [t.text or "" for t in root.iter(f"{SVG_NS}text")]
+        assert texts.count("Network Services") == 2
+        assert 'id="network-services"' not in result["content"]
+
     def test_landing_zone_svg_invalid_dr_variant_raises(self):
         with pytest.raises(ValueError):
             generate_landing_zone_svg(SAMPLE_ANALYSIS, dr_variant="bogus")  # type: ignore[arg-type]
@@ -246,22 +318,8 @@ class TestProductionReadyGuardrails:
             f"_ICON_SERVICE_IDS. See epic #586."
         )
 
-    @pytest.mark.xfail(
-        reason="#592 — `_ICON_SERVICE_IDS` map currently covers 20 of 35 "
-               "canonical service slots; raising to ≥ 90% requires expanding "
-               "the map to cover Service Bus, Event Grid, Cosmos DB, Defender, "
-               "Activity Log, Conditional Access, Container Apps, etc. This "
-               "test is the TDD anchor for that work and will start passing "
-               "once #592 lands.",
-        strict=True,
-    )
     def test_real_icon_ratio_meets_90pct_target(self, canonical_aws_estate):
-        """#592 target — real_icon_count ≥ 0.9 * total_image_count.
-
-        The original issue-#588 acceptance bullet, kept here as an explicit
-        TDD anchor. Strict xfail: if the ratio ever crosses 90%, this test
-        fails-the-build and the human must convert it to a real assertion.
-        """
+        """#592 target — real_icon_count ≥ 0.9 * total_image_count."""
         result = generate_landing_zone_svg(canonical_aws_estate, dr_variant="primary")
         real, placeholder = _count_real_vs_placeholder(result["content"])
         total = real + placeholder
