@@ -116,13 +116,14 @@ jobs:
           BASE="${API_URL%/}"
           BASE="${BASE%/api}"
           BODY=$(curl -sS --max-time 30 "${BASE}/api/health")
-          AGE=$(echo "$BODY" | jq -r '.service_catalog_refresh.age_hours // "null"')
-          STALE=$(echo "$BODY" | jq -r '.service_catalog_refresh.stale // "missing"')
-          echo "post-refresh age=${AGE}h stale=${STALE}"
-          if [ "$STALE" = "missing" ]; then
+          HAS_REFRESH=$(echo "$BODY" | jq -r 'has("service_catalog_refresh")')
+          if [ "$HAS_REFRESH" != "true" ]; then
             echo "::error::/api/health does not expose service_catalog_refresh; cannot verify refresh freshness"
             exit 1
           fi
+          AGE=$(echo "$BODY" | jq -r '.service_catalog_refresh.age_hours // "null"')
+          STALE=$(echo "$BODY" | jq -r '.service_catalog_refresh.stale | tostring')
+          echo "post-refresh age=${AGE}h stale=${STALE}"
           if [ "$STALE" != "false" ]; then
             echo "::error::Refresh succeeded but /api/health still reports stale catalog"
             exit 1
