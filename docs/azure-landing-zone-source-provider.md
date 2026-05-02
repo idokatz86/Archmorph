@@ -56,12 +56,12 @@ Mapping: GCP → Azure · GLB → App Gateway · GKE → AKS · Filestore → Az
 
 ## Source of truth
 
-- Constants live in [`backend/azure_landing_zone.py`](../backend/azure_landing_zone.py):
-  - `_SUPPORTED_SOURCE_PROVIDERS: frozenset[str]` — allowed values.
+- The shared contract helper lives in [`backend/source_provider.py`](../backend/source_provider.py):
+  - `SUPPORTED_SOURCE_PROVIDERS: frozenset[str]` — allowed values.
+  - `normalize_source_provider(value) -> str` — lowercases, defaults, raises.
+- Landing-zone legend constants live in [`backend/azure_landing_zone.py`](../backend/azure_landing_zone.py):
   - `_SOURCE_PROVIDER_LEGEND_LINE: dict[str, str]` — verbatim mapping line per
     provider.
-  - `_validate_source_provider(value: str | None) -> str` — single validation
-    entry point. Lowercases, defaults, raises.
 - A module-load `assert` keeps `_SUPPORTED_SOURCE_PROVIDERS` and
   `_SOURCE_PROVIDER_LEGEND_LINE` in lockstep.
 

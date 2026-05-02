@@ -31,6 +31,10 @@ from azure_landing_zone_schema import (
     infer_replication,
     infer_tiers_from_mappings,
 )
+from source_provider import (
+    SUPPORTED_SOURCE_PROVIDERS as _SUPPORTED_SOURCE_PROVIDERS,
+    normalize_source_provider,
+)
 
 # #595 — Observability for the landing-zone-svg pipeline. The observability
 # module is a thin wrapper around the OpenTelemetry SDK + an in-memory store
@@ -81,8 +85,6 @@ MAX_SVG_BYTES = 300 * 1024
 # one of the values in ``_SUPPORTED_SOURCE_PROVIDERS``. Missing → "aws"
 # (backwards-compatible with #571). Unknown → ValueError.
 
-_SUPPORTED_SOURCE_PROVIDERS: frozenset[str] = frozenset({"aws", "gcp"})
-
 _SOURCE_PROVIDER_LEGEND_LINE: dict[str, str] = {
     "aws": (
         "AWS → Azure · ALB → App Gateway · EKS → AKS · "
@@ -110,20 +112,7 @@ def _validate_source_provider(value: object) -> str:
       * Empty / whitespace-only string → ``ValueError`` (do NOT silently default).
       * Unknown known-string → ``ValueError``.
     """
-    if value is None:
-        return "aws"
-    if not isinstance(value, str):
-        raise ValueError(
-            f"Unsupported source_provider: {value!r}. "
-            f"Expected a string in {sorted(_SUPPORTED_SOURCE_PROVIDERS)}."
-        )
-    provider = value.strip().lower()
-    if not provider or provider not in _SUPPORTED_SOURCE_PROVIDERS:
-        raise ValueError(
-            f"Unsupported source_provider: {value!r}. "
-            f"Expected one of {sorted(_SUPPORTED_SOURCE_PROVIDERS)}."
-        )
-    return provider
+    return normalize_source_provider(value)
 
 
 # ---------------------------------------------------------------------------

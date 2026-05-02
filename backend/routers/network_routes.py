@@ -9,6 +9,7 @@ import logging
 
 from routers.shared import SESSION_STORE, limiter, verify_api_key
 from error_envelope import ArchmorphException
+from source_provider import normalize_source_provider
 from network_translator import (
     translate_network_topology,
     translate_gcp_network,
@@ -79,7 +80,10 @@ async def generate_network_topology(
     if params.network_overrides:
         effective_analysis["network"] = params.network_overrides
 
-    provider = effective_analysis.get("source_provider", "aws").lower()
+    try:
+        provider = normalize_source_provider(effective_analysis.get("source_provider"))
+    except ValueError as exc:
+        raise ArchmorphException(400, str(exc))
 
     try:
         if provider == "gcp":

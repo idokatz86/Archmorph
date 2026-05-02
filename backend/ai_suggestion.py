@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from services.mappings import CROSS_CLOUD_MAPPINGS
+from source_provider import normalize_source_provider
 from openai_client import (
     get_openai_client,
     AZURE_OPENAI_DEPLOYMENT,
@@ -65,11 +66,12 @@ def lookup_mapping(
     Returns the mapping dict if found, None otherwise.
     """
     key = source_service.strip().lower()
-    if source_provider.lower() in ("aws", "amazon"):
+    provider = normalize_source_provider(source_provider)
+    if provider == "aws":
         return _KNOWN_AWS.get(key)
-    if source_provider.lower() in ("gcp", "google"):
+    if provider == "gcp":
         return _KNOWN_GCP.get(key)
-    return None
+    raise AssertionError(f"Unhandled source_provider: {provider}")
 
 
 # ─────────────────────────────────────────────────────────
@@ -101,6 +103,7 @@ Rules:
 
 def _build_few_shot_examples(source_provider: str, max_examples: int = 5) -> str:
     """Build few-shot examples from approved feedback for the GPT prompt."""
+    provider = normalize_source_provider(source_provider)
     # Ensure feedback is loaded from DB
     _load_feedback_from_db()
 
@@ -109,7 +112,7 @@ def _build_few_shot_examples(source_provider: str, max_examples: int = 5) -> str
         approved = [
             fb for fb in _feedback_cache
             if fb.get("decision") == "approved"
-            and fb.get("source_provider", "").lower() == source_provider.lower()
+            and fb.get("source_provider", "").lower() == provider
         ]
     # Take most recent approved entries
     for fb in approved[-max_examples:]:
@@ -120,7 +123,7 @@ def _build_few_shot_examples(source_provider: str, max_examples: int = 5) -> str
             f'"category": "{fb.get("category", "")}"}}'
         )
     # Also pull a few from the known catalogue
-    known = _KNOWN_AWS if source_provider.lower() in ("aws", "amazon") else _KNOWN_GCP
+    known = _KNOWN_AWS if provider == "aws" else _KNOWN_GCP
     for key, m in list(known.items())[:max(0, max_examples - len(examples))]:
         examples.append(
             f'  {{"source": "{key}", '
@@ -609,6 +612,7 @@ def _call_gpt_suggest(
 ) -> Dict[str, Any]:
     """Call GPT-4o for a mapping suggestion."""
     client = get_openai_client()
+    source_provider = normalize_source_provider(source_provider)
 
     user_content = f"Source provider: {source_provider}\nSource service: {source_service}"
     if context_services:
@@ -662,6 +666,8 @@ def suggest_mapping(
     dict
         Suggestion with azure_service, confidence, category, notes, etc.
     """
+    source_provider = normalize_source_provider(source_provider)
+
     # Fast path — catalogue hit
     existing = lookup_mapping(source_service, source_provider)
     if existing:
@@ -741,6 +747,7 @@ def suggest_batch(
     list
         List of suggestion dicts.
     """
+    source_provider = normalize_source_provider(source_provider)
     all_names = [s.get("name") or s.get("source_service", "") for s in services]
     results = []
     for svc in services:

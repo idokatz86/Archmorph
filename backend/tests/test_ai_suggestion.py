@@ -7,6 +7,8 @@ Tests for ai_suggestion.py (Issue #153)
 import os
 import sys
 
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from ai_suggestion import (
@@ -45,6 +47,17 @@ class TestLookupMapping:
     def test_lambda_lookup(self):
         result = lookup_mapping("Lambda", "aws")
         assert result is not None
+
+    def test_uppercase_provider_is_normalized(self):
+        assert lookup_mapping("EC2", "AWS") == lookup_mapping("EC2", "aws")
+
+    @pytest.mark.parametrize("provider", ["azure", "amazon", "google", "", 123])
+    def test_invalid_provider_is_rejected(self, provider):
+        with pytest.raises(ValueError, match="Unsupported source_provider"):
+            lookup_mapping("EC2", provider)
+
+    def test_none_provider_uses_legacy_aws_default(self):
+        assert lookup_mapping("EC2", None) == lookup_mapping("EC2", "aws")
 
 
 # ====================================================================
@@ -230,3 +243,13 @@ def test_suggest_mapping_gpt_failure(mock_get_client):
     res = suggest_mapping("UnknownService", "aws")
     # if suggest_mapping catches error, it returns "Unknown Resource/No Match"
     assert res["azure_service"] == "Unknown"
+
+
+def test_suggest_mapping_normalizes_provider_in_result():
+    res = suggest_mapping("EC2", "AWS")
+    assert res["source_provider"] == "aws"
+
+
+def test_suggest_mapping_rejects_azure_source_provider():
+    with pytest.raises(ValueError, match="Unsupported source_provider"):
+        suggest_mapping("Virtual Machines", "azure")
