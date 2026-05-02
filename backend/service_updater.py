@@ -740,6 +740,21 @@ def run_update_now(*, auto_add: bool = True) -> dict[str, Any]:
         state["auto_added"][provider] = sorted(existing_added)
 
     _write_state(state)
+
+    # Issue #647 — re-merge static + discovered catalogs in place so live API
+    # responses reflect new discoveries without requiring a container restart.
+    # Best-effort: if reload fails (test isolation, partial init), log and continue.
+    if any(auto_added[p] for p in ("aws", "azure", "gcp")):
+        try:
+            import services as _services_mod
+            counts = _services_mod.reload()
+            logger.info(
+                "Live catalog reloaded after refresh: aws=%d azure=%d gcp=%d",
+                counts["aws"], counts["azure"], counts["gcp"],
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Live catalog reload failed (non-fatal): %s", exc)
+
     logger.info("Service catalog update complete.")
     return check_record
 
