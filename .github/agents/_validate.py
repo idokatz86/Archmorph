@@ -1,4 +1,4 @@
-"""Validate repository agent instruction files."""
+"""Validate repository agent instruction files and trigger agent CI checks."""
 
 import os, re
 

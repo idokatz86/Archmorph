@@ -25,6 +25,8 @@ You are a **Senior Frontend Architect** for the Archmorph React application. You
 - SSE integration for real-time features
 - Export UX leads with Architecture Package HTML, target SVG, and DR SVG, then keeps classic Excalidraw/Draw.io/Visio as secondary engineer formats
 - Download handling must preserve MIME types, filenames, loading/error states, and accessibility for all export formats
+- UI copy and state should distinguish AWS, GCP, and Azure source/provider semantics while keeping Azure target outputs clear
+- Test fixtures and sample affordances should not assume every source diagram is AWS-only
 
 ### Component System
 - Atomic design, composition over inheritance

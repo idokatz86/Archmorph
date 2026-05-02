@@ -1,25 +1,26 @@
 ---
 name: drawio-mcp-diagramming
-description: Create and edit architecture diagrams using Draw.io MCP (`drawio/create_diagram`) with reliable Azure and AWS icon rendering guidance and troubleshooting. Supports Azure2 and AWS4 icon libraries. Requires Python 3 and internet access to refresh icon catalogs (periodic, not per-run).
+description: Create and edit architecture diagrams using Draw.io MCP (`drawio/create_diagram`) with reliable Azure, AWS, and GCP topology/icon guidance and troubleshooting. Supports Azure2 and AWS4 icon libraries; GCP diagrams should use available diagrams.net GCP stencils when present and clear labeled fallback shapes otherwise. Requires Python 3 and internet access to refresh icon catalogs (periodic, not per-run).
 ---
 
 # Draw.io MCP Diagramming Skill
 
-Use this skill to create or update diagrams through the Draw.io MCP tool and to avoid common Azure and AWS icon rendering problems.
+Use this skill to create or update diagrams through the Draw.io MCP tool and to avoid common Azure, AWS, and GCP topology/icon rendering problems.
 
-For Archmorph Architecture Package work, treat the generated HTML/SVG package as the primary customer deliverable and Draw.io as an editable engineer handoff. Preserve the same Azure topology, assumptions, and limitations across both.
+For Archmorph Architecture Package work, treat the generated HTML/SVG package as the primary customer deliverable and Draw.io as an editable engineer handoff. Preserve the same Azure target topology, AWS/GCP source context, assumptions, and limitations across both.
 
 See [references/REFERENCE.md](references/REFERENCE.md) for reference artifacts and refresh commands.
 
-For non-Azure/non-AWS diagrams, you can skip icon discovery/validation scripts and proceed directly to `drawio/create_diagram`.
+For non-Azure/non-AWS/non-GCP diagrams, you can skip icon discovery/validation scripts and proceed directly to `drawio/create_diagram`.
 
 ## When to Use
 
-- The user asks to create or refine architecture diagrams (Azure, AWS, or multi-cloud).
+- The user asks to create or refine architecture diagrams (Azure, AWS, GCP, or multi-cloud).
 - The user wants draw.io/diagrams.net output from an MCP workflow.
 - The user needs Azure service icons in diagrams.
 - The user needs AWS service icons in diagrams.
-- The user reports that Azure or AWS icons/shapes are not appearing.
+- The user needs GCP service icons or clear GCP topology notation in diagrams.
+- The user reports that Azure, AWS, or GCP icons/shapes are not appearing.
 
 ## Required Tooling
 
@@ -39,12 +40,13 @@ For non-Azure/non-AWS diagrams, you can skip icon discovery/validation scripts a
 
 ## Recommended Workflow
 
-1. **Identify the cloud provider** — determine whether the diagram uses Azure, AWS, or both (multi-cloud).
+1. **Identify the cloud provider** — determine whether the diagram uses Azure, AWS, GCP, or multiple clouds.
 2. **Verify icon paths from the static catalogs** — no scripts needed at runtime:
    - Azure: grep `references/azure2-complete-catalog.txt`
    - AWS: grep `references/aws4-complete-catalog.txt`
-   - Multi-cloud: grep both catalogs as needed.
-3. If diagram uses neither Azure nor AWS icons: skip icon lookup and create diagram directly.
+  - GCP: use available diagrams.net GCP stencil names if known; otherwise use labeled provider-colored fallback shapes and document the icon limitation.
+  - Multi-cloud: check all relevant catalogs and preserve source-provider labels.
+3. If diagram uses no cloud icons: skip icon lookup and create diagram directly.
 4. **For Azure infrastructure/network diagrams**: apply Professional Network Topology Patterns (see Azure section below):
    - Use larger canvas (1900x1500)
    - VNets with thick borders (strokeWidth=4)
@@ -52,7 +54,7 @@ For non-Azure/non-AWS diagrams, you can skip icon discovery/validation scripts a
    - Position resources inside their subnets
    - Label all traffic flows with protocols/ports
    - Include traffic legend and network isolation explanation boxes
-  - Show target-state and DR-state differences explicitly when the source analysis includes resilience or recovery intent.
+    - Show target-state and DR-state differences explicitly when the source analysis includes resilience or recovery intent.
 5. **For AWS infrastructure/network diagrams**: apply AWS Network Topology Patterns (see AWS section below):
    - Use larger canvas (1900x1500) for multi-VPC/account topologies
    - VPCs with thick borders (strokeWidth=4)
@@ -60,11 +62,16 @@ For non-Azure/non-AWS diagrams, you can skip icon discovery/validation scripts a
    - Position resources inside their respective subnets
    - Label all traffic flows with protocols/ports
    - Include security group / NACL notation
-6. Build a valid `mxGraphModel` payload using verified icons when applicable.
-7. Call `drawio/create_diagram` with the XML.
-8. If user wants a file artifact, save as `.drawio` wrapped in `<mxfile><diagram>...</diagram></mxfile>`.
-9. Keep labels concise and explicit (service name + role).
-10. For cloud-specific diagrams, prefer one icon per major service and use edges for flow semantics (ingress/egress/peering/telemetry).
+6. **For GCP infrastructure/network diagrams**: apply GCP Network Topology Patterns:
+  - Use larger canvas (1900x1500) for multi-project/shared VPC topologies
+  - Projects/folders with thick borders, VPCs and subnets clearly nested
+  - Show Cloud Load Balancing, Cloud Armor, Cloud NAT, Private Service Connect, IAM/service accounts, and Cloud Operations zones when relevant
+  - Label all traffic flows with protocols/ports and note regional/global resource behavior
+7. Build a valid `mxGraphModel` payload using verified icons when applicable.
+8. Call `drawio/create_diagram` with the XML.
+9. If user wants a file artifact, save as `.drawio` wrapped in `<mxfile><diagram>...</diagram></mxfile>`.
+10. Keep labels concise and explicit (service name + role).
+11. For cloud-specific diagrams, prefer one icon per major service and use edges for flow semantics (ingress/egress/peering/telemetry).
 
 ## Visual Quality Guardrails
 
