@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **AWS/GCP source-cloud parity** — upgraded relevant custom agents so CTO, Cloud, Backend, API, DevOps, CISO, QA, Performance, Bug, PM, FE, UX, and Scrum guidance treats AWS and GCP source environments with the same architectural rigor as Azure while preserving Azure as the target artifact platform.
 - **Diagramming skill parity** — Draw.io and Excalidraw skills now call out AWS-to-Azure, GCP-to-Azure, and mixed-cloud migration views, including GCP topology expectations and explicit source-provider context in Architecture Package handoffs.
+- **Architecture Package cross-cloud validation** — Architecture Package HTML/SVG tests now cover AWS, GCP, and mixed AWS/GCP source scenarios, including source traceability, Azure target primacy, DR outputs, talking points, limitations, and customer source filenames.
 
 #### Main-branch convergence and Architecture Package export (PRs #651 #652 #649 #667 #666)
 

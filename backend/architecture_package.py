@@ -16,6 +16,7 @@ from typing import Any, Literal
 from azure_landing_zone import generate_landing_zone_svg
 from azure_landing_zone_schema import infer_dr_mode, infer_regions, infer_tiers_from_mappings
 from customer_intent import build_customer_intent_profile
+from source_provider import normalize_source_provider
 
 
 PackageFormat = Literal["html", "svg"]
@@ -63,7 +64,7 @@ def _render_html_package(analysis: dict[str, Any], primary_svg: str, dr_svg: str
     package_name = _package_name(analysis)
     title = html.escape(f"Archmorph — {package_name} Architecture Package")
     display_name = html.escape(package_name)
-    source = html.escape(str(analysis.get("source_provider") or "AWS").upper())
+    source = html.escape(_source_label(analysis))
     profile = _profile_from_analysis(analysis)
     regions = infer_regions(analysis, dr_variant="primary")
     target_region = html.escape(profile.get("region") or regions[0].get("name", "Selected Azure region"))
@@ -208,7 +209,7 @@ def _package_name(analysis: dict[str, Any]) -> str:
 
 
 def _diagram_analysis(analysis: dict[str, Any], diagram: DiagramVariant) -> dict[str, Any]:
-    source = str(analysis.get("source_provider") or "AWS").upper()
+    source = _source_label(analysis)
     package_name = _package_name(analysis)
     title = (
         f"{package_name} — DR Azure Topology ({source} → Azure)"
@@ -238,7 +239,7 @@ def _talking_points(analysis: dict[str, Any], profile: dict[str, str]) -> list[t
     dr_mode = infer_dr_mode({**analysis, "regions": regions})
     mappings = [m for m in analysis.get("mappings", []) if isinstance(m, dict)]
     high_conf = sum(1 for m in mappings if float(m.get("confidence") or 0) >= 0.9)
-    source = str(analysis.get("source_provider") or "AWS").upper()
+    source = _source_label(analysis)
     target_region = profile.get("region") or regions[0].get("name", "the selected Azure region")
 
     points = [
@@ -252,6 +253,32 @@ def _talking_points(analysis: dict[str, Any], profile: dict[str, str]) -> list[t
     if dr_mode != "single-region":
         points.append(("Review DR before commitment", f"The DR view should be reviewed as a {dr_mode} pattern before committing RTO/RPO or runbook ownership."))
     return points[:6]
+
+
+def _source_label(analysis: dict[str, Any]) -> str:
+    providers: list[str] = []
+
+    def add_provider(value: Any) -> None:
+        provider = normalize_source_provider(value)
+        if provider not in providers:
+            providers.append(provider)
+
+    declared = analysis.get("source_providers")
+    if isinstance(declared, (list, tuple, set)):
+        for value in declared:
+            add_provider(value)
+
+    source_provider = analysis.get("source_provider")
+    if source_provider is not None or not providers:
+        add_provider(source_provider)
+
+    mappings = analysis.get("mappings", [])
+    if isinstance(mappings, list):
+        for mapping in mappings:
+            if isinstance(mapping, dict) and mapping.get("source_provider") is not None:
+                add_provider(mapping["source_provider"])
+
+    return "/".join(provider.upper() for provider in providers)
 
 
 def _limitations(analysis: dict[str, Any], profile: dict[str, str]) -> list[tuple[str, str]]:
