@@ -32,18 +32,6 @@ vi.mock('../components/AdminDashboard', () => ({
 vi.mock('../components/ErrorBoundary', () => ({
   default: ({ children }) => <div data-testid="error-boundary">{children}</div>,
 }))
-vi.mock('../components/LandingPage', () => ({
-  default: ({ onGetStarted }) => <div data-testid="landing"><button onClick={onGetStarted}>Get Started</button></div>,
-}))
-vi.mock('../components/LegalPages', () => ({
-  default: () => <div data-testid="legal">LegalPages</div>,
-}))
-vi.mock('../components/CookieBanner', () => ({
-  default: () => null,
-}))
-vi.mock('../components/OnboardingTour', () => ({
-  default: () => null,
-}))
 vi.mock('../components/Auth', () => ({
   AuthProvider: ({ children }) => <>{children}</>,
 }))

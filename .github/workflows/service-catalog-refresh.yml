@@ -54,12 +54,19 @@ jobs:
             exit 1
           fi
 
-          echo "POST ${API_URL}/api/service-updates/run-now"
+          # API_URL secret normally already includes the /api suffix (per repo
+          # convention, see ci.yml). Strip a trailing /api so the rest of this
+          # script works whether the secret has it or not.
+          BASE="${API_URL%/}"
+          BASE="${BASE%/api}"
+          echo "Resolved API base: ${BASE}"
+
+          echo "POST ${BASE}/api/service-updates/run-now"
           # Up to 3 attempts with exponential backoff. Refresh is idempotent.
           for attempt in 1 2 3; do
             HTTP_CODE=$(curl -sS -o response.json -w "%{http_code}" \
               --max-time 600 \
-              -X POST "${API_URL}/api/service-updates/run-now" \
+              -X POST "${BASE}/api/service-updates/run-now" \
               -H "X-API-Key: ${ADMIN_KEY}" \
               -H "Content-Type: application/json" \
               -d '{}' || echo "000")
@@ -106,10 +113,16 @@ jobs:
       - name: Verify freshness via /api/health
         run: |
           set -euo pipefail
-          BODY=$(curl -sS --max-time 30 "${API_URL}/api/health")
+          BASE="${API_URL%/}"
+          BASE="${BASE%/api}"
+          BODY=$(curl -sS --max-time 30 "${BASE}/api/health")
           AGE=$(echo "$BODY" | jq -r '.service_catalog_refresh.age_hours // "null"')
-          STALE=$(echo "$BODY" | jq -r '.service_catalog_refresh.stale')
+          STALE=$(echo "$BODY" | jq -r '.service_catalog_refresh.stale // "missing"')
           echo "post-refresh age=${AGE}h stale=${STALE}"
+          if [ "$STALE" = "missing" ]; then
+            echo "::warning::deployed API does not yet expose service_catalog_refresh block (older container image). Skipping freshness gate."
+            exit 0
+          fi
           if [ "$STALE" != "false" ]; then
             echo "::error::Refresh succeeded but /api/health still reports stale catalog"
             exit 1

@@ -13,12 +13,10 @@ import { create } from 'zustand';
 import api from '../services/apiClient';
 
 const VALID_TABS = new Set([
-  'landing',
   'dashboard',
   'translator',
   'services',
   'roadmap',
-  'legal',
   'drift',
   'api-docs',
   'collab',

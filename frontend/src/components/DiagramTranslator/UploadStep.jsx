@@ -1,7 +1,7 @@
 import React from 'react';
 import { Upload, FileText, X, Building2, Globe2, Boxes, Network } from 'lucide-react';
 import { Badge, Button, Card } from '../ui';
-import { ContextualHint } from '../OnboardingTour';
+import { ContextualHint } from '../ContextualHint';
 
 const SAMPLES = [
   { id: 'aws-hub-spoke', name: 'Hub & Spoke', icon: Building2, desc: 'Secure Landing Zone', provider: 'aws' },

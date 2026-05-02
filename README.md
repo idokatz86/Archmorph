@@ -819,7 +819,6 @@ Production hardening switches:
 - `DATABASE_URL` must point to PostgreSQL for production; set `ENFORCE_POSTGRES=true` to fail startup if SQLite is accidentally configured.
 - `REDIS_HOST` or `REDIS_URL` should be configured for horizontal scale; set `REQUIRE_REDIS=true` to fail startup instead of falling back to local file-backed stores.
 - `FEATURE_FLAG_LIVE_CLOUD_SCANNER`, `FEATURE_FLAG_DEPLOY_ENGINE`, and `FEATURE_FLAG_ENTERPRISE_SSO_SCIM` default to disabled and must only be enabled after the admin release gate and tenant validation pass.
-- No customer billing or subscription setup is required; Archmorph is free for customers.
 
 ### Azure Resources
 
