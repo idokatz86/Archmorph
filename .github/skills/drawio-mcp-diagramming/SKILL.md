@@ -54,7 +54,7 @@ For non-Azure/non-AWS/non-GCP diagrams, you can skip icon discovery/validation s
    - Position resources inside their subnets
    - Label all traffic flows with protocols/ports
    - Include traffic legend and network isolation explanation boxes
-  - Show target-state and DR-state differences explicitly when the source analysis includes resilience or recovery intent.
+    - Show target-state and DR-state differences explicitly when the source analysis includes resilience or recovery intent.
 5. **For AWS infrastructure/network diagrams**: apply AWS Network Topology Patterns (see AWS section below):
    - Use larger canvas (1900x1500) for multi-VPC/account topologies
    - VPCs with thick borders (strokeWidth=4)
