@@ -148,6 +148,18 @@ _ICON_SERVICE_IDS: dict[str, list[str]] = {
     "avd":          ["avd", "azure-virtual-desktop", "virtual-desktop"],
     "entra":        ["entra-id", "azure-active-directory", "aad"],
     "keyvault":     ["key-vault", "keyvault"],
+    "firewall":     ["azure-firewall", "firewall"],
+    "bastion":      ["azure-bastion", "bastion"],
+    "vpn":          ["vpn-gateway", "azure-vpn-gateway", "vpn"],
+    "expressroute": ["expressroute", "express-route", "azure-expressroute"],
+    "loadbalancer": ["load-balancer", "azure-load-balancer", "loadbalancer"],
+    "privatelink":  ["private-link", "private-endpoint", "privatelink"],
+    "trafficmgr":   ["traffic-manager", "trafficmanager"],
+    "ddos":         ["ddos-protection", "azure-ddos-protection", "ddos"],
+    "virtualwan":   ["virtual-wan", "virtualwan", "azure-virtual-wan"],
+    "waf":          ["web-application-firewall", "waf"],
+    "cdn":          ["cdn", "azure-cdn"],
+    "networkwatcher": ["network-watcher", "networkwatcher"],
     "region":       ["region", "azure-region"],
     "subnet":       ["subnet", "virtual-network-subnet"],
     "vm":           ["virtual-machine", "vm"],
@@ -172,6 +184,18 @@ _ICON_TILE_COLOR: dict[str, str] = {
     "avd":          COLOR_PRIMARY,
     "entra":        COLOR_PRIMARY,
     "keyvault":     COLOR_PRIMARY,
+    "firewall":     COLOR_RED,
+    "bastion":      COLOR_PRIMARY,
+    "vpn":          COLOR_GREEN,
+    "expressroute": COLOR_GREEN,
+    "loadbalancer": COLOR_PRIMARY,
+    "privatelink":  COLOR_PURPLE,
+    "trafficmgr":   COLOR_CYAN,
+    "ddos":         COLOR_RED,
+    "virtualwan":   COLOR_GREEN,
+    "waf":          COLOR_RED,
+    "cdn":          COLOR_CYAN,
+    "networkwatcher": COLOR_PRIMARY,
     "region":       COLOR_GREEN,
     "subnet":       COLOR_PURPLE,
     "vm":           COLOR_PRIMARY,
@@ -195,6 +219,18 @@ _BUNDLED_ICON_FILES: dict[str, str] = {
     "avd": "virtual_desktop.svg",
     "entra": "entra_id.svg",
     "keyvault": "key_vault.svg",
+    "firewall": "azure_firewall.svg",
+    "bastion": "azure_bastion.svg",
+    "vpn": "vpn_gateway.svg",
+    "expressroute": "expressroute.svg",
+    "loadbalancer": "load_balancer.svg",
+    "privatelink": "private_link.svg",
+    "trafficmgr": "traffic_manager.svg",
+    "ddos": "ddos_protection.svg",
+    "virtualwan": "virtual_wan.svg",
+    "waf": "web_application_firewall.svg",
+    "cdn": "cdn.svg",
+    "networkwatcher": "network_watcher.svg",
     "region": "management_groups.svg",
     "subnet": "virtual_network.svg",
     "vnet": "virtual_network.svg",
@@ -305,8 +341,11 @@ def _placeholder_glyph(icon_key: str) -> str:
         "frontdoor": "FD", "appgw": "AG", "storage": "ST", "aks": "AK",
         "files": "AF", "sql": "DB", "eventhub": "EH", "monitor": "AM",
         "appinsights": "AI", "loganalytics": "LA", "dns": "DN", "avd": "VD",
-        "entra": "ID", "keyvault": "KV", "region": "RG", "subnet": "SN",
-        "vm": "VM", "vnet": "VN", "rg": "RG", "user": "U",
+        "entra": "ID", "keyvault": "KV", "firewall": "FW", "bastion": "BA",
+        "vpn": "VP", "expressroute": "ER", "loadbalancer": "LB",
+        "privatelink": "PL", "trafficmgr": "TM", "ddos": "DD",
+        "virtualwan": "VW", "waf": "WF", "cdn": "CD", "networkwatcher": "NW",
+        "region": "RG", "subnet": "SN", "vm": "VM", "vnet": "VN", "rg": "RG", "user": "U",
     }
     return table.get(icon_key, icon_key[:2].upper())
 
@@ -586,8 +625,122 @@ def _region_stamp(x: int, y: int, region: dict[str, Any], tiers: dict[str, list[
     # Files banner + Data subnet.
     out.append(_data_band(tiers))
 
+    # Networking services rail — make source-networking packages visibly accurate.
+    out.append(_network_services_rail(tiers))
+
     out.append('</g>')
     return "\n".join(out)
+
+
+def _network_services_rail(tiers: dict[str, list[dict[str, Any]]]) -> str:
+    """Right-side rail for inferred Azure networking services with real icons."""
+    services = _networking_services(tiers)
+    if not services:
+        return ""
+
+    x, y, w = 1540, 200, 160
+    row_h = 54
+    visible = services[:8]
+    h = 42 + len(visible) * row_h
+    out = [f'<g id="network-services" transform="translate({x}, {y})">']
+    out.append(_card(0, 0, w, h, stroke=COLOR_GREEN, fill="#FFFFFF"))
+    out.append(
+        f'<rect x="0" y="0" width="{w}" height="24" rx="2" fill="{COLOR_GREEN}"/>'
+    )
+    out.append(_tx(10, 17, "Network Services", "t-banner"))
+
+    for i, item in enumerate(visible):
+        row_y = 34 + i * row_h
+        out.append(
+            f'<rect x="8" y="{row_y}" width="{w - 16}" height="44" rx="5" '
+            f'fill="#F7FBFF" stroke="#cdd5e3" stroke-width="1"/>'
+        )
+        out.append(_img(item["icon"], 14, row_y + 8, 28, 28))
+        out.append(_tx(48, row_y + 20, _truncate(item["label"], 18), "t-tiny"))
+        if item.get("source"):
+            out.append(_tx(48, row_y + 34, _truncate(item["source"], 18), "t-tinier"))
+    out.append("</g>")
+    return "\n".join(out)
+
+
+def _networking_services(tiers: dict[str, list[dict[str, Any]]]) -> list[dict[str, str]]:
+    """Extract known Azure networking services from all inferred tier buckets."""
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for entries in tiers.values():
+        for entry in entries:
+            name = str(entry.get("name", "")).strip()
+            if not name:
+                continue
+            icon = _network_icon_key(name)
+            if not icon:
+                continue
+            key = f"{icon}:{name.lower()}"
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append({
+                "icon": icon,
+                "label": _network_label(name),
+                "source": str(entry.get("source", "")).strip(),
+            })
+    return out
+
+
+def _network_icon_key(name: str) -> Optional[str]:
+    text = name.lower()
+    checks: list[tuple[tuple[str, ...], str]] = [
+        (("virtual wan", "vwan"), "virtualwan"),
+        (("vpn gateway", "vpn"), "vpn"),
+        (("expressroute", "express route"), "expressroute"),
+        (("azure firewall", "firewall"), "firewall"),
+        (("bastion",), "bastion"),
+        (("application gateway", "app gateway"), "appgw"),
+        (("front door",), "frontdoor"),
+        (("web application firewall", " waf", "waf"), "waf"),
+        (("load balancer",), "loadbalancer"),
+        (("private link", "private endpoint"), "privatelink"),
+        (("traffic manager",), "trafficmgr"),
+        (("ddos",), "ddos"),
+        (("cdn",), "cdn"),
+        (("azure dns", "private dns", "dns"), "dns"),
+        (("network security group", "nsg", "route table", "udr", "nat gateway"), "networkwatcher"),
+        (("virtual network", "vnet"), "vnet"),
+    ]
+    for needles, icon in checks:
+        if any(needle in text for needle in needles):
+            return icon
+    return None
+
+
+def _network_label(name: str) -> str:
+    text = name.lower()
+    labels = {
+        "virtual wan": "Virtual WAN",
+        "vpn gateway": "VPN Gateway",
+        "expressroute": "ExpressRoute",
+        "azure firewall": "Azure Firewall",
+        "bastion": "Bastion",
+        "application gateway": "App Gateway",
+        "front door": "Front Door",
+        "web application firewall": "WAF",
+        "load balancer": "Load Balancer",
+        "private link": "Private Link",
+        "private endpoint": "Private Link",
+        "traffic manager": "Traffic Manager",
+        "ddos": "DDoS Protection",
+        "cdn": "CDN",
+        "azure dns": "Azure DNS",
+        "private dns": "Private DNS",
+        "network security group": "NSG",
+        "nat gateway": "NAT Gateway",
+        "route table": "Route Table",
+        "virtual network": "VNet",
+    }
+    for needle, label in labels.items():
+        if needle in text:
+            return label
+    return name
 
 
 def _tier1_row(tiers: dict[str, list[dict[str, Any]]]) -> str:

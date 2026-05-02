@@ -98,6 +98,7 @@ The PRD distinguishes three maturity levels. **Live** features are usable in the
 
 ### 3.7 Diagram Export (v2.0)
 - **Architecture Package (v4.3.0-main):** Polished customer-facing HTML export with target/as-is topology, hardened/DR topology, talking points, and limitations; SVG-only target and DR exports are available for downstream documentation tools.
+- **Networking Architecture Package fidelity:** Networking-heavy diagrams render a dedicated Azure Network Services rail with bundled Azure icons for services such as Virtual WAN, VPN Gateway, ExpressRoute, Azure Firewall, Front Door, Application Gateway, Azure DNS, and Private Link.
 - **Customer intent profile:** Guided answers are condensed into a lightweight `customer_intent` profile while raw `guided_answers` stay compact and distinguish user choices from defaults.
 - **Excalidraw (.excalidraw):** Interactive JSON format with Azure service stencils
 - **Draw.io (.drawio):** mxGraphModel XML with Azure stencils, compatible with diagrams.net
