@@ -949,14 +949,18 @@ def _last_successful_refresh_timestamp() -> Optional[datetime]:
 
 def _register_service_catalog_freshness() -> None:
     """Register the service catalog refresh job, seeding durable state."""
-    from freshness_registry import register_with_last_success
+    from freshness_registry import mark_success, register_with_last_success
+
+    last_success = _last_successful_refresh_timestamp()
 
     register_with_last_success(
         "service_catalog_refresh",
         budget_hours=FRESHNESS_BUDGET_HOURS,
-        last_success=_last_successful_refresh_timestamp(),
+        last_success=last_success,
         description="Daily AWS/Azure/GCP service catalog discovery (issue #571)",
     )
+    if last_success is not None:
+        mark_success("service_catalog_refresh", when=last_success)
 
 # Issue #640 — register with the centralised freshness registry so this job
 # shows up in the /api/health.scheduled_jobs block alongside any other periodic
@@ -981,6 +985,11 @@ def get_freshness() -> dict[str, Any]:
         }
     """
     state = _read_state()
+    try:
+        _register_service_catalog_freshness()
+    except Exception:  # noqa: BLE001
+        pass
+
     last = state.get("last_check")
     last_check_record = state["checks"][-1] if state.get("checks") else None
     last_errors = (last_check_record or {}).get("errors") or None
