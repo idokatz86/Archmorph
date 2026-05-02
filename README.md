@@ -2,11 +2,11 @@
 
 **AI-Powered Multi-Cloud Architecture Translator & Migration Platform**
 
-Translate AWS and GCP architecture diagrams into Azure-ready migration artifacts: service mappings, guided questions, IaC drafts, HLD exports, cost estimates, and reviewable migration packages. Archmorph is in preview/stabilization; some enterprise surfaces are implemented as beta or scaffolded workflows.
+Translate AWS and GCP architecture diagrams into Azure-ready migration artifacts: service mappings, guided questions, IaC drafts, HLD exports, cost estimates, Architecture Package HTML/SVG deliverables, and reviewable migration packages. Archmorph is in preview/stabilization; some enterprise surfaces are implemented as beta or scaffolded workflows.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Multi-Cloud](https://img.shields.io/badge/cloud-AWS%20%7C%20Azure%20%7C%20GCP-0078D4.svg)
-![Version](https://img.shields.io/badge/version-4.2.0-22C55E.svg)
+![Version](https://img.shields.io/badge/version-4.3.0--main-22C55E.svg)
 ![Status](https://img.shields.io/badge/status-Preview%20Stabilizing-F59E0B.svg)
 ![Tests](https://img.shields.io/badge/tests-CI%20Enforced-22C55E.svg)
 ![Python](https://img.shields.io/badge/python-3.12-3776AB.svg)
@@ -18,15 +18,15 @@ Translate AWS and GCP architecture diagrams into Azure-ready migration artifacts
 
 ## Overview
 
-Archmorph is an AI-assisted cloud migration workbench. The live path analyzes uploaded architecture diagrams, maps AWS/GCP services to Azure equivalents with confidence scoring, asks guided migration questions, generates IaC drafts, prepares HLD/report exports, and estimates costs. The application is 100% free for customers: there are no subscriptions, paid tiers, billing steps, or hidden customer charges. Adjacent platform capabilities such as scanner, deploy, collaboration, SSO/SCIM, gallery, and drift are present in the codebase at varying maturity levels and are labeled below so operators know what is ready to trust.
+Archmorph is an AI-assisted cloud migration workbench. The live path analyzes uploaded architecture diagrams, maps AWS/GCP services to Azure equivalents with confidence scoring, asks guided migration questions, generates IaC drafts, prepares HLD/report exports, exports customer-facing Architecture Package HTML/SVG views, and estimates costs. The application is 100% free for customers: there are no subscriptions, paid tiers, billing steps, or hidden customer charges. Adjacent platform capabilities such as scanner, deploy, collaboration, gallery, and drift are present in the codebase at varying maturity levels and are labeled below so operators know what is ready to trust.
 
 ### Capability Status
 
 | Status | Meaning | Capabilities |
 |--------|---------|--------------|
-| Live | Usable in the current product path | Diagram upload, sample playground, AI service mapping, guided questions, IaC/HLD/report export, cost estimates, service catalog, admin analytics, auth shell, CI/security scanning |
-| Beta | Implemented but needs hardening, deeper tests, or production validation | RAG, Agent PaaS proof, cost/token observability, collaboration, gallery, replay, Terraform state import, multi-cloud cost comparison, social auth/RBAC, **Azure Landing Zone target diagram** (visual scaffold; production-ready push targeted for v4.3.0 under epic #586 — see [Production-Ready Roadmap](#production-ready-roadmap-azure-landing-zone-v430-target) below) |
-| Scaffold | UI/routes/models exist, but execution needs integration or operator review | Live cloud scanner, deploy engine, credential vault, SSO/SAML/SCIM, live drift/living architecture |
+| Live | Usable in the current product path | Diagram upload, sample playground, AI service mapping, guided questions, IaC/HLD/report export, **Architecture Package HTML/SVG export**, cost estimates, service catalog freshness health, admin health/release evidence, auth shell, CI/security scanning |
+| Beta | Implemented but needs hardening, deeper tests, or production validation | RAG, Agent PaaS proof, cost/token observability, collaboration, gallery, replay, Terraform state import, multi-cloud cost comparison, **Azure Landing Zone target diagram** (visual scaffold; production-ready push targeted for v4.3.0 under epic #586 — see [Production-Ready Roadmap](#production-ready-roadmap-azure-landing-zone-v430-target) below) |
+| Scaffold | UI/routes/models exist, but execution needs integration or operator review | Live cloud scanner, deploy engine, credential vault, live drift/living architecture |
 | Planned | Not production-ready yet | VS Code extension, PR-based IaC workflow, multi-diagram projects |
 
 ### Production-Ready Roadmap — Azure Landing Zone (v4.3.0 target)
@@ -52,7 +52,8 @@ The post-merge CTO end-to-end review of `landing-zone-svg` (May 1, 2026) flagged
 - Auto-detect AWS/GCP services with AI vision across a **405+ service catalog** (145 AWS, 143 Azure, 117 GCP — grows automatically)
 - **Guided migration questions** — 32 contextual questions across 8 categories with **inter-question constraint system** that dynamically filters options based on compliance and data residency choices
 - Map to Azure equivalents with **confidence scores and transparency explanations** showing why each level was assigned
-- **Export architecture diagrams** as Excalidraw, Draw.io, or Visio with Azure stencils
+- **Export Architecture Package** as polished customer-facing HTML plus target/DR SVG renderings with Azure topology views, talking points, and limitations
+- **Export classic architecture diagrams** as Excalidraw, Draw.io, or Visio with Azure stencils
 - **Azure Landing Zone target diagram** (Beta) — pure-stdlib `landing-zone-svg` export rendering a Microsoft-style hub-and-spoke ALZ (management groups, identity hub, network hub, ingress/compute/data/observability/storage/identity tiers) plus an optional `dr_variant=dr` view with region pairing and replication bands. Multi-source provider: works for both `source_provider=aws` and `source_provider=gcp` (provider read implicitly from the analysis payload). All icons embedded as `data:` URIs — no external network calls. T3 fidelity follow-ups tracked under epic #586.
 - **Interactive Architecture Map** — dagre auto-layout with confidence rings, effort badges, typed edges, zone grouping, and full pan/zoom/drag interactivity
 - **Service Dependency Graph** — React Flow interactive graph with 6 typed edges (traffic/database/auth/control/security/storage), dagre layout, click-to-reveal detail panel, SVG export
@@ -78,7 +79,7 @@ The post-merge CTO end-to-end review of `landing-zone-svg` (May 1, 2026) flagged
 - **Infrastructure import** — import existing Terraform/ARM/CloudFormation configurations
 - **Terraform State Import** — reverse-engineer existing infrastructure from tfstate/CloudFormation/ARM into architecture diagrams
 - **Multi-Cloud Cost Comparison** — side-by-side Azure vs AWS vs GCP TCO analysis with savings recommendations
-- **SSO / SAML / SCIM scaffold** — enterprise auth routes exist, but require tenant-specific configuration and production validation before use
+- **Auth shell** — simple login/logout/provider routes remain; SSO/SAML/SCIM, org, and profile routers were removed from the active API surface during main-branch convergence
 - **Real-time Collaboration** — multi-stakeholder migration workspace with share codes and role-based participants
 - **Migration Replay** — animated analysis timeline for presentations with playback controls
 - **Migration Gallery** — public anonymized success stories, filterable by cloud and complexity
@@ -87,8 +88,8 @@ The post-merge CTO end-to-end review of `landing-zone-svg` (May 1, 2026) flagged
 - **Living architecture scaffold** — drift/versioning APIs include saved baselines, repeat compares, finding decisions, and Markdown report export; live environment monitoring still requires tenant-specific scanner validation
 - **Social authentication** — Microsoft, Google, GitHub sign-in (Azure SWA + JWT fallback)
 - **User profiles** — preferences, avatar, GDPR-compliant account deletion
-- **RBAC & multi-tenant isolation** — 4-role hierarchy (viewer/member/admin/owner), org management, tier-based quotas
-- **Admin dashboard** — conversion funnel, daily metrics, session tracking, runtime health, release gate view, audit stream, and guarded feature flag controls
+- **Scoped API keys and admin gates** — current access control focuses on API keys, admin session checks, feature flags, and guarded scaffold execution; multi-tenant org/profile surfaces are no longer active routes
+- **Admin dashboard** — runtime health, release gate view, audit stream, scheduled-job freshness, and guarded feature flag controls
 - **Persistent analytics** — Azure Blob Storage with background flush and crash-safe shutdown
 - **Toast notification system** — non-blocking success/error/warning notifications with auto-dismiss
 - **Session expiry warning** — countdown banner with session extension capability
@@ -188,7 +189,7 @@ flowchart TB
             subgraph Engines["Processing Engines"]
                 Vision[GPT-4o Vision Analyzer<br/>+ TTLCache]
                 GQ[Guided Questions<br/>32 rules, 8 categories<br/>+ Constraint System]
-                Export[Diagram Export<br/>Excalidraw/Draw.io/Visio]
+                Export[Architecture Package + Classic Export<br/>HTML/SVG/Excalidraw/Draw.io/Visio]
                 IaC[IaC Generator<br/>Terraform/Bicep<br/>+ Security Scan]
                 HLD[HLD Generator<br/>13 sections + WAF]
                 HLDExport[HLD Export<br/>DOCX/PDF/PPTX]
@@ -209,7 +210,7 @@ flowchart TB
                 Scanner[Cloud Scanner<br/>Scaffold / gated]
                 CredVault[Credential Vault<br/>AES-256 + 1hr TTL]
                 DeployEng[Deploy Engine<br/>Preview + gated execute]
-                SSO[SSO / SAML / SCIM<br/>Tenant validation gated]
+                AuthOps[Auth Shell + API Keys<br/>Admin gates / audit]
                 Collab[Collaboration<br/>Real-Time Sessions]
                 Replay[Migration Replay<br/>Animated Timeline]
                 Gallery[Migration Gallery<br/>Public Stories]
@@ -222,7 +223,7 @@ flowchart TB
             AuditLog[Audit Logging<br/>Structured JSON]
             SessionStore[Session Store<br/>InMemory / Redis]
             JobQueue[Job Queue + SSE<br/>Background Tasks]
-            Auth[Auth + RBAC<br/>SWA + JWT + Orgs]
+            Auth[Auth Shell<br/>SWA/JWT + API keys]
         end
         
         subgraph Data["Data Services"]
@@ -265,7 +266,7 @@ flowchart TB
     API --> ReportGen
     API --> Scanner --> CredVault
     API --> DeployEng
-    API --> SSO
+    API --> AuthOps
     API --> Collab
     API --> Replay
     API --> Gallery
@@ -299,7 +300,8 @@ flowchart TB
 | Scheduler | APScheduler (CronTrigger) | In-process |
 | Service Auto-Discovery | Daily sync + auto-integration | In-process engine |
 | Guided Questions | 32 questions, 8 categories, inter-question constraints | In-process engine |
-| Diagram Export | Excalidraw / Draw.io / Visio | In-process engine |
+| Architecture Package Export | HTML package + target/DR SVG + talking points/limitations | In-process engine |
+| Classic Diagram Export | Excalidraw / Draw.io / Visio | In-process engine |
 | Icon Registry | 405 icons, 3 library formats | In-process engine |
 | Pricing | Azure Retail Prices API (46 queries) | 30-day disk cache |
 | Cost Comparison | Cross-cloud price comparison | In-process engine |
@@ -319,8 +321,7 @@ flowchart TB
 | Agent PaaS | Agent CRUD, ReAct loop, tool execution | In-process engine |
 | Cost Metering | Token tracking, budgets, alerts, CSV export | In-process engine |
 | PDF Report | 6-section branded report generator | In-process engine |
-| Auth | Social login (MS/Google/GitHub), JWT, SWA integration | Middleware |
-| RBAC | 4-role org hierarchy, quotas, audit | Middleware |
+| Auth | Auth shell, JWT/SWA integration, API keys | Middleware |
 | Security | Headers, timing-safe auth, XSS protection, Dependabot | Middleware |
 | Error Envelope | Structured error responses with correlation IDs | Middleware |
 | Feature Flags | Python module, % rollout + user targeting | In-process |
@@ -333,7 +334,7 @@ flowchart TB
 | Cloud Scanner | AWS/Azure/GCP scanner scaffold, gated before tenant use | In-process engine |
 | Credential Vault | AES-256 encrypted, 1hr TTL, zero-persist scaffold | In-process engine |
 | Deploy Engine | Preview (plan/what-if) + operator-gated execute/rollback scaffold | In-process engine |
-| SSO / SAML / SCIM | SAML 2.0 ACS + SCIM v2.0 provisioning, pending tenant validation | Middleware |
+| API Keys/Admin Gates | Scoped API keys, admin sessions, feature-gated scaffolds | Middleware |
 | Collaboration | Real-time multi-stakeholder sessions | In-process engine |
 | Migration Replay | Animated analysis timeline playback | In-process engine |
 | Migration Gallery | Public anonymized success stories | In-process engine |
@@ -640,7 +641,7 @@ Dynamic pricing powered by the [Azure Retail Prices API](https://prices.azure.co
 
 ### Coverage
 
-- **76 backend test files** covering the translation flow, analytics, auth/RBAC, RAG/Agent PaaS proof paths, policies, models, and property-based checks
+- **76 backend test files** covering the translation flow, admin/auth/API-key paths, RAG/Agent PaaS proof paths, policies, models, service freshness, and property-based checks
 - **262 frontend Vitest tests** covering component rendering, navigation, storage/session behavior, and interaction contracts
 - **17 Playwright smoke tests** covering golden-path UI flows, React Flow canvas behavior, and critical accessibility checks
 - CI now treats backend coverage, frontend lint, and frontend tests as hard gates. Previously ignored backend tests are included.
@@ -703,8 +704,7 @@ Archmorph/
 │   │   ├── diagrams.py              # Diagram analysis routes
 │   │   ├── chat.py                  # Chat & IaC chat routes
 │   │   ├── admin.py                 # Admin dashboard routes
-│   │   ├── auth.py                  # Social auth routes (MS/Google/GitHub)
-│   │   ├── sso_routes.py            # SAML/SCIM enterprise SSO
+│   │   ├── auth.py                  # Auth shell routes
 │   │   ├── collaboration_routes.py  # Real-time collaboration sessions
 │   │   ├── replay_routes.py         # Migration replay timeline
 │   │   ├── gallery_routes.py        # Public migration gallery
@@ -713,13 +713,11 @@ Archmorph/
 │   │   ├── deployments.py           # Deploy engine (preview + execute)
 │   │   ├── terraform_import_routes.py # TF state/ARM/CF import
 │   │   ├── cost_comparison_routes.py # Multi-cloud cost compare
-│   │   ├── analytics_routes.py      # Product analytics ingestion
 │   │   ├── agents.py                # Agent PaaS CRUD
 │   │   ├── executions.py            # Agent execution + ReAct loop
 │   │   ├── rag_routes.py            # RAG pipeline routes
 │   │   ├── drift.py                 # Infrastructure drift detection
 │   │   ├── feature_flags.py         # Feature flag management
-│   │   ├── organizations.py         # Multi-tenant org management
 │   │   ├── jobs.py                  # Background job & SSE routes
 │   │   ├── v1.py                    # API v1 prefix router
 │   │   └── ... (59 total)           # + 35 more domain routers
@@ -818,7 +816,7 @@ Production hardening switches:
 
 - `DATABASE_URL` must point to PostgreSQL for production; set `ENFORCE_POSTGRES=true` to fail startup if SQLite is accidentally configured.
 - `REDIS_HOST` or `REDIS_URL` should be configured for horizontal scale; set `REQUIRE_REDIS=true` to fail startup instead of falling back to local file-backed stores.
-- `FEATURE_FLAG_LIVE_CLOUD_SCANNER`, `FEATURE_FLAG_DEPLOY_ENGINE`, and `FEATURE_FLAG_ENTERPRISE_SSO_SCIM` default to disabled and must only be enabled after the admin release gate and tenant validation pass.
+- `FEATURE_FLAG_LIVE_CLOUD_SCANNER` and `FEATURE_FLAG_DEPLOY_ENGINE` default to disabled and must only be enabled after the admin release gate and tenant validation pass.
 
 ### Azure Resources
 
@@ -907,8 +905,9 @@ See [docs/DEPLOYMENT_COSTS.md](docs/DEPLOYMENT_COSTS.md) for full breakdown.
 | v3.6.0 — Platform Hardening & UX | Done | Dark mode toggle with light/full theme, skeleton loaders, focus-visible a11y, reduced-motion support, Cache-Control headers on read endpoints, HLD v2 with 10 professional sections, contextual help tooltips, confidence deep-dive UI (Strengths/Limitations/Migration tabs per mapping) |
 | v3.8.0 — Complete Migration Flow | Done | Migration package ZIP export (IaC + HLD + costs), before/after architecture visualization, guided onboarding tour, CI coverage gate (60%), stale bot, migration Q&A chat advisor |
 | v3.8.1 — UX Polish & Bug Bash | Done | Fix HLD generation 500 crashes, recover missing Map layers, unblock IaC dynamic modifications, populate Coming Soon tab, and Drift Alpha warnings |
-| v4.0.0 — Platform Scale | Done | RAG pipeline, AI Agent PaaS PoC, cost/token observability, AI mapping auto-suggestions, migration timeline generator, service dependency graph, social auth, user profiles, RBAC/multi-tenant, PDF report export, DevOps modernization (uv, Trivy, Helm) |
-| v4.1.0 — Enterprise & Collaboration Preview | Mixed | Product analytics, UX Wave 1/2, Terraform import, replay/gallery/collaboration, RAG/Agent PaaS, cost observability, drift baselines, admin release gates, and security evidence are implemented or beta. Live scanner, deploy engine, credential vault, and SSO/SCIM production validation remain scaffolded/hardening work. |
+| v4.0.0 — Platform Scale | Done | RAG pipeline, AI Agent PaaS PoC, cost/token observability, AI mapping auto-suggestions, migration timeline generator, service dependency graph, social auth/profile/RBAC experiments, PDF report export, DevOps modernization (uv, Trivy, Helm) |
+| v4.1.0 — Enterprise & Collaboration Preview | Mixed | Product analytics, UX Wave 1/2, Terraform import, replay/gallery/collaboration, RAG/Agent PaaS, cost observability, drift baselines, admin release gates, and security evidence are implemented or beta. Live scanner, deploy engine, and credential vault remain scaffolded/hardening work; SSO/org/profile routes were retired from the active API in the v4.3 main convergence. |
+| v4.3.0-main — Convergence & Architecture Package | Done | Merged service freshness, analytics-retention cleanup, SSO/org/profile removal, and Architecture Package HTML/SVG exports; open PR count returned to zero and active branches converged to main. |
 | v5.0 — Next | Planned | VS Code extension, Pulumi/CDK output, multi-diagram projects, GitHub/GitLab IaC PR integration |
 
 ---
@@ -932,7 +931,7 @@ See [docs/DEPLOYMENT_COSTS.md](docs/DEPLOYMENT_COSTS.md) for full breakdown.
 - **WAF:** Azure Front Door Premium with OWASP CRS 3.2, Zero Trust network configuration
 - **Audit logging:** Comprehensive structured JSON audit logs with risk levels, alerting rules, compliance queries
 - **Feature flags:** Controlled feature rollout with percentage-based and user-targeted flags
-- **Release gates:** Server-side feature gates block live scanner, deployment execution/rollback, and SSO/SCIM routes until operator-approved flags are enabled
+- **Release gates:** Server-side feature gates block live scanner and deployment execution/rollback until operator-approved flags are enabled
 - **Blue-green deployment:** Instant rollback capability for production deployments
 - **Privacy:** Cookie consent banner, legal pages, GDPR-aware data handling
 - **GPT truncation detection:** Guards against incomplete AI responses

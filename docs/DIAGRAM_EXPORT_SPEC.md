@@ -4,6 +4,8 @@
 > Target audience: developers implementing the export pipeline.
 > Date: 2026-03-17 | Version: 2.0
 
+> May 2026 update: the classic diagram formats remain supported, and the customer-facing Architecture Package adds HTML plus standalone target/DR SVG render targets on top of the same analysis result.
+
 ---
 
 ## 1. Input Data Contract
@@ -32,6 +34,15 @@ ExportPayload = {
     "compliance_frameworks": List[str],  # ["SOC 2", "GDPR"]
 }
 ```
+
+Architecture Package exports additionally consume `customer_intent` and optional `guided_answers` from the guided-question flow. `customer_intent` is the compact narration profile used for talking points and limitations; `guided_answers` preserves the raw user-provided answer payload when it is needed for review.
+
+## 1.1 Export Families
+
+| Family | Formats | Primary Consumer | Notes |
+|--------|---------|------------------|-------|
+| Architecture Package | `format=html` or `format=svg` with `diagram=primary` or `diagram=dr` | Customer, CTO, architecture review | Polished review package with Azure topology views, talking points, limitations, and namespaced inline SVG assets. |
+| Classic Diagram Export | `excalidraw`, `drawio`, `vsdx` | Engineers editing diagrams in external tools | Multi-page/multi-frame editable diagrams using the legacy renderer contract below. |
 
 ---
 
@@ -689,12 +700,14 @@ The export function must receive or compute these values:
 
 ---
 
-## 16. Function Signature (Updated)
+## 16. Function Signatures (Updated)
+
+Classic editable diagram exports continue through the legacy diagram renderer:
 
 ```python
 def generate_diagram(
     analysis_result: dict,
-    format: str,   # "excalidraw" | "drawio" | "vsdx"
+  format: str,   # "excalidraw" | "drawio" | "vsdx"
     *,
     pages: list[str] | None = None,  # None = all pages. ["overview", "target", "mapping", "topology"]
     include_source: bool = True,     # Show source cloud on overview page
@@ -715,3 +728,23 @@ def generate_diagram(
         }
     """
 ```
+
+      Architecture Package exports use a separate renderer and route:
+
+      ```python
+      def generate_architecture_package(
+        analysis_result: dict,
+        *,
+        format: str = "html",      # "html" | "svg"
+        diagram: str = "primary",  # "primary" | "dr"
+      ) -> dict:
+        """
+        Returns:
+          {
+            "format": str,
+            "filename": str,      # architecture-package-*.html or architecture-package-*.svg
+            "content": str,       # HTML or SVG
+            "content_type": str,  # text/html or image/svg+xml
+          }
+        """
+      ```

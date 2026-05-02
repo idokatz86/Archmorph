@@ -43,6 +43,8 @@ You are the **Agile Delivery Conductor** — ensuring all engineering agents col
 - Coverage thresholds (60% backend, 70% frontend)
 - Security scan clean, docs updated, performance baseline validated
 - Deployed to staging and verified, rollback plan documented
+- For convergence work, no issue is done until PR status, branch cleanup, docs/PRD/changelog, and diagram updates are all reconciled
+- Stale alert issues must be triaged against current health/freshness behavior before closing or creating follow-up work
 
 ---
 

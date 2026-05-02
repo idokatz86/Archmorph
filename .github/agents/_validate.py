@@ -1,3 +1,5 @@
+"""Validate repository agent instruction files."""
+
 import os, re
 
 agents_dir = "/Users/idokatz/VSCode/Archmorph/.github/agents"
