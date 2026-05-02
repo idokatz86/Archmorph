@@ -388,7 +388,7 @@ app.include_router(collaboration_router)
 app.include_router(replay_router)
 
 # ─────────────────────────────────────────────────────────────
-# API v1 Versioned Routes (/api/v1/* mirrors /api/*)
+# API v1 Versioned Routes (/api/v1/* mirrors the stable public API subset)
 # ─────────────────────────────────────────────────────────────
 _all_routers = [
     (icon_router, "/api"),       # icon_router has prefix="/api"
@@ -417,10 +417,6 @@ _all_routers = [
     (terraform_router, ""),
     (feature_flags_router, ""),
     (jobs_router, ""),
-    (credentials_router, ""), 
-    (scanner_router, ""), 
-    (deploy_router, ""),
-    (deployments_router, ""),
     (credentials_router, ""),
     (cost_router, ""),
     (report_router, ""),

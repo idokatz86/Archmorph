@@ -18829,6 +18829,7 @@
         },
         "summary": "Execute Deployment V1",
         "tags": [
+          "infra",
           "deploy",
           "v1"
         ]
@@ -18888,6 +18889,7 @@
         },
         "summary": "Run Preflight Check V1",
         "tags": [
+          "infra",
           "deploy",
           "v1"
         ]
@@ -18929,6 +18931,7 @@
         },
         "summary": "Execute Deployment V1",
         "tags": [
+          "infra",
           "deployments",
           "v1"
         ]
@@ -18970,6 +18973,7 @@
         },
         "summary": "Preview Deployment V1",
         "tags": [
+          "infra",
           "deployments",
           "v1"
         ]
@@ -19012,6 +19016,7 @@
         },
         "summary": "Rollback Deployment V1",
         "tags": [
+          "infra",
           "deployments",
           "v1"
         ]
@@ -19054,6 +19059,7 @@
         },
         "summary": "Get Deployment Status V1",
         "tags": [
+          "infra",
           "deployments",
           "v1"
         ]
@@ -19096,6 +19102,7 @@
         },
         "summary": "Stream Deployment Logs V1",
         "tags": [
+          "infra",
           "deployments",
           "v1"
         ]
@@ -23465,6 +23472,7 @@
         },
         "summary": "Run Cloud Scan V1",
         "tags": [
+          "infra",
           "v1"
         ]
       }
