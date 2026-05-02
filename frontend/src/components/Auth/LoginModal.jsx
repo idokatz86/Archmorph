@@ -8,8 +8,6 @@
 import React from 'react';
 import { X } from 'lucide-react';
 import { useAuth } from './AuthProvider';
-import { trackFunnel } from '../../services/analytics';
-
 /* Simple inline SVG provider icons — avoids external dependency */
 function MicrosoftIcon({ className }) {
   return (
@@ -103,7 +101,6 @@ export default function LoginModal({ isOpen, onClose }) {
             <button
               key={id}
               onClick={() => {
-                trackFunnel('sign_up', { provider: id, source: 'login_modal' });
                 loginWithProvider(id);
               }}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg border ${border} ${bg} ${text} font-medium text-sm transition-all duration-200 cursor-pointer`}

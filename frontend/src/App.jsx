@@ -9,7 +9,7 @@ import { ToastProvider } from './components/Toast';
 import { AuthProvider } from './components/Auth';
 import { APP_VERSION } from './constants';
 import useAppStore from './stores/useAppStore';
-import { trackPageView } from './services/analytics';
+
 import { isFeatureEnabled } from './featureFlags';
 
 // Lazy-loaded tab components — only fetched when the user switches tabs (#173)
@@ -54,10 +54,6 @@ export default function App() {
     fetchUpdateStatus(controller.signal);
     return () => controller.abort();
   }, [fetchUpdateStatus]);
-
-  useEffect(() => {
-    trackPageView(activeTab);
-  }, [activeTab]);
 
   useEffect(() => () => clearTimeout(tapTimer.current), []);
 
