@@ -788,14 +788,22 @@ def run_update_now(*, auto_add: bool = True) -> dict[str, Any]:
                 exc_info=True,
             )
 
-    # Issue #640 — publish freshness signal for the watchdog + /api/health.
-    # mark_success is no-op-safe when the registry hasn't been initialised
-    # (test isolation) so this is unconditional.
-    try:
-        from freshness_registry import mark_success
-        mark_success("service_catalog_refresh")
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("freshness_registry.mark_success failed: %s", exc)
+    # Issue #640 — publish freshness signal only for fully successful runs.
+    # Partial provider failures remain visible as stale scheduled-job health.
+    if not errors:
+        try:
+            from freshness_registry import mark_success
+            mark_success(
+                "service_catalog_refresh",
+                when=datetime.fromisoformat(timestamp.replace("Z", "+00:00")),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("freshness_registry.mark_success failed: %s", exc)
+    else:
+        logger.warning(
+            "Skipping service_catalog_refresh freshness success because providers failed: %s",
+            ",".join(sorted(errors)),
+        )
 
     logger.info("Service catalog update complete.")
     return check_record
@@ -847,16 +855,47 @@ def get_update_status() -> dict[str, Any]:
 # considered degraded and the SLO is breached.
 FRESHNESS_BUDGET_HOURS = float(os.getenv("SERVICE_REFRESH_BUDGET_HOURS", "36"))
 
+
+def _parse_state_timestamp(value: Any) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _last_successful_refresh_timestamp() -> Optional[datetime]:
+    """Return the newest persisted service-refresh timestamp with no errors."""
+    state = _read_state()
+    for check_record in reversed(state.get("checks", [])):
+        if check_record.get("errors"):
+            continue
+        parsed = _parse_state_timestamp(check_record.get("timestamp"))
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _register_service_catalog_freshness() -> None:
+    """Register the service catalog refresh job, seeding durable state."""
+    from freshness_registry import register_with_last_success
+
+    register_with_last_success(
+        "service_catalog_refresh",
+        budget_hours=FRESHNESS_BUDGET_HOURS,
+        last_success=_last_successful_refresh_timestamp(),
+        description="Daily AWS/Azure/GCP service catalog discovery (issue #571)",
+    )
+
 # Issue #640 — register with the centralised freshness registry so this job
 # shows up in the /api/health.scheduled_jobs block alongside any other periodic
 # work, and is monitored by the freshness-watchdog GH Actions workflow.
 try:
-    from freshness_registry import register as _fr_register
-    _fr_register(
-        "service_catalog_refresh",
-        budget_hours=FRESHNESS_BUDGET_HOURS,
-        description="Daily AWS/Azure/GCP service catalog discovery (issue #571)",
-    )
+    _register_service_catalog_freshness()
 except Exception:  # noqa: BLE001
     pass  # registry import failure is non-fatal
 

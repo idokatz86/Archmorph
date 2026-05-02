@@ -46,6 +46,19 @@ class TestRegister:
         assert entry["budget_hours"] == 48.0
         assert entry["description"] == "updated"
 
+    def test_register_with_last_success_seeds_durable_state(self):
+        success_time = datetime.now(timezone.utc) - timedelta(hours=2)
+        fr.register_with_last_success(
+            "job_seeded",
+            budget_hours=24,
+            last_success=success_time,
+            description="seeded",
+        )
+        entry = fr.get_all()[0]
+        assert entry["last_success"] is not None
+        assert entry["stale"] is False
+        assert entry["description"] == "seeded"
+
 
 class TestMarkSuccess:
     def test_mark_success_unregistered_is_noop(self):
@@ -142,18 +155,11 @@ class TestServiceCatalogIntegration:
     """The service_catalog_refresh job must auto-register on import."""
 
     def test_service_updater_registers_job_on_import(self):
-        # service_updater runs the registration at import time. A fresh
-        # registry (per fixture) needs the registration re-applied; do so
-        # by re-importing/re-calling the registration block.
+        # service_updater runs registration at import time; reloading covers
+        # that production path after this fixture resets the registry.
         fr.reset_for_tests()
         import importlib
         import service_updater
-        # Re-execute the module's freshness_registry block by re-running the
-        # specific call (the actual import already happened higher up).
-        fr.register(
-            "service_catalog_refresh",
-            budget_hours=service_updater.FRESHNESS_BUDGET_HOURS,
-            description="Daily AWS/Azure/GCP service catalog discovery (issue #571)",
-        )
+        importlib.reload(service_updater)
         names = [e["name"] for e in fr.get_all()]
         assert "service_catalog_refresh" in names

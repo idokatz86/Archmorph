@@ -144,6 +144,62 @@ class TestHealthContract:
         checks = client.get("/api/health").json()["checks"]
         assert_fields(checks, {"openai": str, "storage": str})
 
+    def test_health_scheduled_jobs_schema(self, client):
+        data = client.get("/api/health").json()
+        assert "scheduled_jobs" in data
+        assert isinstance(data["scheduled_jobs"], list)
+        if data["scheduled_jobs"]:
+            assert_fields(
+                data["scheduled_jobs"][0],
+                {
+                    "name": str,
+                    "budget_hours": float,
+                    "last_success": (str, type(None)),
+                    "age_hours": (float, type(None)),
+                    "stale": bool,
+                    "description": str,
+                },
+            )
+
+    def test_health_scheduled_job_staleness_degrades(self, client, monkeypatch):
+        import routers.health as health_router
+
+        monkeypatch.setattr(
+            health_router,
+            "get_scheduled_jobs",
+            lambda: [
+                {
+                    "name": "service_catalog_refresh",
+                    "budget_hours": 36.0,
+                    "last_success": None,
+                    "age_hours": None,
+                    "stale": True,
+                    "description": "test job",
+                }
+            ],
+        )
+        monkeypatch.setattr(
+            health_router,
+            "get_freshness",
+            lambda: {
+                "last_check": "2026-01-01T00:00:00+00:00",
+                "age_hours": 1.0,
+                "budget_hours": 36.0,
+                "stale": False,
+                "last_errors": None,
+                "providers_failed": [],
+            },
+        )
+        monkeypatch.setattr(
+            health_router,
+            "_run_dependency_checks",
+            lambda: ({"openai": "ok", "storage": "ok"}, False, False),
+        )
+
+        data = client.get("/api/health").json()
+        assert data["status"] == "degraded"
+        assert data["checks"]["scheduled_jobs_stale"] == "service_catalog_refresh"
+
 
 # =================================================================
 # Contract: /api/versions

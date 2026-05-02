@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse
 from version import __version__
 from services import AWS_SERVICES, AZURE_SERVICES, GCP_SERVICES, CROSS_CLOUD_MAPPINGS
 from service_updater import get_update_status, get_freshness
-from freshness_registry import get_all as get_scheduled_jobs, is_any_stale
+from freshness_registry import get_all as get_scheduled_jobs
 from api_versioning import get_api_versions
 from routers.shared import ENVIRONMENT
 

@@ -20,11 +20,9 @@ last success exceeded its budget marks the system ``degraded`` and triggers
 an automated alert issue.
 
 Design notes:
-  - State is held in-process; this is intentionally not durable. The watchdog
-    polls /api/health which reads in-memory state, so a container restart
-    "loses" history but `mark_success` runs on the next invocation. For jobs
-    that need durable state (e.g. service_catalog_refresh) the underlying
-    persistence layer (e.g. service_updates.json) is the source of truth.
+    - State is held in-process by default. Jobs with their own durable state can
+        seed ``last_success`` during registration so normal restarts do not create
+        false stale alerts before the next scheduled run.
   - Thread-safe via a module-level Lock.
   - Zero external dependencies (datetime + threading only).
 """
@@ -62,11 +60,30 @@ def register(name: str, *, budget_hours: float, description: str = "") -> None:
             stale beyond this marks the system ``degraded`` on /api/health.
         description: Optional human-readable description of what the job does.
     """
+    register_with_last_success(
+        name,
+        budget_hours=budget_hours,
+        description=description,
+        last_success=None,
+    )
+
+
+def register_with_last_success(
+    name: str,
+    *,
+    budget_hours: float,
+    last_success: Optional[datetime] = None,
+    description: str = "",
+) -> None:
+    """Register a scheduled job and optionally seed durable success state."""
+    if last_success is not None and last_success.tzinfo is None:
+        last_success = last_success.replace(tzinfo=timezone.utc)
     with _lock:
         if name not in _registry:
             _registry[name] = _Registration(
                 name=name,
                 budget_hours=float(budget_hours),
+                last_success=last_success,
                 description=description,
             )
         else:
@@ -75,7 +92,7 @@ def register(name: str, *, budget_hours: float, description: str = "") -> None:
             _registry[name] = _Registration(
                 name=name,
                 budget_hours=float(budget_hours),
-                last_success=existing.last_success,
+                last_success=existing.last_success or last_success,
                 description=description or existing.description,
             )
 
