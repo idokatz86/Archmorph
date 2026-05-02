@@ -56,6 +56,13 @@ def test_html_package_contains_tabs_and_namespaced_svg_ids():
     assert "Customer Intent" in content
     assert "East US" in content
     assert "(empty)" not in content
+    assert "data:image/svg+xml;base64" in content
+    assert ">FD<" not in content
+    assert ">AG<" not in content
+    assert ">ST<" not in content
+    assert ">AK<" not in content
+    assert ">AF<" not in content
+    assert ">DB<" not in content
     assert 'id="a-primary"' in content
     assert 'id="a-dr"' in content
     assert 'marker-end="url(#a)"' not in content

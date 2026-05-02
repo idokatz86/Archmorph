@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Customer-grade package shell** — Architecture Package HTML exports now use the richer Archmorph review structure with branded header metadata, source-to-target story strip, A/B/C/D tab semantics, and grouped talking-point/limitation rows.
 - **Legacy export cleanup** — Draw.io, Excalidraw, and Visio are removed from visible website export controls so the customer UI leads only with Architecture Package HTML, Target SVG, and DR SVG.
+- **Azure icon recovery** — Azure topology SVG rendering now falls back to Archmorph's bundled Azure service icons when the runtime icon registry is incomplete, avoiding letter-badge-only customer diagrams.
 - **Diagram placeholder cleanup** — Azure topology SVG rendering suppresses visible `(empty)` workload cells in availability-zone columns.
 
 #### Main-branch convergence and Architecture Package export (PRs #651 #652 #649 #667 #666)
