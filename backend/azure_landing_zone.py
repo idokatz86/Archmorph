@@ -724,7 +724,7 @@ def _vnet_block(tiers: dict[str, list[dict[str, Any]]]) -> str:
 
 
 def _az_column(x: int, y: int, label: str, pods: list[Optional[str]]) -> str:
-    """Single AZ column with header + 6 pod cells."""
+    """Single AZ column with header and inferred workload pod cells."""
     out = [f'<g transform="translate({x}, {y})">']
     col_w, col_h = 320, 260
     out.append(_card(0, 0, col_w, col_h, stroke=COLOR_INK_2))
