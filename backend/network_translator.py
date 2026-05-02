@@ -21,6 +21,8 @@ import threading
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from source_provider import normalize_source_provider
+
 logger = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────────────────────
@@ -578,7 +580,7 @@ def translate_network_topology(
         NetworkTopology with all translated components.
     """
     validate_cidr(vnet_cidr)
-    provider = analysis.get("source_provider", "aws").lower()
+    provider = normalize_source_provider(analysis.get("source_provider"))
 
     with _lock:
         return _translate_impl(analysis, vnet_cidr, subnet_prefix, vnet_name, provider)

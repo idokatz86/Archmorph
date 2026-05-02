@@ -6,13 +6,14 @@ Split from diagrams.py for maintainability (#284).
 """
 
 from fastapi import APIRouter, Request, Depends
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional
 import asyncio
 import logging
 
 from routers.shared import limiter, verify_api_key
 from routers.samples import get_or_recreate_session
+from source_provider import normalize_source_provider
 from usage_metrics import record_event
 from ai_suggestion import (
     suggest_mapping,
@@ -29,17 +30,24 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-class SuggestMappingRequest(BaseModel):
+class SourceProviderRequest(BaseModel):
+    source_provider: str = Field("aws", pattern="^(aws|gcp)$")
+
+    @field_validator("source_provider", mode="before")
+    @classmethod
+    def normalize_provider(cls, value):
+        return normalize_source_provider(value)
+
+
+class SuggestMappingRequest(SourceProviderRequest):
     """Request body for single AI mapping suggestion."""
     source_service: str = Field(..., min_length=1, max_length=200)
-    source_provider: str = Field("aws", pattern="^(aws|gcp)$")
     context_services: Optional[list] = None
 
 
-class SuggestBatchRequest(BaseModel):
+class SuggestBatchRequest(SourceProviderRequest):
     """Request body for batch AI mapping suggestions."""
     services: list = Field(..., min_length=1, max_length=50)
-    source_provider: str = Field("aws", pattern="^(aws|gcp)$")
 
 
 class ReviewRequest(BaseModel):
@@ -51,17 +59,15 @@ class ReviewRequest(BaseModel):
     notes: Optional[str] = None
 
 
-class GenerateRequest(BaseModel):
+class GenerateRequest(SourceProviderRequest):
     """Request body for triggering AI suggestion generation."""
     source_service: str = Field(..., min_length=1, max_length=200)
-    source_provider: str = Field("aws", pattern="^(aws|gcp)$")
     context_services: Optional[list] = None
 
 
-class GenerateBatchRequest(BaseModel):
+class GenerateBatchRequest(SourceProviderRequest):
     """Request body for batch AI suggestion generation."""
     services: list = Field(..., min_length=1, max_length=50)
-    source_provider: str = Field("aws", pattern="^(aws|gcp)$")
 
 
 @router.post("/api/suggest/mapping", tags=["ai-suggestion"])

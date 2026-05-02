@@ -34,6 +34,7 @@ from analysis_history import maybe_save_from_session
 from sku_translator import get_sku_translator
 from confidence_provenance import build_provenance
 from architecture_rules import evaluate as evaluate_architecture_rules
+from source_provider import normalize_source_provider
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,7 @@ def _enrich_with_sku(result: dict) -> dict:
     SKU translation details with parity scores.
     """
     engine = get_sku_translator()
-    provider = result.get("source_provider", "aws").lower()
+    provider = normalize_source_provider(result.get("source_provider"))
 
     for m in result.get("mappings", []):
         source_name = m.get("source_service", "")
