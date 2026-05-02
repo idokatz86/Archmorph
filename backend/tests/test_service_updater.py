@@ -620,7 +620,7 @@ class TestServicesReload:
         """
         import services
         import service_updater
-        from unittest.mock import patch as _patch, MagicMock
+        from unittest.mock import patch as _patch
 
         # Sentinel function to detect the reload call
         reload_called = {"count": 0}

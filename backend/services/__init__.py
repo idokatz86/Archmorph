@@ -35,9 +35,16 @@ def _load_discovered() -> dict[str, list[dict]]:
         blob_data = _load_discovered_from_blob()
         if blob_data is not None:
             return blob_data
-    except Exception:  # noqa: BLE001
-        # service_updater unavailable (test isolation, etc.) — fall through to disk.
-        pass
+    except ImportError as exc:
+        logger.debug(
+            "Blob catalog bootstrap unavailable; falling back to disk: %s",
+            exc,
+        )
+    except Exception:
+        logger.warning(
+            "Blob catalog bootstrap failed; falling back to disk",
+            exc_info=True,
+        )
 
     try:
         with open(_DISCOVERED_FILE, "r", encoding="utf-8") as fh:
@@ -120,7 +127,8 @@ def reload() -> dict[str, int]:
     return counts
 
 
-# Initial load at module import.
+# Initial load at module import. Blob bootstrap uses bounded Azure SDK timeouts
+# so startup falls back quickly to local disk when storage is slow/unavailable.
 reload()
 
 __all__ = [

@@ -179,6 +179,19 @@ DISCOVERED_BLOB_CONTAINER = os.getenv("DISCOVERED_BLOB_CONTAINER", "service-cata
 DISCOVERED_BLOB_NAME = os.getenv(
     "DISCOVERED_BLOB_NAME", "discovered_services.json"
 )
+DISCOVERED_BLOB_TIMEOUT_SECONDS = 5
+
+
+def _blob_timeout_seconds() -> int:
+    """Return the bounded timeout used for blob catalog operations."""
+    raw = os.getenv("DISCOVERED_BLOB_TIMEOUT_SECONDS", "")
+    if not raw:
+        return DISCOVERED_BLOB_TIMEOUT_SECONDS
+    try:
+        value = int(raw)
+    except ValueError:
+        return DISCOVERED_BLOB_TIMEOUT_SECONDS
+    return max(1, min(value, 30))
 
 
 def _get_discovered_blob_client():
@@ -187,6 +200,7 @@ def _get_discovered_blob_client():
     conn_str = os.getenv("AZURE_STORAGE_CONNECTION_STRING", "")
     if not account_url and not conn_str:
         return None
+    timeout = _blob_timeout_seconds()
     try:
         from azure.storage.blob import BlobServiceClient
 
@@ -196,15 +210,24 @@ def _get_discovered_blob_client():
             credential = DefaultAzureCredential(
                 managed_identity_client_id=os.getenv("AZURE_CLIENT_ID") or None
             )
-            bsc = BlobServiceClient(account_url, credential=credential)
+            bsc = BlobServiceClient(
+                account_url,
+                credential=credential,
+                connection_timeout=timeout,
+                read_timeout=timeout,
+            )
         else:
-            bsc = BlobServiceClient.from_connection_string(conn_str)
+            bsc = BlobServiceClient.from_connection_string(
+                conn_str,
+                connection_timeout=timeout,
+                read_timeout=timeout,
+            )
 
         container = bsc.get_container_client(DISCOVERED_BLOB_CONTAINER)
         try:
-            container.get_container_properties()
+            container.get_container_properties(timeout=timeout)
         except Exception:
-            container.create_container()
+            container.create_container(timeout=timeout)
             logger.info(
                 "Created blob container '%s' for discovered services",
                 DISCOVERED_BLOB_CONTAINER,
@@ -224,7 +247,7 @@ def _load_discovered_from_blob() -> Optional[dict[str, list[dict[str, str]]]]:
     if blob is None:
         return None
     try:
-        raw = blob.download_blob().readall()
+        raw = blob.download_blob(timeout=_blob_timeout_seconds()).readall()
         data = json.loads(raw)
         if isinstance(data, dict):
             # Hydrate the local cache so import-time consumers see it too.
@@ -237,7 +260,13 @@ def _load_discovered_from_blob() -> Optional[dict[str, list[dict[str, str]]]]:
             return data
     except Exception as exc:  # noqa: BLE001
         # ResourceNotFoundError on a fresh deployment is expected.
-        logger.debug("No discovered-services blob yet (%s)", type(exc).__name__)
+        if type(exc).__name__ == "ResourceNotFoundError":
+            logger.debug("No discovered-services blob yet (%s)", type(exc).__name__)
+        else:
+            logger.warning(
+                "Failed to load discovered services from blob; falling back to disk",
+                exc_info=True,
+            )
     return None
 
 
@@ -753,7 +782,11 @@ def run_update_now(*, auto_add: bool = True) -> dict[str, Any]:
                 counts["aws"], counts["azure"], counts["gcp"],
             )
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Live catalog reload failed (non-fatal): %s", exc)
+            logger.warning(
+                "Live catalog reload failed (non-fatal): %s",
+                exc,
+                exc_info=True,
+            )
 
     logger.info("Service catalog update complete.")
     return check_record
