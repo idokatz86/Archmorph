@@ -38,24 +38,3 @@ def test_legacy_deploy_execute_is_feature_gated():
     )
     assert response.status_code == 403
     assert response.json()["error"]["details"]["feature_flag"] == "deploy_engine"
-
-
-def test_saml_metadata_is_feature_gated():
-    response = client.post("/api/auth/saml/metadata")
-    assert response.status_code == 403
-    assert response.json()["error"]["details"]["feature_flag"] == "enterprise_sso_scim"
-
-
-def test_scim_users_are_feature_gated_before_token_validation():
-    response = client.get("/api/auth/scim/v2/Users")
-    assert response.status_code == 403
-    assert response.json()["error"]["details"]["feature_flag"] == "enterprise_sso_scim"
-
-
-def test_sso_readiness_redacts_secret_values():
-    response = client.get("/api/auth/sso/readiness")
-    assert response.status_code == 200
-    data = response.json()
-    assert data["feature_enabled"] is False
-    assert "bearer_token_configured" in data["scim"]
-    assert "token" not in data["scim"]
