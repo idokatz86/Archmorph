@@ -78,8 +78,9 @@ After deployment, verify:
 - `/#playground` opens the sample playground.
 - `${API_URL}/health` returns `healthy` or `degraded` with expected version metadata.
 - `${API_ROOT}/openapi.json` loads and reports `Archmorph API`.
-- A sample diagram can complete analysis without requiring production-only secrets.
-- Export actions that are part of the live path still produce files.
+- Run the [Production Architecture Package Smoke](PRODUCTION_SMOKE_ARCHITECTURE_PACKAGE.md) workflow with `strict_freshness=true`; retain the summary and artifact bundle for release evidence.
+- A sample diagram can complete analysis without requiring customer data.
+- Export actions that are part of the live path still produce files: Architecture Package HTML, target SVG, DR SVG, HLD, cost CSV, IaC, and at least one classic diagram format.
 - Drift baseline smoke: run the sample drift audit, accept/reject one non-green finding, and export the Markdown report.
 
 ## 5. Scaffolded Feature Gate
@@ -116,6 +117,6 @@ Before enabling any scaffolded feature, confirm:
 
 - Git commit SHA.
 - GitHub Actions run URL.
-- Smoke-test output summary.
+- Smoke-test output summary and Architecture Package smoke artifact manifest.
 - Enabled feature flags and tenant scope.
 - Any known degraded dependencies accepted for release.
