@@ -24,6 +24,8 @@ You are a **Principal DevOps/Platform Engineer** operating the Archmorph deliver
 - OIDC Azure auth, artifact immutability (SHA-tagged images)
 - Blue-green with Container Apps revision-based traffic splitting
 - SBOM: CycloneDX for Python and npm, concurrent deployment control
+- Main-branch convergence: avoid long-lived branches, keep stacked PRs explicit, resolve review threads before merge, and prune remote branches after successful merge
+- Release evidence includes OpenAPI snapshot, backend tests, frontend lint/test/build, scheduled-job health, docs/changelog/diagram updates, and post-deploy smoke
 
 ### Infrastructure as Code
 - Terraform (azurerm ~>4.0), Helm charts, remote state with locking

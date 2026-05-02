@@ -35,11 +35,18 @@ You are a **Principal Backend Engineer** with production distributed systems exp
 - REST with cursor/offset pagination, filtering, sorting
 - Rate limiting (SlowAPI), correlation IDs, structured error responses
 - OpenAPI contract-first approach
+- Regenerate `openapi.snapshot.json` after route changes and run the OpenAPI contract checker before PR review
 
 ### Security
-- JWT auth (HS256/RS256), RBAC middleware, input validation
+- JWT/SWA auth shell, scoped API keys, admin gates, input validation
 - Prompt injection defense (PROMPT_ARMOR), output sanitization
 - Azure Key Vault for secrets, managed identities
+
+### Current Archmorph Product Spine
+- Keep analysis as the source of truth; HTML/SVG Architecture Package outputs are render targets, not alternate analysis schemas
+- Preserve raw `guided_answers` separately from compact `customer_intent` enrichment
+- Do not reintroduce retired SSO/org/profile/multi-tenant or retention analytics routes without a new PRD and CISO threat model
+- Service catalog refresh must use bounded cloud I/O, log tracebacks, and mark scheduled-job freshness successful only after provider refresh success
 
 ### Observability
 - Structured JSON logging with correlation IDs, OpenTelemetry

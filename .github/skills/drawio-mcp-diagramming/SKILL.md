@@ -7,6 +7,8 @@ description: Create and edit architecture diagrams using Draw.io MCP (`drawio/cr
 
 Use this skill to create or update diagrams through the Draw.io MCP tool and to avoid common Azure and AWS icon rendering problems.
 
+For Archmorph Architecture Package work, treat the generated HTML/SVG package as the primary customer deliverable and Draw.io as an editable engineer handoff. Preserve the same Azure topology, assumptions, and limitations across both.
+
 See [references/REFERENCE.md](references/REFERENCE.md) for reference artifacts and refresh commands.
 
 For non-Azure/non-AWS diagrams, you can skip icon discovery/validation scripts and proceed directly to `drawio/create_diagram`.
@@ -50,6 +52,7 @@ For non-Azure/non-AWS diagrams, you can skip icon discovery/validation scripts a
    - Position resources inside their subnets
    - Label all traffic flows with protocols/ports
    - Include traffic legend and network isolation explanation boxes
+  - Show target-state and DR-state differences explicitly when the source analysis includes resilience or recovery intent.
 5. **For AWS infrastructure/network diagrams**: apply AWS Network Topology Patterns (see AWS section below):
    - Use larger canvas (1900x1500) for multi-VPC/account topologies
    - VPCs with thick borders (strokeWidth=4)
@@ -74,6 +77,7 @@ Apply these defaults unless the user explicitly asks for a dense/technical view:
 - Limit cross-lane dashed lines to one security/auth line and one optional telemetry line.
 - Keep text concise (single purpose per box) and avoid multiline overload.
 - Prefer a "clean" variant first; add detail only if requested.
+- For Azure migration outputs, make the first viewport answer: where is ingress, where is private data, where is identity/security enforced, where is observability, and what fails over.
 
 For worked examples of common layout problems (stacked edges, repeated labels, observability inside VNet, etc.), see [references/layout-antipatterns.md](references/layout-antipatterns.md).
 

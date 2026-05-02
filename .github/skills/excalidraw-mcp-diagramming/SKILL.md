@@ -7,6 +7,8 @@ description: Create and edit diagrams on a live Excalidraw canvas using the Exca
 
 Create diagrams on a live Excalidraw canvas that renders in the browser and updates in real time. You are not generating a static file — you are painting onto a shared whiteboard through MCP tools. The canvas persists between calls, so what you put on it in one call is visible in the next screenshot.
 
+For Archmorph Architecture Package work, Excalidraw is an editable review format. Keep it consistent with the HTML/SVG Architecture Package: target topology, DR topology, customer intent, assumptions, and limitations should line up.
+
 ## When to Use
 
 - The user asks to "create an excalidraw", "draw me a diagram", "make a flowchart", "visualise the system", or "diagram this architecture".
@@ -14,6 +16,7 @@ Create diagrams on a live Excalidraw canvas that renders in the browser and upda
 - The user wants to visualise an architecture, workflow, data flow, system design, mind map, or sequence diagram.
 - The user asks to export a diagram to PNG, SVG, `.excalidraw` file, or a shareable URL.
 - The user asks to update, change, or fix an existing Excalidraw diagram.
+- The user asks to compare or polish an Archmorph architecture package diagram and needs an editable visual review surface.
 
 ## Required MCP Server
 

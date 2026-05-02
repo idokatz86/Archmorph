@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Main-branch convergence and Architecture Package export (PRs #651 #652 #649 #667 #666)
+
+- **Architecture Package HTML/SVG export** — new customer-facing export path that produces a polished tabbed HTML package plus standalone target and DR SVG renderings. It preserves classic Excalidraw, Draw.io, and Visio exports while making the Azure topology package the lead deliverable.
+- **Customer intent profile** — guided-question answers now feed a compact `customer_intent` object for export narration while raw `guided_answers` remain limited to user-provided answers.
+- **Scheduled job freshness health** — service catalog refresh now registers durable freshness in `/api/health.scheduled_jobs`, restores last-success state after restart, and avoids marking success when provider refreshes fail.
+- **Branch convergence** — all active convergence PRs were merged or superseded and the repository was reduced back to `main` as the only active branch.
+
 #### Architecture limitations engine (PR [#615](https://github.com/idokatz86/Archmorph/pull/615); follow-up phases [#616](https://github.com/idokatz86/Archmorph/issues/616) [#617](https://github.com/idokatz86/Archmorph/issues/617) [#618](https://github.com/idokatz86/Archmorph/issues/618) [#619](https://github.com/idokatz86/Archmorph/issues/619))
 
 A deterministic rule engine that flags structurally invalid Azure compositions during analysis — the worked example being SFTP-via-Front-Door (Front Door is HTTP/HTTPS-only and cannot proxy port-22 SSH traffic to a storage SFTP endpoint).
@@ -64,6 +71,15 @@ Phase 2-5 follow-ups (AI fallback, admin review queue, frontend Architecture Hea
 - **Disabled-by-default feature flags** for scaffolded deploy, drift, cloud scanner, and SSO/SCIM capabilities, with frontend gating for drift and deploy surfaces.
 
 ### Changed
+
+- Direct and hub-based diagram downloads now use consistent MIME types for Architecture Package HTML/SVG and classic Excalidraw/Draw.io/Visio exports.
+- The `/api/v1/*` mirror is documented and generated as a stable public API subset instead of claiming to mirror every mounted internal router.
+- Service catalog blob/bootstrap failures now use bounded Azure SDK timeouts and traceback logging so startup and live reload failures are observable without hanging workers.
+
+### Removed
+
+- Removed stale analytics retention/event surfaces from backend routes, frontend route constants, dependencies, and tests.
+- Removed SSO, organization, profile, and multi-tenant router surfaces from the active API after the convergence triage; the current auth surface is the smaller auth shell plus API keys/admin gates.
 
 #### Infrastructure consolidation (May 2026)
 

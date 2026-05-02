@@ -1,28 +1,28 @@
 # Archmorph — Cloud Architecture Translator to Azure
 ## Product Requirements Document (PRD)
-**Version:** 4.2.0
-**Date:** May 1, 2026
+**Version:** 4.3.0-main convergence
+**Date:** May 2, 2026
 **Author:** Ido Katz
 
 ---
 
 ## 1. Executive Summary
 
-Archmorph is an AI-assisted cloud migration workbench in preview/stabilization. Its live product path converts uploaded AWS/GCP architecture diagrams into Azure migration artifacts: detected services, confidence-scored mappings, guided migration questions, IaC drafts, HLD/report exports, and cost estimates. The application is 100% free for customers: no subscriptions, paid tiers, billing setup, or hidden fees are required. The platform codebase also contains beta and scaffolded enterprise modules for collaboration, replay, gallery, RAG/Agent PaaS, Terraform state import, scanner, deploy, SSO/SCIM, and drift.
+Archmorph is an AI-assisted cloud migration workbench in preview/stabilization. Its live product path converts uploaded AWS/GCP architecture diagrams into Azure migration artifacts: detected services, confidence-scored mappings, guided migration questions, IaC drafts, HLD/report exports, Architecture Package HTML/SVG deliverables, and cost estimates. The application is 100% free for customers: no subscriptions, paid tiers, billing setup, or hidden fees are required. The platform codebase also contains beta and scaffolded modules for collaboration, replay, gallery, RAG/Agent PaaS, Terraform state import, scanner, deploy, and drift.
 
 The PRD distinguishes three maturity levels. **Live** features are usable in the core flow and should remain protected by CI. **Beta** features are implemented but need production validation, UX hardening, or broader tests. **Scaffold** features have routes, UI, or models present but must not be described as production-ready until cloud/provider execution is verified.
 
 **Problem:** Organizations migrating to Azure spend weeks manually mapping source architecture to Azure services. This process is error-prone, requires deep multi-cloud expertise, and lacks tooling for interactive refinement.
 
-**Solution:** Keep the core migration workflow fast, free, and reviewable: upload or select a sample diagram, analyze it with Azure OpenAI, map services against the catalog, capture migration constraints, generate IaC/HLD/cost artifacts, and export a package for human review. Enterprise modules continue behind explicit beta/scaffold labeling until scanner, deploy, SSO/SCIM, and drift paths meet production gates.
+**Solution:** Keep the core migration workflow fast, free, and reviewable: upload or select a sample diagram, analyze it with Azure OpenAI, map services against the catalog, capture migration constraints, generate IaC/HLD/cost artifacts, and export a polished Architecture Package or classic diagram format for human review. Enterprise modules continue behind explicit beta/scaffold labeling until scanner, deploy, and drift paths meet production gates.
 
 ### 1.1 Capability Maturity
 
 | Maturity | Capabilities |
 |----------|--------------|
-| Live | Diagram upload, sample playground, service mapping, guided questions, IaC/HLD/report export, cost estimates, service catalog, admin analytics, auth shell, API versioning, CI/security gates |
-| Beta | RAG, Agent PaaS proof, cost/token observability, collaboration, migration gallery, migration replay, Terraform state import, multi-cloud cost comparison, social auth/RBAC, **Azure Landing Zone target diagram** (multi-source: AWS + GCP; T3 fidelity in progress under epic #586) |
-| Scaffold | Live cloud scanner, credential vault, deploy engine, SSO/SAML/SCIM production validation |
+| Live | Diagram upload, sample playground, service mapping, guided questions, IaC/HLD/report export, Architecture Package HTML/SVG export, cost estimates, service catalog freshness health, admin health/release evidence, auth shell, API versioning, CI/security gates |
+| Beta | RAG, Agent PaaS proof, cost/token observability, collaboration, migration gallery, migration replay, Terraform state import, multi-cloud cost comparison, **Azure Landing Zone target diagram** (multi-source: AWS + GCP; T3 fidelity in progress under epic #586) |
+| Scaffold | Live cloud scanner, credential vault, deploy engine production validation |
 | Beta/Hardening | Living architecture/drift baselines, admin release gates, release evidence, dependency/security remediation workflow |
 | Planned | VS Code extension, PR-based IaC workflows, multi-diagram projects |
 
@@ -95,6 +95,8 @@ The PRD distinguishes three maturity levels. **Live** features are usable in the
 - **E2E validated:** Real pricing confirmed across 5 diagrams (3 AWS + 2 GCP), ranges $120–$2,100/mo
 
 ### 3.7 Diagram Export (v2.0)
+- **Architecture Package (v4.3.0-main):** Polished customer-facing HTML export with target/as-is topology, hardened/DR topology, talking points, and limitations; SVG-only target and DR exports are available for downstream documentation tools.
+- **Customer intent profile:** Guided answers are condensed into a lightweight `customer_intent` profile while raw `guided_answers` stay compact and distinguish user choices from defaults.
 - **Excalidraw (.excalidraw):** Interactive JSON format with Azure service stencils
 - **Draw.io (.drawio):** mxGraphModel XML with Azure stencils, compatible with diagrams.net
 - **Visio (.vsdx):** VDX XML format for Microsoft Visio
@@ -112,6 +114,7 @@ The PRD distinguishes three maturity levels. **Live** features are usable in the
 - Persists updates to `data/service_updates.json` (last 90 checks, cumulative `auto_added` tracking)
 - Manual trigger available via API (`POST /api/service-updates/run-now`)
 - Status and last update queryable via API (includes `auto_added_total` per provider)
+- Freshness is registered in `/api/health.scheduled_jobs`, seeded from durable update state after restart, and only marked successful when provider refreshes complete without errors.
 
 ### 3.9 Chatbot Assistant (v2.0)
 - **Floating widget** (bottom-right corner) with assistant greeting
@@ -185,7 +188,7 @@ The PRD distinguishes three maturity levels. **Live** features are usable in the
 
 ### 3.26 Modular Router Architecture (v2.12.0)
 - **main.py decomposition** — reduced from 2,189 lines to 181 lines (app factory + middleware registration)
-- **60 FastAPI router modules** under `backend/routers/`, grouped by domain routes, API versioning, auth/RBAC, analytics, RAG/Agent PaaS, imports, collaboration, scanner/deploy scaffolds, and operational APIs
+- **FastAPI router modules** under `backend/routers/`, grouped by domain routes, API versioning, auth/API-key flows, RAG/Agent PaaS, imports, collaboration, scanner/deploy scaffolds, service freshness, and operational APIs
 - **Clean separation of concerns** — each router owns its own endpoints, dependencies, and error handling
 - **Frontend decomposition** — DiagramTranslator.jsx split from 1,201 lines into 9 sub-components with useReducer state machine
 - **Structured JSON logging** — `logging_config.py` with CorrelationIdMiddleware for request tracing
@@ -289,12 +292,8 @@ The PRD distinguishes three maturity levels. **Live** features are usable in the
 - **Public config endpoint** — `GET /whitelabel/config/{partner_id}` for frontend startup (no auth required)
 - **6 API endpoints** — register partner, get config, update branding, get embed snippet, list partners, default config
 
-### 3.40 Multi-Tenant Foundation (v3.0.0)
-- **Alembic migration 002** — 5 new tables: organizations, team_members, invitations, user_analyses, saved_diagrams
-- **Organization model** — slug, display_name, free access profile, owner relationship
-- **Team members** — role-based (admin/member/viewer) with invitation workflow
-- **User analysis history** — per-user tracking with source/target provider, service count, confidence scores
-- **Saved diagrams** — user bookmarks with diagram_data JSON storage
+### 3.40 Multi-Tenant Foundation (retired from active API surface)
+- Organization, profile, SSO/SAML/SCIM, and multi-tenant router surfaces were removed during the May 2 main-branch convergence. The current product keeps a smaller auth shell, API keys, admin gates, and feature flags while multi-tenant collaboration is re-scoped through future issues.
 
 ### 3.41 Error Envelope Middleware (v3.0.1)
 - **Structured error responses** — all API errors wrapped in consistent JSON envelope with correlation IDs
@@ -413,9 +412,9 @@ The PRD distinguishes three maturity levels. **Live** features are usable in the
 - **Container scanning** (v2.11.1) — Trivy vulnerability scan (CRITICAL/HIGH) on every deployment
 - **SBOM generation** (v2.11.1) — CycloneDX Bill of Materials for Python and npm dependencies (90-day retention)
 
-### 3.16 User Authentication & Usage Safeguards (v2.9)
-- **Azure AD B2C** — Enterprise SSO with JWT validation, JWKS caching, user persistence
-- **GitHub OAuth** — Developer-friendly authentication with email access
+### 3.16 User Authentication & Usage Safeguards (current)
+- **Auth shell** — lightweight login/logout/provider routes remain for local/SWA-style sessions while SSO/SAML/SCIM, organization, and profile routers are retired from the active API surface.
+- **API keys and admin gates** — scoped keys, admin session checks, feature flags, and audit logging protect privileged/scaffolded paths.
 - **Anonymous users** — IP-based tracking with abuse-prevention limits
 - **Free customer access** — no paid tiers, subscription gates, billing setup, or customer payment required
 - **Usage safeguards** — Real-time usage tracking for fair use, abuse prevention, and capacity planning
@@ -921,7 +920,7 @@ Only when 1–7 all green does the README/PRD Capability Status table flip ALZ r
 | **v3.8.1 — UX Polish & Bug Bash** | Done | Fix HLD generation 500 crashes, recover missing Map layers, unblock IaC dynamic modifications, populate Coming Soon tab, and Drift Alpha warnings |
 | **v3.9.0 — AI Upgrade & Architecture Map** | Done | GPT-4.1 with 32K output tokens, interactive Architecture Map (dagre layout, confidence rings, effort badges, typed edges, zone grouping, MiniMap), email notifications via Azure Communication Services, IaC diff highlighting, parallel IaC+HLD generation, limitations UX redesign, Deploy/Drift Coming Soon overlays |
 | **v4.0 — Platform Maturity** | Mixed | RAG, Agent PaaS proof, cost/token observability, AI mapping suggestions, migration timeline, service dependency graph, social auth, user profiles, RBAC/multi-tenant, PDF report export, and DevOps modernization are implemented/beta. Scanner/deploy paths remain hardening work. |
-| **v4.1 — Release Hardening** | Mixed | Drift baselines, admin release gate, post-deploy smoke, dependency/security remediation, release evidence, and warning cleanup are implemented. Live scanner/deploy execution and SSO/SCIM tenant validation remain scaffolded/operator-gated. Customer billing is not part of the release path. |
+| **v4.1 — Release Hardening** | Mixed | Drift baselines, admin release gate, post-deploy smoke, dependency/security remediation, release evidence, and warning cleanup are implemented. Live scanner/deploy execution remains scaffolded/operator-gated; SSO/org/profile routes were later retired from the active API during v4.3 main convergence. Customer billing is not part of the release path. |
 
 ---
 
@@ -956,10 +955,10 @@ Only when 1–7 all green does the README/PRD Capability Status table flip ALZ r
 | **Full analysis PDF report** | Branded PDF with mappings, diagram, IaC, cost, HLD | Engineering | P2 | #236 |
 | **AI cross-cloud mapping auto-suggestion** | AI suggests Azure equivalents for newly discovered services | Engineering | P1 | #230 |
 | **Migration timeline generator** | Auto-generate phased migration plan with dependencies | Engineering | P1 | #231 |
-| **Social authentication** | Microsoft, Google, GitHub sign-in via OAuth | Engineering | P1 | #246 |
-| **User profiles** | Personal details, preferences, avatar, persistent history | Engineering | P1 | #247 |
+| **Social authentication** | Re-scope after auth-shell convergence; not on the live value spine | Engineering | P3 | #246 |
+| **User profiles** | Retired from active API surface; revisit only with a concrete account/history requirement | Engineering | P3 | #247 |
 | **Persistent analysis history** | Analysis history tied to user accounts | Engineering | P2 | #245 |
-| **RBAC & multi-tenant isolation** | Enforce role-based access control on organizational boundaries | Engineering | P1 | #238 |
+| **RBAC & multi-tenant isolation** | Retired from active API surface; future work should start from scoped API keys and explicit project-sharing requirements | Engineering | P3 | #238 |
 | **Collaboration features** | Shared projects, comments, review workflow | Engineering | P2 | #237 |
 | **Compliance framework mapping** | Auto-detect regulatory requirements, map to Azure compliance services | Engineering | P2 | #239 |
 | **Pulumi & CDK IaC output** | Additional IaC formats beyond Terraform/Bicep/CloudFormation | Engineering | P2 | #242 |
@@ -973,7 +972,7 @@ Only when 1–7 all green does the README/PRD Capability Status table flip ALZ r
 | **AI Architecture Advisor** | Proactive optimization suggestions based on architecture patterns | Engineering | P1 | #255 |
 | **Guided onboarding tour** | Interactive walkthrough with achievement badges | Engineering | P2 | #257 |
 | **Contextual migration Q&A** | Chat on analysis results with migration-specific context | Engineering | P1 | #258 |
-| **Real-time collaborative workspace** | Multi-user simultaneous editing of migration projects | Engineering | P2 | #251 |
+| **Real-time collaborative workspace** | Multi-user simultaneous editing of migration projects; currently beta and not on the live value spine | Engineering | P2 | #251 |
 | **Built-in diagram editor** | Canvas-based architecture diagram editor | Engineering | P2 | #253 |
 | **Migration replay** | Animated analysis timeline for presentations | Engineering | P3 | #254 |
 | **Migration Gallery** | Public anonymized success stories from community | Engineering | P2 | #256 |
@@ -997,7 +996,7 @@ Identified by CEO Master + CTO Master cross-functional review with all agent hie
 | S3 | Interactive demo / playground (no sign-up) | P0 | PLG requires zero-friction try-it-now | UX + FE | 5 |
 | S4 | Customer testimonials / case study framework | P1 | Zero social proof for investors | CRO + PM | 3 |
 | S5 | SOC 2 Type I readiness & compliance dashboard | P1 | Blocks enterprise deals | CISO + CLO | 8 |
-| S6 | SSO / SAML / SCIM integration | P1 | Preview routes are feature-gated; tenant validation and signed assertion verification remain enterprise-readiness gates | CISO + Backend | 8 |
+| S6 | SSO / SAML / SCIM integration | P3 | Retired from active API surface during main convergence; reopen only with signed assertion tests, tenant fixtures, and CISO threat model | CISO + Backend | 8 |
 | S7 | Terraform state import / reverse engineering | P1 | "10x moat" — existing infra to diagram | CTO + Cloud | 13 |
 | S8 | Public API documentation & developer portal | P1 | PLG for developers needs self-serve docs | API + PM | 5 |
 | S9 | Multi-cloud cost comparison engine | P1 | Side-by-side Azure/AWS/GCP cost = differentiator | Cloud + Backend | 8 |
