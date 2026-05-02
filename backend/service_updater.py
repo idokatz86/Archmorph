@@ -55,6 +55,15 @@ _SERVICES_DIR = _BASE_DIR / "services"
 _UPDATES_FILE = _DATA_DIR / "service_updates.json"
 _DISCOVERED_FILE = _DATA_DIR / "discovered_services.json"
 
+
+def _default_state() -> dict[str, Any]:
+    return {
+        "last_check": None,
+        "checks": [],
+        "new_services_found": {"aws": [], "azure": [], "gcp": []},
+        "auto_added": {"aws": [], "azure": [], "gcp": []},
+    }
+
 # ---------------------------------------------------------------------------
 # API endpoints
 # ---------------------------------------------------------------------------
@@ -142,16 +151,14 @@ _running: bool = False
 
 def _read_state() -> dict[str, Any]:
     """Load the service_updates.json state file."""
+    blob_state = _load_state_from_blob()
+    if blob_state is not None:
+        return blob_state
     try:
         with open(_UPDATES_FILE, "r", encoding="utf-8") as fh:
             return json.load(fh)
     except (FileNotFoundError, json.JSONDecodeError):
-        return {
-            "last_check": None,
-            "checks": [],
-            "new_services_found": {"aws": [], "azure": [], "gcp": []},
-            "auto_added": {"aws": [], "azure": [], "gcp": []},
-        }
+        return _default_state()
 
 
 def _write_state(state: dict[str, Any]) -> None:
@@ -159,6 +166,7 @@ def _write_state(state: dict[str, Any]) -> None:
     _DATA_DIR.mkdir(parents=True, exist_ok=True)
     with open(_UPDATES_FILE, "w", encoding="utf-8") as fh:
         json.dump(state, fh, indent=2, default=str)
+    _save_state_to_blob(state)
 
 
 # ---------------------------------------------------------------------------
@@ -179,6 +187,9 @@ DISCOVERED_BLOB_CONTAINER = os.getenv("DISCOVERED_BLOB_CONTAINER", "service-cata
 DISCOVERED_BLOB_NAME = os.getenv(
     "DISCOVERED_BLOB_NAME", "discovered_services.json"
 )
+SERVICE_UPDATES_BLOB_NAME = os.getenv(
+    "SERVICE_UPDATES_BLOB_NAME", "service_updates.json"
+)
 DISCOVERED_BLOB_TIMEOUT_SECONDS = 5
 
 
@@ -194,8 +205,8 @@ def _blob_timeout_seconds() -> int:
     return max(1, min(value, 30))
 
 
-def _get_discovered_blob_client():
-    """Return a BlobClient for discovered_services.json, or None."""
+def _get_service_catalog_blob_client(blob_name: str):
+    """Return a BlobClient in the service-catalog container, or None."""
     account_url = os.getenv("AZURE_STORAGE_ACCOUNT_URL", "")
     conn_str = os.getenv("AZURE_STORAGE_CONNECTION_STRING", "")
     if not account_url and not conn_str:
@@ -229,16 +240,72 @@ def _get_discovered_blob_client():
         except Exception:
             container.create_container(timeout=timeout)
             logger.info(
-                "Created blob container '%s' for discovered services",
+                "Created blob container '%s' for service catalog state",
                 DISCOVERED_BLOB_CONTAINER,
             )
-        return container.get_blob_client(DISCOVERED_BLOB_NAME)
+        return container.get_blob_client(blob_name)
     except Exception as exc:  # noqa: BLE001
         logger.warning(
-            "Discovered-services blob client unavailable (falling back to disk): %s",
+            "Service-catalog blob client unavailable (falling back to disk): %s",
             exc,
         )
         return None
+
+
+def _get_discovered_blob_client():
+    """Return a BlobClient for discovered_services.json, or None."""
+    return _get_service_catalog_blob_client(DISCOVERED_BLOB_NAME)
+
+
+def _get_state_blob_client():
+    """Return a BlobClient for service_updates.json, or None."""
+    return _get_service_catalog_blob_client(SERVICE_UPDATES_BLOB_NAME)
+
+
+def _load_state_from_blob() -> Optional[dict[str, Any]]:
+    """Load service_updates.json from Azure Blob Storage (or None)."""
+    blob = _get_state_blob_client()
+    if blob is None:
+        return None
+    try:
+        raw = blob.download_blob(timeout=_blob_timeout_seconds()).readall()
+        data = json.loads(raw)
+        if isinstance(data, dict):
+            try:
+                _DATA_DIR.mkdir(parents=True, exist_ok=True)
+                with open(_UPDATES_FILE, "w", encoding="utf-8") as fh:
+                    json.dump(data, fh, indent=2, default=str)
+            except OSError:
+                pass
+            return data
+    except Exception as exc:  # noqa: BLE001
+        if type(exc).__name__ == "ResourceNotFoundError":
+            logger.debug("No service-updates blob yet (%s)", type(exc).__name__)
+        else:
+            logger.warning(
+                "Failed to load service update state from blob; falling back to disk",
+                exc_info=True,
+            )
+    return None
+
+
+def _save_state_to_blob(state: dict[str, Any]) -> None:
+    """Mirror service_updates.json to Azure Blob Storage (best-effort)."""
+    blob = _get_state_blob_client()
+    if blob is None:
+        return
+    try:
+        blob.upload_blob(
+            json.dumps(state, indent=2, default=str).encode("utf-8"),
+            overwrite=True,
+        )
+        logger.info(
+            "Mirrored service update state to blob %s/%s",
+            DISCOVERED_BLOB_CONTAINER,
+            SERVICE_UPDATES_BLOB_NAME,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to mirror service update state to blob: %s", exc)
 
 
 def _load_discovered_from_blob() -> Optional[dict[str, list[dict[str, str]]]]:
