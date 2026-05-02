@@ -462,6 +462,34 @@ class TestFreshness:
             assert f["age_hours"] is not None
             assert f["age_hours"] < 1.0
 
+    def test_get_freshness_rehydrates_scheduled_job_registry(self, tmp_path):
+        from datetime import datetime, timezone
+        import freshness_registry as fr
+        import json as _json
+        from service_updater import get_freshness
+
+        fr.reset_for_tests()
+        now = datetime.now(timezone.utc).isoformat()
+        state_file = tmp_path / "updates.json"
+        state_file.write_text(_json.dumps({
+            "last_check": now,
+            "checks": [{"timestamp": now,
+                        "new_services": {"aws": [], "azure": [], "gcp": []},
+                        "errors": None}],
+            "new_services_found": {"aws": [], "azure": [], "gcp": []},
+            "auto_added": {"aws": [], "azure": [], "gcp": []},
+        }), encoding="utf-8")
+
+        with patch("service_updater._UPDATES_FILE", state_file), \
+             patch("service_updater._get_state_blob_client", return_value=None):
+            f = get_freshness()
+            jobs = fr.get_all()
+
+        assert f["stale"] is False
+        assert jobs[0]["name"] == "service_catalog_refresh"
+        assert jobs[0]["last_success"] is not None
+        assert jobs[0]["stale"] is False
+
     def test_old_run_is_stale(self, tmp_path):
         from datetime import datetime, timezone, timedelta
         import json as _json
