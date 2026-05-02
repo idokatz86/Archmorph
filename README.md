@@ -162,6 +162,9 @@ docker compose -f docker-compose.yml -f docker-compose.parity.yml up --build
 This overlay keeps everything local, but starts the backend with production-like persistence guards:
 `ENVIRONMENT=production`, `ENFORCE_POSTGRES=true`, `REQUIRE_REDIS=true`, PostgreSQL via `DATABASE_URL`, Redis via `REDIS_URL`, and Gunicorn/Uvicorn workers instead of the reload server.
 
+**Production Architecture Package smoke:**
+Run the manual `Production Architecture Package Smoke` GitHub Action, or run [docs/PRODUCTION_SMOKE_ARCHITECTURE_PACKAGE.md](docs/PRODUCTION_SMOKE_ARCHITECTURE_PACKAGE.md) locally, before release sign-off on changes to the live value spine. The smoke captures health freshness, sample analysis, guided answers, IaC, HLD, cost, Architecture Package HTML/SVG exports, and one classic diagram export as release evidence.
+
 **Refresh the API contract snapshot after intentional backend route/schema changes:**
 ```bash
 cd backend

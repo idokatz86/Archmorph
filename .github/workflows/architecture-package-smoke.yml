@@ -1,0 +1,54 @@
+name: Production Architecture Package Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      sample_id:
+        description: 'Sample architecture ID to analyze'
+        required: false
+        default: 'aws-hub-spoke'
+      strict_freshness:
+        description: 'Fail if scheduled jobs are stale'
+        required: false
+        default: 'true'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: architecture-package-smoke-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    name: Validate Architecture Package value spine
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run production Architecture Package smoke
+        env:
+          API_URL: ${{ secrets.API_URL }}
+          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
+          SAMPLE_ID: ${{ inputs.sample_id }}
+          STRICT_FRESHNESS: ${{ inputs.strict_freshness }}
+          ARTIFACT_ROOT: smoke-artifacts/architecture-package/${{ github.run_id }}
+        run: ./scripts/architecture_package_smoke.sh
+
+      - name: Add smoke summary
+        if: always()
+        run: |
+          if [ -f "smoke-artifacts/architecture-package/${{ github.run_id }}/summary.md" ]; then
+            cat "smoke-artifacts/architecture-package/${{ github.run_id }}/summary.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: architecture-package-smoke-${{ github.run_id }}
+          path: smoke-artifacts/architecture-package/${{ github.run_id }}/
+          if-no-files-found: error
+          retention-days: 30
