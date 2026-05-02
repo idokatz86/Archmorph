@@ -642,7 +642,7 @@ def _network_services_rail(tiers: dict[str, list[dict[str, Any]]]) -> str:
     row_h = 54
     visible = services[:8]
     h = 42 + len(visible) * row_h
-    out = [f'<g id="network-services" transform="translate({x}, {y})">']
+    out = [f'<g transform="translate({x}, {y})">']
     out.append(_card(0, 0, w, h, stroke=COLOR_GREEN, fill="#FFFFFF"))
     out.append(
         f'<rect x="0" y="0" width="{w}" height="24" rx="2" fill="{COLOR_GREEN}"/>'
@@ -684,7 +684,28 @@ def _networking_services(tiers: dict[str, list[dict[str, Any]]]) -> list[dict[st
                 "label": _network_label(name),
                 "source": str(entry.get("source", "")).strip(),
             })
+    if not _should_render_network_services(out):
+        return []
     return out
+
+
+def _should_render_network_services(services: list[dict[str, str]]) -> bool:
+    """Only show the rail when it adds real networking-specific signal."""
+    if len(services) < 3:
+        return False
+    signal_icons = {
+        "virtualwan",
+        "vpn",
+        "expressroute",
+        "firewall",
+        "bastion",
+        "loadbalancer",
+        "privatelink",
+        "trafficmgr",
+        "ddos",
+        "waf",
+    }
+    return any(service.get("icon") in signal_icons for service in services)
 
 
 def _network_icon_key(name: str) -> Optional[str]:

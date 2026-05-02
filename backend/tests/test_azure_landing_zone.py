@@ -204,6 +204,24 @@ class TestGenerator:
         }.issubset(icons)
         assert all(_icon_data_uri(icon) for icon in icons)
 
+    def test_network_services_rail_is_gated_to_networking_heavy_packages(self):
+        result = generate_landing_zone_svg(SAMPLE_ANALYSIS, dr_variant="primary")
+        root = ET.fromstring(result["content"])
+        texts = [t.text or "" for t in root.iter(f"{SVG_NS}text")]
+        assert "Network Services" not in texts
+
+    def test_networking_dr_variant_does_not_duplicate_network_services_id(self):
+        analysis = {
+            **NETWORKING_ANALYSIS,
+            "dr_mode": "active-standby",
+            "regions": DR_ANALYSIS["regions"],
+        }
+        result = generate_landing_zone_svg(analysis, dr_variant="dr")
+        root = ET.fromstring(result["content"])
+        texts = [t.text or "" for t in root.iter(f"{SVG_NS}text")]
+        assert texts.count("Network Services") == 2
+        assert 'id="network-services"' not in result["content"]
+
     def test_landing_zone_svg_invalid_dr_variant_raises(self):
         with pytest.raises(ValueError):
             generate_landing_zone_svg(SAMPLE_ANALYSIS, dr_variant="bogus")  # type: ignore[arg-type]
