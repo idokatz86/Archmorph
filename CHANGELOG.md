@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+#### CTO direction — technical-only refocus (May 1, 2026)
+
+> Authority: CTO Master. Status: Binding. Supersedes prior product/marketing framing throughout README.md and docs/PRD.md.
+
+**Mission:** Archmorph is an internal engineering workbench. The value spine is `diagram → vision analysis → cross-cloud mapping → IaC (Terraform/Bicep) → Azure Landing Zone → drift / cost`. Every shippable change advances that spine. Anything else is overhead and gets cut.
+
+**Operating principles (7):**
+1. Value spine is law. Off-spine changes get cut on sight.
+2. The user is an engineer at a terminal — full flow runs end-to-end in under 60 seconds. No marketing pages, no cookie banners, no sign-up modals.
+3. Every output is machine-checkable (parse, schema-validate, round-trip tested).
+4. Engineering observability over product analytics. OpenTelemetry + Application Insights only. PostHog, funnel tracking, retention cohorts — banned.
+5. Identity is Entra ID. Period. No SSO matrices, no SAML, no SCIM, no social auth.
+6. Single tenant, single org. Roles: `engineer | reader` via Entra group claims.
+7. Reduction beats addition.
+
+**Spine consolidation status (after the merged Gallery → Playground → Canvas trio #637/#638/#639, −1,637 LOC):**
+
+| Order | PR | Status | LOC delta |
+|---|---|---|---|
+| PR-1 | `chore: remove marketing surface` (LandingPage, CookieBanner, OnboardingTour, LegalPages, legal.py, privacy.py, tests) | **Merged via #646** | **−3,327** |
+| PR-2 | `chore: remove product analytics + retention + onboarding funnel` | Pending | ≈ −800 to −1,100 |
+| PR-3 | `chore: collapse multi-tenant + SSO scaffolds to single-tenant Entra ID` | Pending | ≈ −1,500 to −2,000 |
+
+**v5.0 north-star roadmap (8 epics):** spine consolidation, ALZ production-ready (#586), GitHub IaC PR integration, drift loop closure, mapping coverage to 95%, CLI-first workflow, architecture limitations engine Phase 2, observability SLOs (analyze p95 <8s, alz p95 <1.5s, e2e p95 <30s).
+
+**New issue labels (adopt):** `value-spine-core`, `value-spine-adjacent`, `engineer-win`, `loc-debt`, `cut-candidate`, `defer-park`, `blocks-migration`, `mapping-staleness`, `arch-rule`, `observability`, `security`, `iac-output`, `alz`.
+
+**Retired labels (apply `archived`):** `product`, `marketing`, `growth`, `funnel`, `activation`, `retention`, `kpi-conversion`, `case-study`, `social-proof`, `waitlist`, `roadmap-marketing`, `whitelabel`, `multi-tenant`, `organizations`, `sso-saml`, `scim`, `gdpr-dsar`, `cookie-consent`, `pricing`, `tiers`, `billing`, `paid`, `freemium`.
+
+**Banned vocabulary in docs/PRs/commits:** `delight`, `delightful`, `empower`, `empowering`, `enterprise-grade`, `world-class`, `powerful`, `magical`, `seamless`, `effortless`, `game-changing`, `cutting-edge`, `revolutionary`, `blazing-fast`, `next-generation`, `unleash`, `supercharge`, `robust` (use "tested"), `best-in-class`, `one-stop`, `beautiful`, `beloved`, `loved by`, `customers`, `users` (use "engineers"), `freemium`, `PLG`, `growth-loop`, `conversion`, `funnel`, `activation`, `retention-cohort`, `case study`, `testimonial`, `social proof`.
+
+### Removed
+
+#### CTO scope cleanup — peripheral surfaces deleted
+
+Per the owner rubric — internal tool only, NOT for sale, no marketing surface, no growth-funnel telemetry, every feature must give a measurable productivity / correctness / observability win to a platform or cloud engineer doing AWS/GCP→Azure migrations — the CTO verdict deleted four surfaces that did not feed the value spine:
+
+- **Migration Gallery** ([#637](https://github.com/idokatz86/Archmorph/pull/637)) — community-stories surface; pure marketing/social-proof. Deleted `MigrationGallery.jsx`, `gallery_routes.py`, supporting backend services, models, tests, frontend tests, nav/store/command-palette wiring (10 files, −720 LOC).
+- **Demo Playground + default-tab fix** ([#638](https://github.com/idokatz86/Archmorph/pull/638)) — try-before-signup sandbox; not relevant to an internal tool. Deleted `PlaygroundPage.jsx`, removed marketing analytics steps (`first_upload`, `returning_user`), changed default landing tab from `playground` to `translator`. Includes a popstate fix for the empty-hash translator route (11 files, +14/−222 LOC).
+- **Canvas Editor** ([#639](https://github.com/idokatz86/Archmorph/pull/639)) — hand-rolled diagram editor that duplicated external tools (draw.io, Excalidraw) without producing IaC, ALZ, or drift output. Deleted `CanvasEditor/` (CanvasEditor.jsx + servicesPalette.js), App/Nav/CommandPalette/store wiring, Nav test (7 files, −695 LOC). `@xyflow/react` retained for `DependencyGraph` and `ArchitectureFlow` inside `DiagramTranslator`.
+- **Marketing surface (CTO PR-1)** ([#646](https://github.com/idokatz86/Archmorph/pull/646)) — `LandingPage.jsx` (291), `CookieBanner.jsx` (166), `OnboardingTour.jsx` (130; `ContextualHint` extracted to its own file), `LegalPages.jsx` (302), `legal.py` (361 — 8 endpoints under `/api/legal/*`), `privacy.py` (364 — 8 endpoints under `/api/privacy/*`), all related tests, plus default-tab routing, ChatWidget cookie-banner offset logic, Footer Legal & Privacy button, and the "100% free for customers" copy throughout README/PRD/roadmap.json (25 files, **−3,327 LOC**).
+
+**Cumulative delivered:** **−4,964 LOC across 53 files**, 3 nav entries removed, 1 attack surface removed (Canvas drag-drop palette state), 16 endpoints removed from the public API.
+
+**Validation per PR:** backend pytest 1737 passed / 1 skipped / 2 xfailed (was 1767 pre-PR-1, −30 from removed legal+privacy tests); frontend vitest 242 passed / 26 files (was 271, −29 from removed Landing+Cookie+Legal tests); OpenAPI contract green; 235 routes mirrored under /api/v1 (was 243, −8 from `/api/legal/*` + `/api/privacy/*`).
+
 ### Added
 
 #### Architecture limitations engine (PR [#615](https://github.com/idokatz86/Archmorph/pull/615); follow-up phases [#616](https://github.com/idokatz86/Archmorph/issues/616) [#617](https://github.com/idokatz86/Archmorph/issues/617) [#618](https://github.com/idokatz86/Archmorph/issues/618) [#619](https://github.com/idokatz86/Archmorph/issues/619))

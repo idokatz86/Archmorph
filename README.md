@@ -1,33 +1,94 @@
 # Archmorph
 
-**AI-Powered Multi-Cloud Architecture Translator & Migration Platform**
+**Internal AWS/GCP → Azure migration workbench for platform & cloud engineers**
 
-Translate AWS and GCP architecture diagrams into Azure-ready migration artifacts: service mappings, guided questions, IaC drafts, HLD exports, cost estimates, and reviewable migration packages. Archmorph is in preview/stabilization; some enterprise surfaces are implemented as beta or scaffolded workflows.
+Archmorph converts AWS and GCP architecture diagrams into Azure-targeted IaC, Landing Zone designs, drift signals, and cost deltas. It exists for platform engineers and cloud engineers running migrations. It is not a product, has no customers, and ships nothing for sale.
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Multi-Cloud](https://img.shields.io/badge/cloud-AWS%20%7C%20Azure%20%7C%20GCP-0078D4.svg)
 ![Version](https://img.shields.io/badge/version-4.2.0-22C55E.svg)
-![Status](https://img.shields.io/badge/status-Preview%20Stabilizing-F59E0B.svg)
+![Status](https://img.shields.io/badge/status-Internal%20Tool-F59E0B.svg)
 ![Tests](https://img.shields.io/badge/tests-CI%20Enforced-22C55E.svg)
 ![Python](https://img.shields.io/badge/python-3.12-3776AB.svg)
 ![React](https://img.shields.io/badge/react-19.2-61DAFB.svg)
-![Vibe Coding](https://img.shields.io/badge/built_with-Vibe_Coding-FF69B4.svg)
 
+
+---
+
+## Mission
+
+Archmorph is an internal engineering workbench. The value spine is:
+
+> `diagram → vision analysis → cross-cloud mapping → IaC (Terraform/Bicep) → Azure Landing Zone → drift / cost`
+
+Every shippable change advances that spine. Anything else is overhead and gets cut.
+
+## Operating Principles (CTO direction, May 1, 2026)
+
+1. **Value spine is law.** Every PR advances the spine. Anything off-spine is overhead and gets cut on sight.
+2. **The user is an engineer at a terminal.** Full flow runs end-to-end in under 60 seconds. No marketing pages, no cookie banners, no sign-up modals.
+3. **Every output is machine-checkable.** Mappings, IaC, ALZ SVG, drift reports — all parse, all schema-validate, all have round-trip tests.
+4. **Engineering observability over product analytics.** OpenTelemetry + Application Insights. Funnel tracking, cohort retention, PostHog — banned.
+5. **Identity is Entra ID. Period.** No SSO matrices, no SAML brokers, no SCIM provisioning UIs, no social auth.
+6. **Single tenant, single org.** No multi-tenant primitives. Roles: `engineer | reader` via Entra group claims.
+7. **Reduction beats addition.** A PR that deletes 500 LOC and preserves the spine is more valuable than one that adds 500 LOC of adjacent surface.
 
 ---
 
 ## Overview
 
-Archmorph is an AI-assisted cloud migration workbench. The live path analyzes uploaded architecture diagrams, maps AWS/GCP services to Azure equivalents with confidence scoring, asks guided migration questions, generates IaC drafts, prepares HLD/report exports, and estimates costs. The application is 100% free for customers: there are no subscriptions, paid tiers, billing steps, or hidden customer charges. Adjacent platform capabilities such as scanner, deploy, collaboration, SSO/SCIM, gallery, and drift are present in the codebase at varying maturity levels and are labeled below so operators know what is ready to trust.
+Archmorph is an AI-assisted cloud migration workbench used internally to convert uploaded AWS/GCP diagrams into Azure migration artifacts: detected services, confidence-scored mappings, guided migration questions, IaC drafts, HLD exports, and cost estimates. Adjacent surfaces (scanner, deploy orchestration, drift) are present at varying maturity levels and are labeled below.
 
 ### Capability Status
 
-| Status | Meaning | Capabilities |
-|--------|---------|--------------|
-| Live | Usable in the current product path | Diagram upload, sample playground, AI service mapping, guided questions, IaC/HLD/report export, cost estimates, service catalog, admin analytics, auth shell, CI/security scanning |
-| Beta | Implemented but needs hardening, deeper tests, or production validation | RAG, Agent PaaS proof, cost/token observability, collaboration, gallery, replay, Terraform state import, multi-cloud cost comparison, social auth/RBAC, **Azure Landing Zone target diagram** (visual scaffold; production-ready push targeted for v4.3.0 under epic #586 — see [Production-Ready Roadmap](#production-ready-roadmap-azure-landing-zone-v430-target) below) |
-| Scaffold | UI/routes/models exist, but execution needs integration or operator review | Live cloud scanner, deploy engine, credential vault, SSO/SAML/SCIM, live drift/living architecture |
-| Planned | Not production-ready yet | VS Code extension, PR-based IaC workflow, multi-diagram projects |
+Refocused around the engineer-win each capability delivers (CTO direction, May 1, 2026). **Live** = on the spine and used today. **Beta** = on the spine, hardening in progress. **Cut-candidate** = scheduled for removal in the spine consolidation PRs (PR-2 and PR-3 below; PR-1 already merged).
+
+| Capability | Status | Engineer-win it delivers |
+|---|---|---|
+| Diagram upload + vision analysis (PNG/PDF/Visio) | Live | Skips 10–30 min of manual draw.io re-tracing per source diagram. |
+| AWS→Azure + GCP→Azure service mapping with confidence scores | Live | Removes the `aws-svc-X has no Azure equivalent — wait, what about Y?` lookup loop per migration. |
+| Mapping freshness contract (`last_reviewed`) + freshness tests | Live | CI fails when a mapping row goes stale — no silent rot. |
+| SKU translator with engine-correct defaults | Live | Stops mis-routing Aurora-PostgreSQL to MS SQL Hyperscale; catches license-cost surprises pre-deploy. |
+| IaC chat (Terraform + Bicep) | Live | Generates IaC scaffolds from analysis without `terraform init`-then-cry loops. |
+| Architecture limitations engine | Live | Fails CI on misconfigured topologies (e.g. SFTP via Front Door); 25 rules, growing to ≥40 in Phase 2. |
+| HLD generator (Word export) | Live | Auto-builds the migration design doc the engineer would otherwise write by hand. |
+| Drift detection vs deployed Azure | Beta | Surfaces config drift between IaC source-of-truth and live tenant. |
+| Cost comparison (source cloud → Azure target) | Beta | Quantifies migration cost delta in the same artifact as the IaC plan. |
+| Network topology translation (VPC/CIDR/NSG → VNet/NSG/Front Door) | Beta | Pre-validates IP plan and security groups before deploy. |
+| Azure Landing Zone target SVG (8 tiers, multi-source) | Beta | Hands a starter LZ the engineer can edit, not a blank tenant. Production-ready push tracked under epic [#586](https://github.com/idokatz86/Archmorph/issues/586). |
+| RAG-grounded mapping suggestions | Live (slim target) | Mapping suggestions cite Azure docs sources — auditable, not hallucinated. |
+| `azd up` / `terraform apply` orchestration | Live (slim target) | One command takes the IaC artifact to a deployed Azure RG. |
+| Observability (OTel spans + 4 ALZ metrics + Workbook + alerts) | Live | Engineering-grade telemetry on the workbench itself — no PostHog. |
+| GitHub IaC PR integration | Planned (P0) | Lands generated Terraform/Bicep as a PR with diff + drift comment in the engineer's repo. |
+| Live cloud scanner / deploy execution / SSO/SAML/SCIM | Cut-candidate | See PR-3 below — collapses to single-tenant Entra ID. |
+| Retention KPIs, product analytics, multi-tenant primitives, white-label SDK, Migration Replay, Migration Timeline, Agent PaaS PoC | Cut-candidate | Off-spine. Targeted for removal in PR-2 → PR-3 (see [Spine Consolidation Plan](#spine-consolidation-plan-cto-direction) below). |
+
+### Spine Consolidation Plan (CTO direction)
+
+Three deletion PRs sequenced after the already-merged Gallery → Playground → Canvas trio (#637/#638/#639, −1,637 LOC). Same pattern: highest LOC, highest conviction, fewest cross-deps first.
+
+| Order | PR | Removes | LOC delta | Status |
+|---|---|---|---|---|
+| 1 | `chore: remove marketing surface` | `LandingPage.jsx` (291), `CookieBanner.jsx` (166), `OnboardingTour.jsx` (130), `LegalPages.jsx` (302), `legal.py` (361), `privacy.py` (364), tests, default-tab routing, `100% free for customers` mentions | **−3,327** | **Merged via #646** |
+| 2 | `chore: remove product analytics + retention + onboarding funnel` | `analytics.js` (145), `analytics_routes.py` (111), `retention.py`, `retention_routes.py`, Day-7 retention tile, `EVENT_TAXONOMY.md`, `posthog-js` dep | ≈ −800 to −1,100 | Pending |
+| 3 | `chore: collapse multi-tenant + SSO scaffolds to single-tenant Entra ID` | `sso_routes.py` (438), `org_routes.py` (268), `profile_routes.py` (198), `feedback.py` (73), `feature_flags.py` (70), social auth providers, FE org/invite UIs, PRD §3.39 + §3.40 + §12.1. Replaces with single `Depends(verify_entra_token)` + `archmorph-engineer`/`archmorph-reader` group claims. | ≈ −1,500 to −2,000 | Pending — auth blast radius |
+
+**Cumulative target:** ≈ −5,500 to −6,500 LOC across PR-1 → PR-3, on top of the −1,637 already removed.
+
+### v5.0 North-Star Roadmap (8 epics)
+
+Replaces all prior product/marketing roadmap items.
+
+| # | Epic | Problem it solves for the engineer | Success metric |
+|---|---|---|---|
+| 1 | **Spine consolidation** | Repo carries ~3,000 LOC of off-spine routers and surfaces. | Net −3,000 LOC across 6 PRs; routers count drops from ~50 to ≤30. |
+| 2 | **ALZ production-ready** (epic #586 → GA) | ALZ output is demo-ware (43% icon hit rate, 6/8 tiers). | Icon hit rate ≥95%; all 8 tiers populated; golden-file pixel diff <2%; gpt-5-pro grader returns `production-ready`. |
+| 3 | **GitHub IaC PR integration** | Engineer copy-pastes generated IaC into a repo by hand. | One CLI/API call opens a PR in `<owner>/<repo>` with Terraform/Bicep + drift comment + ALZ SVG attached; round-trip <30s. |
+| 4 | **Drift loop closure** | Drift is detected but doesn't feed back into the IaC artifact. | Drift report becomes a machine-readable patch the IaC chat can apply. |
+| 5 | **Mapping coverage to 95%** | AWS→Azure + GCP→Azure mapping coverage has gaps; freshness contract incomplete. | ≥95% coverage across `aws_canonical_estate.json` + GCP equivalent; 100% rows under freshness contract. |
+| 6 | **CLI-first workflow** | Web UI is the only entry. | `archmorph run --diagram x.png --target-rg foo --emit terraform,bicep,alz-svg` produces all artifacts in <60s without a browser. |
+| 7 | **Architecture limitations engine Phase 2** | 25 rules with 7 known polish bugs (#620). | Phase 2 ships #620 fixes + ≥40 total rules + rule authoring docs. |
+| 8 | **Observability SLOs** | Tool itself has no uptime/latency SLO. | `analyze_image` p95 <8s, `generate_landing_zone` p95 <1.5s, end-to-end p95 <30s; alerts wire to PagerDuty. |
 
 ### Production-Ready Roadmap — Azure Landing Zone (v4.3.0 target)
 
@@ -77,11 +138,9 @@ The post-merge CTO end-to-end review of `landing-zone-svg` (May 1, 2026) flagged
 - **Migration intelligence** — ML-powered analysis with historical pattern matching
 - **Infrastructure import** — import existing Terraform/ARM/CloudFormation configurations
 - **Terraform State Import** — reverse-engineer existing infrastructure from tfstate/CloudFormation/ARM into architecture diagrams
-- **Multi-Cloud Cost Comparison** — side-by-side Azure vs AWS vs GCP TCO analysis with savings recommendations
 - **SSO / SAML / SCIM scaffold** — enterprise auth routes exist, but require tenant-specific configuration and production validation before use
 - **Real-time Collaboration** — multi-stakeholder migration workspace with share codes and role-based participants
 - **Migration Replay** — animated analysis timeline for presentations with playback controls
-- **Migration Gallery** — public anonymized success stories, filterable by cloud and complexity
 - **Product Analytics** — funnel tracking (PostHog + backend), session-based event ingestion
 - **API Developer Portal** — Swagger/Redoc integration with category overview and curl examples
 - **Living architecture scaffold** — drift/versioning APIs include saved baselines, repeat compares, finding decisions, and Markdown report export; live environment monitoring still requires tenant-specific scanner validation
@@ -212,7 +271,6 @@ flowchart TB
                 SSO[SSO / SAML / SCIM<br/>Tenant validation gated]
                 Collab[Collaboration<br/>Real-Time Sessions]
                 Replay[Migration Replay<br/>Animated Timeline]
-                Gallery[Migration Gallery<br/>Public Stories]
                 TFImport[TF State Import<br/>tfstate/ARM/CF]
                 MultiCost[Multi-Cloud Cost<br/>3-Cloud TCO]
                 Analytics[Product Analytics<br/>Funnel Tracking]
@@ -336,7 +394,6 @@ flowchart TB
 | SSO / SAML / SCIM | SAML 2.0 ACS + SCIM v2.0 provisioning, pending tenant validation | Middleware |
 | Collaboration | Real-time multi-stakeholder sessions | In-process engine |
 | Migration Replay | Animated analysis timeline playback | In-process engine |
-| Migration Gallery | Public anonymized success stories | In-process engine |
 | TF State Import | tfstate/ARM/CF → architecture diagrams | In-process engine |
 | Multi-Cloud Cost | Side-by-side Azure/AWS/GCP TCO | In-process engine |
 | Product Analytics | PostHog + backend funnel tracking | In-process engine |
@@ -354,7 +411,6 @@ flowchart LR
         A1[📤 Upload Diagram<br/>PNG/SVG/PDF/Draw.io/Visio]
         A2[📥 Import IaC<br/>TF State / ARM / CF]
         A3[🔍 Cloud Scan Scaffold<br/>AWS / Azure / GCP]
-        A4[🎮 Demo Playground<br/>Sample Diagrams]
         A5[🤖 AI Vision Analysis<br/>GPT-4.1 + Cache]
     end
     
@@ -411,8 +467,7 @@ Input (Upload / Scan / Import) → AI Analysis → Guided Questions → Collabor
 1. **Upload Diagram** — PNG, JPG, SVG, PDF, Draw.io (.drawio), or Visio (.vsdx) architecture diagram
 2. **Import IaC** — Upload existing Terraform state (v3/v4), CloudFormation template, or ARM deployment JSON
 3. **Cloud scan scaffold** — Connectors and credential-handling model exist, but live tenant scanning stays gated until provider validation is complete
-4. **Demo Playground** — Try with sample diagrams, no sign-up required
-5. **AI Vision Analysis** — GPT-4.1 detects services, connections, and annotations (with TTL cache)
+4. **AI Vision Analysis** — GPT-4.1 detects services, connections, and annotations (with TTL cache)
 
 **Phase 2 — Analysis** (collaborative, real-time):
 6. **Guided Questions** — 8–18 contextual questions refine migration (SKU, compliance, networking, DR, security, region) with inter-question constraints
@@ -431,7 +486,6 @@ Input (Upload / Scan / Import) → AI Analysis → Guided Questions → Collabor
 17. **Migration Timeline** — 7-phase plan with topological dependency ordering and parallel workstreams
 18. **Risk Assessment** — Risk scoring with automated runbook generation
 19. **Migration Replay** — Animated timeline playback for presentations (play/pause/speed controls)
-20. **Migration Gallery** — Submit anonymized success stories to the public gallery
 
 ---
 
@@ -668,22 +722,15 @@ Archmorph/
 │   │   │   │   ├── HLDTab.jsx           # HLD generation & export
 │   │   │   │   ├── DeployPanel.jsx      # One-click deployment
 │   │   │   │   └── useWorkflow.js       # Workflow state machine hook
-│   │   │   ├── ScannerWizard/       # Live cloud scanner flow
-│   │   │   │   ├── ConnectStep.jsx      # Cloud provider + credentials
-│   │   │   │   ├── ScanStep.jsx         # Scan execution + progress
-│   │   │   │   ├── ReviewStep.jsx       # Results review
-│   │   │   │   └── index.jsx            # 3-step wizard flow
-│   │   │   ├── CanvasEditor/        # Interactive architecture canvas
+│   │   │   ├── ScannerWizard/       # Live cloud scanner flow (gated)
 │   │   │   ├── DriftDashboard/      # Infrastructure drift monitoring
 │   │   │   ├── Auth/                # Social auth + user profiles
 │   │   │   ├── CollabWorkspace.jsx  # Real-time collaboration panel
 │   │   │   ├── MigrationReplay.jsx  # Animated replay viewer
-│   │   │   ├── MigrationGallery.jsx # Public migration gallery
 │   │   │   ├── ApiDocs.jsx          # API developer portal
 │   │   │   ├── EmptyState.jsx       # Reusable empty state component
 │   │   │   ├── PhaseIndicator.jsx   # 3-phase progress indicator
-│   │   │   ├── LandingPage.jsx      # Marketing landing page
-│   │   │   ├── Nav.jsx              # Navigation bar (9 tabs + Gallery)
+│   │   │   ├── Nav.jsx              # Navigation bar (Dashboard / Translator / Services + More menu)
 │   │   │   ├── ui.jsx               # Design system (Button, Badge, Card, Input, Select, Modal, Tabs, etc.)
 │   │   │   └── ... (109 total)      # + additional components
 │   │   ├── hooks/
@@ -707,7 +754,6 @@ Archmorph/
 │   │   ├── sso_routes.py            # SAML/SCIM enterprise SSO
 │   │   ├── collaboration_routes.py  # Real-time collaboration sessions
 │   │   ├── replay_routes.py         # Migration replay timeline
-│   │   ├── gallery_routes.py        # Public migration gallery
 │   │   ├── scanner_routes.py        # Live cloud infrastructure scanner
 │   │   ├── credentials.py           # Secure credential vault
 │   │   ├── deployments.py           # Deploy engine (preview + execute)

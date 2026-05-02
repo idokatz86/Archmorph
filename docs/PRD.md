@@ -6,6 +6,41 @@
 
 ---
 
+## 0. CTO Direction (May 1, 2026)
+
+> **Authority:** CTO Master. **Status:** Binding. Supersedes prior product/marketing framing throughout this PRD.
+
+### Mission
+
+Archmorph is an internal engineering workbench. The value spine is `diagram → vision analysis → cross-cloud mapping → IaC (Terraform/Bicep) → Azure Landing Zone → drift / cost`. Every shippable change advances that spine. Anything else is overhead and gets cut.
+
+### Operating Principles
+
+1. Value spine is law. Off-spine changes get cut on sight.
+2. The user is an engineer at a terminal — full flow runs end-to-end in under 60 seconds. No marketing pages, no cookie banners, no sign-up modals.
+3. Every output is machine-checkable (parse, schema-validate, round-trip tested).
+4. Engineering observability over product analytics. OpenTelemetry + Application Insights only. PostHog, funnel tracking, retention cohorts — banned.
+5. Identity is Entra ID. Period. No SSO matrices, no SAML, no SCIM, no social auth.
+6. Single tenant, single org. Roles: `engineer | reader` via Entra group claims.
+7. Reduction beats addition.
+
+### Cut-candidate sections in this document
+
+The following sections describe surfaces flagged for removal in the spine consolidation PRs (PR-1 → PR-3). They remain in this document for historical traceability only and **must not** be cited as roadmap items in new work:
+
+- **§3.39 White-Label SDK** — internal tool has no partners.
+- **§3.40 Multi-Tenant Foundation** — single tenant.
+- **§12.1 Strategic Gaps (CEO Review)** rows S1 (free positioning), S2 (onboarding funnel), S4 (testimonials), S6 (SSO/SAML/SCIM), S10 (waitlist), S11 (investor data room).
+- All `Built-in diagram editor`, `Migration Gallery`, "100% free for customers" framing, and partner branding references throughout.
+
+### Banned vocabulary
+
+`delight`, `delightful`, `empower`, `empowering`, `enterprise-grade`, `world-class`, `powerful`, `magical`, `seamless`, `effortless`, `game-changing`, `cutting-edge`, `revolutionary`, `blazing-fast`, `next-generation`, `unleash`, `supercharge`, `robust` (use "tested"), `best-in-class`, `one-stop`, `beautiful`, `beloved`, `loved by`, `customers` (we have none), `users` (use "engineers"), `freemium`, `PLG`, `growth-loop`, `conversion`, `funnel`, `activation`, `retention-cohort`, `case study`, `testimonial`, `social proof`.
+
+---
+
+---
+
 ## 1. Executive Summary
 
 Archmorph is an AI-assisted cloud migration workbench in preview/stabilization. Its live product path converts uploaded AWS/GCP architecture diagrams into Azure migration artifacts: detected services, confidence-scored mappings, guided migration questions, IaC drafts, HLD/report exports, and cost estimates. The application is 100% free for customers: no subscriptions, paid tiers, billing setup, or hidden fees are required. The platform codebase also contains beta and scaffolded enterprise modules for collaboration, replay, gallery, RAG/Agent PaaS, Terraform state import, scanner, deploy, SSO/SCIM, and drift.

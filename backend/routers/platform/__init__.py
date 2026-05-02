@@ -1,7 +1,8 @@
 """
-Platform domain — routes for health, services, legal, compliance, jobs, etc.
+Platform domain — routes for health, services, jobs, compliance, cost, networking, etc.
 
-Consolidates 14 router files into one importable package (#503).
+Consolidates the platform-tier router files into one importable package (#503).
+Legal/privacy routers were removed in CTO PR-1 (May 2026, internal-tool refocus).
 """
 
 from fastapi import APIRouter

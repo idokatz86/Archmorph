@@ -2,9 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   MessageSquare, X, FileText, Loader2, Send, CheckCircle,
 } from 'lucide-react';
-import { API_BASE } from '../constants';
 import api from '../services/apiClient';
-import useAppStore from '../stores/useAppStore';
 
 export default function ChatWidget() {
   const [open, setOpen] = useState(false);

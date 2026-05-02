@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import 'prismjs/themes/prism-tomorrow.css';
-import { Code, Coffee, Loader2, Shield } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import ErrorBoundary from './components/ErrorBoundary';
 import Nav from './components/Nav';
 import Footer from './components/Footer';
