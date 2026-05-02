@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  X, Download, Check, Loader2, Package, FileCode, Image,
+  X, Download, Check, Loader2, Package, FileCode,
   FileText, DollarSign, CalendarClock, ShieldCheck, FileDown,
   ChevronDown, PanelTop,
 } from 'lucide-react';
@@ -19,17 +19,6 @@ const DELIVERABLES = [
       { id: 'cloudformation', label: 'CloudFormation' },
     ],
     defaultFormat: 'terraform',
-  },
-  {
-    id: 'diagram',
-    label: 'Classic Diagram Export',
-    icon: Image,
-    formats: [
-      { id: 'excalidraw', label: 'Excalidraw' },
-      { id: 'drawio', label: 'Draw.io' },
-      { id: 'vsdx', label: 'Visio' },
-    ],
-    defaultFormat: 'excalidraw',
   },
   {
     id: 'architecture-package',
@@ -102,22 +91,6 @@ async function generateDeliverable(diagramId, deliverable, format, hldIncludeDia
     const content = data.code || JSON.stringify(data, null, 2);
     const ext = format === 'terraform' ? 'tf' : format === 'bicep' ? 'bicep' : format;
     return { blob: new Blob([content], { type: 'text/plain' }), filename: `archmorph-iac.${ext}` };
-  }
-
-  if (id === 'diagram') {
-    const data = await api.post(`/diagrams/${diagramId}/export-diagram?format=${format}`);
-    const content = typeof data.content === 'string' ? data.content : JSON.stringify(data.content, null, 2);
-    // Visio export is legacy VDX 2003 XML — extension must be .vdx, not .vsdx.
-    // .vsdx is OOXML zip; if we labelled raw XML as .vsdx, Visio refuses to open.
-    const ext = format === 'excalidraw' ? 'excalidraw' : format === 'drawio' ? 'drawio' : 'vdx';
-    // Use format-specific MIME types so the browser/OS can route the file
-    // correctly when saved (instead of a generic octet-stream).
-    const mime = format === 'excalidraw'
-      ? 'application/json'
-      : format === 'drawio'
-      ? 'application/xml'
-      : 'application/vnd.visio'; // VDX legacy XML
-    return { blob: new Blob([content], { type: mime }), filename: data.filename || `archmorph-diagram.${ext}` };
   }
 
   if (id === 'architecture-package') {

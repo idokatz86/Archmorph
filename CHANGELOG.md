@@ -9,9 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Architecture Package quality recovery
+
+- **Customer-grade package shell** — Architecture Package HTML exports now use the richer Archmorph review structure with branded header metadata, source-to-target story strip, A/B/C/D tab semantics, and grouped talking-point/limitation rows.
+- **Legacy export cleanup** — Draw.io, Excalidraw, and Visio are removed from visible website export controls so the customer UI leads only with Architecture Package HTML, Target SVG, and DR SVG.
+- **Azure icon recovery** — Azure topology SVG rendering now falls back to Archmorph's bundled Azure service icons when the runtime icon registry is incomplete, avoiding letter-badge-only customer diagrams.
+- **Diagram placeholder cleanup** — Azure topology SVG rendering suppresses visible `(empty)` workload cells in availability-zone columns.
+
 #### Main-branch convergence and Architecture Package export (PRs #651 #652 #649 #667 #666)
 
-- **Architecture Package HTML/SVG export** — new customer-facing export path that produces a polished tabbed HTML package plus standalone target and DR SVG renderings. It preserves classic Excalidraw, Draw.io, and Visio exports while making the Azure topology package the lead deliverable.
+- **Architecture Package HTML/SVG export** — new customer-facing export path that produces a polished tabbed HTML package plus standalone target and DR SVG renderings. It preserves classic Excalidraw, Draw.io, and Visio compatibility endpoints while making the Azure topology package the lead deliverable.
 - **Customer intent profile** — guided-question answers now feed a compact `customer_intent` object for export narration while raw `guided_answers` remain limited to user-provided answers.
 - **Scheduled job freshness health** — service catalog refresh now registers durable freshness in `/api/health.scheduled_jobs`, restores last-success state after restart, and avoids marking success when provider refreshes fail.
 - **Branch convergence** — all active convergence PRs were merged or superseded and the repository was reduced back to `main` as the only active branch.

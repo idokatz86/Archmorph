@@ -21,6 +21,7 @@ import base64
 import re
 import time
 import xml.etree.ElementTree as ET
+from pathlib import Path
 from typing import Any, Literal, Optional
 
 from azure_landing_zone_schema import (
@@ -179,27 +180,66 @@ _ICON_TILE_COLOR: dict[str, str] = {
     "user":         COLOR_INK_2,
 }
 
+_BUNDLED_ICON_FILES: dict[str, str] = {
+    "frontdoor": "front_door.svg",
+    "appgw": "application_gateway.svg",
+    "storage": "blob_storage.svg",
+    "aks": "aks.svg",
+    "files": "azure_files.svg",
+    "sql": "sql_database.svg",
+    "eventhub": "event_hubs.svg",
+    "monitor": "azure_monitor.svg",
+    "appinsights": "application_insights.svg",
+    "loganalytics": "log_analytics.svg",
+    "dns": "azure_dns.svg",
+    "avd": "virtual_desktop.svg",
+    "entra": "entra_id.svg",
+    "keyvault": "key_vault.svg",
+    "region": "management_groups.svg",
+    "subnet": "virtual_network.svg",
+    "vnet": "virtual_network.svg",
+    "vm": "virtual_machine.svg",
+    "rg": "resource_manager.svg",
+}
+
+_BUNDLED_AZURE_ICON_DIR = Path(__file__).resolve().parent / "samples" / "azure"
+
 
 def _resolve_data_uri(icon_key: str) -> Optional[str]:
     """Look the icon up in Archmorph's icon registry and return a data URI."""
     try:
         from icons.registry import resolve_icon  # type: ignore
     except Exception:  # nosec B110 - registry optional
-        return None
+        resolve_icon = None  # type: ignore[assignment]
 
-    candidates = _ICON_SERVICE_IDS.get(icon_key, [icon_key])
-    for sid in candidates:
-        try:
-            entry = resolve_icon(sid, provider="azure")
-        except Exception:  # nosec B110 - any registry error → placeholder
-            entry = None
-        if entry and entry.svg:
+    if resolve_icon is not None:
+        candidates = _ICON_SERVICE_IDS.get(icon_key, [icon_key])
+        for sid in candidates:
             try:
-                b64 = base64.b64encode(entry.svg.encode("utf-8")).decode("ascii")
-            except Exception:  # nosec B110 - encoding errors → placeholder
-                continue
-            return f"data:image/svg+xml;base64,{b64}"
-    return None
+                entry = resolve_icon(sid, provider="azure")
+            except Exception:  # nosec B110 - any registry error → bundled fallback
+                entry = None
+            if entry and entry.svg:
+                try:
+                    b64 = base64.b64encode(entry.svg.encode("utf-8")).decode("ascii")
+                except Exception:  # nosec B110 - encoding errors → bundled fallback
+                    continue
+                return f"data:image/svg+xml;base64,{b64}"
+    return _resolve_bundled_data_uri(icon_key)
+
+
+def _resolve_bundled_data_uri(icon_key: str) -> Optional[str]:
+    """Resolve a bundled Azure SVG icon when the runtime registry is incomplete."""
+    filename = _BUNDLED_ICON_FILES.get(icon_key)
+    if not filename:
+        return None
+    path = _BUNDLED_AZURE_ICON_DIR / filename
+    try:
+        svg = path.read_bytes()
+    except OSError:
+        return None
+    b64 = base64.b64encode(svg).decode("ascii")
+    return f"data:image/svg+xml;base64,{b64}"
 
 
 _ICON_CACHE: dict[str, Optional[str]] = {}
@@ -684,7 +724,7 @@ def _vnet_block(tiers: dict[str, list[dict[str, Any]]]) -> str:
 
 
 def _az_column(x: int, y: int, label: str, pods: list[Optional[str]]) -> str:
-    """Single AZ column with header + 6 pod cells."""
+    """Single AZ column with header and inferred workload pod cells."""
     out = [f'<g transform="translate({x}, {y})">']
     col_w, col_h = 320, 260
     out.append(_card(0, 0, col_w, col_h, stroke=COLOR_INK_2))
@@ -693,17 +733,18 @@ def _az_column(x: int, y: int, label: str, pods: list[Optional[str]]) -> str:
     )
     out.append(_tx(8, 16, label, "t-banner"))
 
+    visible_pods = [pod for pod in pods[:6] if pod]
+    if not visible_pods:
+        visible_pods = ["Workload not inferred"]
+
     cell_h = 36
-    for i, pod in enumerate(pods[:6]):
+    for i, pod in enumerate(visible_pods[:6]):
         cy = 30 + i * cell_h
         out.append(
             f'<rect x="8" y="{cy}" width="{col_w - 16}" height="{cell_h - 4}" rx="4" '
             f'fill="#FFFFFF" stroke="#cdd5e3" stroke-width="1"/>'
         )
-        if pod:
-            out.append(_tx(col_w / 2, cy + 20, pod, "t-tiny", anchor="middle"))
-        else:
-            out.append(_tx(col_w / 2, cy + 20, "(empty)", "t-tinier", anchor="middle"))
+        out.append(_tx(col_w / 2, cy + 20, pod, "t-tiny", anchor="middle"))
     out.append('</g>')
     return "\n".join(out)
 

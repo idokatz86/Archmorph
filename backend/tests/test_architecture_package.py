@@ -50,10 +50,19 @@ def test_html_package_contains_tabs_and_namespaced_svg_ids():
     content = result["content"]
     assert result["format"] == "architecture-package-html"
     assert result["filename"].endswith(".html")
-    assert "Target Topology" in content
-    assert "DR Topology" in content
+    assert "Archmorph — Package Test Architecture Package" in content
+    assert "A — Target Azure Topology" in content
+    assert "B — DR Topology" in content
     assert "Customer Intent" in content
     assert "East US" in content
+    assert "(empty)" not in content
+    assert "data:image/svg+xml;base64" in content
+    assert ">FD<" not in content
+    assert ">AG<" not in content
+    assert ">ST<" not in content
+    assert ">AK<" not in content
+    assert ">AF<" not in content
+    assert ">DB<" not in content
     assert 'id="a-primary"' in content
     assert 'id="a-dr"' in content
     assert 'marker-end="url(#a)"' not in content
@@ -71,7 +80,7 @@ def test_export_architecture_package_endpoint_returns_html(test_client):
     data = response.json()
     assert data["format"] == "architecture-package-html"
     assert data["filename"].endswith(".html")
-    assert "Target Topology" in data["content"]
+    assert "A — Target Azure Topology" in data["content"]
 
 
 def test_export_architecture_package_endpoint_returns_dr_svg(test_client):

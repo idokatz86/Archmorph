@@ -4,7 +4,7 @@
 > Target audience: developers implementing the export pipeline.
 > Date: 2026-03-17 | Version: 2.0
 
-> May 2026 update: the classic diagram formats remain supported, and the customer-facing Architecture Package adds HTML plus standalone target/DR SVG render targets on top of the same analysis result.
+> May 2026 update: the customer-facing Architecture Package is the primary website export. It exposes HTML plus standalone target/DR SVG render targets. Classic editable diagram formats remain legacy/internal API capabilities only and are no longer visible in the customer export UI.
 
 ---
 
@@ -41,8 +41,8 @@ Architecture Package exports additionally consume `customer_intent` and optional
 
 | Family | Formats | Primary Consumer | Notes |
 |--------|---------|------------------|-------|
-| Architecture Package | `format=html` or `format=svg` with `diagram=primary` or `diagram=dr` | Customer, CTO, architecture review | Polished review package with Azure topology views, talking points, limitations, and namespaced inline SVG assets. |
-| Classic Diagram Export | `excalidraw`, `drawio`, `vsdx` | Engineers editing diagrams in external tools | Multi-page/multi-frame editable diagrams using the legacy renderer contract below. |
+| Architecture Package | `format=html` or `format=svg` with `diagram=primary` or `diagram=dr` | Customer, CTO, architecture review | Polished review package with Azure topology views, talking points, limitations, and namespaced inline SVG assets. This is the only visible website diagram export family. |
+| Classic Diagram Export | `excalidraw`, `drawio`, `vsdx` | Internal/legacy engineers editing diagrams in external tools | Legacy renderer contract retained for compatibility only; do not surface these options in the customer website export UI. |
 
 ---
 
