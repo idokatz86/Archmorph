@@ -19,11 +19,7 @@ const Roadmap = lazy(() => import('./components/Roadmap'));
 const ChatWidget = lazy(() => import('./components/ChatWidget'));
 const DriftDashboard = lazy(() => import('./components/DriftDashboard'));
 const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
-const LegalPages = lazy(() => import('./components/LegalPages'));
-const CookieBanner = lazy(() => import('./components/CookieBanner'));
 // PricingPage removed — feature temporarily disabled
-const LandingPage = lazy(() => import('./components/LandingPage'));
-const OnboardingTour = lazy(() => import('./components/OnboardingTour'));
 const CommandPalette = lazy(() => import('./components/CommandPalette'));
 const DashboardPage = lazy(() => import('./components/DashboardPage'));
 const ApiDocs = lazy(() => import('./components/ApiDocs'));
@@ -81,8 +77,6 @@ export default function App() {
     <AuthProvider>
     <ToastProvider>
     <div className="min-h-screen bg-surface text-text-primary font-sans">
-      {/* First-time onboarding tour (#257) */}
-      <Suspense fallback={null}><OnboardingTour /></Suspense>
       {/* Skip to main content link for keyboard/screen-reader users (#220) */}
       <a
         href="#main-content"
@@ -95,12 +89,6 @@ export default function App() {
       <main id="main-content" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <ErrorBoundary>
           <Suspense fallback={<TabFallback />}>
-            {activeTab === 'landing' && (
-              <LandingPage
-                onGetStarted={() => setActiveTab('translator')}
-                onTrySample={() => setActiveTab('translator')}
-              />
-            )}
             {activeTab === 'dashboard' && <DashboardPage />}
             {activeTab === 'translator' && <DiagramTranslator />}
             {activeTab === 'services' && <ServicesBrowser />}
@@ -109,7 +97,6 @@ export default function App() {
             {activeTab === 'api-docs' && <ApiDocs />}
             {activeTab === 'collab' && <CollabWorkspace />}
             {activeTab === 'replay' && <MigrationReplay />}
-            {activeTab === 'legal' && <LegalPages onBack={() => setActiveTab('translator')} />}
 
           </Suspense>
         </ErrorBoundary>
@@ -118,11 +105,6 @@ export default function App() {
       <Suspense fallback={null}>
         <ErrorBoundary>
           <ChatWidget />
-        </ErrorBoundary>
-      </Suspense>
-      <Suspense fallback={null}>
-        <ErrorBoundary>
-          <CookieBanner />
         </ErrorBoundary>
       </Suspense>
       <Suspense fallback={null}>

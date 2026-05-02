@@ -4,7 +4,7 @@ import {
   AlertTriangle, CheckCircle2, ArrowRight, X, LayoutGrid,
 } from 'lucide-react';
 import { Badge, Card } from '../ui';
-import { ContextualHint } from '../OnboardingTour';
+import { ContextualHint } from '../ContextualHint';
 
 /* ── Helpers ── */
 const effortValue = (e) => e === 'low' ? 1 : e === 'medium' ? 2 : e === 'high' ? 3 : 0;

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Code, Coffee, Shield } from 'lucide-react';
+import { Code, Coffee } from 'lucide-react';
 import { APP_VERSION } from '../constants';
 
 export default function Footer({ handleVersionClick, setActiveTab }) {
@@ -26,13 +26,6 @@ export default function Footer({ handleVersionClick, setActiveTab }) {
               <Coffee className="w-3.5 h-3.5" />
               Buy me a coffee
             </a>
-            <button
-              onClick={() => setActiveTab('legal')}
-              className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-cta transition-colors cursor-pointer"
-            >
-              <Shield className="w-3.5 h-3.5" />
-              Legal & Privacy
-            </button>
           </div>
         </div>
       </div>

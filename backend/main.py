@@ -79,7 +79,6 @@ from routers.auth import router as auth_router  # noqa: E402
 from routers.versioning import router as versioning_router  # noqa: E402
 from routers.terraform import router as terraform_router  # noqa: E402
 from routers.feature_flags import router as feature_flags_router  # noqa: E402
-from routers.privacy import router as privacy_router  # noqa: E402
 from routers.jobs import router as jobs_router  # noqa: E402
 from routers.credentials import router as credentials_router  # noqa: E402
 from routers.tf_backend import router as tf_backend_router  # noqa: E402
@@ -87,7 +86,6 @@ from routers.drift import router as drift_router  # noqa: E402
 from routers.scanner_routes import router as scanner_router  # noqa: E402
 from routers.deploy import router as deploy_router  # noqa: E402
 from routers.deployments import router as deployments_router  # noqa: E402
-from routers.legal import router as legal_router  # noqa: E402
 from routers.rag_routes import router as rag_router  # noqa: E402
 from routers.agent_paas import router as agent_paas_router  # noqa: E402
 from routers.cost_routes import router as cost_router  # noqa: E402
@@ -375,7 +373,6 @@ app.include_router(auth_router)
 app.include_router(versioning_router)
 app.include_router(terraform_router)
 app.include_router(feature_flags_router)
-app.include_router(privacy_router)
 app.include_router(jobs_router)
 app.include_router(credentials_router)
 app.include_router(tf_backend_router)
@@ -383,7 +380,6 @@ app.include_router(drift_router)
 app.include_router(scanner_router)
 app.include_router(deploy_router)
 app.include_router(deployments_router)
-app.include_router(legal_router)
 app.include_router(rag_router)
 app.include_router(agent_paas_router)
 app.include_router(cost_router)
@@ -438,7 +434,6 @@ _all_routers = [
     (versioning_router, ""),
     (terraform_router, ""),
     (feature_flags_router, ""),
-    (privacy_router, ""),
     (jobs_router, ""),
     (credentials_router, ""), 
     (scanner_router, ""), 

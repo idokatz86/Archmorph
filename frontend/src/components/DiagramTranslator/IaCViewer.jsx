@@ -6,7 +6,7 @@ import {
   Plus, RotateCcw, Send, Loader2, CheckCircle, GitPullRequest,
 } from 'lucide-react';
 import { Button, Card } from '../ui';
-import { ContextualHint } from '../OnboardingTour';
+import { ContextualHint } from '../ContextualHint';
 import { toRenderableString } from '../../utils/toRenderableString';
 
 const QUICK_ACTIONS = [
