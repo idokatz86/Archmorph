@@ -5,6 +5,7 @@ Tests for the rewritten service_updater.py (v2.2.0)
 
 import os
 import sys
+import json
 from unittest.mock import patch
 
 
@@ -229,6 +230,49 @@ class TestReadWriteState:
         with patch("service_updater._UPDATES_FILE", state_file):
             state = _read_state()
             assert state["last_check"] is None
+
+    def test_blob_state_takes_priority_over_disk(self, tmp_path):
+        from unittest.mock import MagicMock
+
+        state_file = tmp_path / "state.json"
+        disk_state = {
+            "last_check": "disk",
+            "checks": [],
+            "new_services_found": {"aws": [], "azure": [], "gcp": []},
+            "auto_added": {"aws": [], "azure": [], "gcp": []},
+        }
+        blob_state = {**disk_state, "last_check": "blob"}
+        state_file.write_text(json.dumps(disk_state), encoding="utf-8")
+        blob_payload = json.dumps(blob_state).encode("utf-8")
+        mock_blob = MagicMock()
+        mock_blob.download_blob.return_value.readall.return_value = blob_payload
+
+        with patch("service_updater._get_state_blob_client", return_value=mock_blob), \
+             patch("service_updater._UPDATES_FILE", state_file), \
+             patch("service_updater._DATA_DIR", tmp_path):
+            state = _read_state()
+            assert state["last_check"] == "blob"
+
+    def test_write_state_mirrors_to_blob(self, tmp_path):
+        from unittest.mock import MagicMock
+
+        state_file = tmp_path / "state.json"
+        mock_blob = MagicMock()
+        test_state = {
+            "last_check": "2026-05-02T12:00:00Z",
+            "checks": [],
+            "new_services_found": {"aws": [], "azure": [], "gcp": []},
+            "auto_added": {"aws": [], "azure": [], "gcp": []},
+        }
+
+        with patch("service_updater._get_state_blob_client", return_value=mock_blob), \
+             patch("service_updater._UPDATES_FILE", state_file), \
+             patch("service_updater._DATA_DIR", tmp_path):
+            _write_state(test_state)
+
+        mock_blob.upload_blob.assert_called_once()
+        payload = mock_blob.upload_blob.call_args.args[0]
+        assert b'"last_check": "2026-05-02T12:00:00Z"' in payload
 
 
 # ====================================================================

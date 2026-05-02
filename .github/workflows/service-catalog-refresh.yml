@@ -120,8 +120,8 @@ jobs:
           STALE=$(echo "$BODY" | jq -r '.service_catalog_refresh.stale // "missing"')
           echo "post-refresh age=${AGE}h stale=${STALE}"
           if [ "$STALE" = "missing" ]; then
-            echo "::warning::deployed API does not yet expose service_catalog_refresh block (older container image). Skipping freshness gate."
-            exit 0
+            echo "::error::/api/health does not expose service_catalog_refresh; cannot verify refresh freshness"
+            exit 1
           fi
           if [ "$STALE" != "false" ]; then
             echo "::error::Refresh succeeded but /api/health still reports stale catalog"
