@@ -50,10 +50,6 @@ export const API_FLAG = (name) => `/flags/${name}`;
 export const API_FEEDBACK = '/feedback';
 export const API_FEEDBACK_NPS = '/feedback/nps';
 
-// ── Analytics ────────────────────────────────────────────────
-export const API_ANALYTICS_EVENTS = '/analytics/events';
-export const API_ANALYTICS_FUNNEL = '/analytics/funnel';
-
 // ── Reports & Sharing ────────────────────────────────────────
 export const API_REPORTS = '/reports';
 export const API_SHARES = '/shares';

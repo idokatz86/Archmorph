@@ -13,8 +13,6 @@ import useSessionExpiry from '../../hooks/useSessionExpiry';
 import useBeforeUnload from '../../hooks/useBeforeUnload';
 import useAppStore from '../../stores/useAppStore';
 import { isFeatureEnabled } from '../../featureFlags';
-import { trackFunnel } from '../../services/analytics';
-
 const UploadStep = lazy(() => import('./UploadStep'));
 const GuidedQuestions = lazy(() => import('./GuidedQuestions'));
 const AnalysisResults = lazy(() => import('./AnalysisResults'));
@@ -383,13 +381,6 @@ export default function DiagramTranslator() {
         await new Promise(r => setTimeout(r, 400));
 
         set({ analysis: result });
-        trackFunnel('analysis_complete', {
-          source: 'upload',
-          diagram_id,
-          service_count: result.services_detected || result.mappings?.length || 0,
-          provider: result.source_provider || 'unknown',
-        });
-
         const qData = await api.post(`/diagrams/${diagram_id}/questions`, undefined, signal);
         const questions = qData.questions || [];
         const defaults = {};
@@ -445,13 +436,6 @@ export default function DiagramTranslator() {
         await new Promise(r => setTimeout(r, 800));
 
         set({ analysis: result });
-        trackFunnel('analysis_complete', {
-          source: 'upload',
-          diagram_id,
-          service_count: result.services_detected || result.mappings?.length || 0,
-          provider: result.source_provider || 'unknown',
-        });
-
         const qData = await api.post(`/diagrams/${diagram_id}/questions`, undefined, signal);
         const questions = qData.questions || [];
         const defaults = {};
@@ -489,12 +473,6 @@ export default function DiagramTranslator() {
       await new Promise(r => setTimeout(r, 400));
       addProgress('Sample loaded successfully \u2713');
       await new Promise(r => setTimeout(r, 600));
-      trackFunnel('analysis_complete', {
-        source: 'sample',
-        diagram_id: result.diagram_id,
-        provider: sample.provider,
-        service_count: result.services_detected || result.mappings?.length || 0,
-      });
       const qData = await api.post(`/diagrams/${result.diagram_id}/questions`);
       const questions = qData.questions || [];
       const defaults = {};
@@ -514,10 +492,6 @@ export default function DiagramTranslator() {
         { cleanup: () => set({ loading: false }) },
       );
       if (refined) {
-        trackFunnel('questions_answered', {
-          diagram_id: state.diagramId,
-          question_count: state.questions?.length || 0,
-        });
         set({ analysis: { ...state.analysis, ...refined }, step: 'results' });
       }
     } catch (err) {
@@ -535,12 +509,10 @@ export default function DiagramTranslator() {
       );
       if (iacData) {
         set({ iacCode: iacData.code, step: 'iac', generatingIac: false });
-        trackFunnel('iac_generated', { diagram_id: state.diagramId, format: fmt });
         updateSessionCache({ iacCode: iacData.code, iacFormat: fmt }); // #263
         // Fetch cost estimate in parallel (non-blocking)
         api.get(`/diagrams/${state.diagramId}/cost-estimate`).then(cost => {
           set({ costEstimate: cost });
-          trackFunnel('cost_viewed', { diagram_id: state.diagramId, source: 'auto_fetch' });
         }).catch(() => {});
       }
     } catch (err) {
@@ -560,7 +532,6 @@ export default function DiagramTranslator() {
       );
       if (iacData) {
         set({ iacCode: iacData.code, genProgress: 'IaC complete. Generating HLD document...' });
-        trackFunnel('iac_generated', { diagram_id: state.diagramId, format: fmt, source: 'generate_all' });
         updateSessionCache({ iacCode: iacData.code, iacFormat: fmt });
         // Start HLD generation in parallel
         const [hldData, costData] = await Promise.allSettled([
@@ -573,7 +544,6 @@ export default function DiagramTranslator() {
         }
         if (costData.status === 'fulfilled') {
           set({ costEstimate: costData.value });
-          trackFunnel('cost_viewed', { diagram_id: state.diagramId, source: 'generate_all' });
         }
         set({ step: 'iac', generatingIac: false, generatingAll: false, genProgress: null });
       }
@@ -605,7 +575,6 @@ export default function DiagramTranslator() {
         a.download = data.filename;
         a.click();
         URL.revokeObjectURL(url);
-        trackFunnel('hld_exported', { diagram_id: state.diagramId, format: fmt });
         copyWithFeedback('', `hld-${fmt}`);
       }
     } catch (err) {
@@ -726,7 +695,6 @@ export default function DiagramTranslator() {
         a.download = data.filename || 'archmorph-migration-package.zip';
         a.click();
         URL.revokeObjectURL(url);
-        trackFunnel('iac_downloaded', { diagram_id: state.diagramId, format: state.iacFormat, source: 'migration_package' });
       }
     } catch (err) {
       set({ error: `Migration package export failed: ${err.message}` });
@@ -766,7 +734,6 @@ export default function DiagramTranslator() {
           onResetChat={handleResetChat}
           onSendChat={handleIacChat}
           onSetChatInput={(v) => set({ iacChatInput: v })}
-          onDownload={() => trackFunnel('iac_downloaded', { diagram_id: state.diagramId, format: state.iacFormat, source: 'iac_viewer' })}
         />
       ) : tab.id === 'hld' ? (
         <HLDTab
@@ -923,11 +890,6 @@ export default function DiagramTranslator() {
           onUpdateAnswer={updateAnswer}
           onApplyAnswers={handleApplyAnswers}
           onSkip={() => {
-            trackFunnel('questions_answered', {
-              diagram_id: state.diagramId,
-              question_count: state.questions?.length || 0,
-              skipped: true,
-            });
             set({ step: 'results' });
           }}
           constraints={state.questionConstraints || []}
@@ -970,7 +932,6 @@ export default function DiagramTranslator() {
             tabs={deliverableTabs}
             activeTab={activeDeliverable}
             onChange={(tabId) => {
-              if (tabId === 'pricing') trackFunnel('cost_viewed', { diagram_id: state.diagramId, source: 'pricing_tab' });
               set({ step: tabId });
             }}
           />
