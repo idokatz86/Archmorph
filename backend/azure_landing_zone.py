@@ -693,17 +693,18 @@ def _az_column(x: int, y: int, label: str, pods: list[Optional[str]]) -> str:
     )
     out.append(_tx(8, 16, label, "t-banner"))
 
+    visible_pods = [pod for pod in pods[:6] if pod]
+    if not visible_pods:
+        visible_pods = ["Workload not inferred"]
+
     cell_h = 36
-    for i, pod in enumerate(pods[:6]):
+    for i, pod in enumerate(visible_pods[:6]):
         cy = 30 + i * cell_h
         out.append(
             f'<rect x="8" y="{cy}" width="{col_w - 16}" height="{cell_h - 4}" rx="4" '
             f'fill="#FFFFFF" stroke="#cdd5e3" stroke-width="1"/>'
         )
-        if pod:
-            out.append(_tx(col_w / 2, cy + 20, pod, "t-tiny", anchor="middle"))
-        else:
-            out.append(_tx(col_w / 2, cy + 20, "(empty)", "t-tinier", anchor="middle"))
+        out.append(_tx(col_w / 2, cy + 20, pod, "t-tiny", anchor="middle"))
     out.append('</g>')
     return "\n".join(out)
 

@@ -16,7 +16,7 @@ describe('ExportPanel', () => {
 
   it('shows subtitle', () => {
     render(<ExportPanel {...defaultProps} />)
-    expect(screen.getByText(/Download polished HTML\/SVG output/)).toBeInTheDocument()
+    expect(screen.getByText(/Download the customer-ready HTML package/)).toBeInTheDocument()
   })
 
   it('renders HTML Package button', () => {
@@ -34,19 +34,11 @@ describe('ExportPanel', () => {
     expect(screen.getByText('DR SVG')).toBeInTheDocument()
   })
 
-  it('renders Excalidraw button', () => {
+  it('does not render legacy diagram export buttons', () => {
     render(<ExportPanel {...defaultProps} />)
-    expect(screen.getByText('Excalidraw')).toBeInTheDocument()
-  })
-
-  it('renders Draw.io button', () => {
-    render(<ExportPanel {...defaultProps} />)
-    expect(screen.getByText('Draw.io')).toBeInTheDocument()
-  })
-
-  it('renders Visio button', () => {
-    render(<ExportPanel {...defaultProps} />)
-    expect(screen.getByText('Visio')).toBeInTheDocument()
+    expect(screen.queryByText('Excalidraw')).not.toBeInTheDocument()
+    expect(screen.queryByText('Draw.io')).not.toBeInTheDocument()
+    expect(screen.queryByText('Visio')).not.toBeInTheDocument()
   })
 
   it('calls onExportDiagram with correct format', async () => {
@@ -70,17 +62,4 @@ describe('ExportPanel', () => {
     expect(defaultProps.onExportDiagram).toHaveBeenCalledWith('architecture-package-svg-dr')
   })
 
-  it('calls onExportDiagram with drawio format', async () => {
-    const user = userEvent.setup()
-    render(<ExportPanel {...defaultProps} />)
-    await user.click(screen.getByText('Draw.io'))
-    expect(defaultProps.onExportDiagram).toHaveBeenCalledWith('drawio')
-  })
-
-  it('calls onExportDiagram with vsdx format', async () => {
-    const user = userEvent.setup()
-    render(<ExportPanel {...defaultProps} />)
-    await user.click(screen.getByText('Visio'))
-    expect(defaultProps.onExportDiagram).toHaveBeenCalledWith('vsdx')
-  })
 })
