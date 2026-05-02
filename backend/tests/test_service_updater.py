@@ -536,3 +536,159 @@ class TestBlobPersistence:
             result = _load_discovered_services()
             assert result["aws"][0]["id"] == "aws-from-blob"
 
+
+# ====================================================================
+# Issue #647 — services.reload() and refresh-time hot reload
+# ====================================================================
+
+class TestServicesReload:
+    def test_reload_function_exists(self):
+        import services
+        assert hasattr(services, "reload"), (
+            "services.reload() missing — required by issue #647 so live API "
+            "reflects discoveries without container restart."
+        )
+        assert callable(services.reload)
+
+    def test_reload_returns_counts(self):
+        import services
+        counts = services.reload()
+        assert isinstance(counts, dict)
+        assert set(counts.keys()) >= {"aws", "azure", "gcp"}
+        assert all(isinstance(v, int) and v > 0 for v in counts.values())
+
+    def test_lists_are_same_object_across_reloads(self):
+        """Critical contract: reload() must mutate in place, not rebind.
+
+        Otherwise `from services import AWS_SERVICES` references in routers
+        would still point at the old list after a refresh.
+        """
+        import services
+        before = services.AWS_SERVICES
+        services.reload()
+        after = services.AWS_SERVICES
+        assert before is after, (
+            "AWS_SERVICES list identity changed across reload(); routers that "
+            "imported by name will still see the old list."
+        )
+
+    def test_reload_picks_up_new_discovered_entries(self, tmp_path, monkeypatch):
+        """After writing a new entry to discovered_services.json, reload() picks it up."""
+        import json as _json
+        import services
+
+        # Static-only baseline: reload from a fresh empty discovery file first
+        empty_disc = tmp_path / "empty.json"
+        empty_disc.write_text('{"aws": [], "azure": [], "gcp": []}', encoding="utf-8")
+        monkeypatch.setattr(services, "_DISCOVERED_FILE", empty_disc)
+        monkeypatch.setenv("AZURE_STORAGE_ACCOUNT_URL", "")
+        monkeypatch.setenv("AZURE_STORAGE_CONNECTION_STRING", "")
+        services.reload()
+        baseline_aws = len(services.AWS_SERVICES)
+
+        # Now point at a discovery file with one synthetic entry
+        disc = tmp_path / "discovered.json"
+        disc.write_text(_json.dumps({
+            "aws": [
+                {"id": "aws-647-test-svc", "name": "Reload Test Svc",
+                 "fullName": "AWS Reload Test", "category": "Other",
+                 "description": "test", "icon": "cloud"},
+            ],
+            "azure": [],
+            "gcp": [],
+        }), encoding="utf-8")
+        monkeypatch.setattr(services, "_DISCOVERED_FILE", disc)
+
+        services.reload()
+
+        try:
+            assert len(services.AWS_SERVICES) == baseline_aws + 1
+            assert any(
+                s.get("id") == "aws-647-test-svc" for s in services.AWS_SERVICES
+            ), "newly-discovered entry not visible after reload()"
+        finally:
+            # Restore: reload from the real discovery file so other tests see
+            # the canonical state.
+            monkeypatch.undo()
+            services.reload()
+
+    def test_run_update_now_triggers_reload(self, tmp_path, monkeypatch):
+        """run_update_now must call services.reload() when discoveries are saved.
+
+        Issue #647 — without this hook, refresh writes data nobody can read
+        until container restart.
+        """
+        import services
+        import service_updater
+        from unittest.mock import patch as _patch
+
+        # Sentinel function to detect the reload call
+        reload_called = {"count": 0}
+        original_reload = services.reload
+
+        def tracking_reload():
+            reload_called["count"] += 1
+            return original_reload()
+
+        # Stub fetchers to return a synthetic new service so auto_added is non-empty
+        def fake_fetch(_client):
+            return {"NewSyntheticService647"}
+
+        def empty_fetch(_client):
+            return set()
+
+        # Use tmp paths for state + discovered file to avoid polluting real data
+        with _patch.object(services, "reload", tracking_reload), \
+             _patch("service_updater._fetch_aws_services", fake_fetch), \
+             _patch("service_updater._fetch_azure_services", empty_fetch), \
+             _patch("service_updater._fetch_gcp_services", empty_fetch), \
+             _patch("service_updater._UPDATES_FILE", tmp_path / "state.json"), \
+             _patch("service_updater._DISCOVERED_FILE", tmp_path / "discovered.json"), \
+             _patch("service_updater._DATA_DIR", tmp_path), \
+             _patch("service_updater._get_discovered_blob_client", return_value=None):
+            service_updater.run_update_now(auto_add=True)
+
+        assert reload_called["count"] == 1, (
+            "services.reload() was not called by run_update_now; live catalog "
+            "will not reflect new discoveries until container restart."
+        )
+
+    def test_run_update_now_skips_reload_when_no_changes(self, tmp_path):
+        """No discoveries → no reload (avoid wasted work)."""
+        import services
+        import service_updater
+        from unittest.mock import patch as _patch
+
+        reload_called = {"count": 0}
+        original_reload = services.reload
+
+        def tracking_reload():
+            reload_called["count"] += 1
+            return original_reload()
+
+        # Make every fetcher return the empty set against an empty local
+        # catalog — guaranteed zero new services for every provider.
+        def empty_fetch(_client):
+            return set()
+
+        def empty_local_catalog(_provider):
+            # (service_list, normalised name set)
+            return [], set()
+
+        with _patch.object(services, "reload", tracking_reload), \
+             _patch("service_updater._fetch_aws_services", empty_fetch), \
+             _patch("service_updater._fetch_azure_services", empty_fetch), \
+             _patch("service_updater._fetch_gcp_services", empty_fetch), \
+             _patch("service_updater._load_local_catalog", empty_local_catalog), \
+             _patch("service_updater._UPDATES_FILE", tmp_path / "state.json"), \
+             _patch("service_updater._DISCOVERED_FILE", tmp_path / "discovered.json"), \
+             _patch("service_updater._DATA_DIR", tmp_path), \
+             _patch("service_updater._get_discovered_blob_client", return_value=None):
+            service_updater.run_update_now(auto_add=True)
+
+        assert reload_called["count"] == 0, (
+            "reload() was called even though no new services were discovered; "
+            "this is wasted work."
+        )
+
+
