@@ -734,7 +734,6 @@ export default function DiagramTranslator() {
           onResetChat={handleResetChat}
           onSendChat={handleIacChat}
           onSetChatInput={(v) => set({ iacChatInput: v })}
-          onDownload={() => {}}
         />
       ) : tab.id === 'hld' ? (
         <HLDTab
