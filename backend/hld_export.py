@@ -174,10 +174,19 @@ def export_hld_docx(hld: Dict[str, Any], include_diagrams: bool = True,
         img_bytes = _decode_diagram_image(diagram_b64)
         if img_bytes:
             add_section("Architecture Diagram", level=2)
-            stream = io.BytesIO(img_bytes)
-            doc.add_picture(stream, width=Inches(6))
-            last_para = doc.paragraphs[-1]
-            last_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            try:
+                stream = io.BytesIO(img_bytes)
+                doc.add_picture(stream, width=Inches(6))
+                last_para = doc.paragraphs[-1]
+                last_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            except Exception as exc:
+                sanitized_exc = str(exc).replace('\n', '').replace('\r', '')
+                logger.warning(
+                    "Failed to embed architecture diagram in DOCX export: %s",
+                    sanitized_exc,
+                    exc_info=True,
+                )  # codeql[py/log-injection] Handled by custom
+                doc.add_paragraph("[Architecture diagram could not be embedded in this DOCX export.]")
 
     # ── 3. Services ──
     services = hld.get("services", [])

@@ -209,6 +209,12 @@ class TestDocxExport:
         result = export_hld_docx(minimal, include_diagrams=False)
         assert isinstance(result, bytes)
 
+    def test_docx_with_unembeddable_diagram_still_exports(self):
+        diagram_b64 = base64.b64encode(b'{"type":"excalidraw","elements":[]}').decode("ascii")
+        result = export_hld_docx(MOCK_HLD, include_diagrams=True, diagram_b64=diagram_b64)
+        assert isinstance(result, bytes)
+        assert result[:2] == b"PK"
+
 
 # ====================================================================
 # 3. PDF Export
