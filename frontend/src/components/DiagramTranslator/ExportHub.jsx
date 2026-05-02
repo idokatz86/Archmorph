@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   X, Download, Check, Loader2, Package, FileCode, Image,
   FileText, DollarSign, CalendarClock, ShieldCheck, FileDown,
-  ChevronDown,
+  ChevronDown, PanelTop,
 } from 'lucide-react';
 import { Button, Card } from '../ui';
 import api from '../../services/apiClient';
@@ -22,7 +22,7 @@ const DELIVERABLES = [
   },
   {
     id: 'diagram',
-    label: 'Architecture Diagram',
+    label: 'Classic Diagram Export',
     icon: Image,
     formats: [
       { id: 'excalidraw', label: 'Excalidraw' },
@@ -30,6 +30,17 @@ const DELIVERABLES = [
       { id: 'vsdx', label: 'Visio' },
     ],
     defaultFormat: 'excalidraw',
+  },
+  {
+    id: 'architecture-package',
+    label: 'Architecture Package',
+    icon: PanelTop,
+    formats: [
+      { id: 'html', label: 'HTML' },
+      { id: 'svg-primary', label: 'Target SVG' },
+      { id: 'svg-dr', label: 'DR SVG' },
+    ],
+    defaultFormat: 'html',
   },
   {
     id: 'hld',
@@ -107,6 +118,16 @@ async function generateDeliverable(diagramId, deliverable, format, hldIncludeDia
       ? 'application/xml'
       : 'application/vnd.visio'; // VDX legacy XML
     return { blob: new Blob([content], { type: mime }), filename: data.filename || `archmorph-diagram.${ext}` };
+  }
+
+  if (id === 'architecture-package') {
+    const packageFormat = format.startsWith('svg') ? 'svg' : format;
+    const packageDiagram = format === 'svg-dr' ? '&diagram=dr' : '';
+    const data = await api.post(`/diagrams/${diagramId}/export-architecture-package?format=${packageFormat}${packageDiagram}`);
+    const content = typeof data.content === 'string' ? data.content : JSON.stringify(data.content, null, 2);
+    const mime = packageFormat === 'html' ? 'text/html' : 'image/svg+xml';
+    const filename = data.filename || `archmorph-architecture-package${format === 'svg-dr' ? '-dr' : ''}.${packageFormat}`;
+    return { blob: new Blob([content], { type: mime }), filename };
   }
 
   if (id === 'hld') {

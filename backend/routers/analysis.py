@@ -17,6 +17,7 @@ from usage_metrics import record_event, record_funnel_step
 from guided_questions import generate_questions, apply_answers, get_question_constraints
 from mcp_diagram_generator import mcp_client
 from service_builder import deduplicate_questions, get_smart_defaults_from_analysis, add_services_from_text
+from architecture_package import generate_architecture_package
 
 logger = logging.getLogger(__name__)
 
@@ -231,5 +232,48 @@ async def export_architecture_diagram(
         raise ArchmorphException(400, str(exc))
 
     record_event(f"exports_{format}", {"diagram_id": diagram_id})
+    record_funnel_step(diagram_id, "export")
+    return result
+
+
+# ─────────────────────────────────────────────────────────────
+# Architecture Package Export (HTML / SVG)
+# ─────────────────────────────────────────────────────────────
+@router.post("/api/diagrams/{diagram_id}/export-architecture-package")
+@limiter.limit("10/minute")
+async def export_architecture_package(
+    request: Request,
+    diagram_id: str,
+    format: str = "html",
+    diagram: str = "primary",
+):
+    """Generate the customer-facing Architecture Package.
+
+    format=html returns the full tabbed package. format=svg returns a single
+    selected topology SVG where diagram=primary|dr.
+    """
+    if format not in ("html", "svg"):
+        raise ArchmorphException(400, "Format must be 'html' or 'svg'")
+    if diagram not in ("primary", "dr"):
+        raise ArchmorphException(400, "diagram must be 'primary' or 'dr'")
+
+    analysis = get_or_recreate_session(diagram_id)
+    if not analysis:
+        raise ArchmorphException(404, f"No analysis found for diagram {diagram_id}. Run /analyze first.")
+
+    try:
+        result = generate_architecture_package(
+            analysis,
+            format=format,  # type: ignore[arg-type]
+            diagram=diagram,  # type: ignore[arg-type]
+        )
+    except ValueError as exc:
+        raise ArchmorphException(400, str(exc))
+
+    record_event("exports_architecture_package", {
+        "diagram_id": diagram_id,
+        "format": format,
+        "diagram": diagram,
+    })
     record_funnel_step(diagram_id, "export")
     return result
