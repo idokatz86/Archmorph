@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse
 from version import __version__
 from services import AWS_SERVICES, AZURE_SERVICES, GCP_SERVICES, CROSS_CLOUD_MAPPINGS
 from service_updater import get_update_status, get_freshness
+from freshness_registry import get_all as get_scheduled_jobs, is_any_stale
 from api_versioning import get_api_versions
 from routers.shared import ENVIRONMENT
 
@@ -104,6 +105,7 @@ def _run_dependency_checks() -> tuple[dict[str, str], bool, bool]:
 async def health():
     update_status = get_update_status()
     freshness = get_freshness()
+    scheduled_jobs = get_scheduled_jobs()
     checks, degraded, unhealthy = _run_dependency_checks()
 
     # Issue #571 — surface catalog freshness as a first-class health signal.
@@ -123,7 +125,13 @@ async def health():
             freshness["providers_failed"]
         )
         degraded = True
-
+    # Issue #640 — generalised scheduled-job freshness signal. Any registered
+    # job stale beyond its budget marks the system degraded; the watchdog
+    # workflow polls this block and files an alert issue.
+    stale_jobs = [j["name"] for j in scheduled_jobs if j["stale"]]
+    if stale_jobs:
+        checks["scheduled_jobs_stale"] = ",".join(stale_jobs)
+        degraded = True
     # ── Determine overall status ──────────────────────────
     if unhealthy:
         status = "unhealthy"
@@ -149,6 +157,7 @@ async def health():
         },
         "last_service_update": update_status.get("last_check"),
         "service_catalog_refresh": freshness,
+        "scheduled_jobs": scheduled_jobs,
         "scheduler_running": update_status.get("scheduler_running", False),
     }
 

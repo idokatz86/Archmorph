@@ -1,0 +1,162 @@
+name: Freshness Watchdog
+
+# Issue #640 — generalised freshness guardrail.
+#
+# Polls /api/health every 4 hours and files an alert issue when any registered
+# scheduled job is stale (last successful run exceeded its budget). Generalises
+# the lesson from #571 (silent service-catalog refresh failure for 46 days):
+# every cron-claimed behavior must have an alerted age check.
+
+on:
+  schedule:
+    - cron: '0 */4 * * *'  # every 4 hours
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for manual trigger'
+        required: false
+        default: 'manual freshness check'
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  API_URL: ${{ secrets.API_URL }}
+
+concurrency:
+  group: freshness-watchdog
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    name: Poll /api/health for stale scheduled jobs
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      stale: ${{ steps.poll.outputs.stale }}
+      stale_jobs: ${{ steps.poll.outputs.stale_jobs }}
+      report: ${{ steps.poll.outputs.report }}
+    steps:
+      - name: Poll freshness
+        id: poll
+        run: |
+          set -euo pipefail
+          if [ -z "${API_URL:-}" ]; then
+            echo "::error::API_URL secret missing"
+            exit 1
+          fi
+
+          # API_URL secret already includes the /api suffix (per repo convention,
+          # see ci.yml). Strip the trailing /api so this script works regardless.
+          BASE="${API_URL%/}"
+          BASE="${BASE%/api}"
+
+          BODY=$(curl -sS --max-time 30 "${BASE}/api/health")
+          if [ -z "$BODY" ]; then
+            echo "::error::Empty response from /api/health"
+            exit 1
+          fi
+
+          # Older container images that don't yet expose scheduled_jobs:
+          # report a warning and exit 0 (not stale by absence).
+          HAS_BLOCK=$(echo "$BODY" | jq -r 'has("scheduled_jobs")')
+          if [ "$HAS_BLOCK" != "true" ]; then
+            echo "::warning::deployed API does not expose scheduled_jobs block (pre-#640 image). Skipping."
+            echo "stale=false" >> "$GITHUB_OUTPUT"
+            echo "stale_jobs=" >> "$GITHUB_OUTPUT"
+            echo "report=skipped (pre-#640 image)" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          STALE_JOBS=$(echo "$BODY" | jq -r '[.scheduled_jobs[] | select(.stale==true) | .name] | join(",")')
+          REPORT=$(echo "$BODY" | jq -c '.scheduled_jobs')
+
+          if [ -z "$STALE_JOBS" ]; then
+            echo "stale=false" >> "$GITHUB_OUTPUT"
+            echo "stale_jobs=" >> "$GITHUB_OUTPUT"
+            {
+              echo "## Freshness watchdog"
+              echo ""
+              echo "All registered scheduled jobs fresh."
+              echo ""
+              echo "\`\`\`json"
+              echo "$REPORT" | jq .
+              echo "\`\`\`"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "stale=true" >> "$GITHUB_OUTPUT"
+            echo "stale_jobs=${STALE_JOBS}" >> "$GITHUB_OUTPUT"
+            echo "report=${REPORT}" >> "$GITHUB_OUTPUT"
+            {
+              echo "## Freshness watchdog \u2014 STALE JOBS DETECTED"
+              echo ""
+              echo "Stale: \`${STALE_JOBS}\`"
+              echo ""
+              echo "\`\`\`json"
+              echo "$REPORT" | jq .
+              echo "\`\`\`"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  alert:
+    name: Open issue if any job is stale
+    needs: watch
+    if: needs.watch.outputs.stale == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: File alert issue
+        uses: actions/github-script@v7
+        env:
+          STALE_JOBS: ${{ needs.watch.outputs.stale_jobs }}
+          REPORT: ${{ needs.watch.outputs.report }}
+        with:
+          script: |
+            const today = new Date().toISOString().slice(0, 10);
+            const stale = process.env.STALE_JOBS || '(unknown)';
+            const report = process.env.REPORT || '{}';
+            const title = `[ALERT] Stale scheduled jobs (${today}): ${stale}`;
+            const body = [
+              '## Stale scheduled jobs detected',
+              '',
+              `Workflow run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              '',
+              `Stale jobs: \`${stale}\``,
+              '',
+              '### Full /api/health.scheduled_jobs payload',
+              '',
+              '```json',
+              report,
+              '```',
+              '',
+              '### Triage',
+              '1. Find the job in `backend/freshness_registry.py` registrations \u2014 each has a `description`.',
+              '2. Inspect logs for the responsible scheduler / worker.',
+              '3. If the underlying scheduler died, follow the playbook for that job.',
+              '4. After fixing, the next successful run will call `mark_success` and the alert auto-resolves \u2014 close this issue.',
+              '',
+              '_Filed automatically by `.github/workflows/freshness-watchdog.yml` (issue #640)._',
+            ].join('\n');
+
+            // Avoid duplicate noise: search for an open alert with the same stale-jobs set.
+            const search = await github.rest.search.issuesAndPullRequests({
+              q: `repo:${context.repo.owner}/${context.repo.repo} is:issue is:open in:title "[ALERT] Stale scheduled jobs" "${stale}"`,
+            });
+            if (search.data.total_count > 0) {
+              const existing = search.data.items[0];
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body: `Still stale at ${new Date().toISOString()}. Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              });
+              return;
+            }
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: ['bug', 'production', 'critical', 'observability'],
+            });

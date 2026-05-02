@@ -788,6 +788,15 @@ def run_update_now(*, auto_add: bool = True) -> dict[str, Any]:
                 exc_info=True,
             )
 
+    # Issue #640 — publish freshness signal for the watchdog + /api/health.
+    # mark_success is no-op-safe when the registry hasn't been initialised
+    # (test isolation) so this is unconditional.
+    try:
+        from freshness_registry import mark_success
+        mark_success("service_catalog_refresh")
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("freshness_registry.mark_success failed: %s", exc)
+
     logger.info("Service catalog update complete.")
     return check_record
 
@@ -837,6 +846,19 @@ def get_update_status() -> dict[str, Any]:
 # A successful run must occur within FRESHNESS_BUDGET_HOURS or the system is
 # considered degraded and the SLO is breached.
 FRESHNESS_BUDGET_HOURS = float(os.getenv("SERVICE_REFRESH_BUDGET_HOURS", "36"))
+
+# Issue #640 — register with the centralised freshness registry so this job
+# shows up in the /api/health.scheduled_jobs block alongside any other periodic
+# work, and is monitored by the freshness-watchdog GH Actions workflow.
+try:
+    from freshness_registry import register as _fr_register
+    _fr_register(
+        "service_catalog_refresh",
+        budget_hours=FRESHNESS_BUDGET_HOURS,
+        description="Daily AWS/Azure/GCP service catalog discovery (issue #571)",
+    )
+except Exception:  # noqa: BLE001
+    pass  # registry import failure is non-fatal
 
 
 def get_freshness() -> dict[str, Any]:
