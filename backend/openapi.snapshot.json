@@ -9235,6 +9235,64 @@
         "summary": "Diff Versions"
       }
     },
+    "/api/diagrams/{diagram_id}/export-architecture-package": {
+      "post": {
+        "description": "Generate the customer-facing Architecture Package.\n\nformat=html returns the full tabbed package. format=svg returns a single\nselected topology SVG where diagram=primary|dr.",
+        "operationId": "export_architecture_package_api_diagrams__diagram_id__export_architecture_package_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "diagram_id",
+            "required": true,
+            "schema": {
+              "title": "Diagram Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "html",
+              "title": "Format",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "diagram",
+            "required": false,
+            "schema": {
+              "default": "primary",
+              "title": "Diagram",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export Architecture Package"
+      }
+    },
     "/api/diagrams/{diagram_id}/export-diagram": {
       "post": {
         "description": "Generate an architecture diagram in Excalidraw, Draw.io, Visio, or\nLanding-Zone-SVG format.\n\nSet multi_page=true for presentation-ready 4-page exports (Draw.io only, #479).\nSet format=landing-zone-svg + dr_variant=primary|dr for the region-aware\nlanding-zone diagram (#571).\n\nNote (#576): the source provider for the landing-zone diagram is read\nimplicitly from ``analysis[\"source_provider\"]`` (allowed: \"aws\"|\"gcp\",\ndefault \"aws\"). It is intentionally NOT exposed as a query param so the\nfrontend stays untouched and the analyzer pipeline remains the single\nsource of truth. Unknown values raise ``ValueError`` → HTTP 400.",
@@ -19889,6 +19947,67 @@
         "summary": "Api Dependency Graph V1",
         "tags": [
           "ai-suggestion",
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/diagrams/{diagram_id}/export-architecture-package": {
+      "post": {
+        "description": "Generate the customer-facing Architecture Package.\n\nformat=html returns the full tabbed package. format=svg returns a single\nselected topology SVG where diagram=primary|dr.",
+        "operationId": "export_architecture_package_v1_api_v1_diagrams__diagram_id__export_architecture_package_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "diagram_id",
+            "required": true,
+            "schema": {
+              "title": "Diagram Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "html",
+              "title": "Format",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "diagram",
+            "required": false,
+            "schema": {
+              "default": "primary",
+              "title": "Diagram",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export Architecture Package V1",
+        "tags": [
           "v1"
         ]
       }

@@ -44,7 +44,7 @@ Answers = dict[str, Any]
 
 import json
 import os
-from architecture_package import build_customer_intent_profile
+from customer_intent import build_customer_intent_profile
 
 _data_file_QUESTION_BANK = os.path.join(os.path.dirname(__file__), 'assets', 'guided_questions_bank.json')
 try:
@@ -393,7 +393,7 @@ def apply_answers(analysis_result: dict, answers: dict) -> dict:
     result["mappings"] = mappings
     result["warnings"] = warnings
     result["iac_parameters"] = iac_params
-    result["guided_answers"] = copy.deepcopy(effective)
+    result["guided_answers"] = copy.deepcopy(answers or {})
     result["customer_intent"] = build_customer_intent_profile(effective)
 
     # ── Recalculate confidence_summary after all rule adjustments ──

@@ -598,8 +598,14 @@ export default function DiagramTranslator() {
       );
       if (data) {
         const content = typeof data.content === 'string' ? data.content : JSON.stringify(data.content, null, 2);
-        const mime = packageFormat === 'html' ? 'text/html' : packageFormat === 'svg' ? 'image/svg+xml' : 'application/octet-stream';
-        const blob = new Blob([content], { type: mime });
+        const exportMime = isArchitecturePackage
+          ? (packageFormat === 'html' ? 'text/html' : 'image/svg+xml')
+          : format === 'excalidraw'
+          ? 'application/json'
+          : format === 'drawio'
+          ? 'application/xml'
+          : 'application/vnd.visio';
+        const blob = new Blob([content], { type: exportMime });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;

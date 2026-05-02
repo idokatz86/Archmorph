@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 
-from architecture_package import (
-    build_customer_intent_profile,
-    generate_architecture_package,
-)
+from architecture_package import generate_architecture_package
+from customer_intent import build_customer_intent_profile
 from routers.shared import SESSION_STORE
 
 
