@@ -90,9 +90,7 @@ from routers.rag_routes import router as rag_router  # noqa: E402
 from routers.agent_paas import router as agent_paas_router  # noqa: E402
 from routers.cost_routes import router as cost_router  # noqa: E402
 from routers.timeline_routes import router as timeline_router  # noqa: E402
-from routers.profile_routes import router as profile_router  # noqa: E402
 from routers.report_routes import router as report_router  # noqa: E402
-from routers.org_routes import router as org_router  # noqa: E402
 from routers.compliance_routes import router as compliance_router  # noqa: E402
 from routers.api_keys_routes import router as api_keys_router  # noqa: E402
 from routers.webhook_routes import router as webhook_routes_router  # noqa: E402
@@ -103,7 +101,6 @@ from routers.provenance import router as provenance_router  # noqa: E402
 from routers.network_routes import router as network_router  # noqa: E402
 from routers.share_routes import router as share_routes_router  # noqa: E402
 from routers.diff_routes import router as diff_routes_router  # noqa: E402
-from routers.sso_routes import router as sso_router  # noqa: E402
 from routers.terraform_import_routes import router as terraform_import_router  # noqa: E402
 from routers.cost_comparison_routes import router as cost_comparison_router  # noqa: E402
 from routers.collaboration_routes import router as collaboration_router  # noqa: E402
@@ -374,9 +371,7 @@ app.include_router(rag_router)
 app.include_router(agent_paas_router)
 app.include_router(cost_router)
 app.include_router(timeline_router)
-app.include_router(profile_router)
 app.include_router(report_router)
-app.include_router(org_router)
 app.include_router(compliance_router)
 app.include_router(api_keys_router)
 app.include_router(webhook_routes_router)
@@ -387,14 +382,13 @@ app.include_router(provenance_router)
 app.include_router(network_router)
 app.include_router(share_routes_router)
 app.include_router(diff_routes_router)
-app.include_router(sso_router)
 app.include_router(terraform_import_router)
 app.include_router(cost_comparison_router)
 app.include_router(collaboration_router)
 app.include_router(replay_router)
 
 # ─────────────────────────────────────────────────────────────
-# API v1 Versioned Routes (/api/v1/* mirrors /api/*)
+# API v1 Versioned Routes (/api/v1/* mirrors the stable public API subset)
 # ─────────────────────────────────────────────────────────────
 _all_routers = [
     (icon_router, "/api"),       # icon_router has prefix="/api"
@@ -423,15 +417,9 @@ _all_routers = [
     (terraform_router, ""),
     (feature_flags_router, ""),
     (jobs_router, ""),
-    (credentials_router, ""), 
-    (scanner_router, ""), 
-    (deploy_router, ""),
-    (deployments_router, ""),
     (credentials_router, ""),
     (cost_router, ""),
-    (profile_router, ""),
     (report_router, ""),
-    (org_router, ""),
     (compliance_router, ""),
     (api_keys_router, ""),
     (webhook_routes_router, ""),
