@@ -586,17 +586,26 @@ export default function DiagramTranslator() {
   const handleExportDiagram = async (format) => {
     setExportLoading(format, true);
     try {
+      const isArchitecturePackage = format.startsWith('architecture-package-');
+      const packageSelection = format.replace('architecture-package-', '');
+      const packageFormat = packageSelection.startsWith('svg') ? 'svg' : packageSelection;
+      const packageDiagram = packageSelection === 'svg-dr' ? '&diagram=dr' : '';
       const data = await withRestore(
-        () => api.post(`/diagrams/${state.diagramId}/export-diagram?format=${format}`),
+        () => isArchitecturePackage
+          ? api.post(`/diagrams/${state.diagramId}/export-architecture-package?format=${packageFormat}${packageDiagram}`)
+          : api.post(`/diagrams/${state.diagramId}/export-diagram?format=${format}`),
         { cleanup: () => setExportLoading(format, false) },
       );
       if (data) {
         const content = typeof data.content === 'string' ? data.content : JSON.stringify(data.content, null, 2);
-        const blob = new Blob([content], { type: 'application/octet-stream' });
+        const mime = packageFormat === 'html' ? 'text/html' : packageFormat === 'svg' ? 'image/svg+xml' : 'application/octet-stream';
+        const blob = new Blob([content], { type: mime });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = data.filename || `archmorph-diagram.${format === 'excalidraw' ? 'excalidraw' : format === 'drawio' ? 'drawio' : 'vdx'}`;
+        a.download = data.filename || (isArchitecturePackage
+          ? `archmorph-architecture-package${packageSelection === 'svg-dr' ? '-dr' : ''}.${packageFormat}`
+          : `archmorph-diagram.${format === 'excalidraw' ? 'excalidraw' : format === 'drawio' ? 'drawio' : 'vdx'}`);
         a.click();
         URL.revokeObjectURL(url);
       }

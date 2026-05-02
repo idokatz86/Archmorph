@@ -11,12 +11,27 @@ describe('ExportPanel', () => {
 
   it('renders the export title', () => {
     render(<ExportPanel {...defaultProps} />)
-    expect(screen.getByText('Export Architecture Diagram')).toBeInTheDocument()
+    expect(screen.getByText('Export Architecture Package')).toBeInTheDocument()
   })
 
   it('shows subtitle', () => {
     render(<ExportPanel {...defaultProps} />)
-    expect(screen.getByText(/Download in your preferred format/)).toBeInTheDocument()
+    expect(screen.getByText(/Download polished HTML\/SVG output/)).toBeInTheDocument()
+  })
+
+  it('renders HTML Package button', () => {
+    render(<ExportPanel {...defaultProps} />)
+    expect(screen.getByText('HTML Package')).toBeInTheDocument()
+  })
+
+  it('renders Target SVG button', () => {
+    render(<ExportPanel {...defaultProps} />)
+    expect(screen.getByText('Target SVG')).toBeInTheDocument()
+  })
+
+  it('renders DR SVG button', () => {
+    render(<ExportPanel {...defaultProps} />)
+    expect(screen.getByText('DR SVG')).toBeInTheDocument()
   })
 
   it('renders Excalidraw button', () => {
@@ -37,8 +52,22 @@ describe('ExportPanel', () => {
   it('calls onExportDiagram with correct format', async () => {
     const user = userEvent.setup()
     render(<ExportPanel {...defaultProps} />)
-    await user.click(screen.getByText('Excalidraw'))
-    expect(defaultProps.onExportDiagram).toHaveBeenCalledWith('excalidraw')
+    await user.click(screen.getByText('HTML Package'))
+    expect(defaultProps.onExportDiagram).toHaveBeenCalledWith('architecture-package-html')
+  })
+
+  it('calls onExportDiagram with SVG package format', async () => {
+    const user = userEvent.setup()
+    render(<ExportPanel {...defaultProps} />)
+    await user.click(screen.getByText('Target SVG'))
+    expect(defaultProps.onExportDiagram).toHaveBeenCalledWith('architecture-package-svg')
+  })
+
+  it('calls onExportDiagram with DR SVG package format', async () => {
+    const user = userEvent.setup()
+    render(<ExportPanel {...defaultProps} />)
+    await user.click(screen.getByText('DR SVG'))
+    expect(defaultProps.onExportDiagram).toHaveBeenCalledWith('architecture-package-svg-dr')
   })
 
   it('calls onExportDiagram with drawio format', async () => {
