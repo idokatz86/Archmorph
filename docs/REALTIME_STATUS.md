@@ -1,13 +1,12 @@
-# Archmorph Realtime Status
+# Archmorph Convergence Snapshot
 
 **Updated:** May 2, 2026
 
-## Repository State
+## Repository State At Snapshot Time
 
-- Active branch: `main`
-- Open pull requests: none
-- Remote branches: `main` only
-- Local working state after convergence: synced to `origin/main`
+- Main branch had been synced to `origin/main` after the convergence PRs were merged.
+- No open PRs remained before this documentation follow-up branch was created.
+- Branch state is intentionally a dated snapshot. For live state, use the GitHub PR list, `git branch -r`, CI status, and `/api/health`.
 
 ## Landed Convergence Work
 

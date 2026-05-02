@@ -41,7 +41,7 @@ Architecture Package exports additionally consume `customer_intent` and optional
 
 | Family | Formats | Primary Consumer | Notes |
 |--------|---------|------------------|-------|
-| Architecture Package | `html`, `target-svg`, `dr-svg` | Customer, CTO, architecture review | Polished review package with Azure topology views, talking points, limitations, and namespaced inline SVG assets. |
+| Architecture Package | `format=html` or `format=svg` with `diagram=primary` or `diagram=dr` | Customer, CTO, architecture review | Polished review package with Azure topology views, talking points, limitations, and namespaced inline SVG assets. |
 | Classic Diagram Export | `excalidraw`, `drawio`, `vsdx` | Engineers editing diagrams in external tools | Multi-page/multi-frame editable diagrams using the legacy renderer contract below. |
 
 ---
@@ -700,12 +700,14 @@ The export function must receive or compute these values:
 
 ---
 
-## 16. Function Signature (Updated)
+## 16. Function Signatures (Updated)
+
+Classic editable diagram exports continue through the legacy diagram renderer:
 
 ```python
 def generate_diagram(
     analysis_result: dict,
-  format: str,   # "excalidraw" | "drawio" | "vsdx" | "html" | "target-svg" | "dr-svg"
+  format: str,   # "excalidraw" | "drawio" | "vsdx"
     *,
     pages: list[str] | None = None,  # None = all pages. ["overview", "target", "mapping", "topology"]
     include_source: bool = True,     # Show source cloud on overview page
@@ -720,9 +722,29 @@ def generate_diagram(
         {
             "format": str,
             "filename": str,
-            "content": str,      # JSON (excalidraw), XML (drawio/vsdx), HTML, or SVG
+            "content": str,      # JSON (excalidraw) or XML (drawio/vsdx)
             "content_type": str,  # MIME type
             "pages": list[str],  # names of included pages
         }
     """
 ```
+
+      Architecture Package exports use a separate renderer and route:
+
+      ```python
+      def generate_architecture_package(
+        analysis_result: dict,
+        *,
+        format: str = "html",      # "html" | "svg"
+        diagram: str = "primary",  # "primary" | "dr"
+      ) -> dict:
+        """
+        Returns:
+          {
+            "format": str,
+            "filename": str,      # architecture-package-*.html or architecture-package-*.svg
+            "content": str,       # HTML or SVG
+            "content_type": str,  # text/html or image/svg+xml
+          }
+        """
+      ```

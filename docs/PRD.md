@@ -1,8 +1,10 @@
 # Archmorph — Cloud Architecture Translator to Azure
 ## Product Requirements Document (PRD)
-**Version:** 4.3.0-main convergence
+**Version:** 4.3.0-main
 **Date:** May 2, 2026
 **Author:** Ido Katz
+
+**Release Note:** Main-branch convergence and Architecture Package documentation refresh.
 
 ---
 
