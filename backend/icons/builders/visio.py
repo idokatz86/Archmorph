@@ -28,7 +28,7 @@ import zipfile
 from typing import Optional
 
 from icons.models import IconEntry
-from icons.registry import get_cached_asset, get_pack_icons, set_cached_asset, _metrics
+from icons.registry import get_cached_asset, get_pack_generation, get_pack_icons, set_cached_asset, _metrics
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +72,7 @@ def build_visio_stencil_pack(
     t0 = time.monotonic()
 
     cache_key = f"visio:{pack_id}:{include_png}"
+    generation = get_pack_generation(pack_id)
     cached = get_cached_asset(cache_key)
     if cached is not None:
         logger.info("Returning cached Visio stencil pack for %s", str(pack_id).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
@@ -142,7 +143,7 @@ def build_visio_stencil_pack(
         zf.writestr("README_VISIO.md", _visio_readme(lib_title, manifest_entries))
 
     result = buf.getvalue()
-    set_cached_asset(cache_key, result)
+    set_cached_asset(cache_key, result, pack_id=pack_id, generation=generation)
     _metrics["library_builds"] += 1
 
     elapsed = time.monotonic() - t0

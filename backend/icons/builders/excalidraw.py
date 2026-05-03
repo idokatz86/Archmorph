@@ -18,7 +18,7 @@ import time
 from typing import Optional
 
 from icons.models import IconEntry
-from icons.registry import get_cached_asset, get_pack_icons, set_cached_asset, _metrics
+from icons.registry import get_cached_asset, get_pack_generation, get_pack_icons, set_cached_asset, _metrics
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +45,7 @@ def build_excalidraw_library(
     t0 = time.monotonic()
 
     cache_key = f"excalidraw:{pack_id}"
+    generation = get_pack_generation(pack_id)
     cached = get_cached_asset(cache_key)
     if cached is not None:
         logger.info("Returning cached Excalidraw library for %s", str(pack_id).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
@@ -76,7 +77,7 @@ def build_excalidraw_library(
     }
 
     result = json.dumps(doc, separators=(",", ":"), sort_keys=False).encode("utf-8")
-    set_cached_asset(cache_key, result)
+    set_cached_asset(cache_key, result, pack_id=pack_id, generation=generation)
     _metrics["library_builds"] += 1
 
     elapsed = time.monotonic() - t0

@@ -19,7 +19,7 @@ import xml.etree.ElementTree as ET  # nosec B405  # nosemgrep: python.lang.secur
 from typing import Optional
 
 from icons.models import IconEntry
-from icons.registry import get_cached_asset, get_pack_icons, set_cached_asset, _metrics
+from icons.registry import get_cached_asset, get_pack_generation, get_pack_icons, set_cached_asset, _metrics
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +51,7 @@ def build_drawio_library(
 
     # Check cache
     cache_key = f"drawio:{pack_id}:{embed_mode}"
+    generation = get_pack_generation(pack_id)
     cached = get_cached_asset(cache_key)
     if cached is not None:
         logger.info("Returning cached draw.io library for %s", str(pack_id).replace("\n", "").replace("\r", ""))  # lgtm[py/log-injection]
@@ -79,7 +80,7 @@ def build_drawio_library(
     xml_content = f"<mxlibrary>{json_str}</mxlibrary>"
 
     result = xml_content.encode("utf-8")
-    set_cached_asset(cache_key, result)
+    set_cached_asset(cache_key, result, pack_id=pack_id, generation=generation)
     _metrics["library_builds"] += 1
 
     elapsed = time.monotonic() - t0

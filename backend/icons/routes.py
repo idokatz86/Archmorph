@@ -307,9 +307,3 @@ def _metadata_without_inline_svg(manifest_data: dict) -> dict:
         if isinstance(icon, dict)
     ]
     return metadata
-
-
-def _api_key_header_for_schema(
-    _x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
-) -> None:
-    return None

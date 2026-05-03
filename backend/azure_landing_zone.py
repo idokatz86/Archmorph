@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import base64
 import re
+import threading
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -268,11 +269,16 @@ def _resolve_bundled_data_uri(icon_key: str) -> Optional[str]:
 
 
 _ICON_CACHE: dict[str, Optional[str]] = {}
+_ICON_CACHE_LOCK = threading.RLock()
+_ICON_CACHE_GENERATION = 0
 
 
 def clear_icon_cache() -> None:
     """Clear cached landing-zone icon data URIs after registry writes."""
-    _ICON_CACHE.clear()
+    global _ICON_CACHE_GENERATION
+    with _ICON_CACHE_LOCK:
+        _ICON_CACHE.clear()
+        _ICON_CACHE_GENERATION += 1
 
 
 def _icon_data_uri(icon_key: str) -> Optional[str]:
@@ -284,12 +290,16 @@ def _icon_data_uri(icon_key: str) -> Optional[str]:
     Subsequent lookups for unresolved keys re-hit the registry, which is
     cheap once the store is populated.
     """
-    cached = _ICON_CACHE.get(icon_key)
-    if cached is not None:
-        return cached
+    with _ICON_CACHE_LOCK:
+        cached = _ICON_CACHE.get(icon_key)
+        generation = _ICON_CACHE_GENERATION
+        if cached is not None:
+            return cached
     uri = _resolve_data_uri(icon_key)
     if uri is not None:
-        _ICON_CACHE[icon_key] = uri
+        with _ICON_CACHE_LOCK:
+            if _ICON_CACHE_GENERATION == generation:
+                _ICON_CACHE[icon_key] = uri
     return uri
 
 

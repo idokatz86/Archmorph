@@ -343,22 +343,45 @@ class TestIconRegistry:
         decoded_svg = base64.b64decode(data_url.split(",", 1)[1])
         assert b"ff0000" in decoded_svg
 
+    def test_stale_library_cache_write_is_rejected_after_pack_update(self):
+        registry.ingest_icon_pack(_zip_pack("cache.svg", "Cache Icon"), pack_id="cache-race")
+        stale_generation = registry.get_pack_generation("cache-race")
+
+        changed_svg = (
+            b'<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">'
+            b'<rect width="48" height="48" fill="#00ff00"/></svg>'
+        )
+        registry.ingest_icon_pack(
+            _zip_pack_with_svg("cache.svg", "Cache Icon", changed_svg),
+            pack_id="cache-race",
+        )
+
+        stored = registry.set_cached_asset(
+            "excalidraw:cache-race",
+            b"stale-library",
+            pack_id="cache-race",
+            generation=stale_generation,
+        )
+
+        assert stored is False
+        assert registry.get_cached_asset("excalidraw:cache-race") is None
+
     def test_duplicate_ingest_removes_dropped_icons(self):
         registry.ingest_icon_pack(_zip_pack("first.svg", "First Icon"), pack_id="replace-pack")
         registry.ingest_icon_pack(_zip_pack("second.svg", "Second Icon"), pack_id="replace-pack")
 
-        assert registry.get_icon("Provider.azure_compute_first_icon") is None
+        assert registry.get_icon("azure_compute_first_icon") is None
         assert registry.search_icons(query="First Icon") == []
         assert registry.search_icons(pack_id="replace-pack")[0].name == "Second Icon"
 
     def test_cache_invalidation_matches_exact_pack_id(self, small_zip_pack):
-        registry.set_cached_asset("excalidraw:aws", b"aws")
-        registry.set_cached_asset("excalidraw:my-aws-icons", b"my-aws-icons")
+        registry.set_cached_asset("excalidraw:short", b"short")
+        registry.set_cached_asset("excalidraw:my-short-icons", b"my-short-icons")
 
-        registry.ingest_icon_pack(small_zip_pack, pack_id="aws")
+        registry.ingest_icon_pack(small_zip_pack, pack_id="short")
 
-        assert registry.get_cached_asset("excalidraw:aws") is None
-        assert registry.get_cached_asset("excalidraw:my-aws-icons") == b"my-aws-icons"
+        assert registry.get_cached_asset("excalidraw:short") is None
+        assert registry.get_cached_asset("excalidraw:my-short-icons") == b"my-short-icons"
 
     def test_ingest_invalidates_landing_zone_icon_cache(self, small_zip_pack):
         import azure_landing_zone
@@ -370,12 +393,21 @@ class TestIconRegistry:
         assert azure_landing_zone._ICON_CACHE == {}
 
     def test_eviction_preserves_builtin_pack_icons(self, monkeypatch):
-        monkeypatch.setenv("ICON_REGISTRY_MAX_ICONS", "1")
-        registry.ingest_icon_pack(_zip_pack("builtin.svg", "Builtin Icon"), pack_id="azure")
+        assert registry.load_builtin_packs() >= 1
+        builtin_pack_id = registry.list_packs()[0]["pack_id"]
+        before_ids = [icon.meta.id for icon in registry.get_pack_icons(builtin_pack_id)]
+
+        monkeypatch.setenv("ICON_REGISTRY_MAX_ICONS", str(registry.get_icon_metrics()["total_icons"]))
         registry.ingest_icon_pack(_zip_pack("custom.svg", "Custom Icon"), pack_id="custom-pack")
 
-        assert registry.search_icons(pack_id="azure")[0].name == "Builtin Icon"
-        assert registry.list_packs() == [{"pack_id": "azure", "icon_count": 1}]
+        after_ids = [icon.meta.id for icon in registry.get_pack_icons(builtin_pack_id)]
+        assert after_ids == before_ids
+        assert "custom-pack" not in {pack["pack_id"] for pack in registry.list_packs()}
+        assert registry.get_icon("azure_compute_custom_icon") is None
+
+    def test_custom_pack_cannot_reuse_builtin_pack_id(self):
+        with pytest.raises(ValueError, match="reserved for built-in icon packs"):
+            registry.ingest_icon_pack(_zip_pack("custom.svg", "Custom Icon"), pack_id="azure")
 
     def test_registry_evicts_oldest_icons_when_maxsize_reached(self, monkeypatch):
         monkeypatch.setenv("ICON_REGISTRY_MAX_ICONS", "1")

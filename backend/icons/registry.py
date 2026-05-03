@@ -59,6 +59,8 @@ get_metrics = get_icon_metrics
 _ICON_STORE: OrderedDict[str, IconEntry] = OrderedDict()  # canonical_id → IconEntry
 _PACK_INDEX: dict[str, list[str]] = {}  # pack_id → [canonical_id, …]
 _BUILTIN_PACK_IDS: set[str] = set()
+_BUILTIN_ICON_IDS: set[str] = set()
+_PACK_GENERATIONS: dict[str, int] = {}
 _DEFAULT_MAX_ICONS = 5000
 
 # Cache for transformed assets (library outputs)
@@ -95,34 +97,49 @@ def _evict_icons_if_needed() -> None:
         return
 
     evicted = set(evicted_ids)
+    affected_packs: set[str] = set()
     for pid, ids in list(_PACK_INDEX.items()):
         retained = [cid for cid in ids if cid not in evicted]
+        if len(retained) != len(ids):
+            affected_packs.add(pid)
         if retained:
             _PACK_INDEX[pid] = retained
         else:
             _PACK_INDEX.pop(pid, None)
 
+    for pid in affected_packs:
+        _bump_pack_generation(pid)
     _ASSET_CACHE.clear()
     _invalidate_external_icon_caches()
     logger.info("Icon registry evicted %s icons after reaching maxsize", len(evicted_ids))
 
 
-def _builtin_pack_ids() -> set[str]:
+def _sample_pack_ids() -> set[str]:
     samples_dir = Path(__file__).resolve().parent.parent / "samples"
-    sample_pack_ids = set()
-    if samples_dir.is_dir():
-        sample_pack_ids = {path.name.lower() for path in samples_dir.iterdir() if path.is_dir()}
-    return _BUILTIN_PACK_IDS | sample_pack_ids
+    if not samples_dir.is_dir():
+        return set()
+    return {path.name.lower() for path in samples_dir.iterdir() if path.is_dir()}
+
+
+def _reserved_builtin_pack_ids() -> set[str]:
+    return _BUILTIN_PACK_IDS | _sample_pack_ids()
 
 
 def _protected_icon_ids() -> set[str]:
-    protected: set[str] = set()
-    for pack_id in _builtin_pack_ids():
-        protected.update(_PACK_INDEX.get(pack_id, []))
-    return protected
+    return {cid for cid in _BUILTIN_ICON_IDS if cid in _ICON_STORE}
+
+
+def _bump_pack_generation(pack_id: str) -> None:
+    _PACK_GENERATIONS[pack_id] = _PACK_GENERATIONS.get(pack_id, 0) + 1
+
+
+def get_pack_generation(pack_id: str) -> int:
+    with _LOCK:
+        return _PACK_GENERATIONS.get(pack_id, 0)
 
 
 def _invalidate_pack_asset_cache(pack_id: str) -> None:
+    _bump_pack_generation(pack_id)
     stale_keys = [key for key in _ASSET_CACHE if _cache_key_matches_pack(str(key), pack_id)]
     for key in stale_keys:
         _ASSET_CACHE.pop(key, None)
@@ -246,6 +263,7 @@ def ingest_icon_pack(
     *,
     manifest: Optional[dict] = None,
     pack_id: Optional[str] = None,
+    builtin: bool = False,
 ) -> dict[str, Any]:
     """Ingest an icon pack from a folder path, ZIP bytes, or ZIP file path.
 
@@ -300,6 +318,8 @@ def ingest_icon_pack(
     }
 
     pid = pack_id or re.sub(r"[^a-z0-9_-]", "_", pack_manifest.name.lower())
+    if not builtin and pid in _reserved_builtin_pack_ids():
+        raise ValueError(f"Pack id '{pid}' is reserved for built-in icon packs")
     ingested_ids: list[str] = []
     failed = 0
 
@@ -461,13 +481,24 @@ def list_packs() -> list[dict[str, Any]]:
 
 def get_cached_asset(cache_key: str) -> Optional[bytes]:
     """Retrieve a cached library asset."""
-    return _ASSET_CACHE.get(cache_key)
+    with _LOCK:
+        return _ASSET_CACHE.get(cache_key)
 
 
-def set_cached_asset(cache_key: str, data: bytes) -> None:
+def set_cached_asset(
+    cache_key: str,
+    data: bytes,
+    *,
+    pack_id: Optional[str] = None,
+    generation: Optional[int] = None,
+) -> bool:
     """Store a library asset in cache."""
     with _LOCK:
+        if pack_id is not None and generation is not None:
+            if _PACK_GENERATIONS.get(pack_id, 0) != generation:
+                return False
         _ASSET_CACHE[cache_key] = data
+    return True
 
 
 def clear_all() -> None:
@@ -482,6 +513,9 @@ def clear_all() -> None:
     with _LOCK:
         _ICON_STORE.clear()
         _PACK_INDEX.clear()
+        _BUILTIN_PACK_IDS.clear()
+        _BUILTIN_ICON_IDS.clear()
+        _PACK_GENERATIONS.clear()
         _ASSET_CACHE.clear()
         _LOAD_ATTEMPTED = False
     _invalidate_external_icon_caches()
@@ -574,8 +608,10 @@ def load_builtin_packs() -> int:
             logger.debug("Pack '%s' already loaded, skipping", str(provider_name).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
             continue
         try:
-            ingest_icon_pack(provider_dir, pack_id=provider_name)
-            _BUILTIN_PACK_IDS.add(provider_name)
+            ingest_icon_pack(provider_dir, pack_id=provider_name, builtin=True)
+            with _LOCK:
+                _BUILTIN_PACK_IDS.add(provider_name)
+                _BUILTIN_ICON_IDS.update(_PACK_INDEX.get(provider_name, []))
             loaded += 1
         except Exception as exc:  # noqa: BLE001 — icon resolution is best-effort
             logger.warning("Failed to load builtin pack '%s': %s", str(provider_name).replace('\n', '').replace('\r', ''), str(exc).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
