@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 from diagram_export import generate_diagram, get_azure_stencil_id
+from service_connection_utils import service_key
 
 
 SAMPLE_ANALYSIS = {
@@ -106,6 +107,16 @@ class TestGetAzureStencilId:
     def test_unknown_service_returns_fallback(self):
         stencil = get_azure_stencil_id("Nonexistent Service XYZ", target="drawio")
         assert isinstance(stencil, str)
+
+
+class TestServiceConnectionUtils:
+    def test_service_key_strips_provider_labels_without_regex_backtracking(self):
+        noisy = "[" * 5000 + "AWS] Azure Front Door"
+
+        assert service_key(noisy) == "frontdoor"
+
+    def test_service_key_normalizes_mixed_provider_labels(self):
+        assert service_key("[GCP] Pub/Sub → Azure Event Hubs") == "pubsubeventhubs"
 
 
 class TestGenerateDiagram:

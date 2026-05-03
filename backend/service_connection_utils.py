@@ -2,16 +2,41 @@
 
 from __future__ import annotations
 
-import re
 from typing import Any
+
+
+_CLOUD_NOISE_WORDS = {"aws", "amazon", "azure", "gcp", "google", "microsoft"}
 
 
 def service_key(value: Any) -> str:
     """Stable fuzzy key for matching connection endpoints to rendered services."""
     text = str(value or "").lower().strip()
-    text = re.sub(r"\[[^\]]+\]", "", text)
-    text = re.sub(r"\b(?:aws|amazon|azure|gcp|google|microsoft)\b", "", text)
-    return re.sub(r"[^a-z0-9]+", "", text)
+    tokens: list[str] = []
+    current: list[str] = []
+    in_brackets = False
+
+    for char in text:
+        if char == "[":
+            if current:
+                tokens.append("".join(current))
+                current = []
+            in_brackets = True
+            continue
+        if char == "]":
+            in_brackets = False
+            continue
+        if in_brackets:
+            continue
+        if char.isalnum():
+            current.append(char)
+        elif current:
+            tokens.append("".join(current))
+            current = []
+
+    if current:
+        tokens.append("".join(current))
+
+    return "".join(token for token in tokens if token not in _CLOUD_NOISE_WORDS)
 
 
 def connection_endpoint(conn: dict[str, Any], primary: str, secondary: str) -> str:
