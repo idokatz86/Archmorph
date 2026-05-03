@@ -71,7 +71,8 @@ def build_visio_stencil_pack(
     """
     t0 = time.monotonic()
 
-    cache_key = ("visio", pack_id, include_png)
+    lib_title = title or pack_id
+    cache_key = ("visio", pack_id, include_png, lib_title)
     generation = get_pack_generation(pack_id)
     cached = get_cached_asset(cache_key, pack_id=pack_id, generation=generation)
     if cached is not None:
@@ -81,8 +82,6 @@ def build_visio_stencil_pack(
     icons = get_pack_icons(pack_id)
     if not icons:
         raise ValueError(f"No icons found for pack '{pack_id}'")
-
-    lib_title = title or pack_id
 
     buf = io.BytesIO()
     manifest_entries: list[dict] = []
@@ -143,7 +142,8 @@ def build_visio_stencil_pack(
         zf.writestr("README_VISIO.md", _visio_readme(lib_title, manifest_entries))
 
     result = buf.getvalue()
-    set_cached_asset(cache_key, result, pack_id=pack_id, generation=generation)
+    if not set_cached_asset(cache_key, result, pack_id=pack_id, generation=generation):
+        return build_visio_stencil_pack(pack_id, title=title, include_png=include_png)
     _metrics["library_builds"] += 1
 
     elapsed = time.monotonic() - t0

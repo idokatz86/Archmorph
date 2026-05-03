@@ -290,18 +290,20 @@ def _cached_icon_data_uri(icon_key: str) -> Optional[tuple[str, int]]:
     Subsequent lookups for unresolved keys re-hit the registry, which is
     cheap once the store is populated.
     """
-    with _ICON_CACHE_LOCK:
-        cached = _ICON_CACHE.get(icon_key)
-        generation = _ICON_CACHE_GENERATION
-        if cached is not None:
-            return (cached, generation)
-    uri = _resolve_data_uri(icon_key)
-    if uri is not None:
+    for _attempt in range(3):
         with _ICON_CACHE_LOCK:
-            if _ICON_CACHE_GENERATION == generation:
-                _ICON_CACHE[icon_key] = uri
-                return (uri, generation)
-            return None
+            cached = _ICON_CACHE.get(icon_key)
+            generation = _ICON_CACHE_GENERATION
+            if cached is not None:
+                return (cached, generation)
+        uri = _resolve_data_uri(icon_key)
+        if uri is not None:
+            with _ICON_CACHE_LOCK:
+                if _ICON_CACHE_GENERATION == generation:
+                    _ICON_CACHE[icon_key] = uri
+                    return (uri, generation)
+            continue
+        return None
     return None
 
 

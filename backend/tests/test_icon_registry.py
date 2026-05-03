@@ -296,6 +296,13 @@ class TestIconRegistry:
         results = registry.search_icons(query="zzz_nonexistent_zzz")
         assert len(results) == 0
 
+    def test_search_missing_pack_returns_empty(self, small_zip_pack):
+        registry.ingest_icon_pack(small_zip_pack, pack_id="existing-pack")
+
+        results = registry.search_icons(pack_id="missing-pack")
+
+        assert results == []
+
     def test_list_packs_empty(self):
         packs = registry.list_packs()
         assert packs == []
@@ -486,6 +493,18 @@ class TestIconRegistry:
 
         assert registry.get_icon(f"{builtin_icon.meta.provider}_custom_partial_custom_icon") is None
         assert "partial-collision-pack" not in {pack["pack_id"] for pack in registry.list_packs()}
+
+    def test_custom_packs_cannot_share_canonical_icon_id(self):
+        first = _zip_pack("first.svg", "Shared Icon")
+        second = _zip_pack("second.svg", "Shared Icon")
+
+        registry.ingest_icon_pack(first, pack_id="custom-one")
+
+        with pytest.raises(ValueError, match="already registered by another icon pack"):
+            registry.ingest_icon_pack(second, pack_id="custom-two")
+
+        assert registry.get_pack_icons("custom-one")
+        assert registry.get_pack_icons("custom-two") == []
 
     def test_restored_builtin_icons_remain_protected_from_eviction(self, monkeypatch, tmp_path):
         monkeypatch.setenv("ICON_REGISTRY_DATA_DIR", str(tmp_path))

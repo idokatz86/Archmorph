@@ -80,7 +80,8 @@ def build_drawio_library(
     xml_content = f"<mxlibrary>{json_str}</mxlibrary>"
 
     result = xml_content.encode("utf-8")
-    set_cached_asset(cache_key, result, pack_id=pack_id, generation=generation)
+    if not set_cached_asset(cache_key, result, pack_id=pack_id, generation=generation):
+        return build_drawio_library(pack_id, embed_mode=embed_mode, title=title)
     _metrics["library_builds"] += 1
 
     elapsed = time.monotonic() - t0

@@ -380,14 +380,17 @@ def ingest_icon_pack(
         new_entries.append((cid, entry))
 
     with _LOCK:
+        old_ids = set(_PACK_INDEX.get(pid, []))
         if not builtin:
             reserved_ids = [cid for cid in ingested_ids if cid in _BUILTIN_ICON_IDS]
             if reserved_ids:
                 raise ValueError(f"Icon id '{reserved_ids[0]}' is reserved for built-in icon packs")
+            duplicate_ids = [cid for cid in ingested_ids if cid in _ICON_STORE and cid not in old_ids]
+            if duplicate_ids:
+                raise ValueError(f"Icon id '{duplicate_ids[0]}' is already registered by another icon pack")
         for cid, entry in new_entries:
             _ICON_STORE[cid] = entry
             _ICON_STORE.move_to_end(cid)
-        old_ids = set(_PACK_INDEX.get(pid, []))
         stale_ids = old_ids.difference(ingested_ids)
         for stale_id in stale_ids:
             if stale_id not in _BUILTIN_ICON_IDS or builtin:
@@ -466,8 +469,8 @@ def search_icons(
 
     # Restrict to pack if specified
     with _LOCK:
-        if pack_id and pack_id in _PACK_INDEX:
-            candidates = [_ICON_STORE[cid] for cid in _PACK_INDEX[pack_id] if cid in _ICON_STORE]
+        if pack_id is not None:
+            candidates = [_ICON_STORE[cid] for cid in _PACK_INDEX.get(pack_id, []) if cid in _ICON_STORE]
         else:
             candidates = list(_ICON_STORE.values())
 
