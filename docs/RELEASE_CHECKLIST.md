@@ -37,6 +37,7 @@ Application secrets:
 - `LOG_ANALYTICS_WORKSPACE_ID`
 - `DATABASE_URL` — PostgreSQL connection string for production
 - `REDIS_HOST` or `REDIS_URL` — Redis-backed session/cache store for scaled deployments
+- `CONTAINER_APP_REPLICA_COUNT` or `CONTAINER_APP_MIN_REPLICAS` — declare intentional multi-replica runtime to the health gate
 
 Production guard env vars:
 
@@ -122,4 +123,4 @@ Before enabling any scaffolded feature, confirm:
 - GitHub Actions run URL.
 - Smoke-test output summary and Architecture Package smoke artifact manifest.
 - Enabled feature flags and tenant scope.
-- Any known optional dependency warnings accepted for release, including the Redis `disabled_optional` mode when `checks.redis_readiness.require_redis=false`. Required `degraded`, `unhealthy`, or `missing_required` production health is release-blocking.
+- Any known optional dependency warnings accepted for release, including the Redis `disabled_optional` mode when `checks.redis_readiness.require_redis=false` and `checks.redis_readiness.scale_blocked=false`. Required `degraded`, `unhealthy`, `missing_required`, or `scale_blocked=true` production health is release-blocking.

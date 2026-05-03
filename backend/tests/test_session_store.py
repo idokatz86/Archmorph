@@ -103,6 +103,52 @@ class TestGetStore:
         readiness = session_store_readiness()
         assert readiness["backend"] in {"memory", "file", "redis"}
         assert "ready_for_horizontal_scale" in readiness
+        assert "scale_blocked" in readiness
+
+    @patch.dict(os.environ, {
+        "ENVIRONMENT": "production",
+        "WEB_CONCURRENCY": "1",
+        "UVICORN_WORKERS": "1",
+        "CONTAINER_APP_REPLICA_COUNT": "1",
+        "CONTAINER_APP_MIN_REPLICAS": "1",
+        "REDIS_URL": "",
+        "REDIS_HOST": "",
+        "REQUIRE_REDIS": "",
+    })
+    def test_optional_redis_single_replica_does_not_block_scale(self):
+        readiness = session_store_readiness()
+        assert readiness["backend"] == "file"
+        assert readiness["requires_redis_for_scale"] is False
+        assert readiness["scale_blocked"] is False
+
+    @patch.dict(os.environ, {
+        "ENVIRONMENT": "production",
+        "WEB_CONCURRENCY": "2",
+        "REDIS_URL": "",
+        "REDIS_HOST": "",
+        "REQUIRE_REDIS": "",
+    })
+    def test_multi_worker_without_redis_blocks_horizontal_scale(self):
+        readiness = session_store_readiness()
+        assert readiness["multi_worker"] is True
+        assert readiness["requires_redis_for_scale"] is True
+        assert readiness["scale_blocked"] is True
+        assert readiness["scale_blocked_reason"]
+
+    @patch.dict(os.environ, {
+        "ENVIRONMENT": "production",
+        "WEB_CONCURRENCY": "1",
+        "CONTAINER_APP_MIN_REPLICAS": "2",
+        "REDIS_URL": "",
+        "REDIS_HOST": "",
+        "REQUIRE_REDIS": "",
+    })
+    def test_declared_multi_replica_without_redis_blocks_horizontal_scale(self):
+        readiness = session_store_readiness()
+        assert readiness["declared_replica_count"] == 2
+        assert readiness["multi_replica"] is True
+        assert readiness["requires_redis_for_scale"] is True
+        assert readiness["scale_blocked"] is True
 
 
 class TestSessionStoreInterface:
