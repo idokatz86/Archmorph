@@ -9,9 +9,11 @@ No external dependencies beyond the Python stdlib.
 """
 
 import logging
+import json
 from typing import Dict, List, Optional
 
 from prompt_guard import sanitize_iac_param, _VALID_REGIONS
+from traceability_map import build_traceability_map
 
 logger = logging.getLogger(__name__)
 
@@ -1236,6 +1238,11 @@ def generate_scaffold(
     # ── Supporting files ──
     files["terraform/Makefile"] = _generate_makefile()
     files["terraform/.gitignore"] = _generate_gitignore()
+    files["terraform/traceability-map.json"] = json.dumps(
+      build_traceability_map(analysis),
+      indent=2,
+      sort_keys=True,
+    ) + "\n"
     files["terraform/README.md"] = _generate_readme(project_name, groups)
 
     logger.info(
