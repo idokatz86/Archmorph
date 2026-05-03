@@ -259,7 +259,7 @@ jobs:
   deploy-backend:
     needs: [backend-tests, frontend-build, openapi-client-drift]
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     if: github.ref == 'refs/heads/main'
     env:
       AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
@@ -406,6 +406,46 @@ jobs:
           fi
 
           echo "Running smoke tests against: $TEST_URL$HEALTH_PATH"
+          BODY=$(curl -sS --max-time 30 "$TEST_URL$HEALTH_PATH" || true)
+          CATALOG_STALE=$(echo "$BODY" | jq -r '.service_catalog_refresh.stale // false' 2>/dev/null || echo false)
+
+          if [ "$CATALOG_STALE" = "true" ]; then
+            if [ -n "$GREEN_FQDN" ]; then
+              REFRESH_URL="$TEST_URL/api/service-updates/run-now"
+            else
+              REFRESH_URL="$TEST_URL/service-updates/run-now"
+            fi
+
+            echo "Priming service catalog freshness for green revision: $REFRESH_URL"
+            for attempt in 1 2; do
+              if ! HTTP_CODE=$(curl -sS -o refresh-response.json -w "%{http_code}" \
+                --max-time 300 \
+                -X POST "$REFRESH_URL" \
+                -H "X-API-Key: $ADMIN_KEY" \
+                -H "Content-Type: application/json" \
+                -d '{}'); then
+                HTTP_CODE="${HTTP_CODE:-000}"
+              fi
+
+              if [ "$HTTP_CODE" = "200" ]; then
+                echo "Green revision service catalog refresh OK on attempt ${attempt}"
+                break
+              fi
+
+              echo "::warning::Green revision refresh attempt ${attempt} returned HTTP ${HTTP_CODE}"
+              if [ -s refresh-response.json ]; then
+                jq -c '{status: (.status // .detail // "unknown"), errors: (.errors // {})}' refresh-response.json 2>/dev/null \
+                  || head -c 2000 refresh-response.json
+              fi
+              if [ "$attempt" -lt 2 ]; then
+                sleep $((attempt * 15))
+              else
+                echo "::error::Green revision service catalog refresh failed after 2 attempts"
+                exit 1
+              fi
+            done
+          fi
+
           HEALTH_RETRIES=3 HEALTH_RETRY_SECONDS=15 ./scripts/health_gate.sh "$TEST_URL$HEALTH_PATH"
           VERSION=$(curl -s --max-time 30 "$TEST_URL$HEALTH_PATH" | jq -r '.version' 2>/dev/null || echo 'unknown')
           echo "Green revision version: $VERSION — all smoke tests passed"
