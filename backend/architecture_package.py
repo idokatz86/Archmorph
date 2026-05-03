@@ -9,8 +9,11 @@ customer-safe talking points.
 from __future__ import annotations
 
 import copy
+import hashlib
 import html
+import json
 import re
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 from azure_landing_zone import generate_landing_zone_svg
@@ -27,7 +30,8 @@ def generate_architecture_package(
     *,
     format: PackageFormat = "html",
     diagram: DiagramVariant = "primary",
-) -> dict[str, str]:
+    analysis_id: str | None = None,
+) -> dict[str, Any]:
     """Generate the architecture package in HTML or SVG form."""
     if format not in ("html", "svg"):
         raise ValueError("format must be 'html' or 'svg'")
@@ -38,10 +42,19 @@ def generate_architecture_package(
 
     if format == "svg":
         result = generate_landing_zone_svg(_diagram_analysis(analysis, diagram), dr_variant=diagram)
+        filename = result["filename"].replace("landing-zone", "architecture-package")
+        manifest = _build_manifest(
+            analysis,
+            format=format,
+            diagram=diagram,
+            analysis_id=analysis_id,
+            artifact_filenames=[filename],
+        )
         return {
             "format": "architecture-package-svg",
-            "filename": result["filename"].replace("landing-zone", "architecture-package"),
-            "content": result["content"],
+            "filename": filename,
+            "content": _embed_svg_manifest(result["content"], manifest),
+            "manifest": manifest,
         }
 
     primary_svg = _namespace_svg_ids(
@@ -52,15 +65,31 @@ def generate_architecture_package(
         _strip_xml_declaration(generate_landing_zone_svg(_diagram_analysis(analysis, "dr"), dr_variant="dr")["content"]),
         "dr",
     )
-    content = _render_html_package(analysis, primary_svg, dr_svg)
+    filename = f"archmorph-{_safe_filename(analysis)}-architecture-package.html"
+    target_filename = f"archmorph-{_safe_filename(analysis)}-architecture-package-primary.svg"
+    dr_filename = f"archmorph-{_safe_filename(analysis)}-architecture-package-dr.svg"
+    manifest = _build_manifest(
+        analysis,
+        format=format,
+        diagram=diagram,
+        analysis_id=analysis_id,
+        artifact_filenames=[filename, target_filename, dr_filename],
+    )
+    content = _render_html_package(analysis, primary_svg, dr_svg, manifest)
     return {
         "format": "architecture-package-html",
-        "filename": f"archmorph-{_safe_filename(analysis)}-architecture-package.html",
+        "filename": filename,
         "content": content,
+        "manifest": manifest,
     }
 
 
-def _render_html_package(analysis: dict[str, Any], primary_svg: str, dr_svg: str) -> str:
+def _render_html_package(
+    analysis: dict[str, Any],
+    primary_svg: str,
+    dr_svg: str,
+    manifest: dict[str, Any],
+) -> str:
     package_name = _package_name(analysis)
     title = html.escape(f"Archmorph — {package_name} Architecture Package")
     display_name = html.escape(package_name)
@@ -86,6 +115,7 @@ def _render_html_package(analysis: dict[str, Any], primary_svg: str, dr_svg: str
         for tier, names in _tier_summary(analysis)
     )
 
+    manifest_json = _manifest_json(manifest)
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -159,6 +189,7 @@ def _render_html_package(analysis: dict[str, Any], primary_svg: str, dr_svg: str
     <footer>Archmorph · {display_name} · {source} → Azure · generated from the customer-uploaded architecture diagram.</footer>
     </div>
   <script>
+        window.__ARCHMORPH_ARTIFACT_MANIFEST__ = {manifest_json};
     document.querySelectorAll('button.tab').forEach((button) => {{
       button.addEventListener('click', () => {{
         document.querySelectorAll('button.tab').forEach((tab) => tab.setAttribute('aria-selected', 'false'));
@@ -168,8 +199,121 @@ def _render_html_package(analysis: dict[str, Any], primary_svg: str, dr_svg: str
       }});
     }});
   </script>
+  <script type="application/json" id="archmorph-artifact-manifest">{html.escape(manifest_json)}</script>
 </body>
 </html>"""
+
+
+def _build_manifest(
+    analysis: dict[str, Any],
+    *,
+    format: PackageFormat,
+    diagram: DiagramVariant,
+    analysis_id: str | None,
+    artifact_filenames: list[str],
+) -> dict[str, Any]:
+    profile = _profile_from_analysis(analysis)
+    limitations = _limitations(analysis, profile)
+    source_provider = _source_label(analysis)
+    raw_warnings = [str(w) for w in analysis.get("warnings", []) if w]
+    unsupported = analysis.get("unsupported_assumptions") or analysis.get("unsupported") or []
+    if not isinstance(unsupported, list):
+        unsupported = [unsupported]
+
+    manifest = {
+        "schema_version": "architecture-package-manifest/v1",
+        "analysis_id": str(analysis_id or analysis.get("analysis_id") or analysis.get("diagram_id") or "unknown"),
+        "source_provider": source_provider,
+        "target_provider": "Azure",
+        "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "export": {"format": format, "diagram": diagram},
+        "renderer": {"name": "architecture_package", "version": "1"},
+        "customer_intent_profile_hash": hashlib.sha256(
+            json.dumps(profile, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest(),
+        "artifact_filenames": artifact_filenames,
+        "artifacts": [
+            {"filename": name, "role": role, "format": artifact_format}
+            for name, role, artifact_format in _manifest_artifacts(artifact_filenames, format)
+        ],
+        "mapping_references": _mapping_references(analysis),
+        "warnings": raw_warnings[:10],
+        "limitations": [
+            {"title": title, "detail": detail}
+            for title, detail in limitations
+        ],
+        "unsupported_assumptions": [str(item) for item in unsupported if item][:10],
+    }
+    return _sanitize_manifest(manifest)
+
+
+def _manifest_artifacts(
+    filenames: list[str],
+    format: PackageFormat,
+) -> list[tuple[str, str, str]]:
+    if format == "svg":
+        return [(filenames[0], "selected-topology", "svg")]
+    roles = ["architecture-package-html", "target-topology-svg", "dr-topology-svg"]
+    formats = ["html", "svg", "svg"]
+    return list(zip(filenames, roles, formats))
+
+
+def _mapping_references(analysis: dict[str, Any]) -> list[dict[str, Any]]:
+    references: list[dict[str, Any]] = []
+    for mapping in analysis.get("mappings", []):
+        if not isinstance(mapping, dict):
+            continue
+        source = mapping.get("source_service") or mapping.get("source") or mapping.get("aws_service") or mapping.get("gcp_service")
+        target = mapping.get("azure_service") or mapping.get("target")
+        if not source or not target:
+            continue
+        ref: dict[str, Any] = {
+            "source_service": str(source),
+            "azure_service": str(target),
+        }
+        if mapping.get("source_provider"):
+            ref["source_provider"] = str(mapping["source_provider"])
+        if mapping.get("category"):
+            ref["category"] = str(mapping["category"])
+        if mapping.get("confidence") is not None:
+            ref["confidence"] = mapping["confidence"]
+        references.append(ref)
+    return references[:200]
+
+
+def _manifest_json(manifest: dict[str, Any]) -> str:
+    return (
+        json.dumps(manifest, sort_keys=True, separators=(",", ":"))
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+    )
+
+
+def _embed_svg_manifest(svg: str, manifest: dict[str, Any]) -> str:
+    manifest_json = _manifest_json(manifest)
+    metadata = (
+        '<metadata id="archmorph-artifact-manifest" '
+        'type="application/json">'
+        f'{html.escape(manifest_json)}'
+        '</metadata>'
+    )
+    return re.sub(r"(<svg\b[^>]*>)", lambda match: f"{match.group(1)}{metadata}", svg, count=1)
+
+
+def _sanitize_manifest(value: Any, key: str = "") -> Any:
+    secret_words = ("secret", "password", "token", "credential", "connection_string", "apikey", "api_key")
+    if any(word in key.lower() for word in secret_words):
+        return "[redacted]"
+    if isinstance(value, dict):
+        return {str(k): _sanitize_manifest(v, str(k)) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_sanitize_manifest(item, key) for item in value]
+    if isinstance(value, str):
+        lower = value.lower()
+        if any(f"{word}=" in lower or f"{word}:" in lower for word in secret_words):
+            return "[redacted]"
+    return value
 
 
 def _profile_from_analysis(analysis: dict[str, Any]) -> dict[str, str]:
@@ -282,7 +426,7 @@ def _source_label(analysis: dict[str, Any]) -> str:
 
 
 def _limitations(analysis: dict[str, Any], profile: dict[str, str]) -> list[tuple[str, str]]:
-    warnings = [str(w) for w in analysis.get("warnings", []) if w]
+    warnings = [str(_sanitize_manifest(str(w))) for w in analysis.get("warnings", []) if w]
     mappings = [m for m in analysis.get("mappings", []) if isinstance(m, dict)]
     low_conf = [m for m in mappings if float(m.get("confidence") or 0) < 0.8]
     limits = [("Review warning", warning) for warning in warnings[:5]]

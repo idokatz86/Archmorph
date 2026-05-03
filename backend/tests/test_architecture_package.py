@@ -76,6 +76,72 @@ def test_svg_package_is_parseable_xml():
     assert result["filename"].endswith(".svg")
     root = ET.fromstring(result["content"])
     assert root.tag.endswith("svg")
+    metadata = root.find("{http://www.w3.org/2000/svg}metadata")
+    assert metadata is not None
+    assert metadata.attrib["id"] == "archmorph-artifact-manifest"
+
+
+def test_architecture_package_html_manifest_contains_traceability_fields():
+    result = generate_architecture_package(
+        SAMPLE_ANALYSIS,
+        format="html",
+        analysis_id="analysis-676",
+    )
+    manifest = result["manifest"]
+
+    assert manifest["schema_version"] == "architecture-package-manifest/v1"
+    assert manifest["analysis_id"] == "analysis-676"
+    assert manifest["source_provider"] == "AWS"
+    assert manifest["target_provider"] == "Azure"
+    assert manifest["export"] == {"format": "html", "diagram": "primary"}
+    assert manifest["renderer"] == {"name": "architecture_package", "version": "1"}
+    assert len(manifest["customer_intent_profile_hash"]) == 64
+    assert result["filename"] in manifest["artifact_filenames"]
+    assert {"source_service": "ALB", "azure_service": "Application Gateway", "category": "Networking", "confidence": 0.96} in manifest["mapping_references"]
+    assert "archmorph-artifact-manifest" in result["content"]
+
+
+def test_architecture_package_svg_manifest_tracks_selected_diagram():
+    result = generate_architecture_package(
+        SAMPLE_ANALYSIS,
+        format="svg",
+        diagram="dr",
+        analysis_id="svg-analysis-676",
+    )
+    manifest = result["manifest"]
+
+    assert manifest["analysis_id"] == "svg-analysis-676"
+    assert manifest["export"] == {"format": "svg", "diagram": "dr"}
+    assert manifest["artifact_filenames"] == [result["filename"]]
+    assert manifest["artifacts"] == [
+        {"filename": result["filename"], "role": "selected-topology", "format": "svg"}
+    ]
+    assert "archmorph-artifact-manifest" in result["content"]
+
+
+def test_architecture_package_manifest_redacts_secret_like_values():
+    analysis = {
+        **SAMPLE_ANALYSIS,
+        "warnings": ["password=hunter2", "review customer RTO"],
+        "unsupported_assumptions": ["token: abc123"],
+        "mappings": [
+            {
+                "source_service": "Legacy API",
+                "azure_service": "Container Apps",
+                "category": "Compute",
+                "confidence": 0.74,
+                "credential_note": "super-secret",
+            }
+        ],
+    }
+
+    result = generate_architecture_package(analysis, format="html", analysis_id="privacy-test")
+    manifest_text = json.dumps(result["manifest"])
+
+    assert "hunter2" not in manifest_text
+    assert "abc123" not in manifest_text
+    assert "super-secret" not in manifest_text
+    assert "hunter2" not in result["content"]
 
 
 def test_html_package_contains_tabs_and_namespaced_svg_ids():
@@ -163,6 +229,7 @@ def test_export_architecture_package_endpoint_returns_html(test_client):
     assert data["format"] == "architecture-package-html"
     assert data["filename"].endswith(".html")
     assert "A — Target Azure Topology" in data["content"]
+    assert data["manifest"]["analysis_id"] == diagram_id
 
 
 def test_export_architecture_package_endpoint_returns_dr_svg(test_client):
@@ -177,4 +244,5 @@ def test_export_architecture_package_endpoint_returns_dr_svg(test_client):
     data = response.json()
     assert data["format"] == "architecture-package-svg"
     assert data["filename"].endswith("-dr.svg")
+    assert data["manifest"]["analysis_id"] == diagram_id
     ET.fromstring(data["content"])
