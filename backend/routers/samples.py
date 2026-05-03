@@ -426,9 +426,9 @@ def build_sample_analysis(sample_id: str, diagram_id: str) -> dict:
     }
 
 
-import secrets as _secrets  # noqa: E402
 import re as _re  # noqa: E402
 from export_capabilities import attach_export_capability  # noqa: E402
+from routers.shared import generate_session_id  # noqa: E402
 
 
 def _sample_id_from_diagram_id(diagram_id: str) -> str | None:
@@ -478,7 +478,7 @@ async def analyze_sample_diagram(request: Request, sample_id: str):
     every downstream endpoint (questions, apply-answers, export, IaC,
     HLD, cost-estimate) works without special-casing.
     """
-    diagram_id = f"sample-{sample_id}-{_secrets.token_urlsafe(16)}"
+    diagram_id = generate_session_id(f"sample-{sample_id}")
     analysis = build_sample_analysis(sample_id, diagram_id)
     if analysis is None:
         raise ArchmorphException(404, f"Sample '{sample_id}' not found")

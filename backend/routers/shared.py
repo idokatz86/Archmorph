@@ -114,6 +114,11 @@ ENVIRONMENT = os.getenv("ENVIRONMENT", "production")
 MAX_UPLOAD_SIZE = int(os.getenv("MAX_UPLOAD_SIZE", str(10 * 1024 * 1024)))
 
 
+def generate_session_id(prefix: str) -> str:
+    """Return a URL-safe, high-entropy session identifier."""
+    return f"{prefix}-{secrets.token_urlsafe(16)}"
+
+
 # ─────────────────────────────────────────────────────────────
 # Per-session asyncio lock (#336) — prevents concurrent writes
 # from corrupting session data in the store.

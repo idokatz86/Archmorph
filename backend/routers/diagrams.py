@@ -16,12 +16,11 @@ from pydantic import BaseModel
 from typing import Dict, Any, Optional
 import asyncio
 import base64
-import secrets
 import logging
 
 from routers.shared import (
     SESSION_STORE, IMAGE_STORE,
-    limiter, verify_api_key, MAX_UPLOAD_SIZE,
+    limiter, verify_api_key, MAX_UPLOAD_SIZE, generate_session_id,
 )
 from job_queue import job_manager
 from usage_metrics import record_event, record_funnel_step
@@ -177,7 +176,7 @@ async def upload_diagram(request: Request, project_id: str, file: UploadFile = F
     if file.content_type not in allowed_types and not is_visio and not is_drawio:
         raise ArchmorphException(400, f"File type {file.content_type} not supported. Accepted: PNG, JPG, JPEG, SVG, PDF, Draw.io, Visio.")
 
-    diagram_id = f"diag-{secrets.token_urlsafe(16)}"
+    diagram_id = generate_session_id("diag")
     # Read file in chunks with early size limit enforcement
     chunks = []
     total_size = 0
