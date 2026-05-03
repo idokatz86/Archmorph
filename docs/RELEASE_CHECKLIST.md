@@ -81,7 +81,7 @@ After deployment, verify:
 - `${API_URL}/health` returns `healthy` or `degraded` with expected version metadata.
 - `${API_ROOT}/openapi.json` loads and reports `Archmorph API`.
 - Run the [Production Architecture Package Smoke](PRODUCTION_SMOKE_ARCHITECTURE_PACKAGE.md) workflow with `strict_freshness=true`; retain the summary and artifact bundle for release evidence.
-- Confirm the [Generated Artifact Validation Matrix](GENERATED_ARTIFACT_VALIDATION_MATRIX.md) has an owner, command, fixture, release evidence location, and gap issue for each changed generated artifact.
+- Confirm each changed generated artifact has an owner, validation command or explicit gap note, fixture, release evidence location, and gap tracking entry in the [Generated Artifact Validation Matrix](GENERATED_ARTIFACT_VALIDATION_MATRIX.md).
 - A sample diagram can complete analysis without requiring customer data.
 - Export actions that are part of the live path still produce files: Architecture Package HTML, target SVG, DR SVG, HLD, cost CSV, IaC, and at least one classic diagram format.
 - Drift baseline smoke: run the sample drift audit, accept/reject one non-green finding, and export the Markdown report.
