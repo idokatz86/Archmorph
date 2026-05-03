@@ -44,9 +44,9 @@ def build_excalidraw_library(
     """
     t0 = time.monotonic()
 
-    cache_key = f"excalidraw:{pack_id}"
+    cache_key = ("excalidraw", pack_id)
     generation = get_pack_generation(pack_id)
-    cached = get_cached_asset(cache_key)
+    cached = get_cached_asset(cache_key, pack_id=pack_id, generation=generation)
     if cached is not None:
         logger.info("Returning cached Excalidraw library for %s", str(pack_id).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
         return cached

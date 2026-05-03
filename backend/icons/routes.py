@@ -146,6 +146,8 @@ async def delete_icon_pack(
     """Remove an icon pack and all its icons from the registry."""
     result = registry.delete_pack(pack_id)
     if not result.get("deleted"):
+        if result.get("reason") == "built-in pack cannot be deleted":
+            raise ArchmorphException(status_code=403, detail="Built-in icon pack cannot be deleted")
         raise ArchmorphException(status_code=404, detail=f"Icon pack '{pack_id}' not found")
     return result
 

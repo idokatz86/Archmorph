@@ -50,9 +50,9 @@ def build_drawio_library(
     t0 = time.monotonic()
 
     # Check cache
-    cache_key = f"drawio:{pack_id}:{embed_mode}"
+    cache_key = ("drawio", pack_id, embed_mode)
     generation = get_pack_generation(pack_id)
-    cached = get_cached_asset(cache_key)
+    cached = get_cached_asset(cache_key, pack_id=pack_id, generation=generation)
     if cached is not None:
         logger.info("Returning cached draw.io library for %s", str(pack_id).replace("\n", "").replace("\r", ""))  # lgtm[py/log-injection]
         return cached

@@ -67,7 +67,7 @@ The post-merge CTO end-to-end review of `landing-zone-svg` (May 1, 2026) flagged
 - **Migration Timeline Generator** — 7-phase migration plan with dependency ordering (topological sort), parallel workstreams, export as JSON/Markdown/CSV
 - **Self-updating service catalog** — daily auto-discovery and auto-integration of new cloud services with fuzzy matching and category classification
 - **AI cross-cloud mapping suggestions** — GPT-powered mapping with few-shot learning, auto-approve at 0.9 confidence, admin review queue
-- **Icon Registry** — 405 normalized cloud service icons with Draw.io, Excalidraw, and Visio library builders; custom pack upload/delete is API-key gated, SVG-sanitized, generation-aware, and bounded without evicting built-in provider icons
+- **Icon Registry** — 405 normalized cloud service icons with Draw.io, Excalidraw, and Visio library builders; custom pack upload/delete requires an admin bearer session from `/api/admin/login`, is SVG-sanitized, generation-aware, and bounded without evicting built-in provider icons
 - **AI-powered HLD generation** — 13-section High-Level Design documents with WAF assessment
 - **HLD document export** — download HLD as Word (.docx), PDF, or PowerPoint (.pptx) with branded formatting
 - **Full analysis PDF report** — 6-section branded report (cover, summary, mappings, costs, risks, IaC appendix)

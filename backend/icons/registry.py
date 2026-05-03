@@ -145,18 +145,27 @@ def get_pack_generation(pack_id: str) -> int:
 
 def _invalidate_pack_asset_cache(pack_id: str) -> None:
     _bump_pack_generation(pack_id)
-    stale_keys = [key for key in _ASSET_CACHE if _cache_key_matches_pack(str(key), pack_id)]
+    stale_keys = [key for key in _ASSET_CACHE if _cache_key_matches_pack(key, pack_id)]
     for key in stale_keys:
         _ASSET_CACHE.pop(key, None)
     _invalidate_external_icon_caches()
 
 
-def _cache_key_matches_pack(cache_key: str, pack_id: str) -> bool:
-    return (
-        cache_key == f"excalidraw:{pack_id}"
-        or cache_key.startswith(f"drawio:{pack_id}:")
-        or cache_key.startswith(f"visio:{pack_id}:")
-    )
+def _cache_key_matches_pack(cache_key: Any, pack_id: str) -> bool:
+    if isinstance(cache_key, tuple):
+        return len(cache_key) >= 2 and cache_key[0] in {"drawio", "excalidraw", "visio"} and cache_key[1] == pack_id
+    if not isinstance(cache_key, str):
+        return False
+    if cache_key == f"excalidraw:{pack_id}":
+        return True
+    for prefix in ("drawio:", "visio:"):
+        if cache_key.startswith(prefix):
+            payload = cache_key[len(prefix):]
+            if ":" not in payload:
+                return False
+            cached_pack_id, _variant = payload.rsplit(":", 1)
+            return cached_pack_id == pack_id
+    return False
 
 
 def _invalidate_external_icon_caches() -> None:
@@ -329,6 +338,7 @@ def ingest_icon_pack(
         with _LOCK:
             _BUILTIN_PACK_IDS.add(pid)
     ingested_ids: list[str] = []
+    new_entries: list[tuple[str, IconEntry]] = []
     failed = 0
 
     for rel_path, svg_bytes in sorted(files.items()):
@@ -350,10 +360,6 @@ def ingest_icon_pack(
         w, h = extract_svg_dimensions(sanitized_svg)
 
         cid = _canonical_id(name, pack_manifest.provider, category)
-        if not builtin:
-            with _LOCK:
-                if cid in _BUILTIN_ICON_IDS:
-                    raise ValueError(f"Icon id '{cid}' is reserved for built-in icon packs")
 
         entry = IconEntry(
             meta=IconMeta(
@@ -371,11 +377,16 @@ def ingest_icon_pack(
             svg=sanitized_svg,
         )
         ingested_ids.append(cid)
-        with _LOCK:
-            _ICON_STORE[cid] = entry
-            _ICON_STORE.move_to_end(cid)
+        new_entries.append((cid, entry))
 
     with _LOCK:
+        if not builtin:
+            reserved_ids = [cid for cid in ingested_ids if cid in _BUILTIN_ICON_IDS]
+            if reserved_ids:
+                raise ValueError(f"Icon id '{reserved_ids[0]}' is reserved for built-in icon packs")
+        for cid, entry in new_entries:
+            _ICON_STORE[cid] = entry
+            _ICON_STORE.move_to_end(cid)
         old_ids = set(_PACK_INDEX.get(pid, []))
         stale_ids = old_ids.difference(ingested_ids)
         for stale_id in stale_ids:
@@ -494,15 +505,23 @@ def list_packs() -> list[dict[str, Any]]:
         ]
 
 
-def get_cached_asset(cache_key: str) -> Optional[bytes]:
+def get_cached_asset(
+    cache_key: Any,
+    *,
+    pack_id: Optional[str] = None,
+    generation: Optional[int] = None,
+) -> Optional[bytes]:
     """Retrieve a cached library asset."""
     with _LOCK:
+        if pack_id is not None and generation is not None:
+            if _PACK_GENERATIONS.get(pack_id, 0) != generation:
+                return None
         return _ASSET_CACHE.get(cache_key)
 
 
 def set_cached_asset(
-    cache_key: str,
-    data: bytes,
+    cache_key: Any,
+    data: Optional[bytes],
     *,
     pack_id: Optional[str] = None,
     generation: Optional[int] = None,
@@ -512,6 +531,9 @@ def set_cached_asset(
         if pack_id is not None and generation is not None:
             if _PACK_GENERATIONS.get(pack_id, 0) != generation:
                 return False
+        if data is None:
+            _ASSET_CACHE.pop(cache_key, None)
+            return True
         _ASSET_CACHE[cache_key] = data
     return True
 

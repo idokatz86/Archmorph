@@ -281,7 +281,7 @@ def clear_icon_cache() -> None:
         _ICON_CACHE_GENERATION += 1
 
 
-def _icon_data_uri(icon_key: str) -> Optional[str]:
+def _cached_icon_data_uri(icon_key: str) -> Optional[tuple[str, int]]:
     """Cached registry lookup.
 
     The registry can be empty at first lookup (lazy-loaded on demand by
@@ -294,13 +294,20 @@ def _icon_data_uri(icon_key: str) -> Optional[str]:
         cached = _ICON_CACHE.get(icon_key)
         generation = _ICON_CACHE_GENERATION
         if cached is not None:
-            return cached
+            return (cached, generation)
     uri = _resolve_data_uri(icon_key)
     if uri is not None:
         with _ICON_CACHE_LOCK:
             if _ICON_CACHE_GENERATION == generation:
                 _ICON_CACHE[icon_key] = uri
-    return uri
+                return (uri, generation)
+            return None
+    return None
+
+
+def _icon_data_uri(icon_key: str) -> Optional[str]:
+    resolved = _cached_icon_data_uri(icon_key)
+    return resolved[0] if resolved else None
 
 
 def _img(icon_key: str, x: float, y: float, w: float, h: float) -> str:
@@ -311,16 +318,22 @@ def _img(icon_key: str, x: float, y: float, w: float, h: float) -> str:
     icon-resolution observability metric: the SLO + alert in
     ``infra/observability/alerts.tf`` reads off these labels directly.
     """
-    uri = _icon_data_uri(icon_key)
-    if uri:
+    image_markup = None
+    resolved = _cached_icon_data_uri(icon_key)
+    if resolved:
+        uri, generation = resolved
+        with _ICON_CACHE_LOCK:
+            if _ICON_CACHE_GENERATION == generation:
+                image_markup = (
+                    f'<image href="{uri}" x="{x}" y="{y}" '
+                    f'width="{w}" height="{h}" preserveAspectRatio="xMidYMid meet"/>'
+                )
+    if image_markup:
         increment_counter(
             "archmorph.lz.icon_resolution_total",
             tags={"result": "hit", "icon_key": icon_key},
         )
-        return (
-            f'<image href="{uri}" x="{x}" y="{y}" '
-            f'width="{w}" height="{h}" preserveAspectRatio="xMidYMid meet"/>'
-        )
+        return image_markup
     increment_counter(
         "archmorph.lz.icon_resolution_total",
         tags={"result": "fallback", "icon_key": icon_key},

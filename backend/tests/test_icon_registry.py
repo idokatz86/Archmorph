@@ -385,6 +385,19 @@ class TestIconRegistry:
         assert registry.get_cached_asset("excalidraw:short") is None
         assert registry.get_cached_asset("excalidraw:my-short-icons") == b"my-short-icons"
 
+    def test_cache_invalidation_handles_colon_pack_ids(self, small_zip_pack):
+        registry.set_cached_asset(("drawio", "a", "full"), b"a-drawio")
+        registry.set_cached_asset(("drawio", "a:b", "full"), b"a-b-drawio")
+        registry.set_cached_asset("visio:a:True", b"legacy-a-visio")
+        registry.set_cached_asset("visio:a:b:True", b"legacy-a-b-visio")
+
+        registry.ingest_icon_pack(small_zip_pack, pack_id="a")
+
+        assert registry.get_cached_asset(("drawio", "a", "full")) is None
+        assert registry.get_cached_asset(("drawio", "a:b", "full")) == b"a-b-drawio"
+        assert registry.get_cached_asset("visio:a:True") is None
+        assert registry.get_cached_asset("visio:a:b:True") == b"legacy-a-b-visio"
+
     def test_ingest_invalidates_landing_zone_icon_cache(self, small_zip_pack):
         import azure_landing_zone
 
@@ -437,6 +450,42 @@ class TestIconRegistry:
         with pytest.raises(ValueError, match="reserved for built-in icon packs"):
             registry.ingest_icon_pack(buf.getvalue(), pack_id="collision-pack")
         assert registry.get_icon(builtin_icon.meta.id).svg == builtin_icon.svg
+
+    def test_failed_builtin_icon_collision_does_not_partially_ingest(self):
+        assert registry.load_builtin_packs() >= 1
+        builtin_pack_id = registry.list_packs()[0]["pack_id"]
+        builtin_icon = registry.get_pack_icons(builtin_pack_id)[0]
+
+        buf = io.BytesIO()
+        manifest = {
+            "name": "Partial Collision Pack",
+            "provider": builtin_icon.meta.provider,
+            "version": "1.0.0",
+            "icons": [
+                {
+                    "file": "first.svg",
+                    "name": "Partial Custom Icon",
+                    "category": "custom",
+                    "tags": ["partial"],
+                },
+                {
+                    "file": "collision.svg",
+                    "name": builtin_icon.meta.name,
+                    "category": builtin_icon.meta.category,
+                    "tags": ["collision"],
+                },
+            ],
+        }
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("metadata.json", json.dumps(manifest))
+            zf.writestr("first.svg", VALID_SVG.decode())
+            zf.writestr("collision.svg", VALID_SVG.decode())
+
+        with pytest.raises(ValueError, match="reserved for built-in icon packs"):
+            registry.ingest_icon_pack(buf.getvalue(), pack_id="partial-collision-pack")
+
+        assert registry.get_icon(f"{builtin_icon.meta.provider}_custom_partial_custom_icon") is None
+        assert "partial-collision-pack" not in {pack["pack_id"] for pack in registry.list_packs()}
 
     def test_restored_builtin_icons_remain_protected_from_eviction(self, monkeypatch, tmp_path):
         monkeypatch.setenv("ICON_REGISTRY_DATA_DIR", str(tmp_path))
@@ -765,6 +814,16 @@ class TestIconAPI:
         assert resp.status_code == 200
         assert resp.json()["deleted"] is True
         assert registry.list_packs() == []
+
+    def test_delete_builtin_pack_reports_protected(self):
+        assert registry.load_builtin_packs() >= 1
+        builtin_pack_id = registry.list_packs()[0]["pack_id"]
+
+        resp = self.client.delete(f"/api/icon-packs/{builtin_pack_id}", headers=self.admin_headers)
+
+        assert resp.status_code == 403
+        assert resp.json()["error"]["message"] == "Built-in icon pack cannot be deleted"
+        assert registry.get_pack_icons(builtin_pack_id)
 
     def test_upload_then_search(self, small_zip_pack):
         self.client.post(

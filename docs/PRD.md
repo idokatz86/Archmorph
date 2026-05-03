@@ -171,7 +171,7 @@ The PRD distinguishes three maturity levels. **Live** features are usable in the
 - **Thread-safe** — `RLock`-protected mutable state for concurrent request safety
 - **Persistent storage** — registry state serialized to JSON sidecar file, auto-restored on startup
 - **Auto-load** — built-in sample packs loaded from `samples/` directory on application boot
-- **ZIP/folder ingestion** — upload icon packs via API (ZIP with metadata.json or folder scan), gated by API key for write operations
+- **ZIP/folder ingestion** — upload icon packs via API (ZIP with metadata.json or folder scan), gated by admin bearer session for write operations
 - **Bounded custom capacity** — custom uploads cannot reuse reserved built-in pack IDs, cannot evict built-in provider icons, and invalidate cached library/landing-zone icon data on replace/delete/eviction with generation-aware cache write barriers
 - **Search & resolve** — search by provider, category, query; resolve best icon for a service via `service_id` or fuzzy name match
 - **Diagram bridge** — `diagram_export.py` falls back to the 405-icon registry when services aren't in the 36 hardcoded stencils

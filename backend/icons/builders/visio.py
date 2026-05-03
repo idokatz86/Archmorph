@@ -71,9 +71,9 @@ def build_visio_stencil_pack(
     """
     t0 = time.monotonic()
 
-    cache_key = f"visio:{pack_id}:{include_png}"
+    cache_key = ("visio", pack_id, include_png)
     generation = get_pack_generation(pack_id)
-    cached = get_cached_asset(cache_key)
+    cached = get_cached_asset(cache_key, pack_id=pack_id, generation=generation)
     if cached is not None:
         logger.info("Returning cached Visio stencil pack for %s", str(pack_id).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
         return cached
