@@ -321,8 +321,10 @@ def _img(icon_key: str, x: float, y: float, w: float, h: float) -> str:
     ``infra/observability/alerts.tf`` reads off these labels directly.
     """
     image_markup = None
-    resolved = _cached_icon_data_uri(icon_key)
-    if resolved:
+    for _attempt in range(3):
+        resolved = _cached_icon_data_uri(icon_key)
+        if not resolved:
+            break
         uri, generation = resolved
         with _ICON_CACHE_LOCK:
             if _ICON_CACHE_GENERATION == generation:
@@ -330,6 +332,8 @@ def _img(icon_key: str, x: float, y: float, w: float, h: float) -> str:
                     f'<image href="{uri}" x="{x}" y="{y}" '
                     f'width="{w}" height="{h}" preserveAspectRatio="xMidYMid meet"/>'
                 )
+                break
+        continue
     if image_markup:
         increment_counter(
             "archmorph.lz.icon_resolution_total",

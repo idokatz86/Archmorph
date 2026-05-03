@@ -129,6 +129,24 @@ def _protected_icon_ids() -> set[str]:
     return {cid for cid in _BUILTIN_ICON_IDS if cid in _ICON_STORE}
 
 
+def _assert_custom_pack_fits_atomically(pid: str, ingested_ids: list[str]) -> None:
+    max_icons = _max_icons()
+    current_ids = set(_ICON_STORE)
+    old_ids = set(_PACK_INDEX.get(pid, []))
+    final_ids = (current_ids - old_ids) | set(ingested_ids)
+    if len(final_ids) <= max_icons:
+        return
+
+    protected_ids = _protected_icon_ids()
+    evictable_existing = [
+        cid
+        for cid in _ICON_STORE
+        if cid in final_ids and cid not in protected_ids and cid not in ingested_ids
+    ]
+    if len(final_ids) - len(evictable_existing) > max_icons:
+        raise ValueError("Icon pack exceeds registry capacity and cannot be ingested atomically")
+
+
 def _mark_builtin_pack(pack_id: str, icon_ids: list[str]) -> None:
     _BUILTIN_PACK_IDS.add(pack_id)
     _BUILTIN_ICON_IDS.update(icon_ids)
@@ -392,6 +410,7 @@ def ingest_icon_pack(
             duplicate_ids = [cid for cid in ingested_ids if cid in _ICON_STORE and cid not in old_ids]
             if duplicate_ids:
                 raise ValueError(f"Icon id '{duplicate_ids[0]}' is already registered by another icon pack")
+            _assert_custom_pack_fits_atomically(pid, ingested_ids)
         for cid, entry in new_entries:
             _ICON_STORE[cid] = entry
             _ICON_STORE.move_to_end(cid)

@@ -132,6 +132,29 @@ def _zip_pack_with_svg(icon_file: str, icon_name: str, svg: bytes) -> bytes:
     return buf.getvalue()
 
 
+def _zip_pack_with_icons(icons: list[tuple[str, str]]) -> bytes:
+    buf = io.BytesIO()
+    manifest = {
+        "name": "Multi Icon Pack",
+        "provider": "azure",
+        "version": "1.0.0",
+        "icons": [
+            {
+                "file": icon_file,
+                "name": icon_name,
+                "category": "compute",
+                "tags": ["test"],
+            }
+            for icon_file, icon_name in icons
+        ],
+    }
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("metadata.json", json.dumps(manifest))
+        for icon_file, _icon_name in icons:
+            zf.writestr(icon_file, VALID_SVG.decode())
+    return buf.getvalue()
+
+
 def _json_pack(icon_file: str, icon_name: str, svg: bytes = VALID_SVG) -> bytes:
     manifest = {
         "name": icon_name,
@@ -426,12 +449,28 @@ class TestIconRegistry:
         before_ids = [icon.meta.id for icon in registry.get_pack_icons(builtin_pack_id)]
 
         monkeypatch.setenv("ICON_REGISTRY_MAX_ICONS", str(registry.get_icon_metrics()["total_icons"]))
-        registry.ingest_icon_pack(_zip_pack("custom.svg", "Custom Icon"), pack_id="custom-pack")
+        with pytest.raises(ValueError, match="registry capacity"):
+            registry.ingest_icon_pack(_zip_pack("custom.svg", "Custom Icon"), pack_id="custom-pack")
 
         after_ids = [icon.meta.id for icon in registry.get_pack_icons(builtin_pack_id)]
         assert after_ids == before_ids
         assert "custom-pack" not in {pack["pack_id"] for pack in registry.list_packs()}
         assert registry.get_icon("azure_compute_custom_icon") is None
+
+    def test_oversized_custom_pack_fails_atomically(self, monkeypatch):
+        monkeypatch.setenv("ICON_REGISTRY_MAX_ICONS", "1")
+
+        with pytest.raises(ValueError, match="registry capacity"):
+            registry.ingest_icon_pack(
+                _zip_pack_with_icons([
+                    ("first.svg", "First Icon"),
+                    ("second.svg", "Second Icon"),
+                ]),
+                pack_id="too-large-pack",
+            )
+
+        assert registry.list_packs() == []
+        assert registry.search_icons() == []
 
     def test_custom_pack_cannot_reuse_builtin_pack_id(self):
         with pytest.raises(ValueError, match="reserved for built-in icon packs"):
@@ -522,10 +561,12 @@ class TestIconRegistry:
         registry.clear_all()
         assert registry._load_from_disk() is True
         monkeypatch.setenv("ICON_REGISTRY_MAX_ICONS", str(total_icons))
-        registry.ingest_icon_pack(_zip_pack("custom.svg", "Custom Icon"), pack_id="custom-pack")
+        with pytest.raises(ValueError, match="registry capacity"):
+            registry.ingest_icon_pack(_zip_pack("custom.svg", "Custom Icon"), pack_id="custom-pack")
 
         after_ids = [icon.meta.id for icon in registry.get_pack_icons(builtin_pack_id)]
         assert after_ids == before_ids
+        assert "custom-pack" not in {pack["pack_id"] for pack in registry.list_packs()}
         assert registry.get_icon("azure_compute_custom_icon") is None
 
     def test_legacy_custom_provider_pack_is_replaced_by_builtin_on_restore(self, monkeypatch, tmp_path):
@@ -878,6 +919,21 @@ class TestIconAPI:
         assert resp.status_code == 200
         assert resp.json()["deleted"] is True
         assert registry.list_packs() == []
+
+    def test_icon_pack_writes_document_admin_bearer_auth(self):
+        schema = self.client.get("/openapi.json").json()
+        security_schemes = schema["components"]["securitySchemes"]
+        assert "HTTPBearer" in security_schemes
+        assert security_schemes["HTTPBearer"]["scheme"] == "bearer"
+
+        operations = [
+            schema["paths"]["/api/icon-packs"]["post"],
+            schema["paths"]["/api/icon-packs/{pack_id}"]["delete"],
+        ]
+        for operation in operations:
+            assert {"HTTPBearer": []} in operation["security"]
+            parameters = operation.get("parameters", [])
+            assert not any(param.get("name") == "authorization" for param in parameters)
 
     def test_delete_builtin_pack_reports_protected(self):
         assert registry.load_builtin_packs() >= 1

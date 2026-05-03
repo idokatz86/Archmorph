@@ -9,8 +9,8 @@ import secrets
 from collections import OrderedDict
 from typing import Optional, List
 
-from fastapi import Security, Header
-from fastapi.security import APIKeyHeader
+from fastapi import Security
+from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
 from slowapi import Limiter
@@ -40,6 +40,7 @@ limiter = Limiter(
 # ─────────────────────────────────────────────────────────────
 API_KEY = os.getenv("ARCHMORPH_API_KEY", "")  # Empty = auth disabled (dev mode)
 API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=False)
+ADMIN_BEARER = HTTPBearer(auto_error=False)
 
 logger = logging.getLogger(__name__)
 
@@ -65,16 +66,16 @@ async def verify_api_key(api_key: Optional[str] = Security(API_KEY_HEADER)):
 # Admin Auth Dependency
 # ─────────────────────────────────────────────────────────────
 async def verify_admin_key(
-    authorization: Optional[str] = Header(None),
+    credentials: Optional[HTTPAuthorizationCredentials] = Security(ADMIN_BEARER),
 ):
     """Verify admin session via Authorization: Bearer <jwt>."""
     if not admin_is_configured():
         raise ArchmorphException(503, "Admin API not configured")
 
-    if not authorization or not authorization.startswith("Bearer "):
+    if credentials is None or credentials.scheme.lower() != "bearer":
         raise ArchmorphException(401, "Missing or malformed Authorization header")
 
-    token = authorization[7:]  # strip "Bearer "
+    token = credentials.credentials
     payload = validate_session_token(token)
     if payload is None:
         raise ArchmorphException(401, "Invalid or expired session token")

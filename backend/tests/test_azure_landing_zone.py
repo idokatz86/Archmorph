@@ -290,6 +290,22 @@ class TestProductionReadyGuardrails:
         assert len(canonical_aws_estate["mappings"]) >= 35
         assert len(canonical_aws_estate["service_connections"]) >= 13
 
+    def test_img_retries_after_cache_generation_drift(self, monkeypatch):
+        import azure_landing_zone
+
+        calls = iter([
+            ("data:image/svg+xml;base64,old", 0),
+            ("data:image/svg+xml;base64,new", 1),
+        ])
+        monkeypatch.setattr(azure_landing_zone, "_cached_icon_data_uri", lambda _icon_key: next(calls))
+        with azure_landing_zone._ICON_CACHE_LOCK:
+            azure_landing_zone._ICON_CACHE_GENERATION = 1
+
+        markup = azure_landing_zone._img("aks", 1, 2, 3, 4)
+
+        assert '<image href="data:image/svg+xml;base64,new"' in markup
+        assert "icon-fallback" not in markup
+
     def test_real_icon_ratio_no_regression(self, canonical_aws_estate):
         """#588 acceptance — real-icon ratio must not regress below 35%.
 
