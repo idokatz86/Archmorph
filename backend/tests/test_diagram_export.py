@@ -48,6 +48,29 @@ CANONICAL_AWS_ESTATE_PATH = (
 )
 
 
+def _large_connection_analysis(count: int = 90) -> dict:
+    mappings = [
+        {
+            "source_service": f"Source {i}",
+            "azure_service": f"Service {i}",
+            "category": "Compute",
+            "confidence": 0.95,
+        }
+        for i in range(count + 1)
+    ]
+    return {
+        "title": "Large Connection Export",
+        "source_provider": "AWS",
+        "target_provider": "azure",
+        "zones": [{"id": 1, "number": 1, "name": "generated", "services": []}],
+        "mappings": mappings,
+        "service_connections": [
+            {"source": f"Service {i}", "target": f"Service {i + 1}", "type": "traffic"}
+            for i in range(count)
+        ],
+    }
+
+
 MIXED_CLOUD_ANALYSIS = {
     "source_provider": "aws",
     "source_providers": ["aws", "gcp"],
@@ -131,6 +154,15 @@ class TestGenerateDiagram:
         edge_values = [cell.get("value") or "" for cell in root.findall(".//mxCell") if cell.get("edge") == "1"]
 
         assert "HTTPS · storage" in edge_values
+
+    def test_drawio_does_not_truncate_service_connections_above_80(self):
+        analysis = _large_connection_analysis(count=90)
+
+        result = generate_diagram(analysis, format="drawio")
+        root = ET.fromstring(result["content"])
+        edges = [cell for cell in root.findall(".//mxCell") if cell.get("edge") == "1"]
+
+        assert len(edges) == len(analysis["service_connections"])
 
     def test_mixed_cloud_drawio_handoff_labels_sources_and_uses_deterministic_fallback(self):
         result = generate_diagram(MIXED_CLOUD_ANALYSIS, format="drawio")
@@ -226,6 +258,19 @@ class TestGenerateDiagram:
         assert len(connectors) >= expected
         assert "database" in connector_texts
         assert "auth" in connector_texts
+
+    def test_vsdx_does_not_truncate_service_connections_above_80(self):
+        analysis = _large_connection_analysis(count=90)
+
+        result = generate_diagram(analysis, format="vsdx")
+        root = ET.fromstring(result["content"])
+        ns = "{http://schemas.microsoft.com/visio/2003/core}"
+        connectors = [
+            shape for shape in root.findall(f".//{ns}Shape")
+            if (shape.get("NameU") or "").startswith("Connector_")
+        ]
+
+        assert len(connectors) == len(analysis["service_connections"])
 
     def test_invalid_format_raises(self):
         with pytest.raises((ValueError, KeyError)):

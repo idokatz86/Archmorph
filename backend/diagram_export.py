@@ -21,6 +21,13 @@ from typing import Any
 import os
 import re
 
+from service_connection_utils import (
+    connection_endpoint,
+    connection_label,
+    mapping_aliases,
+    resolved_connection_endpoint,
+    service_key,
+)
 from source_provider import normalize_source_provider
 
 _data_file_AZURE_STENCILS = os.path.join(os.path.dirname(__file__), 'assets', 'diagram_stencils.json')
@@ -92,44 +99,6 @@ def _service_source_name(service: Any) -> str:
     if isinstance(service, dict):
         return str(service.get("source", service.get("aws", service.get("gcp", service.get("source_service", service.get("name", ""))))))
     return str(service)
-
-
-def _service_key(value: Any) -> str:
-    """Stable fuzzy key for matching connection endpoints to rendered services."""
-    text = str(value or "").lower().strip()
-    text = re.sub(r"\[[^\]]+\]", "", text)
-    text = re.sub(r"\b(?:aws|amazon|azure|gcp|google|microsoft)\b", "", text)
-    text = re.sub(r"[^a-z0-9]+", "", text)
-    return text
-
-
-def _connection_endpoint(conn: dict[str, Any], primary: str, secondary: str) -> str:
-    return str(conn.get(primary) or conn.get(secondary) or "")
-
-
-def _connection_label(conn: dict[str, Any]) -> str:
-    protocol = str(conn.get("protocol") or "").strip()
-    conn_type = str(conn.get("type") or "").strip()
-    bits = [bit for bit in (protocol, conn_type) if bit]
-    return " · ".join(bits)
-
-
-def _mapping_aliases(mappings: list[dict[str, Any]]) -> dict[str, str]:
-    aliases: dict[str, str] = {}
-    for mapping in mappings:
-        azure = str(mapping.get("azure_service") or mapping.get("target") or "").strip()
-        if not azure:
-            continue
-        for field in ("source_service", "aws_service", "gcp_service", "source", "azure_service", "target"):
-            value = mapping.get(field)
-            if value:
-                aliases[_service_key(value)] = azure
-        aliases[_service_key(azure)] = azure
-    return aliases
-
-
-def _resolved_connection_endpoint(endpoint: str, aliases: dict[str, str]) -> str:
-    return aliases.get(_service_key(endpoint), endpoint)
 
 
 def _services_for_export_zones(zones: list[dict[str, Any]], mappings: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1170,7 +1139,7 @@ def _generate_drawio(analysis: dict) -> dict:
             )
             lbl_cell.append(_mx_geom(sx + 48, sy, sw - 48, sh))
             for alias in (aws_name, azure_name, label):
-                service_ids[_service_key(alias)] = lbl_id
+                service_ids[service_key(alias)] = lbl_id
 
     # ── Cloud boundary geometry ──
     if zone_rects:
@@ -1182,21 +1151,21 @@ def _generate_drawio(analysis: dict) -> dict:
         bx, by, bw, bh = margin_x, margin_y, 800, 600
     cloud_cell.append(_mx_geom(bx, by, bw, bh))
 
-    aliases = _mapping_aliases(mappings)
+    aliases = mapping_aliases(mappings)
     rendered_connections = 0
-    for conn in connections[:80]:
+    for conn in connections:
         if not isinstance(conn, dict):
             continue
-        from_endpoint = _connection_endpoint(conn, "from", "source")
-        to_endpoint = _connection_endpoint(conn, "to", "target")
-        from_service = _resolved_connection_endpoint(from_endpoint, aliases)
-        to_service = _resolved_connection_endpoint(to_endpoint, aliases)
-        source_id = service_ids.get(_service_key(from_service)) or service_ids.get(_service_key(from_endpoint))
-        target_id = service_ids.get(_service_key(to_service)) or service_ids.get(_service_key(to_endpoint))
+        from_endpoint = connection_endpoint(conn, "from", "source")
+        to_endpoint = connection_endpoint(conn, "to", "target")
+        from_service = resolved_connection_endpoint(from_endpoint, aliases)
+        to_service = resolved_connection_endpoint(to_endpoint, aliases)
+        source_id = service_ids.get(service_key(from_service)) or service_ids.get(service_key(from_endpoint))
+        target_id = service_ids.get(service_key(to_service)) or service_ids.get(service_key(to_endpoint))
         if not source_id or not target_id or source_id == target_id:
             continue
         eid = next_id()
-        label = _connection_label(conn)
+        label = connection_label(conn)
         conn_type = str(conn.get("type") or "traffic").lower()
         color = {
             "database": "#1A5DAB",
@@ -1400,20 +1369,20 @@ def _generate_vsdx(analysis: dict) -> dict:
             absolute_x = zx + sx_local
             absolute_y = zy + sy_local
             for alias in (aws_name, azure_name, label):
-                service_shapes[_service_key(alias)] = {"id": ssid, "x": absolute_x, "y": absolute_y}
+                service_shapes[service_key(alias)] = {"id": ssid, "x": absolute_x, "y": absolute_y}
 
     connects = ET.SubElement(page, f"{{{_VDX_NS}}}Connects")
-    aliases = _mapping_aliases(mappings)
+    aliases = mapping_aliases(mappings)
     rendered_connections = 0
-    for idx, conn_data in enumerate(connections[:80]):
+    for idx, conn_data in enumerate(connections):
         if not isinstance(conn_data, dict):
             continue
-        from_endpoint = _connection_endpoint(conn_data, "from", "source")
-        to_endpoint = _connection_endpoint(conn_data, "to", "target")
-        from_service = _resolved_connection_endpoint(from_endpoint, aliases)
-        to_service = _resolved_connection_endpoint(to_endpoint, aliases)
-        src_shape = service_shapes.get(_service_key(from_service)) or service_shapes.get(_service_key(from_endpoint))
-        dst_shape = service_shapes.get(_service_key(to_service)) or service_shapes.get(_service_key(to_endpoint))
+        from_endpoint = connection_endpoint(conn_data, "from", "source")
+        to_endpoint = connection_endpoint(conn_data, "to", "target")
+        from_service = resolved_connection_endpoint(from_endpoint, aliases)
+        to_service = resolved_connection_endpoint(to_endpoint, aliases)
+        src_shape = service_shapes.get(service_key(from_service)) or service_shapes.get(service_key(from_endpoint))
+        dst_shape = service_shapes.get(service_key(to_service)) or service_shapes.get(service_key(to_endpoint))
         if not src_shape or not dst_shape or src_shape["id"] == dst_shape["id"]:
             continue
         csid = next_shape_id()
@@ -1434,7 +1403,7 @@ def _generate_vsdx(analysis: dict) -> dict:
             "metrics": "#107C10",
         }.get(conn_type, _AZURE_SECONDARY)
         _vdx_line(conn, color)
-        _vdx_text(conn, _connection_label(conn_data))
+        _vdx_text(conn, connection_label(conn_data))
 
         ET.SubElement(connects, f"{{{_VDX_NS}}}Connect", FromSheet=csid, FromCell="BeginX",
                            ToSheet=str(src_shape["id"]))

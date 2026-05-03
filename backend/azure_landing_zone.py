@@ -32,6 +32,12 @@ from azure_landing_zone_schema import (
     infer_replication,
     infer_tiers_from_mappings,
 )
+from service_connection_utils import (
+    connection_endpoint,
+    connection_label,
+    mapping_aliases,
+    service_key,
+)
 from source_provider import (
     SUPPORTED_SOURCE_PROVIDERS as _SUPPORTED_SOURCE_PROVIDERS,
     normalize_source_provider,
@@ -444,6 +450,9 @@ text {{ font-family: {FONT_STACK}; }}
 </marker>
 <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
   <path d="M 0 0 L 10 5 L 0 10 z" fill="{COLOR_RED}"/>
+</marker>
+<marker id="aflow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+    <path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke"/>
 </marker>
 </defs>"""
 
@@ -994,41 +1003,8 @@ def _data_band(tiers: dict[str, list[dict[str, Any]]]) -> str:
     return "\n".join(out)
 
 
-def _service_key(value: Any) -> str:
-    text = str(value or "").lower().strip()
-    text = re.sub(r"\b(?:aws|amazon|azure|gcp|google|microsoft)\b", "", text)
-    return re.sub(r"[^a-z0-9]+", "", text)
-
-
-def _connection_endpoint(conn: dict[str, Any], primary: str, secondary: str) -> str:
-    return str(conn.get(primary) or conn.get(secondary) or "")
-
-
-def _connection_label(conn: dict[str, Any]) -> str:
-    protocol = str(conn.get("protocol") or "").strip()
-    conn_type = str(conn.get("type") or "").strip()
-    bits = [bit for bit in (protocol, conn_type) if bit]
-    return " · ".join(bits)
-
-
-def _mapping_aliases(analysis: dict[str, Any]) -> dict[str, str]:
-    aliases: dict[str, str] = {}
-    for mapping in analysis.get("mappings") or []:
-        if not isinstance(mapping, dict):
-            continue
-        azure = str(mapping.get("azure_service") or mapping.get("target") or "").strip()
-        if not azure:
-            continue
-        for field in ("source_service", "aws_service", "gcp_service", "source", "azure_service", "target"):
-            value = mapping.get(field)
-            if value:
-                aliases[_service_key(value)] = azure
-        aliases[_service_key(azure)] = azure
-    return aliases
-
-
 def _flow_anchor(service_name: str) -> tuple[float, float] | None:
-    key = _service_key(service_name)
+    key = service_key(service_name)
     checks: list[tuple[tuple[str, ...], tuple[float, float]]] = [
         (("enduser", "user", "client", "partnerapi", "internaladmin"), (100, 142)),
         (("frontdoor", "cloudfront"), (1010, 264)),
@@ -1053,19 +1029,19 @@ def _service_connection_flow(analysis: dict[str, Any]) -> str:
     if not connections:
         return ""
 
-    aliases = _mapping_aliases(analysis)
+    aliases = mapping_aliases(analysis.get("mappings") or [])
     out = ['<g id="service-flow" data-source="service_connections">']
     rendered = 0
-    for conn in connections[:40]:
-        source = _connection_endpoint(conn, "from", "source")
-        target = _connection_endpoint(conn, "to", "target")
-        source_name = aliases.get(_service_key(source), source)
-        target_name = aliases.get(_service_key(target), target)
+    for conn in connections:
+        source = connection_endpoint(conn, "from", "source")
+        target = connection_endpoint(conn, "to", "target")
+        source_name = aliases.get(service_key(source), source)
+        target_name = aliases.get(service_key(target), target)
         start = _flow_anchor(source_name)
         end = _flow_anchor(target_name)
         if not start or not end or start == end:
             continue
-        label = _connection_label(conn) or "flow"
+        label = connection_label(conn) or "flow"
         offset = (rendered % 5 - 2) * 8
         sx, sy = start[0], start[1] + offset
         ex, ey = end[0], end[1] + offset
@@ -1081,7 +1057,7 @@ def _service_connection_flow(analysis: dict[str, Any]) -> str:
         }.get(str(conn.get("type") or "traffic").lower(), COLOR_INK_2)
         out.append(
             f'<path class="service-flow-edge" d="M {sx:.1f} {sy:.1f} Q {mid_x:.1f} {control_y:.1f} {ex:.1f} {ey:.1f}" '
-            f'stroke="{color}" stroke-width="2.2" fill="none" stroke-opacity="0.82" marker-end="url(#a)"/>'
+            f'stroke="{color}" stroke-width="2.2" fill="none" stroke-opacity="0.82" marker-end="url(#aflow)"/>'
         )
         out.append(_tx(mid_x, control_y - 6, _truncate(label, 26), "t-flow", anchor="middle"))
         rendered += 1

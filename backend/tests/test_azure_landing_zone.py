@@ -363,6 +363,29 @@ class TestProductionReadyGuardrails:
         assert len(flow_paths) >= expected
         assert "traffic" in texts
         assert "database" in texts
+        assert all(path.get("marker-end") == "url(#aflow)" for path in flow_paths)
+
+    def test_landing_zone_svg_does_not_truncate_service_connections_above_40(self):
+        analysis = {
+            **SAMPLE_ANALYSIS,
+            "mappings": [
+                {"source_service": "CloudFront", "azure_service": "Azure Front Door", "category": "Edge"},
+                {"source_service": "ALB", "azure_service": "Application Gateway", "category": "Networking"},
+            ],
+            "service_connections": [
+                {"source": "Azure Front Door", "target": "Application Gateway", "type": "traffic"}
+                for _ in range(45)
+            ],
+        }
+
+        result = generate_landing_zone_svg(analysis, dr_variant="primary")
+        root = ET.fromstring(result["content"])
+        flow_paths = [
+            path for path in root.iter(f"{SVG_NS}path")
+            if path.get("class") == "service-flow-edge"
+        ]
+
+        assert len(flow_paths) == len(analysis["service_connections"])
 
     def test_dr_variant_renders_real_icons_too(self, canonical_aws_estate):
         """DR variant has 2x the canvas; must not lose icon resolution along the way."""
