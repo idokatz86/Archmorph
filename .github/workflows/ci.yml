@@ -350,11 +350,61 @@ jobs:
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --query connectionString -o tsv)
           echo "STORAGE_CONN=$STORAGE_CONN" >> "$GITHUB_ENV"
+          echo "STORAGE_ACCOUNT_URL=https://${STORAGE_NAME}.blob.core.windows.net" >> "$GITHUB_ENV"
           az storage container create \
             --name metrics \
             --account-name "$STORAGE_NAME" \
             --auth-mode login \
             --only-show-errors || true
+
+          STORAGE_ID=$(az storage account show \
+            --name "$STORAGE_NAME" \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --query id -o tsv)
+          az containerapp identity assign \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --system-assigned \
+            --only-show-errors
+          CONTAINER_APP_PRINCIPAL_ID=$(az containerapp show \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --query identity.principalId -o tsv)
+          if [ -z "$CONTAINER_APP_PRINCIPAL_ID" ]; then
+            echo "::error::Container App system-assigned identity is not available"
+            exit 1
+          fi
+
+          EXISTING_ASSIGNMENT=$(az role assignment list \
+            --assignee "$CONTAINER_APP_PRINCIPAL_ID" \
+            --role "Storage Blob Data Contributor" \
+            --scope "$STORAGE_ID" \
+            --query "[0].id" -o tsv)
+          if [ -z "$EXISTING_ASSIGNMENT" ]; then
+            az role assignment create \
+              --assignee-object-id "$CONTAINER_APP_PRINCIPAL_ID" \
+              --assignee-principal-type ServicePrincipal \
+              --role "Storage Blob Data Contributor" \
+              --scope "$STORAGE_ID" \
+              --only-show-errors
+          fi
+
+          for attempt in 1 2 3 4 5 6; do
+            ASSIGNMENT_ID=$(az role assignment list \
+              --assignee "$CONTAINER_APP_PRINCIPAL_ID" \
+              --role "Storage Blob Data Contributor" \
+              --scope "$STORAGE_ID" \
+              --query "[0].id" -o tsv)
+            if [ -n "$ASSIGNMENT_ID" ]; then
+              echo "Container App identity has Storage Blob Data Contributor on $STORAGE_NAME"
+              break
+            fi
+            if [ "$attempt" -eq 6 ]; then
+              echo "::error::Storage Blob Data Contributor assignment did not become visible"
+              exit 1
+            fi
+            sleep 10
+          done
 
       - name: Enable multiple revisions
         run: |
@@ -382,6 +432,8 @@ jobs:
             --image ${{ env.ACR_LOGIN_SERVER }}/archmorph-api:${{ github.sha }} \
             --set-env-vars \
               ARCHMORPH_ADMIN_KEY=secretref:admin-key \
+              ARCHMORPH_API_KEY=secretref:admin-key \
+              AZURE_STORAGE_ACCOUNT_URL="$STORAGE_ACCOUNT_URL" \
               AZURE_STORAGE_CONNECTION_STRING=secretref:storage-connection \
               AZURE_OPENAI_ENDPOINT="${{ secrets.AZURE_OPENAI_ENDPOINT }}" \
               AZURE_OPENAI_DEPLOYMENT="gpt-4.1" \

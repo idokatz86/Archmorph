@@ -1,10 +1,10 @@
 # Archmorph — Cloud Architecture Translator to Azure
 ## Product Requirements Document (PRD)
 **Version:** 4.3.0-main
-**Date:** May 2, 2026
+**Date:** May 3, 2026
 **Author:** Ido Katz
 
-**Release Note:** Main-branch convergence and Architecture Package documentation refresh.
+**Release Note:** Secure icon-pack ingestion gate and Architecture Package documentation refresh.
 
 ---
 
@@ -171,10 +171,11 @@ The PRD distinguishes three maturity levels. **Live** features are usable in the
 - **Thread-safe** — `RLock`-protected mutable state for concurrent request safety
 - **Persistent storage** — registry state serialized to JSON sidecar file, auto-restored on startup
 - **Auto-load** — built-in sample packs loaded from `samples/` directory on application boot
-- **ZIP/folder ingestion** — upload icon packs via API (ZIP with metadata.json or folder scan)
+- **ZIP/folder ingestion** — upload icon packs via API (ZIP with metadata.json or folder scan), gated by admin bearer session for write operations
+- **Bounded custom capacity** — custom uploads cannot reuse reserved built-in pack IDs, cannot evict built-in provider icons, and invalidate cached library/landing-zone icon data on replace/delete/eviction with generation-aware cache write barriers
 - **Search & resolve** — search by provider, category, query; resolve best icon for a service via `service_id` or fuzzy name match
 - **Diagram bridge** — `diagram_export.py` falls back to the 405-icon registry when services aren't in the 36 hardcoded stencils
-- **DELETE endpoint** — remove icon packs and their icons via `DELETE /api/icon-packs/{pack_id}`
+- **DELETE endpoint** — remove icon packs and their icons via admin-session-gated `DELETE /api/icon-packs/{pack_id}`
 - **Cache** — TTL-based asset cache (1-hour, 200 entries) for transformed library outputs
 
 ### 3.25 HLD Document Export (v2.11.1)
@@ -405,6 +406,7 @@ The PRD distinguishes three maturity levels. **Live** features are usable in the
 - **Timing-safe key comparison** — `secrets.compare_digest()` for API key and admin key verification
 - **No default admin secret** — `ARCHMORPH_ADMIN_KEY` must be set via environment variable (503 if unset)
 - **Restricted CORS** — explicit method and header allowlists instead of wildcards
+- **Privileged icon-pack writes** — `POST /api/icon-packs` and `DELETE /api/icon-packs/{pack_id}` require an admin bearer session from `/api/admin/login`; deployments fail closed when `ARCHMORPH_ADMIN_KEY` is absent
 - **ZIP slip prevention** — path traversal entries (`../`, absolute paths) rejected during icon pack ingestion
 - **XSS protection** — SVG sanitizer blocks `javascript:`, `vbscript:` URIs and dangerous CSS (`expression()`, `-moz-binding`, `url()`)
 - **Error sanitization** — internal exception details no longer leaked to API responses
@@ -530,7 +532,7 @@ The PRD distinguishes three maturity levels. **Live** features are usable in the
 - **Validation guarantees** — every emitted SVG passes `ET.fromstring`, has a single root `xmlns`, and is capped at 300KB. Invalid `dr_variant` rejected with HTTP 400; `dr_variant` on non-landing-zone formats also rejected.
 - **Test coverage** — 52 tests (29 schema + 13 generator round-trip + 10 GCP source). Asserts on parsed content shape (per #569 guardrail): canvas dimensions, region labels, legend present, no external URLs in `<image>` hrefs, legacy `{zones, mappings}` analyses still supported.
 - **Vendor-neutral schema** — the 5 inference helpers in `azure_landing_zone_schema.py` (`_regions`, `_dr_mode`, `_tiers`, `_actors`, `_replication`) accept legacy and current analysis payloads without provider-specific code paths. Adding a new source provider is ~50 LOC of code + tests.
-- **Known limitations** (tracked under epic #586 — T2→T3 bridge): cold-import icon-store empties to 0/N hits because `_load_from_disk()` is only invoked from a FastAPI startup hook (D1); `_CATEGORY_TO_TIER` mis-buckets `Management` / `DevTools` / `Integration` / WAF / Sentinel / Defender into `compute` and `identity` (D2); `_TIER1_CARDS` / `_vnet_block` / `_replication_band` are static templates that ignore analysis input (D3, hardcoded `10.0.0.0/16` and AVD/replication strip); `service_connections` are not yet wired into the SVG/drawio/vdx renderers (D4); five mappings are stale (Aurora wrong-engine, Cognito B2C name retired, CloudFront/CDN retiring, GuardDuty lossy, KMS missing FIPS tier). Eight follow-up issues (#587–#594) targeted for Sprint 1 + Sprint 2.
+- **Known limitations** (tracked under epic #586 — T2→T3 bridge): D1 icon-registry/security hardening is complete for upload/delete auth, SVG sanitization, custom-capacity bounds, built-in catalog preservation, and cache invalidation; `_CATEGORY_TO_TIER` still mis-buckets `Management` / `DevTools` / `Integration` / WAF / Sentinel / Defender into `compute` and `identity` (D2); `_TIER1_CARDS` / `_vnet_block` / `_replication_band` are static templates that ignore analysis input (D3, hardcoded `10.0.0.0/16` and AVD/replication strip); `service_connections` are not yet wired into the SVG/drawio/vdx renderers (D4); five mappings are stale (Aurora wrong-engine, Cognito B2C name retired, CloudFront/CDN retiring, GuardDuty lossy, KMS missing FIPS tier). Remaining follow-up issues (#588–#594) are targeted for Sprint 1 + Sprint 2.
 - **Frontend deferred** (#575) — ExportHub option + LandingZoneViewer to land in a follow-up sprint; backend API is stable and consumable today via `format=landing-zone-svg` and optional `dr_variant=dr`.
 
 #### 3.57.1 Production-Ready Push (epic #586 — v4.3.0 target)
@@ -834,8 +836,8 @@ Only when 1–7 all green does the README/PRD Capability Status table flip ALZ r
 | `/api/diagrams/{id}/iac-chat` | GET | Get IaC chat session history |
 | `/api/diagrams/{id}/iac-chat` | DELETE | Clear IaC chat session |
 | `/api/contact` | GET | Contact information |
-| `/api/icon-packs` | POST | Upload ZIP/JSON icon pack |
-| `/api/icon-packs/{pack_id}` | DELETE | Remove icon pack and its icons |
+| `/api/icon-packs` | POST | Upload ZIP/JSON icon pack (requires admin bearer session) |
+| `/api/icon-packs/{pack_id}` | DELETE | Remove icon pack and its icons (requires admin bearer session) |
 | `/api/icons` | GET | Search icons (provider, query, category, packId) |
 | `/api/icons/packs` | GET | List registered icon packs |
 | `/api/icons/metrics` | GET | Icon registry observability counters |
