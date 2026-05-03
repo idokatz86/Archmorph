@@ -336,6 +336,91 @@ def generate_questions(detected_services: list[str]) -> list[dict]:
     return selected
 
 
+def build_adaptive_question_set(
+    questions: list[dict],
+    analysis_result: dict,
+    inferred_answers: dict[str, Any] | None = None,
+) -> tuple[list[dict], list[dict]]:
+    """Split generated questions into focused follow-ups and visible assumptions.
+
+    The default post-upload path should not ask broad questions that can be
+    represented as assumptions. Service-specific questions stay visible when
+    they affect high-impact choices or low-confidence mappings.
+    """
+    inferred_answers = inferred_answers or {}
+    low_confidence_services = _low_confidence_source_services(analysis_result)
+    has_low_confidence = bool(low_confidence_services)
+    focused: list[dict] = []
+    assumptions: list[dict] = []
+
+    for question in questions:
+        question_id = question.get("id")
+        assumed_answer = inferred_answers.get(question_id, question.get("default"))
+        condition = question.get("condition") or []
+        high_impact = _is_high_impact_question(question)
+        touches_low_confidence = any(
+            _normalise_service(service) in low_confidence_services
+            for service in condition
+        )
+
+        include_as_question = bool(condition) and (high_impact or touches_low_confidence)
+        include_as_question = include_as_question or (
+            has_low_confidence and high_impact and question_id not in inferred_answers
+        )
+
+        enriched = {
+            **question,
+            "assumed_answer": assumed_answer,
+            "impact_level": "high" if high_impact else "medium",
+            "reason": _question_reason(question, touches_low_confidence, inferred_answers),
+        }
+
+        if include_as_question and question_id not in inferred_answers:
+            focused.append(enriched)
+        else:
+            assumptions.append({
+                "id": question_id,
+                "question": question.get("question", ""),
+                "assumed_answer": assumed_answer,
+                "category": question.get("category", "General"),
+                "impact": question.get("impact", ""),
+                "source": "inferred" if question_id in inferred_answers else "default",
+                "needs_review": high_impact or touches_low_confidence,
+            })
+
+    return focused, assumptions
+
+
+def _low_confidence_source_services(analysis_result: dict) -> set[str]:
+    services: set[str] = set()
+    for mapping in analysis_result.get("mappings", []):
+        if mapping.get("confidence", 1.0) >= 0.8:
+            continue
+        source = mapping.get("source_service", "")
+        services.add(_normalise_service(source))
+    return services
+
+
+def _is_high_impact_question(question: dict) -> bool:
+    text = f"{question.get('id', '')} {question.get('question', '')} {question.get('impact', '')}".lower()
+    high_impact_terms = (
+        "compliance", "residency", "private", "air-gapped", "customer-managed",
+        "hsm", "high-availability", "availability", "multi-region", "disaster",
+        "rto", "sla", "region", "encryption", "network isolation", "kafka",
+        "throughput", "api", "premium", "enterprise",
+    )
+    return any(term in text for term in high_impact_terms)
+
+
+def _question_reason(question: dict, touches_low_confidence: bool, inferred_answers: dict[str, Any]) -> str:
+    question_id = question.get("id")
+    if question_id in inferred_answers:
+        return "Already inferred from the diagram or user context."
+    if touches_low_confidence:
+        return "Low-confidence mapping; this answer can materially change the target architecture."
+    return "High-impact architecture choice; reviewing it can change generated Azure resources."
+
+
 def apply_answers(analysis_result: dict, answers: dict) -> dict:
     """Apply user answers to refine an Azure architecture analysis.
 

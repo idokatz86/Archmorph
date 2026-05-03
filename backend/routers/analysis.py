@@ -13,7 +13,7 @@ import logging
 from routers.shared import SESSION_STORE, limiter, verify_api_key
 from routers.samples import get_or_recreate_session
 from usage_metrics import record_event, record_funnel_step
-from guided_questions import generate_questions, apply_answers, get_question_constraints
+from guided_questions import generate_questions, apply_answers, get_question_constraints, build_adaptive_question_set
 from mcp_diagram_generator import mcp_client
 from service_builder import deduplicate_questions, get_smart_defaults_from_analysis, add_services_from_text
 from architecture_package import generate_architecture_package
@@ -49,24 +49,33 @@ async def get_guided_questions(request: Request, diagram_id: str, smart_dedup: b
         m["source_service"]["name"] if isinstance(m["source_service"], dict) else m["source_service"]
         for m in analysis.get("mappings", [])
     ]
-    questions = generate_questions(detected)
+    all_questions = generate_questions(detected)
+    questions = all_questions
 
     # Apply smart deduplication if enabled
     inferred_answers = {}
     if smart_dedup:
         user_context = analysis.get("user_context", {})
-        questions, inferred_answers = deduplicate_questions(questions, analysis, user_context)
+        _, inferred_answers = deduplicate_questions(all_questions, analysis, user_context)
         smart_defaults = get_smart_defaults_from_analysis(analysis)
         inferred_answers = {**smart_defaults, **inferred_answers}
 
-    record_event("questions_generated", {"diagram_id": diagram_id, "count": len(questions)})
+    adaptive_questions, assumptions = build_adaptive_question_set(questions, analysis, inferred_answers)
+
+    record_event("questions_generated", {
+        "diagram_id": diagram_id,
+        "count": len(adaptive_questions),
+        "assumptions": len(assumptions),
+    })
     record_funnel_step(diagram_id, "questions")
     return {
         "diagram_id": diagram_id,
-        "questions": questions,
-        "total": len(questions),
+        "questions": adaptive_questions,
+        "all_questions": all_questions,
+        "assumptions": assumptions,
+        "total": len(adaptive_questions),
         "inferred_answers": inferred_answers,
-        "questions_skipped": len(inferred_answers),
+        "questions_skipped": len(all_questions) - len(adaptive_questions),
         **get_question_constraints(),
     }
 

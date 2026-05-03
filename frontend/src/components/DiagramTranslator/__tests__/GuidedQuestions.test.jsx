@@ -126,6 +126,22 @@ describe('GuidedQuestions', () => {
     expect(defaultProps.onSkip).toHaveBeenCalledTimes(1)
   })
 
+  it('can expand from focused questions to all questions', async () => {
+    const user = userEvent.setup()
+    render(
+      <GuidedQuestions
+        {...defaultProps}
+        questions={[mockQuestions[0]]}
+        allQuestions={mockQuestions}
+        assumptions={[{ id: 'q2', question: 'Enable monitoring?', assumed_answer: 'yes' }]}
+      />
+    )
+
+    expect(screen.queryByText('Select features')).not.toBeInTheDocument()
+    await user.click(screen.getByText('All Questions'))
+    expect(screen.getByText('Select features')).toBeInTheDocument()
+  })
+
   it('calls onApplyAnswers when apply button clicked on last tab', async () => {
     const user = userEvent.setup()
     render(<GuidedQuestions {...defaultProps} />)

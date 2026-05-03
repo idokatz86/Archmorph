@@ -46,6 +46,31 @@ const DELIVERABLE_TABS = [
   { id: 'deploy', label: 'Deploy', icon: Rocket, feature: 'deployEngine' },
 ].filter(tab => !tab.feature || isFeatureEnabled(tab.feature));
 
+function buildQuestionState(qData = {}) {
+  const questions = qData.questions || [];
+  const allQuestions = qData.all_questions || questions;
+  const assumptions = qData.assumptions || [];
+  const answers = {};
+
+  allQuestions.forEach(q => {
+    if (q.assumed_answer !== undefined) answers[q.id] = q.assumed_answer;
+    else if (q.default !== undefined) answers[q.id] = q.default;
+  });
+  assumptions.forEach(a => {
+    if (a.assumed_answer !== undefined) answers[a.id] = a.assumed_answer;
+  });
+  Object.assign(answers, qData.inferred_answers || {});
+
+  return {
+    questions,
+    allQuestions,
+    questionAssumptions: assumptions,
+    answers,
+    questionConstraints: qData.constraints || [],
+    regionGroups: qData.region_groups || {},
+  };
+}
+
 export default function DiagramTranslator() {
   const {
     state, set, addProgress, addChatMessage,
@@ -116,6 +141,8 @@ export default function DiagramTranslator() {
         diagramId: cached.diagramId,
         analysis: cached.analysis,
         questions: cached.questions || [],
+        allQuestions: cached.allQuestions || cached.questions || [],
+        questionAssumptions: cached.questionAssumptions || [],
         answers: cached.answers || {},
         iacCode: cached.iacCode || null,
         iacFormat: cached.iacFormat || 'terraform',
@@ -142,6 +169,8 @@ export default function DiagramTranslator() {
             diagramId: data.diagram_id,
             analysis: data.analysis || null,
             questions: data.questions || [],
+            allQuestions: data.all_questions || data.questions || [],
+            questionAssumptions: data.question_assumptions || [],
             answers: data.answers || {},
             iacCode: data.iac_code || null,
             iacFormat: data.iac_format || 'terraform',
@@ -387,11 +416,13 @@ export default function DiagramTranslator() {
 
         set({ analysis: result, exportCapability: result.export_capability || state.exportCapability || null });
         const qData = await api.post(`/diagrams/${diagram_id}/questions`, undefined, signal);
-        const questions = qData.questions || [];
-        const defaults = {};
-        questions.forEach(q => { defaults[q.id] = q.default; });
-        saveSession(diagram_id, result, questions, defaults, { exportCapability: result.export_capability || uploadData.export_capability || null });
-        set({ questions, answers: defaults, step: 'questions', questionConstraints: qData.constraints || [], regionGroups: qData.region_groups || {} });
+        const questionState = buildQuestionState(qData);
+        saveSession(diagram_id, result, questionState.questions, questionState.answers, {
+          exportCapability: result.export_capability || uploadData.export_capability || null,
+          allQuestions: questionState.allQuestions,
+          questionAssumptions: questionState.questionAssumptions,
+        });
+        set({ ...questionState, step: 'results' });
       } else {
         // ── Fallback: sync endpoint with simulated progress ──
         addProgress('Analyzing architecture with GPT-4o Vision...');
@@ -442,11 +473,13 @@ export default function DiagramTranslator() {
 
         set({ analysis: result, exportCapability: result.export_capability || uploadData.export_capability || null });
         const qData = await api.post(`/diagrams/${diagram_id}/questions`, undefined, signal);
-        const questions = qData.questions || [];
-        const defaults = {};
-        questions.forEach(q => { defaults[q.id] = q.default; });
-        saveSession(diagram_id, result, questions, defaults, { exportCapability: result.export_capability || uploadData.export_capability || null });
-        set({ questions, answers: defaults, step: 'questions', questionConstraints: qData.constraints || [], regionGroups: qData.region_groups || {} });
+        const questionState = buildQuestionState(qData);
+        saveSession(diagram_id, result, questionState.questions, questionState.answers, {
+          exportCapability: result.export_capability || uploadData.export_capability || null,
+          allQuestions: questionState.allQuestions,
+          questionAssumptions: questionState.questionAssumptions,
+        });
+        set({ ...questionState, step: 'results' });
       }
     } catch (err) {
       // Handle not_architecture_diagram errors from apiClient
@@ -479,11 +512,13 @@ export default function DiagramTranslator() {
       addProgress('Sample loaded successfully \u2713');
       await new Promise(r => setTimeout(r, 600));
       const qData = await api.post(`/diagrams/${result.diagram_id}/questions`);
-      const questions = qData.questions || [];
-      const defaults = {};
-      questions.forEach(q => { defaults[q.id] = q.default; });
-      saveSession(result.diagram_id, result, questions, defaults, { exportCapability: result.export_capability || null });
-      set({ questions, answers: defaults, step: 'questions', questionConstraints: qData.constraints || [], regionGroups: qData.region_groups || {} });
+      const questionState = buildQuestionState(qData);
+      saveSession(result.diagram_id, result, questionState.questions, questionState.answers, {
+        exportCapability: result.export_capability || null,
+        allQuestions: questionState.allQuestions,
+        questionAssumptions: questionState.questionAssumptions,
+      });
+      set({ ...questionState, step: 'results' });
     } catch (err) {
       set({ error: 'Failed to load sample: ' + err.message, step: 'upload' });
     }
@@ -931,6 +966,8 @@ export default function DiagramTranslator() {
         <GuidedQuestions
           analysis={state.analysis}
           questions={state.questions}
+          allQuestions={state.allQuestions}
+          assumptions={state.questionAssumptions}
           answers={state.answers}
           loading={state.loading}
           onUpdateAnswer={updateAnswer}
@@ -953,6 +990,7 @@ export default function DiagramTranslator() {
           exportLoading={state.exportLoading}
           copyFeedback={state.copyFeedback}
           onSetStep={(step) => set({ step })}
+          onReviewAssumptions={() => set({ step: 'questions' })}
           onGenerateIac={handleGenerateAll}
           genProgress={state.genProgress}
           notifyEmail={state.notifyEmail}
@@ -961,6 +999,8 @@ export default function DiagramTranslator() {
           onCopyWithFeedback={copyWithFeedback}
           diagramId={state.diagramId}
           exportCapability={state.exportCapability}
+          assumptions={state.questionAssumptions}
+          questionsCount={(state.questions || []).length}
           onExportCapability={(token) => {
             set({ exportCapability: token });
             updateSessionCache({ exportCapability: token });

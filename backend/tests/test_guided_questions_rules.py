@@ -24,6 +24,7 @@ from guided_questions import (
     _apply_encryption,
     _apply_monitoring,
     generate_questions,
+    build_adaptive_question_set,
     apply_answers,
     QUESTION_BANK,
 )
@@ -311,6 +312,49 @@ class TestGenerateQuestions:
             assert "question" in q
             assert "options" in q
             assert "default" in q
+
+
+# ====================================================================
+# build_adaptive_question_set()
+# ====================================================================
+
+class TestAdaptiveQuestionSet:
+    def test_broad_defaults_become_visible_assumptions(self, sample_analysis):
+        questions = generate_questions(["EC2", "S3"])
+        focused, assumptions = build_adaptive_question_set(questions, sample_analysis, {})
+
+        focused_ids = {q["id"] for q in focused}
+        assumption_ids = {a["id"] for a in assumptions}
+
+        assert "env_target" not in focused_ids
+        assert "env_target" in assumption_ids
+        assert any(a["assumed_answer"] == "Production" for a in assumptions if a["id"] == "env_target")
+
+    def test_low_confidence_service_question_stays_focused(self):
+        analysis = {
+            "mappings": [
+                {"source_service": "Amazon Kinesis", "azure_service": "Event Hubs", "confidence": 0.72},
+            ],
+        }
+        questions = generate_questions(["Kinesis"])
+        focused, assumptions = build_adaptive_question_set(questions, analysis, {})
+
+        assert any(q["id"] == "data_streaming_engine" for q in focused)
+        assert not any(a["id"] == "data_streaming_engine" for a in assumptions)
+
+    def test_inferred_answer_is_not_reasked(self, sample_analysis):
+        questions = generate_questions(["EC2"])
+        focused, assumptions = build_adaptive_question_set(
+            questions,
+            sample_analysis,
+            {"arch_deploy_region": "East US"},
+        )
+
+        assert not any(q["id"] == "arch_deploy_region" for q in focused)
+        assert any(
+            a["id"] == "arch_deploy_region" and a["assumed_answer"] == "East US" and a["source"] == "inferred"
+            for a in assumptions
+        )
 
 
 # ====================================================================
