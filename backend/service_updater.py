@@ -28,9 +28,10 @@ import json
 import logging
 import os
 import re
+import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import httpx
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -113,6 +114,75 @@ _GCP_NON_INFRA_PREFIXES = (
 # ---------------------------------------------------------------------------
 _HTTP_TIMEOUT = httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0)
 _MAX_AZURE_PAGES = 20  # safety cap for Azure pagination
+
+
+def _provider_fetch_attempts() -> int:
+    raw = os.getenv("SERVICE_REFRESH_PROVIDER_ATTEMPTS", "3")
+    try:
+        attempts = int(raw)
+    except ValueError:
+        attempts = 3
+    return max(1, min(attempts, 5))
+
+
+def _provider_retry_delay_seconds() -> float:
+    raw = os.getenv("SERVICE_REFRESH_PROVIDER_RETRY_DELAY_SECONDS", "2")
+    try:
+        delay = float(raw)
+    except ValueError:
+        delay = 2.0
+    return max(0.0, min(delay, 30.0))
+
+
+def _is_retryable_http_status(status_code: int) -> bool:
+    return status_code in {408, 409, 425, 429} or status_code >= 500
+
+
+def _fetch_provider_services_with_retries(
+    provider: str,
+    fetch_fn: Callable[[httpx.Client], set[str]],
+    client: httpx.Client,
+) -> tuple[set[str], int]:
+    attempts = _provider_fetch_attempts()
+    delay = _provider_retry_delay_seconds()
+
+    for attempt in range(1, attempts + 1):
+        try:
+            services = fetch_fn(client)
+            retries_used = attempt - 1
+            if retries_used:
+                logger.info(
+                    "%s fetch recovered after %d retry attempt(s)",
+                    provider.upper(),
+                    retries_used,
+                )
+            return services, retries_used
+        except httpx.HTTPStatusError as exc:
+            retryable = _is_retryable_http_status(exc.response.status_code)
+            if not retryable or attempt == attempts:
+                raise
+            logger.warning(
+                "%s fetch returned retryable HTTP %d on attempt %d/%d",
+                provider.upper(),
+                exc.response.status_code,
+                attempt,
+                attempts,
+            )
+        except httpx.RequestError as exc:
+            if attempt == attempts:
+                raise
+            logger.warning(
+                "%s fetch request error on attempt %d/%d: %s",
+                provider.upper(),
+                attempt,
+                attempts,
+                exc,
+            )
+
+        if delay > 0:
+            time.sleep(delay * attempt)
+
+    raise RuntimeError(f"{provider.upper()} fetch retry loop exhausted")
 
 # ---------------------------------------------------------------------------
 # Provider -> catalog module config
@@ -737,6 +807,7 @@ def run_update_now(*, auto_add: bool = True) -> dict[str, Any]:
     provider_results: dict[str, list[str]] = {"aws": [], "azure": [], "gcp": []}
     auto_added: dict[str, list[str]] = {"aws": [], "azure": [], "gcp": []}
     errors: dict[str, str] = {}
+    retry_attempts: dict[str, int] = {}
 
     fetchers = {
         "aws": _fetch_aws_services,
@@ -747,7 +818,13 @@ def run_update_now(*, auto_add: bool = True) -> dict[str, Any]:
     with httpx.Client(timeout=_HTTP_TIMEOUT, follow_redirects=True) as client:
         for provider, fetch_fn in fetchers.items():
             try:
-                remote_services = fetch_fn(client)
+                remote_services, retries_used = _fetch_provider_services_with_retries(
+                    provider,
+                    fetch_fn,
+                    client,
+                )
+                if retries_used:
+                    retry_attempts[provider] = retries_used
                 _, local_names = _load_local_catalog(provider)
 
                 # Find genuinely new services by normalised comparison
@@ -810,6 +887,7 @@ def run_update_now(*, auto_add: bool = True) -> dict[str, Any]:
         "new_services": provider_results,
         "auto_added": auto_added,
         "errors": errors if errors else None,
+        "retry_attempts": retry_attempts if retry_attempts else None,
     }
 
     # Persist
