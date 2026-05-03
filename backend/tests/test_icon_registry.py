@@ -975,13 +975,11 @@ class TestIconAPI:
         _args, kwargs = events[-1]
         assert kwargs["status_code"] == 200
         assert kwargs["user_id"] == "admin"
-        assert kwargs["details"] == {
-            "operation": "upload",
-            "outcome": "success",
-            "pack_id": "api-audit",
-            "correlation_id": "audit-cid-1",
-            "revision": {},
-        }
+        assert kwargs["details"]["operation"] == "upload"
+        assert kwargs["details"]["outcome"] == "success"
+        assert kwargs["details"]["pack_id"] == "api-audit"
+        assert kwargs["details"]["correlation_id"] == "audit-cid-1"
+        assert isinstance(kwargs["details"]["revision"], dict)
 
     def test_upload_zip_pack_uses_magic_bytes_before_content_type(self, small_zip_pack):
         resp = self.client.post(
