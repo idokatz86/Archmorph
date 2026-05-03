@@ -363,7 +363,9 @@ class TestProductionReadyGuardrails:
         assert len(flow_paths) >= expected
         assert "traffic" in texts
         assert "database" in texts
-        assert all(path.get("marker-end") == "url(#aflow)" for path in flow_paths)
+        marker_ids = {path.get("marker-end") for path in flow_paths}
+        assert "url(#aflow-default)" in marker_ids
+        assert "url(#aflow-db)" in marker_ids
 
     def test_landing_zone_svg_does_not_truncate_service_connections_above_40(self):
         analysis = {

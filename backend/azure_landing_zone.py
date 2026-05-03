@@ -451,8 +451,23 @@ text {{ font-family: {FONT_STACK}; }}
 <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
   <path d="M 0 0 L 10 5 L 0 10 z" fill="{COLOR_RED}"/>
 </marker>
-<marker id="aflow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
-    <path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke"/>
+<marker id="aflow-default" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+    <path d="M 0 0 L 10 5 L 0 10 z" fill="{COLOR_INK_2}"/>
+</marker>
+<marker id="aflow-db" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+    <path d="M 0 0 L 10 5 L 0 10 z" fill="{COLOR_DB}"/>
+</marker>
+<marker id="aflow-purple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+    <path d="M 0 0 L 10 5 L 0 10 z" fill="{COLOR_PURPLE}"/>
+</marker>
+<marker id="aflow-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+    <path d="M 0 0 L 10 5 L 0 10 z" fill="{COLOR_RED}"/>
+</marker>
+<marker id="aflow-primary" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+    <path d="M 0 0 L 10 5 L 0 10 z" fill="{COLOR_PRIMARY}"/>
+</marker>
+<marker id="aflow-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+    <path d="M 0 0 L 10 5 L 0 10 z" fill="{COLOR_GREEN}"/>
 </marker>
 </defs>"""
 
@@ -1047,23 +1062,27 @@ def _service_connection_flow(analysis: dict[str, Any]) -> str:
         ex, ey = end[0], end[1] + offset
         mid_x = (sx + ex) / 2
         control_y = min(sy, ey) - 44 if abs(sy - ey) < 140 else (sy + ey) / 2
-        color = {
-            "database": COLOR_DB,
-            "auth": COLOR_PURPLE,
-            "security": COLOR_RED,
-            "inspection": COLOR_RED,
-            "storage": COLOR_PRIMARY,
-            "metrics": COLOR_GREEN,
-        }.get(str(conn.get("type") or "traffic").lower(), COLOR_INK_2)
+        color, marker_id = _flow_color_and_marker(str(conn.get("type") or "traffic").lower())
         out.append(
             f'<path class="service-flow-edge" d="M {sx:.1f} {sy:.1f} Q {mid_x:.1f} {control_y:.1f} {ex:.1f} {ey:.1f}" '
-            f'stroke="{color}" stroke-width="2.2" fill="none" stroke-opacity="0.82" marker-end="url(#aflow)"/>'
+            f'stroke="{color}" stroke-width="2.2" fill="none" stroke-opacity="0.82" marker-end="url(#{marker_id})"/>'
         )
         out.append(_tx(mid_x, control_y - 6, _truncate(label, 26), "t-flow", anchor="middle"))
         rendered += 1
 
     out.append('</g>')
     return "\n".join(out) if rendered else ""
+
+
+def _flow_color_and_marker(conn_type: str) -> tuple[str, str]:
+    return {
+        "database": (COLOR_DB, "aflow-db"),
+        "auth": (COLOR_PURPLE, "aflow-purple"),
+        "security": (COLOR_RED, "aflow-red"),
+        "inspection": (COLOR_RED, "aflow-red"),
+        "storage": (COLOR_PRIMARY, "aflow-primary"),
+        "metrics": (COLOR_GREEN, "aflow-green"),
+    }.get(conn_type, (COLOR_INK_2, "aflow-default"))
 
 
 # ---------------------------------------------------------------------------
