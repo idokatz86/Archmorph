@@ -1,0 +1,59 @@
+domains:
+  financial_crime:
+    frameworks:
+      - BSA/AML
+      - SOX 404
+      - NYDFS-500 §500.06
+      - GDPR Art. 30
+    audit_controls:
+      - framework: BSA/AML
+        control: Suspicious activity and transaction-monitoring audit retention
+        retention_years: 7
+      - framework: SOX 404
+        control: Internal-control evidence integrity
+        retention_years: 7
+      - framework: NYDFS-500
+        control: §500.06 audit trail
+        retention_years: 7
+  pci:
+    frameworks:
+      - PCI-DSS 10
+    audit_controls:
+      - framework: PCI-DSS
+        control: Audit logs for cardholder data access and security events
+        retention_years: 1
+  hipaa:
+    frameworks:
+      - HIPAA §164.312(b)
+      - HIPAA §164.316(b)(2)(i)
+    audit_controls:
+      - framework: HIPAA
+        control: PHI audit controls and documentation retention
+        retention_years: 10
+  gdpr:
+    frameworks:
+      - GDPR Art. 30
+      - GDPR Art. 32
+      - GDPR Art. 33
+    audit_controls:
+      - framework: GDPR
+        control: Records of processing and breach-investigation evidence
+        retention_years: 7
+  fedramp:
+    frameworks:
+      - FedRAMP AU-2
+      - FedRAMP AU-9
+      - FedRAMP AU-11
+      - FedRAMP SC-13
+    audit_controls:
+      - framework: FedRAMP
+        control: Protected audit records and retention
+        retention_years: 7
+  banking_model_risk:
+    frameworks:
+      - SR-11-7
+      - SOX 404
+    audit_controls:
+      - framework: SR-11-7
+        control: Model validation, approval, and monitoring evidence
+        retention_years: 7
