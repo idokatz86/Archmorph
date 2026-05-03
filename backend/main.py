@@ -210,7 +210,8 @@ app.add_middleware(
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
-    allow_headers=["Content-Type", "Authorization", "X-API-Key"],
+    allow_headers=["Content-Type", "Authorization", "X-API-Key", "X-Export-Capability"],
+    expose_headers=["X-Export-Capability-Next"],
     max_age=3600,  # Cache preflight for 1 hour
 )
 

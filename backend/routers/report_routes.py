@@ -1,4 +1,3 @@
-from error_envelope import ArchmorphException
 """
 Analysis Report Export routes (Issue #236).
 
@@ -11,10 +10,12 @@ import logging
 from fastapi import APIRouter, Request, Depends
 from fastapi.responses import StreamingResponse
 
+from error_envelope import ArchmorphException
 from routers.shared import limiter, verify_api_key
 from routers.samples import get_or_recreate_session
 from report_generator import generate_analysis_report_pdf
 from usage_metrics import record_event
+from export_capabilities import issue_export_capability, verify_export_capability
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,7 @@ async def download_analysis_report(
     request: Request,
     diagram_id: str,
     _auth=Depends(verify_api_key),
+    _capability=Depends(verify_export_capability),
 ):
     """Download a full analysis report as PDF.
 
@@ -56,5 +58,6 @@ async def download_analysis_report(
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
             "Content-Length": str(len(pdf_bytes)),
+            "X-Export-Capability-Next": issue_export_capability(diagram_id),
         },
     )

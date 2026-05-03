@@ -1,4 +1,3 @@
-from error_envelope import ArchmorphException
 """
 Core diagram routes — upload, analyze, session restore, async analysis.
 
@@ -17,7 +16,7 @@ from pydantic import BaseModel
 from typing import Dict, Any, Optional
 import asyncio
 import base64
-import uuid
+import secrets
 import logging
 
 from routers.shared import (
@@ -26,11 +25,13 @@ from routers.shared import (
 )
 from job_queue import job_manager
 from usage_metrics import record_event, record_funnel_step
+from export_capabilities import attach_export_capability
 from image_classifier import classify_image
 from vision_analyzer import analyze_image
 from hld_generator import generate_hld, generate_hld_markdown  # noqa: F401 — re-exported for test monkeypatching
 from auth import get_user_from_request_headers
 from analysis_history import maybe_save_from_session
+from error_envelope import ArchmorphException
 from sku_translator import get_sku_translator
 from confidence_provenance import build_provenance
 from architecture_rules import evaluate as evaluate_architecture_rules
@@ -176,7 +177,7 @@ async def upload_diagram(request: Request, project_id: str, file: UploadFile = F
     if file.content_type not in allowed_types and not is_visio and not is_drawio:
         raise ArchmorphException(400, f"File type {file.content_type} not supported. Accepted: PNG, JPG, JPEG, SVG, PDF, Draw.io, Visio.")
 
-    diagram_id = f"diag-{uuid.uuid4().hex[:8]}"
+    diagram_id = f"diag-{secrets.token_urlsafe(16)}"
     # Read file in chunks with early size limit enforcement
     chunks = []
     total_size = 0
@@ -207,12 +208,12 @@ async def upload_diagram(request: Request, project_id: str, file: UploadFile = F
 
     record_event("diagrams_uploaded", {"filename": file.filename})
     record_funnel_step(diagram_id, "upload")
-    return {
+    return attach_export_capability({
         "diagram_id": diagram_id,
         "filename": file.filename,
         "size": len(image_bytes),
         "status": "uploaded"
-    }
+    }, diagram_id)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -253,7 +254,10 @@ async def restore_session(request: Request, diagram_id: str, body: RestoreSessio
         restored_parts.append("image")
     logger.info("Session restored for %s via client cache (%s)", str(diagram_id).replace('\n', '').replace('\r', ''), str(", ".join(restored_parts)).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
     record_event("sessions_restored", {"diagram_id": diagram_id, "parts": restored_parts})
-    return {"status": "restored", "diagram_id": diagram_id, "restored": restored_parts}
+    return attach_export_capability(
+        {"status": "restored", "diagram_id": diagram_id, "restored": restored_parts},
+        diagram_id,
+    )
 
 
 # ─────────────────────────────────────────────────────────────
@@ -328,7 +332,7 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
     if user:
         maybe_save_from_session(user.id, result, diagram_id)
 
-    return result
+    return attach_export_capability(result, diagram_id)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -427,7 +431,7 @@ async def _run_analysis_job(job_id: str, diagram_id: str) -> None:
             maybe_save_from_session(job_user_id, result, diagram_id)
 
         job_manager.update_progress(job_id, 95, "Finalizing...")
-        job_manager.complete(job_id, result=result)
+        job_manager.complete(job_id, result=attach_export_capability(result, diagram_id))
 
     except Exception as exc:
         logger.error("Async analysis failed for %s: %s", str(diagram_id).replace('\n', '').replace('\r', ''), str(exc).replace('\n', '').replace('\r', ''), exc_info=True)  # codeql[py/log-injection] Handled by custom

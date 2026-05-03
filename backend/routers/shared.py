@@ -1,4 +1,3 @@
-from error_envelope import ArchmorphException
 """
 Shared state, dependencies, and models used across Archmorph API routers.
 """
@@ -21,6 +20,7 @@ from admin_auth import (
     validate_session_token,
     is_configured as admin_is_configured,
 )
+from error_envelope import ArchmorphException
 from session_store import get_store
 
 # ─────────────────────────────────────────────────────────────
@@ -94,6 +94,10 @@ IMAGE_STORE = get_store("images", maxsize=int(os.getenv("IMAGE_STORE_MAXSIZE", "
 
 # Share links store (TTL: 24 hours, max 100)
 SHARE_STORE = get_store("shares", maxsize=100, ttl=86400)
+
+# One-time generated-artifact export capabilities (TTL configured in
+# export_capabilities.py; store TTL matches session lifetime as an upper bound).
+EXPORT_CAPABILITY_STORE = get_store("export_capabilities", maxsize=2000, ttl=7200)
 
 # Production guard: warn if in-memory stores are used in production (#494)
 _env = os.getenv("ENVIRONMENT", "development").lower()

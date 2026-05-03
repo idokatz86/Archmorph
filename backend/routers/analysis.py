@@ -1,4 +1,3 @@
-from error_envelope import ArchmorphException
 """
 Analysis routes — guided questions, apply answers, add services, export diagram.
 
@@ -18,6 +17,8 @@ from guided_questions import generate_questions, apply_answers, get_question_con
 from mcp_diagram_generator import mcp_client
 from service_builder import deduplicate_questions, get_smart_defaults_from_analysis, add_services_from_text
 from architecture_package import generate_architecture_package
+from error_envelope import ArchmorphException
+from export_capabilities import attach_export_capability, verify_export_capability
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +156,7 @@ async def export_architecture_diagram(
     format: str = "excalidraw",
     multi_page: bool = False,
     dr_variant: str = "primary",
+    _capability=Depends(verify_export_capability),
 ):
     """Generate an architecture diagram in Excalidraw, Draw.io, Visio, or
     Landing-Zone-SVG format.
@@ -207,7 +209,7 @@ async def export_architecture_diagram(
             "dr_variant": dr_variant,
         })
         record_funnel_step(diagram_id, "export")
-        return result
+        return attach_export_capability(result, diagram_id)
 
     try:
         content = await mcp_client.generate_diagram(format, analysis)
@@ -233,7 +235,7 @@ async def export_architecture_diagram(
 
     record_event(f"exports_{format}", {"diagram_id": diagram_id})
     record_funnel_step(diagram_id, "export")
-    return result
+    return attach_export_capability(result, diagram_id)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -246,6 +248,7 @@ async def export_architecture_package(
     diagram_id: str,
     format: str = "html",
     diagram: str = "primary",
+    _capability=Depends(verify_export_capability),
 ):
     """Generate the customer-facing Architecture Package.
 
@@ -276,4 +279,4 @@ async def export_architecture_package(
         "diagram": diagram,
     })
     record_funnel_step(diagram_id, "export")
-    return result
+    return attach_export_capability(result, diagram_id)

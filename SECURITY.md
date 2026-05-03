@@ -76,6 +76,7 @@ The landing-zone-svg pipeline (issue #571 → #586) ingests untrusted PDFs / ima
 
 Headline controls in place:
 
+- **Export/download capability boundary**: generated artifact routes (`export-diagram`, `export-architecture-package`, `export-hld`, and report download) require a one-time `X-Export-Capability` token scoped to the specific `diagram_id`. Tokens are opaque, stored only as SHA-256 digests, expire after 15 minutes by default, are consumed on use to block replay, and rotate after each successful export. Local development may explicitly opt out with `ARCHMORPH_EXPORT_CAPABILITY_REQUIRED=false`; production and staging fail closed.
 - **XML output is escape-on-render**: every text run goes through `_xml_escape()` which strips invalid XML chars and escapes the 5 XML entities ([backend/azure_landing_zone.py](backend/azure_landing_zone.py)).
 - **Icons are embedded as `data:image/svg+xml;base64` data URIs only** — there is no path to inject `javascript:` or external `http(s):` URIs into a rendered `<image href="…"/>`. Icon bytes come from the server-controlled icon registry.
 - **PII boundary**: the retention pipeline (#580) and LZ render path do not import each other; verified via grep in CI.
@@ -83,10 +84,9 @@ Headline controls in place:
 
 Open follow-ups (filed as separate issues, see threat-model §5):
 
-- **F-1 (P1)** — Diagram capability-URLs must be ≥ 122 bits of entropy. The current `uuid.uuid4().hex[:8]` 32-bit truncation is insufficient.
 - **F-3 (P1)** — `POST /api/icon-packs` must require `Depends(verify_api_key)`; uploaded SVGs must be sanitised through `bleach`/`defusedxml` before they reach the registry.
 
-These two are GA-blocking. P2 findings (webhook SSRF private-IP gap, unbounded analysis size, Pydantic `extra="forbid"`) are tracked but do not block GA.
+F-3 remains GA-blocking. P2 findings (webhook SSRF private-IP gap, unbounded analysis size, Pydantic `extra="forbid"`) are tracked but do not block GA.
 
 ## Security Best Practices for Contributors
 
@@ -97,6 +97,7 @@ These two are GA-blocking. P2 findings (webhook SSRF private-IP gap, unbounded a
 5. **Keep dependencies updated**: Monitor Dependabot PRs
 6. **Follow principle of least privilege**: Minimal permissions for all operations
 7. **Capability URLs** must be at least 122 bits of entropy (`secrets.token_urlsafe(16)` or full UUIDv4 — never truncated)
+8. **Artifact export endpoints** must validate `X-Export-Capability`, scope it to the requested `diagram_id`, consume it on use, issue a fresh token on success, and audit denial reasons without logging raw token values.
 
 ## Acknowledgments
 
