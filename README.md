@@ -35,7 +35,7 @@ The post-merge CTO end-to-end review of `landing-zone-svg` (May 1, 2026) flagged
 
 | Track | Issues | Goal |
 |-------|--------|------|
-| **T2→T3 fidelity** (technical debt) | [#587](https://github.com/idokatz86/Archmorph/issues/587)–[#594](https://github.com/idokatz86/Archmorph/issues/594) | Fix icon registry (D1), tier mis-bucketing (D2), data-driven templates (D3), `service_connections` wiring (D4), mappings staleness, test guardrails, golden-file regression, CI freshness lint |
+| **T2→T3 fidelity** (technical debt) | [#587](https://github.com/idokatz86/Archmorph/issues/587)–[#594](https://github.com/idokatz86/Archmorph/issues/594) | Icon registry/security hardening (D1) completed; remaining work covers tier mis-bucketing (D2), data-driven templates (D3), `service_connections` wiring (D4), mappings staleness, test guardrails, golden-file regression, CI freshness lint |
 | **Observability + perf** | [#595](https://github.com/idokatz86/Archmorph/issues/595), [#597](https://github.com/idokatz86/Archmorph/issues/597) | OTel spans + metrics + alerts; SLO p95 < 1.5 s primary / < 3 s DR; Locust soak 100 RPS × 5 min |
 | **Security + a11y + API** | [#596](https://github.com/idokatz86/Archmorph/issues/596), [#598](https://github.com/idokatz86/Archmorph/issues/598), [#599](https://github.com/idokatz86/Archmorph/issues/599) | OWASP API Top 10 pass, WCAG 2.1 AA + screen-reader semantics, locked OpenAPI 3.1 contract + 90-day deprecation policy |
 | **Frontend exposure** | [#601](https://github.com/idokatz86/Archmorph/issues/601) (closes [#575](https://github.com/idokatz86/Archmorph/issues/575)) | ExportHub option + `LandingZoneViewer` with DR toggle, pan/zoom, deep-link state |
@@ -67,7 +67,7 @@ The post-merge CTO end-to-end review of `landing-zone-svg` (May 1, 2026) flagged
 - **Migration Timeline Generator** — 7-phase migration plan with dependency ordering (topological sort), parallel workstreams, export as JSON/Markdown/CSV
 - **Self-updating service catalog** — daily auto-discovery and auto-integration of new cloud services with fuzzy matching and category classification
 - **AI cross-cloud mapping suggestions** — GPT-powered mapping with few-shot learning, auto-approve at 0.9 confidence, admin review queue
-- **Icon Registry** — 405 normalized cloud service icons with Draw.io, Excalidraw, and Visio library builders
+- **Icon Registry** — 405 normalized cloud service icons with Draw.io, Excalidraw, and Visio library builders; custom pack upload/delete is API-key gated, SVG-sanitized, generation-aware, and bounded without evicting built-in provider icons
 - **AI-powered HLD generation** — 13-section High-Level Design documents with WAF assessment
 - **HLD document export** — download HLD as Word (.docx), PDF, or PowerPoint (.pptx) with branded formatting
 - **Full analysis PDF report** — 6-section branded report (cover, summary, mappings, costs, risks, IaC appendix)
@@ -570,8 +570,8 @@ Dynamic pricing powered by the [Azure Retail Prices API](https://prices.azure.co
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/icon-packs` | POST | Upload ZIP/JSON icon pack |
-| `/api/icon-packs/{pack_id}` | DELETE | Remove icon pack and its icons |
+| `/api/icon-packs` | POST | Upload ZIP/JSON icon pack (requires `X-API-Key`) |
+| `/api/icon-packs/{pack_id}` | DELETE | Remove icon pack and its icons (requires `X-API-Key`) |
 | `/api/icons` | GET | Search icons (provider, query, category) |
 | `/api/icons/packs` | GET | List registered icon packs |
 | `/api/icons/metrics` | GET | Icon registry observability counters |
@@ -923,6 +923,7 @@ See [docs/DEPLOYMENT_COSTS.md](docs/DEPLOYMENT_COSTS.md) for full breakdown.
 - **Transport:** HTTPS-only with TLS 1.2+ for all Azure resources
 - **Headers:** Security headers middleware (X-Content-Type-Options, X-Frame-Options, CSP, HSTS, Permissions-Policy)
 - **SVG sanitization:** DefusedXML-based sanitizer strips scripts and event handlers
+- **Icon-pack write boundary:** Custom icon-pack upload/delete requires `X-API-Key`; production and staging fail closed when `ARCHMORPH_API_KEY` is missing, uploaded SVGs are sanitized, reserved built-in pack IDs are blocked, and custom icon capacity cannot evict built-in catalogs
 - **IaC security scanning:** Generated Terraform/Bicep scanned for misconfigurations
 - **Rate limiting:** SlowAPI rate limits on public endpoints
 - **Secrets management:** All credentials via environment variables or GitHub Secrets; no secrets in code or git history
