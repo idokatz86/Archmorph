@@ -8,10 +8,9 @@ Split from diagrams.py for maintainability (#284).
 from fastapi import APIRouter, Request, Depends
 from pydantic import BaseModel, Field
 import asyncio
-import uuid
 import logging
 
-from routers.shared import SESSION_STORE, limiter, verify_api_key
+from routers.shared import SESSION_STORE, limiter, verify_api_key, generate_session_id
 from usage_metrics import record_event, record_funnel_step
 from infra_import import parse_infrastructure, detect_format, InfraFormat
 
@@ -48,7 +47,7 @@ async def import_infrastructure(request: Request, body: InfraImportRequest, _aut
         except ValueError:
             raise ArchmorphException(400, f"Unsupported format: {body.format}")
 
-    diagram_id = f"import-{uuid.uuid4().hex[:8]}"
+    diagram_id = generate_session_id("import")
 
     try:
         analysis = await asyncio.to_thread(
