@@ -508,7 +508,8 @@ class TestFreshness:
             "auto_added": {"aws": [], "azure": [], "gcp": []},
         }
         mock_blob = MagicMock()
-        mock_blob.download_blob.return_value.readall.return_value = _json.dumps(blob_state).encode("utf-8")
+        blob_payload = _json.dumps(blob_state).encode("utf-8")
+        mock_blob.download_blob.return_value.readall.return_value = blob_payload
 
         with patch("service_updater._get_state_blob_client", return_value=mock_blob), \
              patch("service_updater._UPDATES_FILE", tmp_path / "missing.json"), \
