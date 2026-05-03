@@ -6,12 +6,13 @@ previous coverage only checked that the result dict contained ``content`` or
 valid — masking the broken Visio output (#569).
 """
 import json
+import math
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
 from diagram_export import generate_diagram, get_azure_stencil_id
-from service_connection_utils import service_key
+from service_connection_utils import connection_label, service_key
 
 
 SAMPLE_ANALYSIS = {
@@ -118,6 +119,9 @@ class TestServiceConnectionUtils:
     def test_service_key_normalizes_mixed_provider_labels(self):
         assert service_key("[GCP] Pub/Sub → Azure Event Hubs") == "pubsubeventhubs"
 
+    def test_connection_label_defaults_to_traffic(self):
+        assert connection_label({}) == "traffic"
+
 
 class TestGenerateDiagram:
     def test_excalidraw_produces_valid_json_with_elements(self):
@@ -147,7 +151,7 @@ class TestGenerateDiagram:
         root = ET.fromstring(result["content"])
         edges = [cell for cell in root.findall(".//mxCell") if cell.get("edge") == "1"]
 
-        expected = int(len(analysis["service_connections"]) * 0.8)
+        expected = math.ceil(len(analysis["service_connections"]) * 0.8)
         assert len(edges) >= expected
         assert all((edge.get("value") or "") != "data flow" for edge in edges)
 
@@ -265,7 +269,7 @@ class TestGenerateDiagram:
             for text in shape.findall(f"{ns}Text")
         ]
 
-        expected = int(len(analysis["service_connections"]) * 0.8)
+        expected = math.ceil(len(analysis["service_connections"]) * 0.8)
         assert len(connectors) >= expected
         assert "database" in connector_texts
         assert "auth" in connector_texts

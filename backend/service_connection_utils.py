@@ -47,7 +47,7 @@ def connection_label(conn: dict[str, Any]) -> str:
     protocol = str(conn.get("protocol") or "").strip()
     conn_type = str(conn.get("type") or "").strip()
     bits = [bit for bit in (protocol, conn_type) if bit]
-    return " · ".join(bits)
+    return " · ".join(bits) or "traffic"
 
 
 def mapping_aliases(mappings: list[dict[str, Any]]) -> dict[str, str]:

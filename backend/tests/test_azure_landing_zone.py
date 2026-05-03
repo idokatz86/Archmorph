@@ -7,6 +7,7 @@ goes through the real XML parser, not substring/key existence checks.
 from __future__ import annotations
 
 import json
+import math
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -359,7 +360,7 @@ class TestProductionReadyGuardrails:
         ]
         texts = [text.text or "" for text in root.iter(f"{SVG_NS}text")]
 
-        expected = int(len(canonical_aws_estate["service_connections"]) * 0.8)
+        expected = math.ceil(len(canonical_aws_estate["service_connections"]) * 0.8)
         assert len(flow_paths) >= expected
         assert "traffic" in texts
         assert "database" in texts
