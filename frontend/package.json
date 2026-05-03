@@ -13,7 +13,10 @@
     "lint:fix": "eslint . --ext js,jsx --fix",
     "format": "prettier --write \"src/**/*.{js,jsx,css,md}\"",
     "generate:api-types": "openapi-typescript ../backend/openapi.json -o src/generated/api-types.d.ts",
-    "generate:api-schema": "cd ../backend && python3 export_openapi.py > openapi.json && cd ../frontend && npm run generate:api-types"
+    "generate:api-paths": "node scripts/generate-api-paths.mjs ../backend/openapi.json src/generated/api-paths.js",
+    "generate:api-artifacts": "npm run generate:api-types && npm run generate:api-paths",
+    "generate:api-schema": "cd ../backend && python3 export_openapi.py > openapi.json && cd ../frontend && npm run generate:api-artifacts",
+    "check:api-drift": "npm run generate:api-artifacts && git diff --exit-code -- src/generated/api-types.d.ts src/generated/api-paths.js"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.2.4",

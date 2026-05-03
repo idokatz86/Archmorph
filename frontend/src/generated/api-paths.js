@@ -1,109 +1,424 @@
 /**
- * API route constants and type-safe path helpers.
- * 
- * Generated from OpenAPI schema — do not edit manually.
- * Run: npm run generate:api-schema
- * 
- * @module generated/api-paths
+ * API route templates generated from the backend OpenAPI schema.
+ * Do not edit manually. Run: npm run generate:api-schema
  */
 
-// ── Diagram Lifecycle ────────────────────────────────────────
-export const API_DIAGRAMS = '/diagrams';
-export const API_DIAGRAMS_UPLOAD = '/diagrams/upload';
-export const API_DIAGRAM = (id) => `/diagrams/${id}`;
-export const API_DIAGRAM_ANALYZE = (id) => `/diagrams/${id}/analyze`;
-export const API_DIAGRAM_QUESTIONS = (id) => `/diagrams/${id}/questions`;
-export const API_DIAGRAM_HLD = (id) => `/diagrams/${id}/hld`;
-export const API_DIAGRAM_GENERATE_IAC = (id) => `/diagrams/${id}/generate`;
-export const API_DIAGRAM_EXPORT = (id) => `/diagrams/${id}/export-hld`;
-export const API_DIAGRAM_COST = (id) => `/diagrams/${id}/cost-estimate`;
-export const API_DIAGRAM_PREVIEW = (id) => `/diagrams/${id}/terraform-preview`;
+export const API_PATH_TEMPLATES = Object.freeze({
+  AGENTS: "/agents",
+  AGENTS_AGENT_ID: "/agents/{agent_id}",
+  AGENTS_AGENT_ID_CLONE: "/agents/{agent_id}/clone",
+  AGENTS_AGENT_ID_STATUS: "/agents/{agent_id}/status",
+  AGENTS_AGENT_ID_VERSIONS: "/agents/{agent_id}/versions",
+  API_ADMIN_ANALYTICS: "/api/admin/analytics",
+  API_ADMIN_ANALYTICS_FEATURES: "/api/admin/analytics/features",
+  API_ADMIN_ANALYTICS_FUNNEL: "/api/admin/analytics/funnel",
+  API_ADMIN_ANALYTICS_PERFORMANCE: "/api/admin/analytics/performance",
+  API_ADMIN_AUDIT: "/api/admin/audit",
+  API_ADMIN_AUDIT_SUMMARY: "/api/admin/audit/summary",
+  API_ADMIN_COSTS: "/api/admin/costs",
+  API_ADMIN_FEEDBACK: "/api/admin/feedback",
+  API_ADMIN_LEADS: "/api/admin/leads",
+  API_ADMIN_LOGIN: "/api/admin/login",
+  API_ADMIN_LOGOUT: "/api/admin/logout",
+  API_ADMIN_METRICS: "/api/admin/metrics",
+  API_ADMIN_METRICS_DAILY: "/api/admin/metrics/daily",
+  API_ADMIN_METRICS_FUNNEL: "/api/admin/metrics/funnel",
+  API_ADMIN_METRICS_RECENT: "/api/admin/metrics/recent",
+  API_ADMIN_MONITORING: "/api/admin/monitoring",
+  API_ADMIN_OBSERVABILITY: "/api/admin/observability",
+  API_ADMIN_OBSERVABILITY_SPANS: "/api/admin/observability/spans",
+  API_ADMIN_RELEASE_STATUS: "/api/admin/release-status",
+  API_ADMIN_SUGGESTIONS_GENERATE: "/api/admin/suggestions/generate",
+  API_ADMIN_SUGGESTIONS_GENERATE_BATCH: "/api/admin/suggestions/generate/batch",
+  API_ADMIN_SUGGESTIONS_HISTORY: "/api/admin/suggestions/history",
+  API_ADMIN_SUGGESTIONS_PENDING: "/api/admin/suggestions/pending",
+  API_ADMIN_SUGGESTIONS_QUEUE: "/api/admin/suggestions/queue",
+  API_ADMIN_SUGGESTIONS_STATS: "/api/admin/suggestions/stats",
+  API_ADMIN_SUGGESTIONS_SUGGESTION_ID_REVIEW: "/api/admin/suggestions/{suggestion_id}/review",
+  API_AGENT_PAAS_AGENTS: "/api/agent-paas/agents",
+  API_AGENT_PAAS_AGENTS_AGENT_ID: "/api/agent-paas/agents/{agent_id}",
+  API_AGENT_PAAS_AGENTS_AGENT_ID_EXECUTE: "/api/agent-paas/agents/{agent_id}/execute",
+  API_AGENT_PAAS_AGENTS_AGENT_ID_EXECUTIONS: "/api/agent-paas/agents/{agent_id}/executions",
+  API_AGENT_PAAS_AGENTS_AGENT_ID_TOOLS: "/api/agent-paas/agents/{agent_id}/tools",
+  API_AGENT_PAAS_COST_SUMMARY: "/api/agent-paas/cost/summary",
+  API_AGENT_PAAS_EXECUTIONS_EXECUTION_ID: "/api/agent-paas/executions/{execution_id}",
+  API_AGENT_PAAS_TOOLS: "/api/agent-paas/tools",
+  API_AGENTS_AGENT_ID_MEMORY: "/api/agents/{agent_id}/memory/",
+  API_AGENTS_AGENT_ID_MEMORY_DOCUMENTS: "/api/agents/{agent_id}/memory/documents",
+  API_AGENTS_AGENT_ID_MEMORY_DOCUMENTS_DOC_ID: "/api/agents/{agent_id}/memory/documents/{doc_id}",
+  API_AGENTS_AGENT_ID_MEMORY_ENTITIES: "/api/agents/{agent_id}/memory/entities",
+  API_AGENTS_AGENT_ID_MEMORY_EPISODES: "/api/agents/{agent_id}/memory/episodes",
+  API_AUTH_CONFIG: "/api/auth/config",
+  API_AUTH_LOGIN: "/api/auth/login",
+  API_AUTH_LOGOUT: "/api/auth/logout",
+  API_AUTH_ME: "/api/auth/me",
+  API_AUTH_PROVIDERS: "/api/auth/providers",
+  API_AUTH_QUOTA: "/api/auth/quota",
+  API_AUTH_REFRESH: "/api/auth/refresh",
+  API_CHAT: "/api/chat",
+  API_CHAT_HISTORY_SESSION_ID: "/api/chat/history/{session_id}",
+  API_CHAT_SESSION_ID: "/api/chat/{session_id}",
+  API_COLLAB_SESSIONS: "/api/collab/sessions",
+  API_COLLAB_SESSIONS_SESSION_ID: "/api/collab/sessions/{session_id}",
+  API_COLLAB_SESSIONS_SESSION_ID_CHANGES: "/api/collab/sessions/{session_id}/changes",
+  API_COLLAB_SESSIONS_SESSION_ID_JOIN: "/api/collab/sessions/{session_id}/join",
+  API_CONTACT: "/api/contact",
+  API_COST_AGENTS_AGENT_ID: "/api/cost/agents/{agent_id}",
+  API_COST_ALERTS: "/api/cost/alerts",
+  API_COST_BUDGETS: "/api/cost/budgets",
+  API_COST_BUDGETS_BUDGET_ID: "/api/cost/budgets/{budget_id}",
+  API_COST_COMPARE: "/api/cost/compare",
+  API_COST_EXPORT: "/api/cost/export",
+  API_COST_MODELS: "/api/cost/models",
+  API_COST_OVERVIEW: "/api/cost/overview",
+  API_COST_PRICING_CATALOG: "/api/cost/pricing-catalog",
+  API_COST_TIMESERIES: "/api/cost/timeseries",
+  API_COST_TOP_CONSUMERS: "/api/cost/top-consumers",
+  API_CREDENTIALS: "/api/credentials",
+  API_CREDENTIALS_AWS: "/api/credentials/aws",
+  API_CREDENTIALS_AZURE: "/api/credentials/azure",
+  API_CREDENTIALS_VALIDATE: "/api/credentials/validate",
+  API_DEPLOY_EXECUTE_PROJECT_ID: "/api/deploy/execute/{project_id}",
+  API_DEPLOY_PREFLIGHT_CHECK: "/api/deploy/preflight-check",
+  API_DEPLOYMENTS_EXECUTE: "/api/deployments/execute",
+  API_DEPLOYMENTS_PREVIEW: "/api/deployments/preview",
+  API_DEPLOYMENTS_JOB_ID_ROLLBACK: "/api/deployments/{job_id}/rollback",
+  API_DEPLOYMENTS_JOB_ID_STATUS: "/api/deployments/{job_id}/status",
+  API_DEPLOYMENTS_JOB_ID_STREAM: "/api/deployments/{job_id}/stream",
+  API_DIAGRAMS_DIAGRAM_ID_ADD_SERVICES: "/api/diagrams/{diagram_id}/add-services",
+  API_DIAGRAMS_DIAGRAM_ID_ANALYZE: "/api/diagrams/{diagram_id}/analyze",
+  API_DIAGRAMS_DIAGRAM_ID_ANALYZE_ASYNC: "/api/diagrams/{diagram_id}/analyze-async",
+  API_DIAGRAMS_DIAGRAM_ID_APPLY_ANSWERS: "/api/diagrams/{diagram_id}/apply-answers",
+  API_DIAGRAMS_DIAGRAM_ID_BEST_PRACTICES: "/api/diagrams/{diagram_id}/best-practices",
+  API_DIAGRAMS_DIAGRAM_ID_COMPLIANCE: "/api/diagrams/{diagram_id}/compliance",
+  API_DIAGRAMS_DIAGRAM_ID_COMPLIANCE_EXPORT: "/api/diagrams/{diagram_id}/compliance/export",
+  API_DIAGRAMS_DIAGRAM_ID_COMPLIANCE_GAPS: "/api/diagrams/{diagram_id}/compliance/gaps",
+  API_DIAGRAMS_DIAGRAM_ID_COST_BREAKDOWN: "/api/diagrams/{diagram_id}/cost-breakdown",
+  API_DIAGRAMS_DIAGRAM_ID_COST_ESTIMATE: "/api/diagrams/{diagram_id}/cost-estimate",
+  API_DIAGRAMS_DIAGRAM_ID_COST_ESTIMATE_CONFIGURE: "/api/diagrams/{diagram_id}/cost-estimate/configure",
+  API_DIAGRAMS_DIAGRAM_ID_COST_ESTIMATE_CONFIGURED: "/api/diagrams/{diagram_id}/cost-estimate/configured",
+  API_DIAGRAMS_DIAGRAM_ID_COST_ESTIMATE_EXPORT: "/api/diagrams/{diagram_id}/cost-estimate/export",
+  API_DIAGRAMS_DIAGRAM_ID_COST_ESTIMATE_SAVINGS: "/api/diagrams/{diagram_id}/cost-estimate/savings",
+  API_DIAGRAMS_DIAGRAM_ID_COST_OPTIMIZATION: "/api/diagrams/{diagram_id}/cost-optimization",
+  API_DIAGRAMS_DIAGRAM_ID_DEPENDENCY_GRAPH: "/api/diagrams/{diagram_id}/dependency-graph",
+  API_DIAGRAMS_DIAGRAM_ID_DIFF: "/api/diagrams/{diagram_id}/diff",
+  API_DIAGRAMS_DIAGRAM_ID_EXPORT_ARCHITECTURE_PACKAGE: "/api/diagrams/{diagram_id}/export-architecture-package",
+  API_DIAGRAMS_DIAGRAM_ID_EXPORT_DIAGRAM: "/api/diagrams/{diagram_id}/export-diagram",
+  API_DIAGRAMS_DIAGRAM_ID_EXPORT_HLD: "/api/diagrams/{diagram_id}/export-hld",
+  API_DIAGRAMS_DIAGRAM_ID_EXPORT_PACKAGE: "/api/diagrams/{diagram_id}/export-package",
+  API_DIAGRAMS_DIAGRAM_ID_GENERATE: "/api/diagrams/{diagram_id}/generate",
+  API_DIAGRAMS_DIAGRAM_ID_GENERATE_ASYNC: "/api/diagrams/{diagram_id}/generate-async",
+  API_DIAGRAMS_DIAGRAM_ID_GENERATE_HLD: "/api/diagrams/{diagram_id}/generate-hld",
+  API_DIAGRAMS_DIAGRAM_ID_GENERATE_HLD_ASYNC: "/api/diagrams/{diagram_id}/generate-hld-async",
+  API_DIAGRAMS_DIAGRAM_ID_HLD: "/api/diagrams/{diagram_id}/hld",
+  API_DIAGRAMS_DIAGRAM_ID_IAC_CHAT: "/api/diagrams/{diagram_id}/iac-chat",
+  API_DIAGRAMS_DIAGRAM_ID_IAC_CHAT_HISTORY: "/api/diagrams/{diagram_id}/iac-chat/history",
+  API_DIAGRAMS_DIAGRAM_ID_IAC_SCAFFOLD: "/api/diagrams/{diagram_id}/iac-scaffold",
+  API_DIAGRAMS_DIAGRAM_ID_MIGRATION_CHAT: "/api/diagrams/{diagram_id}/migration-chat",
+  API_DIAGRAMS_DIAGRAM_ID_MIGRATION_TIMELINE: "/api/diagrams/{diagram_id}/migration-timeline",
+  API_DIAGRAMS_DIAGRAM_ID_MIGRATION_TIMELINE_EXPORT: "/api/diagrams/{diagram_id}/migration-timeline/export",
+  API_DIAGRAMS_DIAGRAM_ID_NETWORK_TOPOLOGY: "/api/diagrams/{diagram_id}/network-topology",
+  API_DIAGRAMS_DIAGRAM_ID_NOTIFY_EMAIL: "/api/diagrams/{diagram_id}/notify-email",
+  API_DIAGRAMS_DIAGRAM_ID_PROVENANCE: "/api/diagrams/{diagram_id}/provenance",
+  API_DIAGRAMS_DIAGRAM_ID_PROVENANCE_SERVICE_NAME: "/api/diagrams/{diagram_id}/provenance/{service_name}",
+  API_DIAGRAMS_DIAGRAM_ID_QUESTIONS: "/api/diagrams/{diagram_id}/questions",
+  API_DIAGRAMS_DIAGRAM_ID_REPORT: "/api/diagrams/{diagram_id}/report",
+  API_DIAGRAMS_DIAGRAM_ID_RESTORE_SESSION: "/api/diagrams/{diagram_id}/restore-session",
+  API_DIAGRAMS_DIAGRAM_ID_RISK_SCORE: "/api/diagrams/{diagram_id}/risk-score",
+  API_DIAGRAMS_DIAGRAM_ID_SHARE: "/api/diagrams/{diagram_id}/share",
+  API_DIAGRAMS_DIAGRAM_ID_TERRAFORM_PREVIEW: "/api/diagrams/{diagram_id}/terraform-preview",
+  API_DIAGRAMS_DIAGRAM_ID_VERSIONS: "/api/diagrams/{diagram_id}/versions",
+  API_DIAGRAMS_DIAGRAM_ID_VERSIONS_COMPARE: "/api/diagrams/{diagram_id}/versions/compare",
+  API_DIAGRAMS_DIAGRAM_ID_VERSIONS_SAVE: "/api/diagrams/{diagram_id}/versions/save",
+  API_DIAGRAMS_DIAGRAM_ID_VERSIONS_VERSION_NUMBER: "/api/diagrams/{diagram_id}/versions/{version_number}",
+  API_DIAGRAMS_DIAGRAM_ID_VERSIONS_VERSION_NUMBER_RESTORE: "/api/diagrams/{diagram_id}/versions/{version_number}/restore",
+  API_DIAGRAMS_DIAGRAM_ID_VERSIONS_VERSION: "/api/diagrams/{diagram_id}/versions/{version}",
+  API_DIAGRAMS_DIAGRAM_ID_VERSIONS_VERSION_BRANCH: "/api/diagrams/{diagram_id}/versions/{version}/branch",
+  API_DRIFT_BASELINES: "/api/drift/baselines",
+  API_DRIFT_BASELINES_BASELINE_ID: "/api/drift/baselines/{baseline_id}",
+  API_DRIFT_BASELINES_BASELINE_ID_COMPARE: "/api/drift/baselines/{baseline_id}/compare",
+  API_DRIFT_BASELINES_BASELINE_ID_FINDINGS_FINDING_ID: "/api/drift/baselines/{baseline_id}/findings/{finding_id}",
+  API_DRIFT_BASELINES_BASELINE_ID_REPORT: "/api/drift/baselines/{baseline_id}/report",
+  API_DRIFT_DETECT: "/api/drift/detect",
+  API_EXECUTIONS: "/api/executions/",
+  API_EXECUTIONS_EXECUTION_ID: "/api/executions/{execution_id}",
+  API_EXECUTIONS_EXECUTION_ID_CANCEL: "/api/executions/{execution_id}/cancel",
+  API_FEEDBACK_BUG: "/api/feedback/bug",
+  API_FEEDBACK_FEATURE: "/api/feedback/feature",
+  API_FEEDBACK_NPS: "/api/feedback/nps",
+  API_FLAGS: "/api/flags",
+  API_FLAGS_NAME: "/api/flags/{name}",
+  API_HEALTH: "/api/health",
+  API_ICON_PACKS: "/api/icon-packs",
+  API_ICON_PACKS_PACK_ID: "/api/icon-packs/{pack_id}",
+  API_ICONS: "/api/icons",
+  API_ICONS_METRICS: "/api/icons/metrics",
+  API_ICONS_PACKS: "/api/icons/packs",
+  API_ICONS_ICON_ID_SVG: "/api/icons/{icon_id}/svg",
+  API_IMPORT_ARM: "/api/import/arm",
+  API_IMPORT_CLOUDFORMATION: "/api/import/cloudformation",
+  API_IMPORT_INFRASTRUCTURE: "/api/import/infrastructure",
+  API_IMPORT_SUPPORTED_FORMATS: "/api/import/supported-formats",
+  API_IMPORT_TERRAFORM: "/api/import/terraform",
+  API_INTEGRATIONS_GITHUB_ISSUE: "/api/integrations/github/issue",
+  API_INTEGRATIONS_GITHUB_PUSH_PR: "/api/integrations/github/push-pr",
+  API_INTEGRATIONS_JIRA_CREATE: "/api/integrations/jira/create",
+  API_INTEGRATIONS_SLACK_NOTIFY: "/api/integrations/slack/notify",
+  API_INTEGRATIONS_TEAMS_NOTIFY: "/api/integrations/teams/notify",
+  API_JOBS: "/api/jobs",
+  API_JOBS_JOB_ID: "/api/jobs/{job_id}",
+  API_JOBS_JOB_ID_CANCEL: "/api/jobs/{job_id}/cancel",
+  API_JOBS_JOB_ID_STREAM: "/api/jobs/{job_id}/stream",
+  API_KEYS: "/api/keys",
+  API_KEYS_KEY_ID: "/api/keys/{key_id}",
+  API_KEYS_KEY_ID_ROTATE: "/api/keys/{key_id}/rotate",
+  API_LEADS_CAPTURE: "/api/leads/capture",
+  API_LIBRARIES_DRAWIO: "/api/libraries/drawio",
+  API_LIBRARIES_EXCALIDRAW: "/api/libraries/excalidraw",
+  API_LIBRARIES_VISIO: "/api/libraries/visio",
+  API_MODELS: "/api/models/",
+  API_MODELS_MODEL_ID: "/api/models/{model_id}",
+  API_NETWORK_CIDR_CALCULATOR: "/api/network/cidr-calculator",
+  API_POLICIES: "/api/policies/",
+  API_POLICIES_POLICY_ID_BIND_AGENT_ID: "/api/policies/{policy_id}/bind/{agent_id}",
+  API_POLICIES_POLICY_ID_UNBIND_AGENT_ID: "/api/policies/{policy_id}/unbind/{agent_id}",
+  API_PROJECTS_PROJECT_ID_DIAGRAMS: "/api/projects/{project_id}/diagrams",
+  API_RAG_COLLECTIONS: "/api/rag/collections",
+  API_RAG_COLLECTIONS_COLLECTION_ID: "/api/rag/collections/{collection_id}",
+  API_RAG_COLLECTIONS_COLLECTION_ID_DOCUMENTS: "/api/rag/collections/{collection_id}/documents",
+  API_RAG_COLLECTIONS_COLLECTION_ID_DOCUMENTS_DOCUMENT_ID: "/api/rag/collections/{collection_id}/documents/{document_id}",
+  API_RAG_COLLECTIONS_COLLECTION_ID_INGEST: "/api/rag/collections/{collection_id}/ingest",
+  API_RAG_COLLECTIONS_COLLECTION_ID_STATS: "/api/rag/collections/{collection_id}/stats",
+  API_RAG_SEARCH: "/api/rag/search",
+  API_REPLAY_EVENTS: "/api/replay/events",
+  API_REPLAY_RECORD: "/api/replay/record",
+  API_REPLAY_REPLAY_ID: "/api/replay/{replay_id}",
+  API_REPLAY_REPLAY_ID_EXPORT: "/api/replay/{replay_id}/export",
+  API_REPLAYS: "/api/replays",
+  API_ROADMAP: "/api/roadmap",
+  API_ROADMAP_BUG_REPORT: "/api/roadmap/bug-report",
+  API_ROADMAP_FEATURE_REQUEST: "/api/roadmap/feature-request",
+  API_ROADMAP_RELEASE_VERSION: "/api/roadmap/release/{version}",
+  API_SAMPLES: "/api/samples",
+  API_SAMPLES_SAMPLE_ID_ANALYZE: "/api/samples/{sample_id}/analyze",
+  API_SCANNER_RUN_PROVIDER: "/api/scanner/run/{provider}",
+  API_SERVICE_UPDATES_LAST: "/api/service-updates/last",
+  API_SERVICE_UPDATES_RUN_NOW: "/api/service-updates/run-now",
+  API_SERVICE_UPDATES_STATUS: "/api/service-updates/status",
+  API_SERVICES: "/api/services",
+  API_SERVICES_CATEGORIES: "/api/services/categories",
+  API_SERVICES_MAPPINGS: "/api/services/mappings",
+  API_SERVICES_PROVIDERS: "/api/services/providers",
+  API_SERVICES_STATS: "/api/services/stats",
+  API_SERVICES_PROVIDER_SERVICE_ID: "/api/services/{provider}/{service_id}",
+  API_SHARED_SHARE_ID: "/api/shared/{share_id}",
+  API_SHARED_SHARE_ID_STATS: "/api/shared/{share_id}/stats",
+  API_SKU_DATABASE: "/api/sku/database",
+  API_SKU_FAMILIES: "/api/sku/families",
+  API_SKU_STORAGE: "/api/sku/storage",
+  API_SKU_TRANSLATE: "/api/sku/translate",
+  API_SKU_TRANSLATE_BATCH: "/api/sku/translate/batch",
+  API_SUGGEST_BATCH: "/api/suggest/batch",
+  API_SUGGEST_MAPPING: "/api/suggest/mapping",
+  API_TERRAFORM_STATE_PROJECT_ID_ENVIRONMENT: "/api/terraform/state/{project_id}/{environment}",
+  API_TERRAFORM_STATE_PROJECT_ID_ENVIRONMENT_ROLLBACK: "/api/terraform/state/{project_id}/{environment}/rollback",
+  API_TERRAFORM_VALIDATE: "/api/terraform/validate",
+  API_V1_ADMIN_ANALYTICS: "/api/v1/admin/analytics",
+  API_V1_ADMIN_ANALYTICS_FEATURES: "/api/v1/admin/analytics/features",
+  API_V1_ADMIN_ANALYTICS_FUNNEL: "/api/v1/admin/analytics/funnel",
+  API_V1_ADMIN_ANALYTICS_PERFORMANCE: "/api/v1/admin/analytics/performance",
+  API_V1_ADMIN_AUDIT: "/api/v1/admin/audit",
+  API_V1_ADMIN_AUDIT_SUMMARY: "/api/v1/admin/audit/summary",
+  API_V1_ADMIN_COSTS: "/api/v1/admin/costs",
+  API_V1_ADMIN_FEEDBACK: "/api/v1/admin/feedback",
+  API_V1_ADMIN_LEADS: "/api/v1/admin/leads",
+  API_V1_ADMIN_LOGIN: "/api/v1/admin/login",
+  API_V1_ADMIN_LOGOUT: "/api/v1/admin/logout",
+  API_V1_ADMIN_METRICS: "/api/v1/admin/metrics",
+  API_V1_ADMIN_METRICS_DAILY: "/api/v1/admin/metrics/daily",
+  API_V1_ADMIN_METRICS_FUNNEL: "/api/v1/admin/metrics/funnel",
+  API_V1_ADMIN_METRICS_RECENT: "/api/v1/admin/metrics/recent",
+  API_V1_ADMIN_MONITORING: "/api/v1/admin/monitoring",
+  API_V1_ADMIN_OBSERVABILITY: "/api/v1/admin/observability",
+  API_V1_ADMIN_OBSERVABILITY_SPANS: "/api/v1/admin/observability/spans",
+  API_V1_ADMIN_RELEASE_STATUS: "/api/v1/admin/release-status",
+  API_V1_ADMIN_SUGGESTIONS_GENERATE: "/api/v1/admin/suggestions/generate",
+  API_V1_ADMIN_SUGGESTIONS_GENERATE_BATCH: "/api/v1/admin/suggestions/generate/batch",
+  API_V1_ADMIN_SUGGESTIONS_HISTORY: "/api/v1/admin/suggestions/history",
+  API_V1_ADMIN_SUGGESTIONS_PENDING: "/api/v1/admin/suggestions/pending",
+  API_V1_ADMIN_SUGGESTIONS_QUEUE: "/api/v1/admin/suggestions/queue",
+  API_V1_ADMIN_SUGGESTIONS_STATS: "/api/v1/admin/suggestions/stats",
+  API_V1_ADMIN_SUGGESTIONS_SUGGESTION_ID_REVIEW: "/api/v1/admin/suggestions/{suggestion_id}/review",
+  API_V1_AGENTS_AGENT_ID_MEMORY: "/api/v1/agents/{agent_id}/memory/",
+  API_V1_AGENTS_AGENT_ID_MEMORY_DOCUMENTS: "/api/v1/agents/{agent_id}/memory/documents",
+  API_V1_AGENTS_AGENT_ID_MEMORY_DOCUMENTS_DOC_ID: "/api/v1/agents/{agent_id}/memory/documents/{doc_id}",
+  API_V1_AGENTS_AGENT_ID_MEMORY_ENTITIES: "/api/v1/agents/{agent_id}/memory/entities",
+  API_V1_AGENTS_AGENT_ID_MEMORY_EPISODES: "/api/v1/agents/{agent_id}/memory/episodes",
+  API_V1_API_ICON_PACKS: "/api/v1/api/icon-packs",
+  API_V1_API_ICON_PACKS_PACK_ID: "/api/v1/api/icon-packs/{pack_id}",
+  API_V1_API_ICONS: "/api/v1/api/icons",
+  API_V1_API_ICONS_METRICS: "/api/v1/api/icons/metrics",
+  API_V1_API_ICONS_PACKS: "/api/v1/api/icons/packs",
+  API_V1_API_ICONS_ICON_ID_SVG: "/api/v1/api/icons/{icon_id}/svg",
+  API_V1_API_LIBRARIES_DRAWIO: "/api/v1/api/libraries/drawio",
+  API_V1_API_LIBRARIES_EXCALIDRAW: "/api/v1/api/libraries/excalidraw",
+  API_V1_API_LIBRARIES_VISIO: "/api/v1/api/libraries/visio",
+  API_V1_AUTH_CONFIG: "/api/v1/auth/config",
+  API_V1_AUTH_LOGIN: "/api/v1/auth/login",
+  API_V1_AUTH_LOGOUT: "/api/v1/auth/logout",
+  API_V1_AUTH_ME: "/api/v1/auth/me",
+  API_V1_AUTH_PROVIDERS: "/api/v1/auth/providers",
+  API_V1_AUTH_QUOTA: "/api/v1/auth/quota",
+  API_V1_AUTH_REFRESH: "/api/v1/auth/refresh",
+  API_V1_CHAT: "/api/v1/chat",
+  API_V1_CHAT_HISTORY_SESSION_ID: "/api/v1/chat/history/{session_id}",
+  API_V1_CHAT_SESSION_ID: "/api/v1/chat/{session_id}",
+  API_V1_CONTACT: "/api/v1/contact",
+  API_V1_COST_AGENTS_AGENT_ID: "/api/v1/cost/agents/{agent_id}",
+  API_V1_COST_ALERTS: "/api/v1/cost/alerts",
+  API_V1_COST_BUDGETS: "/api/v1/cost/budgets",
+  API_V1_COST_BUDGETS_BUDGET_ID: "/api/v1/cost/budgets/{budget_id}",
+  API_V1_COST_EXPORT: "/api/v1/cost/export",
+  API_V1_COST_MODELS: "/api/v1/cost/models",
+  API_V1_COST_OVERVIEW: "/api/v1/cost/overview",
+  API_V1_COST_TIMESERIES: "/api/v1/cost/timeseries",
+  API_V1_COST_TOP_CONSUMERS: "/api/v1/cost/top-consumers",
+  API_V1_CREDENTIALS: "/api/v1/credentials",
+  API_V1_CREDENTIALS_AWS: "/api/v1/credentials/aws",
+  API_V1_CREDENTIALS_AZURE: "/api/v1/credentials/azure",
+  API_V1_CREDENTIALS_VALIDATE: "/api/v1/credentials/validate",
+  API_V1_DEPLOY_EXECUTE_PROJECT_ID: "/api/v1/deploy/execute/{project_id}",
+  API_V1_DEPLOY_PREFLIGHT_CHECK: "/api/v1/deploy/preflight-check",
+  API_V1_DEPLOYMENTS_EXECUTE: "/api/v1/deployments/execute",
+  API_V1_DEPLOYMENTS_PREVIEW: "/api/v1/deployments/preview",
+  API_V1_DEPLOYMENTS_JOB_ID_ROLLBACK: "/api/v1/deployments/{job_id}/rollback",
+  API_V1_DEPLOYMENTS_JOB_ID_STATUS: "/api/v1/deployments/{job_id}/status",
+  API_V1_DEPLOYMENTS_JOB_ID_STREAM: "/api/v1/deployments/{job_id}/stream",
+  API_V1_DIAGRAMS_DIAGRAM_ID_ADD_SERVICES: "/api/v1/diagrams/{diagram_id}/add-services",
+  API_V1_DIAGRAMS_DIAGRAM_ID_ANALYZE: "/api/v1/diagrams/{diagram_id}/analyze",
+  API_V1_DIAGRAMS_DIAGRAM_ID_ANALYZE_ASYNC: "/api/v1/diagrams/{diagram_id}/analyze-async",
+  API_V1_DIAGRAMS_DIAGRAM_ID_APPLY_ANSWERS: "/api/v1/diagrams/{diagram_id}/apply-answers",
+  API_V1_DIAGRAMS_DIAGRAM_ID_BEST_PRACTICES: "/api/v1/diagrams/{diagram_id}/best-practices",
+  API_V1_DIAGRAMS_DIAGRAM_ID_COMPLIANCE: "/api/v1/diagrams/{diagram_id}/compliance",
+  API_V1_DIAGRAMS_DIAGRAM_ID_COMPLIANCE_EXPORT: "/api/v1/diagrams/{diagram_id}/compliance/export",
+  API_V1_DIAGRAMS_DIAGRAM_ID_COMPLIANCE_GAPS: "/api/v1/diagrams/{diagram_id}/compliance/gaps",
+  API_V1_DIAGRAMS_DIAGRAM_ID_COST_BREAKDOWN: "/api/v1/diagrams/{diagram_id}/cost-breakdown",
+  API_V1_DIAGRAMS_DIAGRAM_ID_COST_ESTIMATE: "/api/v1/diagrams/{diagram_id}/cost-estimate",
+  API_V1_DIAGRAMS_DIAGRAM_ID_COST_ESTIMATE_CONFIGURE: "/api/v1/diagrams/{diagram_id}/cost-estimate/configure",
+  API_V1_DIAGRAMS_DIAGRAM_ID_COST_ESTIMATE_CONFIGURED: "/api/v1/diagrams/{diagram_id}/cost-estimate/configured",
+  API_V1_DIAGRAMS_DIAGRAM_ID_COST_ESTIMATE_EXPORT: "/api/v1/diagrams/{diagram_id}/cost-estimate/export",
+  API_V1_DIAGRAMS_DIAGRAM_ID_COST_ESTIMATE_SAVINGS: "/api/v1/diagrams/{diagram_id}/cost-estimate/savings",
+  API_V1_DIAGRAMS_DIAGRAM_ID_COST_OPTIMIZATION: "/api/v1/diagrams/{diagram_id}/cost-optimization",
+  API_V1_DIAGRAMS_DIAGRAM_ID_DEPENDENCY_GRAPH: "/api/v1/diagrams/{diagram_id}/dependency-graph",
+  API_V1_DIAGRAMS_DIAGRAM_ID_EXPORT_ARCHITECTURE_PACKAGE: "/api/v1/diagrams/{diagram_id}/export-architecture-package",
+  API_V1_DIAGRAMS_DIAGRAM_ID_EXPORT_DIAGRAM: "/api/v1/diagrams/{diagram_id}/export-diagram",
+  API_V1_DIAGRAMS_DIAGRAM_ID_EXPORT_HLD: "/api/v1/diagrams/{diagram_id}/export-hld",
+  API_V1_DIAGRAMS_DIAGRAM_ID_EXPORT_PACKAGE: "/api/v1/diagrams/{diagram_id}/export-package",
+  API_V1_DIAGRAMS_DIAGRAM_ID_GENERATE: "/api/v1/diagrams/{diagram_id}/generate",
+  API_V1_DIAGRAMS_DIAGRAM_ID_GENERATE_ASYNC: "/api/v1/diagrams/{diagram_id}/generate-async",
+  API_V1_DIAGRAMS_DIAGRAM_ID_GENERATE_HLD: "/api/v1/diagrams/{diagram_id}/generate-hld",
+  API_V1_DIAGRAMS_DIAGRAM_ID_GENERATE_HLD_ASYNC: "/api/v1/diagrams/{diagram_id}/generate-hld-async",
+  API_V1_DIAGRAMS_DIAGRAM_ID_HLD: "/api/v1/diagrams/{diagram_id}/hld",
+  API_V1_DIAGRAMS_DIAGRAM_ID_IAC_CHAT: "/api/v1/diagrams/{diagram_id}/iac-chat",
+  API_V1_DIAGRAMS_DIAGRAM_ID_IAC_CHAT_HISTORY: "/api/v1/diagrams/{diagram_id}/iac-chat/history",
+  API_V1_DIAGRAMS_DIAGRAM_ID_IAC_SCAFFOLD: "/api/v1/diagrams/{diagram_id}/iac-scaffold",
+  API_V1_DIAGRAMS_DIAGRAM_ID_MIGRATION_CHAT: "/api/v1/diagrams/{diagram_id}/migration-chat",
+  API_V1_DIAGRAMS_DIAGRAM_ID_NOTIFY_EMAIL: "/api/v1/diagrams/{diagram_id}/notify-email",
+  API_V1_DIAGRAMS_DIAGRAM_ID_PROVENANCE: "/api/v1/diagrams/{diagram_id}/provenance",
+  API_V1_DIAGRAMS_DIAGRAM_ID_PROVENANCE_SERVICE_NAME: "/api/v1/diagrams/{diagram_id}/provenance/{service_name}",
+  API_V1_DIAGRAMS_DIAGRAM_ID_QUESTIONS: "/api/v1/diagrams/{diagram_id}/questions",
+  API_V1_DIAGRAMS_DIAGRAM_ID_REPORT: "/api/v1/diagrams/{diagram_id}/report",
+  API_V1_DIAGRAMS_DIAGRAM_ID_RESTORE_SESSION: "/api/v1/diagrams/{diagram_id}/restore-session",
+  API_V1_DIAGRAMS_DIAGRAM_ID_RISK_SCORE: "/api/v1/diagrams/{diagram_id}/risk-score",
+  API_V1_DIAGRAMS_DIAGRAM_ID_TERRAFORM_PREVIEW: "/api/v1/diagrams/{diagram_id}/terraform-preview",
+  API_V1_DIAGRAMS_DIAGRAM_ID_VERSIONS: "/api/v1/diagrams/{diagram_id}/versions",
+  API_V1_DIAGRAMS_DIAGRAM_ID_VERSIONS_COMPARE: "/api/v1/diagrams/{diagram_id}/versions/compare",
+  API_V1_DIAGRAMS_DIAGRAM_ID_VERSIONS_VERSION_NUMBER: "/api/v1/diagrams/{diagram_id}/versions/{version_number}",
+  API_V1_DIAGRAMS_DIAGRAM_ID_VERSIONS_VERSION_NUMBER_RESTORE: "/api/v1/diagrams/{diagram_id}/versions/{version_number}/restore",
+  API_V1_DRIFT_BASELINES: "/api/v1/drift/baselines",
+  API_V1_DRIFT_BASELINES_BASELINE_ID: "/api/v1/drift/baselines/{baseline_id}",
+  API_V1_DRIFT_BASELINES_BASELINE_ID_COMPARE: "/api/v1/drift/baselines/{baseline_id}/compare",
+  API_V1_DRIFT_BASELINES_BASELINE_ID_FINDINGS_FINDING_ID: "/api/v1/drift/baselines/{baseline_id}/findings/{finding_id}",
+  API_V1_DRIFT_BASELINES_BASELINE_ID_REPORT: "/api/v1/drift/baselines/{baseline_id}/report",
+  API_V1_DRIFT_DETECT: "/api/v1/drift/detect",
+  API_V1_EXECUTIONS: "/api/v1/executions/",
+  API_V1_EXECUTIONS_EXECUTION_ID: "/api/v1/executions/{execution_id}",
+  API_V1_EXECUTIONS_EXECUTION_ID_CANCEL: "/api/v1/executions/{execution_id}/cancel",
+  API_V1_FEEDBACK_BUG: "/api/v1/feedback/bug",
+  API_V1_FEEDBACK_FEATURE: "/api/v1/feedback/feature",
+  API_V1_FEEDBACK_NPS: "/api/v1/feedback/nps",
+  API_V1_FLAGS: "/api/v1/flags",
+  API_V1_FLAGS_NAME: "/api/v1/flags/{name}",
+  API_V1_HEALTH: "/api/v1/health",
+  API_V1_IMPORT_ARM: "/api/v1/import/arm",
+  API_V1_IMPORT_CLOUDFORMATION: "/api/v1/import/cloudformation",
+  API_V1_IMPORT_INFRASTRUCTURE: "/api/v1/import/infrastructure",
+  API_V1_IMPORT_SUPPORTED_FORMATS: "/api/v1/import/supported-formats",
+  API_V1_IMPORT_TERRAFORM: "/api/v1/import/terraform",
+  API_V1_INTEGRATIONS_GITHUB_ISSUE: "/api/v1/integrations/github/issue",
+  API_V1_INTEGRATIONS_JIRA_CREATE: "/api/v1/integrations/jira/create",
+  API_V1_INTEGRATIONS_SLACK_NOTIFY: "/api/v1/integrations/slack/notify",
+  API_V1_INTEGRATIONS_TEAMS_NOTIFY: "/api/v1/integrations/teams/notify",
+  API_V1_JOBS: "/api/v1/jobs",
+  API_V1_JOBS_JOB_ID: "/api/v1/jobs/{job_id}",
+  API_V1_JOBS_JOB_ID_CANCEL: "/api/v1/jobs/{job_id}/cancel",
+  API_V1_JOBS_JOB_ID_STREAM: "/api/v1/jobs/{job_id}/stream",
+  API_V1_KEYS: "/api/v1/keys",
+  API_V1_KEYS_KEY_ID: "/api/v1/keys/{key_id}",
+  API_V1_KEYS_KEY_ID_ROTATE: "/api/v1/keys/{key_id}/rotate",
+  API_V1_LEADS_CAPTURE: "/api/v1/leads/capture",
+  API_V1_MODELS: "/api/v1/models/",
+  API_V1_MODELS_MODEL_ID: "/api/v1/models/{model_id}",
+  API_V1_POLICIES: "/api/v1/policies/",
+  API_V1_POLICIES_POLICY_ID_BIND_AGENT_ID: "/api/v1/policies/{policy_id}/bind/{agent_id}",
+  API_V1_POLICIES_POLICY_ID_UNBIND_AGENT_ID: "/api/v1/policies/{policy_id}/unbind/{agent_id}",
+  API_V1_PROJECTS_PROJECT_ID_DIAGRAMS: "/api/v1/projects/{project_id}/diagrams",
+  API_V1_ROADMAP: "/api/v1/roadmap",
+  API_V1_ROADMAP_BUG_REPORT: "/api/v1/roadmap/bug-report",
+  API_V1_ROADMAP_FEATURE_REQUEST: "/api/v1/roadmap/feature-request",
+  API_V1_ROADMAP_RELEASE_VERSION: "/api/v1/roadmap/release/{version}",
+  API_V1_SAMPLES: "/api/v1/samples",
+  API_V1_SAMPLES_SAMPLE_ID_ANALYZE: "/api/v1/samples/{sample_id}/analyze",
+  API_V1_SCANNER_RUN_PROVIDER: "/api/v1/scanner/run/{provider}",
+  API_V1_SERVICE_UPDATES_LAST: "/api/v1/service-updates/last",
+  API_V1_SERVICE_UPDATES_RUN_NOW: "/api/v1/service-updates/run-now",
+  API_V1_SERVICE_UPDATES_STATUS: "/api/v1/service-updates/status",
+  API_V1_SERVICES: "/api/v1/services",
+  API_V1_SERVICES_CATEGORIES: "/api/v1/services/categories",
+  API_V1_SERVICES_MAPPINGS: "/api/v1/services/mappings",
+  API_V1_SERVICES_PROVIDERS: "/api/v1/services/providers",
+  API_V1_SERVICES_STATS: "/api/v1/services/stats",
+  API_V1_SERVICES_PROVIDER_SERVICE_ID: "/api/v1/services/{provider}/{service_id}",
+  API_V1_SKU_DATABASE: "/api/v1/sku/database",
+  API_V1_SKU_FAMILIES: "/api/v1/sku/families",
+  API_V1_SKU_STORAGE: "/api/v1/sku/storage",
+  API_V1_SKU_TRANSLATE: "/api/v1/sku/translate",
+  API_V1_SKU_TRANSLATE_BATCH: "/api/v1/sku/translate/batch",
+  API_V1_SUGGEST_BATCH: "/api/v1/suggest/batch",
+  API_V1_SUGGEST_MAPPING: "/api/v1/suggest/mapping",
+  API_V1_TERRAFORM_STATE_PROJECT_ID_ENVIRONMENT: "/api/v1/terraform/state/{project_id}/{environment}",
+  API_V1_TERRAFORM_STATE_PROJECT_ID_ENVIRONMENT_ROLLBACK: "/api/v1/terraform/state/{project_id}/{environment}/rollback",
+  API_V1_TERRAFORM_VALIDATE: "/api/v1/terraform/validate",
+  API_V1_VERSIONS: "/api/v1/versions",
+  API_V1_WEBHOOKS: "/api/v1/webhooks",
+  API_V1_WEBHOOKS_TEST: "/api/v1/webhooks/test",
+  API_V1_WEBHOOKS_WEBHOOK_ID: "/api/v1/webhooks/{webhook_id}",
+  API_V1_WEBHOOKS_WEBHOOK_ID_LOGS: "/api/v1/webhooks/{webhook_id}/logs",
+  API_VERSIONS: "/api/versions",
+  API_WEBHOOKS: "/api/webhooks",
+  API_WEBHOOKS_TEST: "/api/webhooks/test",
+  API_WEBHOOKS_WEBHOOK_ID: "/api/webhooks/{webhook_id}",
+  API_WEBHOOKS_WEBHOOK_ID_LOGS: "/api/webhooks/{webhook_id}/logs",
+});
 
-// ── Authentication ───────────────────────────────────────────
-export const API_AUTH_ME = '/auth/me';
-export const API_AUTH_LOGIN = '/auth/login';
-export const API_AUTH_LOGOUT = '/auth/logout';
-export const API_AUTH_REFRESH = '/auth/refresh';
-export const API_AUTH_GITHUB = '/auth/github';
+export const OPENAPI_PATHS = Object.freeze(Object.values(API_PATH_TEMPLATES));
 
-// ── Services & Catalog ───────────────────────────────────────
-export const API_SERVICES = '/services';
-export const API_SERVICES_STATS = '/services/stats';
-export const API_SERVICES_PROVIDERS = '/services/providers';
-export const API_SERVICES_CATEGORIES = '/services/categories';
-export const API_SERVICES_MAPPINGS = '/services/mappings';
+export function buildApiPath(template, params = {}) {
+  return template.replace(/\{([^}]+)\}/g, (_, name) => {
+    if (!Object.prototype.hasOwnProperty.call(params, name) || params[name] == null) {
+      throw new Error(`Missing value for OpenAPI path parameter: ${name}`);
+    }
 
-// ── Chat & AI ────────────────────────────────────────────────
-export const API_CHAT = '/chat';
-export const API_CHAT_HISTORY = (sessionId) => `/chat/history/${sessionId}`;
-
-// ── Jobs (SSE streaming) ─────────────────────────────────────
-export const API_JOBS = '/jobs';
-export const API_JOB_STREAM = (jobId) => `/jobs/${jobId}/stream`;
-export const API_JOB_STATUS = (jobId) => `/jobs/${jobId}`;
-
-// ── Feature Flags ────────────────────────────────────────────
-export const API_FLAGS = '/flags';
-export const API_FLAG = (name) => `/flags/${name}`;
-
-// ── Feedback ─────────────────────────────────────────────────
-export const API_FEEDBACK = '/feedback';
-export const API_FEEDBACK_NPS = '/feedback/nps';
-
-// ── Reports & Sharing ────────────────────────────────────────
-export const API_REPORTS = '/reports';
-export const API_SHARES = '/shares';
-export const API_SHARE = (shareId) => `/shares/${shareId}`;
-
-// ── Versioning & Diff ────────────────────────────────────────
-export const API_VERSIONING = '/versioning';
-export const API_DIFF = '/diff';
-
-// ── Admin ────────────────────────────────────────────────────
-export const API_ADMIN = '/admin';
-export const API_ADMIN_DASHBOARD = '/admin/dashboard';
-
-// ── Health & System ──────────────────────────────────────────
-export const API_HEALTH = '/health';
-export const API_VERSIONS = '/versions';
-export const API_CONTACT = '/contact';
-
-// ── Legal ────────────────────────────────────────────────────
-export const API_LEGAL_PRIVACY = '/legal/privacy';
-export const API_LEGAL_TERMS = '/legal/terms';
-export const API_LEGAL_COOKIES = '/legal/cookies';
-
-// ── Roadmap ──────────────────────────────────────────────────
-export const API_ROADMAP = '/roadmap';
-export const API_ROADMAP_BUG_REPORT = '/roadmap/bug-report';
-
-// ── Profile ──────────────────────────────────────────────────
-export const API_PROFILE = '/profile';
-
-// ── Samples ──────────────────────────────────────────────────
-export const API_SAMPLES = '/samples';
-export const API_SAMPLE = (id) => `/samples/${id}`;
-export const API_SAMPLE_ANALYZE = (id) => `/samples/${id}/analyze`;
-
-// ── Cost ─────────────────────────────────────────────────────
-export const API_COST = '/cost';
-export const API_COST_COMPARISON = '/cost-comparison';
-
-// ── Terraform ────────────────────────────────────────────────
-export const API_TERRAFORM = '/terraform';
-export const API_TERRAFORM_IMPORT = '/terraform/import';
-
-// ── Timeline ─────────────────────────────────────────────────
-export const API_TIMELINE = '/timeline';
-
-// ── Compliance ───────────────────────────────────────────────
-export const API_COMPLIANCE = '/compliance';
-
-// ── Network ──────────────────────────────────────────────────
-export const API_NETWORK = '/network';
-
-// ── SKU Translation ──────────────────────────────────────────
-export const API_SKU = '/sku';
-
-// ── Collaboration ────────────────────────────────────────────
-export const API_COLLABORATION = '/collaboration';
+    return encodeURIComponent(String(params[name]));
+  });
+}
