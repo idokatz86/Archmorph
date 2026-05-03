@@ -23,7 +23,20 @@ def _fixture_paths() -> list[Path]:
     return sorted(FIXTURE_DIR.glob("*.json"))
 
 
-def _terraform_code(name: str) -> str:
+def _mapping_services(analysis: dict) -> list[str]:
+    return [str(mapping["azure_service"]) for mapping in analysis.get("mappings", [])]
+
+
+def _hcl_string(value: str) -> str:
+    return value.replace('"', '\\"')
+
+
+def _bicep_string(value: str) -> str:
+    return value.replace("'", "''")
+
+
+def _terraform_code(name: str, services: list[str]) -> str:
+    service_values = "\n".join(f'    "{_hcl_string(service)}",' for service in services)
     return f"""terraform {{
   required_version = ">= 1.5"
   required_providers {{
@@ -38,6 +51,12 @@ provider "azurerm" {{
   features {{}}
 }}
 
+locals {{
+  mapped_services = [
+{service_values}
+  ]
+}}
+
 resource "azurerm_resource_group" "main" {{
   name     = "rg-{name}-dev"
   location = "westeurope"
@@ -47,13 +66,22 @@ resource "azurerm_resource_group" "main" {{
     managed_by  = "archmorph"
   }}
 }}
+
+output "mapped_services" {{
+  value = local.mapped_services
+}}
 """
 
 
-def _bicep_code(name: str) -> str:
+def _bicep_code(name: str, services: list[str]) -> str:
+    service_values = "\n".join(f"  '{_bicep_string(service)}'" for service in services)
     return f"""targetScope = 'subscription'
 
 param location string = 'westeurope'
+
+var mappedServices = [
+{service_values}
+]
 
 resource rg 'Microsoft.Resources/resourceGroups@2023-07-01' = {{
   name: 'rg-{name}-dev'
@@ -64,18 +92,30 @@ resource rg 'Microsoft.Resources/resourceGroups@2023-07-01' = {{
     managedBy: 'archmorph'
   }}
 }}
+
+output mappedServices array = mappedServices
 """
 
 
 def _generated_code(*, analysis: dict, iac_format: str) -> str:
     safe_name = Path(str(analysis.get("title", "iac"))).stem.lower().replace(" ", "-")[:24]
-    return _terraform_code(safe_name) if iac_format == "terraform" else _bicep_code(safe_name)
+    services = _mapping_services(analysis)
+    return _terraform_code(safe_name, services) if iac_format == "terraform" else _bicep_code(safe_name, services)
 
 
 def _completion_with_generated_iac(*, analysis: dict):
+    expected_terms = [
+        str(mapping.get(key, ""))
+        for mapping in analysis.get("mappings", [])
+        for key in ("source_service", "azure_service")
+    ]
+
     def _mock_completion(messages, **kwargs):
-        prompt = str(messages[-1]["content"]).lower()
-        iac_format = "bicep" if "bicep" in prompt else "terraform"
+        prompt = str(messages[-1]["content"])
+        prompt_lower = prompt.lower()
+        for term in expected_terms:
+            assert term.lower() in prompt_lower, f"generator prompt omitted fixture mapping term: {term}"
+        iac_format = "bicep" if "bicep" in prompt_lower else "terraform"
         content = _generated_code(analysis=analysis, iac_format=iac_format)
         response = MagicMock(choices=[MagicMock(message=MagicMock(content=content))])
         response._truncated = False
@@ -122,6 +162,9 @@ def test_generated_iac_artifacts_validate_via_cli(fixture_path: Path, tmp_path: 
 
         assert terraform_resp.status_code == 200, terraform_resp.text
         assert bicep_resp.status_code == 200, bicep_resp.text
+        for service in _mapping_services(analysis):
+            assert service in terraform_resp.json()["code"]
+            assert service in bicep_resp.json()["code"]
 
         tf_dir = tmp_path / "terraform"
         tf_dir.mkdir()

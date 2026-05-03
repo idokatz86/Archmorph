@@ -6,6 +6,7 @@ Falls back to base templates when no analysis is available.
 
 import logging
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -24,6 +25,10 @@ from prompt_guard import (
 logger = logging.getLogger(__name__)
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
+
+
+def _iac_cli_validation_enabled() -> bool:
+    return os.getenv("ARCHMORPH_RUN_IAC_VALIDATE_TOOLS") == "1"
 
 
 def _load_template(name: str) -> str:
@@ -409,7 +414,9 @@ def _validate_terraform_cli(code: str) -> List[Tuple[str, str]] | None:
 
 
 def _validate_terraform(code: str) -> List[Tuple[str, str]]:
-    """Validate Terraform with the CLI when available, falling back to static checks."""
+    """Validate Terraform with opt-in CLI execution, otherwise using static checks."""
+    if not _iac_cli_validation_enabled():
+        return _validate_terraform_static(code)
     try:
         cli_issues = _validate_terraform_cli(code)
     except (OSError, subprocess.SubprocessError) as exc:
@@ -508,7 +515,9 @@ def _validate_bicep_cli(code: str) -> List[Tuple[str, str]] | None:
 
 
 def _validate_bicep(code: str) -> List[Tuple[str, str]]:
-    """Validate Bicep with az bicep build when available, falling back to static checks."""
+    """Validate Bicep with opt-in CLI execution, otherwise using static checks."""
+    if not _iac_cli_validation_enabled():
+        return _validate_bicep_static(code)
     try:
         cli_issues = _validate_bicep_cli(code)
     except (OSError, subprocess.SubprocessError) as exc:

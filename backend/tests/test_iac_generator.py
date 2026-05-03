@@ -122,12 +122,14 @@ class TestGenerateIaCCode:
         assert "```" not in code
 
     @patch("iac_generator._validate_terraform_cli")
+    @patch.dict("os.environ", {"ARCHMORPH_RUN_IAC_VALIDATE_TOOLS": "1"})
     def test_terraform_cli_validation_errors_are_marked_inline(self, mock_validate):
         mock_validate.return_value = [("error", "Unsupported argument")]
         code = _apply_validation('resource "azurerm_resource_group" "main" {}', "terraform")
         assert "failed terraform validate: Unsupported argument" in code
 
     @patch("iac_generator._validate_bicep_cli")
+    @patch.dict("os.environ", {"ARCHMORPH_RUN_IAC_VALIDATE_TOOLS": "1"})
     def test_bicep_cli_validation_errors_are_marked_inline(self, mock_validate):
         mock_validate.return_value = [("error", "Expected the \"=\" character")]
         code = _apply_validation("resource rg 'Microsoft.Resources/resourceGroups@2023-07-01'", "bicep")

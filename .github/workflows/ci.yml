@@ -65,14 +65,6 @@ jobs:
           enable-cache: true
           cache-dependency-glob: backend/requirements.txt
 
-      - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: "1.9.x"
-
-      - name: Install Bicep CLI
-        run: az bicep install
-
       - name: Install dependencies and lint
         run: |
           uv pip install --system ruff
@@ -320,7 +312,7 @@ jobs:
   # BACKEND DEPLOY (Blue-Green)
   # ============================================
   deploy-backend:
-    needs: [backend-tests, frontend-build, openapi-client-drift]
+    needs: [backend-tests, frontend-build, openapi-client-drift, iac-validate]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     if: github.ref == 'refs/heads/main'
@@ -738,7 +730,7 @@ jobs:
   # FRONTEND DEPLOY (Azure Static Web Apps)
   # ============================================
   deploy-frontend:
-    needs: [backend-tests, frontend-build, openapi-client-drift]
+    needs: [backend-tests, frontend-build, openapi-client-drift, iac-validate]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     if: github.ref == 'refs/heads/main'
