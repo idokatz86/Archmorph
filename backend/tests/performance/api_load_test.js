@@ -66,6 +66,20 @@ const CATALOG_P95_THRESHOLD_MS = Number(
   __ENV.K6_CATALOG_P95_MS || (isCI ? 3000 : 1500),
 );
 
+const thresholds = {
+  http_req_duration: [
+    isCI ? 'p(95)<4000' : 'p(95)<2000',
+    isCI ? 'p(99)<8000' : 'p(99)<5000',
+  ],
+  http_req_failed: ['rate<0.10'],
+  errors: ['rate<0.01'],
+  catalog_latency: [`p(95)<${CATALOG_P95_THRESHOLD_MS}`],
+};
+
+if (API_KEY) {
+  thresholds.chat_latency = ['p(95)<5000'];
+}
+
 export const options = {
   scenarios: {
     // 70% — Static/cached endpoints
@@ -99,16 +113,7 @@ export const options = {
       exec: 'uncachedLlmEndpoints',
     },
   },
-  thresholds: {
-    http_req_duration: [
-      isCI ? 'p(95)<4000' : 'p(95)<2000',
-      isCI ? 'p(99)<8000' : 'p(99)<5000',
-    ],
-    http_req_failed: ['rate<0.10'],
-    errors: ['rate<0.01'],
-    catalog_latency: [`p(95)<${CATALOG_P95_THRESHOLD_MS}`],
-    ...(API_KEY ? { chat_latency: ['p(95)<5000'] } : {}),
-  },
+  thresholds,
 };
 
 const BASE_URL = __ENV.API_BASE_URL || 'http://localhost:8000';
