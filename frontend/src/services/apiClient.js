@@ -167,13 +167,14 @@ async function request(path, options = {}, signal) {
 const api = {
   get: (path, signal) => request(path, { method: 'GET' }, signal),
 
-  post: (path, body, signal, timeout) =>
+  post: (path, body, signal, timeout, headers = {}) =>
     request(
       path,
       {
         method: 'POST',
         body: body instanceof FormData ? body : JSON.stringify(body),
-        timeout
+        timeout,
+        headers,
       },
       signal
     ),

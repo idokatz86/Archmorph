@@ -1,4 +1,3 @@
-from error_envelope import ArchmorphException
 """
 HLD (High-Level Design) routes — generation, retrieval, export, async generation.
 
@@ -16,9 +15,11 @@ from routers.samples import get_or_recreate_session
 from job_queue import job_manager
 from usage_metrics import record_event
 import routers.diagrams as diagrams_compat
+from error_envelope import ArchmorphException
 from hld_export import export_hld, SUPPORTED_FORMATS
 from services.azure_pricing import estimate_services_cost
 from diagram_export import generate_diagram
+from export_capabilities import attach_export_capability, verify_export_capability
 
 logger = logging.getLogger(__name__)
 
@@ -138,7 +139,12 @@ async def get_hld(request: Request, diagram_id: str):
 
 @router.post("/api/diagrams/{diagram_id}/export-hld")
 @limiter.limit("10/minute")
-async def export_hld_endpoint(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
+async def export_hld_endpoint(
+    request: Request,
+    diagram_id: str,
+    _auth=Depends(verify_api_key),
+    _capability=Depends(verify_export_capability),
+):
     """Export HLD document to Word, PDF, or PowerPoint format.
 
     Query params:
@@ -226,7 +232,7 @@ async def export_hld_endpoint(request: Request, diagram_id: str, _auth=Depends(v
         logger.error("HLD export failed: %s", str(e).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
         raise ArchmorphException(500, "Export failed. Please try again or contact support.")
 
-    return result
+    return attach_export_capability(result, diagram_id)
 
 
 # ─────────────────────────────────────────────────────────────
