@@ -167,10 +167,57 @@ jobs:
           retention-days: 1
 
   # ============================================
+  # GENERATED OPENAPI CLIENT DRIFT
+  # ============================================
+  openapi-client-drift:
+    needs: backend-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download backend OpenAPI schema
+        uses: actions/download-artifact@v8
+        with:
+          name: openapi-schema
+          path: .
+
+      - name: Normalize downloaded OpenAPI schema location
+        run: |
+          if [ -f openapi.json ]; then
+            mv openapi.json backend/openapi.json
+          fi
+          test -f backend/openapi.json
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm install --no-fund --no-audit
+
+      - name: Check generated OpenAPI client artifacts
+        working-directory: frontend
+        run: npm run check:api-drift
+
+      - name: Upload generated OpenAPI client artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: openapi-client-artifacts
+          path: |
+            frontend/src/generated/api-types.d.ts
+            frontend/src/generated/api-paths.js
+          retention-days: 30
+
+  # ============================================
   # SARIF UPLOAD (isolated so rate-limits don't block builds)
   # ============================================
   upload-sarif:
-    needs: [backend-tests, frontend-build]
+    needs: [backend-tests, frontend-build, openapi-client-drift]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     if: always() && (needs.backend-tests.result == 'success' || needs.frontend-build.result == 'success')
@@ -210,7 +257,7 @@ jobs:
   # BACKEND DEPLOY (Blue-Green)
   # ============================================
   deploy-backend:
-    needs: [backend-tests, frontend-build]
+    needs: [backend-tests, frontend-build, openapi-client-drift]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     if: github.ref == 'refs/heads/main'
@@ -414,7 +461,7 @@ jobs:
   # FRONTEND DEPLOY (Azure Static Web Apps)
   # ============================================
   deploy-frontend:
-    needs: [backend-tests, frontend-build]
+    needs: [backend-tests, frontend-build, openapi-client-drift]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     if: github.ref == 'refs/heads/main'
