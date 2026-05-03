@@ -59,6 +59,7 @@ RELATIVE_HREF_SVG = b'<svg xmlns="http://www.w3.org/2000/svg" width="48" height=
 FOREIGNOBJECT_SVG = b'<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48"><foreignObject><body xmlns="http://www.w3.org/1999/xhtml"><script>alert(1)</script></body></foreignObject></svg>'
 STYLE_SVG = b'<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48"><style>rect{background:url(https://evil.example/x)}</style><rect width="48" height="48"/></svg>'
 LOCAL_USE_SVG = b'<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48"><defs><symbol id="local-symbol"><rect width="48" height="48"/></symbol></defs><use href="#local-symbol"/></svg>'
+DATA_SVG_USE = b'<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48"><use href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%3E%3Cscript%3Ealert(1)%3C%2Fscript%3E%3C%2Fsvg%3E"/></svg>'
 
 API_HEADERS = {"X-API-Key": "test-api-key"}
 ADMIN_KEY = "test-admin-key"
@@ -211,6 +212,11 @@ class TestSVGSanitizer:
         result = validate_svg(LOCAL_USE_SVG)
         assert "<use" in result
         assert "#local-symbol" in result
+
+    def test_data_svg_use_reference_stripped(self):
+        result = validate_svg(DATA_SVG_USE)
+        assert "data:image/svg+xml" not in result
+        assert "<use" in result
 
     def test_foreignobject_stripped(self):
         """Sanitizer strips foreignObject elements."""
@@ -596,6 +602,50 @@ class TestIconRegistry:
         assert registry.get_icon(legacy_id) is None
         assert all(icon.meta.provider == "azure" for icon in registry.get_pack_icons("azure"))
         assert registry.get_pack_icons("azure")
+
+    def test_persisted_builtin_pack_is_refreshed_from_samples_on_restore(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("ICON_REGISTRY_DATA_DIR", str(tmp_path))
+        stale_id = "azure_compute_stale_builtin_icon"
+        meta = IconMeta(
+            id=stale_id,
+            name="Stale Builtin Icon",
+            provider="azure",
+            category="compute",
+            tags=["stale"],
+            version="0.0.1",
+            svg_hash="stale",
+        )
+        persist_file = tmp_path / "icon_registry.json"
+        persist_file.write_text(
+            json.dumps(
+                {
+                    "builtin_packs": ["azure"],
+                    "packs": {"azure": [stale_id]},
+                    "icons": {stale_id: {"meta": meta.model_dump(), "svg": VALID_SVG.decode()}},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        assert registry._load_from_disk() is True
+
+        assert registry.get_icon(stale_id) is None
+        assert registry.get_pack_icons("azure")
+        assert all(icon.meta.provider == "azure" for icon in registry.get_pack_icons("azure"))
+
+    def test_current_snapshot_backfills_new_sample_provider(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("ICON_REGISTRY_DATA_DIR", str(tmp_path))
+        persist_file = tmp_path / "icon_registry.json"
+        persist_file.write_text(
+            json.dumps({"builtin_packs": [], "packs": {}, "icons": {}}),
+            encoding="utf-8",
+        )
+
+        assert registry._load_from_disk() is True
+
+        sample_pack_ids = {path.name.lower() for path in SAMPLE_DIR.iterdir() if path.is_dir()}
+        restored_pack_ids = {pack["pack_id"] for pack in registry.list_packs()}
+        assert sample_pack_ids.issubset(restored_pack_ids)
 
     def test_builtin_load_marks_icons_before_eviction(self, monkeypatch):
         monkeypatch.setenv("ICON_REGISTRY_MAX_ICONS", "1")

@@ -48,9 +48,10 @@ _DANGEROUS_CSS_RE = re.compile(
     r"(expression|javascript|vbscript|-moz-binding|url\s*\()", re.IGNORECASE
 )
 
-# Allowed data-URI image MIME types
+# Allowed data-URI image MIME types for href/src references. Nested SVG
+# payloads are blocked because they would need their own sanitization pass.
 _ALLOWED_DATA_MIMES = frozenset({
-    "image/png", "image/jpeg", "image/gif", "image/svg+xml", "image/webp",
+    "image/png", "image/jpeg", "image/gif", "image/webp",
 })
 
 

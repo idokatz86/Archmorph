@@ -651,9 +651,11 @@ def _load_from_disk() -> bool:
                 if pid in persisted_builtin_packs and pid in _sample_pack_ids():
                     _mark_builtin_pack(pid, [cid for cid in ids if cid in _ICON_STORE])
             _evict_icons_if_needed()
-        if not has_builtin_marker:
-            loaded = load_builtin_packs()
-            if loaded:
+        loaded = load_builtin_packs(force_refresh=True)
+        if loaded:
+            if has_builtin_marker:
+                logger.info("Registry refreshed %s builtin pack(s) after disk restore", str(loaded))
+            else:
                 logger.info("Registry backfilled %s builtin pack(s) after legacy disk restore", str(loaded))
         logger.info("Registry loaded from disk: %s icons, %s packs", str(len(_ICON_STORE)).replace('\n', '').replace('\r', ''), str(len(_PACK_INDEX)).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
         return True
@@ -662,7 +664,7 @@ def _load_from_disk() -> bool:
         return False
 
 
-def load_builtin_packs() -> int:
+def load_builtin_packs(*, force_refresh: bool = False) -> int:
     """Auto-load sample icon packs from the samples/ directory.
 
     Returns the number of packs loaded.
@@ -677,13 +679,14 @@ def load_builtin_packs() -> int:
         if not provider_dir.is_dir():
             continue
         provider_name = provider_dir.name.lower()
-        # Skip if already loaded
+        # Refresh bundled packs after disk restores so updated sample SVGs,
+        # metadata, and newly bundled providers are not masked by old snapshots.
         if provider_name in _PACK_INDEX:
             with _LOCK:
                 already_builtin = provider_name in _BUILTIN_PACK_IDS
                 if already_builtin:
                     _mark_builtin_pack(provider_name, _PACK_INDEX.get(provider_name, []))
-            if already_builtin:
+            if already_builtin and not force_refresh:
                 logger.debug("Pack '%s' already loaded, skipping", str(provider_name).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
                 continue
         try:
