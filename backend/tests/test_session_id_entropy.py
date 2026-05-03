@@ -10,6 +10,10 @@ from routers.shared import generate_session_id
 
 
 URL_SAFE_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{22,}$")
+SHORT_UUID_HEX_SLICE_RE = re.compile(
+    r"uuid\s*\.\s*uuid4\s*\(\s*\)\s*\.\s*hex\s*\[\s*:\s*(\d+)\s*\]",
+)
+TOKEN_URLSAFE_RE = re.compile(r"token_urlsafe\s*\(\s*(\d+)\s*\)")
 
 
 def _assert_high_entropy_id(identifier: str, prefix: str) -> None:
@@ -79,12 +83,17 @@ def test_exportable_session_routes_do_not_use_truncated_uuid_ids():
         repo_root / "routers" / "samples.py",
         repo_root / "routers" / "infra_import.py",
     ]
-    forbidden = re.compile(r"uuid\.uuid4\(\)\.hex\[:8\]|token_urlsafe\([468]\)")
+    offenders: list[str] = []
+    for path in checked_files:
+        source = path.read_text(encoding="utf-8")
+        rel_path = str(path.relative_to(repo_root))
 
-    offenders = [
-        str(path.relative_to(repo_root))
-        for path in checked_files
-        if forbidden.search(path.read_text(encoding="utf-8"))
-    ]
+        for match in SHORT_UUID_HEX_SLICE_RE.finditer(source):
+            if int(match.group(1)) < 16:
+                offenders.append(f"{rel_path}: uuid4 hex slice {match.group(0)!r}")
+
+        for match in TOKEN_URLSAFE_RE.finditer(source):
+            if int(match.group(1)) < 16:
+                offenders.append(f"{rel_path}: token_urlsafe({match.group(1)})")
 
     assert not offenders, f"Weak exportable session ID generation in: {offenders}"
