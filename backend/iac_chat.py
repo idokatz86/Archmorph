@@ -230,7 +230,9 @@ def process_iac_chat(
                 code = re.sub(r"^```[a-zA-Z]*\n", "", code)
                 code = re.sub(r"\n```$", "", code)
                 code = code.strip()
-            if iac_format in ("terraform", "bicep"):
+            if code == current_code or code == current_code.strip():
+                code = current_code
+            elif iac_format in ("terraform", "bicep"):
                 code = _apply_validation(code, iac_format)
 
         changes = _coerce_to_str_list(result.get("changes_summary", []))

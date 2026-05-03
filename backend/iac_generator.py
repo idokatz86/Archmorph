@@ -25,10 +25,38 @@ from prompt_guard import (
 logger = logging.getLogger(__name__)
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
+_TRUSTED_TERRAFORM_PROVIDER_SOURCES = {
+    "azure/azapi",
+    "hashicorp/azuread",
+    "hashicorp/azurerm",
+    "hashicorp/null",
+    "hashicorp/random",
+    "hashicorp/time",
+    "hashicorp/tls",
+}
+_TRUSTED_TERRAFORM_PROVIDER_NAMES = {
+    source.rsplit("/", 1)[-1] for source in _TRUSTED_TERRAFORM_PROVIDER_SOURCES
+}
 
 
 def _iac_cli_validation_enabled() -> bool:
-    return os.getenv("ARCHMORPH_RUN_IAC_VALIDATE_TOOLS") == "1"
+    if os.getenv("ARCHMORPH_DISABLE_IAC_CLI_VALIDATION") == "1":
+        return False
+    return os.getenv("ARCHMORPH_ENABLE_IAC_CLI_VALIDATION", "1") == "1"
+
+
+def _terraform_cli_validation_safe(code: str) -> bool:
+    declared_sources = re.findall(r'\bsource\s*=\s*"([^"]+)"', code)
+    if any(source not in _TRUSTED_TERRAFORM_PROVIDER_SOURCES for source in declared_sources):
+        logger.warning("Skipping Terraform CLI validation for untrusted provider source")
+        return False
+
+    resource_types = re.findall(r'\b(?:resource|data)\s+"([^"]+)"', code)
+    provider_names = {resource_type.split("_", 1)[0] for resource_type in resource_types if "_" in resource_type}
+    if any(provider not in _TRUSTED_TERRAFORM_PROVIDER_NAMES for provider in provider_names):
+        logger.warning("Skipping Terraform CLI validation for untrusted provider name")
+        return False
+    return True
 
 
 def _load_template(name: str) -> str:
@@ -359,7 +387,7 @@ def _terraform_policy_checks(code: str) -> List[Tuple[str, str]]:
 def _validate_terraform_cli(code: str) -> List[Tuple[str, str]] | None:
     """Run terraform fmt/init/validate when the CLI is available."""
     terraform = shutil.which("terraform")
-    if not terraform:
+    if not terraform or not _terraform_cli_validation_safe(code):
         return None
 
     with tempfile.TemporaryDirectory(prefix="archmorph-tf-") as tmp:
@@ -633,13 +661,23 @@ def _apply_validation(code: str, iac_format: str) -> str:
         code = code + "\n\n" + warning_block + "\n"
 
     if errors:
-        failed_command = {
-            "terraform": "failed terraform validate",
-            "bicep": "failed az bicep build",
-            "cloudformation": "failed CloudFormation validation",
-        }.get(iac_format, "failed IaC validation")
+        def _failure_label(message: str) -> tuple[str, str]:
+            if iac_format == "terraform":
+                for command in ("fmt", "init", "validate"):
+                    prefix = f"terraform {command} failed: "
+                    if message.startswith(prefix):
+                        return f"failed terraform {command}", message.removeprefix(prefix)
+                return "failed terraform validate", message
+            if iac_format == "bicep":
+                return "failed az bicep build", message
+            if iac_format == "cloudformation":
+                return "failed CloudFormation validation", message
+            return "failed IaC validation", message
+
         error_block = "\n".join(
-            f"{comment_char} ⚠ {failed_command}: {msg}" for _, msg in errors
+            f"{comment_char} ⚠ {label}: {detail}"
+            for _, msg in errors
+            for label, detail in [_failure_label(msg)]
         )
         code = code + "\n\n" + error_block + "\n"
         logger.error(
