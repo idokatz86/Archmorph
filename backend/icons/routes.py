@@ -15,6 +15,8 @@ from error_envelope import ArchmorphException
 
 import json
 import logging
+import zipfile
+from io import BytesIO
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, Request, UploadFile, File
@@ -64,11 +66,9 @@ async def upload_icon_pack(
         if file.filename and file.filename.endswith(".json"):
             # JSON manifest with inline SVG data
             manifest_data = json.loads(content)
-            from icons.models import IconPackManifest
-            manifest = IconPackManifest(**manifest_data)
             result = registry.ingest_icon_pack(
-                source=content,
-                manifest=manifest,
+                source=_json_manifest_to_zip_bytes(manifest_data),
+                manifest=_metadata_without_inline_svg(manifest_data),
                 pack_id=pack_id,
             )
         elif _is_zipfile(content):
@@ -266,3 +266,35 @@ async def download_visio_stencil_pack(
 def _is_zipfile(data: bytes) -> bool:
     """Check if data starts with a ZIP magic number."""
     return data[:4] == b"PK\x03\x04"
+
+
+def _json_manifest_to_zip_bytes(manifest_data: dict) -> bytes:
+    """Convert a JSON icon-pack manifest with inline SVG entries into ZIP bytes."""
+    icons = manifest_data.get("icons", [])
+    if not isinstance(icons, list) or not icons:
+        raise ValueError("JSON icon pack must include at least one icon")
+
+    buf = BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("metadata.json", json.dumps(_metadata_without_inline_svg(manifest_data)))
+        for icon in icons:
+            if not isinstance(icon, dict):
+                raise ValueError("JSON icon entries must be objects")
+            path = icon.get("file")
+            svg = icon.get("svg")
+            if not path or not isinstance(path, str):
+                raise ValueError("JSON icon entries must include a file path")
+            if not svg or not isinstance(svg, str):
+                raise ValueError("JSON icon entries must include inline SVG data")
+            zf.writestr(path, svg)
+    return buf.getvalue()
+
+
+def _metadata_without_inline_svg(manifest_data: dict) -> dict:
+    metadata = dict(manifest_data)
+    metadata["icons"] = [
+        {key: value for key, value in icon.items() if key != "svg"}
+        for icon in manifest_data.get("icons", [])
+        if isinstance(icon, dict)
+    ]
+    return metadata

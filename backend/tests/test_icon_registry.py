@@ -55,6 +55,7 @@ VALID_SVG_NO_DIMS = b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64
 SCRIPT_SVG = b'<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48"><script>alert("xss")</script><rect width="48" height="48"/></svg>'
 ONLOAD_SVG = b'<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" onload="alert(1)"><rect width="48" height="48"/></svg>'
 EXTERNAL_HREF_SVG = b'<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="48" height="48"><image href="https://evil.com/steal.png"/></svg>'
+RELATIVE_HREF_SVG = b'<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48"><image href="/private.png"/><image href="#local-symbol"/></svg>'
 FOREIGNOBJECT_SVG = b'<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48"><foreignObject><body xmlns="http://www.w3.org/1999/xhtml"><script>alert(1)</script></body></foreignObject></svg>'
 STYLE_SVG = b'<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48"><style>rect{background:url(https://evil.example/x)}</style><rect width="48" height="48"/></svg>'
 
@@ -128,6 +129,25 @@ def _zip_pack_with_svg(icon_file: str, icon_name: str, svg: bytes) -> bytes:
     return buf.getvalue()
 
 
+def _json_pack(icon_file: str, icon_name: str, svg: bytes = VALID_SVG) -> bytes:
+    manifest = {
+        "name": icon_name,
+        "provider": "azure",
+        "version": "1.0.0",
+        "icons": [
+            {
+                "file": icon_file,
+                "name": icon_name,
+                "category": "compute",
+                "tags": ["test"],
+                "service_id": "json-svc-1",
+                "svg": svg.decode(),
+            }
+        ],
+    }
+    return json.dumps(manifest).encode()
+
+
 # ────────────────────────────────────────────────────────────
 # SVG Sanitization Tests
 # ────────────────────────────────────────────────────────────
@@ -155,6 +175,11 @@ class TestSVGSanitizer:
         """Sanitizer strips external hrefs."""
         result = validate_svg(EXTERNAL_HREF_SVG)
         assert "evil.com" not in result
+
+    def test_relative_href_stripped_but_fragment_kept(self):
+        result = validate_svg(RELATIVE_HREF_SVG)
+        assert "/private.png" not in result
+        assert "#local-symbol" in result
 
     def test_foreignobject_stripped(self):
         """Sanitizer strips foreignObject elements."""
@@ -317,6 +342,23 @@ class TestIconRegistry:
         data_url = next(iter(doc["libraryItems"][0]["files"].values()))["dataURL"]
         decoded_svg = base64.b64decode(data_url.split(",", 1)[1])
         assert b"ff0000" in decoded_svg
+
+    def test_duplicate_ingest_removes_dropped_icons(self):
+        registry.ingest_icon_pack(_zip_pack("first.svg", "First Icon"), pack_id="replace-pack")
+        registry.ingest_icon_pack(_zip_pack("second.svg", "Second Icon"), pack_id="replace-pack")
+
+        assert registry.get_icon("Provider.azure_compute_first_icon") is None
+        assert registry.search_icons(query="First Icon") == []
+        assert registry.search_icons(pack_id="replace-pack")[0].name == "Second Icon"
+
+    def test_cache_invalidation_matches_exact_pack_id(self, small_zip_pack):
+        registry.set_cached_asset("excalidraw:aws", b"aws")
+        registry.set_cached_asset("excalidraw:my-aws-icons", b"my-aws-icons")
+
+        registry.ingest_icon_pack(small_zip_pack, pack_id="aws")
+
+        assert registry.get_cached_asset("excalidraw:aws") is None
+        assert registry.get_cached_asset("excalidraw:my-aws-icons") == b"my-aws-icons"
 
     def test_registry_evicts_oldest_icons_when_maxsize_reached(self, monkeypatch):
         monkeypatch.setenv("ICON_REGISTRY_MAX_ICONS", "1")
@@ -526,6 +568,19 @@ class TestIconAPI:
         assert data["pack_id"] == "api-test"
         assert data["ingested"] == 1
 
+    def test_upload_json_pack(self):
+        resp = self.client.post(
+            "/api/icon-packs?pack_id=api-json",
+            files={"file": ("test.json", _json_pack("json_icon.svg", "JSON Icon"), "application/json")},
+            headers=API_HEADERS,
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["pack_id"] == "api-json"
+        assert data["ingested"] == 1
+        assert registry.search_icons(pack_id="api-json")[0].name == "JSON Icon"
+
     def test_upload_zip_pack_requires_api_key(self, small_zip_pack):
         resp = self.client.post(
             "/api/icon-packs?pack_id=api-anon",
@@ -541,6 +596,20 @@ class TestIconAPI:
 
         resp = self.client.post(
             "/api/icon-packs?pack_id=api-prod-open",
+            files={"file": ("test.zip", small_zip_pack, "application/zip")},
+        )
+
+        assert resp.status_code == 500
+        assert registry.list_packs() == []
+
+    def test_upload_zip_pack_fails_closed_when_environment_missing(self, small_zip_pack, monkeypatch):
+        from routers import shared as shared_router
+        monkeypatch.setattr(shared_router, "API_KEY", "")
+        monkeypatch.delenv("ENVIRONMENT", raising=False)
+        monkeypatch.delenv("ENV", raising=False)
+
+        resp = self.client.post(
+            "/api/icon-packs?pack_id=api-missing-env",
             files={"file": ("test.zip", small_zip_pack, "application/zip")},
         )
 

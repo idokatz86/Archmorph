@@ -102,9 +102,17 @@ def _evict_icons_if_needed() -> None:
 
 
 def _invalidate_pack_asset_cache(pack_id: str) -> None:
-    stale_keys = [key for key in _ASSET_CACHE if pack_id in str(key)]
+    stale_keys = [key for key in _ASSET_CACHE if _cache_key_matches_pack(str(key), pack_id)]
     for key in stale_keys:
         _ASSET_CACHE.pop(key, None)
+
+
+def _cache_key_matches_pack(cache_key: str, pack_id: str) -> bool:
+    return (
+        cache_key == f"excalidraw:{pack_id}"
+        or cache_key.startswith(f"drawio:{pack_id}:")
+        or cache_key.startswith(f"visio:{pack_id}:")
+    )
 
 
 def _persist_dir() -> Path:
@@ -306,6 +314,10 @@ def ingest_icon_pack(
             _ICON_STORE.move_to_end(cid)
 
     with _LOCK:
+        old_ids = set(_PACK_INDEX.get(pid, []))
+        stale_ids = old_ids.difference(ingested_ids)
+        for stale_id in stale_ids:
+            _ICON_STORE.pop(stale_id, None)
         _PACK_INDEX[pid] = ingested_ids
         _invalidate_pack_asset_cache(pid)
         _evict_icons_if_needed()
