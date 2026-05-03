@@ -19,7 +19,7 @@ import zipfile
 from io import BytesIO
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, Request, UploadFile, File
+from fastapi import APIRouter, Depends, Header, Query, Request, UploadFile, File
 from fastapi.responses import Response
 
 from routers.shared import limiter, verify_api_key
@@ -33,6 +33,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["icons"])
 
 
+def _api_key_header_for_schema(
+    _x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+) -> None:
+    return None
+
+
+
 # ─────────────────────────────────────────────────────────────
 # Icon-pack ingestion
 # ─────────────────────────────────────────────────────────────
@@ -44,6 +51,7 @@ async def upload_icon_pack(
     file: UploadFile = File(...),
     pack_id: Optional[str] = Query(None, description="Custom pack identifier"),
     _auth: None = Depends(verify_api_key),
+    _api_key_header: None = Depends(_api_key_header_for_schema),
 ):
     """Ingest a ZIP or JSON icon pack.
 
@@ -140,6 +148,7 @@ async def delete_icon_pack(
     request: Request,
     pack_id: str,
     _auth: None = Depends(verify_api_key),
+    _api_key_header: None = Depends(_api_key_header_for_schema),
 ):
     """Remove an icon pack and all its icons from the registry."""
     result = registry.delete_pack(pack_id)
@@ -298,3 +307,9 @@ def _metadata_without_inline_svg(manifest_data: dict) -> dict:
         if isinstance(icon, dict)
     ]
     return metadata
+
+
+def _api_key_header_for_schema(
+    _x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+) -> None:
+    return None

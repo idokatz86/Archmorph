@@ -360,6 +360,23 @@ class TestIconRegistry:
         assert registry.get_cached_asset("excalidraw:aws") is None
         assert registry.get_cached_asset("excalidraw:my-aws-icons") == b"my-aws-icons"
 
+    def test_ingest_invalidates_landing_zone_icon_cache(self, small_zip_pack):
+        import azure_landing_zone
+
+        azure_landing_zone._ICON_CACHE["aks"] = "data:image/svg+xml;base64,old"
+
+        registry.ingest_icon_pack(small_zip_pack, pack_id="cache-clear")
+
+        assert azure_landing_zone._ICON_CACHE == {}
+
+    def test_eviction_preserves_builtin_pack_icons(self, monkeypatch):
+        monkeypatch.setenv("ICON_REGISTRY_MAX_ICONS", "1")
+        registry.ingest_icon_pack(_zip_pack("builtin.svg", "Builtin Icon"), pack_id="azure")
+        registry.ingest_icon_pack(_zip_pack("custom.svg", "Custom Icon"), pack_id="custom-pack")
+
+        assert registry.search_icons(pack_id="azure")[0].name == "Builtin Icon"
+        assert registry.list_packs() == [{"pack_id": "azure", "icon_count": 1}]
+
     def test_registry_evicts_oldest_icons_when_maxsize_reached(self, monkeypatch):
         monkeypatch.setenv("ICON_REGISTRY_MAX_ICONS", "1")
         registry.ingest_icon_pack(_zip_pack("first.svg", "First Icon"), pack_id="first-pack")

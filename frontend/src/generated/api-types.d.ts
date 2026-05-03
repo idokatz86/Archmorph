@@ -15233,7 +15233,9 @@ export interface operations {
                 /** @description Custom pack identifier */
                 pack_id?: string | null;
             };
-            header?: never;
+            header?: {
+                "X-API-Key"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -15266,7 +15268,9 @@ export interface operations {
     delete_icon_pack_api_icon_packs__pack_id__delete: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-API-Key"?: string | null;
+            };
             path: {
                 pack_id: string;
             };
@@ -18686,7 +18690,9 @@ export interface operations {
                 /** @description Custom pack identifier */
                 pack_id?: string | null;
             };
-            header?: never;
+            header?: {
+                "X-API-Key"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };
@@ -18719,7 +18725,9 @@ export interface operations {
     delete_icon_pack_v1_api_v1_api_icon_packs__pack_id__delete: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-API-Key"?: string | null;
+            };
             path: {
                 pack_id: string;
             };

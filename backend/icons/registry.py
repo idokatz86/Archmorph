@@ -58,6 +58,7 @@ get_metrics = get_icon_metrics
 # ─────────────────────────────────────────────────────────────
 _ICON_STORE: OrderedDict[str, IconEntry] = OrderedDict()  # canonical_id → IconEntry
 _PACK_INDEX: dict[str, list[str]] = {}  # pack_id → [canonical_id, …]
+_BUILTIN_PACK_IDS: set[str] = set()
 _DEFAULT_MAX_ICONS = 5000
 
 # Cache for transformed assets (library outputs)
@@ -82,8 +83,12 @@ def _max_icons() -> int:
 
 def _evict_icons_if_needed() -> None:
     evicted_ids: list[str] = []
+    protected_ids = _protected_icon_ids()
     while len(_ICON_STORE) > _max_icons():
-        evicted_id, _ = _ICON_STORE.popitem(last=False)
+        evicted_id = next((cid for cid in _ICON_STORE if cid not in protected_ids), None)
+        if evicted_id is None:
+            break
+        _ICON_STORE.pop(evicted_id, None)
         evicted_ids.append(evicted_id)
 
     if not evicted_ids:
@@ -98,13 +103,30 @@ def _evict_icons_if_needed() -> None:
             _PACK_INDEX.pop(pid, None)
 
     _ASSET_CACHE.clear()
+    _invalidate_external_icon_caches()
     logger.info("Icon registry evicted %s icons after reaching maxsize", len(evicted_ids))
+
+
+def _builtin_pack_ids() -> set[str]:
+    samples_dir = Path(__file__).resolve().parent.parent / "samples"
+    sample_pack_ids = set()
+    if samples_dir.is_dir():
+        sample_pack_ids = {path.name.lower() for path in samples_dir.iterdir() if path.is_dir()}
+    return _BUILTIN_PACK_IDS | sample_pack_ids
+
+
+def _protected_icon_ids() -> set[str]:
+    protected: set[str] = set()
+    for pack_id in _builtin_pack_ids():
+        protected.update(_PACK_INDEX.get(pack_id, []))
+    return protected
 
 
 def _invalidate_pack_asset_cache(pack_id: str) -> None:
     stale_keys = [key for key in _ASSET_CACHE if _cache_key_matches_pack(str(key), pack_id)]
     for key in stale_keys:
         _ASSET_CACHE.pop(key, None)
+    _invalidate_external_icon_caches()
 
 
 def _cache_key_matches_pack(cache_key: str, pack_id: str) -> bool:
@@ -113,6 +135,14 @@ def _cache_key_matches_pack(cache_key: str, pack_id: str) -> bool:
         or cache_key.startswith(f"drawio:{pack_id}:")
         or cache_key.startswith(f"visio:{pack_id}:")
     )
+
+
+def _invalidate_external_icon_caches() -> None:
+    try:
+        from azure_landing_zone import clear_icon_cache
+    except Exception:  # noqa: BLE001 — optional renderer cache
+        return
+    clear_icon_cache()
 
 
 def _persist_dir() -> Path:
@@ -344,7 +374,8 @@ def ingest_icon_pack(
 def get_icon(icon_id: str) -> Optional[IconEntry]:
     """Look up a single icon by canonical ID."""
     _ensure_loaded()
-    return _ICON_STORE.get(icon_id)
+    with _LOCK:
+        return _ICON_STORE.get(icon_id)
 
 
 def resolve_icon(
@@ -358,16 +389,18 @@ def resolve_icon(
     Lazily bootstraps the registry on first lookup (#587).
     """
     _ensure_loaded()
+    with _LOCK:
+        entries = list(_ICON_STORE.values())
 
     # Exact service_id match
-    for entry in _ICON_STORE.values():
+    for entry in entries:
         if entry.meta.service_id and entry.meta.service_id.lower() == service_id.lower():
             if entry.meta.provider == provider:
                 return entry
 
     # Fuzzy name match
     target = service_id.lower()
-    for entry in _ICON_STORE.values():
+    for entry in entries:
         if entry.meta.provider == provider and target in entry.meta.name.lower():
             return entry
 
@@ -386,10 +419,11 @@ def search_icons(
     results: list[IconMeta] = []
 
     # Restrict to pack if specified
-    if pack_id and pack_id in _PACK_INDEX:
-        candidates = [_ICON_STORE[cid] for cid in _PACK_INDEX[pack_id] if cid in _ICON_STORE]
-    else:
-        candidates = list(_ICON_STORE.values())
+    with _LOCK:
+        if pack_id and pack_id in _PACK_INDEX:
+            candidates = [_ICON_STORE[cid] for cid in _PACK_INDEX[pack_id] if cid in _ICON_STORE]
+        else:
+            candidates = list(_ICON_STORE.values())
 
     for entry in candidates:
         if provider and entry.meta.provider != provider:
@@ -410,18 +444,19 @@ def search_icons(
 
 def get_pack_icons(pack_id: str) -> list[IconEntry]:
     """Return all icons for a given pack, sorted by ID."""
-    ids = _PACK_INDEX.get(pack_id, [])
-    entries = [_ICON_STORE[cid] for cid in sorted(ids) if cid in _ICON_STORE]
-    return entries
+    with _LOCK:
+        ids = _PACK_INDEX.get(pack_id, [])
+        return [_ICON_STORE[cid] for cid in sorted(ids) if cid in _ICON_STORE]
 
 
 def list_packs() -> list[dict[str, Any]]:
     """Return all registered pack IDs and their icon counts."""
     _ensure_loaded()
-    return [
-        {"pack_id": pid, "icon_count": len(ids)}
-        for pid, ids in sorted(_PACK_INDEX.items())
-    ]
+    with _LOCK:
+        return [
+            {"pack_id": pid, "icon_count": len(ids)}
+            for pid, ids in sorted(_PACK_INDEX.items())
+        ]
 
 
 def get_cached_asset(cache_key: str) -> Optional[bytes]:
@@ -449,6 +484,7 @@ def clear_all() -> None:
         _PACK_INDEX.clear()
         _ASSET_CACHE.clear()
         _LOAD_ATTEMPTED = False
+    _invalidate_external_icon_caches()
 
 
 def delete_pack(pack_id: str) -> dict[str, Any]:
@@ -539,6 +575,7 @@ def load_builtin_packs() -> int:
             continue
         try:
             ingest_icon_pack(provider_dir, pack_id=provider_name)
+            _BUILTIN_PACK_IDS.add(provider_name)
             loaded += 1
         except Exception as exc:  # noqa: BLE001 — icon resolution is best-effort
             logger.warning("Failed to load builtin pack '%s': %s", str(provider_name).replace('\n', '').replace('\r', ''), str(exc).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom

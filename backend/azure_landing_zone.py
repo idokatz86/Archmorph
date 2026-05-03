@@ -270,6 +270,11 @@ def _resolve_bundled_data_uri(icon_key: str) -> Optional[str]:
 _ICON_CACHE: dict[str, Optional[str]] = {}
 
 
+def clear_icon_cache() -> None:
+    """Clear cached landing-zone icon data URIs after registry writes."""
+    _ICON_CACHE.clear()
+
+
 def _icon_data_uri(icon_key: str) -> Optional[str]:
     """Cached registry lookup.
 
