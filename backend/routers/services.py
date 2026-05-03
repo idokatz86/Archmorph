@@ -7,7 +7,12 @@ from fastapi import APIRouter, Query, Response, Depends
 from typing import Optional
 
 from services import AWS_SERVICES, AZURE_SERVICES, GCP_SERVICES, CROSS_CLOUD_MAPPINGS
-from service_updater import get_update_status, get_last_update, run_update_now
+from service_updater import (
+    get_update_status,
+    get_last_update,
+    run_update_now,
+    verify_service_catalog_blob_access,
+)
 from routers.shared import verify_api_key
 
 router = APIRouter()
@@ -205,4 +210,21 @@ async def service_update_last():
 async def trigger_service_update(_auth=Depends(verify_api_key)):
     """Trigger an immediate service catalog update (requires API key)."""
     result = run_update_now()
+    return result
+
+
+@router.post("/api/service-updates/storage-preflight")
+async def service_update_storage_preflight(_auth=Depends(verify_api_key)):
+    """Verify managed-identity Blob Storage access for deployment smoke."""
+    result = verify_service_catalog_blob_access()
+    if not result.get("ok"):
+        raise ArchmorphException(
+            503,
+            "Managed identity Blob Storage preflight failed",
+            details={
+                "ok": False,
+                "account_url_configured": result.get("account_url_configured", False),
+                "container": result.get("container", "service-catalog"),
+            },
+        )
     return result

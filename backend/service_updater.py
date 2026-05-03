@@ -29,6 +29,7 @@ import logging
 import os
 import re
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -330,6 +331,101 @@ def _get_discovered_blob_client():
 def _get_state_blob_client():
     """Return a BlobClient for service_updates.json, or None."""
     return _get_service_catalog_blob_client(SERVICE_UPDATES_BLOB_NAME)
+
+
+def _get_service_catalog_managed_identity_container_client():
+    """Return the service-catalog ContainerClient using managed identity only."""
+    account_url = os.getenv("AZURE_STORAGE_ACCOUNT_URL", "")
+    if not account_url:
+        return None
+    timeout = _blob_timeout_seconds()
+    from azure.identity import ManagedIdentityCredential
+    from azure.storage.blob import BlobServiceClient
+
+    credential_kwargs = {}
+    managed_identity_client_id = os.getenv("AZURE_CLIENT_ID")
+    if managed_identity_client_id:
+        credential_kwargs["client_id"] = managed_identity_client_id
+    credential = ManagedIdentityCredential(**credential_kwargs)
+    bsc = BlobServiceClient(
+        account_url,
+        credential=credential,
+        connection_timeout=timeout,
+        read_timeout=timeout,
+    )
+    return bsc.get_container_client(DISCOVERED_BLOB_CONTAINER)
+
+
+def verify_service_catalog_blob_access() -> dict[str, Any]:
+    """Verify managed-identity read/write/list access to service-catalog blobs."""
+    account_url = os.getenv("AZURE_STORAGE_ACCOUNT_URL", "")
+    if not account_url:
+        return {
+            "ok": False,
+            "account_url_configured": False,
+            "container": DISCOVERED_BLOB_CONTAINER,
+            "error": "AZURE_STORAGE_ACCOUNT_URL is not configured",
+        }
+
+    probe_name = f".deployment-preflight/{uuid.uuid4().hex}.json"
+    payload = json.dumps({
+        "probe": "service-catalog-storage",
+        "ts": datetime.now(timezone.utc).isoformat(),
+    })
+    timeout = _blob_timeout_seconds()
+    blob = None
+    probe_uploaded = False
+    try:
+        container = _get_service_catalog_managed_identity_container_client()
+        if container is None:
+            raise RuntimeError("managed-identity container client is not configured")
+
+        try:
+            container.get_container_properties(timeout=timeout)
+        except Exception:
+            container.create_container(timeout=timeout)
+
+        blob = container.get_blob_client(probe_name)
+        blob.upload_blob(payload.encode("utf-8"), overwrite=True, timeout=timeout)
+        probe_uploaded = True
+        raw = blob.download_blob(timeout=timeout).readall()
+        if raw.decode("utf-8") != payload:
+            raise RuntimeError("preflight blob read did not match written payload")
+        listed = any(
+            item.name == probe_name
+            for item in container.list_blobs(name_starts_with=probe_name, timeout=timeout)
+        )
+        if not listed:
+            raise RuntimeError("preflight blob was not returned by list_blobs")
+        blob.delete_blob(timeout=timeout)
+        probe_uploaded = False
+        return {
+            "ok": True,
+            "account_url_configured": True,
+            "account_url": account_url,
+            "container": DISCOVERED_BLOB_CONTAINER,
+            "operations": ["write", "read", "list", "delete"],
+        }
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Service-catalog blob preflight failed: %s", exc)
+        return {
+            "ok": False,
+            "account_url_configured": True,
+            "account_url": account_url,
+            "container": DISCOVERED_BLOB_CONTAINER,
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+        }
+    finally:
+        if probe_uploaded and blob is not None:
+            try:
+                blob.delete_blob(timeout=timeout)
+            except Exception as cleanup_exc:  # noqa: BLE001
+                logger.warning(
+                    "Failed to clean up service-catalog preflight blob %s: %s",
+                    probe_name,
+                    cleanup_exc,
+                )
 
 
 def _load_state_from_blob() -> Optional[dict[str, Any]]:

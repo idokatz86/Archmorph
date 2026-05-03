@@ -14124,6 +14124,28 @@
         "summary": "Service Update Status"
       }
     },
+    "/api/service-updates/storage-preflight": {
+      "post": {
+        "description": "Verify managed-identity Blob Storage access for deployment smoke.",
+        "operationId": "service_update_storage_preflight_api_service_updates_storage_preflight_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Service Update Storage Preflight"
+      }
+    },
     "/api/services": {
       "get": {
         "description": "List cloud services from all providers, with optional filters and pagination.",
@@ -23054,6 +23076,31 @@
           }
         },
         "summary": "Service Update Status V1",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/service-updates/storage-preflight": {
+      "post": {
+        "description": "Verify managed-identity Blob Storage access for deployment smoke.",
+        "operationId": "service_update_storage_preflight_v1_api_v1_service_updates_storage_preflight_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Service Update Storage Preflight V1",
         "tags": [
           "v1"
         ]

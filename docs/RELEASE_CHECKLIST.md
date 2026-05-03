@@ -59,7 +59,7 @@ The `CI/CD` workflow must pass before release:
 - `backend-tests`: Ruff, pytest, coverage threshold, OpenAPI export, committed OpenAPI contract snapshot check, backend SBOM, Grype.
 - `frontend-build`: ESLint, Vitest, Vite build, frontend SBOM, Grype.
 - `upload-sarif`: SARIF upload attempted for available scans.
-- `deploy-backend`: ACR build, Trivy container gate, Container Apps blue-green deploy, production health verify.
+- `deploy-backend`: ACR build, Trivy container gate, deployment secret validation, metrics storage managed-identity/RBAC preflight, Container Apps blue-green deploy, green revision refresh smoke, production health verify.
 - `deploy-frontend`: Static Web Apps deployment from the tested artifact.
 - `post-deploy-smoke`: deployed frontend, routed frontend URLs, API health, and OpenAPI schema checks.
 
@@ -80,6 +80,7 @@ After deployment, verify:
 - `/#translator` opens the translator workflow.
 - `/#playground` opens the sample playground.
 - `${API_URL}/health` passes `scripts/health_gate.sh`: status must be `healthy`, scheduled jobs must be fresh, and Redis must report either `ok` or `disabled_optional`. `missing_required` is release-blocking.
+- The green backend revision must successfully run `/api/service-updates/storage-preflight` and `/api/service-updates/run-now` with `X-API-Key: ADMIN_KEY` before traffic shift; this validates `ARCHMORPH_API_KEY`, `AZURE_STORAGE_ACCOUNT_URL`, and the managed-identity Blob Storage read/write/list path.
 - `${API_ROOT}/openapi.json` loads and reports `Archmorph API`.
 - Run the [Production Architecture Package Smoke](PRODUCTION_SMOKE_ARCHITECTURE_PACKAGE.md) workflow with `strict_freshness=true`; retain the summary and artifact bundle for release evidence.
 - Confirm each changed generated artifact has an owner, validation command or explicit gap note, fixture, release evidence location, and gap tracking entry in the [Generated Artifact Validation Matrix](GENERATED_ARTIFACT_VALIDATION_MATRIX.md).
