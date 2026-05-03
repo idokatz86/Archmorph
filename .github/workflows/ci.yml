@@ -297,6 +297,28 @@ jobs:
           tenant-id: ${{ env.AZURE_TENANT_ID }}
           subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
 
+      - name: Validate backend deploy secret inputs
+        run: |
+          missing=0
+          for name in \
+            AZURE_SUBSCRIPTION_ID \
+            AZURE_TENANT_ID \
+            AZURE_CLIENT_ID \
+            AZURE_RESOURCE_GROUP \
+            ACR_NAME \
+            ACR_LOGIN_SERVER \
+            CONTAINER_APP_NAME \
+            ADMIN_KEY; do
+            value="${!name:-}"
+            if [ -z "$value" ]; then
+              echo "::error::Required backend deploy input ${name} is not set"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
       - name: Login to ACR
         run: az acr login --name ${{ env.ACR_NAME }}
 
@@ -330,6 +352,9 @@ jobs:
       - name: Provision metrics storage
         run: |
           STORAGE_NAME="archmorphmetrics"
+          STORAGE_ACCOUNT_URL="https://${STORAGE_NAME}.blob.core.windows.net"
+          echo "STORAGE_NAME=$STORAGE_NAME" >> "$GITHUB_ENV"
+          echo "STORAGE_ACCOUNT_URL=$STORAGE_ACCOUNT_URL" >> "$GITHUB_ENV"
           if ! az storage account show --name "$STORAGE_NAME" --resource-group ${{ env.AZURE_RESOURCE_GROUP }} &>/dev/null; then
             echo "Creating storage account..."
             az storage account create \
@@ -340,17 +365,26 @@ jobs:
               --min-tls-version TLS1_2 \
               --https-only true \
               --allow-blob-public-access false \
-              --allow-shared-key-access true \
+              --allow-shared-key-access false \
               --only-show-errors
           else
             echo "Storage account $STORAGE_NAME already exists, skipping creation."
           fi
+
+          ALLOW_SHARED_KEY=$(az storage account show \
+            --name "$STORAGE_NAME" \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --query allowSharedKeyAccess -o tsv | tr '[:upper:]' '[:lower:]')
+          if [ "$ALLOW_SHARED_KEY" != "false" ]; then
+            echo "::error::Storage account $STORAGE_NAME must have shared-key access disabled"
+            exit 1
+          fi
+
           STORAGE_CONN=$(az storage account show-connection-string \
             --name "$STORAGE_NAME" \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --query connectionString -o tsv)
           echo "STORAGE_CONN=$STORAGE_CONN" >> "$GITHUB_ENV"
-          echo "STORAGE_ACCOUNT_URL=https://${STORAGE_NAME}.blob.core.windows.net" >> "$GITHUB_ENV"
           az storage container create \
             --name metrics \
             --account-name "$STORAGE_NAME" \
@@ -361,6 +395,12 @@ jobs:
             --name "$STORAGE_NAME" \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --query id -o tsv)
+          if [ -z "$STORAGE_ID" ]; then
+            echo "::error::Unable to resolve storage account resource ID for $STORAGE_NAME"
+            exit 1
+          fi
+          echo "STORAGE_ID=$STORAGE_ID" >> "$GITHUB_ENV"
+
           az containerapp identity assign \
             --name ${{ env.CONTAINER_APP_NAME }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
@@ -374,6 +414,7 @@ jobs:
             echo "::error::Container App system-assigned identity is not available"
             exit 1
           fi
+          echo "CONTAINER_APP_PRINCIPAL_ID=$CONTAINER_APP_PRINCIPAL_ID" >> "$GITHUB_ENV"
 
           EXISTING_ASSIGNMENT=$(az role assignment list \
             --assignee "$CONTAINER_APP_PRINCIPAL_ID" \
@@ -397,6 +438,7 @@ jobs:
               --query "[0].id" -o tsv)
             if [ -n "$ASSIGNMENT_ID" ]; then
               echo "Container App identity has Storage Blob Data Contributor on $STORAGE_NAME"
+              echo "STORAGE_ROLE_ASSIGNMENT_ID=$ASSIGNMENT_ID" >> "$GITHUB_ENV"
               break
             fi
             if [ "$attempt" -eq 6 ]; then
@@ -455,6 +497,46 @@ jobs:
           echo "green_revision=$GREEN_REV" >> $GITHUB_OUTPUT
           echo "Green revision: $GREEN_REV"
 
+      - name: Preflight green revision auth and storage contract
+        run: |
+          GREEN_REV="${{ steps.green.outputs.green_revision }}"
+          if [ -z "$GREEN_REV" ]; then
+            echo "::error::Green revision name was not produced by deploy step"
+            exit 1
+          fi
+
+          ENV_JSON=$(az containerapp revision show \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --revision "$GREEN_REV" \
+            --query "properties.template.containers[0].env" -o json)
+
+          for name in ARCHMORPH_ADMIN_KEY ARCHMORPH_API_KEY AZURE_STORAGE_ACCOUNT_URL; do
+            if ! echo "$ENV_JSON" | jq -e --arg name "$name" 'any(.[]; .name == $name)' >/dev/null; then
+              echo "::error::Green revision is missing required env var ${name}"
+              exit 1
+            fi
+          done
+
+          for name in ARCHMORPH_ADMIN_KEY ARCHMORPH_API_KEY; do
+            SECRET_REF=$(echo "$ENV_JSON" | jq -r --arg name "$name" '.[] | select(.name == $name) | .secretRef // ""')
+            if [ "$SECRET_REF" != "admin-key" ]; then
+              echo "::error::${name} must reference admin-key secret"
+              exit 1
+            fi
+          done
+
+          STORAGE_URL_VALUE=$(echo "$ENV_JSON" | jq -r '.[] | select(.name == "AZURE_STORAGE_ACCOUNT_URL") | .value // ""')
+          if [ "$STORAGE_URL_VALUE" != "$STORAGE_ACCOUNT_URL" ]; then
+            echo "::error::AZURE_STORAGE_ACCOUNT_URL mismatch. Expected $STORAGE_ACCOUNT_URL, got $STORAGE_URL_VALUE"
+            exit 1
+          fi
+
+          if [ -z "${CONTAINER_APP_PRINCIPAL_ID:-}" ] || [ -z "${STORAGE_ROLE_ASSIGNMENT_ID:-}" ]; then
+            echo "::error::Container App identity or blob role assignment proof is missing"
+            exit 1
+          fi
+
       - name: Smoke test green revision
         run: |
           GREEN_FQDN=$(az containerapp revision show \
@@ -476,43 +558,62 @@ jobs:
           echo "Running smoke tests against: $TEST_URL$HEALTH_PATH"
           BODY=$(curl -sS --max-time 30 "$TEST_URL$HEALTH_PATH" || true)
           CATALOG_STALE=$(echo "$BODY" | jq -r '.service_catalog_refresh.stale // false' 2>/dev/null || echo false)
+          echo "Initial green revision service_catalog_refresh.stale=$CATALOG_STALE"
 
-          if [ "$CATALOG_STALE" = "true" ]; then
-            if [ -n "$GREEN_FQDN" ]; then
-              REFRESH_URL="$TEST_URL/api/service-updates/run-now"
-            else
-              REFRESH_URL="$TEST_URL/service-updates/run-now"
+          if [ -n "$GREEN_FQDN" ]; then
+            STORAGE_PREFLIGHT_URL="$TEST_URL/api/service-updates/storage-preflight"
+            REFRESH_URL="$TEST_URL/api/service-updates/run-now"
+          else
+            STORAGE_PREFLIGHT_URL="$TEST_URL/service-updates/storage-preflight"
+            REFRESH_URL="$TEST_URL/service-updates/run-now"
+          fi
+
+          echo "Validating green revision managed-identity blob read/write/list path: $STORAGE_PREFLIGHT_URL"
+          if ! HTTP_CODE=$(curl -sS -o storage-preflight-response.json -w "%{http_code}" \
+            --max-time 60 \
+            -X POST "$STORAGE_PREFLIGHT_URL" \
+            -H "X-API-Key: $ADMIN_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{}'); then
+            HTTP_CODE="${HTTP_CODE:-000}"
+          fi
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::Green revision managed-identity blob preflight returned HTTP ${HTTP_CODE}"
+            if [ -s storage-preflight-response.json ]; then
+              jq -c '{detail: (.detail // .)}' storage-preflight-response.json 2>/dev/null \
+                || head -c 2000 storage-preflight-response.json
+            fi
+            exit 1
+          fi
+
+          echo "Validating green revision refresh auth and managed-identity blob path: $REFRESH_URL"
+          for attempt in 1 2; do
+            if ! HTTP_CODE=$(curl -sS -o refresh-response.json -w "%{http_code}" \
+              --max-time 300 \
+              -X POST "$REFRESH_URL" \
+              -H "X-API-Key: $ADMIN_KEY" \
+              -H "Content-Type: application/json" \
+              -d '{}'); then
+              HTTP_CODE="${HTTP_CODE:-000}"
             fi
 
-            echo "Priming service catalog freshness for green revision: $REFRESH_URL"
-            for attempt in 1 2; do
-              if ! HTTP_CODE=$(curl -sS -o refresh-response.json -w "%{http_code}" \
-                --max-time 300 \
-                -X POST "$REFRESH_URL" \
-                -H "X-API-Key: $ADMIN_KEY" \
-                -H "Content-Type: application/json" \
-                -d '{}'); then
-                HTTP_CODE="${HTTP_CODE:-000}"
-              fi
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "Green revision service catalog refresh OK on attempt ${attempt}"
+              break
+            fi
 
-              if [ "$HTTP_CODE" = "200" ]; then
-                echo "Green revision service catalog refresh OK on attempt ${attempt}"
-                break
-              fi
-
-              echo "::warning::Green revision refresh attempt ${attempt} returned HTTP ${HTTP_CODE}"
-              if [ -s refresh-response.json ]; then
-                jq -c '{status: (.status // .detail // "unknown"), errors: (.errors // {})}' refresh-response.json 2>/dev/null \
-                  || head -c 2000 refresh-response.json
-              fi
-              if [ "$attempt" -lt 2 ]; then
-                sleep $((attempt * 15))
-              else
-                echo "::error::Green revision service catalog refresh failed after 2 attempts"
-                exit 1
-              fi
-            done
-          fi
+            echo "::warning::Green revision refresh attempt ${attempt} returned HTTP ${HTTP_CODE}"
+            if [ -s refresh-response.json ]; then
+              jq -c '{status: (.status // .detail // "unknown"), errors: (.errors // {})}' refresh-response.json 2>/dev/null \
+                || head -c 2000 refresh-response.json
+            fi
+            if [ "$attempt" -lt 2 ]; then
+              sleep $((attempt * 15))
+            else
+              echo "::error::Green revision service catalog refresh failed after 2 attempts"
+              exit 1
+            fi
+          done
 
           HEALTH_RETRIES=3 HEALTH_RETRY_SECONDS=15 ./scripts/health_gate.sh "$TEST_URL$HEALTH_PATH"
           VERSION=$(curl -s --max-time 30 "$TEST_URL$HEALTH_PATH" | jq -r '.version' 2>/dev/null || echo 'unknown')

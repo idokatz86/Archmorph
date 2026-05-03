@@ -16,6 +16,7 @@ These secrets are required in `.github/workflows/ci.yml`:
 | `ACR_LOGIN_SERVER` | ACR login server URL | `myacrname.azurecr.io` |
 | `CONTAINER_APP_NAME` | Azure Container Apps name | `archmorph-api` |
 | `CONTAINER_APP_ENV` | Container Apps Environment name | `archmorph-cae-dev` |
+| `ADMIN_KEY` | Backend admin/API key used by deploy smoke to authenticate service catalog refresh | (strong random secret) |
 | `SWA_NAME` | Static Web App name | `archmorph-frontend` |
 | `API_URL` | Backend API URL (with `/api` suffix) | `https://your-app.azurecontainerapps.io/api` |
 | `SWA_DEPLOYMENT_TOKEN` | Static Web App deployment token | (from Azure Portal) |
@@ -81,4 +82,7 @@ az staticwebapp secrets list --name YOUR_SWA_NAME --query properties.apiKey -o t
 - Use OIDC authentication instead of service principal secrets when possible
 - Rotate secrets periodically
 - Use production GitHub environment secrets; Archmorph does not maintain a separate staging environment
+- Backend Container Apps deployments require `ARCHMORPH_API_KEY` and `ARCHMORPH_ADMIN_KEY` to reference the `ADMIN_KEY` secret in the deployed revision.
+- The `archmorphmetrics` storage account must keep shared-key access disabled; backend storage access is expected to use `AZURE_STORAGE_ACCOUNT_URL` plus the Container App system-assigned managed identity with `Storage Blob Data Contributor`.
+- The deploy smoke calls `/api/service-updates/storage-preflight` before traffic shift to prove the deployed revision can write, read, list, and delete service-catalog blobs through managed identity.
 - The `SWA_DEPLOYMENT_TOKEN` is sensitive - regenerate if compromised

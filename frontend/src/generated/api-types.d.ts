@@ -4197,6 +4197,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/service-updates/storage-preflight": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Service Update Storage Preflight
+         * @description Verify managed-identity Blob Storage access for deployment smoke.
+         */
+        post: operations["service_update_storage_preflight_api_service_updates_storage_preflight_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/services": {
         parameters: {
             query?: never;
@@ -7877,6 +7897,26 @@ export interface paths {
         get: operations["service_update_status_v1_api_v1_service_updates_status_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/service-updates/storage-preflight": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Service Update Storage Preflight V1
+         * @description Verify managed-identity Blob Storage access for deployment smoke.
+         */
+        post: operations["service_update_storage_preflight_v1_api_v1_service_updates_storage_preflight_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -16902,6 +16942,26 @@ export interface operations {
             };
         };
     };
+    service_update_storage_preflight_api_service_updates_storage_preflight_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
     list_all_services_api_services_get: {
         parameters: {
             query?: {
@@ -22621,6 +22681,26 @@ export interface operations {
         };
     };
     service_update_status_v1_api_v1_service_updates_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    service_update_storage_preflight_v1_api_v1_service_updates_storage_preflight_post: {
         parameters: {
             query?: never;
             header?: never;
