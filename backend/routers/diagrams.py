@@ -34,6 +34,7 @@ from error_envelope import ArchmorphException
 from sku_translator import get_sku_translator
 from confidence_provenance import build_provenance
 from architecture_rules import evaluate as evaluate_architecture_rules
+from architecture_review import build_audit_pipeline_issue, classify_regulated_workload
 from source_provider import normalize_source_provider
 
 logger = logging.getLogger(__name__)
@@ -98,6 +99,11 @@ def _enrich_with_architecture_issues(result: dict) -> dict:
     """
     try:
         issues = evaluate_architecture_rules(result)
+        classification = classify_regulated_workload(result)
+        result["regulated_workload"] = classification.to_dict()
+        audit_issue = build_audit_pipeline_issue(result, classification)
+        if audit_issue is not None:
+            issues.append(audit_issue)
         issue_dicts = [i.to_dict() for i in issues]
         summary = {"blocker": 0, "warning": 0, "info": 0, "total": len(issue_dicts)}
         for d in issue_dicts:

@@ -1,0 +1,20 @@
+{
+  "description": "ActOne XSE case investigation platform for AML, SAR filing, KYC review, fraud triage, transaction monitoring, and GDPR personal data handling.",
+  "identified_services": [
+    {"name": "Case Management API", "category": "Application"},
+    {"name": "Transaction Monitoring Engine", "category": "Application"},
+    {"name": "Self-managed ElasticSearch audit logs", "category": "Monitoring"},
+    {"name": "PostgreSQL customer records", "category": "Database"}
+  ],
+  "mappings": [
+    {"source_service": "Self-managed ElasticSearch", "azure_service": "Azure Monitor", "category": "Monitoring"},
+    {"source_service": "PostgreSQL customer records", "azure_service": "Azure Database for PostgreSQL", "category": "Database"}
+  ],
+  "service_connections": [
+    {"from": "Case Management API", "to": "Self-managed ElasticSearch audit logs", "type": "log stream"}
+  ],
+  "metadata": {
+    "file_name": "actone-xse-aml-gdpr.drawio",
+    "notes": "The diagram shows operational monitoring only; it does not show a compliant durable audit-evidence pipeline."
+  }
+}
