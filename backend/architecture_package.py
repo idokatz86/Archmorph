@@ -16,6 +16,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Literal
 
+from alz_profile import alz_profile_summary, build_alz_profile
 from azure_landing_zone import generate_landing_zone_svg
 from azure_landing_zone_schema import infer_dr_mode, infer_regions, infer_tiers_from_mappings
 from customer_intent import build_customer_intent_profile
@@ -238,6 +239,7 @@ def _build_manifest(
             for name, role, artifact_format in _manifest_artifacts(artifact_filenames, format)
         ],
         "mapping_references": _mapping_references(analysis),
+        "alz_profile": build_alz_profile(analysis),
         "traceability_map": build_traceability_map(analysis),
         "warnings": raw_warnings[:10],
         "limitations": [
@@ -390,6 +392,7 @@ def _talking_points(analysis: dict[str, Any], profile: dict[str, str]) -> list[t
 
     points = [
         ("Lead with the source-to-target story", f"Translate the detected {source} estate into Azure landing-zone tiers so platform teams can review ingress, compute, data, identity, storage, and observability separately."),
+        ("Name the CAF/AVM landing zone assumptions", "Use the caf-avm-baseline profile for hub-spoke networking, private endpoints, managed identities, diagnostic settings, policy, backup, and required workload tags."),
         ("Anchor the deployment region", f"Use {target_region} as the primary deployment anchor and align the topology to {profile.get('availability', 'the stated availability target')}."),
         ("Make security boundaries explicit", f"Apply {profile.get('network_isolation', 'VNet integration')} and {profile.get('data_residency', 'the stated data residency posture')} as design guardrails."),
         ("Keep cost posture visible", f"Keep {profile.get('sku_strategy', 'balanced')} as the commercial posture for sizing and cost discussions."),
@@ -439,6 +442,9 @@ def _limitations(analysis: dict[str, Any], profile: dict[str, str]) -> list[tupl
         limits.append(("Validate compliance scope", f"Compliance scope is advisory until validated against the customer's control set: {profile['compliance']}."))
     if profile.get("rto") and profile.get("rto") != "Not required":
         limits.append(("Prove RTO/RPO operations", f"RTO target {profile['rto']} requires backup, replication, failover, and operations runbook validation."))
+    alz_lines = alz_profile_summary(analysis)
+    if alz_lines:
+        limits.append(("Review CAF/AVM landing zone profile", "Generated outputs assume " + "; ".join(alz_lines[:4]) + "."))
     trace_lines = traceability_summary(analysis, limit=3)
     if trace_lines:
         limits.append(("Review IaC traceability evidence", "Generated resources include source-to-Azure lineage: " + "; ".join(trace_lines)))

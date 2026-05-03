@@ -789,6 +789,10 @@ def generate_diagram(
         "mapping_references": [
           { "source_service": "ALB", "azure_service": "Application Gateway", "category": "Networking", "confidence": 0.96 }
         ],
+        "alz_profile": {
+          "schema_version": "azure-landing-zone-profile/v1",
+          "name": "caf-avm-baseline"
+        },
         "warnings": ["review warning text"],
         "limitations": [
           { "title": "Validate low-confidence mappings", "detail": "Owner validation is required." }
@@ -798,6 +802,40 @@ def generate_diagram(
       ```
 
       The manifest is emitted for both `format=html` and `format=svg` package exports. It is returned as the response `manifest` field and embedded into the artifact bytes as `archmorph-artifact-manifest` metadata. Manifest values are sanitized before emission; secret-like keys or values such as passwords, tokens, credentials, API keys, and connection strings are redacted. Raw `guided_answers` are intentionally excluded; reviewers should use `customer_intent_profile_hash` for profile traceability without exposing the source answer payload.
+
+      Azure Landing Zone profile contract:
+
+      ```json
+      {
+        "schema_version": "azure-landing-zone-profile/v1",
+        "name": "caf-avm-baseline",
+        "architecture_style": "CAF enterprise-scale landing zone with AVM-compatible resource defaults",
+        "networking": {
+          "topology": "hub-spoke",
+          "private_endpoints": "private endpoints enabled for data, storage, key vault, and PaaS ingress where supported",
+          "dns": "Azure Private DNS zones linked from hub networking"
+        },
+        "identity": {
+          "managed_identity": "system-assigned or user-assigned managed identities for workload resources",
+          "key_vault": "Azure Key Vault with RBAC authorization and purge protection"
+        },
+        "monitoring": {
+          "log_analytics": "central workspace",
+          "retention_days": 90,
+          "diagnostic_settings": "enabled for supported resources"
+        },
+        "tagging": {
+          "required_tags": ["workload", "environment", "owner", "costCenter", "dataClassification", "criticality", "landingZone"]
+        },
+        "avm": {
+          "module_convention": "Azure Verified Modules resource modules where generated IaC is promoted beyond scaffold",
+          "versioning": "pin module/provider versions and upgrade deliberately"
+        },
+        "tradeoffs": ["Small workloads may collapse hub, spoke, policy, and monitoring resources into one subscription/resource group to reduce delivery overhead."]
+      }
+      ```
+
+      The profile is emitted as `terraform/alz-profile.json`, embedded in Architecture Package manifests under `manifest.alz_profile`, and summarized in Architecture Package talking points and limitations. Generated Terraform applies the profile's required CAF tags (`workload`, `environment`, `owner`, `costCenter`, `dataClassification`, `criticality`, `landingZone`) to resource groups and module resources. The scaffold remains intentionally conservative: it documents AVM alignment and CAF defaults without pretending to replace platform-team review of management groups, policy assignments, shared hub networking, or subscription vending.
 
       Source-to-Azure IaC traceability map contract:
 
