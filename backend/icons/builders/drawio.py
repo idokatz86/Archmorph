@@ -19,7 +19,7 @@ import xml.etree.ElementTree as ET  # nosec B405  # nosemgrep: python.lang.secur
 from typing import Optional
 
 from icons.models import IconEntry
-from icons.registry import get_cached_asset, get_pack_generation, get_pack_icons, set_cached_asset, _metrics
+from icons.registry import IconPackChangedDuringBuild, get_cached_asset, get_pack_generation, get_pack_icons, set_cached_asset, _metrics
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +86,7 @@ def build_drawio_library(
         )
 
         return result
-    raise ValueError("Icon pack changed during library build; please retry")
+    raise IconPackChangedDuringBuild("Icon pack changed during library build; please retry")
 
 
 def _build_library_entry(icon: IconEntry, embed_mode: str) -> dict:

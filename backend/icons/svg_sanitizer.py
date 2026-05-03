@@ -29,7 +29,7 @@ MAX_SVG_SIZE = 512 * 1024  # 512 KB per SVG
 # Tags that are never allowed
 _BLOCKED_TAGS = frozenset({
     "script", "foreignobject", "iframe", "embed", "object", "applet",
-    "meta", "link", "import", "style", "use",
+    "meta", "link", "import", "style",
 })
 
 # Attribute patterns that are never allowed

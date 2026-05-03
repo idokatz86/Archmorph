@@ -28,7 +28,7 @@ import zipfile
 from typing import Optional
 
 from icons.models import IconEntry
-from icons.registry import get_cached_asset, get_pack_generation, get_pack_icons, set_cached_asset, _metrics
+from icons.registry import IconPackChangedDuringBuild, get_cached_asset, get_pack_generation, get_pack_icons, set_cached_asset, _metrics
 
 logger = logging.getLogger(__name__)
 
@@ -122,7 +122,7 @@ def build_visio_stencil_pack(
             str(pack_id).replace('\n', '').replace('\r', ''), str(len(manifest_entries)).replace('\n', '').replace('\r', ''), str(include_png).replace('\n', '').replace('\r', ''), str(elapsed).replace('\n', '').replace('\r', ''),  # codeql[py/log-injection] Handled by custom
         )
         return result
-    raise ValueError("Icon pack changed during library build; please retry")
+    raise IconPackChangedDuringBuild("Icon pack changed during library build; please retry")
 
 
 def get_visio_embed_svg(icon: IconEntry) -> str:

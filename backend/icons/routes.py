@@ -28,6 +28,7 @@ from icons import registry
 from icons.builders.drawio import build_drawio_library
 from icons.builders.excalidraw import build_excalidraw_library
 from icons.builders.visio import build_visio_stencil_pack
+from icons.registry import IconPackChangedDuringBuild
 
 logger = logging.getLogger(__name__)
 
@@ -194,6 +195,8 @@ async def download_drawio_library(
 
     try:
         data = build_drawio_library(pack_id, embed_mode=embed_mode, title=title)
+    except IconPackChangedDuringBuild as exc:
+        raise ArchmorphException(status_code=409, detail=str(exc))
     except ValueError as exc:
         raise ArchmorphException(status_code=404, detail=str(exc))
 
@@ -221,6 +224,8 @@ async def download_excalidraw_library(
     """
     try:
         data = build_excalidraw_library(pack_id, title=title)
+    except IconPackChangedDuringBuild as exc:
+        raise ArchmorphException(status_code=409, detail=str(exc))
     except ValueError as exc:
         raise ArchmorphException(status_code=404, detail=str(exc))
 
@@ -250,6 +255,8 @@ async def download_visio_stencil_pack(
     """
     try:
         data = build_visio_stencil_pack(pack_id, title=title, include_png=include_png)
+    except IconPackChangedDuringBuild as exc:
+        raise ArchmorphException(status_code=409, detail=str(exc))
     except ValueError as exc:
         raise ArchmorphException(status_code=404, detail=str(exc))
 

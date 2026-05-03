@@ -58,6 +58,7 @@ EXTERNAL_HREF_SVG = b'<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http:
 RELATIVE_HREF_SVG = b'<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48"><image href="/private.png"/><image href="#local-symbol"/></svg>'
 FOREIGNOBJECT_SVG = b'<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48"><foreignObject><body xmlns="http://www.w3.org/1999/xhtml"><script>alert(1)</script></body></foreignObject></svg>'
 STYLE_SVG = b'<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48"><style>rect{background:url(https://evil.example/x)}</style><rect width="48" height="48"/></svg>'
+LOCAL_USE_SVG = b'<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48"><defs><symbol id="local-symbol"><rect width="48" height="48"/></symbol></defs><use href="#local-symbol"/></svg>'
 
 API_HEADERS = {"X-API-Key": "test-api-key"}
 ADMIN_KEY = "test-admin-key"
@@ -181,6 +182,11 @@ class TestSVGSanitizer:
     def test_relative_href_stripped_but_fragment_kept(self):
         result = validate_svg(RELATIVE_HREF_SVG)
         assert "/private.png" not in result
+        assert "#local-symbol" in result
+
+    def test_local_use_fragment_kept(self):
+        result = validate_svg(LOCAL_USE_SVG)
+        assert "<use" in result
         assert "#local-symbol" in result
 
     def test_foreignobject_stripped(self):
@@ -522,7 +528,7 @@ class TestIconRegistry:
         assert after_ids == before_ids
         assert registry.get_icon("azure_compute_custom_icon") is None
 
-    def test_legacy_custom_provider_pack_is_not_restored_as_builtin(self, monkeypatch, tmp_path):
+    def test_legacy_custom_provider_pack_is_replaced_by_builtin_on_restore(self, monkeypatch, tmp_path):
         monkeypatch.setenv("ICON_REGISTRY_DATA_DIR", str(tmp_path))
         legacy_id = "custom_compute_legacy_icon"
         meta = IconMeta(
@@ -546,12 +552,9 @@ class TestIconRegistry:
         )
 
         assert registry._load_from_disk() is True
-        assert registry.get_pack_icons("azure")[0].meta.name == "Legacy Icon"
-
-        assert registry.load_builtin_packs() >= 1
-
         assert registry.get_icon(legacy_id) is None
         assert all(icon.meta.provider == "azure" for icon in registry.get_pack_icons("azure"))
+        assert registry.get_pack_icons("azure")
 
     def test_builtin_load_marks_icons_before_eviction(self, monkeypatch):
         monkeypatch.setenv("ICON_REGISTRY_MAX_ICONS", "1")
@@ -950,6 +953,26 @@ class TestIconAPI:
     def test_drawio_missing_pack(self):
         resp = self.client.get("/api/libraries/drawio?packId=nope")
         assert resp.status_code == 404
+
+    def test_library_retry_exhaustion_returns_conflict(self, monkeypatch):
+        from icons import registry as icon_registry
+        import icons.routes as icon_routes
+
+        def changed_pack(*args, **kwargs):
+            raise icon_registry.IconPackChangedDuringBuild("Icon pack changed during library build; please retry")
+
+        monkeypatch.setattr(icon_routes, "build_drawio_library", changed_pack)
+        monkeypatch.setattr(icon_routes, "build_excalidraw_library", changed_pack)
+        monkeypatch.setattr(icon_routes, "build_visio_stencil_pack", changed_pack)
+
+        for path in (
+            "/api/libraries/drawio?packId=changing",
+            "/api/libraries/excalidraw?packId=changing",
+            "/api/libraries/visio?packId=changing",
+        ):
+            resp = self.client.get(path)
+            assert resp.status_code == 409
+            assert "changed during library build" in resp.json()["error"]["message"]
 
     def test_drawio_invalid_embed_mode(self, small_zip_pack):
         self.client.post(

@@ -193,6 +193,10 @@ def _persist_file() -> Path:
 _LOAD_ATTEMPTED: bool = False
 
 
+class IconPackChangedDuringBuild(RuntimeError):
+    """Raised when a pack changes repeatedly while a library is being built."""
+
+
 def _autoload_disabled() -> bool:
     """Whether autoload is disabled via env var.
 
@@ -616,6 +620,7 @@ def _load_from_disk() -> bool:
         return False
     try:
         raw = json.loads(persist_file.read_text(encoding="utf-8"))
+        has_builtin_marker = "builtin_packs" in raw
         persisted_builtin_packs = set(raw.get("builtin_packs", []))
         with _LOCK:
             for cid, data in raw.get("icons", {}).items():
@@ -627,6 +632,10 @@ def _load_from_disk() -> bool:
                 if pid in persisted_builtin_packs and pid in _sample_pack_ids():
                     _mark_builtin_pack(pid, [cid for cid in ids if cid in _ICON_STORE])
             _evict_icons_if_needed()
+        if not has_builtin_marker:
+            loaded = load_builtin_packs()
+            if loaded:
+                logger.info("Registry backfilled %s builtin pack(s) after legacy disk restore", str(loaded))
         logger.info("Registry loaded from disk: %s icons, %s packs", str(len(_ICON_STORE)).replace('\n', '').replace('\r', ''), str(len(_PACK_INDEX)).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
         return True
     except Exception as exc:  # noqa: BLE001 — icon metadata parsing is best-effort
