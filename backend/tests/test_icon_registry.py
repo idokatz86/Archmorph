@@ -21,6 +21,7 @@ import zipfile
 from pathlib import Path
 
 import pytest
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 # Ensure backend is on the path
@@ -1039,6 +1040,17 @@ class TestIconAPI:
         assert resp.status_code == 401
         assert registry.list_packs() == []
 
+    def test_upload_zip_pack_rejects_invalid_admin_bearer(self, small_zip_pack):
+        resp = self.client.post(
+            "/api/icon-packs?pack_id=api-invalid-bearer",
+            files={"file": ("test.zip", small_zip_pack, "application/zip")},
+            headers={"Authorization": "Bearer not-a-valid-session-token"},
+        )
+
+        assert resp.status_code == 401
+        assert resp.json()["error"]["message"] == "Invalid or expired session token"
+        assert registry.list_packs() == []
+
     def test_upload_zip_pack_fails_closed_when_admin_not_configured(self, small_zip_pack, monkeypatch):
         import admin_auth
         monkeypatch.setattr(admin_auth, "ADMIN_SECRET", "")
@@ -1066,6 +1078,36 @@ class TestIconAPI:
         assert resp.status_code == 401
         assert registry.list_packs() == [{"pack_id": "api-delete-auth", "icon_count": 1}]
 
+    def test_delete_icon_pack_rejects_general_api_key(self, small_zip_pack):
+        upload = self.client.post(
+            "/api/icon-packs?pack_id=api-delete-general-key",
+            files={"file": ("test.zip", small_zip_pack, "application/zip")},
+            headers=self.admin_headers,
+        )
+        assert upload.status_code == 200
+
+        resp = self.client.delete("/api/icon-packs/api-delete-general-key", headers=API_HEADERS)
+
+        assert resp.status_code == 401
+        assert registry.list_packs() == [{"pack_id": "api-delete-general-key", "icon_count": 1}]
+
+    def test_delete_icon_pack_rejects_invalid_admin_bearer(self, small_zip_pack):
+        upload = self.client.post(
+            "/api/icon-packs?pack_id=api-delete-invalid-bearer",
+            files={"file": ("test.zip", small_zip_pack, "application/zip")},
+            headers=self.admin_headers,
+        )
+        assert upload.status_code == 200
+
+        resp = self.client.delete(
+            "/api/icon-packs/api-delete-invalid-bearer",
+            headers={"Authorization": "Bearer not-a-valid-session-token"},
+        )
+
+        assert resp.status_code == 401
+        assert resp.json()["error"]["message"] == "Invalid or expired session token"
+        assert registry.list_packs() == [{"pack_id": "api-delete-invalid-bearer", "icon_count": 1}]
+
     def test_delete_icon_pack_with_admin_session(self, small_zip_pack):
         upload = self.client.post(
             "/api/icon-packs?pack_id=api-delete-ok",
@@ -1080,6 +1122,26 @@ class TestIconAPI:
         assert resp.json()["deleted"] is True
         assert registry.list_packs() == []
 
+    def test_icon_pack_mutation_route_inventory_is_admin_protected(self):
+        from main import app
+
+        schema = self.client.get("/openapi.json").json()
+        registered_mutations = {
+            (method, route.path_format)
+            for route in app.routes
+            if isinstance(route, APIRoute) and route.path_format.startswith("/api/icon-packs")
+            for method in route.methods
+            if method in {"POST", "PUT", "PATCH", "DELETE"}
+        }
+
+        assert registered_mutations == {
+            ("POST", "/api/icon-packs"),
+            ("DELETE", "/api/icon-packs/{pack_id}"),
+        }
+        for method, path in registered_mutations:
+            operation = schema["paths"][path][method.lower()]
+            assert operation["security"] == [{"HTTPBearer": []}]
+
     def test_icon_pack_writes_document_admin_bearer_auth(self):
         schema = self.client.get("/openapi.json").json()
         security_schemes = schema["components"]["securitySchemes"]
@@ -1091,7 +1153,7 @@ class TestIconAPI:
             schema["paths"]["/api/icon-packs/{pack_id}"]["delete"],
         ]
         for operation in operations:
-            assert {"HTTPBearer": []} in operation["security"]
+            assert operation["security"] == [{"HTTPBearer": []}]
             parameters = operation.get("parameters", [])
             assert not any(param.get("name") == "authorization" for param in parameters)
 
