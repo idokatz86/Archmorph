@@ -7,6 +7,7 @@ goes through the real XML parser, not substring/key existence checks.
 from __future__ import annotations
 
 import json
+import math
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -349,6 +350,45 @@ class TestProductionReadyGuardrails:
         assert size_bytes <= 300 * 1024, (
             f"SVG size {size_bytes} bytes exceeds 300 KB cap on canonical fixture"
         )
+
+    def test_canonical_estate_renders_service_connection_flow_paths(self, canonical_aws_estate):
+        result = generate_landing_zone_svg(canonical_aws_estate, dr_variant="primary")
+        root = ET.fromstring(result["content"])
+        flow_paths = [
+            path for path in root.iter(f"{SVG_NS}path")
+            if path.get("class") == "service-flow-edge"
+        ]
+        texts = [text.text or "" for text in root.iter(f"{SVG_NS}text")]
+
+        expected = math.ceil(len(canonical_aws_estate["service_connections"]) * 0.8)
+        assert len(flow_paths) >= expected
+        assert "traffic" in texts
+        assert "database" in texts
+        marker_ids = {path.get("marker-end") for path in flow_paths}
+        assert "url(#aflow-default)" in marker_ids
+        assert "url(#aflow-db)" in marker_ids
+
+    def test_landing_zone_svg_does_not_truncate_service_connections_above_40(self):
+        analysis = {
+            **SAMPLE_ANALYSIS,
+            "mappings": [
+                {"source_service": "CloudFront", "azure_service": "Azure Front Door", "category": "Edge"},
+                {"source_service": "ALB", "azure_service": "Application Gateway", "category": "Networking"},
+            ],
+            "service_connections": [
+                {"source": "Azure Front Door", "target": "Application Gateway", "type": "traffic"}
+                for _ in range(45)
+            ],
+        }
+
+        result = generate_landing_zone_svg(analysis, dr_variant="primary")
+        root = ET.fromstring(result["content"])
+        flow_paths = [
+            path for path in root.iter(f"{SVG_NS}path")
+            if path.get("class") == "service-flow-edge"
+        ]
+
+        assert len(flow_paths) == len(analysis["service_connections"])
 
     def test_dr_variant_renders_real_icons_too(self, canonical_aws_estate):
         """DR variant has 2x the canvas; must not lose icon resolution along the way."""

@@ -6,10 +6,13 @@ previous coverage only checked that the result dict contained ``content`` or
 valid — masking the broken Visio output (#569).
 """
 import json
+import math
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 import pytest
 from diagram_export import generate_diagram, get_azure_stencil_id
+from service_connection_utils import connection_label, service_key
 
 
 SAMPLE_ANALYSIS = {
@@ -40,6 +43,34 @@ SAMPLE_ANALYSIS = {
         },
     ],
 }
+
+
+CANONICAL_AWS_ESTATE_PATH = (
+    Path(__file__).parent / "fixtures" / "aws_canonical_estate.json"
+)
+
+
+def _large_connection_analysis(count: int = 90) -> dict:
+    mappings = [
+        {
+            "source_service": f"Source {i}",
+            "azure_service": f"Service {i}",
+            "category": "Compute",
+            "confidence": 0.95,
+        }
+        for i in range(count + 1)
+    ]
+    return {
+        "title": "Large Connection Export",
+        "source_provider": "AWS",
+        "target_provider": "azure",
+        "zones": [{"id": 1, "number": 1, "name": "generated", "services": []}],
+        "mappings": mappings,
+        "service_connections": [
+            {"source": f"Service {i}", "target": f"Service {i + 1}", "type": "traffic"}
+            for i in range(count)
+        ],
+    }
 
 
 MIXED_CLOUD_ANALYSIS = {
@@ -79,6 +110,19 @@ class TestGetAzureStencilId:
         assert isinstance(stencil, str)
 
 
+class TestServiceConnectionUtils:
+    def test_service_key_strips_provider_labels_without_regex_backtracking(self):
+        noisy = "[" * 5000 + "AWS] Azure Front Door"
+
+        assert service_key(noisy) == "frontdoor"
+
+    def test_service_key_normalizes_mixed_provider_labels(self):
+        assert service_key("[GCP] Pub/Sub → Azure Event Hubs") == "pubsubeventhubs"
+
+    def test_connection_label_defaults_to_traffic(self):
+        assert connection_label({}) == "traffic"
+
+
 class TestGenerateDiagram:
     def test_excalidraw_produces_valid_json_with_elements(self):
         result = generate_diagram(SAMPLE_ANALYSIS, format="excalidraw")
@@ -99,6 +143,41 @@ class TestGenerateDiagram:
         assert root.tag in ("mxfile", "mxGraphModel"), f"Unexpected root: {root.tag}"
         cells = root.findall(".//mxCell")
         assert len(cells) > 0, "Draw.io export had no mxCell elements"
+
+    def test_drawio_renders_service_connection_edges_from_canonical_fixture(self):
+        analysis = json.loads(CANONICAL_AWS_ESTATE_PATH.read_text(encoding="utf-8"))
+
+        result = generate_diagram(analysis, format="drawio")
+        root = ET.fromstring(result["content"])
+        edges = [cell for cell in root.findall(".//mxCell") if cell.get("edge") == "1"]
+
+        expected = math.ceil(len(analysis["service_connections"]) * 0.8)
+        assert len(edges) >= expected
+        assert all((edge.get("value") or "") != "data flow" for edge in edges)
+
+    def test_drawio_connection_edge_label_includes_protocol_and_type(self):
+        analysis = {
+            **SAMPLE_ANALYSIS,
+            "zones": [{"id": 1, "number": 1, "name": "app", "services": []}],
+            "service_connections": [
+                {"from": "EC2", "to": "S3", "protocol": "HTTPS", "type": "storage"},
+            ],
+        }
+
+        result = generate_diagram(analysis, format="drawio")
+        root = ET.fromstring(result["content"])
+        edge_values = [cell.get("value") or "" for cell in root.findall(".//mxCell") if cell.get("edge") == "1"]
+
+        assert "HTTPS · storage" in edge_values
+
+    def test_drawio_does_not_truncate_service_connections_above_80(self):
+        analysis = _large_connection_analysis(count=90)
+
+        result = generate_diagram(analysis, format="drawio")
+        root = ET.fromstring(result["content"])
+        edges = [cell for cell in root.findall(".//mxCell") if cell.get("edge") == "1"]
+
+        assert len(edges) == len(analysis["service_connections"])
 
     def test_mixed_cloud_drawio_handoff_labels_sources_and_uses_deterministic_fallback(self):
         result = generate_diagram(MIXED_CLOUD_ANALYSIS, format="drawio")
@@ -173,6 +252,40 @@ class TestGenerateDiagram:
         pages = root.find(f"{ns}Pages")
         assert pages is not None, "VDX missing <Pages> element"
         assert len(pages.findall(f"{ns}Page")) >= 1
+
+    def test_vsdx_renders_service_connection_connectors_from_canonical_fixture(self):
+        analysis = json.loads(CANONICAL_AWS_ESTATE_PATH.read_text(encoding="utf-8"))
+
+        result = generate_diagram(analysis, format="vsdx")
+        root = ET.fromstring(result["content"])
+        ns = "{http://schemas.microsoft.com/visio/2003/core}"
+        connectors = [
+            shape for shape in root.findall(f".//{ns}Shape")
+            if (shape.get("NameU") or "").startswith("Connector_")
+        ]
+        connector_texts = [
+            text.text or ""
+            for shape in connectors
+            for text in shape.findall(f"{ns}Text")
+        ]
+
+        expected = math.ceil(len(analysis["service_connections"]) * 0.8)
+        assert len(connectors) >= expected
+        assert "database" in connector_texts
+        assert "auth" in connector_texts
+
+    def test_vsdx_does_not_truncate_service_connections_above_80(self):
+        analysis = _large_connection_analysis(count=90)
+
+        result = generate_diagram(analysis, format="vsdx")
+        root = ET.fromstring(result["content"])
+        ns = "{http://schemas.microsoft.com/visio/2003/core}"
+        connectors = [
+            shape for shape in root.findall(f".//{ns}Shape")
+            if (shape.get("NameU") or "").startswith("Connector_")
+        ]
+
+        assert len(connectors) == len(analysis["service_connections"])
 
     def test_invalid_format_raises(self):
         with pytest.raises((ValueError, KeyError)):

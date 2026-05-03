@@ -32,6 +32,12 @@ from azure_landing_zone_schema import (
     infer_replication,
     infer_tiers_from_mappings,
 )
+from service_connection_utils import (
+    connection_endpoint,
+    connection_label,
+    mapping_aliases,
+    service_key,
+)
 from source_provider import (
     SUPPORTED_SOURCE_PROVIDERS as _SUPPORTED_SOURCE_PROVIDERS,
     normalize_source_provider,
@@ -434,6 +440,7 @@ text {{ font-family: {FONT_STACK}; }}
 .t-actor-h   {{ font-size: 12px; font-weight: 700; fill: {COLOR_INK}; }}
 .t-traffic-g {{ font-size: 12px; font-weight: 700; fill: {COLOR_GREEN}; }}
 .t-traffic-r {{ font-size: 12px; font-weight: 700; fill: {COLOR_RED}; }}
+.t-flow      {{ font-size: 10px; font-weight: 700; fill: {COLOR_INK}; }}
 ]]></style>
 <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
   <path d="M 0 0 L 10 5 L 0 10 z" fill="{COLOR_INK_2}"/>
@@ -443,6 +450,24 @@ text {{ font-family: {FONT_STACK}; }}
 </marker>
 <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
   <path d="M 0 0 L 10 5 L 0 10 z" fill="{COLOR_RED}"/>
+</marker>
+<marker id="aflow-default" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+    <path d="M 0 0 L 10 5 L 0 10 z" fill="{COLOR_INK_2}"/>
+</marker>
+<marker id="aflow-db" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+    <path d="M 0 0 L 10 5 L 0 10 z" fill="{COLOR_DB}"/>
+</marker>
+<marker id="aflow-purple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+    <path d="M 0 0 L 10 5 L 0 10 z" fill="{COLOR_PURPLE}"/>
+</marker>
+<marker id="aflow-red" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+    <path d="M 0 0 L 10 5 L 0 10 z" fill="{COLOR_RED}"/>
+</marker>
+<marker id="aflow-primary" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+    <path d="M 0 0 L 10 5 L 0 10 z" fill="{COLOR_PRIMARY}"/>
+</marker>
+<marker id="aflow-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+    <path d="M 0 0 L 10 5 L 0 10 z" fill="{COLOR_GREEN}"/>
 </marker>
 </defs>"""
 
@@ -993,6 +1018,73 @@ def _data_band(tiers: dict[str, list[dict[str, Any]]]) -> str:
     return "\n".join(out)
 
 
+def _flow_anchor(service_name: str) -> tuple[float, float] | None:
+    key = service_key(service_name)
+    checks: list[tuple[tuple[str, ...], tuple[float, float]]] = [
+        (("enduser", "user", "client", "partnerapi", "internaladmin"), (100, 142)),
+        (("frontdoor", "cloudfront"), (1010, 264)),
+        (("applicationgateway", "appgateway", "alb", "apimanagement"), (535, 416)),
+        (("aks", "kubernetesservice", "eks", "containerapps", "appservice", "azurefunctions", "functions"), (770, 610)),
+        (("azuresqldatabase", "azuresql", "sqldatabase", "sql", "cosmosdb", "azurecacheforredis", "cacheforredis", "redis"), (740, 995)),
+        (("blobstorage", "azurefiles", "manageddisks", "storage"), (240, 416)),
+        (("eventhubs", "servicebus", "servicebusqueues", "eventgrid", "logicapps"), (1040, 995)),
+        (("microsoftentraid", "entraid", "keyvault", "conditionalaccess"), (1580, 416)),
+        (("applicationinsights", "azuremonitor", "loganalytics", "activitylog"), (1090, 416)),
+        (("waf", "ddosprotection", "defenderforcloud"), (1620, 560)),
+    ]
+    for needles, point in checks:
+        if any(needle in key for needle in needles):
+            return point
+    return None
+
+
+def _service_connection_flow(analysis: dict[str, Any]) -> str:
+    """Overlay service-level flow paths from analysis service_connections."""
+    connections = [c for c in analysis.get("service_connections") or [] if isinstance(c, dict)]
+    if not connections:
+        return ""
+
+    aliases = mapping_aliases(analysis.get("mappings") or [])
+    out = ['<g id="service-flow" data-source="service_connections">']
+    rendered = 0
+    for conn in connections:
+        source = connection_endpoint(conn, "from", "source")
+        target = connection_endpoint(conn, "to", "target")
+        source_name = aliases.get(service_key(source), source)
+        target_name = aliases.get(service_key(target), target)
+        start = _flow_anchor(source_name)
+        end = _flow_anchor(target_name)
+        if not start or not end or start == end:
+            continue
+        label = connection_label(conn) or "flow"
+        offset = (rendered % 5 - 2) * 8
+        sx, sy = start[0], start[1] + offset
+        ex, ey = end[0], end[1] + offset
+        mid_x = (sx + ex) / 2
+        control_y = min(sy, ey) - 44 if abs(sy - ey) < 140 else (sy + ey) / 2
+        color, marker_id = _flow_color_and_marker(str(conn.get("type") or "traffic").lower())
+        out.append(
+            f'<path class="service-flow-edge" d="M {sx:.1f} {sy:.1f} Q {mid_x:.1f} {control_y:.1f} {ex:.1f} {ey:.1f}" '
+            f'stroke="{color}" stroke-width="2.2" fill="none" stroke-opacity="0.82" marker-end="url(#{marker_id})"/>'
+        )
+        out.append(_tx(mid_x, control_y - 6, _truncate(label, 26), "t-flow", anchor="middle"))
+        rendered += 1
+
+    out.append('</g>')
+    return "\n".join(out) if rendered else ""
+
+
+def _flow_color_and_marker(conn_type: str) -> tuple[str, str]:
+    return {
+        "database": (COLOR_DB, "aflow-db"),
+        "auth": (COLOR_PURPLE, "aflow-purple"),
+        "security": (COLOR_RED, "aflow-red"),
+        "inspection": (COLOR_RED, "aflow-red"),
+        "storage": (COLOR_PRIMARY, "aflow-primary"),
+        "metrics": (COLOR_GREEN, "aflow-green"),
+    }.get(conn_type, (COLOR_INK_2, "aflow-default"))
+
+
 # ---------------------------------------------------------------------------
 # Replication band (DR variant)
 # ---------------------------------------------------------------------------
@@ -1143,6 +1235,9 @@ def generate_landing_zone_svg(
                     status="primary",
                     role_text=primary_role_text,
                 ))
+                flow_overlay = _service_connection_flow(analysis)
+                if flow_overlay:
+                    parts.append(flow_overlay)
 
                 if dr_variant == "primary":
                     # Collapsed Region 2 banner if a second region is configured.
