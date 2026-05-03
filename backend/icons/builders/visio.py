@@ -114,6 +114,8 @@ def build_visio_stencil_pack(
         result = buf.getvalue()
         if not set_cached_asset(cache_key, result, pack_id=pack_id, generation=generation):
             continue
+        if get_pack_generation(pack_id) != generation:
+            continue
         _metrics["library_builds"] += 1
 
         elapsed = time.monotonic() - t0

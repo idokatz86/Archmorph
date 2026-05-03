@@ -41,9 +41,13 @@ from icons.svg_sanitizer import (
 )
 from icons.models import Provider, IconMeta, IconPackManifest, IconPackItem
 from icons import registry
+from icons.builders import drawio as drawio_builder
+from icons.builders import excalidraw as excalidraw_builder
+from icons.builders import visio as visio_builder
 from icons.builders.drawio import build_drawio_library
 from icons.builders.excalidraw import build_excalidraw_library
 from icons.builders.visio import build_visio_stencil_pack
+from icons.registry import IconPackChangedDuringBuild
 
 
 # ────────────────────────────────────────────────────────────
@@ -761,6 +765,21 @@ class TestDrawioBuilder:
         d2 = build_drawio_library("dio-det", embed_mode="reference")
         assert d1 == d2
 
+    def test_drawio_retries_when_pack_changes_after_cache_write(self, small_zip_pack, monkeypatch):
+        registry.ingest_icon_pack(small_zip_pack, pack_id="dio-race")
+
+        original_set_cached_asset = drawio_builder.set_cached_asset
+
+        def mutate_after_write(*args, **kwargs):
+            written = original_set_cached_asset(*args, **kwargs)
+            registry.ingest_icon_pack(_zip_pack("race.svg", "Race Icon"), pack_id="dio-race")
+            return written
+
+        monkeypatch.setattr(drawio_builder, "set_cached_asset", mutate_after_write)
+
+        with pytest.raises(IconPackChangedDuringBuild):
+            build_drawio_library("dio-race", embed_mode="reference")
+
 
 # ────────────────────────────────────────────────────────────
 # Excalidraw Library Builder Tests
@@ -814,6 +833,21 @@ class TestExcalidrawBuilder:
         d2 = build_excalidraw_library("exc-det")
         assert d1 == d2
 
+    def test_excalidraw_retries_when_pack_changes_after_cache_write(self, small_zip_pack, monkeypatch):
+        registry.ingest_icon_pack(small_zip_pack, pack_id="exc-race")
+
+        original_set_cached_asset = excalidraw_builder.set_cached_asset
+
+        def mutate_after_write(*args, **kwargs):
+            written = original_set_cached_asset(*args, **kwargs)
+            registry.ingest_icon_pack(_zip_pack("race.svg", "Race Icon"), pack_id="exc-race")
+            return written
+
+        monkeypatch.setattr(excalidraw_builder, "set_cached_asset", mutate_after_write)
+
+        with pytest.raises(IconPackChangedDuringBuild):
+            build_excalidraw_library("exc-race")
+
 
 # ────────────────────────────────────────────────────────────
 # Visio Stencil Pack Tests
@@ -861,6 +895,21 @@ class TestVisioBuilder:
             assert "Visio Stencil Pack" in readme
             assert "Import into Visio" in readme
 
+    def test_visio_retries_when_pack_changes_after_cache_write(self, small_zip_pack, monkeypatch):
+        registry.ingest_icon_pack(small_zip_pack, pack_id="vis-race")
+
+        original_set_cached_asset = visio_builder.set_cached_asset
+
+        def mutate_after_write(*args, **kwargs):
+            written = original_set_cached_asset(*args, **kwargs)
+            registry.ingest_icon_pack(_zip_pack("race.svg", "Race Icon"), pack_id="vis-race")
+            return written
+
+        monkeypatch.setattr(visio_builder, "set_cached_asset", mutate_after_write)
+
+        with pytest.raises(IconPackChangedDuringBuild):
+            build_visio_stencil_pack("vis-race")
+
 
 # ────────────────────────────────────────────────────────────
 # API Route Tests
@@ -907,6 +956,16 @@ class TestIconAPI:
         data = resp.json()
         assert data["pack_id"] == "api-test"
         assert data["ingested"] == 1
+
+    def test_upload_zip_pack_uses_magic_bytes_before_content_type(self, small_zip_pack):
+        resp = self.client.post(
+            "/api/icon-packs?pack_id=api-zip-mislabeled-json",
+            files={"file": ("test.zip", small_zip_pack, "application/json")},
+            headers=self.admin_headers,
+        )
+
+        assert resp.status_code == 200
+        assert registry.search_icons(pack_id="api-zip-mislabeled-json")[0].name == "Test Icon"
 
     def test_upload_json_pack(self):
         resp = self.client.post(

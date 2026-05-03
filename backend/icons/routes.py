@@ -67,7 +67,12 @@ async def upload_icon_pack(
         # Detect format
         filename = file.filename or ""
         content_type = (file.content_type or "").split(";", 1)[0].lower()
-        if filename.lower().endswith(".json") or content_type == "application/json":
+        if _is_zipfile(content):
+            result = registry.ingest_icon_pack(
+                source=content,
+                pack_id=pack_id,
+            )
+        elif filename.lower().endswith(".json") or content_type == "application/json":
             # JSON manifest with inline SVG data
             manifest_data = json.loads(content)
             if not isinstance(manifest_data, dict):
@@ -75,11 +80,6 @@ async def upload_icon_pack(
             result = registry.ingest_icon_pack(
                 source=_json_manifest_to_zip_bytes(manifest_data),
                 manifest=_metadata_without_inline_svg(manifest_data),
-                pack_id=pack_id,
-            )
-        elif _is_zipfile(content):
-            result = registry.ingest_icon_pack(
-                source=content,
                 pack_id=pack_id,
             )
         else:
