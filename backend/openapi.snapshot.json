@@ -11835,6 +11835,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Upload Icon Pack",
         "tags": [
           "icons"
@@ -17250,6 +17255,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Upload Icon Pack V1",
         "tags": [
           "icons",
