@@ -418,6 +418,37 @@ class TestIconRegistry:
         assert registry.search_icons(query="First Icon") == []
         assert registry.search_icons(pack_id="replace-pack")[0].name == "Second Icon"
 
+    def test_failed_replacement_leaves_existing_pack_unchanged(self):
+        registry.ingest_icon_pack(
+            _zip_pack_with_icons([
+                ("first.svg", "First Icon"),
+                ("second.svg", "Second Icon"),
+            ]),
+            pack_id="replace-atomic",
+        )
+        before_ids = [icon.meta.id for icon in registry.get_pack_icons("replace-atomic")]
+
+        buf = io.BytesIO()
+        manifest = {
+            "name": "Replacement Pack",
+            "provider": "azure",
+            "version": "1.0.0",
+            "icons": [
+                {"file": "first.svg", "name": "First Icon", "category": "compute", "tags": ["test"]},
+                {"file": "bad.svg", "name": "Bad Icon", "category": "compute", "tags": ["test"]},
+            ],
+        }
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("metadata.json", json.dumps(manifest))
+            zf.writestr("first.svg", VALID_SVG.decode())
+            zf.writestr("bad.svg", "<svg")
+
+        with pytest.raises(ValueError, match="replacement failed validation"):
+            registry.ingest_icon_pack(buf.getvalue(), pack_id="replace-atomic")
+
+        assert [icon.meta.id for icon in registry.get_pack_icons("replace-atomic")] == before_ids
+        assert registry.search_icons(pack_id="replace-atomic")[1].name == "Second Icon"
+
     def test_cache_invalidation_matches_exact_pack_id(self, small_zip_pack):
         registry.set_cached_asset("excalidraw:short", b"short")
         registry.set_cached_asset("excalidraw:my-short-icons", b"my-short-icons")
@@ -889,6 +920,26 @@ class TestIconAPI:
         assert data["pack_id"] == "api-json"
         assert data["ingested"] == 1
         assert registry.search_icons(pack_id="api-json")[0].name == "JSON Icon"
+
+    def test_upload_json_pack_accepts_content_type_without_json_filename(self):
+        resp = self.client.post(
+            "/api/icon-packs?pack_id=api-json-content-type",
+            files={"file": ("MANIFEST", _json_pack("json_icon.svg", "JSON Icon"), "application/json")},
+            headers=self.admin_headers,
+        )
+
+        assert resp.status_code == 200
+        assert registry.search_icons(pack_id="api-json-content-type")[0].name == "JSON Icon"
+
+    def test_upload_json_pack_accepts_uppercase_json_extension(self):
+        resp = self.client.post(
+            "/api/icon-packs?pack_id=api-json-uppercase",
+            files={"file": ("MANIFEST.JSON", _json_pack("json_icon.svg", "JSON Icon"), "application/octet-stream")},
+            headers=self.admin_headers,
+        )
+
+        assert resp.status_code == 200
+        assert registry.search_icons(pack_id="api-json-uppercase")[0].name == "JSON Icon"
 
     def test_upload_json_pack_rejects_non_object_manifest(self):
         resp = self.client.post(

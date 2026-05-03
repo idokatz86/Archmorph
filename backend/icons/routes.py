@@ -65,7 +65,9 @@ async def upload_icon_pack(
 
     try:
         # Detect format
-        if file.filename and file.filename.endswith(".json"):
+        filename = file.filename or ""
+        content_type = (file.content_type or "").split(";", 1)[0].lower()
+        if filename.lower().endswith(".json") or content_type == "application/json":
             # JSON manifest with inline SVG data
             manifest_data = json.loads(content)
             if not isinstance(manifest_data, dict):

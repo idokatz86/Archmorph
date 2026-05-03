@@ -403,6 +403,8 @@ def ingest_icon_pack(
 
     with _LOCK:
         old_ids = set(_PACK_INDEX.get(pid, []))
+        if old_ids and failed:
+            raise ValueError("Icon pack replacement failed validation; existing pack left unchanged")
         if not builtin:
             reserved_ids = [cid for cid in ingested_ids if cid in _BUILTIN_ICON_IDS]
             if reserved_ids:
