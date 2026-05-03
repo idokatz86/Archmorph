@@ -50,6 +50,85 @@ class TestNormalise:
     def test_unicode_chars_stripped(self):
         # Non-alnum unicode should be stripped
         assert _normalise("café") == "caf"
+# ====================================================================
+# Service refresh provider retries
+# ====================================================================
+
+class TestProviderRefreshRetries:
+    def test_run_update_now_recovers_transient_provider_request_error(
+        self,
+        tmp_path,
+    ):
+        import httpx
+        import service_updater
+        from unittest.mock import patch as _patch
+
+        request = httpx.Request("GET", "https://example.test/gcp")
+        gcp_calls = {"count": 0}
+
+        def empty_fetch(_client):
+            return set()
+
+        def flaky_gcp_fetch(_client):
+            gcp_calls["count"] += 1
+            if gcp_calls["count"] == 1:
+                raise httpx.RequestError("handshake timed out", request=request)
+            return {"RecoveredGcpService"}
+
+        with _patch.dict(os.environ, {
+            "SERVICE_REFRESH_PROVIDER_ATTEMPTS": "3",
+            "SERVICE_REFRESH_PROVIDER_RETRY_DELAY_SECONDS": "0",
+        }, clear=False), \
+             _patch("service_updater._fetch_aws_services", empty_fetch), \
+             _patch("service_updater._fetch_azure_services", empty_fetch), \
+             _patch("service_updater._fetch_gcp_services", flaky_gcp_fetch), \
+             _patch("service_updater._load_local_catalog", return_value=([], set())), \
+             _patch("service_updater._UPDATES_FILE", tmp_path / "state.json"), \
+             _patch("service_updater._DATA_DIR", tmp_path), \
+             _patch("service_updater._get_state_blob_client", return_value=None):
+            result = service_updater.run_update_now(auto_add=False)
+            state = service_updater._read_state()
+
+        assert gcp_calls["count"] == 2
+        assert result["errors"] is None
+        assert result["retry_attempts"] == {"gcp": 1}
+        assert result["new_services"]["gcp"] == ["RecoveredGcpService"]
+        assert state["checks"][-1]["errors"] is None
+
+    def test_run_update_now_preserves_errors_after_retry_exhaustion(
+        self,
+        tmp_path,
+    ):
+        import httpx
+        import service_updater
+        from unittest.mock import patch as _patch
+
+        request = httpx.Request("GET", "https://example.test/gcp")
+        gcp_calls = {"count": 0}
+
+        def empty_fetch(_client):
+            return set()
+
+        def failing_gcp_fetch(_client):
+            gcp_calls["count"] += 1
+            raise httpx.RequestError("handshake timed out", request=request)
+
+        with _patch.dict(os.environ, {
+            "SERVICE_REFRESH_PROVIDER_ATTEMPTS": "3",
+            "SERVICE_REFRESH_PROVIDER_RETRY_DELAY_SECONDS": "0",
+        }, clear=False), \
+             _patch("service_updater._fetch_aws_services", empty_fetch), \
+             _patch("service_updater._fetch_azure_services", empty_fetch), \
+             _patch("service_updater._fetch_gcp_services", failing_gcp_fetch), \
+             _patch("service_updater._load_local_catalog", return_value=([], set())), \
+             _patch("service_updater._UPDATES_FILE", tmp_path / "state.json"), \
+             _patch("service_updater._DATA_DIR", tmp_path), \
+             _patch("service_updater._get_state_blob_client", return_value=None):
+            result = service_updater.run_update_now(auto_add=False)
+
+        assert gcp_calls["count"] == 3
+        assert result["errors"] == {"gcp": "Request error: handshake timed out"}
+
 
 
 # ====================================================================
