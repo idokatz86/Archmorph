@@ -278,6 +278,7 @@ async def export_architecture_package(
             analysis,
             format=format,  # type: ignore[arg-type]
             diagram=diagram,  # type: ignore[arg-type]
+            analysis_id=diagram_id,
         )
     except ValueError as exc:
         raise ArchmorphException(400, str(exc))

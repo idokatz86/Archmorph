@@ -765,6 +765,36 @@ def generate_diagram(
             "filename": str,      # architecture-package-*.html or architecture-package-*.svg
             "content": str,       # HTML or SVG
             "content_type": str,  # text/html or image/svg+xml
+            "manifest": dict,     # machine-readable artifact manifest, schema below
           }
         """
       ```
+
+      Architecture Package manifest contract:
+
+      ```json
+      {
+        "schema_version": "architecture-package-manifest/v1",
+        "analysis_id": "diagram-session-or-analysis-id",
+        "source_provider": "AWS",
+        "target_provider": "Azure",
+        "generated_at": "2026-05-03T18:00:00Z",
+        "export": { "format": "html", "diagram": "primary" },
+        "renderer": { "name": "architecture_package", "version": "1" },
+        "customer_intent_profile_hash": "sha256-of-normalized-profile",
+        "artifact_filenames": ["archmorph-workload-architecture-package.html"],
+        "artifacts": [
+          { "filename": "archmorph-workload-architecture-package.html", "role": "architecture-package-html", "format": "html" }
+        ],
+        "mapping_references": [
+          { "source_service": "ALB", "azure_service": "Application Gateway", "category": "Networking", "confidence": 0.96 }
+        ],
+        "warnings": ["review warning text"],
+        "limitations": [
+          { "title": "Validate low-confidence mappings", "detail": "Owner validation is required." }
+        ],
+        "unsupported_assumptions": ["unsupported assumption text"]
+      }
+      ```
+
+      The manifest is emitted for both `format=html` and `format=svg` package exports. It is returned as the response `manifest` field and embedded into the artifact bytes as `archmorph-artifact-manifest` metadata. Manifest values are sanitized before emission; secret-like keys or values such as passwords, tokens, credentials, API keys, and connection strings are redacted. Raw `guided_answers` are intentionally excluded; reviewers should use `customer_intent_profile_hash` for profile traceability without exposing the source answer payload.
