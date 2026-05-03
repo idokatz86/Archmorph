@@ -1,0 +1,1 @@
+{"title":"Web App","source_provider":"aws","target_provider":"azure","mappings":[{"source_service":"Elastic Beanstalk","azure_service":"App Service","category":"Compute","confidence":0.92},{"source_service":"Secrets Manager","azure_service":"Key Vault","category":"Security","confidence":0.95}]}

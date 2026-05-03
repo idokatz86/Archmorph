@@ -2,7 +2,7 @@
 
 from unittest.mock import patch, MagicMock
 
-from iac_generator import generate_iac_code
+from iac_generator import _apply_validation, generate_iac_code
 
 
 MOCK_ANALYSIS = {
@@ -120,6 +120,18 @@ class TestGenerateIaCCode:
         )
         assert "resource" in code
         assert "```" not in code
+
+    @patch("iac_generator._validate_terraform_cli")
+    def test_terraform_cli_validation_errors_are_marked_inline(self, mock_validate):
+        mock_validate.return_value = [("error", "Unsupported argument")]
+        code = _apply_validation('resource "azurerm_resource_group" "main" {}', "terraform")
+        assert "failed terraform validate: Unsupported argument" in code
+
+    @patch("iac_generator._validate_bicep_cli")
+    def test_bicep_cli_validation_errors_are_marked_inline(self, mock_validate):
+        mock_validate.return_value = [("error", "Expected the \"=\" character")]
+        code = _apply_validation("resource rg 'Microsoft.Resources/resourceGroups@2023-07-01'", "bicep")
+        assert "failed az bicep build: Expected the \"=\" character" in code
 
     
 

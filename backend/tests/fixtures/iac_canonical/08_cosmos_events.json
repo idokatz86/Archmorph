@@ -1,0 +1,1 @@
+{"title":"Cosmos Events","source_provider":"aws","target_provider":"azure","mappings":[{"source_service":"DynamoDB","azure_service":"Cosmos DB","category":"Database","confidence":0.86},{"source_service":"EventBridge","azure_service":"Event Grid","category":"Integration","confidence":0.88}]}

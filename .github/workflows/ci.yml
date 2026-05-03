@@ -65,6 +65,14 @@ jobs:
           enable-cache: true
           cache-dependency-glob: backend/requirements.txt
 
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.x"
+
+      - name: Install Bicep CLI
+        run: az bicep install
+
       - name: Install dependencies and lint
         run: |
           uv pip install --system ruff
@@ -121,6 +129,45 @@ jobs:
           path: |
             backend-sbom.json
             ${{ steps.grype-python.outputs.sarif }}
+
+  # ============================================
+  # GENERATED IAC VALIDATION
+  # ============================================
+  iac-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/requirements.txt
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.x"
+
+      - name: Install Bicep CLI
+        run: az bicep install
+
+      - name: Install backend dependencies
+        run: uv pip install --system -r requirements.txt
+
+      - name: Validate generated Terraform and Bicep artifacts
+        run: python -m pytest -q tests/test_iac_output_validation.py
+        env:
+          ARCHMORPH_RUN_IAC_VALIDATE_TOOLS: "1"
 
   # ============================================
   # FRONTEND BUILD & TEST (npm audit in security.yml)
@@ -233,7 +280,7 @@ jobs:
   # SARIF UPLOAD (isolated so rate-limits don't block builds)
   # ============================================
   upload-sarif:
-    needs: [backend-tests, frontend-build, openapi-client-drift]
+    needs: [backend-tests, frontend-build, openapi-client-drift, iac-validate]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     if: always() && (needs.backend-tests.result == 'success' || needs.frontend-build.result == 'success')

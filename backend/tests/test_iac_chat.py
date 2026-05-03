@@ -90,7 +90,8 @@ class TestIacChatProcessing:
         IAC_CHAT_SESSIONS.clear()
 
     @patch("iac_chat.cached_chat_completion")
-    def test_process_iac_chat_returns_result(self, mock_completion):
+    @patch("iac_chat._apply_validation", side_effect=lambda code, _format: code)
+    def test_process_iac_chat_returns_result(self, mock_validation, mock_completion):
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = json.dumps(MOCK_CHAT_RESPONSE)
@@ -109,6 +110,7 @@ class TestIacChatProcessing:
         assert "changes_summary" in result
         assert "services_added" in result
         assert result["error"] is False
+        mock_validation.assert_called_once()
 
     @patch("iac_chat.cached_chat_completion")
     def test_process_iac_chat_stores_history(self, mock_completion):

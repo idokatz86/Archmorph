@@ -1,0 +1,1 @@
+{"title":"Serverless API","source_provider":"aws","target_provider":"azure","mappings":[{"source_service":"Lambda","azure_service":"Azure Functions","category":"Compute","confidence":0.94},{"source_service":"S3","azure_service":"Blob Storage","category":"Storage","confidence":0.93}]}

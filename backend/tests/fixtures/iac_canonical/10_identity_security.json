@@ -1,0 +1,1 @@
+{"title":"Identity Security","source_provider":"aws","target_provider":"azure","mappings":[{"source_service":"IAM","azure_service":"Microsoft Entra ID","category":"Identity","confidence":0.9},{"source_service":"KMS","azure_service":"Key Vault","category":"Security","confidence":0.94}]}
