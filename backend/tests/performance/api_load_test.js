@@ -37,6 +37,9 @@ const rateLimitRate = new Rate('rate_limited');
 
 // CI environments (GitHub Actions) have limited CPU; scale load accordingly
 const RATE_MULTIPLIER = isCI ? 0.3 : 1;  // 30 RPS in CI, 100 RPS locally
+const CATALOG_P95_THRESHOLD_MS = Number(
+  __ENV.K6_CATALOG_P95_MS || (isCI ? 3000 : 1500),
+);
 
 export const options = {
   scenarios: {
@@ -79,7 +82,7 @@ export const options = {
     http_req_failed: ['rate<0.10'],
     errors: ['rate<0.01'],
     chat_latency: ['p(95)<5000'],
-    catalog_latency: [isCI ? 'p(95)<3000' : 'p(95)<1500'],
+    catalog_latency: [`p(95)<${CATALOG_P95_THRESHOLD_MS}`],
   },
 };
 
@@ -152,4 +155,68 @@ export function uncachedLlmEndpoints() {
   chatLatency.add(res.timings.duration);
   rateLimitRate.add(res.status === 429);
   errorRate.add(res.status >= 500);
+}
+
+function metricValue(data, metricName, valueName) {
+  const metric = data.metrics[metricName];
+  if (!metric || !metric.values) return null;
+  const value = metric.values[valueName];
+  return typeof value === 'number' ? value : null;
+}
+
+function thresholdRows(data) {
+  const rows = [];
+  for (const [metricName, metric] of Object.entries(data.metrics)) {
+    if (!metric.thresholds) continue;
+    for (const [threshold, result] of Object.entries(metric.thresholds)) {
+      rows.push({
+        metric: metricName,
+        threshold,
+        ok: !!result.ok,
+      });
+    }
+  }
+  return rows.sort((a, b) => `${a.metric}:${a.threshold}`.localeCompare(`${b.metric}:${b.threshold}`));
+}
+
+export function handleSummary(data) {
+  const rows = thresholdRows(data);
+  const failed = rows.filter((row) => !row.ok);
+  const catalogP95 = metricValue(data, 'catalog_latency', 'p(95)');
+  const httpP95 = metricValue(data, 'http_req_duration', 'p(95)');
+  const httpFailed = metricValue(data, 'http_req_failed', 'rate');
+  const checksFailed = metricValue(data, 'checks', 'fails');
+
+  const summary = {
+    ci: isCI,
+    target_rps: Math.ceil(100 * RATE_MULTIPLIER),
+    thresholds: rows,
+    failed_thresholds: failed,
+    key_metrics: {
+      catalog_latency_p95_ms: catalogP95,
+      catalog_latency_threshold_ms: CATALOG_P95_THRESHOLD_MS,
+      http_req_duration_p95_ms: httpP95,
+      http_req_failed_rate: httpFailed,
+      checks_failed: checksFailed,
+    },
+  };
+
+  const failedText = failed.length
+    ? failed.map((row) => `- ${row.metric} ${row.threshold}`).join('\n')
+    : '- none';
+  const stdout = [
+    'Archmorph k6 summary',
+    `target_rps=${summary.target_rps}`,
+    `catalog_latency_p95_ms=${catalogP95 ?? 'n/a'} threshold_ms=${CATALOG_P95_THRESHOLD_MS}`,
+    `http_req_duration_p95_ms=${httpP95 ?? 'n/a'}`,
+    `http_req_failed_rate=${httpFailed ?? 'n/a'}`,
+    'failed_thresholds:',
+    failedText,
+    '',
+  ].join('\n');
+
+  return {
+    stdout,
+    'k6-summary.json': JSON.stringify(summary, null, 2),
+  };
 }

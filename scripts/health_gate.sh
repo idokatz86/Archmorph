@@ -71,8 +71,12 @@ if [[ -n "$stale_jobs" ]]; then
 fi
 
 redis_status="$(printf '%s' "$health_json" | jq -r '.checks.redis // empty')"
-if [[ "$redis_status" == "not_configured" ]]; then
-  echo "::warning::Redis is not configured; accepted as optional because overall production health is healthy"
+if [[ "$redis_status" == "missing_required" ]]; then
+  echo "::error::Redis is required but not configured"
+  printf '%s' "$health_json" | jq -c '.checks.redis_readiness // {redis: .checks.redis}'
+  exit 1
+elif [[ "$redis_status" == "not_configured" || "$redis_status" == "disabled_optional" ]]; then
+  echo "::warning::Redis is disabled as an optional dependency; accepted because overall production health is healthy"
 fi
 
 echo "Production health gate passed: status=${status} version=${version}"
