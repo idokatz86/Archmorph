@@ -10,6 +10,7 @@ RUN_ID="${GITHUB_RUN_ID:-local}"
 COMMIT_SHA="${GITHUB_SHA:-$(git rev-parse --short HEAD 2>/dev/null || echo unknown)}"
 ARTIFACT_ROOT="${ARTIFACT_ROOT:-smoke-artifacts/architecture-package/$(date -u +%Y%m%dT%H%M%SZ)}"
 HTTP_TIMEOUT="${HTTP_TIMEOUT:-180}"
+SECONDARY_FORMAT_SMOKE="${SECONDARY_FORMAT_SMOKE:-true}"
 
 if [[ -z "$API_URL" ]]; then
   echo "::error::API_URL is required"
@@ -131,6 +132,74 @@ PY
   grep -qi "$expected_text" "$svg_path" || fail "$step_name" "SVG missing expected text: ${expected_text}" "$svg_path"
 }
 
+decode_base64_artifact() {
+  local step_name="$1"
+  local response_file="$2"
+  local artifact_path="$3"
+  local expected_magic="$4"
+  local min_bytes="$5"
+  python3 - "$response_file" "$artifact_path" "$expected_magic" "$min_bytes" <<'PY'
+import base64
+import json
+import sys
+
+response_file, artifact_path, expected_magic, min_bytes = sys.argv[1:]
+with open(response_file, encoding="utf-8") as handle:
+    payload = json.load(handle)
+content_b64 = payload.get("content_b64")
+if not isinstance(content_b64, str) or not content_b64:
+    raise SystemExit("content_b64 missing")
+data = base64.b64decode(content_b64)
+if len(data) < int(min_bytes):
+    raise SystemExit(f"decoded artifact too small: {len(data)} bytes")
+if not data.startswith(expected_magic.encode("latin1")):
+    raise SystemExit(f"decoded artifact missing magic bytes {expected_magic!r}")
+with open(artifact_path, "wb") as handle:
+    handle.write(data)
+PY
+  if [[ ! -s "$artifact_path" ]]; then
+    fail "$step_name" "Decoded artifact ${artifact_path} is empty" "$response_file"
+  fi
+}
+
+validate_drawio() {
+  local drawio_path="$1"
+  python3 - "$drawio_path" <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+
+root = ET.parse(sys.argv[1]).getroot()
+if root.tag not in {"mxfile", "mxGraphModel"}:
+    raise SystemExit(f"unexpected Draw.io root: {root.tag}")
+if not root.findall(".//mxCell"):
+    raise SystemExit("Draw.io export has no mxCell elements")
+PY
+}
+
+validate_vdx() {
+  local vdx_path="$1"
+  python3 - "$vdx_path" <<'PY'
+import sys
+import xml.etree.ElementTree as ET
+
+path = sys.argv[1]
+content = open(path, encoding="utf-8").read()
+rest = content.lstrip()
+if rest.startswith("<?xml"):
+    rest = rest.split("?>", 1)[1]
+root_open = rest[: rest.find(">") + 1]
+if root_open.count('xmlns="') != 1:
+    raise SystemExit(f"VDX root must have exactly one xmlns declaration: {root_open}")
+root = ET.fromstring(content)
+if not root.tag.endswith("VisioDocument"):
+    raise SystemExit(f"unexpected VDX root: {root.tag}")
+ns = "{http://schemas.microsoft.com/visio/2003/core}"
+pages = root.find(f"{ns}Pages")
+if pages is None or not pages.findall(f"{ns}Page"):
+    raise SystemExit("VDX export has no Page elements")
+PY
+}
+
 validate_json_field() {
   local step_name="$1"
   local file_path="$2"
@@ -146,6 +215,7 @@ cat > "$SUMMARY" <<EOF
 - Frontend: \`${FRONTEND_URL:-not provided}\`
 - Sample: \`${SAMPLE_ID}\`
 - Strict freshness: \`${STRICT_FRESHNESS}\`
+- Secondary formats: \`${SECONDARY_FORMAT_SMOKE}\`
 - Commit: \`${COMMIT_SHA}\`
 - Run: \`${RUN_ID}\`
 
@@ -275,6 +345,50 @@ if not isinstance(elements, list) or not elements:
     raise SystemExit('classic Excalidraw export has no elements')
 PY
 record_step "Classic Excalidraw" "pass" "artifacts/classic.excalidraw ($(jq -r '.elements | length' "$ARTIFACT_ROOT/artifacts/classic.excalidraw") elements)"
+
+if [[ "$SECONDARY_FORMAT_SMOKE" == "true" ]]; then
+  IAC_BICEP_JSON="$ARTIFACT_ROOT/raw/13-iac-bicep.json"
+  request "iac-bicep" POST "${API_BASE}/diagrams/${DIAGRAM_ID}/generate?format=bicep&force=true" "$IAC_BICEP_JSON" '{}'
+  validate_json_field "iac-bicep" "$IAC_BICEP_JSON" '.code | type == "string" and length > 80' "Bicep response must include non-empty code"
+  write_content_artifact "$IAC_BICEP_JSON" '.code' "$ARTIFACT_ROOT/artifacts/archmorph-iac.bicep"
+  grep -Eq '^(targetScope|param |resource )' "$ARTIFACT_ROOT/artifacts/archmorph-iac.bicep" || fail "iac-bicep" "Bicep output lacks targetScope/param/resource content" "$ARTIFACT_ROOT/artifacts/archmorph-iac.bicep"
+  ! grep -q '```' "$ARTIFACT_ROOT/artifacts/archmorph-iac.bicep" || fail "iac-bicep" "Bicep output contains markdown fences" "$ARTIFACT_ROOT/artifacts/archmorph-iac.bicep"
+  record_step "IaC Bicep" "pass" "artifacts/archmorph-iac.bicep ($(wc -c < "$ARTIFACT_ROOT/artifacts/archmorph-iac.bicep") bytes)"
+
+  IAC_CFN_JSON="$ARTIFACT_ROOT/raw/14-iac-cloudformation.json"
+  request "iac-cloudformation" POST "${API_BASE}/diagrams/${DIAGRAM_ID}/generate?format=cloudformation&force=true" "$IAC_CFN_JSON" '{}'
+  validate_json_field "iac-cloudformation" "$IAC_CFN_JSON" '.code | type == "string" and length > 80' "CloudFormation response must include non-empty code"
+  write_content_artifact "$IAC_CFN_JSON" '.code' "$ARTIFACT_ROOT/artifacts/archmorph-iac.yaml"
+  grep -Eq '^(AWSTemplateFormatVersion:|Resources:)' "$ARTIFACT_ROOT/artifacts/archmorph-iac.yaml" || fail "iac-cloudformation" "CloudFormation output lacks template/resource content" "$ARTIFACT_ROOT/artifacts/archmorph-iac.yaml"
+  ! grep -q '```' "$ARTIFACT_ROOT/artifacts/archmorph-iac.yaml" || fail "iac-cloudformation" "CloudFormation output contains markdown fences" "$ARTIFACT_ROOT/artifacts/archmorph-iac.yaml"
+  record_step "IaC CloudFormation" "pass" "artifacts/archmorph-iac.yaml ($(wc -c < "$ARTIFACT_ROOT/artifacts/archmorph-iac.yaml") bytes)"
+
+  HLD_PDF_JSON="$ARTIFACT_ROOT/raw/15-hld-pdf.json"
+  request "hld-pdf" POST "${API_BASE}/diagrams/${DIAGRAM_ID}/export-hld?format=pdf&include_diagrams=true&export_mode=customer" "$HLD_PDF_JSON" '{}'
+  validate_json_field "hld-pdf" "$HLD_PDF_JSON" '.content_b64 | type == "string" and length > 100' "HLD PDF export must include content_b64"
+  decode_base64_artifact "hld-pdf" "$HLD_PDF_JSON" "$ARTIFACT_ROOT/artifacts/hld.pdf" "%PDF" 1000
+  record_step "HLD PDF" "pass" "artifacts/hld.pdf ($(wc -c < "$ARTIFACT_ROOT/artifacts/hld.pdf") bytes)"
+
+  HLD_PPTX_JSON="$ARTIFACT_ROOT/raw/16-hld-pptx.json"
+  request "hld-pptx" POST "${API_BASE}/diagrams/${DIAGRAM_ID}/export-hld?format=pptx&include_diagrams=true&export_mode=customer" "$HLD_PPTX_JSON" '{}'
+  validate_json_field "hld-pptx" "$HLD_PPTX_JSON" '.content_b64 | type == "string" and length > 100' "HLD PPTX export must include content_b64"
+  decode_base64_artifact "hld-pptx" "$HLD_PPTX_JSON" "$ARTIFACT_ROOT/artifacts/hld.pptx" "PK" 1000
+  record_step "HLD PPTX" "pass" "artifacts/hld.pptx ($(wc -c < "$ARTIFACT_ROOT/artifacts/hld.pptx") bytes)"
+
+  DRAWIO_JSON="$ARTIFACT_ROOT/raw/17-classic-drawio.json"
+  request "classic-drawio" POST "${API_BASE}/diagrams/${DIAGRAM_ID}/export-diagram?format=drawio" "$DRAWIO_JSON" '{}'
+  write_content_artifact "$DRAWIO_JSON" '.content' "$ARTIFACT_ROOT/artifacts/classic.drawio"
+  validate_drawio "$ARTIFACT_ROOT/artifacts/classic.drawio" || fail "classic-drawio" "Draw.io XML validation failed" "$ARTIFACT_ROOT/artifacts/classic.drawio"
+  record_step "Classic Draw.io" "pass" "artifacts/classic.drawio ($(wc -c < "$ARTIFACT_ROOT/artifacts/classic.drawio") bytes)"
+
+  VDX_JSON="$ARTIFACT_ROOT/raw/18-classic-vdx.json"
+  request "classic-vdx" POST "${API_BASE}/diagrams/${DIAGRAM_ID}/export-diagram?format=vsdx" "$VDX_JSON" '{}'
+  write_content_artifact "$VDX_JSON" '.content' "$ARTIFACT_ROOT/artifacts/classic.vdx"
+  validate_vdx "$ARTIFACT_ROOT/artifacts/classic.vdx" || fail "classic-vdx" "VDX XML validation failed" "$ARTIFACT_ROOT/artifacts/classic.vdx"
+  record_step "Classic VDX" "pass" "artifacts/classic.vdx ($(wc -c < "$ARTIFACT_ROOT/artifacts/classic.vdx") bytes)"
+else
+  record_step "Secondary artifact formats" "skip" "SECONDARY_FORMAT_SMOKE=false"
+fi
 
 jq -nc \
   --arg api_base "$API_BASE" \
