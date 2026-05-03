@@ -406,16 +406,7 @@ jobs:
           fi
 
           echo "Running smoke tests against: $TEST_URL$HEALTH_PATH"
-          for i in 1 2 3; do
-            HEALTH=$(curl -s --max-time 30 "$TEST_URL$HEALTH_PATH" | jq -r '.status' 2>/dev/null || echo 'failed')
-            if [ "$HEALTH" = "healthy" ] || [ "$HEALTH" = "degraded" ]; then break; fi
-            echo "Health check attempt $i returned: $HEALTH — retrying in 15s..."
-            sleep 15
-          done
-          if [ "$HEALTH" != "healthy" ] && [ "$HEALTH" != "degraded" ]; then
-            echo "::error::Green revision health check failed: $HEALTH"
-            exit 1
-          fi
+          HEALTH_RETRIES=3 HEALTH_RETRY_SECONDS=15 ./scripts/health_gate.sh "$TEST_URL$HEALTH_PATH"
           VERSION=$(curl -s --max-time 30 "$TEST_URL$HEALTH_PATH" | jq -r '.version' 2>/dev/null || echo 'unknown')
           echo "Green revision version: $VERSION — all smoke tests passed"
 
@@ -449,12 +440,9 @@ jobs:
       - name: Verify production deployment
         run: |
           sleep 10
+          HEALTH_RETRIES=3 HEALTH_RETRY_SECONDS=10 ./scripts/health_gate.sh "${{ env.API_URL }}/health"
           HEALTH=$(curl -s --max-time 30 ${{ env.API_URL }}/health | jq -r '.status')
           VERSION=$(curl -s --max-time 30 ${{ env.API_URL }}/health | jq -r '.version')
-          if [ "$HEALTH" != "healthy" ] && [ "$HEALTH" != "degraded" ]; then
-            echo "::error::Production health check failed: $HEALTH"
-            exit 1
-          fi
           echo "Deployed version: $VERSION — status: $HEALTH (blue-green complete)"
 
   # ============================================

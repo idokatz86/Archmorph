@@ -37,14 +37,7 @@ check_status() {
 check_status "Frontend root" "$FRONTEND_URL"
 check_status "Frontend translator route" "$FRONTEND_URL/#translator"
 
-HEALTH_BODY=$(curl -sS --max-time 30 "$API_URL/health")
-HEALTH_STATUS=$(echo "$HEALTH_BODY" | jq -r '.status // "unknown"')
-if [[ "$HEALTH_STATUS" != "healthy" && "$HEALTH_STATUS" != "degraded" ]]; then
-  echo "::error::API health status is $HEALTH_STATUS"
-  echo "$HEALTH_BODY"
-  exit 1
-fi
-echo "API health OK ($HEALTH_STATUS)"
+HEALTH_RETRIES=3 HEALTH_RETRY_SECONDS=10 "$(dirname "$0")/health_gate.sh" "$API_URL/health"
 
 OPENAPI_STATUS=$(curl -sS -o /tmp/archmorph-openapi -w "%{http_code}" --max-time 30 "$API_ROOT/openapi.json")
 if [[ "$OPENAPI_STATUS" != "200" ]]; then
