@@ -38,6 +38,8 @@ export function saveSession(diagramId, analysis, questions = [], answers = {}, e
   try {
     const payload = JSON.stringify({
       diagramId, analysis, questions, answers,
+      allQuestions: extra.allQuestions || [],
+      questionAssumptions: extra.questionAssumptions || [],
       iacCode: extra.iacCode || null,
       iacFormat: extra.iacFormat || null,
       hldData: extra.hldData || null,

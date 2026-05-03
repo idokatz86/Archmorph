@@ -83,6 +83,19 @@ describe('sessionCache', () => {
     expect(result.answers).toEqual(answers)
   })
 
+  it('preserves adaptive question assumptions', () => {
+    const assumptions = [
+      { id: 'env_target', question: 'Environment?', assumed_answer: 'Production' },
+    ]
+    const allQuestions = [{ id: 'env_target' }, { id: 'arch_ha' }]
+
+    saveSession('d1', { zones: [] }, [], {}, { allQuestions, questionAssumptions: assumptions })
+    const result = loadSession()
+
+    expect(result.allQuestions).toEqual(allQuestions)
+    expect(result.questionAssumptions).toEqual(assumptions)
+  })
+
   it('stores timestamp for TTL checks', () => {
     const before = Date.now()
     saveSession('d1', {}, [], {})

@@ -49,16 +49,19 @@ function OptionCard({ selected, onClick, label, description, multi }) {
 }
 
 export default function GuidedQuestions({
-  analysis, questions, answers, loading,
+  analysis, questions, allQuestions = [], assumptions = [], answers, loading,
   onUpdateAnswer, onApplyAnswers, onSkip,
   constraints = [], regionGroups = {},
 }) {
+  const [showAllQuestions, setShowAllQuestions] = useState(false);
+  const displayedQuestions = showAllQuestions && allQuestions.length > 0 ? allQuestions : questions;
+
   /* ── Apply inter-question constraints ── */
   const constrainedQuestions = useMemo(() => {
-    if (!constraints.length) return questions;
+    if (!constraints.length) return displayedQuestions;
 
     // Deep-copy questions so we don't mutate the original
-    const result = questions.map(q => ({ ...q, options: [...(q.options || [])], constraintReasons: [] }));
+    const result = displayedQuestions.map(q => ({ ...q, options: [...(q.options || [])], constraintReasons: [] }));
 
     for (const rule of constraints) {
       const sourceAnswer = answers[rule.source];
@@ -92,7 +95,7 @@ export default function GuidedQuestions({
       target.constraintReasons.push(rule.reason);
     }
     return result;
-  }, [questions, answers, constraints, regionGroups]);
+  }, [displayedQuestions, answers, constraints, regionGroups]);
 
   /* ── Auto-clear answers that are no longer valid after constraint filtering ── */
   useEffect(() => {
@@ -194,17 +197,46 @@ export default function GuidedQuestions({
             </div>
           </div>
           {/* Expert / Guided toggle */}
-          <button
-            type="button"
-            onClick={toggleExpertMode}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border/50 hover:border-cta/30 bg-secondary/10 hover:bg-secondary/20 transition-all cursor-pointer text-sm font-medium"
-          >
-            {expertMode ? <LayoutGrid className="w-4 h-4 text-cta" /> : <List className="w-4 h-4 text-text-muted" />}
-            <span className={expertMode ? 'text-cta' : 'text-text-secondary'}>
-              {expertMode ? 'Expert View' : 'Guided View'}
-            </span>
-          </button>
+          <div className="flex items-center gap-2">
+            {allQuestions.length > questions.length && (
+              <button
+                type="button"
+                onClick={() => setShowAllQuestions(prev => !prev)}
+                className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border/50 hover:border-cta/30 bg-secondary/10 hover:bg-secondary/20 transition-all cursor-pointer text-sm font-medium text-text-secondary"
+              >
+                {showAllQuestions ? <List className="w-4 h-4 text-cta" /> : <LayoutGrid className="w-4 h-4 text-text-muted" />}
+                <span>{showAllQuestions ? 'Focused Questions' : 'All Questions'}</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={toggleExpertMode}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border/50 hover:border-cta/30 bg-secondary/10 hover:bg-secondary/20 transition-all cursor-pointer text-sm font-medium"
+            >
+              {expertMode ? <LayoutGrid className="w-4 h-4 text-cta" /> : <List className="w-4 h-4 text-text-muted" />}
+              <span className={expertMode ? 'text-cta' : 'text-text-secondary'}>
+                {expertMode ? 'Expert View' : 'Guided View'}
+              </span>
+            </button>
+          </div>
         </div>
+
+        {assumptions.length > 0 && (
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <div className="rounded-lg border border-border/50 bg-secondary/10 px-3 py-2">
+              <p className="text-xs text-text-muted">Assumptions</p>
+              <p className="text-sm font-semibold text-text-primary">{assumptions.length}</p>
+            </div>
+            <div className="rounded-lg border border-border/50 bg-secondary/10 px-3 py-2">
+              <p className="text-xs text-text-muted">Focused follow-ups</p>
+              <p className="text-sm font-semibold text-text-primary">{questions.length}</p>
+            </div>
+            <div className="rounded-lg border border-border/50 bg-secondary/10 px-3 py-2">
+              <p className="text-xs text-text-muted">Review mode</p>
+              <p className="text-sm font-semibold text-text-primary">{showAllQuestions ? 'All' : 'Focused'}</p>
+            </div>
+          </div>
+        )}
 
         {/* Overall progress */}
         <div className="mt-4">

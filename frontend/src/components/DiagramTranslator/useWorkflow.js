@@ -13,6 +13,8 @@ const initialState = {
   jobId: null,
   analysis: null,
   questions: [],
+  allQuestions: [],
+  questionAssumptions: [],
   answers: {},
   iacCode: null,
   iacFormat: 'terraform',

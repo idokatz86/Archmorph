@@ -221,6 +221,7 @@ export default function AnalysisResults({
   copyFeedback, genProgress, notifyEmail, onNotifyEmail,
   onSetStep, onGenerateIac, onExportDiagram, onCopyWithFeedback,
   diagramId, exportCapability, onExportCapability,
+  assumptions = [], questionsCount = 0, onReviewAssumptions,
 }) {
   const [resultsView, setResultsView] = useState('card');
 
@@ -282,6 +283,34 @@ export default function AnalysisResults({
           </>
         )}
       </Card>
+
+      {assumptions.length > 0 && (
+        <Card className="p-4 border-info/20 bg-info/5">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 mb-2">
+                <HelpCircle className="w-4 h-4 text-info shrink-0" />
+                <h3 className="text-sm font-semibold text-text-primary">Architecture Assumptions</h3>
+                <Badge variant="outline">{questionsCount} follow-up{questionsCount === 1 ? '' : 's'}</Badge>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                {assumptions.slice(0, 4).map(a => (
+                  <div key={a.id} className="rounded-lg border border-border/50 bg-surface/60 px-3 py-2">
+                    <p className="text-xs font-medium text-text-primary truncate" title={a.question}>{a.question}</p>
+                    <p className="text-xs text-text-muted mt-0.5 truncate" title={String(a.assumed_answer ?? '')}>{String(a.assumed_answer ?? 'Not specified')}</p>
+                  </div>
+                ))}
+              </div>
+              {assumptions.length > 4 && (
+                <p className="text-xs text-text-muted mt-2">{assumptions.length - 4} more assumption{assumptions.length - 4 === 1 ? '' : 's'} available for review.</p>
+              )}
+            </div>
+            <Button onClick={onReviewAssumptions || (() => onSetStep('questions'))} variant="secondary" icon={HelpCircle}>
+              Review assumptions
+            </Button>
+          </div>
+        </Card>
+      )}
 
       {/* Results Table / Matrix / Map toggle */}
       {analysis.mappings?.length > 0 && (

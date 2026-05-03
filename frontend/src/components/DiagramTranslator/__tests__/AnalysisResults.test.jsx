@@ -47,6 +47,7 @@ describe('AnalysisResults', () => {
     onSetHldIncludeDiagrams: vi.fn(),
     onHldExport: vi.fn(),
     onCopyWithFeedback: vi.fn(),
+    onReviewAssumptions: vi.fn(),
   }
 
   it('renders diagram type title', () => {
@@ -112,6 +113,20 @@ describe('AnalysisResults', () => {
   it('renders export panel', () => {
     render(<AnalysisResults {...defaultProps} />)
     expect(screen.getByTestId('export-panel')).toBeInTheDocument()
+  })
+
+  it('shows assumptions and review action when available', async () => {
+    const user = userEvent.setup()
+    const assumptions = [
+      { id: 'env_target', question: 'What environment is this architecture for?', assumed_answer: 'Production' },
+    ]
+
+    render(<AnalysisResults {...defaultProps} assumptions={assumptions} questionsCount={2} />)
+
+    expect(screen.getByText('Architecture Assumptions')).toBeInTheDocument()
+    expect(screen.getByText('Production')).toBeInTheDocument()
+    await user.click(screen.getByText('Review assumptions'))
+    expect(defaultProps.onReviewAssumptions).toHaveBeenCalledTimes(1)
   })
 
   // Regression: GPT vision prompt tells the model to emit warnings as
