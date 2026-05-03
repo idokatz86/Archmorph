@@ -18,18 +18,28 @@ jobs:
         
       - name: Use fallback environment variables
         run: cp backend/.env.example backend/.env
+
+      - name: Install dependencies
+        run: npm ci --no-fund --no-audit || npm ci --no-fund --no-audit
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --no-fund --no-audit || npm ci --no-fund --no-audit
       
       - name: Start Application Locally
         run: |
-          docker compose up -d
+          docker compose up -d postgres redis backend
           echo "Waiting for backend..."
           for i in {1..30}; do curl -s http://localhost:8000/api/health > /dev/null && break || sleep 2; done
+          if ! curl -s http://localhost:8000/api/health > /dev/null; then
+            docker compose logs backend
+            exit 1
+          fi
+
           echo "Waiting for frontend..."
-          npx wait-on http://localhost:5173 -t 60000 || true
+          (cd frontend && nohup npm run dev -- --host 0.0.0.0 > ../frontend-vite.log 2>&1 &)
+          npx wait-on http://localhost:5173 -t 120000 || { cat frontend-vite.log; exit 1; }
           docker compose ps
-        
-      - name: Install dependencies
-        run: npm install --no-fund --no-audit
       
       - name: Install Playwright Browsers
         run: npx playwright install chromium --with-deps
@@ -45,7 +55,9 @@ jobs:
         
       - name: Dump docker logs on failure
         if: failure()
-        run: docker compose logs backend frontend
+        run: |
+          docker compose logs backend
+          cat frontend-vite.log || true
       
       - uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
