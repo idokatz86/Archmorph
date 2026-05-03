@@ -59,6 +59,15 @@ class TestRegister:
         assert entry["stale"] is False
         assert entry["description"] == "seeded"
 
+    def test_register_with_last_success_advances_existing_seed(self):
+        older = datetime.now(timezone.utc) - timedelta(hours=8)
+        newer = datetime.now(timezone.utc) - timedelta(hours=1)
+        fr.register_with_last_success("job_seeded", budget_hours=24, last_success=older)
+        fr.register_with_last_success("job_seeded", budget_hours=24, last_success=newer)
+        entry = fr.get_all()[0]
+        assert entry["age_hours"] is not None
+        assert entry["age_hours"] < 2
+
 
 class TestMarkSuccess:
     def test_mark_success_unregistered_is_noop(self):

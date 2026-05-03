@@ -935,9 +935,8 @@ def _parse_state_timestamp(value: Any) -> Optional[datetime]:
     return parsed.astimezone(timezone.utc)
 
 
-def _last_successful_refresh_timestamp() -> Optional[datetime]:
-    """Return the newest persisted service-refresh timestamp with no errors."""
-    state = _read_state()
+def _last_successful_refresh_timestamp_from_state(state: dict[str, Any]) -> Optional[datetime]:
+    """Return the newest service-refresh timestamp with no provider errors."""
     for check_record in reversed(state.get("checks", [])):
         if check_record.get("errors"):
             continue
@@ -947,11 +946,17 @@ def _last_successful_refresh_timestamp() -> Optional[datetime]:
     return None
 
 
-def _register_service_catalog_freshness() -> None:
+def _last_successful_refresh_timestamp() -> Optional[datetime]:
+    """Return the newest persisted service-refresh timestamp with no errors."""
+    return _last_successful_refresh_timestamp_from_state(_read_state())
+
+
+def _register_service_catalog_freshness(last_success: Optional[datetime] = None) -> None:
     """Register the service catalog refresh job, seeding durable state."""
     from freshness_registry import mark_success, register_with_last_success
 
-    last_success = _last_successful_refresh_timestamp()
+    if last_success is None:
+        last_success = _last_successful_refresh_timestamp()
 
     register_with_last_success(
         "service_catalog_refresh",
@@ -985,27 +990,23 @@ def get_freshness() -> dict[str, Any]:
         }
     """
     state = _read_state()
+    last_success = _last_successful_refresh_timestamp_from_state(state)
     try:
-        _register_service_catalog_freshness()
+        _register_service_catalog_freshness(last_success=last_success)
     except Exception:  # noqa: BLE001
         pass
 
-    last = state.get("last_check")
+    last = last_success.isoformat() if last_success else None
     last_check_record = state["checks"][-1] if state.get("checks") else None
     last_errors = (last_check_record or {}).get("errors") or None
     providers_failed = sorted(last_errors.keys()) if isinstance(last_errors, dict) else []
 
     age_hours: Optional[float] = None
     stale = True
-    if last:
-        try:
-            ts = datetime.fromisoformat(str(last).replace("Z", "+00:00"))
-            age_seconds = (datetime.now(timezone.utc) - ts).total_seconds()
-            age_hours = round(age_seconds / 3600, 2)
-            stale = age_hours > FRESHNESS_BUDGET_HOURS
-        except (ValueError, TypeError):
-            age_hours = None
-            stale = True
+    if last_success is not None:
+        age_seconds = (datetime.now(timezone.utc) - last_success).total_seconds()
+        age_hours = round(age_seconds / 3600, 2)
+        stale = age_hours > FRESHNESS_BUDGET_HOURS
 
     return {
         "last_check": last,
