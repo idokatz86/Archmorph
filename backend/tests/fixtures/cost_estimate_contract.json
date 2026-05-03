@@ -1,0 +1,50 @@
+{
+  "currency": "USD",
+  "region": "West Europe",
+  "arm_region": "westeurope",
+  "sku_strategy": "Balanced",
+  "pricing_source": "contract fixture",
+  "service_count": 2,
+  "total_monthly_estimate": {
+    "low": 15.0,
+    "high": 35.0
+  },
+  "services": [
+    {
+      "service": "Azure Functions",
+      "sku": "Consumption",
+      "meter": "Executions",
+      "category": "Compute",
+      "monthly_low": 10.0,
+      "monthly_high": 20.0,
+      "monthly_estimate": 15.0,
+      "price_source": "Azure Retail Prices API",
+      "base_price_usd": 0.000016,
+      "hourly_rate_usd": 0.0,
+      "sku_multiplier": 1.0,
+      "assumptions": [
+        "Region: westeurope",
+        "SKU strategy: Balanced"
+      ],
+      "formula": "1M executions plus compute consumption"
+    },
+    {
+      "service": "Azure Blob Storage",
+      "sku": "Hot LRS",
+      "meter": "Data Stored",
+      "category": "Storage",
+      "monthly_low": 5.0,
+      "monthly_high": 15.0,
+      "monthly_estimate": 10.0,
+      "price_source": "Azure Retail Prices API",
+      "base_price_usd": 0.0184,
+      "hourly_rate_usd": 0.0,
+      "sku_multiplier": 1.0,
+      "assumptions": [
+        "Region: westeurope",
+        "SKU strategy: Balanced"
+      ],
+      "formula": "500GB hot LRS storage"
+    }
+  ]
+}
