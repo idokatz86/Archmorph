@@ -380,6 +380,28 @@ jobs:
             exit 1
           fi
 
+          PUBLIC_NETWORK_ACCESS=$(az storage account show \
+            --name "$STORAGE_NAME" \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --query publicNetworkAccess -o tsv)
+          if [ "$PUBLIC_NETWORK_ACCESS" = "Disabled" ]; then
+            echo "Storage account $STORAGE_NAME has public network access disabled; enabling it for Container App managed-identity blob access."
+            az storage account update \
+              --name "$STORAGE_NAME" \
+              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --public-network-access Enabled \
+              --only-show-errors >/dev/null
+          fi
+
+          PUBLIC_NETWORK_ACCESS=$(az storage account show \
+            --name "$STORAGE_NAME" \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --query publicNetworkAccess -o tsv)
+          if [ "$PUBLIC_NETWORK_ACCESS" != "Enabled" ]; then
+            echo "::error::Storage account $STORAGE_NAME must allow public network access unless a private endpoint/VNet path is configured for the Container App"
+            exit 1
+          fi
+
           STORAGE_CONN=$(az storage account show-connection-string \
             --name "$STORAGE_NAME" \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
@@ -569,22 +591,33 @@ jobs:
           fi
 
           echo "Validating green revision managed-identity blob read/write/list path: $STORAGE_PREFLIGHT_URL"
-          if ! HTTP_CODE=$(curl -sS -o storage-preflight-response.json -w "%{http_code}" \
-            --max-time 60 \
-            -X POST "$STORAGE_PREFLIGHT_URL" \
-            -H "X-API-Key: $ADMIN_KEY" \
-            -H "Content-Type: application/json" \
-            -d '{}'); then
-            HTTP_CODE="${HTTP_CODE:-000}"
-          fi
-          if [ "$HTTP_CODE" != "200" ]; then
-            echo "::error::Green revision managed-identity blob preflight returned HTTP ${HTTP_CODE}"
+          for attempt in 1 2 3 4 5 6; do
+            if ! HTTP_CODE=$(curl -sS -o storage-preflight-response.json -w "%{http_code}" \
+              --max-time 60 \
+              -X POST "$STORAGE_PREFLIGHT_URL" \
+              -H "X-API-Key: $ADMIN_KEY" \
+              -H "Content-Type: application/json" \
+              -d '{}'); then
+              HTTP_CODE="${HTTP_CODE:-000}"
+            fi
+
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "Green revision managed-identity blob preflight OK on attempt ${attempt}"
+              break
+            fi
+
+            echo "::warning::Green revision managed-identity blob preflight attempt ${attempt} returned HTTP ${HTTP_CODE}"
             if [ -s storage-preflight-response.json ]; then
               jq -c '{detail: (.detail // .)}' storage-preflight-response.json 2>/dev/null \
                 || head -c 2000 storage-preflight-response.json
             fi
-            exit 1
-          fi
+            if [ "$attempt" -lt 6 ]; then
+              sleep $((attempt * 15))
+            else
+              echo "::error::Green revision managed-identity blob preflight failed after 6 attempts"
+              exit 1
+            fi
+          done
 
           echo "Validating green revision refresh auth and managed-identity blob path: $REFRESH_URL"
           for attempt in 1 2; do
