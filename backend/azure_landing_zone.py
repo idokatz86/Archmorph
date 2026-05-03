@@ -434,6 +434,7 @@ text {{ font-family: {FONT_STACK}; }}
 .t-actor-h   {{ font-size: 12px; font-weight: 700; fill: {COLOR_INK}; }}
 .t-traffic-g {{ font-size: 12px; font-weight: 700; fill: {COLOR_GREEN}; }}
 .t-traffic-r {{ font-size: 12px; font-weight: 700; fill: {COLOR_RED}; }}
+.t-flow      {{ font-size: 10px; font-weight: 700; fill: {COLOR_INK}; }}
 ]]></style>
 <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
   <path d="M 0 0 L 10 5 L 0 10 z" fill="{COLOR_INK_2}"/>
@@ -993,6 +994,102 @@ def _data_band(tiers: dict[str, list[dict[str, Any]]]) -> str:
     return "\n".join(out)
 
 
+def _service_key(value: Any) -> str:
+    text = str(value or "").lower().strip()
+    text = re.sub(r"\b(?:aws|amazon|azure|gcp|google|microsoft)\b", "", text)
+    return re.sub(r"[^a-z0-9]+", "", text)
+
+
+def _connection_endpoint(conn: dict[str, Any], primary: str, secondary: str) -> str:
+    return str(conn.get(primary) or conn.get(secondary) or "")
+
+
+def _connection_label(conn: dict[str, Any]) -> str:
+    protocol = str(conn.get("protocol") or "").strip()
+    conn_type = str(conn.get("type") or "").strip()
+    bits = [bit for bit in (protocol, conn_type) if bit]
+    return " · ".join(bits)
+
+
+def _mapping_aliases(analysis: dict[str, Any]) -> dict[str, str]:
+    aliases: dict[str, str] = {}
+    for mapping in analysis.get("mappings") or []:
+        if not isinstance(mapping, dict):
+            continue
+        azure = str(mapping.get("azure_service") or mapping.get("target") or "").strip()
+        if not azure:
+            continue
+        for field in ("source_service", "aws_service", "gcp_service", "source", "azure_service", "target"):
+            value = mapping.get(field)
+            if value:
+                aliases[_service_key(value)] = azure
+        aliases[_service_key(azure)] = azure
+    return aliases
+
+
+def _flow_anchor(service_name: str) -> tuple[float, float] | None:
+    key = _service_key(service_name)
+    checks: list[tuple[tuple[str, ...], tuple[float, float]]] = [
+        (("enduser", "user", "client", "partnerapi", "internaladmin"), (100, 142)),
+        (("frontdoor", "cloudfront"), (1010, 264)),
+        (("applicationgateway", "appgateway", "alb", "apimanagement"), (535, 416)),
+        (("aks", "kubernetesservice", "eks", "containerapps", "appservice", "azurefunctions", "functions"), (770, 610)),
+        (("azuresqldatabase", "azuresql", "sqldatabase", "sql", "cosmosdb", "azurecacheforredis", "cacheforredis", "redis"), (740, 995)),
+        (("blobstorage", "azurefiles", "manageddisks", "storage"), (240, 416)),
+        (("eventhubs", "servicebus", "servicebusqueues", "eventgrid", "logicapps"), (1040, 995)),
+        (("microsoftentraid", "entraid", "keyvault", "conditionalaccess"), (1580, 416)),
+        (("applicationinsights", "azuremonitor", "loganalytics", "activitylog"), (1090, 416)),
+        (("waf", "ddosprotection", "defenderforcloud"), (1620, 560)),
+    ]
+    for needles, point in checks:
+        if any(needle in key for needle in needles):
+            return point
+    return None
+
+
+def _service_connection_flow(analysis: dict[str, Any]) -> str:
+    """Overlay service-level flow paths from analysis service_connections."""
+    connections = [c for c in analysis.get("service_connections") or [] if isinstance(c, dict)]
+    if not connections:
+        return ""
+
+    aliases = _mapping_aliases(analysis)
+    out = ['<g id="service-flow" data-source="service_connections">']
+    rendered = 0
+    for conn in connections[:40]:
+        source = _connection_endpoint(conn, "from", "source")
+        target = _connection_endpoint(conn, "to", "target")
+        source_name = aliases.get(_service_key(source), source)
+        target_name = aliases.get(_service_key(target), target)
+        start = _flow_anchor(source_name)
+        end = _flow_anchor(target_name)
+        if not start or not end or start == end:
+            continue
+        label = _connection_label(conn) or "flow"
+        offset = (rendered % 5 - 2) * 8
+        sx, sy = start[0], start[1] + offset
+        ex, ey = end[0], end[1] + offset
+        mid_x = (sx + ex) / 2
+        control_y = min(sy, ey) - 44 if abs(sy - ey) < 140 else (sy + ey) / 2
+        color = {
+            "database": COLOR_DB,
+            "auth": COLOR_PURPLE,
+            "security": COLOR_RED,
+            "inspection": COLOR_RED,
+            "storage": COLOR_PRIMARY,
+            "metrics": COLOR_GREEN,
+        }.get(str(conn.get("type") or "traffic").lower(), COLOR_INK_2)
+        out.append(
+            f'<path class="service-flow-edge" d="M {sx:.1f} {sy:.1f} Q {mid_x:.1f} {control_y:.1f} {ex:.1f} {ey:.1f}" '
+            f'stroke="{color}" stroke-width="2.2" fill="none" stroke-opacity="0.82" marker-end="url(#a)"/>'
+        )
+        out.append(_tx(mid_x, control_y - 6, _truncate(label, 26), "t-flow", anchor="middle"))
+        rendered += 1
+
+    out.append('</g>')
+    return "\n".join(out) if rendered else ""
+
+
 # ---------------------------------------------------------------------------
 # Replication band (DR variant)
 # ---------------------------------------------------------------------------
@@ -1143,6 +1240,9 @@ def generate_landing_zone_svg(
                     status="primary",
                     role_text=primary_role_text,
                 ))
+                flow_overlay = _service_connection_flow(analysis)
+                if flow_overlay:
+                    parts.append(flow_overlay)
 
                 if dr_variant == "primary":
                     # Collapsed Region 2 banner if a second region is configured.

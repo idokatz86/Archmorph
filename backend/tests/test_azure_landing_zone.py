@@ -350,6 +350,20 @@ class TestProductionReadyGuardrails:
             f"SVG size {size_bytes} bytes exceeds 300 KB cap on canonical fixture"
         )
 
+    def test_canonical_estate_renders_service_connection_flow_paths(self, canonical_aws_estate):
+        result = generate_landing_zone_svg(canonical_aws_estate, dr_variant="primary")
+        root = ET.fromstring(result["content"])
+        flow_paths = [
+            path for path in root.iter(f"{SVG_NS}path")
+            if path.get("class") == "service-flow-edge"
+        ]
+        texts = [text.text or "" for text in root.iter(f"{SVG_NS}text")]
+
+        expected = int(len(canonical_aws_estate["service_connections"]) * 0.8)
+        assert len(flow_paths) >= expected
+        assert "traffic" in texts
+        assert "database" in texts
+
     def test_dr_variant_renders_real_icons_too(self, canonical_aws_estate):
         """DR variant has 2x the canvas; must not lose icon resolution along the way."""
         result = generate_landing_zone_svg(canonical_aws_estate, dr_variant="dr")

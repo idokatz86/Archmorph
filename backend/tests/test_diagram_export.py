@@ -7,6 +7,7 @@ valid — masking the broken Visio output (#569).
 """
 import json
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 import pytest
 from diagram_export import generate_diagram, get_azure_stencil_id
@@ -40,6 +41,11 @@ SAMPLE_ANALYSIS = {
         },
     ],
 }
+
+
+CANONICAL_AWS_ESTATE_PATH = (
+    Path(__file__).parent / "fixtures" / "aws_canonical_estate.json"
+)
 
 
 MIXED_CLOUD_ANALYSIS = {
@@ -99,6 +105,32 @@ class TestGenerateDiagram:
         assert root.tag in ("mxfile", "mxGraphModel"), f"Unexpected root: {root.tag}"
         cells = root.findall(".//mxCell")
         assert len(cells) > 0, "Draw.io export had no mxCell elements"
+
+    def test_drawio_renders_service_connection_edges_from_canonical_fixture(self):
+        analysis = json.loads(CANONICAL_AWS_ESTATE_PATH.read_text(encoding="utf-8"))
+
+        result = generate_diagram(analysis, format="drawio")
+        root = ET.fromstring(result["content"])
+        edges = [cell for cell in root.findall(".//mxCell") if cell.get("edge") == "1"]
+
+        expected = int(len(analysis["service_connections"]) * 0.8)
+        assert len(edges) >= expected
+        assert all((edge.get("value") or "") != "data flow" for edge in edges)
+
+    def test_drawio_connection_edge_label_includes_protocol_and_type(self):
+        analysis = {
+            **SAMPLE_ANALYSIS,
+            "zones": [{"id": 1, "number": 1, "name": "app", "services": []}],
+            "service_connections": [
+                {"from": "EC2", "to": "S3", "protocol": "HTTPS", "type": "storage"},
+            ],
+        }
+
+        result = generate_diagram(analysis, format="drawio")
+        root = ET.fromstring(result["content"])
+        edge_values = [cell.get("value") or "" for cell in root.findall(".//mxCell") if cell.get("edge") == "1"]
+
+        assert "HTTPS · storage" in edge_values
 
     def test_mixed_cloud_drawio_handoff_labels_sources_and_uses_deterministic_fallback(self):
         result = generate_diagram(MIXED_CLOUD_ANALYSIS, format="drawio")
@@ -173,6 +205,27 @@ class TestGenerateDiagram:
         pages = root.find(f"{ns}Pages")
         assert pages is not None, "VDX missing <Pages> element"
         assert len(pages.findall(f"{ns}Page")) >= 1
+
+    def test_vsdx_renders_service_connection_connectors_from_canonical_fixture(self):
+        analysis = json.loads(CANONICAL_AWS_ESTATE_PATH.read_text(encoding="utf-8"))
+
+        result = generate_diagram(analysis, format="vsdx")
+        root = ET.fromstring(result["content"])
+        ns = "{http://schemas.microsoft.com/visio/2003/core}"
+        connectors = [
+            shape for shape in root.findall(f".//{ns}Shape")
+            if (shape.get("NameU") or "").startswith("Connector_")
+        ]
+        connector_texts = [
+            text.text or ""
+            for shape in connectors
+            for text in shape.findall(f"{ns}Text")
+        ]
+
+        expected = int(len(analysis["service_connections"]) * 0.8)
+        assert len(connectors) >= expected
+        assert "database" in connector_texts
+        assert "auth" in connector_texts
 
     def test_invalid_format_raises(self):
         with pytest.raises((ValueError, KeyError)):

@@ -94,6 +94,68 @@ def _service_source_name(service: Any) -> str:
     return str(service)
 
 
+def _service_key(value: Any) -> str:
+    """Stable fuzzy key for matching connection endpoints to rendered services."""
+    text = str(value or "").lower().strip()
+    text = re.sub(r"\[[^\]]+\]", "", text)
+    text = re.sub(r"\b(?:aws|amazon|azure|gcp|google|microsoft)\b", "", text)
+    text = re.sub(r"[^a-z0-9]+", "", text)
+    return text
+
+
+def _connection_endpoint(conn: dict[str, Any], primary: str, secondary: str) -> str:
+    return str(conn.get(primary) or conn.get(secondary) or "")
+
+
+def _connection_label(conn: dict[str, Any]) -> str:
+    protocol = str(conn.get("protocol") or "").strip()
+    conn_type = str(conn.get("type") or "").strip()
+    bits = [bit for bit in (protocol, conn_type) if bit]
+    return " · ".join(bits)
+
+
+def _mapping_aliases(mappings: list[dict[str, Any]]) -> dict[str, str]:
+    aliases: dict[str, str] = {}
+    for mapping in mappings:
+        azure = str(mapping.get("azure_service") or mapping.get("target") or "").strip()
+        if not azure:
+            continue
+        for field in ("source_service", "aws_service", "gcp_service", "source", "azure_service", "target"):
+            value = mapping.get(field)
+            if value:
+                aliases[_service_key(value)] = azure
+        aliases[_service_key(azure)] = azure
+    return aliases
+
+
+def _resolved_connection_endpoint(endpoint: str, aliases: dict[str, str]) -> str:
+    return aliases.get(_service_key(endpoint), endpoint)
+
+
+def _services_for_export_zones(zones: list[dict[str, Any]], mappings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Ensure exports have service nodes even when analysis zones are metadata-only."""
+    if any(zone.get("services") for zone in zones if isinstance(zone, dict)):
+        return zones
+
+    if not mappings:
+        return zones
+
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for mapping in mappings:
+        category = str(mapping.get("category") or "Other").strip() or "Other"
+        grouped.setdefault(category, []).append(mapping)
+
+    synthesized: list[dict[str, Any]] = []
+    for idx, (category, category_mappings) in enumerate(grouped.items(), start=1):
+        synthesized.append({
+            "id": idx,
+            "number": idx,
+            "name": category,
+            "services": category_mappings,
+        })
+    return synthesized
+
+
 # ---------------------------------------------------------------------------
 # Public helpers
 # ---------------------------------------------------------------------------
@@ -948,8 +1010,9 @@ def _drawio_style(base: str = "rounded=1;whiteSpace=wrap;html=1;", **kw: str) ->
 
 
 def _generate_drawio(analysis: dict) -> dict:
-    zones = analysis.get("zones", [])
     mappings = analysis.get("mappings", [])
+    zones = _services_for_export_zones(analysis.get("zones", []), mappings)
+    connections = analysis.get("service_connections", [])
     title = analysis.get("title", "Azure Architecture Diagram")
 
     # Build mapping lookup
@@ -1016,6 +1079,7 @@ def _generate_drawio(analysis: dict) -> dict:
 
     zone_rects: list[dict] = []
     zone_ids: list[str] = []
+    service_ids: dict[str, str] = {}
 
     for idx, zone in enumerate(zones):
         services = zone.get("services", [])
@@ -1105,6 +1169,8 @@ def _generate_drawio(analysis: dict) -> dict:
                 vertex="1", parent=zid,
             )
             lbl_cell.append(_mx_geom(sx + 48, sy, sw - 48, sh))
+            for alias in (aws_name, azure_name, label):
+                service_ids[_service_key(alias)] = lbl_id
 
     # ── Cloud boundary geometry ──
     if zone_rects:
@@ -1116,24 +1182,63 @@ def _generate_drawio(analysis: dict) -> dict:
         bx, by, bw, bh = margin_x, margin_y, 800, 600
     cloud_cell.append(_mx_geom(bx, by, bw, bh))
 
-    # ── Arrows between consecutive zones ──
-    for i in range(len(zone_rects) - 1):
-        src = zone_rects[i]
-        dst = zone_rects[i + 1]
+    aliases = _mapping_aliases(mappings)
+    rendered_connections = 0
+    for conn in connections[:80]:
+        if not isinstance(conn, dict):
+            continue
+        from_endpoint = _connection_endpoint(conn, "from", "source")
+        to_endpoint = _connection_endpoint(conn, "to", "target")
+        from_service = _resolved_connection_endpoint(from_endpoint, aliases)
+        to_service = _resolved_connection_endpoint(to_endpoint, aliases)
+        source_id = service_ids.get(_service_key(from_service)) or service_ids.get(_service_key(from_endpoint))
+        target_id = service_ids.get(_service_key(to_service)) or service_ids.get(_service_key(to_endpoint))
+        if not source_id or not target_id or source_id == target_id:
+            continue
         eid = next_id()
+        label = _connection_label(conn)
+        conn_type = str(conn.get("type") or "traffic").lower()
+        color = {
+            "database": "#1A5DAB",
+            "auth": "#5C2D91",
+            "security": "#C73E1D",
+            "inspection": "#C73E1D",
+            "storage": "#0078D4",
+            "metrics": "#107C10",
+        }.get(conn_type, "#50E6FF")
         arrow_style = (
-            "edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#50E6FF;"
+            f"edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor={color};"
             "strokeWidth=2;fontSize=11;fontColor=#0078D4;"
         )
         edge = ET.SubElement(
             root_cell, "mxCell",
             id=eid,
-            value="data flow",
+            value=label,
             style=arrow_style,
             edge="1", parent="1",
-            source=src["id"], target=dst["id"],
+            source=source_id, target=target_id,
         )
         edge.append(_mx_geom(0, 0, 0, 0, relative=True))
+        rendered_connections += 1
+
+    if rendered_connections == 0:
+        for i in range(len(zone_rects) - 1):
+            src = zone_rects[i]
+            dst = zone_rects[i + 1]
+            eid = next_id()
+            arrow_style = (
+                "edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#50E6FF;"
+                "strokeWidth=2;fontSize=11;fontColor=#0078D4;"
+            )
+            edge = ET.SubElement(
+                root_cell, "mxCell",
+                id=eid,
+                value="data flow",
+                style=arrow_style,
+                edge="1", parent="1",
+                source=src["id"], target=dst["id"],
+            )
+            edge.append(_mx_geom(0, 0, 0, 0, relative=True))
 
     xml_str = ET.tostring(root, encoding="unicode", xml_declaration=True)
     return {
@@ -1164,8 +1269,9 @@ _VDX_NS = "http://schemas.microsoft.com/visio/2003/core"
 
 
 def _generate_vsdx(analysis: dict) -> dict:
-    zones = analysis.get("zones", [])
     mappings = analysis.get("mappings", [])
+    zones = _services_for_export_zones(analysis.get("zones", []), mappings)
+    connections = analysis.get("service_connections", [])
     title = analysis.get("title", "Azure Architecture Diagram")
 
     svc_map: dict[str, dict] = {}
@@ -1235,6 +1341,7 @@ def _generate_vsdx(analysis: dict) -> dict:
     margin_y_in = 2.0
 
     zone_shapes: list[dict] = []
+    service_shapes: dict[str, dict[str, Any]] = {}
 
     for idx, zone in enumerate(zones):
         services = zone.get("services", [])
@@ -1290,29 +1397,70 @@ def _generate_vsdx(analysis: dict) -> dict:
             _vdx_fill(svc_el, "#FFFFFF")
             _vdx_line(svc_el, _CONFIDENCE_COLORS.get(confidence, "#FF9800"))
             _vdx_text(svc_el, label)
+            absolute_x = zx + sx_local
+            absolute_y = zy + sy_local
+            for alias in (aws_name, azure_name, label):
+                service_shapes[_service_key(alias)] = {"id": ssid, "x": absolute_x, "y": absolute_y}
 
-    # ── Connectors between consecutive zones ──
     connects = ET.SubElement(page, f"{{{_VDX_NS}}}Connects")
-    for i in range(len(zone_shapes) - 1):
+    aliases = _mapping_aliases(mappings)
+    rendered_connections = 0
+    for idx, conn_data in enumerate(connections[:80]):
+        if not isinstance(conn_data, dict):
+            continue
+        from_endpoint = _connection_endpoint(conn_data, "from", "source")
+        to_endpoint = _connection_endpoint(conn_data, "to", "target")
+        from_service = _resolved_connection_endpoint(from_endpoint, aliases)
+        to_service = _resolved_connection_endpoint(to_endpoint, aliases)
+        src_shape = service_shapes.get(_service_key(from_service)) or service_shapes.get(_service_key(from_endpoint))
+        dst_shape = service_shapes.get(_service_key(to_service)) or service_shapes.get(_service_key(to_endpoint))
+        if not src_shape or not dst_shape or src_shape["id"] == dst_shape["id"]:
+            continue
         csid = next_shape_id()
         conn = ET.SubElement(shapes, f"{{{_VDX_NS}}}Shape", ID=csid, Type="Shape",
-                             NameU=f"Connector_{i}")
-        # XForm1D
+                             NameU=f"Connector_{idx}")
         xform1d = ET.SubElement(conn, f"{{{_VDX_NS}}}XForm1D")
-        src_z = zone_shapes[i]
-        dst_z = zone_shapes[i + 1]
-        ET.SubElement(xform1d, f"{{{_VDX_NS}}}BeginX").text = str(src_z["x"] + src_z["w"])
-        ET.SubElement(xform1d, f"{{{_VDX_NS}}}BeginY").text = str(src_z["y"] + src_z["h"] / 2)
-        ET.SubElement(xform1d, f"{{{_VDX_NS}}}EndX").text = str(dst_z["x"])
-        ET.SubElement(xform1d, f"{{{_VDX_NS}}}EndY").text = str(dst_z["y"] + dst_z["h"] / 2)
-        _vdx_line(conn, _AZURE_SECONDARY)
-        _vdx_text(conn, "data flow")
+        ET.SubElement(xform1d, f"{{{_VDX_NS}}}BeginX").text = str(round(float(src_shape["x"]), 4))
+        ET.SubElement(xform1d, f"{{{_VDX_NS}}}BeginY").text = str(round(float(src_shape["y"]), 4))
+        ET.SubElement(xform1d, f"{{{_VDX_NS}}}EndX").text = str(round(float(dst_shape["x"]), 4))
+        ET.SubElement(xform1d, f"{{{_VDX_NS}}}EndY").text = str(round(float(dst_shape["y"]), 4))
+        conn_type = str(conn_data.get("type") or "traffic").lower()
+        color = {
+            "database": "#1A5DAB",
+            "auth": "#5C2D91",
+            "security": "#C73E1D",
+            "inspection": "#C73E1D",
+            "storage": _AZURE_PRIMARY,
+            "metrics": "#107C10",
+        }.get(conn_type, _AZURE_SECONDARY)
+        _vdx_line(conn, color)
+        _vdx_text(conn, _connection_label(conn_data))
 
-        # Connect elements
         ET.SubElement(connects, f"{{{_VDX_NS}}}Connect", FromSheet=csid, FromCell="BeginX",
-                           ToSheet=src_z["id"])
+                           ToSheet=str(src_shape["id"]))
         ET.SubElement(connects, f"{{{_VDX_NS}}}Connect", FromSheet=csid, FromCell="EndX",
-                           ToSheet=dst_z["id"])
+                           ToSheet=str(dst_shape["id"]))
+        rendered_connections += 1
+
+    if rendered_connections == 0:
+        for i in range(len(zone_shapes) - 1):
+            csid = next_shape_id()
+            conn = ET.SubElement(shapes, f"{{{_VDX_NS}}}Shape", ID=csid, Type="Shape",
+                                 NameU=f"Connector_{i}")
+            xform1d = ET.SubElement(conn, f"{{{_VDX_NS}}}XForm1D")
+            src_z = zone_shapes[i]
+            dst_z = zone_shapes[i + 1]
+            ET.SubElement(xform1d, f"{{{_VDX_NS}}}BeginX").text = str(src_z["x"] + src_z["w"])
+            ET.SubElement(xform1d, f"{{{_VDX_NS}}}BeginY").text = str(src_z["y"] + src_z["h"] / 2)
+            ET.SubElement(xform1d, f"{{{_VDX_NS}}}EndX").text = str(dst_z["x"])
+            ET.SubElement(xform1d, f"{{{_VDX_NS}}}EndY").text = str(dst_z["y"] + dst_z["h"] / 2)
+            _vdx_line(conn, _AZURE_SECONDARY)
+            _vdx_text(conn, "data flow")
+
+            ET.SubElement(connects, f"{{{_VDX_NS}}}Connect", FromSheet=csid, FromCell="BeginX",
+                               ToSheet=src_z["id"])
+            ET.SubElement(connects, f"{{{_VDX_NS}}}Connect", FromSheet=csid, FromCell="EndX",
+                               ToSheet=dst_z["id"])
 
     xml_str = ET.tostring(vdx, encoding="unicode", xml_declaration=True)
     return {
