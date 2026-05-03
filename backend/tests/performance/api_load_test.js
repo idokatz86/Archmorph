@@ -5,6 +5,16 @@ import { Rate, Trend } from 'k6/metrics';
 // In CI without API_KEY, chat endpoints return 401 — treat that as expected
 const isCI = !!__ENV.CI || !!__ENV.GITHUB_ACTIONS;
 const API_KEY = __ENV.API_KEY || '';
+const DEFAULT_SUMMARY_PATH = 'k6-summary.json';
+const RESERVED_SUMMARY_KEYS = new Set(['stdout', 'stderr']);
+
+function summaryPathFromEnv(value) {
+  const candidate = (value || '').trim();
+  if (!candidate || RESERVED_SUMMARY_KEYS.has(candidate)) return DEFAULT_SUMMARY_PATH;
+  return candidate;
+}
+
+const SUMMARY_PATH = summaryPathFromEnv(__ENV.K6_SUMMARY_PATH);
 
 if (isCI && !API_KEY) {
   // 401 is expected for chat endpoints when no API key is configured
@@ -56,6 +66,20 @@ const CATALOG_P95_THRESHOLD_MS = Number(
   __ENV.K6_CATALOG_P95_MS || (isCI ? 3000 : 1500),
 );
 
+const thresholds = {
+  http_req_duration: [
+    isCI ? 'p(95)<4000' : 'p(95)<2000',
+    isCI ? 'p(99)<8000' : 'p(99)<5000',
+  ],
+  http_req_failed: ['rate<0.10'],
+  errors: ['rate<0.01'],
+  catalog_latency: [`p(95)<${CATALOG_P95_THRESHOLD_MS}`],
+};
+
+if (API_KEY) {
+  thresholds.chat_latency = ['p(95)<5000'];
+}
+
 export const options = {
   scenarios: {
     // 70% — Static/cached endpoints
@@ -89,16 +113,7 @@ export const options = {
       exec: 'uncachedLlmEndpoints',
     },
   },
-  thresholds: {
-    http_req_duration: [
-      isCI ? 'p(95)<4000' : 'p(95)<2000',
-      isCI ? 'p(99)<8000' : 'p(99)<5000',
-    ],
-    http_req_failed: ['rate<0.10'],
-    errors: ['rate<0.01'],
-    chat_latency: ['p(95)<5000'],
-    catalog_latency: [`p(95)<${CATALOG_P95_THRESHOLD_MS}`],
-  },
+  thresholds,
 };
 
 const BASE_URL = __ENV.API_BASE_URL || 'http://localhost:8000';
@@ -177,6 +192,10 @@ function metricValue(data, metricName, valueName) {
   return typeof value === 'number' ? value : null;
 }
 
+function printableValue(value) {
+  return value === null || value === undefined ? 'n/a' : value;
+}
+
 function thresholdRows(data) {
   const rows = [];
   for (const [metricName, metric] of Object.entries(data.metrics)) {
@@ -208,7 +227,7 @@ function endpointLatencySummary(data) {
 
 function formatEndpointP95s(endpointLatencies) {
   return Object.entries(endpointLatencies)
-    .map(([endpointName, values]) => `${endpointName}=${values.p95_ms ?? 'n/a'}`)
+    .map(([endpointName, values]) => `${endpointName}=${printableValue(values.p95_ms)}`)
     .join(' ');
 }
 
@@ -216,6 +235,7 @@ export function handleSummary(data) {
   const rows = thresholdRows(data);
   const failed = rows.filter((row) => !row.ok);
   const catalogP95 = metricValue(data, 'catalog_latency', 'p(95)');
+  const chatP95 = metricValue(data, 'chat_latency', 'p(95)');
   const httpP95 = metricValue(data, 'http_req_duration', 'p(95)');
   const httpFailed = metricValue(data, 'http_req_failed', 'rate');
   const checksFailed = metricValue(data, 'checks', 'fails');
@@ -230,6 +250,8 @@ export function handleSummary(data) {
     key_metrics: {
       catalog_latency_p95_ms: catalogP95,
       catalog_latency_threshold_ms: CATALOG_P95_THRESHOLD_MS,
+      chat_latency_p95_ms: chatP95,
+      chat_latency_threshold_ms: API_KEY ? 5000 : null,
       catalog_response_chars_p95: catalogCharsP95,
       http_req_duration_p95_ms: httpP95,
       http_req_failed_rate: httpFailed,
@@ -244,11 +266,12 @@ export function handleSummary(data) {
   const stdout = [
     'Archmorph k6 summary',
     `target_rps=${summary.target_rps}`,
-    `catalog_latency_p95_ms=${catalogP95 ?? 'n/a'} threshold_ms=${CATALOG_P95_THRESHOLD_MS}`,
-    `catalog_response_chars_p95=${catalogCharsP95 ?? 'n/a'}`,
+    `catalog_latency_p95_ms=${printableValue(catalogP95)} threshold_ms=${CATALOG_P95_THRESHOLD_MS}`,
+    `chat_latency_p95_ms=${printableValue(chatP95)} threshold_ms=${API_KEY ? 5000 : 'n/a'}`,
+    `catalog_response_chars_p95=${printableValue(catalogCharsP95)}`,
     `static_endpoint_p95_ms ${formatEndpointP95s(staticEndpointLatencies)}`,
-    `http_req_duration_p95_ms=${httpP95 ?? 'n/a'}`,
-    `http_req_failed_rate=${httpFailed ?? 'n/a'}`,
+    `http_req_duration_p95_ms=${printableValue(httpP95)}`,
+    `http_req_failed_rate=${printableValue(httpFailed)}`,
     'failed_thresholds:',
     failedText,
     '',
@@ -256,6 +279,6 @@ export function handleSummary(data) {
 
   return {
     stdout,
-    'k6-summary.json': JSON.stringify(summary, null, 2),
+    [SUMMARY_PATH]: JSON.stringify(summary, null, 2),
   };
 }
