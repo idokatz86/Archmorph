@@ -87,12 +87,17 @@ def register_with_last_success(
                 description=description,
             )
         else:
-            # Allow updating the budget / description, keep last_success.
+            # Allow updating the budget / description and advance seeded
+            # durable state when a cold process discovers a newer success.
             existing = _registry[name]
+            if existing.last_success and last_success:
+                seeded_last_success = max(existing.last_success, last_success)
+            else:
+                seeded_last_success = existing.last_success or last_success
             _registry[name] = _Registration(
                 name=name,
                 budget_hours=float(budget_hours),
-                last_success=existing.last_success or last_success,
+                last_success=seeded_last_success,
                 description=description or existing.description,
             )
 
