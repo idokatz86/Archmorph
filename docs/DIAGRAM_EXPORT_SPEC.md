@@ -6,6 +6,8 @@
 
 > May 2026 update: the customer-facing Architecture Package is the primary website export. It exposes HTML plus standalone target/DR SVG render targets. Classic editable diagram formats remain legacy/internal API capabilities only and are no longer visible in the customer export UI.
 
+> May 2026 security update (#671): generated artifact export/download endpoints require a caller-held `X-Export-Capability` token scoped to the requested analysis. Tokens are opaque, one-time-use, expire after 15 minutes by default, and rotate after every successful export.
+
 ---
 
 ## 1. Input Data Contract
@@ -43,6 +45,24 @@ Architecture Package exports additionally consume `customer_intent` and optional
 |--------|---------|------------------|-------|
 | Architecture Package | `format=html` or `format=svg` with `diagram=primary` or `diagram=dr` | Customer, CTO, architecture review | Polished review package with Azure topology views, talking points, limitations, and namespaced inline SVG assets. This is the only visible website diagram export family. |
 | Classic Diagram Export | `excalidraw`, `drawio`, `vsdx` | Internal/legacy engineers editing diagrams in external tools | Legacy renderer contract retained for compatibility only; do not surface these options in the customer website export UI. |
+
+## 1.2 Capability Token Boundary
+
+The export/download routes are a bearer-capability boundary, separate from the general API key/admin model. This applies to classic diagram exports, architecture-package exports, HLD exports, and PDF report downloads.
+
+| Requirement | Contract |
+| --- | --- |
+| Header | `X-Export-Capability: <opaque-token>` |
+| Scope | `artifact:export` and exactly one `diagram_id` |
+| Entropy | `secrets.token_urlsafe(32)` for export capabilities; diagram IDs use at least `secrets.token_urlsafe(16)` |
+| Storage | Server stores SHA-256 token digest only, never the raw token |
+| Expiry | Default 15 minutes (`EXPORT_CAPABILITY_TTL_SECONDS`) |
+| Replay | Token is consumed when validated; reuse returns 401 |
+| Rotation | Successful export responses include a fresh `export_capability` and `export_capability_expires_in` |
+| Local/dev | `ARCHMORPH_EXPORT_CAPABILITY_REQUIRED=false` may be used for local scripts; production/staging fail closed |
+| Audit | Emit issuance/validation/denial events without raw token values |
+
+Pitfalls: do not put product-flow tokens in URLs, do not persist capabilities in analysis artifacts/history, do not make tokens multi-use for bulk export, and do not treat a guessed `diagram_id` as sufficient authorization.
 
 ---
 

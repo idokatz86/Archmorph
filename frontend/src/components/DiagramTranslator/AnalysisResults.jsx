@@ -220,7 +220,7 @@ export default function AnalysisResults({
   analysis, loading, generatingIac, iacFormat, exportLoading,
   copyFeedback, genProgress, notifyEmail, onNotifyEmail,
   onSetStep, onGenerateIac, onExportDiagram, onCopyWithFeedback,
-  diagramId,
+  diagramId, exportCapability, onExportCapability,
 }) {
   const [resultsView, setResultsView] = useState('card');
 
@@ -374,7 +374,11 @@ export default function AnalysisResults({
       </div>
 
       {/* Export Hub Modal */}
-      <ExportHub diagramId={diagramId} />
+      <ExportHub
+        diagramId={diagramId}
+        exportCapability={exportCapability}
+        onExportCapability={onExportCapability}
+      />
 
       {/* Generation Progress Indicator (#311) */}
       {generatingIac && (

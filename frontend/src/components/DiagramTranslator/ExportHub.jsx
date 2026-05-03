@@ -83,7 +83,7 @@ const DELIVERABLES = [
 ];
 
 // Generate a deliverable blob via the appropriate API
-async function generateDeliverable(diagramId, deliverable, format, hldIncludeDiagrams) {
+async function generateDeliverable(diagramId, deliverable, format, hldIncludeDiagrams, exportCapability) {
   const id = deliverable.id;
 
   if (id === 'iac') {
@@ -96,19 +96,31 @@ async function generateDeliverable(diagramId, deliverable, format, hldIncludeDia
   if (id === 'architecture-package') {
     const packageFormat = format.startsWith('svg') ? 'svg' : format;
     const packageDiagram = format === 'svg-dr' ? '&diagram=dr' : '';
-    const data = await api.post(`/diagrams/${diagramId}/export-architecture-package?format=${packageFormat}${packageDiagram}`);
+    const data = await api.post(
+      `/diagrams/${diagramId}/export-architecture-package?format=${packageFormat}${packageDiagram}`,
+      undefined,
+      undefined,
+      undefined,
+      exportCapability ? { 'X-Export-Capability': exportCapability } : {},
+    );
     const content = typeof data.content === 'string' ? data.content : JSON.stringify(data.content, null, 2);
     const mime = packageFormat === 'html' ? 'text/html' : 'image/svg+xml';
     const filename = data.filename || `archmorph-architecture-package${format === 'svg-dr' ? '-dr' : ''}.${packageFormat}`;
-    return { blob: new Blob([content], { type: mime }), filename };
+    return { blob: new Blob([content], { type: mime }), filename, exportCapability: data.export_capability || null };
   }
 
   if (id === 'hld') {
     const cachedImg = loadCachedImage(diagramId);
     const exportBody = cachedImg?.base64 ? { diagram_image: cachedImg.base64 } : {};
-    const data = await api.post(`/diagrams/${diagramId}/export-hld?format=${format}&include_diagrams=${hldIncludeDiagrams}&export_mode=customer`, exportBody);
+    const data = await api.post(
+      `/diagrams/${diagramId}/export-hld?format=${format}&include_diagrams=${hldIncludeDiagrams}&export_mode=customer`,
+      exportBody,
+      undefined,
+      undefined,
+      exportCapability ? { 'X-Export-Capability': exportCapability } : {},
+    );
     const bytes = Uint8Array.from(atob(data.content_b64), c => c.charCodeAt(0));
-    return { blob: new Blob([bytes], { type: data.content_type }), filename: data.filename };
+    return { blob: new Blob([bytes], { type: data.content_type }), filename: data.filename, exportCapability: data.export_capability || null };
   }
 
   if (id === 'cost') {
@@ -167,9 +179,15 @@ async function generateDeliverable(diagramId, deliverable, format, hldIncludeDia
   }
 
   if (id === 'pdf-report') {
-    const data = await api.post(`/diagrams/${diagramId}/export-hld?format=pdf&include_diagrams=true&export_mode=customer`, {});
+    const data = await api.post(
+      `/diagrams/${diagramId}/export-hld?format=pdf&include_diagrams=true&export_mode=customer`,
+      {},
+      undefined,
+      undefined,
+      exportCapability ? { 'X-Export-Capability': exportCapability } : {},
+    );
     const bytes = Uint8Array.from(atob(data.content_b64), c => c.charCodeAt(0));
-    return { blob: new Blob([bytes], { type: 'application/pdf' }), filename: data.filename || 'archmorph-report.pdf' };
+    return { blob: new Blob([bytes], { type: 'application/pdf' }), filename: data.filename || 'archmorph-report.pdf', exportCapability: data.export_capability || null };
   }
 
   throw new Error(`Unknown deliverable: ${id}`);
@@ -184,7 +202,7 @@ function downloadBlob(blob, filename) {
   URL.revokeObjectURL(url);
 }
 
-export default function ExportHub({ diagramId, hldIncludeDiagrams = true }) {
+export default function ExportHub({ diagramId, hldIncludeDiagrams = true, exportCapability = null, onExportCapability }) {
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState(() => {
     const init = {};
@@ -248,10 +266,15 @@ export default function ExportHub({ diagramId, hldIncludeDiagrams = true }) {
     setItemStatus(newStatus);
     setResults({});
 
+    let currentExportCapability = exportCapability;
     for (const d of selectedItems) {
       setItemStatus(prev => ({ ...prev, [d.id]: 'loading' }));
       try {
-        const result = await generateDeliverable(diagramId, d, formats[d.id], hldIncludeDiagrams);
+        const result = await generateDeliverable(diagramId, d, formats[d.id], hldIncludeDiagrams, currentExportCapability);
+        if (result.exportCapability) {
+          currentExportCapability = result.exportCapability;
+          if (onExportCapability) onExportCapability(result.exportCapability);
+        }
         newResults[d.id] = result;
         setResults(prev => ({ ...prev, [d.id]: result }));
         setItemStatus(prev => ({ ...prev, [d.id]: 'done' }));

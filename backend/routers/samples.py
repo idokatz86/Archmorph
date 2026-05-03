@@ -1,11 +1,10 @@
-from error_envelope import ArchmorphException
 """
 Sample Diagrams routes — onboarding samples with mock analysis.
 """
 
 from fastapi import APIRouter, Request
-import uuid
 
+from error_envelope import ArchmorphException
 from routers.shared import SESSION_STORE, limiter
 from services import CROSS_CLOUD_MAPPINGS
 from usage_metrics import record_funnel_step
@@ -427,10 +426,22 @@ def build_sample_analysis(sample_id: str, diagram_id: str) -> dict:
     }
 
 
+import secrets as _secrets  # noqa: E402
 import re as _re  # noqa: E402
+from export_capabilities import attach_export_capability  # noqa: E402
 
-# Pattern: "sample-<sample_id>-<hex6>"
-_SAMPLE_ID_RE = _re.compile(r"^sample-(.+)-[0-9a-f]{6}$")
+
+def _sample_id_from_diagram_id(diagram_id: str) -> str | None:
+    """Extract a known sample id from old hex and new URL-safe sample IDs."""
+    for sample in SAMPLE_DIAGRAMS:
+        sample_id = sample["id"]
+        prefix = f"sample-{sample_id}-"
+        if not diagram_id.startswith(prefix):
+            continue
+        suffix = diagram_id[len(prefix):]
+        if _re.fullmatch(r"[0-9a-f]{6}", suffix) or _re.fullmatch(r"[A-Za-z0-9_-]{16,}", suffix):
+            return sample_id
+    return None
 
 
 def get_or_recreate_session(diagram_id: str):
@@ -446,11 +457,10 @@ def get_or_recreate_session(diagram_id: str):
     if session is not None:
         return session
 
-    m = _SAMPLE_ID_RE.match(diagram_id)
-    if not m:
+    sample_id = _sample_id_from_diagram_id(diagram_id)
+    if not sample_id:
         return None  # not a sample — genuinely missing
 
-    sample_id = m.group(1)
     analysis = build_sample_analysis(sample_id, diagram_id)
     if analysis is None:
         return None  # unknown sample name
@@ -468,7 +478,7 @@ async def analyze_sample_diagram(request: Request, sample_id: str):
     every downstream endpoint (questions, apply-answers, export, IaC,
     HLD, cost-estimate) works without special-casing.
     """
-    diagram_id = f"sample-{sample_id}-{uuid.uuid4().hex[:6]}"
+    diagram_id = f"sample-{sample_id}-{_secrets.token_urlsafe(16)}"
     analysis = build_sample_analysis(sample_id, diagram_id)
     if analysis is None:
         raise ArchmorphException(404, f"Sample '{sample_id}' not found")
@@ -476,4 +486,4 @@ async def analyze_sample_diagram(request: Request, sample_id: str):
     SESSION_STORE[diagram_id] = analysis
     record_funnel_step(diagram_id, "analyze")
 
-    return analysis
+    return attach_export_capability(analysis, diagram_id)
