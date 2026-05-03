@@ -34,6 +34,8 @@ jobs:
           ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
           SAMPLE_ID: ${{ inputs.sample_id }}
           STRICT_FRESHNESS: ${{ inputs.strict_freshness }}
+          SECONDARY_FORMAT_SMOKE: true
+          HTTP_TIMEOUT: 240
           ARTIFACT_ROOT: smoke-artifacts/architecture-package/${{ github.run_id }}
         run: ./scripts/architecture_package_smoke.sh
 
