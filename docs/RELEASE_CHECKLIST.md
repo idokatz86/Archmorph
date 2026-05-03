@@ -78,7 +78,7 @@ After deployment, verify:
 - Frontend root loads without console-blocking errors.
 - `/#translator` opens the translator workflow.
 - `/#playground` opens the sample playground.
-- `${API_URL}/health` returns `healthy` or `degraded` with expected version metadata.
+- `${API_URL}/health` passes `scripts/health_gate.sh`: status must be `healthy`, scheduled jobs must be fresh, and optional Redis absence may warn only when overall health remains healthy.
 - `${API_ROOT}/openapi.json` loads and reports `Archmorph API`.
 - Run the [Production Architecture Package Smoke](PRODUCTION_SMOKE_ARCHITECTURE_PACKAGE.md) workflow with `strict_freshness=true`; retain the summary and artifact bundle for release evidence.
 - Confirm each changed generated artifact has an owner, validation command or explicit gap note, fixture, release evidence location, and gap tracking entry in the [Generated Artifact Validation Matrix](GENERATED_ARTIFACT_VALIDATION_MATRIX.md).
@@ -122,4 +122,4 @@ Before enabling any scaffolded feature, confirm:
 - GitHub Actions run URL.
 - Smoke-test output summary and Architecture Package smoke artifact manifest.
 - Enabled feature flags and tenant scope.
-- Any known degraded dependencies accepted for release.
+- Any known optional dependency warnings accepted for release. Required `degraded` or `unhealthy` production health is release-blocking.
