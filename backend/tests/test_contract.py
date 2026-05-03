@@ -144,6 +144,72 @@ class TestHealthContract:
         checks = client.get("/api/health").json()["checks"]
         assert_fields(checks, {"openai": str, "storage": str})
 
+    def test_optional_redis_is_explicitly_classified(self, client, monkeypatch):
+        import routers.health as health_router
+
+        def fake_checks():
+            return {
+                "openai": "ok",
+                "storage": "ok",
+                "redis": "disabled_optional",
+                "redis_readiness": {
+                    "backend": "file",
+                    "redis_configured": False,
+                    "require_redis": False,
+                    "production_like": True,
+                    "multi_worker": True,
+                    "ready_for_horizontal_scale": False,
+                },
+            }, False, False
+
+        monkeypatch.setattr(health_router, "_run_dependency_checks", fake_checks)
+        data = client.get("/api/health").json()
+
+        assert data["checks"]["redis"] == "disabled_optional"
+        assert data["checks"]["redis_readiness"]["require_redis"] is False
+
+    def test_health_reads_freshness_before_scheduled_jobs(self, client, monkeypatch):
+        import routers.health as health_router
+
+        calls = []
+
+        def fake_freshness():
+            calls.append("freshness")
+            return {
+                "last_check": "2026-01-01T00:00:00+00:00",
+                "age_hours": 1.0,
+                "budget_hours": 36.0,
+                "stale": False,
+                "last_errors": None,
+                "providers_failed": [],
+            }
+
+        def fake_scheduled_jobs():
+            calls.append("scheduled_jobs")
+            return [
+                {
+                    "name": "service_catalog_refresh",
+                    "budget_hours": 36.0,
+                    "last_success": "2026-01-01T00:00:00+00:00",
+                    "age_hours": 1.0,
+                    "stale": False,
+                    "description": "test job",
+                }
+            ]
+
+        monkeypatch.setattr(health_router, "get_freshness", fake_freshness)
+        monkeypatch.setattr(health_router, "get_scheduled_jobs", fake_scheduled_jobs)
+        monkeypatch.setattr(
+            health_router,
+            "_run_dependency_checks",
+            lambda: ({"openai": "ok", "storage": "ok"}, False, False),
+        )
+
+        data = client.get("/api/health").json()
+
+        assert data["status"] == "healthy"
+        assert calls == ["freshness", "scheduled_jobs"]
+
     def test_health_scheduled_jobs_schema(self, client):
         data = client.get("/api/health").json()
         assert "scheduled_jobs" in data

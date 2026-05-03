@@ -30,6 +30,14 @@ jobs:
         run: |
           docker run --rm --network host -i -v ${{ github.workspace }}:/app -w /app -e API_BASE_URL="http://localhost:8000" -e CI=true grafana/k6:latest run backend/tests/performance/api_load_test.js
 
+      - name: Upload k6 summary
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: backend-k6-summary
+          path: k6-summary.json
+          if-no-files-found: ignore
+
       - name: Dump docker logs on failure
         if: failure()
         run: docker compose logs backend

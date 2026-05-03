@@ -33,7 +33,15 @@ def healthy_payload() -> dict:
         "checks": {
             "openai": "ok",
             "storage": "ok",
-            "redis": "not_configured",
+            "redis": "disabled_optional",
+            "redis_readiness": {
+                "backend": "file",
+                "redis_configured": False,
+                "require_redis": False,
+                "production_like": True,
+                "multi_worker": True,
+                "ready_for_horizontal_scale": False,
+            },
             "service_catalog": "ok",
         },
         "service_catalog_refresh": {
@@ -57,7 +65,18 @@ def test_health_gate_passes_healthy_with_optional_redis_warning():
 
     assert result.returncode == 0
     assert "Production health gate passed" in result.stdout
-    assert "Redis is not configured" in result.stdout
+    assert "Redis is disabled as an optional dependency" in result.stdout
+
+
+def test_health_gate_fails_required_redis_missing_even_if_status_is_wrongly_healthy():
+    payload = healthy_payload()
+    payload["checks"]["redis"] = "missing_required"
+    payload["checks"]["redis_readiness"]["require_redis"] = True
+
+    result = run_gate(payload)
+
+    assert result.returncode == 1
+    assert "Redis is required but not configured" in result.stdout
 
 
 def test_health_gate_fails_degraded_service_catalog_refresh():

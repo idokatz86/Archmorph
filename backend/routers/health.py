@@ -68,14 +68,22 @@ def _run_dependency_checks() -> tuple[dict[str, str], bool, bool]:
         checks["storage"] = "error"
         degraded = True
 
-    # ── Redis (if configured) ─────────────────────────────
+    # ── Redis (optional unless REQUIRE_REDIS/ENFORCE_REDIS is set) ────────
     try:
-        from session_store import redis_configured, _create_redis_client
+        from session_store import (
+            REQUIRE_REDIS,
+            _create_redis_client,
+            redis_configured,
+            session_store_readiness,
+        )
         if redis_configured():
             _create_redis_client(socket_connect_timeout=2)
             checks["redis"] = "ok"
         else:
-            checks["redis"] = "not_configured"
+            checks["redis"] = "missing_required" if REQUIRE_REDIS else "disabled_optional"
+            if REQUIRE_REDIS:
+                degraded = True
+        checks["redis_readiness"] = session_store_readiness()
     except Exception:
         checks["redis"] = "error"
         degraded = True
