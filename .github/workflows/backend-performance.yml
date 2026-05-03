@@ -29,15 +29,15 @@ jobs:
       - name: Run k6 Load Test
         run: |
           mkdir -p "${{ runner.temp }}/k6-summary"
-          chmod 777 "${{ runner.temp }}/k6-summary"
           docker run --rm --network host -i \
+            --user "$(id -u):$(id -g)" \
             -v ${{ github.workspace }}:/app:ro \
             -v "${{ runner.temp }}/k6-summary:/summary" \
             -w /app \
             -e API_BASE_URL="http://localhost:8000" \
             -e K6_SUMMARY_PATH="/summary/k6-summary.json" \
             -e CI=true \
-            grafana/k6:latest run backend/tests/performance/api_load_test.js
+            grafana/k6:0.49.0 run backend/tests/performance/api_load_test.js
 
       - name: Upload k6 summary
         if: always()

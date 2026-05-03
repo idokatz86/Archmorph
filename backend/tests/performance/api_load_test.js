@@ -5,7 +5,16 @@ import { Rate, Trend } from 'k6/metrics';
 // In CI without API_KEY, chat endpoints return 401 — treat that as expected
 const isCI = !!__ENV.CI || !!__ENV.GITHUB_ACTIONS;
 const API_KEY = __ENV.API_KEY || '';
-const SUMMARY_PATH = __ENV.K6_SUMMARY_PATH || 'k6-summary.json';
+const DEFAULT_SUMMARY_PATH = 'k6-summary.json';
+const RESERVED_SUMMARY_KEYS = new Set(['stdout', 'stderr']);
+
+function summaryPathFromEnv(value) {
+  const candidate = (value || '').trim();
+  if (!candidate || RESERVED_SUMMARY_KEYS.has(candidate)) return DEFAULT_SUMMARY_PATH;
+  return candidate;
+}
+
+const SUMMARY_PATH = summaryPathFromEnv(__ENV.K6_SUMMARY_PATH);
 
 if (isCI && !API_KEY) {
   // 401 is expected for chat endpoints when no API key is configured
