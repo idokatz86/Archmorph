@@ -10,6 +10,7 @@ Tests the full 9-step translation flow for each diagram:
 """
 
 import json
+import re
 import sys
 import httpx
 
@@ -54,9 +55,12 @@ FAIL = "\033[91mFAIL\033[0m"
 SKIP = "\033[93mSKIP\033[0m"
 
 results = []
+FALSE_DETAIL_RE = re.compile(r"\bhas(?:_[A-Za-z0-9_]+|\s+[^=,]+)\s*=\s*False\b")
 
 
 def step(name: str, ok: bool, detail: str = ""):
+    if ok and detail and FALSE_DETAIL_RE.search(detail):
+        ok = False
     tag = PASS if ok else FAIL
     print(f"  {tag}  {name}" + (f"  ({detail})" if detail else ""))
     results.append((name, ok, detail))
