@@ -192,6 +192,10 @@ function metricValue(data, metricName, valueName) {
   return typeof value === 'number' ? value : null;
 }
 
+function printableValue(value) {
+  return value === null || value === undefined ? 'n/a' : value;
+}
+
 function thresholdRows(data) {
   const rows = [];
   for (const [metricName, metric] of Object.entries(data.metrics)) {
@@ -223,7 +227,7 @@ function endpointLatencySummary(data) {
 
 function formatEndpointP95s(endpointLatencies) {
   return Object.entries(endpointLatencies)
-    .map(([endpointName, values]) => `${endpointName}=${values.p95_ms ?? 'n/a'}`)
+    .map(([endpointName, values]) => `${endpointName}=${printableValue(values.p95_ms)}`)
     .join(' ');
 }
 
@@ -262,12 +266,12 @@ export function handleSummary(data) {
   const stdout = [
     'Archmorph k6 summary',
     `target_rps=${summary.target_rps}`,
-    `catalog_latency_p95_ms=${catalogP95 ?? 'n/a'} threshold_ms=${CATALOG_P95_THRESHOLD_MS}`,
-    `chat_latency_p95_ms=${chatP95 ?? 'n/a'} threshold_ms=${API_KEY ? 5000 : 'n/a'}`,
-    `catalog_response_chars_p95=${catalogCharsP95 ?? 'n/a'}`,
+    `catalog_latency_p95_ms=${printableValue(catalogP95)} threshold_ms=${CATALOG_P95_THRESHOLD_MS}`,
+    `chat_latency_p95_ms=${printableValue(chatP95)} threshold_ms=${API_KEY ? 5000 : 'n/a'}`,
+    `catalog_response_chars_p95=${printableValue(catalogCharsP95)}`,
     `static_endpoint_p95_ms ${formatEndpointP95s(staticEndpointLatencies)}`,
-    `http_req_duration_p95_ms=${httpP95 ?? 'n/a'}`,
-    `http_req_failed_rate=${httpFailed ?? 'n/a'}`,
+    `http_req_duration_p95_ms=${printableValue(httpP95)}`,
+    `http_req_failed_rate=${printableValue(httpFailed)}`,
     'failed_thresholds:',
     failedText,
     '',
