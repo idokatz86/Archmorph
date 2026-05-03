@@ -78,14 +78,14 @@ Headline controls in place:
 
 - **Export/download capability boundary**: generated artifact routes (`export-diagram`, `export-architecture-package`, `export-hld`, and report download) require a one-time `X-Export-Capability` token scoped to the specific `diagram_id`. Tokens are opaque, stored only as SHA-256 digests, expire after 15 minutes by default, are consumed on use to block replay, and rotate after each successful export. Local development may explicitly opt out with `ARCHMORPH_EXPORT_CAPABILITY_REQUIRED=false`; production and staging fail closed.
 - **XML output is escape-on-render**: every text run goes through `_xml_escape()` which strips invalid XML chars and escapes the 5 XML entities ([backend/azure_landing_zone.py](backend/azure_landing_zone.py)).
-- **Icon-pack writes are authenticated and sanitized**: `POST /api/icon-packs` requires `X-API-Key`, uploaded SVGs are parsed with `defusedxml`, scripts/events/style blocks/external references are stripped, and the in-memory icon registry is bounded.
+- **Icon-pack writes are authenticated and sanitized**: `POST /api/icon-packs` and `DELETE /api/icon-packs/{pack_id}` require `X-API-Key`, production/staging deployments fail closed if `ARCHMORPH_API_KEY` is missing, uploaded SVGs are parsed with `defusedxml`, scripts/events/style blocks/external references are stripped, and the in-memory icon registry is bounded.
 - **Icons are embedded as `data:image/svg+xml;base64` data URIs only** — there is no path to inject `javascript:` or external `http(s):` URIs into a rendered `<image href="…"/>`. Icon bytes come from the server-controlled icon registry.
 - **PII boundary**: the retention pipeline (#580) and LZ render path do not import each other; verified via grep in CI.
 - **Vision analyzer**: native multimodal — the system prompt is hardcoded, the user message contains only the image, and the response is constrained to a JSON schema with downstream Pydantic validation. `prompt_guard.PROMPT_ARMOR` reinforces the schema constraint.
 
 Open follow-ups (filed as separate issues, see threat-model §5):
 
-- **F-3 (P1)** — mitigated: `POST /api/icon-packs` requires `Depends(verify_api_key)`, uploaded SVGs are sanitized before registry insertion, and the registry has bounded in-memory capacity.
+- **F-3 (P1)** — mitigated: icon-pack upload and delete routes require `Depends(verify_api_key)`, uploaded SVGs are sanitized before registry insertion, production/staging auth fails closed when the API key is missing, and the registry has bounded in-memory capacity.
 
 P2 findings (webhook SSRF private-IP gap, unbounded analysis size, Pydantic `extra="forbid"`) are tracked but do not block GA.
 

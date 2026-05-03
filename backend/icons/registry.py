@@ -101,6 +101,12 @@ def _evict_icons_if_needed() -> None:
     logger.info("Icon registry evicted %s icons after reaching maxsize", len(evicted_ids))
 
 
+def _invalidate_pack_asset_cache(pack_id: str) -> None:
+    stale_keys = [key for key in _ASSET_CACHE if pack_id in str(key)]
+    for key in stale_keys:
+        _ASSET_CACHE.pop(key, None)
+
+
 def _persist_dir() -> Path:
     return Path(os.getenv("ICON_REGISTRY_DATA_DIR", str(_DEFAULT_PERSIST_DIR)))
 
@@ -301,6 +307,7 @@ def ingest_icon_pack(
 
     with _LOCK:
         _PACK_INDEX[pid] = ingested_ids
+        _invalidate_pack_asset_cache(pid)
         _evict_icons_if_needed()
         retained_ids = [cid for cid in ingested_ids if cid in _ICON_STORE]
         _metrics["packs_ingested"] += 1
@@ -442,10 +449,7 @@ def delete_pack(pack_id: str) -> dict[str, Any]:
         for cid in icon_ids:
             if _ICON_STORE.pop(cid, None) is not None:
                 removed += 1
-        # Invalidate cached assets that reference this pack
-        stale_keys = [k for k in _ASSET_CACHE if pack_id in str(k)]
-        for k in stale_keys:
-            _ASSET_CACHE.pop(k, None)
+        _invalidate_pack_asset_cache(pack_id)
     _save_to_disk()
     logger.info("Deleted pack '%s': %s icons removed", str(pack_id).replace('\n', '').replace('\r', ''), str(removed).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
     return {"deleted": True, "pack_id": pack_id, "icons_removed": removed}

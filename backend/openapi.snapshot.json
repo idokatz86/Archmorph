@@ -11881,6 +11881,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Delete Icon Pack",
         "tags": [
           "icons"
@@ -17302,6 +17307,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Delete Icon Pack V1",
         "tags": [
           "icons",

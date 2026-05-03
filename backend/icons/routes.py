@@ -136,7 +136,11 @@ async def list_packs():
 
 @router.delete("/icon-packs/{pack_id}")
 @limiter.limit("5/minute")
-async def delete_icon_pack(request: Request, pack_id: str):
+async def delete_icon_pack(
+    request: Request,
+    pack_id: str,
+    _auth: None = Depends(verify_api_key),
+):
     """Remove an icon pack and all its icons from the registry."""
     result = registry.delete_pack(pack_id)
     if not result.get("deleted"):

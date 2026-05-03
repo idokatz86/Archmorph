@@ -162,12 +162,13 @@ Severity scale: **P0** = blocks GA. **P1** = must close in Sprint 1. **P2** = sh
 1. **Registry pollution / DoS**: Upload garbage SVGs to overwrite legitimate icons → every customer's diagram looks broken. Rate-limited to 5/min per IP, so feasible from a botnet.
 2. **Cross-customer data exposure via SVG**: The uploaded SVG is base64-encoded and embedded as `data:image/svg+xml;base64,...` inside `<image href=...>`. Browsers DO sandbox `<image>`-referenced data URIs (no script execution), so XSS is blocked at the rendering layer — but if a customer downloads the SVG and opens it standalone (or includes it in a PowerPoint export which may re-embed differently), the attacker-controlled SVG runs in the customer's origin.
 
-**Status**: ✅ **Mitigated** for the filed P1 vectors. `POST /api/icon-packs` now requires API-key auth, uploaded SVGs pass through the `defusedxml` sanitizer before registry insertion, and the registry has bounded in-memory capacity with oldest-icon eviction.
+**Status**: ✅ **Mitigated** for the filed P1 vectors. `POST /api/icon-packs` and `DELETE /api/icon-packs/{pack_id}` now require API-key auth, production/staging deployments fail closed if `ARCHMORPH_API_KEY` is missing, uploaded SVGs pass through the `defusedxml` sanitizer before registry insertion, and the registry has bounded in-memory capacity with oldest-icon eviction.
 
 **Remediation** (Sprint 1):
-1. ✅ Add `_auth=Depends(verify_api_key)` to the `POST /api/icon-packs` route. Move from anonymous to admin-only.
+1. ✅ Add `_auth=Depends(verify_api_key)` to the icon-pack upload and delete routes. Move registry writes from anonymous to admin-only.
 2. ✅ Run uploaded SVGs through `defusedxml` to strip `<script>`, `<foreignObject>`, `on*` handlers, `xlink:href` to non-data URIs, and `<style>` blocks.
 3. ✅ Bound the in-memory store with oldest-icon eviction.
+4. ✅ Invalidate generated library caches when a pack is replaced or deleted.
 
 **Tracking**: file as new issue **#596-F3**, P1, Sprint 1, blocks GA.
 

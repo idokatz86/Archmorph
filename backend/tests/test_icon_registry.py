@@ -11,6 +11,7 @@ Unit tests covering:
   - Registry search / resolve
 """
 
+import base64
 import io
 import json
 import os
@@ -103,6 +104,10 @@ def small_zip_pack():
 
 
 def _zip_pack(icon_file: str, icon_name: str) -> bytes:
+    return _zip_pack_with_svg(icon_file, icon_name, VALID_SVG)
+
+
+def _zip_pack_with_svg(icon_file: str, icon_name: str, svg: bytes) -> bytes:
     buf = io.BytesIO()
     manifest = {
         "name": icon_name,
@@ -119,7 +124,7 @@ def _zip_pack(icon_file: str, icon_name: str) -> bytes:
     }
     with zipfile.ZipFile(buf, "w") as zf:
         zf.writestr("metadata.json", json.dumps(manifest))
-        zf.writestr(icon_file, VALID_SVG.decode())
+        zf.writestr(icon_file, svg.decode())
     return buf.getvalue()
 
 
@@ -295,6 +300,23 @@ class TestIconRegistry:
         r2 = registry.ingest_icon_pack(small_zip_pack, pack_id="dup")
         # Second ingest should still work (overwrite)
         assert r2["ingested"] == 1
+
+    def test_duplicate_ingest_invalidates_cached_libraries(self):
+        registry.ingest_icon_pack(_zip_pack("cache.svg", "Cache Icon"), pack_id="cache-refresh")
+        first = build_excalidraw_library("cache-refresh")
+
+        changed_svg = b'<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><circle cx="24" cy="24" r="20" fill="#ff0000"/></svg>'
+        registry.ingest_icon_pack(
+            _zip_pack_with_svg("cache.svg", "Cache Icon", changed_svg),
+            pack_id="cache-refresh",
+        )
+        second = build_excalidraw_library("cache-refresh")
+
+        assert second != first
+        doc = json.loads(second)
+        data_url = next(iter(doc["libraryItems"][0]["files"].values()))["dataURL"]
+        decoded_svg = base64.b64decode(data_url.split(",", 1)[1])
+        assert b"ff0000" in decoded_svg
 
     def test_registry_evicts_oldest_icons_when_maxsize_reached(self, monkeypatch):
         monkeypatch.setenv("ICON_REGISTRY_MAX_ICONS", "1")
@@ -510,6 +532,46 @@ class TestIconAPI:
             files={"file": ("test.zip", small_zip_pack, "application/zip")},
         )
         assert resp.status_code == 401
+        assert registry.list_packs() == []
+
+    def test_upload_zip_pack_fails_closed_without_key_in_production(self, small_zip_pack, monkeypatch):
+        from routers import shared as shared_router
+        monkeypatch.setattr(shared_router, "API_KEY", "")
+        monkeypatch.setenv("ENVIRONMENT", "production")
+
+        resp = self.client.post(
+            "/api/icon-packs?pack_id=api-prod-open",
+            files={"file": ("test.zip", small_zip_pack, "application/zip")},
+        )
+
+        assert resp.status_code == 500
+        assert registry.list_packs() == []
+
+    def test_delete_icon_pack_requires_api_key(self, small_zip_pack):
+        upload = self.client.post(
+            "/api/icon-packs?pack_id=api-delete-auth",
+            files={"file": ("test.zip", small_zip_pack, "application/zip")},
+            headers=API_HEADERS,
+        )
+        assert upload.status_code == 200
+
+        resp = self.client.delete("/api/icon-packs/api-delete-auth")
+
+        assert resp.status_code == 401
+        assert registry.list_packs() == [{"pack_id": "api-delete-auth", "icon_count": 1}]
+
+    def test_delete_icon_pack_with_api_key(self, small_zip_pack):
+        upload = self.client.post(
+            "/api/icon-packs?pack_id=api-delete-ok",
+            files={"file": ("test.zip", small_zip_pack, "application/zip")},
+            headers=API_HEADERS,
+        )
+        assert upload.status_code == 200
+
+        resp = self.client.delete("/api/icon-packs/api-delete-ok", headers=API_HEADERS)
+
+        assert resp.status_code == 200
+        assert resp.json()["deleted"] is True
         assert registry.list_packs() == []
 
     def test_upload_then_search(self, small_zip_pack):
