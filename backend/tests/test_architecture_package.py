@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 import xml.etree.ElementTree as ET
 
 import pytest
@@ -55,28 +57,11 @@ GCP_ANALYSIS: dict = {
 }
 
 
-MIXED_ANALYSIS: dict = {
-    "title": "Mixed Source Package Test",
-    "source_provider": "aws",
-    "source_providers": ["aws", "gcp"],
-    "target_provider": "azure",
-    "source_filename": "mixed-estate.pdf",
-    "zones": [{"id": 1, "name": "mixed-platform", "number": 1, "services": []}],
-    "mappings": [
-        {"source_provider": "aws", "source_service": "EKS", "azure_service": "AKS", "category": "Containers", "confidence": 0.94},
-        {"source_provider": "aws", "source_service": "RDS", "azure_service": "Azure SQL", "category": "Database", "confidence": 0.89},
-        {"source_provider": "gcp", "source_service": "Pub/Sub", "azure_service": "Event Hubs", "category": "Messaging", "confidence": 0.87},
-        {"source_provider": "gcp", "source_service": "Cloud Storage", "azure_service": "Blob Storage", "category": "Storage", "confidence": 0.9},
-    ],
-    "warnings": ["Mixed source estate requires source-owner validation before deployment."],
-    "guided_answers": {
-        "env_target": "Production",
-        "arch_deploy_region": "East US",
-        "arch_ha": "Multi-region active-passive (99.99 %)",
-        "arch_dr_rto": "<1 hour",
-        "sec_network_isolation": "Hub-spoke VNets with private endpoints",
-    },
-}
+MIXED_ANALYSIS: dict = json.loads(
+    (Path(__file__).parent / "fixtures" / "architecture_package_mixed_analysis.json").read_text(
+        encoding="utf-8"
+    )
+)
 
 
 def test_customer_intent_profile_normalises_lists():
