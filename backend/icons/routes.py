@@ -89,7 +89,12 @@ def _audit_icon_pack_operation(
     if reason:
         details["reason"] = reason
 
-    severity = AuditSeverity.INFO if status_code < 400 else AuditSeverity.WARNING
+    if status_code >= 500:
+        severity = AuditSeverity.ERROR
+    elif status_code >= 400:
+        severity = AuditSeverity.WARNING
+    else:
+        severity = AuditSeverity.INFO
     try:
         log_audit_event(
             AuditEventType.ADMIN_CONFIG_CHANGE,

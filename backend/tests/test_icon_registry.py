@@ -1332,6 +1332,29 @@ class TestIconAPI:
         assert events[-1][1]["details"]["outcome"] == "validation_failed"
         assert events[-1][1]["details"]["reason"] == "empty_upload"
 
+    def test_upload_server_failure_emits_error_audit_event(self, small_zip_pack, monkeypatch):
+        import icons.routes as icon_routes
+        from audit_logging import AuditSeverity
+
+        events = []
+
+        def fail_ingest(*_args, **_kwargs):
+            raise RuntimeError("simulated ingest failure")
+
+        monkeypatch.setattr(icon_routes.registry, "ingest_icon_pack", fail_ingest)
+        monkeypatch.setattr(icon_routes, "log_audit_event", lambda *args, **kwargs: events.append((args, kwargs)))
+
+        resp = self.client.post(
+            "/api/icon-packs?pack_id=api-error-audit",
+            files={"file": ("test.zip", small_zip_pack, "application/zip")},
+            headers=self.admin_headers,
+        )
+
+        assert resp.status_code == 500
+        assert events[-1][1]["status_code"] == 500
+        assert events[-1][1]["severity"] == AuditSeverity.ERROR
+        assert events[-1][1]["details"]["outcome"] == "failed"
+
     def test_delete_icon_pack_emits_audit_event(self, small_zip_pack, monkeypatch):
         import icons.routes as icon_routes
 
