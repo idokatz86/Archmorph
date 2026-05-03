@@ -15,16 +15,20 @@ from error_envelope import ArchmorphException
 
 import json
 import logging
+import zipfile
+from io import BytesIO
+from pathlib import PurePosixPath
 from typing import Optional
 
-from fastapi import APIRouter, Query, Request, UploadFile, File
+from fastapi import APIRouter, Depends, Query, Request, UploadFile, File
 from fastapi.responses import Response
 
-from routers.shared import limiter
+from routers.shared import limiter, verify_admin_key
 from icons import registry
 from icons.builders.drawio import build_drawio_library
 from icons.builders.excalidraw import build_excalidraw_library
 from icons.builders.visio import build_visio_stencil_pack
+from icons.registry import IconPackChangedDuringBuild
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +45,7 @@ async def upload_icon_pack(
     request: Request,
     file: UploadFile = File(...),
     pack_id: Optional[str] = Query(None, description="Custom pack identifier"),
+    _admin: dict = Depends(verify_admin_key),
 ):
     """Ingest a ZIP or JSON icon pack.
 
@@ -60,19 +65,21 @@ async def upload_icon_pack(
 
     try:
         # Detect format
-        if file.filename and file.filename.endswith(".json"):
-            # JSON manifest with inline SVG data
-            manifest_data = json.loads(content)
-            from icons.models import IconPackManifest
-            manifest = IconPackManifest(**manifest_data)
+        filename = file.filename or ""
+        content_type = (file.content_type or "").split(";", 1)[0].lower()
+        if _is_zipfile(content):
             result = registry.ingest_icon_pack(
                 source=content,
-                manifest=manifest,
                 pack_id=pack_id,
             )
-        elif _is_zipfile(content):
+        elif filename.lower().endswith(".json") or content_type == "application/json":
+            # JSON manifest with inline SVG data
+            manifest_data = json.loads(content)
+            if not isinstance(manifest_data, dict):
+                raise ValueError("JSON icon pack manifest must be an object")
             result = registry.ingest_icon_pack(
-                source=content,
+                source=_json_manifest_to_zip_bytes(manifest_data),
+                manifest=_metadata_without_inline_svg(manifest_data),
                 pack_id=pack_id,
             )
         else:
@@ -135,10 +142,16 @@ async def list_packs():
 
 @router.delete("/icon-packs/{pack_id}")
 @limiter.limit("5/minute")
-async def delete_icon_pack(request: Request, pack_id: str):
+async def delete_icon_pack(
+    request: Request,
+    pack_id: str,
+    _admin: dict = Depends(verify_admin_key),
+):
     """Remove an icon pack and all its icons from the registry."""
     result = registry.delete_pack(pack_id)
     if not result.get("deleted"):
+        if result.get("reason") == "built-in pack cannot be deleted":
+            raise ArchmorphException(status_code=403, detail="Built-in icon pack cannot be deleted")
         raise ArchmorphException(status_code=404, detail=f"Icon pack '{pack_id}' not found")
     return result
 
@@ -184,6 +197,8 @@ async def download_drawio_library(
 
     try:
         data = build_drawio_library(pack_id, embed_mode=embed_mode, title=title)
+    except IconPackChangedDuringBuild as exc:
+        raise ArchmorphException(status_code=409, detail=str(exc))
     except ValueError as exc:
         raise ArchmorphException(status_code=404, detail=str(exc))
 
@@ -211,6 +226,8 @@ async def download_excalidraw_library(
     """
     try:
         data = build_excalidraw_library(pack_id, title=title)
+    except IconPackChangedDuringBuild as exc:
+        raise ArchmorphException(status_code=409, detail=str(exc))
     except ValueError as exc:
         raise ArchmorphException(status_code=404, detail=str(exc))
 
@@ -240,6 +257,8 @@ async def download_visio_stencil_pack(
     """
     try:
         data = build_visio_stencil_pack(pack_id, title=title, include_png=include_png)
+    except IconPackChangedDuringBuild as exc:
+        raise ArchmorphException(status_code=409, detail=str(exc))
     except ValueError as exc:
         raise ArchmorphException(status_code=404, detail=str(exc))
 
@@ -261,3 +280,44 @@ async def download_visio_stencil_pack(
 def _is_zipfile(data: bytes) -> bool:
     """Check if data starts with a ZIP magic number."""
     return data[:4] == b"PK\x03\x04"
+
+
+def _json_manifest_to_zip_bytes(manifest_data: dict) -> bytes:
+    """Convert a JSON icon-pack manifest with inline SVG entries into ZIP bytes."""
+    icons = manifest_data.get("icons", [])
+    if not isinstance(icons, list) or not icons:
+        raise ValueError("JSON icon pack must include at least one icon")
+
+    buf = BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("metadata.json", json.dumps(_metadata_without_inline_svg(manifest_data)))
+        for icon in icons:
+            if not isinstance(icon, dict):
+                raise ValueError("JSON icon entries must be objects")
+            path = icon.get("file")
+            svg = icon.get("svg")
+            if not path or not isinstance(path, str):
+                raise ValueError("JSON icon entries must include a file path")
+            icon_path = PurePosixPath(path)
+            if (
+                path.startswith("/")
+                or "\\" in path
+                or icon_path.suffix.lower() != ".svg"
+                or any(part in ("", ".", "..") for part in icon_path.parts)
+                or icon_path.as_posix() != path
+            ):
+                raise ValueError("JSON icon file paths must be safe relative .svg paths")
+            if not svg or not isinstance(svg, str):
+                raise ValueError("JSON icon entries must include inline SVG data")
+            zf.writestr(path, svg)
+    return buf.getvalue()
+
+
+def _metadata_without_inline_svg(manifest_data: dict) -> dict:
+    metadata = dict(manifest_data)
+    metadata["icons"] = [
+        {key: value for key, value in icon.items() if key != "svg"}
+        for icon in manifest_data.get("icons", [])
+        if isinstance(icon, dict)
+    ]
+    return metadata

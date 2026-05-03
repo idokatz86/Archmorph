@@ -23,6 +23,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 # Disable rate limiting for all tests
 os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
 os.environ.setdefault("ARCHMORPH_EXPORT_CAPABILITY_REQUIRED", "false")
+os.environ.setdefault("ENVIRONMENT", "test")
 
 from main import app  # noqa: E402
 

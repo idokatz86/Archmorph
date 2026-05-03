@@ -83,10 +83,10 @@ This document is the formal security gate for the production-ready ALZ epic (#58
 | # | Risk | Status | Evidence / Finding |
 | --- | --- | --- | --- |
 | API1:2023 | **Broken Object Level Authorization (BOLA)** | ✅ **Mitigated by #671** | Upload/sample IDs now use `secrets.token_urlsafe(16)`, and generated artifact exports require a one-time `X-Export-Capability` scoped to the exact `diagram_id`; wrong-diagram tokens return 403 and missing/expired/replayed tokens return 401. |
-| API2:2023 | Broken Authentication | OK | Admin routes use `Depends(verify_api_key)` w/ `secrets.compare_digest`; OAuth flows in `auth.py` use signed/timed sessions. LZ export is intentionally session-scoped, with a separate bearer capability for generated artifacts. |
+| API2:2023 | Broken Authentication | OK | Admin routes use signed admin bearer sessions from `/api/admin/login`; shared API-key routes use `secrets.compare_digest`; OAuth flows in `auth.py` use signed/timed sessions. LZ export is intentionally session-scoped, with a separate bearer capability for generated artifacts. |
 | API3:2023 | Broken Object Property Level Authorization | OK | LZ `analysis` dict is whole-object; Pydantic models in `azure_landing_zone_schema.py` validate field types; `apply_answers` is the only mutation path and it merges by key whitelist. |
 | API4:2023 | Unrestricted Resource Consumption | ⚠️ **F-4 (P2)** | `@limiter.limit("10/minute")` on `/export-diagram`; image upload limited to 25 MB. **Gap**: no upper bound on `analysis["zones"]` / `actors` / `mappings` length entering C2. A 50 000-tier `analysis` payload (e.g. attacker controls via `apply_answers`) would loop unboundedly inside SVG assembly. See §3.F-4. |
-| API5:2023 | Broken Function Level Authorization | OK | Admin/developer routes (e.g. `/api/admin/*`, icon library builder downloads) use `verify_api_key`. LZ export is in the public-capability tier and that's correct for the product surface. |
+| API5:2023 | Broken Function Level Authorization | OK | Admin write routes use admin bearer sessions and developer integration routes use the shared API key. LZ export is in the public-capability tier and that's correct for the product surface. |
 | API6:2023 | Unrestricted Access to Sensitive Business Flows | OK | Rate limits on the analyze + export flow; cost controls in `cost_estimate` routes. |
 | API7:2023 | **Server-Side Request Forgery (SSRF)** | ⚠️ **F-2 (P2)** | LZ pipeline itself does no outbound HTTP. **Adjacent surface**: `webhooks.py:233` `httpx.AsyncClient()` POSTs to user-supplied URL. Mitigated by HTTPS-only + API-key gate, but does NOT block private-IP HTTPS endpoints or DNS rebinding. See §3.F-2. |
 | API8:2023 | Security Misconfiguration | OK | CORS allowlist (no wildcards), HSTS + X-Content-Type-Options + X-Frame-Options set, TLS 1.2+ enforced. |
@@ -153,7 +153,7 @@ Severity scale: **P0** = blocks GA. **P1** = must close in Sprint 1. **P2** = sh
 ### F-3 (P1) — `/api/icon-packs` upload has no authentication
 
 **Affected**:
-- [backend/icons/routes.py:36-92](../../backend/icons/routes.py#L36-L92) — `POST /api/icon-packs` decorator chain is `@router.post + @limiter.limit("5/minute")`. No `Depends(verify_api_key)`.
+- [backend/icons/routes.py](../../backend/icons/routes.py) — `POST /api/icon-packs` and `DELETE /api/icon-packs/{pack_id}` now require `Depends(verify_admin_key)`.
 
 **OWASP**: API5:2023 + API1:2023.
 
@@ -162,12 +162,13 @@ Severity scale: **P0** = blocks GA. **P1** = must close in Sprint 1. **P2** = sh
 1. **Registry pollution / DoS**: Upload garbage SVGs to overwrite legitimate icons → every customer's diagram looks broken. Rate-limited to 5/min per IP, so feasible from a botnet.
 2. **Cross-customer data exposure via SVG**: The uploaded SVG is base64-encoded and embedded as `data:image/svg+xml;base64,...` inside `<image href=...>`. Browsers DO sandbox `<image>`-referenced data URIs (no script execution), so XSS is blocked at the rendering layer — but if a customer downloads the SVG and opens it standalone (or includes it in a PowerPoint export which may re-embed differently), the attacker-controlled SVG runs in the customer's origin.
 
-**Status**: ⚠️ **NOT mitigated** for vector (1). For vector (2), the `<image>`-data-URI sandbox is a real defense in the most common path (browser tab) but should not be the only line.
+**Status**: ✅ **Mitigated** for the filed P1 vectors. `POST /api/icon-packs` and `DELETE /api/icon-packs/{pack_id}` now require an admin bearer session from `/api/admin/login`, production/staging or unset-environment deployments fail closed if `ARCHMORPH_ADMIN_KEY` is missing, uploaded SVGs pass through the `defusedxml` sanitizer before registry insertion with scripts/events/style blocks and non-data references stripped, and custom icon uploads are bounded without allowing reserved built-in pack IDs to bypass capacity limits.
 
 **Remediation** (Sprint 1):
-1. Add `_auth=Depends(verify_api_key)` to the `POST /api/icon-packs` route. Move from anonymous to admin-only.
-2. (Sprint 2) Run uploaded SVGs through `bleach` or `defusedxml` to strip `<script>`, `<foreignObject>`, `on*` handlers, `xlink:href` to non-data URIs, and any `<style>` block. The existing `SVG Sanitization` line in SECURITY.md needs to point at actual code, not a claim.
-3. Bound the in-memory store: `maxsize` on the icon dict + LRU eviction. Currently unbounded.
+1. ✅ Add `_admin=Depends(verify_admin_key)` to the icon-pack upload and delete routes. Move registry writes from anonymous to admin-only.
+2. ✅ Run uploaded SVGs through `defusedxml` to strip `<script>`, `<foreignObject>`, `on*` handlers, `xlink:href` to non-data URIs, and `<style>` blocks.
+3. ✅ Bound the in-memory store with oldest-icon eviction.
+4. ✅ Invalidate generated library caches when a pack is replaced or deleted.
 
 **Tracking**: file as new issue **#596-F3**, P1, Sprint 1, blocks GA.
 
@@ -287,11 +288,12 @@ LZ pipeline has no DB writes derived from user input. The session store is a typ
 | Route | Auth | Authz | Comment |
 | --- | --- | --- | --- |
 | `POST /api/diagrams/{id}/export-diagram` | none (capability-URL) | none | Capability via `diagram_id`; **F-1** is the gating finding |
-| `POST /api/icon-packs` | none | none | **F-3** — must add `Depends(verify_api_key)` |
+| `POST /api/icon-packs` | admin bearer session | admin bearer session | **F-3 mitigated** — requires `Depends(verify_admin_key)` |
+| `DELETE /api/icon-packs/{pack_id}` | admin bearer session | admin bearer session | **F-3 mitigated** — built-in packs are protected from deletion |
 | `POST /api/webhooks` | API key | none | OK; **F-2** is on the delivery side, not the registration |
 | `POST /api/diagrams/{id}/analyze` | none (capability-URL) | none | Same model as `/export-diagram`; resolved by F-1 |
 | `POST /api/diagrams/{id}/apply-answers` | none (capability-URL) | none | Same model; resolved by F-1 |
-| Admin routes (`/api/admin/*`, library downloads) | API key | API key | OK |
+| Admin routes (`/api/admin/*`) | admin bearer session | admin bearer session | OK |
 
 ## 5. Filed P0/P1 follow-up issues
 
@@ -312,7 +314,7 @@ LZ pipeline has no DB writes derived from user input. The session store is a typ
 The LZ pipeline is **CONDITIONALLY GA-READY**. Sign-off requires:
 
 1. ✅ F-1 closed (replace 8-hex truncated UUID with `secrets.token_urlsafe(16)` everywhere `diag-`/`sample-` IDs are minted).
-2. ✅ F-3 closed (`Depends(verify_api_key)` on `POST /api/icon-packs` + `bleach`/`defusedxml` SVG sanitisation).
+2. ✅ F-3 closed (`Depends(verify_admin_key)` on icon-pack write routes + `bleach`/`defusedxml` SVG sanitisation).
 3. ✅ Both findings filed as separate issues with Sprint 1 P0 labels and assigned to backend.
 
 P2 findings (F-2, F-4, F-9) are **not GA blockers** but must be tracked for Sprint 2.
@@ -337,7 +339,7 @@ cd backend && pytest -q
 
 # Specific evidence:
 grep -n 'uuid\.uuid4()\.hex\[:8\]' routers/diagrams.py     # F-1
-grep -n 'verify_api_key' icons/routes.py                   # F-3 (expect: empty)
+grep -n 'verify_admin_key' icons/routes.py                 # F-3 (expect: upload/delete dependencies)
 grep -n 'startswith("https://")' routers/webhook_routes.py # F-2 (HTTPS-only is the only check)
 ```
 

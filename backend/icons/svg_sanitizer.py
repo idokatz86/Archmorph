@@ -29,7 +29,7 @@ MAX_SVG_SIZE = 512 * 1024  # 512 KB per SVG
 # Tags that are never allowed
 _BLOCKED_TAGS = frozenset({
     "script", "foreignobject", "iframe", "embed", "object", "applet",
-    "meta", "link", "import", "use",
+    "meta", "link", "import", "style",
 })
 
 # Attribute patterns that are never allowed
@@ -48,9 +48,10 @@ _DANGEROUS_CSS_RE = re.compile(
     r"(expression|javascript|vbscript|-moz-binding|url\s*\()", re.IGNORECASE
 )
 
-# Allowed data-URI image MIME types
+# Allowed data-URI image MIME types for href/src references. Nested SVG
+# payloads are blocked because they would need their own sanitization pass.
 _ALLOWED_DATA_MIMES = frozenset({
-    "image/png", "image/jpeg", "image/gif", "image/svg+xml", "image/webp",
+    "image/png", "image/jpeg", "image/gif", "image/webp",
 })
 
 
@@ -143,8 +144,11 @@ def _sanitize_element(el: _StdET.Element) -> None:
             attrs_to_remove.append(attr_name)
             continue
 
-        # External URLs in href/xlink:href/src
+        # References in href/xlink:href/src. Only local fragments and safe image data URIs are kept.
         if local_attr in ("href", "src") or attr_name.endswith("}href"):
+            ref_value = attr_val.strip()
+            if ref_value.startswith("#"):
+                continue
             if _EXTERNAL_URL_RE.match(attr_val):
                 logger.warning("Removing external reference: %s=%s", attr_name, attr_val[:80])
                 attrs_to_remove.append(attr_name)
@@ -155,12 +159,16 @@ def _sanitize_element(el: _StdET.Element) -> None:
                 attrs_to_remove.append(attr_name)
                 continue
             # Check data URIs for non-image types
-            if attr_val.startswith("data:"):
+            if ref_value.startswith("data:"):
                 mime = attr_val.split(";")[0].replace("data:", "")
                 if mime not in _ALLOWED_DATA_MIMES:
                     logger.warning("Removing disallowed data URI: %s", mime)
                     attrs_to_remove.append(attr_name)
                     continue
+            else:
+                logger.warning("Removing non-data SVG reference: %s=%s", attr_name, attr_val[:80])
+                attrs_to_remove.append(attr_name)
+                continue
 
         # Block dangerous CSS in style attributes
         if local_attr == "style" and _DANGEROUS_CSS_RE.search(attr_val):

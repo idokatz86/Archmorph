@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import base64
 import re
+import threading
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -268,9 +269,19 @@ def _resolve_bundled_data_uri(icon_key: str) -> Optional[str]:
 
 
 _ICON_CACHE: dict[str, Optional[str]] = {}
+_ICON_CACHE_LOCK = threading.RLock()
+_ICON_CACHE_GENERATION = 0
 
 
-def _icon_data_uri(icon_key: str) -> Optional[str]:
+def clear_icon_cache() -> None:
+    """Clear cached landing-zone icon data URIs after registry writes."""
+    global _ICON_CACHE_GENERATION
+    with _ICON_CACHE_LOCK:
+        _ICON_CACHE.clear()
+        _ICON_CACHE_GENERATION += 1
+
+
+def _cached_icon_data_uri(icon_key: str) -> Optional[tuple[str, int]]:
     """Cached registry lookup.
 
     The registry can be empty at first lookup (lazy-loaded on demand by
@@ -279,13 +290,26 @@ def _icon_data_uri(icon_key: str) -> Optional[str]:
     Subsequent lookups for unresolved keys re-hit the registry, which is
     cheap once the store is populated.
     """
-    cached = _ICON_CACHE.get(icon_key)
-    if cached is not None:
-        return cached
-    uri = _resolve_data_uri(icon_key)
-    if uri is not None:
-        _ICON_CACHE[icon_key] = uri
-    return uri
+    for _attempt in range(3):
+        with _ICON_CACHE_LOCK:
+            cached = _ICON_CACHE.get(icon_key)
+            generation = _ICON_CACHE_GENERATION
+            if cached is not None:
+                return (cached, generation)
+        uri = _resolve_data_uri(icon_key)
+        if uri is not None:
+            with _ICON_CACHE_LOCK:
+                if _ICON_CACHE_GENERATION == generation:
+                    _ICON_CACHE[icon_key] = uri
+                    return (uri, generation)
+            continue
+        return None
+    return None
+
+
+def _icon_data_uri(icon_key: str) -> Optional[str]:
+    resolved = _cached_icon_data_uri(icon_key)
+    return resolved[0] if resolved else None
 
 
 def _img(icon_key: str, x: float, y: float, w: float, h: float) -> str:
@@ -296,16 +320,26 @@ def _img(icon_key: str, x: float, y: float, w: float, h: float) -> str:
     icon-resolution observability metric: the SLO + alert in
     ``infra/observability/alerts.tf`` reads off these labels directly.
     """
-    uri = _icon_data_uri(icon_key)
-    if uri:
+    image_markup = None
+    for _attempt in range(3):
+        resolved = _cached_icon_data_uri(icon_key)
+        if not resolved:
+            break
+        uri, generation = resolved
+        with _ICON_CACHE_LOCK:
+            if _ICON_CACHE_GENERATION == generation:
+                image_markup = (
+                    f'<image href="{uri}" x="{x}" y="{y}" '
+                    f'width="{w}" height="{h}" preserveAspectRatio="xMidYMid meet"/>'
+                )
+                break
+        continue
+    if image_markup:
         increment_counter(
             "archmorph.lz.icon_resolution_total",
             tags={"result": "hit", "icon_key": icon_key},
         )
-        return (
-            f'<image href="{uri}" x="{x}" y="{y}" '
-            f'width="{w}" height="{h}" preserveAspectRatio="xMidYMid meet"/>'
-        )
+        return image_markup
     increment_counter(
         "archmorph.lz.icon_resolution_total",
         tags={"result": "fallback", "icon_key": icon_key},
