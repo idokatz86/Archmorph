@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### QA guardrails
 
 - **FastAPI query-parameter test guard** — CI now fails when tests send `json=` bodies to query-only FastAPI routes, and the E2E step helper converts `has_X=False` detail flags into failed steps.
+- **Mappings freshness guard** — cross-cloud service mappings now carry `last_reviewed` metadata, with non-blocking CI freshness lint and a quarterly review issue workflow.
 
 #### Architecture Package quality recovery
 
