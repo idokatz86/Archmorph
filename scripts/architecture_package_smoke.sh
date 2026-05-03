@@ -24,6 +24,7 @@ fi
 API_BASE="${API_URL%/}"
 API_BASE="${API_BASE%/api}/api"
 FRONTEND_URL="${FRONTEND_URL%/}"
+EXPORT_CAPABILITY=""
 
 mkdir -p "$ARTIFACT_ROOT/raw" "$ARTIFACT_ROOT/artifacts"
 SUMMARY="$ARTIFACT_ROOT/summary.md"
@@ -82,6 +83,10 @@ request() {
     -H "X-API-Key: ${SMOKE_API_KEY}"
   )
 
+  if [[ -n "$EXPORT_CAPABILITY" ]]; then
+    curl_args+=( -H "X-Export-Capability: ${EXPORT_CAPABILITY}" )
+  fi
+
   if [[ -n "$body" ]]; then
     curl_args+=( -H "Content-Type: application/json" -d "$body" )
   fi
@@ -91,6 +96,12 @@ request() {
   echo "$http_code" > "$status_file"
   if [[ ! "$http_code" =~ ^2 ]]; then
     fail "$step_name" "HTTP ${http_code} from ${method} ${url}" "$output_file"
+  fi
+
+  local next_capability
+  next_capability=$(jq -er '.export_capability // empty' "$output_file" 2>/dev/null || true)
+  if [[ -n "$next_capability" ]]; then
+    EXPORT_CAPABILITY="$next_capability"
   fi
 }
 

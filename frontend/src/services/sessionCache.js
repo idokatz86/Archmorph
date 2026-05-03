@@ -41,6 +41,7 @@ export function saveSession(diagramId, analysis, questions = [], answers = {}, e
       iacCode: extra.iacCode || null,
       iacFormat: extra.iacFormat || null,
       hldData: extra.hldData || null,
+      exportCapability: extra.exportCapability || null,
       ts: Date.now(),
     });
     sessionStorage.setItem(_cacheKey(diagramId), payload);

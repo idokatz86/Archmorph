@@ -1,6 +1,6 @@
 # Landing-Zone-SVG pipeline — threat model & CISO security review
 
-**Issue**: #596
+**Issue**: #596; updated for #671
 **Reviewers**: CISO Master, CISO Security Agent
 **Branch reviewed**: `feat/production-ready-alz-epic` @ `d7ef756`
 **Date**: 2026-05-01
@@ -14,7 +14,8 @@ This document is the formal security gate for the production-ready ALZ epic (#58
 
 | # | Component | File | Role in LZ pipeline |
 | --- | --- | --- | --- |
-| C1 | Export endpoint | [backend/routers/analysis.py](../../backend/routers/analysis.py#L149-L213) | `POST /api/diagrams/{diagram_id}/export-diagram` — entry point for `format=landing-zone-svg` |
+| C1 | Export/download endpoints | [backend/routers/analysis.py](../../backend/routers/analysis.py#L149-L213), [backend/routers/hld_routes.py](../../backend/routers/hld_routes.py), [backend/routers/report_routes.py](../../backend/routers/report_routes.py) | `export-diagram`, `export-architecture-package`, `export-hld`, and PDF report download — generated artifact entry points protected by one-time export capability tokens (#671) |
+| C1a | Export capability verifier | [backend/export_capabilities.py](../../backend/export_capabilities.py) | Issues, validates, consumes, rotates, and audits scoped export capabilities |
 | C2 | LZ renderer | [backend/azure_landing_zone.py](../../backend/azure_landing_zone.py) | Schema inference + SVG assembly; consumes `analysis` dict and emits SVG bytes |
 | C3 | LZ schema | [backend/azure_landing_zone_schema.py](../../backend/azure_landing_zone_schema.py) | Provider→category→tier mapping (#572, #589) |
 | C4 | Vision analyzer | [backend/vision_analyzer.py](../../backend/vision_analyzer.py) | GPT-4o native multimodal — produces the `analysis` dict |
@@ -35,9 +36,13 @@ This document is the formal security gate for the production-ready ALZ epic (#58
             │                                            │ analysis dict
             │ POST /export-diagram?format=landing-       ▼
             │      zone-svg&dr_variant=primary    ┌──────────────────┐
-            └────────────────────────────────────►│  C1 export route │
-                                                   │  (no AuthN/AuthZ │
-                                                   │   on this route) │
+            │ X-Export-Capability: opaque token    │ C1a capability   │
+            └────────────────────────────────────►│ verifier         │
+                                                   └──────────┬───────┘
+                                                              │ scoped + one-time
+                                                              ▼
+                                                   ┌──────────────────┐
+                                                   │  C1 export route │
                                                    └──────────┬───────┘
                                                               │ analysis
                                                               ▼
@@ -60,6 +65,7 @@ This document is the formal security gate for the production-ready ALZ epic (#58
 | Customer architecture diagrams (PDF/PNG) | Confidential — may contain customer infra topology | C8 `SESSION_STORE` (TTL 7200s) + transient in C4 |
 | Generated `analysis` JSON | Confidential — same as above, structured | C8 `SESSION_STORE` |
 | Generated landing-zone-svg | Confidential — derived from analysis | Returned in HTTP response; not persisted server-side |
+| Export capability token | Secret bearer capability — grants one generated-artifact export for one diagram | Returned only to the caller, stored server-side as SHA-256 digest with TTL |
 | App Service managed identity | Secret | Azure platform; reachable via `169.254.169.254` from inside the VM |
 | Foundry / OpenAI keys | Secret | Key Vault (referenced by `backend/openai_client.py`) |
 | Icon registry contents | Public (Microsoft / vendor icons) | C6 in-memory store |
@@ -76,8 +82,8 @@ This document is the formal security gate for the production-ready ALZ epic (#58
 
 | # | Risk | Status | Evidence / Finding |
 | --- | --- | --- | --- |
-| API1:2023 | **Broken Object Level Authorization (BOLA)** | ⚠️ **F-1 (P1)** | `diagram_id = f"diag-{uuid.uuid4().hex[:8]}"` — only 32 bits of entropy ([routers/diagrams.py:178](../../backend/routers/diagrams.py#L178)); `get_or_recreate_session(diagram_id)` does no caller-binding ([routers/samples.py:436-460](../../backend/routers/samples.py#L436-L460)); `/export-diagram` has no `Depends(get_current_user)`. See §3.F-1. |
-| API2:2023 | Broken Authentication | OK | Admin routes use `Depends(verify_api_key)` w/ `secrets.compare_digest`; OAuth flows in `auth.py` use signed/timed sessions. LZ export is intentionally session-scoped (capability URL). |
+| API1:2023 | **Broken Object Level Authorization (BOLA)** | ✅ **Mitigated by #671** | Upload/sample IDs now use `secrets.token_urlsafe(16)`, and generated artifact exports require a one-time `X-Export-Capability` scoped to the exact `diagram_id`; wrong-diagram tokens return 403 and missing/expired/replayed tokens return 401. |
+| API2:2023 | Broken Authentication | OK | Admin routes use `Depends(verify_api_key)` w/ `secrets.compare_digest`; OAuth flows in `auth.py` use signed/timed sessions. LZ export is intentionally session-scoped, with a separate bearer capability for generated artifacts. |
 | API3:2023 | Broken Object Property Level Authorization | OK | LZ `analysis` dict is whole-object; Pydantic models in `azure_landing_zone_schema.py` validate field types; `apply_answers` is the only mutation path and it merges by key whitelist. |
 | API4:2023 | Unrestricted Resource Consumption | ⚠️ **F-4 (P2)** | `@limiter.limit("10/minute")` on `/export-diagram`; image upload limited to 25 MB. **Gap**: no upper bound on `analysis["zones"]` / `actors` / `mappings` length entering C2. A 50 000-tier `analysis` payload (e.g. attacker controls via `apply_answers`) would loop unboundedly inside SVG assembly. See §3.F-4. |
 | API5:2023 | Broken Function Level Authorization | OK | Admin/developer routes (e.g. `/api/admin/*`, icon library builder downloads) use `verify_api_key`. LZ export is in the public-capability tier and that's correct for the product surface. |
@@ -105,14 +111,25 @@ Severity scale: **P0** = blocks GA. **P1** = must close in Sprint 1. **P2** = sh
 
 **Threat**: Diagram IDs are 32-bit (4.3B keyspace, ~500 active TTL-bounded sessions). A motivated attacker can guess valid `diagram_id`s by brute-forcing from a single IP at the per-IP rate limit and exfiltrate other users' architecture topologies + IaC + landing-zone diagrams. With per-route IP-rotation the keyspace is reachable in days, and partial wins (lower-entropy keyspaces in practice when many diagrams are created in burst windows) reduce that further.
 
-**Status**: ⚠️ **NOT mitigated**. Capability-URL design is acceptable, but the capability needs to be ≥ 122 bits (full UUIDv4) — the current `[:8]` truncation drops it to 32 bits.
+**Status**: ✅ **Mitigated by #671**. Upload IDs and sample IDs now use `secrets.token_urlsafe(16)`, and export/download behavior no longer relies on the path ID alone. The export endpoints require a separate opaque one-time capability in `X-Export-Capability`.
 
-**Remediation** (Sprint 1, file as separate issue):
-1. Replace `uuid.uuid4().hex[:8]` with `secrets.token_urlsafe(16)` (128 bits, URL-safe). Apply to all `diag-*` and `sample-*` ID generation paths.
-2. (Optional, defense-in-depth) Bind sessions to a server-issued cookie at upload time and require it on `/export-diagram`. This is the long-term fix tracked separately.
-3. Add per-IP failure counter that escalates rate limit when a caller hits ≥ 10 unknown `diagram_id`s/min (probable enumeration).
+**Implemented controls**:
+1. Minimum viable token semantics: opaque `secrets.token_urlsafe(32)` bearer capability, SHA-256 digest stored server-side, scope fixed to `artifact:export`, bound to one `diagram_id`, default TTL 15 minutes.
+2. Replay control: token is consumed during verification; a successful export response carries a fresh `export_capability` for the next export action.
+3. Expiration control: expired capabilities are deleted and denied with HTTP 401.
+4. Audit control: issuance, validation, missing, expired, replayed, wrong-scope, and wrong-diagram outcomes emit `export_capability_audit` events with `diagram_id`, reason, and token digest prefix only. Raw token values must never be logged.
+5. Local/dev ergonomics: `ARCHMORPH_EXPORT_CAPABILITY_REQUIRED=false` allows manual legacy scripts in local development. Production/staging default to fail-closed.
 
-**Tracking**: file as new issue **#596-F1**, P1, Sprint 1, blocks GA.
+**Residual risk**: Bearer capabilities remain bearer secrets. XSS, browser extensions, or sessionStorage compromise can still steal the current token. This is acceptable for the current session-scoped export surface but should be revisited when user accounts and team workspaces become the dominant workflow.
+
+**Pitfalls to avoid**:
+1. Do not put export capabilities in URLs for product flows; query-string fallback is hidden from OpenAPI and exists only for local manual testing.
+2. Do not persist raw tokens inside `analysis`, history rows, telemetry, or browser-visible logs.
+3. Do not make tokens multi-use for convenience; rotation after each success is what makes replay detectable and testable.
+4. Do not scope a token only to a caller or only to a route; it must bind both operation scope and `diagram_id`.
+5. Do not silently bypass in production when Redis/file stores are unavailable; fail closed rather than exporting confidential topology data.
+
+**Tracking**: closed by #671.
 
 ### F-2 (P2) — Webhook SSRF (private-IP HTTPS targets)
 

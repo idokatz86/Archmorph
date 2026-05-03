@@ -9,6 +9,7 @@ export const DEFAULT_CHAT_MESSAGE = {
 const initialState = {
   step: 'upload',
   diagramId: null,
+  exportCapability: null,
   jobId: null,
   analysis: null,
   questions: [],

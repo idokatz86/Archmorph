@@ -120,6 +120,7 @@ export default function DiagramTranslator() {
         iacCode: cached.iacCode || null,
         iacFormat: cached.iacFormat || 'terraform',
         hldData: cached.hldData || null,
+        exportCapability: cached.exportCapability || cached.analysis?.export_capability || null,
         step: cached.iacCode ? 'iac' : 'results',
       });
     }
@@ -195,7 +196,11 @@ export default function DiagramTranslator() {
         payload.image_base64 = cachedImg.base64;
         payload.image_content_type = cachedImg.contentType;
       }
-      await api.post(`/diagrams/${diagramId}/restore-session`, payload);
+      const restoredData = await api.post(`/diagrams/${diagramId}/restore-session`, payload);
+      if (restoredData?.export_capability) {
+        set({ exportCapability: restoredData.export_capability });
+        updateSessionCache({ exportCapability: restoredData.export_capability });
+      }
       return true;
     } catch {
       return false;
@@ -280,7 +285,7 @@ export default function DiagramTranslator() {
       addProgress('Uploading diagram...');
       const uploadData = await api.post('/projects/demo-project/diagrams', formData, signal);
       const { diagram_id } = uploadData;
-      set({ diagramId: diagram_id });
+      set({ diagramId: diagram_id, exportCapability: uploadData.export_capability || null });
 
       // Cache uploaded image for session restore (#333)
       if (file.type.startsWith('image/') && file.size < 1_000_000) {
@@ -380,12 +385,12 @@ export default function DiagramTranslator() {
         addProgress('Analysis complete. ✓');
         await new Promise(r => setTimeout(r, 400));
 
-        set({ analysis: result });
+        set({ analysis: result, exportCapability: result.export_capability || state.exportCapability || null });
         const qData = await api.post(`/diagrams/${diagram_id}/questions`, undefined, signal);
         const questions = qData.questions || [];
         const defaults = {};
         questions.forEach(q => { defaults[q.id] = q.default; });
-        saveSession(diagram_id, result, questions, defaults);
+        saveSession(diagram_id, result, questions, defaults, { exportCapability: result.export_capability || uploadData.export_capability || null });
         set({ questions, answers: defaults, step: 'questions', questionConstraints: qData.constraints || [], regionGroups: qData.region_groups || {} });
       } else {
         // ── Fallback: sync endpoint with simulated progress ──
@@ -435,12 +440,12 @@ export default function DiagramTranslator() {
         addProgress('Analysis complete. ✓');
         await new Promise(r => setTimeout(r, 800));
 
-        set({ analysis: result });
+        set({ analysis: result, exportCapability: result.export_capability || uploadData.export_capability || null });
         const qData = await api.post(`/diagrams/${diagram_id}/questions`, undefined, signal);
         const questions = qData.questions || [];
         const defaults = {};
         questions.forEach(q => { defaults[q.id] = q.default; });
-        saveSession(diagram_id, result, questions, defaults);
+        saveSession(diagram_id, result, questions, defaults, { exportCapability: result.export_capability || uploadData.export_capability || null });
         set({ questions, answers: defaults, step: 'questions', questionConstraints: qData.constraints || [], regionGroups: qData.region_groups || {} });
       }
     } catch (err) {
@@ -463,7 +468,7 @@ export default function DiagramTranslator() {
     set({ step: 'analyzing', analyzeProgress: ['Loading sample diagram...'] });
     try {
       const result = await api.post(`/samples/${sample.id}/analyze`);
-      set({ diagramId: result.diagram_id, analysis: result });
+      set({ diagramId: result.diagram_id, analysis: result, exportCapability: result.export_capability || null });
       for (const zone of (result.zones || [])) {
         const svcNames = (zone.services || []).map(s => s.source || s.name || '').filter(Boolean).slice(0, 3);
         addProgress(`Zone ${zone.id}: ${zone.name} (${svcNames.join(', ')})...`);
@@ -477,7 +482,7 @@ export default function DiagramTranslator() {
       const questions = qData.questions || [];
       const defaults = {};
       questions.forEach(q => { defaults[q.id] = q.default; });
-      saveSession(result.diagram_id, result, questions, defaults);
+      saveSession(result.diagram_id, result, questions, defaults, { exportCapability: result.export_capability || null });
       set({ questions, answers: defaults, step: 'questions', questionConstraints: qData.constraints || [], regionGroups: qData.region_groups || {} });
     } catch (err) {
       set({ error: 'Failed to load sample: ' + err.message, step: 'upload' });
@@ -563,10 +568,20 @@ export default function DiagramTranslator() {
         exportBody.diagram_image = cachedImg.base64;
       }
       const data = await withRestore(
-        () => api.post(`/diagrams/${state.diagramId}/export-hld?format=${fmt}&include_diagrams=${state.hldIncludeDiagrams}&export_mode=customer`, exportBody),
+        () => api.post(
+          `/diagrams/${state.diagramId}/export-hld?format=${fmt}&include_diagrams=${state.hldIncludeDiagrams}&export_mode=customer`,
+          exportBody,
+          undefined,
+          undefined,
+          state.exportCapability ? { 'X-Export-Capability': state.exportCapability } : {},
+        ),
         { cleanup: () => setHldExportLoading(fmt, false) },
       );
       if (data) {
+        if (data.export_capability) {
+          set({ exportCapability: data.export_capability });
+          updateSessionCache({ exportCapability: data.export_capability });
+        }
         const bytes = Uint8Array.from(atob(data.content_b64), c => c.charCodeAt(0));
         const blob = new Blob([bytes], { type: data.content_type });
         const url = URL.createObjectURL(blob);
@@ -592,11 +607,27 @@ export default function DiagramTranslator() {
       const packageDiagram = packageSelection === 'svg-dr' ? '&diagram=dr' : '';
       const data = await withRestore(
         () => isArchitecturePackage
-          ? api.post(`/diagrams/${state.diagramId}/export-architecture-package?format=${packageFormat}${packageDiagram}`)
-          : api.post(`/diagrams/${state.diagramId}/export-diagram?format=${format}`),
+          ? api.post(
+              `/diagrams/${state.diagramId}/export-architecture-package?format=${packageFormat}${packageDiagram}`,
+              undefined,
+              undefined,
+              undefined,
+              state.exportCapability ? { 'X-Export-Capability': state.exportCapability } : {},
+            )
+          : api.post(
+              `/diagrams/${state.diagramId}/export-diagram?format=${format}`,
+              undefined,
+              undefined,
+              undefined,
+              state.exportCapability ? { 'X-Export-Capability': state.exportCapability } : {},
+            ),
         { cleanup: () => setExportLoading(format, false) },
       );
       if (data) {
+        if (data.export_capability) {
+          set({ exportCapability: data.export_capability });
+          updateSessionCache({ exportCapability: data.export_capability });
+        }
         const content = typeof data.content === 'string' ? data.content : JSON.stringify(data.content, null, 2);
         const exportMime = isArchitecturePackage
           ? (packageFormat === 'html' ? 'text/html' : 'image/svg+xml')
@@ -929,6 +960,11 @@ export default function DiagramTranslator() {
           onExportDiagram={handleExportDiagram}
           onCopyWithFeedback={copyWithFeedback}
           diagramId={state.diagramId}
+          exportCapability={state.exportCapability}
+          onExportCapability={(token) => {
+            set({ exportCapability: token });
+            updateSessionCache({ exportCapability: token });
+          }}
         />
       )}
 

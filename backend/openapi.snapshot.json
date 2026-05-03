@@ -9268,6 +9268,22 @@
               "title": "Diagram",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "X-Export-Capability",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Export-Capability"
+            }
           }
         ],
         "responses": {
@@ -9336,6 +9352,22 @@
               "title": "Dr Variant",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "X-Export-Capability",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Export-Capability"
+            }
           }
         ],
         "responses": {
@@ -9373,6 +9405,22 @@
             "schema": {
               "title": "Diagram Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Export-Capability",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Export-Capability"
             }
           }
         ],
@@ -10383,6 +10431,22 @@
             "schema": {
               "title": "Diagram Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Export-Capability",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Export-Capability"
             }
           }
         ],
@@ -19984,6 +20048,22 @@
               "title": "Diagram",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "X-Export-Capability",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Export-Capability"
+            }
           }
         ],
         "responses": {
@@ -20055,6 +20135,22 @@
               "title": "Dr Variant",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "X-Export-Capability",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Export-Capability"
+            }
           }
         ],
         "responses": {
@@ -20095,6 +20191,22 @@
             "schema": {
               "title": "Diagram Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Export-Capability",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Export-Capability"
             }
           }
         ],
@@ -20898,6 +21010,22 @@
             "schema": {
               "title": "Diagram Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Export-Capability",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Export-Capability"
             }
           }
         ],
