@@ -798,3 +798,44 @@ def generate_diagram(
       ```
 
       The manifest is emitted for both `format=html` and `format=svg` package exports. It is returned as the response `manifest` field and embedded into the artifact bytes as `archmorph-artifact-manifest` metadata. Manifest values are sanitized before emission; secret-like keys or values such as passwords, tokens, credentials, API keys, and connection strings are redacted. Raw `guided_answers` are intentionally excluded; reviewers should use `customer_intent_profile_hash` for profile traceability without exposing the source answer payload.
+
+      Source-to-Azure IaC traceability map contract:
+
+      ```json
+      {
+        "schema_version": "source-to-azure-iac-traceability/v1",
+        "entries": [
+          {
+            "trace_id": "trace-4295818efa60",
+            "source_service": "ALB",
+            "source_provider": "aws",
+            "azure_service": "Application Gateway",
+            "category": "Networking",
+            "confidence": 0.96,
+            "migration_effort": "low",
+            "customer_intent_influence": {
+              "environment": "Production",
+              "region": "East US",
+              "network_isolation": "Private endpoints"
+            },
+            "generated_iac_resources": [
+              {
+                "format": "terraform",
+                "module": "networking",
+                "file": "terraform/modules/networking/main.tf",
+                "resource_type": "azurerm_application_gateway",
+                "resource_name": "application_gateway",
+                "address": "module.networking.azurerm_application_gateway.application_gateway"
+              }
+            ],
+            "package_diagram_node": {
+              "id": "diagram-node-trace-4295818efa60",
+              "label": "Application Gateway",
+              "zone": "Networking"
+            }
+          }
+        ]
+      }
+      ```
+
+      Trace IDs are deterministic SHA-256 prefixes over normalized source service, Azure target, and category. The same traceability map is emitted as `terraform/traceability-map.json` in Terraform scaffold exports, embedded in Architecture Package manifests under `manifest.traceability_map`, surfaced in Architecture Package limitations, and rendered as an HLD evidence table when HLD metadata contains traceability entries. Platform guardrail resources that Archmorph adds automatically, such as Key Vault, Managed Identity, and Log Analytics, are represented with source service `(platform guardrail)` so generated IaC resources remain reviewable even when they do not map to a source-cloud service.

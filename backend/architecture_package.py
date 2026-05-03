@@ -20,6 +20,7 @@ from azure_landing_zone import generate_landing_zone_svg
 from azure_landing_zone_schema import infer_dr_mode, infer_regions, infer_tiers_from_mappings
 from customer_intent import build_customer_intent_profile
 from source_provider import normalize_source_provider
+from traceability_map import build_traceability_map, traceability_summary
 
 
 PackageFormat = Literal["html", "svg"]
@@ -237,6 +238,7 @@ def _build_manifest(
             for name, role, artifact_format in _manifest_artifacts(artifact_filenames, format)
         ],
         "mapping_references": _mapping_references(analysis),
+        "traceability_map": build_traceability_map(analysis),
         "warnings": raw_warnings[:10],
         "limitations": [
             {"title": title, "detail": detail}
@@ -437,6 +439,9 @@ def _limitations(analysis: dict[str, Any], profile: dict[str, str]) -> list[tupl
         limits.append(("Validate compliance scope", f"Compliance scope is advisory until validated against the customer's control set: {profile['compliance']}."))
     if profile.get("rto") and profile.get("rto") != "Not required":
         limits.append(("Prove RTO/RPO operations", f"RTO target {profile['rto']} requires backup, replication, failover, and operations runbook validation."))
+    trace_lines = traceability_summary(analysis, limit=3)
+    if trace_lines:
+        limits.append(("Review IaC traceability evidence", "Generated resources include source-to-Azure lineage: " + "; ".join(trace_lines)))
     if not limits:
         limits.append(("Owner validation required", "No blocking limitations were inferred, but service owners should validate networking, identity, and data dependencies before deployment."))
     return limits[:8]
