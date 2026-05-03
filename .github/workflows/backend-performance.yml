@@ -28,14 +28,23 @@ jobs:
           
       - name: Run k6 Load Test
         run: |
-          docker run --rm --network host -i -v ${{ github.workspace }}:/app -w /app -e API_BASE_URL="http://localhost:8000" -e CI=true grafana/k6:latest run backend/tests/performance/api_load_test.js
+          mkdir -p "${{ runner.temp }}/k6-summary"
+          chmod 777 "${{ runner.temp }}/k6-summary"
+          docker run --rm --network host -i \
+            -v ${{ github.workspace }}:/app:ro \
+            -v "${{ runner.temp }}/k6-summary:/summary" \
+            -w /app \
+            -e API_BASE_URL="http://localhost:8000" \
+            -e K6_SUMMARY_PATH="/summary/k6-summary.json" \
+            -e CI=true \
+            grafana/k6:latest run backend/tests/performance/api_load_test.js
 
       - name: Upload k6 summary
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: backend-k6-summary
-          path: k6-summary.json
+          path: ${{ runner.temp }}/k6-summary/k6-summary.json
           if-no-files-found: ignore
 
       - name: Dump docker logs on failure

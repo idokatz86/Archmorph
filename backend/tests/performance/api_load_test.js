@@ -5,6 +5,7 @@ import { Rate, Trend } from 'k6/metrics';
 // In CI without API_KEY, chat endpoints return 401 — treat that as expected
 const isCI = !!__ENV.CI || !!__ENV.GITHUB_ACTIONS;
 const API_KEY = __ENV.API_KEY || '';
+const SUMMARY_PATH = __ENV.K6_SUMMARY_PATH || 'k6-summary.json';
 
 if (isCI && !API_KEY) {
   // 401 is expected for chat endpoints when no API key is configured
@@ -96,8 +97,8 @@ export const options = {
     ],
     http_req_failed: ['rate<0.10'],
     errors: ['rate<0.01'],
-    chat_latency: ['p(95)<5000'],
     catalog_latency: [`p(95)<${CATALOG_P95_THRESHOLD_MS}`],
+    ...(API_KEY ? { chat_latency: ['p(95)<5000'] } : {}),
   },
 };
 
@@ -216,6 +217,7 @@ export function handleSummary(data) {
   const rows = thresholdRows(data);
   const failed = rows.filter((row) => !row.ok);
   const catalogP95 = metricValue(data, 'catalog_latency', 'p(95)');
+  const chatP95 = metricValue(data, 'chat_latency', 'p(95)');
   const httpP95 = metricValue(data, 'http_req_duration', 'p(95)');
   const httpFailed = metricValue(data, 'http_req_failed', 'rate');
   const checksFailed = metricValue(data, 'checks', 'fails');
@@ -230,6 +232,8 @@ export function handleSummary(data) {
     key_metrics: {
       catalog_latency_p95_ms: catalogP95,
       catalog_latency_threshold_ms: CATALOG_P95_THRESHOLD_MS,
+      chat_latency_p95_ms: chatP95,
+      chat_latency_threshold_ms: API_KEY ? 5000 : null,
       catalog_response_chars_p95: catalogCharsP95,
       http_req_duration_p95_ms: httpP95,
       http_req_failed_rate: httpFailed,
@@ -245,6 +249,7 @@ export function handleSummary(data) {
     'Archmorph k6 summary',
     `target_rps=${summary.target_rps}`,
     `catalog_latency_p95_ms=${catalogP95 ?? 'n/a'} threshold_ms=${CATALOG_P95_THRESHOLD_MS}`,
+    `chat_latency_p95_ms=${chatP95 ?? 'n/a'} threshold_ms=${API_KEY ? 5000 : 'n/a'}`,
     `catalog_response_chars_p95=${catalogCharsP95 ?? 'n/a'}`,
     `static_endpoint_p95_ms ${formatEndpointP95s(staticEndpointLatencies)}`,
     `http_req_duration_p95_ms=${httpP95 ?? 'n/a'}`,
@@ -256,6 +261,6 @@ export function handleSummary(data) {
 
   return {
     stdout,
-    'k6-summary.json': JSON.stringify(summary, null, 2),
+    [SUMMARY_PATH]: JSON.stringify(summary, null, 2),
   };
 }
