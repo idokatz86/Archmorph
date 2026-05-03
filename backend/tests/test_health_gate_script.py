@@ -39,8 +39,13 @@ def healthy_payload() -> dict:
                 "redis_configured": False,
                 "require_redis": False,
                 "production_like": True,
-                "multi_worker": True,
+                "multi_worker": False,
+                "declared_replica_count": 1,
+                "multi_replica": False,
+                "requires_redis_for_scale": False,
                 "ready_for_horizontal_scale": False,
+                "scale_blocked": False,
+                "scale_blocked_reason": None,
             },
             "service_catalog": "ok",
         },
@@ -77,6 +82,22 @@ def test_health_gate_fails_required_redis_missing_even_if_status_is_wrongly_heal
 
     assert result.returncode == 1
     assert "Redis is required but not configured" in result.stdout
+
+
+def test_health_gate_fails_redis_scale_blocker_even_if_status_is_wrongly_healthy():
+    payload = healthy_payload()
+    payload["checks"]["redis_readiness"]["multi_worker"] = True
+    payload["checks"]["redis_readiness"]["requires_redis_for_scale"] = True
+    payload["checks"]["redis_readiness"]["scale_blocked"] = True
+    payload["checks"]["redis_readiness"]["scale_blocked_reason"] = (
+        "Redis is required when WEB_CONCURRENCY/UVICORN_WORKERS or declared replicas exceed 1"
+    )
+
+    result = run_gate(payload)
+
+    assert result.returncode == 1
+    assert "Redis is required before horizontal scale" in result.stdout
+    assert "scale_blocked" in result.stdout
 
 
 def test_health_gate_fails_degraded_service_catalog_refresh():

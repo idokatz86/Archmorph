@@ -487,14 +487,42 @@ ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
 REQUIRE_REDIS = os.getenv("REQUIRE_REDIS", os.getenv("ENFORCE_REDIS", "")).lower() in ("1", "true", "yes")
 
 
+def _env_int(name: str, default: int = 1) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+
+
 def _is_multi_worker() -> bool:
     """Detect if the application is running with multiple workers."""
-    return WORKER_COUNT > 1
+    return _env_int("WEB_CONCURRENCY", _env_int("UVICORN_WORKERS", WORKER_COUNT)) > 1
+
+
+def _declared_replica_count() -> int:
+    """Return the deployment-declared replica count, if provided."""
+    return max(
+        _env_int("CONTAINER_APP_REPLICA_COUNT", 1),
+        _env_int("CONTAINER_APP_MIN_REPLICAS", 1),
+    )
+
+
+def _is_multi_replica() -> bool:
+    """Detect if the deployment has declared multiple active/min replicas."""
+    return _declared_replica_count() > 1
 
 
 def _is_production() -> bool:
     """Detect if the application is running in a production-like environment."""
-    return ENVIRONMENT in ("production", "prod", "staging")
+    return os.getenv("ENVIRONMENT", ENVIRONMENT).lower() in ("production", "prod", "staging")
+
+
+def _redis_required() -> bool:
+    """Return True when Redis is an explicit hard dependency."""
+    return os.getenv(
+        "REQUIRE_REDIS",
+        os.getenv("ENFORCE_REDIS", "true" if REQUIRE_REDIS else ""),
+    ).lower() in ("1", "true", "yes")
 
 
 def session_store_backend() -> str:
@@ -509,13 +537,25 @@ def session_store_backend() -> str:
 def session_store_readiness() -> dict[str, Any]:
     """Return operator-facing readiness metadata for release gates."""
     backend = session_store_backend()
+    redis_ready = backend == "redis"
+    requires_redis_for_scale = _is_multi_worker() or _is_multi_replica()
+    scale_blocked = requires_redis_for_scale and not redis_ready
     return {
         "backend": backend,
         "redis_configured": redis_configured(),
-        "require_redis": REQUIRE_REDIS,
+        "require_redis": _redis_required(),
         "production_like": _is_production(),
         "multi_worker": _is_multi_worker(),
-        "ready_for_horizontal_scale": backend == "redis",
+        "declared_replica_count": _declared_replica_count(),
+        "multi_replica": _is_multi_replica(),
+        "requires_redis_for_scale": requires_redis_for_scale,
+        "ready_for_horizontal_scale": redis_ready,
+        "scale_blocked": scale_blocked,
+        "scale_blocked_reason": (
+            "Redis is required when WEB_CONCURRENCY/UVICORN_WORKERS or declared replicas exceed 1"
+            if scale_blocked
+            else None
+        ),
     }
 
 

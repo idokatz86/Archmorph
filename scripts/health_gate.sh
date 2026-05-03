@@ -71,9 +71,14 @@ if [[ -n "$stale_jobs" ]]; then
 fi
 
 redis_status="$(printf '%s' "$health_json" | jq -r '.checks.redis // empty')"
+redis_scale_blocked="$(printf '%s' "$health_json" | jq -r '.checks.redis_readiness.scale_blocked // false')"
 if [[ "$redis_status" == "missing_required" ]]; then
   echo "::error::Redis is required but not configured"
   printf '%s' "$health_json" | jq -c '.checks.redis_readiness // {redis: .checks.redis}'
+  exit 1
+elif [[ "$redis_scale_blocked" == "true" ]]; then
+  echo "::error::Redis is required before horizontal scale"
+  printf '%s' "$health_json" | jq -c '.checks.redis_readiness'
   exit 1
 elif [[ "$redis_status" == "not_configured" || "$redis_status" == "disabled_optional" ]]; then
   echo "::warning::Redis is disabled as an optional dependency; accepted because overall production health is healthy"
