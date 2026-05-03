@@ -224,7 +224,7 @@ jobs:
         needs.azure-checks.outputs.failures_found == 'true'
       )
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Check for existing open issue
         id: check_issue

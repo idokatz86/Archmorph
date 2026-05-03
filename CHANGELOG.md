@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### CI and release maintenance
+
+- **GitHub Actions Node.js 24 readiness** — audited workflow action runtimes, moved deprecated Node.js 20 action pins to Node.js 24-compatible majors, pinned Trivy to a release tag, and documented the workflow runtime inventory for release maintenance.
+
 #### Architecture Package quality recovery
 
 - **Customer-grade package shell** — Architecture Package HTML exports now use the richer Archmorph review structure with branded header metadata, source-to-target story strip, A/B/C/D tab semantics, and grouped talking-point/limitation rows.
