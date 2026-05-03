@@ -590,6 +590,7 @@ def _save_to_disk() -> None:
         persist_file.parent.mkdir(parents=True, exist_ok=True)
         with _LOCK:
             snapshot = {
+                "builtin_packs": sorted(_BUILTIN_PACK_IDS),
                 "packs": {pid: ids for pid, ids in _PACK_INDEX.items()},
                 "icons": {
                     cid: {
@@ -615,6 +616,7 @@ def _load_from_disk() -> bool:
         return False
     try:
         raw = json.loads(persist_file.read_text(encoding="utf-8"))
+        persisted_builtin_packs = set(raw.get("builtin_packs", []))
         with _LOCK:
             for cid, data in raw.get("icons", {}).items():
                 meta = IconMeta(**data["meta"])
@@ -622,7 +624,7 @@ def _load_from_disk() -> bool:
                 _ICON_STORE.move_to_end(cid)
             for pid, ids in raw.get("packs", {}).items():
                 _PACK_INDEX[pid] = ids
-                if pid in _sample_pack_ids():
+                if pid in persisted_builtin_packs and pid in _sample_pack_ids():
                     _mark_builtin_pack(pid, [cid for cid in ids if cid in _ICON_STORE])
             _evict_icons_if_needed()
         logger.info("Registry loaded from disk: %s icons, %s packs", str(len(_ICON_STORE)).replace('\n', '').replace('\r', ''), str(len(_PACK_INDEX)).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
@@ -650,9 +652,12 @@ def load_builtin_packs() -> int:
         # Skip if already loaded
         if provider_name in _PACK_INDEX:
             with _LOCK:
-                _mark_builtin_pack(provider_name, _PACK_INDEX.get(provider_name, []))
-            logger.debug("Pack '%s' already loaded, skipping", str(provider_name).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
-            continue
+                already_builtin = provider_name in _BUILTIN_PACK_IDS
+                if already_builtin:
+                    _mark_builtin_pack(provider_name, _PACK_INDEX.get(provider_name, []))
+            if already_builtin:
+                logger.debug("Pack '%s' already loaded, skipping", str(provider_name).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
+                continue
         try:
             ingest_icon_pack(provider_dir, pack_id=provider_name, builtin=True)
             loaded += 1

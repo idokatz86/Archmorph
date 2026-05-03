@@ -522,6 +522,37 @@ class TestIconRegistry:
         assert after_ids == before_ids
         assert registry.get_icon("azure_compute_custom_icon") is None
 
+    def test_legacy_custom_provider_pack_is_not_restored_as_builtin(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("ICON_REGISTRY_DATA_DIR", str(tmp_path))
+        legacy_id = "custom_compute_legacy_icon"
+        meta = IconMeta(
+            id=legacy_id,
+            name="Legacy Icon",
+            provider="custom",
+            category="compute",
+            tags=["legacy"],
+            version="1.0.0",
+            svg_hash="legacy",
+        )
+        persist_file = tmp_path / "icon_registry.json"
+        persist_file.write_text(
+            json.dumps(
+                {
+                    "packs": {"azure": [legacy_id]},
+                    "icons": {legacy_id: {"meta": meta.model_dump(), "svg": VALID_SVG.decode()}},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        assert registry._load_from_disk() is True
+        assert registry.get_pack_icons("azure")[0].meta.name == "Legacy Icon"
+
+        assert registry.load_builtin_packs() >= 1
+
+        assert registry.get_icon(legacy_id) is None
+        assert all(icon.meta.provider == "azure" for icon in registry.get_pack_icons("azure"))
+
     def test_builtin_load_marks_icons_before_eviction(self, monkeypatch):
         monkeypatch.setenv("ICON_REGISTRY_MAX_ICONS", "1")
 
@@ -774,6 +805,17 @@ class TestIconAPI:
 
         assert resp.status_code == 400
         assert registry.list_packs() == []
+
+    def test_upload_json_pack_rejects_unsafe_icon_paths(self):
+        for icon_path in ("icon.txt", "../icon.svg"):
+            resp = self.client.post(
+                "/api/icon-packs?pack_id=api-json-bad-path",
+                files={"file": ("test.json", _json_pack(icon_path, "Bad Path Icon"), "application/json")},
+                headers=self.admin_headers,
+            )
+
+            assert resp.status_code == 400
+            assert registry.list_packs() == []
 
     def test_upload_zip_pack_requires_admin_session(self, small_zip_pack):
         resp = self.client.post(

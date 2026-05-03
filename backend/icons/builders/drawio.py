@@ -47,50 +47,46 @@ def build_drawio_library(
     bytes
         XML content of the .xml library file.
     """
-    t0 = time.monotonic()
+    for _attempt in range(3):
+        t0 = time.monotonic()
 
-    # Check cache
-    cache_key = ("drawio", pack_id, embed_mode)
-    generation = get_pack_generation(pack_id)
-    cached = get_cached_asset(cache_key, pack_id=pack_id, generation=generation)
-    if cached is not None:
-        logger.info("Returning cached draw.io library for %s", str(pack_id).replace("\n", "").replace("\r", ""))  # lgtm[py/log-injection]
-        return cached
+        cache_key = ("drawio", pack_id, embed_mode)
+        generation = get_pack_generation(pack_id)
+        cached = get_cached_asset(cache_key, pack_id=pack_id, generation=generation)
+        if cached is not None:
+            logger.info("Returning cached draw.io library for %s", str(pack_id).replace("\n", "").replace("\r", ""))  # lgtm[py/log-injection]
+            return cached
 
-    icons = get_pack_icons(pack_id)
-    if not icons:
-        raise ValueError(f"No icons found for pack '{pack_id}'")
+        icons = get_pack_icons(pack_id)
+        if not icons:
+            raise ValueError(f"No icons found for pack '{pack_id}'")
 
+        entries: list[dict] = []
 
-    # Build mxlibrary JSON array
-    # Each entry: {"xml": "<mxGraphModel>...</mxGraphModel>", "w": W, "h": H, "title": "Name", "aspect": "fixed"}
-    entries: list[dict] = []
+        for icon in icons:
+            entry = _build_library_entry(icon, embed_mode)
+            entries.append(entry)
 
-    for icon in icons:
-        entry = _build_library_entry(icon, embed_mode)
-        entries.append(entry)
+        entries.sort(key=lambda e: e["title"])
 
-    # Stable sort by title for deterministic output
-    entries.sort(key=lambda e: e["title"])
+        import json
+        json_str = json.dumps(entries, separators=(",", ":"), sort_keys=True)
 
-    # Wrap in <mxlibrary> tag
-    import json
-    json_str = json.dumps(entries, separators=(",", ":"), sort_keys=True)
+        xml_content = f"<mxlibrary>{json_str}</mxlibrary>"
 
-    xml_content = f"<mxlibrary>{json_str}</mxlibrary>"
+        result = xml_content.encode("utf-8")
+        if not set_cached_asset(cache_key, result, pack_id=pack_id, generation=generation):
+            continue
+        _metrics["library_builds"] += 1
 
-    result = xml_content.encode("utf-8")
-    if not set_cached_asset(cache_key, result, pack_id=pack_id, generation=generation):
-        return build_drawio_library(pack_id, embed_mode=embed_mode, title=title)
-    _metrics["library_builds"] += 1
+        elapsed = time.monotonic() - t0
+        logger.info(
+            "Built draw.io library '%s' (%s icons, %s mode, %ss)",
+            str(pack_id).replace('\n', '').replace('\r', ''), str(len(entries)).replace('\n', '').replace('\r', ''), str(embed_mode).replace('\n', '').replace('\r', ''), str(elapsed).replace('\n', '').replace('\r', ''),  # lgtm[py/log-injection]
+        )
 
-    elapsed = time.monotonic() - t0
-    logger.info(
-        "Built draw.io library '%s' (%s icons, %s mode, %ss)",
-        str(pack_id).replace('\n', '').replace('\r', ''), str(len(entries)).replace('\n', '').replace('\r', ''), str(embed_mode).replace('\n', '').replace('\r', ''), str(elapsed).replace('\n', '').replace('\r', ''),  # lgtm[py/log-injection]
-    )
-
-    return result
+        return result
+    raise ValueError("Icon pack changed during library build; please retry")
 
 
 def _build_library_entry(icon: IconEntry, embed_mode: str) -> dict:

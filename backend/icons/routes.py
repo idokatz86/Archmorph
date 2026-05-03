@@ -17,6 +17,7 @@ import json
 import logging
 import zipfile
 from io import BytesIO
+from pathlib import PurePosixPath
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, Request, UploadFile, File
@@ -288,6 +289,15 @@ def _json_manifest_to_zip_bytes(manifest_data: dict) -> bytes:
             svg = icon.get("svg")
             if not path or not isinstance(path, str):
                 raise ValueError("JSON icon entries must include a file path")
+            icon_path = PurePosixPath(path)
+            if (
+                path.startswith("/")
+                or "\\" in path
+                or icon_path.suffix.lower() != ".svg"
+                or any(part in ("", ".", "..") for part in icon_path.parts)
+                or icon_path.as_posix() != path
+            ):
+                raise ValueError("JSON icon file paths must be safe relative .svg paths")
             if not svg or not isinstance(svg, str):
                 raise ValueError("JSON icon entries must include inline SVG data")
             zf.writestr(path, svg)

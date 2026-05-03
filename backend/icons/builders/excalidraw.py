@@ -42,52 +42,46 @@ def build_excalidraw_library(
     bytes
         JSON content of the .excalidrawlib file.
     """
-    t0 = time.monotonic()
+    for _attempt in range(3):
+        t0 = time.monotonic()
 
-    cache_key = ("excalidraw", pack_id)
-    generation = get_pack_generation(pack_id)
-    cached = get_cached_asset(cache_key, pack_id=pack_id, generation=generation)
-    if cached is not None:
-        logger.info("Returning cached Excalidraw library for %s", str(pack_id).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
-        return cached
+        cache_key = ("excalidraw", pack_id)
+        generation = get_pack_generation(pack_id)
+        cached = get_cached_asset(cache_key, pack_id=pack_id, generation=generation)
+        if cached is not None:
+            logger.info("Returning cached Excalidraw library for %s", str(pack_id).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
+            return cached
 
-    icons = get_pack_icons(pack_id)
-    if not icons:
-        raise ValueError(f"No icons found for pack '{pack_id}'")
+        icons = get_pack_icons(pack_id)
+        if not icons:
+            raise ValueError(f"No icons found for pack '{pack_id}'")
 
+        library_items: list[dict] = []
 
-    # Excalidraw library format:
-    # {
-    #   "type": "excalidrawlib",
-    #   "version": 2,
-    #   "source": "archmorph",
-    #   "libraryItems": [...]
-    # }
-    library_items: list[dict] = []
+        for icon in sorted(icons, key=lambda i: i.meta.id):
+            item = _build_library_item(icon)
+            library_items.append(item)
 
-    for icon in sorted(icons, key=lambda i: i.meta.id):
-        item = _build_library_item(icon)
-        library_items.append(item)
+        doc = {
+            "type": "excalidrawlib",
+            "version": 2,
+            "source": "archmorph",
+            "libraryItems": library_items,
+        }
 
-    doc = {
-        "type": "excalidrawlib",
-        "version": 2,
-        "source": "archmorph",
-        "libraryItems": library_items,
-    }
+        result = json.dumps(doc, separators=(",", ":"), sort_keys=False).encode("utf-8")
+        if not set_cached_asset(cache_key, result, pack_id=pack_id, generation=generation):
+            continue
+        _metrics["library_builds"] += 1
 
-    result = json.dumps(doc, separators=(",", ":"), sort_keys=False).encode("utf-8")
-    if not set_cached_asset(cache_key, result, pack_id=pack_id, generation=generation):
-        return build_excalidraw_library(pack_id, title=title)
-    _metrics["library_builds"] += 1
+        elapsed = time.monotonic() - t0
+        logger.info(
+            "Built Excalidraw library '%s' (%s icons, %ss)",
+            str(pack_id).replace('\n', '').replace('\r', ''), str(len(library_items)).replace('\n', '').replace('\r', ''), str(elapsed).replace('\n', '').replace('\r', ''),  # lgtm[py/log-injection]
+        )
 
-    elapsed = time.monotonic() - t0
-    logger.info(
-        "Built Excalidraw library '%s' (%s icons, %ss)",
-        str(pack_id).replace('\n', '').replace('\r', ''), str(len(library_items)).replace('\n', '').replace('\r', ''), str(elapsed).replace('\n', '').replace('\r', ''),  # lgtm[py/log-injection]
-    )
-
-    return result
+        return result
+    raise ValueError("Icon pack changed during library build; please retry")
 
 
 def _build_library_item(icon: IconEntry) -> dict:
