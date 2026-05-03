@@ -106,7 +106,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: File alert issue
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           STALE_JOBS: ${{ needs.watch.outputs.stale_jobs }}
           REPORT: ${{ needs.watch.outputs.report }}
