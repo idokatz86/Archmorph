@@ -696,6 +696,28 @@ class TestServiceUpdates:
         resp = client.get("/api/service-updates/last")
         assert resp.status_code == 200
 
+    def test_storage_preflight(self, client):
+        with patch("routers.services.verify_service_catalog_blob_access", return_value={
+            "ok": True,
+            "account_url_configured": True,
+            "operations": ["write", "read", "list", "delete"],
+        }):
+            resp = client.post("/api/service-updates/storage-preflight")
+        assert resp.status_code == 200
+        assert resp.json()["operations"] == ["write", "read", "list", "delete"]
+
+    def test_storage_preflight_failure(self, client):
+        with patch("routers.services.verify_service_catalog_blob_access", return_value={
+            "ok": False,
+            "error": "AZURE_STORAGE_ACCOUNT_URL is not configured",
+        }):
+            resp = client.post("/api/service-updates/storage-preflight")
+        assert resp.status_code == 503
+        body = resp.json()
+        assert body["error"]["message"] == "Managed identity Blob Storage preflight failed"
+        assert body["error"]["details"]["account_url_configured"] is False
+        assert "AZURE_STORAGE_ACCOUNT_URL is not configured" not in str(body)
+
 
 # ====================================================================
 # 13. Contact

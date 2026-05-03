@@ -750,6 +750,110 @@ class TestBlobPersistence:
             result = _load_discovered_services()
             assert result["aws"][0]["id"] == "aws-from-blob"
 
+    def test_blob_preflight_requires_account_url(self):
+        from service_updater import verify_service_catalog_blob_access
+        with patch.dict(os.environ, {
+            "AZURE_STORAGE_ACCOUNT_URL": "",
+            "AZURE_STORAGE_CONNECTION_STRING": "UseDevelopmentStorage=true",
+        }, clear=False):
+            result = verify_service_catalog_blob_access()
+        assert result["ok"] is False
+        assert result["account_url_configured"] is False
+        assert result["error"] == "AZURE_STORAGE_ACCOUNT_URL is not configured"
+
+    def test_blob_preflight_exercises_managed_identity_operations(self):
+        from service_updater import verify_service_catalog_blob_access
+
+        class BlobItem:
+            name = ".deployment-preflight/probe.json"
+
+        class Download:
+            def readall(self):
+                return blob.payload
+
+        class Blob:
+            payload = b""
+            deleted = False
+
+            def upload_blob(self, payload, overwrite=False, timeout=None):
+                self.payload = payload
+
+            def download_blob(self, timeout=None):
+                return Download()
+
+            def delete_blob(self, timeout=None):
+                self.deleted = True
+
+        blob = Blob()
+
+        class Container:
+            def get_container_properties(self, timeout=None):
+                return {"name": "service-catalog"}
+
+            def get_blob_client(self, name):
+                BlobItem.name = name
+                return blob
+
+            def list_blobs(self, name_starts_with=None, timeout=None):
+                return [BlobItem()]
+
+        with patch.dict(os.environ, {
+            "AZURE_STORAGE_ACCOUNT_URL": "https://example.blob.core.windows.net",
+        }, clear=False), patch(
+            "service_updater._get_service_catalog_managed_identity_container_client",
+            return_value=Container(),
+        ):
+            result = verify_service_catalog_blob_access()
+
+        assert result["ok"] is True
+        assert result["account_url"] == "https://example.blob.core.windows.net"
+        assert result["operations"] == ["write", "read", "list", "delete"]
+        assert blob.deleted is True
+
+    def test_blob_preflight_cleans_probe_after_list_failure(self):
+        from service_updater import verify_service_catalog_blob_access
+
+        class Download:
+            def readall(self):
+                return blob.payload
+
+        class Blob:
+            payload = b""
+            deleted = False
+
+            def upload_blob(self, payload, overwrite=False, timeout=None):
+                self.payload = payload
+
+            def download_blob(self, timeout=None):
+                return Download()
+
+            def delete_blob(self, timeout=None):
+                self.deleted = True
+
+        blob = Blob()
+
+        class Container:
+            def get_container_properties(self, timeout=None):
+                return {"name": "service-catalog"}
+
+            def get_blob_client(self, name):
+                return blob
+
+            def list_blobs(self, name_starts_with=None, timeout=None):
+                raise RuntimeError("simulated list failure")
+
+        with patch.dict(os.environ, {
+            "AZURE_STORAGE_ACCOUNT_URL": "https://example.blob.core.windows.net",
+        }, clear=False), patch(
+            "service_updater._get_service_catalog_managed_identity_container_client",
+            return_value=Container(),
+        ):
+            result = verify_service_catalog_blob_access()
+
+        assert result["ok"] is False
+        assert result["error"] == "simulated list failure"
+        assert blob.deleted is True
+
 
 # ====================================================================
 # Issue #647 — services.reload() and refresh-time hot reload
