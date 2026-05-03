@@ -60,6 +60,8 @@ FOREIGNOBJECT_SVG = b'<svg xmlns="http://www.w3.org/2000/svg" width="48" height=
 STYLE_SVG = b'<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48"><style>rect{background:url(https://evil.example/x)}</style><rect width="48" height="48"/></svg>'
 
 API_HEADERS = {"X-API-Key": "test-api-key"}
+ADMIN_KEY = "test-admin-key"
+ADMIN_JWT_SECRET = "test-admin-key-test-salt-32-byte-value"
 
 
 SAMPLE_DIR = Path(__file__).parent.parent / "samples"
@@ -409,6 +411,67 @@ class TestIconRegistry:
         with pytest.raises(ValueError, match="reserved for built-in icon packs"):
             registry.ingest_icon_pack(_zip_pack("custom.svg", "Custom Icon"), pack_id="azure")
 
+    def test_custom_pack_cannot_reuse_builtin_icon_id(self):
+        assert registry.load_builtin_packs() >= 1
+        builtin_pack_id = registry.list_packs()[0]["pack_id"]
+        builtin_icon = registry.get_pack_icons(builtin_pack_id)[0]
+
+        buf = io.BytesIO()
+        manifest = {
+            "name": "Collision Pack",
+            "provider": builtin_icon.meta.provider,
+            "version": "1.0.0",
+            "icons": [
+                {
+                    "file": "collision.svg",
+                    "name": builtin_icon.meta.name,
+                    "category": builtin_icon.meta.category,
+                    "tags": ["collision"],
+                }
+            ],
+        }
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("metadata.json", json.dumps(manifest))
+            zf.writestr("collision.svg", VALID_SVG.decode())
+
+        with pytest.raises(ValueError, match="reserved for built-in icon packs"):
+            registry.ingest_icon_pack(buf.getvalue(), pack_id="collision-pack")
+        assert registry.get_icon(builtin_icon.meta.id).svg == builtin_icon.svg
+
+    def test_restored_builtin_icons_remain_protected_from_eviction(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("ICON_REGISTRY_DATA_DIR", str(tmp_path))
+        assert registry.load_builtin_packs() >= 1
+        builtin_pack_id = registry.list_packs()[0]["pack_id"]
+        before_ids = [icon.meta.id for icon in registry.get_pack_icons(builtin_pack_id)]
+        total_icons = registry.get_icon_metrics()["total_icons"]
+
+        registry.clear_all()
+        assert registry._load_from_disk() is True
+        monkeypatch.setenv("ICON_REGISTRY_MAX_ICONS", str(total_icons))
+        registry.ingest_icon_pack(_zip_pack("custom.svg", "Custom Icon"), pack_id="custom-pack")
+
+        after_ids = [icon.meta.id for icon in registry.get_pack_icons(builtin_pack_id)]
+        assert after_ids == before_ids
+        assert registry.get_icon("azure_compute_custom_icon") is None
+
+    def test_builtin_load_marks_icons_before_eviction(self, monkeypatch):
+        monkeypatch.setenv("ICON_REGISTRY_MAX_ICONS", "1")
+
+        assert registry.load_builtin_packs() >= 1
+
+        assert registry.get_icon_metrics()["total_icons"] > 1
+        assert all(pack["icon_count"] > 0 for pack in registry.list_packs())
+
+    def test_builtin_pack_cannot_be_deleted(self):
+        assert registry.load_builtin_packs() >= 1
+        builtin_pack_id = registry.list_packs()[0]["pack_id"]
+        before_ids = [icon.meta.id for icon in registry.get_pack_icons(builtin_pack_id)]
+
+        result = registry.delete_pack(builtin_pack_id)
+
+        assert result == {"deleted": False, "reason": "built-in pack cannot be deleted"}
+        assert [icon.meta.id for icon in registry.get_pack_icons(builtin_pack_id)] == before_ids
+
     def test_registry_evicts_oldest_icons_when_maxsize_reached(self, monkeypatch):
         monkeypatch.setenv("ICON_REGISTRY_MAX_ICONS", "1")
         registry.ingest_icon_pack(_zip_pack("first.svg", "First Icon"), pack_id="first-pack")
@@ -584,10 +647,14 @@ class TestIconAPI:
 
     @pytest.fixture(autouse=True)
     def _setup_client(self, monkeypatch):
+        import admin_auth
         from routers import shared as shared_router
         from main import app
         monkeypatch.setattr(shared_router, "API_KEY", API_HEADERS["X-API-Key"])
+        monkeypatch.setattr(admin_auth, "ADMIN_SECRET", ADMIN_KEY)
+        monkeypatch.setattr(admin_auth, "JWT_SECRET", ADMIN_JWT_SECRET)
         self.client = TestClient(app)
+        self.admin_headers = {"Authorization": f"Bearer {admin_auth.create_session_token()}"}
 
     def test_list_packs_initially_empty(self):
         resp = self.client.get("/api/icons/packs")
@@ -610,7 +677,7 @@ class TestIconAPI:
         resp = self.client.post(
             "/api/icon-packs?pack_id=api-test",
             files={"file": ("test.zip", small_zip_pack, "application/zip")},
-            headers=API_HEADERS,
+            headers=self.admin_headers,
         )
         assert resp.status_code == 200
         data = resp.json()
@@ -621,7 +688,7 @@ class TestIconAPI:
         resp = self.client.post(
             "/api/icon-packs?pack_id=api-json",
             files={"file": ("test.json", _json_pack("json_icon.svg", "JSON Icon"), "application/json")},
-            headers=API_HEADERS,
+            headers=self.admin_headers,
         )
 
         assert resp.status_code == 200
@@ -630,7 +697,17 @@ class TestIconAPI:
         assert data["ingested"] == 1
         assert registry.search_icons(pack_id="api-json")[0].name == "JSON Icon"
 
-    def test_upload_zip_pack_requires_api_key(self, small_zip_pack):
+    def test_upload_json_pack_rejects_non_object_manifest(self):
+        resp = self.client.post(
+            "/api/icon-packs?pack_id=api-json-array",
+            files={"file": ("test.json", b"[]", "application/json")},
+            headers=self.admin_headers,
+        )
+
+        assert resp.status_code == 400
+        assert registry.list_packs() == []
+
+    def test_upload_zip_pack_requires_admin_session(self, small_zip_pack):
         resp = self.client.post(
             "/api/icon-packs?pack_id=api-anon",
             files={"file": ("test.zip", small_zip_pack, "application/zip")},
@@ -638,38 +715,35 @@ class TestIconAPI:
         assert resp.status_code == 401
         assert registry.list_packs() == []
 
-    def test_upload_zip_pack_fails_closed_without_key_in_production(self, small_zip_pack, monkeypatch):
-        from routers import shared as shared_router
-        monkeypatch.setattr(shared_router, "API_KEY", "")
-        monkeypatch.setenv("ENVIRONMENT", "production")
+    def test_upload_zip_pack_rejects_general_api_key(self, small_zip_pack):
+        resp = self.client.post(
+            "/api/icon-packs?pack_id=api-general-key",
+            files={"file": ("test.zip", small_zip_pack, "application/zip")},
+            headers=API_HEADERS,
+        )
+
+        assert resp.status_code == 401
+        assert registry.list_packs() == []
+
+    def test_upload_zip_pack_fails_closed_when_admin_not_configured(self, small_zip_pack, monkeypatch):
+        import admin_auth
+        monkeypatch.setattr(admin_auth, "ADMIN_SECRET", "")
+        monkeypatch.setattr(admin_auth, "JWT_SECRET", "")
 
         resp = self.client.post(
             "/api/icon-packs?pack_id=api-prod-open",
             files={"file": ("test.zip", small_zip_pack, "application/zip")},
+            headers=self.admin_headers,
         )
 
-        assert resp.status_code == 500
+        assert resp.status_code == 503
         assert registry.list_packs() == []
 
-    def test_upload_zip_pack_fails_closed_when_environment_missing(self, small_zip_pack, monkeypatch):
-        from routers import shared as shared_router
-        monkeypatch.setattr(shared_router, "API_KEY", "")
-        monkeypatch.delenv("ENVIRONMENT", raising=False)
-        monkeypatch.delenv("ENV", raising=False)
-
-        resp = self.client.post(
-            "/api/icon-packs?pack_id=api-missing-env",
-            files={"file": ("test.zip", small_zip_pack, "application/zip")},
-        )
-
-        assert resp.status_code == 500
-        assert registry.list_packs() == []
-
-    def test_delete_icon_pack_requires_api_key(self, small_zip_pack):
+    def test_delete_icon_pack_requires_admin_session(self, small_zip_pack):
         upload = self.client.post(
             "/api/icon-packs?pack_id=api-delete-auth",
             files={"file": ("test.zip", small_zip_pack, "application/zip")},
-            headers=API_HEADERS,
+            headers=self.admin_headers,
         )
         assert upload.status_code == 200
 
@@ -678,15 +752,15 @@ class TestIconAPI:
         assert resp.status_code == 401
         assert registry.list_packs() == [{"pack_id": "api-delete-auth", "icon_count": 1}]
 
-    def test_delete_icon_pack_with_api_key(self, small_zip_pack):
+    def test_delete_icon_pack_with_admin_session(self, small_zip_pack):
         upload = self.client.post(
             "/api/icon-packs?pack_id=api-delete-ok",
             files={"file": ("test.zip", small_zip_pack, "application/zip")},
-            headers=API_HEADERS,
+            headers=self.admin_headers,
         )
         assert upload.status_code == 200
 
-        resp = self.client.delete("/api/icon-packs/api-delete-ok", headers=API_HEADERS)
+        resp = self.client.delete("/api/icon-packs/api-delete-ok", headers=self.admin_headers)
 
         assert resp.status_code == 200
         assert resp.json()["deleted"] is True
@@ -696,7 +770,7 @@ class TestIconAPI:
         self.client.post(
             "/api/icon-packs?pack_id=api-search",
             files={"file": ("test.zip", small_zip_pack, "application/zip")},
-            headers=API_HEADERS,
+            headers=self.admin_headers,
         )
         resp = self.client.get("/api/icons?provider=azure")
         assert resp.status_code == 200
@@ -706,7 +780,7 @@ class TestIconAPI:
         self.client.post(
             "/api/icon-packs?pack_id=api-drawio",
             files={"file": ("pack.zip", small_zip_pack, "application/zip")},
-            headers=API_HEADERS,
+            headers=self.admin_headers,
         )
         resp = self.client.get("/api/libraries/drawio?packId=api-drawio&embedMode=full")
         assert resp.status_code == 200
@@ -717,7 +791,7 @@ class TestIconAPI:
         self.client.post(
             "/api/icon-packs?pack_id=api-exc",
             files={"file": ("pack.zip", small_zip_pack, "application/zip")},
-            headers=API_HEADERS,
+            headers=self.admin_headers,
         )
         resp = self.client.get("/api/libraries/excalidraw?packId=api-exc")
         assert resp.status_code == 200
@@ -728,7 +802,7 @@ class TestIconAPI:
         self.client.post(
             "/api/icon-packs?pack_id=api-vis",
             files={"file": ("pack.zip", small_zip_pack, "application/zip")},
-            headers=API_HEADERS,
+            headers=self.admin_headers,
         )
         resp = self.client.get("/api/libraries/visio?packId=api-vis")
         assert resp.status_code == 200
@@ -739,7 +813,7 @@ class TestIconAPI:
         self.client.post(
             "/api/icon-packs?pack_id=api-svg",
             files={"file": ("pack.zip", small_zip_pack, "application/zip")},
-            headers=API_HEADERS,
+            headers=self.admin_headers,
         )
         # Find the icon ID
         search = self.client.get("/api/icons?packId=api-svg")
@@ -761,7 +835,7 @@ class TestIconAPI:
         self.client.post(
             "/api/icon-packs?pack_id=api-bad",
             files={"file": ("pack.zip", small_zip_pack, "application/zip")},
-            headers=API_HEADERS,
+            headers=self.admin_headers,
         )
         resp = self.client.get("/api/libraries/drawio?packId=api-bad&embedMode=invalid")
         assert resp.status_code == 400
@@ -770,7 +844,7 @@ class TestIconAPI:
         resp = self.client.post(
             "/api/icon-packs",
             files={"file": ("empty.zip", b"", "application/zip")},
-            headers=API_HEADERS,
+            headers=self.admin_headers,
         )
         assert resp.status_code == 400
 

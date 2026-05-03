@@ -19,10 +19,10 @@ import zipfile
 from io import BytesIO
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, Query, Request, UploadFile, File
+from fastapi import APIRouter, Depends, Query, Request, UploadFile, File
 from fastapi.responses import Response
 
-from routers.shared import limiter, verify_api_key
+from routers.shared import limiter, verify_admin_key
 from icons import registry
 from icons.builders.drawio import build_drawio_library
 from icons.builders.excalidraw import build_excalidraw_library
@@ -31,13 +31,6 @@ from icons.builders.visio import build_visio_stencil_pack
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["icons"])
-
-
-def _api_key_header_for_schema(
-    _x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
-) -> None:
-    return None
-
 
 
 # ─────────────────────────────────────────────────────────────
@@ -50,8 +43,7 @@ async def upload_icon_pack(
     request: Request,
     file: UploadFile = File(...),
     pack_id: Optional[str] = Query(None, description="Custom pack identifier"),
-    _auth: None = Depends(verify_api_key),
-    _api_key_header: None = Depends(_api_key_header_for_schema),
+    _admin: dict = Depends(verify_admin_key),
 ):
     """Ingest a ZIP or JSON icon pack.
 
@@ -74,6 +66,8 @@ async def upload_icon_pack(
         if file.filename and file.filename.endswith(".json"):
             # JSON manifest with inline SVG data
             manifest_data = json.loads(content)
+            if not isinstance(manifest_data, dict):
+                raise ValueError("JSON icon pack manifest must be an object")
             result = registry.ingest_icon_pack(
                 source=_json_manifest_to_zip_bytes(manifest_data),
                 manifest=_metadata_without_inline_svg(manifest_data),
@@ -147,8 +141,7 @@ async def list_packs():
 async def delete_icon_pack(
     request: Request,
     pack_id: str,
-    _auth: None = Depends(verify_api_key),
-    _api_key_header: None = Depends(_api_key_header_for_schema),
+    _admin: dict = Depends(verify_admin_key),
 ):
     """Remove an icon pack and all its icons from the registry."""
     result = registry.delete_pack(pack_id)

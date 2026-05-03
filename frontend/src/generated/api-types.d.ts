@@ -15234,7 +15234,7 @@ export interface operations {
                 pack_id?: string | null;
             };
             header?: {
-                "X-API-Key"?: string | null;
+                authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -15269,7 +15269,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                "X-API-Key"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 pack_id: string;
@@ -18691,7 +18691,7 @@ export interface operations {
                 pack_id?: string | null;
             };
             header?: {
-                "X-API-Key"?: string | null;
+                authorization?: string | null;
             };
             path?: never;
             cookie?: never;
@@ -18726,7 +18726,7 @@ export interface operations {
         parameters: {
             query?: never;
             header?: {
-                "X-API-Key"?: string | null;
+                authorization?: string | null;
             };
             path: {
                 pack_id: string;

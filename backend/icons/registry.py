@@ -129,6 +129,11 @@ def _protected_icon_ids() -> set[str]:
     return {cid for cid in _BUILTIN_ICON_IDS if cid in _ICON_STORE}
 
 
+def _mark_builtin_pack(pack_id: str, icon_ids: list[str]) -> None:
+    _BUILTIN_PACK_IDS.add(pack_id)
+    _BUILTIN_ICON_IDS.update(icon_ids)
+
+
 def _bump_pack_generation(pack_id: str) -> None:
     _PACK_GENERATIONS[pack_id] = _PACK_GENERATIONS.get(pack_id, 0) + 1
 
@@ -320,6 +325,9 @@ def ingest_icon_pack(
     pid = pack_id or re.sub(r"[^a-z0-9_-]", "_", pack_manifest.name.lower())
     if not builtin and pid in _reserved_builtin_pack_ids():
         raise ValueError(f"Pack id '{pid}' is reserved for built-in icon packs")
+    if builtin:
+        with _LOCK:
+            _BUILTIN_PACK_IDS.add(pid)
     ingested_ids: list[str] = []
     failed = 0
 
@@ -342,6 +350,10 @@ def ingest_icon_pack(
         w, h = extract_svg_dimensions(sanitized_svg)
 
         cid = _canonical_id(name, pack_manifest.provider, category)
+        if not builtin:
+            with _LOCK:
+                if cid in _BUILTIN_ICON_IDS:
+                    raise ValueError(f"Icon id '{cid}' is reserved for built-in icon packs")
 
         entry = IconEntry(
             meta=IconMeta(
@@ -367,8 +379,11 @@ def ingest_icon_pack(
         old_ids = set(_PACK_INDEX.get(pid, []))
         stale_ids = old_ids.difference(ingested_ids)
         for stale_id in stale_ids:
-            _ICON_STORE.pop(stale_id, None)
+            if stale_id not in _BUILTIN_ICON_IDS or builtin:
+                _ICON_STORE.pop(stale_id, None)
         _PACK_INDEX[pid] = ingested_ids
+        if builtin:
+            _mark_builtin_pack(pid, ingested_ids)
         _invalidate_pack_asset_cache(pid)
         _evict_icons_if_needed()
         retained_ids = [cid for cid in ingested_ids if cid in _ICON_STORE]
@@ -524,6 +539,8 @@ def clear_all() -> None:
 def delete_pack(pack_id: str) -> dict[str, Any]:
     """Remove an icon pack and all its icons from the registry."""
     with _LOCK:
+        if pack_id in _reserved_builtin_pack_ids():
+            return {"deleted": False, "reason": "built-in pack cannot be deleted"}
         icon_ids = _PACK_INDEX.pop(pack_id, None)
         if icon_ids is None:
             return {"deleted": False, "reason": "pack not found"}
@@ -580,6 +597,8 @@ def _load_from_disk() -> bool:
                 _ICON_STORE.move_to_end(cid)
             for pid, ids in raw.get("packs", {}).items():
                 _PACK_INDEX[pid] = ids
+                if pid in _sample_pack_ids():
+                    _mark_builtin_pack(pid, [cid for cid in ids if cid in _ICON_STORE])
             _evict_icons_if_needed()
         logger.info("Registry loaded from disk: %s icons, %s packs", str(len(_ICON_STORE)).replace('\n', '').replace('\r', ''), str(len(_PACK_INDEX)).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
         return True
@@ -605,13 +624,12 @@ def load_builtin_packs() -> int:
         provider_name = provider_dir.name.lower()
         # Skip if already loaded
         if provider_name in _PACK_INDEX:
+            with _LOCK:
+                _mark_builtin_pack(provider_name, _PACK_INDEX.get(provider_name, []))
             logger.debug("Pack '%s' already loaded, skipping", str(provider_name).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
             continue
         try:
             ingest_icon_pack(provider_dir, pack_id=provider_name, builtin=True)
-            with _LOCK:
-                _BUILTIN_PACK_IDS.add(provider_name)
-                _BUILTIN_ICON_IDS.update(_PACK_INDEX.get(provider_name, []))
             loaded += 1
         except Exception as exc:  # noqa: BLE001 — icon resolution is best-effort
             logger.warning("Failed to load builtin pack '%s': %s", str(provider_name).replace('\n', '').replace('\r', ''), str(exc).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom

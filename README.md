@@ -570,8 +570,8 @@ Dynamic pricing powered by the [Azure Retail Prices API](https://prices.azure.co
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/icon-packs` | POST | Upload ZIP/JSON icon pack (requires `X-API-Key`) |
-| `/api/icon-packs/{pack_id}` | DELETE | Remove icon pack and its icons (requires `X-API-Key`) |
+| `/api/icon-packs` | POST | Upload ZIP/JSON icon pack (requires admin bearer session) |
+| `/api/icon-packs/{pack_id}` | DELETE | Remove icon pack and its icons (requires admin bearer session) |
 | `/api/icons` | GET | Search icons (provider, query, category) |
 | `/api/icons/packs` | GET | List registered icon packs |
 | `/api/icons/metrics` | GET | Icon registry observability counters |
@@ -923,7 +923,7 @@ See [docs/DEPLOYMENT_COSTS.md](docs/DEPLOYMENT_COSTS.md) for full breakdown.
 - **Transport:** HTTPS-only with TLS 1.2+ for all Azure resources
 - **Headers:** Security headers middleware (X-Content-Type-Options, X-Frame-Options, CSP, HSTS, Permissions-Policy)
 - **SVG sanitization:** DefusedXML-based sanitizer strips scripts and event handlers
-- **Icon-pack write boundary:** Custom icon-pack upload/delete requires `X-API-Key`; production and staging fail closed when `ARCHMORPH_API_KEY` is missing, uploaded SVGs are sanitized, reserved built-in pack IDs are blocked, and custom icon capacity cannot evict built-in catalogs
+- **Icon-pack write boundary:** Custom icon-pack upload/delete requires an admin bearer session from `/api/admin/login`; deployments fail closed when `ARCHMORPH_ADMIN_KEY` is missing, uploaded SVGs are sanitized, reserved built-in pack/icon IDs are blocked, built-in packs cannot be deleted, and custom icon capacity cannot evict built-in catalogs
 - **IaC security scanning:** Generated Terraform/Bicep scanned for misconfigurations
 - **Rate limiting:** SlowAPI rate limits on public endpoints
 - **Secrets management:** All credentials via environment variables or GitHub Secrets; no secrets in code or git history

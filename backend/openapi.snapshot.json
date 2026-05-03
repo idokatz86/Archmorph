@@ -11806,7 +11806,7 @@
           },
           {
             "in": "header",
-            "name": "X-API-Key",
+            "name": "authorization",
             "required": false,
             "schema": {
               "anyOf": [
@@ -11817,7 +11817,7 @@
                   "type": "null"
                 }
               ],
-              "title": "X-Api-Key"
+              "title": "Authorization"
             }
           }
         ],
@@ -11851,11 +11851,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
         "summary": "Upload Icon Pack",
         "tags": [
           "icons"
@@ -11878,7 +11873,7 @@
           },
           {
             "in": "header",
-            "name": "X-API-Key",
+            "name": "authorization",
             "required": false,
             "schema": {
               "anyOf": [
@@ -11889,7 +11884,7 @@
                   "type": "null"
                 }
               ],
-              "title": "X-Api-Key"
+              "title": "Authorization"
             }
           }
         ],
@@ -11913,11 +11908,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
         "summary": "Delete Icon Pack",
         "tags": [
           "icons"
@@ -17263,7 +17253,7 @@
           },
           {
             "in": "header",
-            "name": "X-API-Key",
+            "name": "authorization",
             "required": false,
             "schema": {
               "anyOf": [
@@ -17274,7 +17264,7 @@
                   "type": "null"
                 }
               ],
-              "title": "X-Api-Key"
+              "title": "Authorization"
             }
           }
         ],
@@ -17308,11 +17298,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
         "summary": "Upload Icon Pack V1",
         "tags": [
           "icons",
@@ -17336,7 +17321,7 @@
           },
           {
             "in": "header",
-            "name": "X-API-Key",
+            "name": "authorization",
             "required": false,
             "schema": {
               "anyOf": [
@@ -17347,7 +17332,7 @@
                   "type": "null"
                 }
               ],
-              "title": "X-Api-Key"
+              "title": "Authorization"
             }
           }
         ],
@@ -17371,11 +17356,6 @@
             "description": "Validation Error"
           }
         },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
         "summary": "Delete Icon Pack V1",
         "tags": [
           "icons",
