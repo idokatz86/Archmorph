@@ -477,6 +477,20 @@ def _validate_bicep_cli(code: str) -> List[Tuple[str, str]] | None:
     if not az:
         return None
 
+    version_result = subprocess.run(
+        [az, "bicep", "version"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    if version_result.returncode != 0:
+        logger.warning(
+            "Bicep CLI validation unavailable: %s",
+            (version_result.stderr or version_result.stdout or "az bicep version failed").strip(),
+        )
+        return None
+
     with tempfile.TemporaryDirectory(prefix="archmorph-bicep-") as tmp:
         path = Path(tmp) / "main.bicep"
         path.write_text(code, encoding="utf-8")
@@ -602,7 +616,7 @@ def _apply_validation(code: str, iac_format: str) -> str:
         logger.error("IaC validation [%s] ERROR: %s", iac_format, msg)
 
     # Append validation warnings as comments in the output
-    comment_char = "#"
+    comment_char = "//" if iac_format == "bicep" else "#"
     if warnings:
         warning_block = "\n".join(
             f"{comment_char} ⚠️  VALIDATION WARNING: {msg}" for _, msg in warnings
@@ -610,9 +624,13 @@ def _apply_validation(code: str, iac_format: str) -> str:
         code = code + "\n\n" + warning_block + "\n"
 
     if errors:
-        failed_command = "terraform validate" if iac_format == "terraform" else "az bicep build"
+        failed_command = {
+            "terraform": "failed terraform validate",
+            "bicep": "failed az bicep build",
+            "cloudformation": "failed CloudFormation validation",
+        }.get(iac_format, "failed IaC validation")
         error_block = "\n".join(
-            f"{comment_char} ⚠ failed {failed_command}: {msg}" for _, msg in errors
+            f"{comment_char} ⚠ {failed_command}: {msg}" for _, msg in errors
         )
         code = code + "\n\n" + error_block + "\n"
         logger.error(

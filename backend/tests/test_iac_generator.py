@@ -2,7 +2,7 @@
 
 from unittest.mock import patch, MagicMock
 
-from iac_generator import _apply_validation, generate_iac_code
+from iac_generator import _apply_validation, _validate_bicep_cli, generate_iac_code
 
 
 MOCK_ANALYSIS = {
@@ -131,7 +131,19 @@ class TestGenerateIaCCode:
     def test_bicep_cli_validation_errors_are_marked_inline(self, mock_validate):
         mock_validate.return_value = [("error", "Expected the \"=\" character")]
         code = _apply_validation("resource rg 'Microsoft.Resources/resourceGroups@2023-07-01'", "bicep")
-        assert "failed az bicep build: Expected the \"=\" character" in code
+        assert "// ⚠ failed az bicep build: Expected the \"=\" character" in code
+        assert "# ⚠ failed az bicep build" not in code
+
+    def test_cloudformation_validation_errors_are_marked_inline(self):
+        code = _apply_validation("Resources: {}", "cloudformation")
+        assert "failed CloudFormation validation" in code
+        assert "failed az bicep build" not in code
+
+    @patch("iac_generator.subprocess.run")
+    @patch("iac_generator.shutil.which", return_value="/usr/bin/az")
+    def test_bicep_cli_validation_falls_back_when_component_missing(self, mock_which, mock_run):
+        mock_run.return_value = MagicMock(returncode=1, stderr="Bicep CLI not installed", stdout="")
+        assert _validate_bicep_cli("targetScope = 'subscription'") is None
 
     
 

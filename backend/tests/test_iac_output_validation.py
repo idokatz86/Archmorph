@@ -7,7 +7,7 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -67,9 +67,21 @@ resource rg 'Microsoft.Resources/resourceGroups@2023-07-01' = {{
 """
 
 
-def _generated_code(*, analysis: dict, iac_format: str, params: dict | None = None) -> str:
+def _generated_code(*, analysis: dict, iac_format: str) -> str:
     safe_name = Path(str(analysis.get("title", "iac"))).stem.lower().replace(" ", "-")[:24]
     return _terraform_code(safe_name) if iac_format == "terraform" else _bicep_code(safe_name)
+
+
+def _completion_with_generated_iac(*, analysis: dict):
+    def _mock_completion(messages, **kwargs):
+        prompt = str(messages[-1]["content"]).lower()
+        iac_format = "bicep" if "bicep" in prompt else "terraform"
+        content = _generated_code(analysis=analysis, iac_format=iac_format)
+        response = MagicMock(choices=[MagicMock(message=MagicMock(content=content))])
+        response._truncated = False
+        return response
+
+    return _mock_completion
 
 
 def _require_toolchain() -> None:
@@ -101,7 +113,10 @@ def test_generated_iac_artifacts_validate_via_cli(fixture_path: Path, tmp_path: 
     SESSION_STORE.set(diagram_id, analysis)
 
     try:
-        with TestClient(app) as client, patch("routers.iac_routes.generate_iac_code", side_effect=_generated_code):
+        with TestClient(app) as client, patch(
+            "iac_generator.cached_chat_completion",
+            side_effect=_completion_with_generated_iac(analysis=analysis),
+        ):
             terraform_resp = client.post(f"/api/diagrams/{diagram_id}/generate?format=terraform&force=true")
             bicep_resp = client.post(f"/api/diagrams/{diagram_id}/generate?format=bicep&force=true")
 
