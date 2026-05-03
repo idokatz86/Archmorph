@@ -33,7 +33,22 @@ if (isCI && !API_KEY) {
 const errorRate = new Rate('errors');
 const chatLatency = new Trend('chat_latency', true);
 const catalogLatency = new Trend('catalog_latency', true);
+const catalogResponseChars = new Trend('catalog_response_chars');
 const rateLimitRate = new Rate('rate_limited');
+const STATIC_ENDPOINTS = [
+  { path: '/api/health', name: 'health' },
+  { path: '/api/services', name: 'services' },
+  { path: '/api/flags', name: 'flags' },
+  { path: '/api/roadmap', name: 'roadmap' },
+  { path: '/api/versions', name: 'versions' },
+];
+const staticEndpointLatency = {
+  health: new Trend('static_health_latency', true),
+  services: new Trend('static_services_latency', true),
+  flags: new Trend('static_flags_latency', true),
+  roadmap: new Trend('static_roadmap_latency', true),
+  versions: new Trend('static_versions_latency', true),
+};
 
 // CI environments (GitHub Actions) have limited CPU; scale load accordingly
 const RATE_MULTIPLIER = isCI ? 0.3 : 1;  // 30 RPS in CI, 100 RPS locally
@@ -101,22 +116,20 @@ const CACHED_QUERIES = [
 ];
 
 export function staticEndpoints() {
-  // Distribute across static endpoints
-  const endpoints = [
-    { path: '/api/health', name: 'health' },
-    { path: '/api/services', name: 'services' },
-    { path: '/api/flags', name: 'flags' },
-    { path: '/api/roadmap', name: 'roadmap' },
-    { path: '/api/versions', name: 'versions' },
-  ];
-  const ep = endpoints[__ITER % endpoints.length];
+  const ep = STATIC_ENDPOINTS[__ITER % STATIC_ENDPOINTS.length];
 
-  const res = http.get(`${BASE_URL}${ep.path}`);
-  const ok = check(res, {
+  const res = http.get(`${BASE_URL}${ep.path}`, {
+    tags: { endpoint: ep.name },
+  });
+  check(res, {
     [`${ep.name}: no server error`]: (r) => r.status < 500,
     [`${ep.name}: latency < 2s`]: (r) => r.timings.duration < 2000,
   });
-  if (ep.name === 'services') catalogLatency.add(res.timings.duration);
+  staticEndpointLatency[ep.name].add(res.timings.duration);
+  if (ep.name === 'services') {
+    catalogLatency.add(res.timings.duration);
+    catalogResponseChars.add(res.body ? res.body.length : 0);
+  }
   rateLimitRate.add(res.status === 429);
   errorRate.add(res.status >= 500);
 }
@@ -179,6 +192,26 @@ function thresholdRows(data) {
   return rows.sort((a, b) => `${a.metric}:${a.threshold}`.localeCompare(`${b.metric}:${b.threshold}`));
 }
 
+function endpointLatencySummary(data) {
+  const summary = {};
+  for (const { name: endpointName } of STATIC_ENDPOINTS) {
+    const metricName = `static_${endpointName}_latency`;
+    summary[endpointName] = {
+      avg_ms: metricValue(data, metricName, 'avg'),
+      p90_ms: metricValue(data, metricName, 'p(90)'),
+      p95_ms: metricValue(data, metricName, 'p(95)'),
+      max_ms: metricValue(data, metricName, 'max'),
+    };
+  }
+  return summary;
+}
+
+function formatEndpointP95s(endpointLatencies) {
+  return Object.entries(endpointLatencies)
+    .map(([endpointName, values]) => `${endpointName}=${values.p95_ms ?? 'n/a'}`)
+    .join(' ');
+}
+
 export function handleSummary(data) {
   const rows = thresholdRows(data);
   const failed = rows.filter((row) => !row.ok);
@@ -186,6 +219,8 @@ export function handleSummary(data) {
   const httpP95 = metricValue(data, 'http_req_duration', 'p(95)');
   const httpFailed = metricValue(data, 'http_req_failed', 'rate');
   const checksFailed = metricValue(data, 'checks', 'fails');
+  const catalogCharsP95 = metricValue(data, 'catalog_response_chars', 'p(95)');
+  const staticEndpointLatencies = endpointLatencySummary(data);
 
   const summary = {
     ci: isCI,
@@ -195,10 +230,12 @@ export function handleSummary(data) {
     key_metrics: {
       catalog_latency_p95_ms: catalogP95,
       catalog_latency_threshold_ms: CATALOG_P95_THRESHOLD_MS,
+      catalog_response_chars_p95: catalogCharsP95,
       http_req_duration_p95_ms: httpP95,
       http_req_failed_rate: httpFailed,
       checks_failed: checksFailed,
     },
+    static_endpoint_latency_ms: staticEndpointLatencies,
   };
 
   const failedText = failed.length
@@ -208,6 +245,8 @@ export function handleSummary(data) {
     'Archmorph k6 summary',
     `target_rps=${summary.target_rps}`,
     `catalog_latency_p95_ms=${catalogP95 ?? 'n/a'} threshold_ms=${CATALOG_P95_THRESHOLD_MS}`,
+    `catalog_response_chars_p95=${catalogCharsP95 ?? 'n/a'}`,
+    `static_endpoint_p95_ms ${formatEndpointP95s(staticEndpointLatencies)}`,
     `http_req_duration_p95_ms=${httpP95 ?? 'n/a'}`,
     `http_req_failed_rate=${httpFailed ?? 'n/a'}`,
     'failed_thresholds:',
