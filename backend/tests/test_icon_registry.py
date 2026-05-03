@@ -958,6 +958,29 @@ class TestIconAPI:
         assert data["pack_id"] == "api-test"
         assert data["ingested"] == 1
 
+    def test_upload_zip_pack_emits_audit_event(self, small_zip_pack, monkeypatch):
+        import icons.routes as icon_routes
+
+        events = []
+        monkeypatch.setattr(icon_routes, "log_audit_event", lambda *args, **kwargs: events.append((args, kwargs)))
+
+        resp = self.client.post(
+            "/api/icon-packs?pack_id=api-audit",
+            files={"file": ("test.zip", small_zip_pack, "application/zip")},
+            headers={**self.admin_headers, "X-Correlation-ID": "audit-cid-1"},
+        )
+
+        assert resp.status_code == 200
+        assert events
+        _args, kwargs = events[-1]
+        assert kwargs["status_code"] == 200
+        assert kwargs["user_id"] == "admin"
+        assert kwargs["details"]["operation"] == "upload"
+        assert kwargs["details"]["outcome"] == "success"
+        assert kwargs["details"]["pack_id"] == "api-audit"
+        assert kwargs["details"]["correlation_id"] == "audit-cid-1"
+        assert isinstance(kwargs["details"]["revision"], dict)
+
     def test_upload_zip_pack_uses_magic_bytes_before_content_type(self, small_zip_pack):
         resp = self.client.post(
             "/api/icon-packs?pack_id=api-zip-mislabeled-json",
@@ -1029,6 +1052,29 @@ class TestIconAPI:
         )
         assert resp.status_code == 401
         assert registry.list_packs() == []
+
+    def test_upload_zip_pack_auth_failure_emits_audit_event(self, small_zip_pack, monkeypatch):
+        import icons.routes as icon_routes
+
+        events = []
+        monkeypatch.setattr(icon_routes, "log_audit_event", lambda *args, **kwargs: events.append((args, kwargs)))
+
+        resp = self.client.post(
+            "/api/icon-packs?pack_id=api-audit-auth",
+            files={"file": ("test.zip", small_zip_pack, "application/zip")},
+            headers={"X-Correlation-ID": "audit-cid-auth"},
+        )
+
+        assert resp.status_code == 401
+        assert events
+        _args, kwargs = events[-1]
+        assert kwargs["status_code"] == 401
+        assert kwargs["user_id"] is None
+        assert kwargs["details"]["operation"] == "upload"
+        assert kwargs["details"]["outcome"] == "auth_failed"
+        assert kwargs["details"]["pack_id"] == "api-audit-auth"
+        assert kwargs["details"]["correlation_id"] == "audit-cid-auth"
+        assert kwargs["details"]["reason"] == "Missing or malformed Authorization header"
 
     def test_upload_zip_pack_rejects_general_api_key(self, small_zip_pack):
         resp = self.client.post(
@@ -1268,6 +1314,65 @@ class TestIconAPI:
             headers=self.admin_headers,
         )
         assert resp.status_code == 400
+
+    def test_upload_validation_failure_emits_audit_event(self, monkeypatch):
+        import icons.routes as icon_routes
+
+        events = []
+        monkeypatch.setattr(icon_routes, "log_audit_event", lambda *args, **kwargs: events.append((args, kwargs)))
+
+        resp = self.client.post(
+            "/api/icon-packs?pack_id=api-empty-audit",
+            files={"file": ("empty.zip", b"", "application/zip")},
+            headers=self.admin_headers,
+        )
+
+        assert resp.status_code == 400
+        assert events[-1][1]["status_code"] == 400
+        assert events[-1][1]["details"]["outcome"] == "validation_failed"
+        assert events[-1][1]["details"]["reason"] == "empty_upload"
+
+    def test_upload_server_failure_emits_error_audit_event(self, small_zip_pack, monkeypatch):
+        import icons.routes as icon_routes
+        from audit_logging import AuditSeverity
+
+        events = []
+
+        def fail_ingest(*_args, **_kwargs):
+            raise RuntimeError("simulated ingest failure")
+
+        monkeypatch.setattr(icon_routes.registry, "ingest_icon_pack", fail_ingest)
+        monkeypatch.setattr(icon_routes, "log_audit_event", lambda *args, **kwargs: events.append((args, kwargs)))
+
+        resp = self.client.post(
+            "/api/icon-packs?pack_id=api-error-audit",
+            files={"file": ("test.zip", small_zip_pack, "application/zip")},
+            headers=self.admin_headers,
+        )
+
+        assert resp.status_code == 500
+        assert events[-1][1]["status_code"] == 500
+        assert events[-1][1]["severity"] == AuditSeverity.ERROR
+        assert events[-1][1]["details"]["outcome"] == "failed"
+
+    def test_delete_icon_pack_emits_audit_event(self, small_zip_pack, monkeypatch):
+        import icons.routes as icon_routes
+
+        self.client.post(
+            "/api/icon-packs?pack_id=api-delete-audit",
+            files={"file": ("test.zip", small_zip_pack, "application/zip")},
+            headers=self.admin_headers,
+        )
+        events = []
+        monkeypatch.setattr(icon_routes, "log_audit_event", lambda *args, **kwargs: events.append((args, kwargs)))
+
+        resp = self.client.delete("/api/icon-packs/api-delete-audit", headers=self.admin_headers)
+
+        assert resp.status_code == 200
+        assert events[-1][1]["status_code"] == 200
+        assert events[-1][1]["details"]["operation"] == "delete"
+        assert events[-1][1]["details"]["outcome"] == "success"
+        assert events[-1][1]["details"]["pack_id"] == "api-delete-audit"
 
 
 # ────────────────────────────────────────────────────────────
