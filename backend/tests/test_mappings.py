@@ -124,60 +124,31 @@ class TestLossyMappingsWidened:
 
 
 # ---------------------------------------------------------------------------
-# #590 — Freshness shape contract (sets up #594 quarterly-review CI lint)
+# #594 — Freshness shape contract
 # ---------------------------------------------------------------------------
 
 class TestMappingsFreshness:
-    """Every mapping touched by #590 must declare a `last_reviewed` ISO
-    date. #594 will turn this into a CI lint rule that all rows declare
-    `last_reviewed` and that none are older than 6 months."""
+    """Every mapping row must declare a `last_reviewed` ISO date."""
 
-    def test_touched_rows_carry_last_reviewed_iso_date(self):
-        """The five rows fixed/added by #590 MUST carry `last_reviewed`."""
-        touched_aws_keys = {
-            "Aurora PostgreSQL",
-            "Aurora MySQL",
-            "CloudFront",
-            "Cognito",
-            "GuardDuty",
-            "KMS",
-            "KMS (FIPS 140-3)",
-        }
+    def test_all_rows_carry_last_reviewed_iso_date(self):
         for row in CROSS_CLOUD_MAPPINGS:
-            if row["aws"] in touched_aws_keys:
-                assert "last_reviewed" in row, (
-                    f"Row {row['aws']!r} → {row['azure']!r} is in the "
-                    f"#590 touched-set but missing `last_reviewed` field. "
-                    f"All touched rows must carry the freshness stamp."
+            assert "last_reviewed" in row, (
+                f"Row {row['aws']!r} → {row['azure']!r} is missing "
+                "`last_reviewed`."
+            )
+            try:
+                parsed = date.fromisoformat(row["last_reviewed"])
+            except ValueError as exc:  # noqa: PERF203
+                pytest.fail(
+                    f"Row {row['aws']!r}: `last_reviewed` "
+                    f"{row['last_reviewed']!r} is not ISO YYYY-MM-DD: {exc}"
                 )
-                # Must parse as a YYYY-MM-DD ISO date.
-                try:
-                    parsed = date.fromisoformat(row["last_reviewed"])
-                except ValueError as exc:  # noqa: PERF203
-                    pytest.fail(
-                        f"Row {row['aws']!r}: `last_reviewed` "
-                        f"{row['last_reviewed']!r} is not ISO YYYY-MM-DD: {exc}"
-                    )
-                # Sanity: not in the future, not before the project existed.
-                assert parsed <= date.today(), (
-                    f"Row {row['aws']!r}: `last_reviewed` is in the future"
-                )
-                assert parsed >= date(2024, 1, 1), (
-                    f"Row {row['aws']!r}: `last_reviewed` predates the project"
-                )
-
-    def test_last_reviewed_is_optional_for_untouched_rows(self):
-        """Until #594 mandates the field globally, untouched rows may
-        omit it. This test documents that staged rollout."""
-        rows_with = [m for m in CROSS_CLOUD_MAPPINGS if "last_reviewed" in m]
-        rows_without = [m for m in CROSS_CLOUD_MAPPINGS if "last_reviewed" not in m]
-        # At least the #590-touched rows have it.
-        assert len(rows_with) >= 5
-        # Untouched rows are still allowed.
-        assert len(rows_without) > 0, (
-            "All rows now have last_reviewed — #594 should flip this test "
-            "to assert 100% coverage."
-        )
+            assert parsed <= date.today(), (
+                f"Row {row['aws']!r}: `last_reviewed` is in the future"
+            )
+            assert parsed >= date(2024, 1, 1), (
+                f"Row {row['aws']!r}: `last_reviewed` predates the project"
+            )
 
 
 # ---------------------------------------------------------------------------

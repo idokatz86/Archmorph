@@ -1,0 +1,60 @@
+name: Mappings Quarterly Review
+
+on:
+  schedule:
+    - cron: '0 9 1 1,4,7,10 *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  open-review-issue:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Generate freshness report
+        run: python scripts/lint_mappings_freshness.py --output markdown > mappings-freshness-report.md
+        continue-on-error: true
+
+      - name: Open quarterly review issue
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('mappings-freshness-report.md', 'utf8');
+            const now = new Date();
+            const quarter = Math.floor(now.getUTCMonth() / 3) + 1;
+            const title = `Mappings quarterly review ${now.getUTCFullYear()} Q${quarter}`;
+            const existing = await github.rest.search.issuesAndPullRequests({
+              q: `repo:${context.repo.owner}/${context.repo.repo} is:issue is:open in:title "${title}"`,
+              per_page: 1,
+            });
+            if (existing.data.total_count > 0) {
+              core.info(`Open review issue already exists: ${existing.data.items[0].html_url}`);
+              return;
+            }
+
+            const body = [
+              'Owner: Cloud Master agent',
+              'Human backup: idokatz86',
+              '',
+              'Review stale or low-confidence rows, update product names/notes where needed, and refresh `last_reviewed` for rows validated this quarter.',
+              '',
+              report,
+            ].join('\n');
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: ['mappings', 'maintenance', 'mapping-staleness'],
+            });
