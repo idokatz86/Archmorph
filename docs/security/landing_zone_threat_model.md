@@ -162,12 +162,12 @@ Severity scale: **P0** = blocks GA. **P1** = must close in Sprint 1. **P2** = sh
 1. **Registry pollution / DoS**: Upload garbage SVGs to overwrite legitimate icons → every customer's diagram looks broken. Rate-limited to 5/min per IP, so feasible from a botnet.
 2. **Cross-customer data exposure via SVG**: The uploaded SVG is base64-encoded and embedded as `data:image/svg+xml;base64,...` inside `<image href=...>`. Browsers DO sandbox `<image>`-referenced data URIs (no script execution), so XSS is blocked at the rendering layer — but if a customer downloads the SVG and opens it standalone (or includes it in a PowerPoint export which may re-embed differently), the attacker-controlled SVG runs in the customer's origin.
 
-**Status**: ⚠️ **NOT mitigated** for vector (1). For vector (2), the `<image>`-data-URI sandbox is a real defense in the most common path (browser tab) but should not be the only line.
+**Status**: ✅ **Mitigated** for the filed P1 vectors. `POST /api/icon-packs` now requires API-key auth, uploaded SVGs pass through the `defusedxml` sanitizer before registry insertion, and the registry has bounded in-memory capacity with oldest-icon eviction.
 
 **Remediation** (Sprint 1):
-1. Add `_auth=Depends(verify_api_key)` to the `POST /api/icon-packs` route. Move from anonymous to admin-only.
-2. (Sprint 2) Run uploaded SVGs through `bleach` or `defusedxml` to strip `<script>`, `<foreignObject>`, `on*` handlers, `xlink:href` to non-data URIs, and any `<style>` block. The existing `SVG Sanitization` line in SECURITY.md needs to point at actual code, not a claim.
-3. Bound the in-memory store: `maxsize` on the icon dict + LRU eviction. Currently unbounded.
+1. ✅ Add `_auth=Depends(verify_api_key)` to the `POST /api/icon-packs` route. Move from anonymous to admin-only.
+2. ✅ Run uploaded SVGs through `defusedxml` to strip `<script>`, `<foreignObject>`, `on*` handlers, `xlink:href` to non-data URIs, and `<style>` blocks.
+3. ✅ Bound the in-memory store with oldest-icon eviction.
 
 **Tracking**: file as new issue **#596-F3**, P1, Sprint 1, blocks GA.
 

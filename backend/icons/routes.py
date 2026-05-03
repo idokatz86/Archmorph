@@ -17,10 +17,10 @@ import json
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Query, Request, UploadFile, File
+from fastapi import APIRouter, Depends, Query, Request, UploadFile, File
 from fastapi.responses import Response
 
-from routers.shared import limiter
+from routers.shared import limiter, verify_api_key
 from icons import registry
 from icons.builders.drawio import build_drawio_library
 from icons.builders.excalidraw import build_excalidraw_library
@@ -41,6 +41,7 @@ async def upload_icon_pack(
     request: Request,
     file: UploadFile = File(...),
     pack_id: Optional[str] = Query(None, description="Custom pack identifier"),
+    _auth: None = Depends(verify_api_key),
 ):
     """Ingest a ZIP or JSON icon pack.
 

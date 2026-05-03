@@ -55,6 +55,9 @@ SCRIPT_SVG = b'<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48"><s
 ONLOAD_SVG = b'<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" onload="alert(1)"><rect width="48" height="48"/></svg>'
 EXTERNAL_HREF_SVG = b'<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="48" height="48"><image href="https://evil.com/steal.png"/></svg>'
 FOREIGNOBJECT_SVG = b'<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48"><foreignObject><body xmlns="http://www.w3.org/1999/xhtml"><script>alert(1)</script></body></foreignObject></svg>'
+STYLE_SVG = b'<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48"><style>rect{background:url(https://evil.example/x)}</style><rect width="48" height="48"/></svg>'
+
+API_HEADERS = {"X-API-Key": "test-api-key"}
 
 
 SAMPLE_DIR = Path(__file__).parent.parent / "samples"
@@ -99,6 +102,27 @@ def small_zip_pack():
     return buf.getvalue()
 
 
+def _zip_pack(icon_file: str, icon_name: str) -> bytes:
+    buf = io.BytesIO()
+    manifest = {
+        "name": icon_name,
+        "provider": "azure",
+        "version": "1.0.0",
+        "icons": [
+            {
+                "file": icon_file,
+                "name": icon_name,
+                "category": "compute",
+                "tags": ["test"],
+            }
+        ],
+    }
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("metadata.json", json.dumps(manifest))
+        zf.writestr(icon_file, VALID_SVG.decode())
+    return buf.getvalue()
+
+
 # ────────────────────────────────────────────────────────────
 # SVG Sanitization Tests
 # ────────────────────────────────────────────────────────────
@@ -132,6 +156,12 @@ class TestSVGSanitizer:
         result = validate_svg(FOREIGNOBJECT_SVG)
         assert "foreignobject" not in result.lower()
         assert "alert" not in result
+
+    def test_style_block_stripped(self):
+        """Sanitizer strips style blocks from uploaded SVGs."""
+        result = validate_svg(STYLE_SVG)
+        assert "style" not in result.lower()
+        assert "evil.example" not in result
 
     def test_oversized_svg_rejected(self):
         huge = b'<svg xmlns="http://www.w3.org/2000/svg">' + b"x" * (MAX_SVG_SIZE + 1) + b"</svg>"
@@ -265,6 +295,15 @@ class TestIconRegistry:
         r2 = registry.ingest_icon_pack(small_zip_pack, pack_id="dup")
         # Second ingest should still work (overwrite)
         assert r2["ingested"] == 1
+
+    def test_registry_evicts_oldest_icons_when_maxsize_reached(self, monkeypatch):
+        monkeypatch.setenv("ICON_REGISTRY_MAX_ICONS", "1")
+        registry.ingest_icon_pack(_zip_pack("first.svg", "First Icon"), pack_id="first-pack")
+        registry.ingest_icon_pack(_zip_pack("second.svg", "Second Icon"), pack_id="second-pack")
+
+        packs = registry.list_packs()
+        assert packs == [{"pack_id": "second-pack", "icon_count": 1}]
+        assert registry.get_icon_metrics()["total_icons"] == 1
 
 
 # ────────────────────────────────────────────────────────────
@@ -431,8 +470,10 @@ class TestIconAPI:
     """API endpoint tests for icon registry routes."""
 
     @pytest.fixture(autouse=True)
-    def _setup_client(self):
+    def _setup_client(self, monkeypatch):
+        from routers import shared as shared_router
         from main import app
+        monkeypatch.setattr(shared_router, "API_KEY", API_HEADERS["X-API-Key"])
         self.client = TestClient(app)
 
     def test_list_packs_initially_empty(self):
@@ -456,16 +497,26 @@ class TestIconAPI:
         resp = self.client.post(
             "/api/icon-packs?pack_id=api-test",
             files={"file": ("test.zip", small_zip_pack, "application/zip")},
+            headers=API_HEADERS,
         )
         assert resp.status_code == 200
         data = resp.json()
         assert data["pack_id"] == "api-test"
         assert data["ingested"] == 1
 
+    def test_upload_zip_pack_requires_api_key(self, small_zip_pack):
+        resp = self.client.post(
+            "/api/icon-packs?pack_id=api-anon",
+            files={"file": ("test.zip", small_zip_pack, "application/zip")},
+        )
+        assert resp.status_code == 401
+        assert registry.list_packs() == []
+
     def test_upload_then_search(self, small_zip_pack):
         self.client.post(
             "/api/icon-packs?pack_id=api-search",
             files={"file": ("test.zip", small_zip_pack, "application/zip")},
+            headers=API_HEADERS,
         )
         resp = self.client.get("/api/icons?provider=azure")
         assert resp.status_code == 200
@@ -475,6 +526,7 @@ class TestIconAPI:
         self.client.post(
             "/api/icon-packs?pack_id=api-drawio",
             files={"file": ("pack.zip", small_zip_pack, "application/zip")},
+            headers=API_HEADERS,
         )
         resp = self.client.get("/api/libraries/drawio?packId=api-drawio&embedMode=full")
         assert resp.status_code == 200
@@ -485,6 +537,7 @@ class TestIconAPI:
         self.client.post(
             "/api/icon-packs?pack_id=api-exc",
             files={"file": ("pack.zip", small_zip_pack, "application/zip")},
+            headers=API_HEADERS,
         )
         resp = self.client.get("/api/libraries/excalidraw?packId=api-exc")
         assert resp.status_code == 200
@@ -495,6 +548,7 @@ class TestIconAPI:
         self.client.post(
             "/api/icon-packs?pack_id=api-vis",
             files={"file": ("pack.zip", small_zip_pack, "application/zip")},
+            headers=API_HEADERS,
         )
         resp = self.client.get("/api/libraries/visio?packId=api-vis")
         assert resp.status_code == 200
@@ -505,6 +559,7 @@ class TestIconAPI:
         self.client.post(
             "/api/icon-packs?pack_id=api-svg",
             files={"file": ("pack.zip", small_zip_pack, "application/zip")},
+            headers=API_HEADERS,
         )
         # Find the icon ID
         search = self.client.get("/api/icons?packId=api-svg")
@@ -526,6 +581,7 @@ class TestIconAPI:
         self.client.post(
             "/api/icon-packs?pack_id=api-bad",
             files={"file": ("pack.zip", small_zip_pack, "application/zip")},
+            headers=API_HEADERS,
         )
         resp = self.client.get("/api/libraries/drawio?packId=api-bad&embedMode=invalid")
         assert resp.status_code == 400
@@ -534,6 +590,7 @@ class TestIconAPI:
         resp = self.client.post(
             "/api/icon-packs",
             files={"file": ("empty.zip", b"", "application/zip")},
+            headers=API_HEADERS,
         )
         assert resp.status_code == 400
 

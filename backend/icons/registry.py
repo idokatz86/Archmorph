@@ -18,6 +18,7 @@ import re
 import threading
 import time
 import zipfile
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Optional
 
@@ -55,8 +56,9 @@ get_metrics = get_icon_metrics
 # ─────────────────────────────────────────────────────────────
 # Storage (in-memory; production would back with DB/blob)
 # ─────────────────────────────────────────────────────────────
-_ICON_STORE: dict[str, IconEntry] = {}  # canonical_id → IconEntry
+_ICON_STORE: OrderedDict[str, IconEntry] = OrderedDict()  # canonical_id → IconEntry
 _PACK_INDEX: dict[str, list[str]] = {}  # pack_id → [canonical_id, …]
+_DEFAULT_MAX_ICONS = 5000
 
 # Cache for transformed assets (library outputs)
 _ASSET_CACHE: TTLCache = TTLCache(maxsize=200, ttl=3600)
@@ -69,6 +71,34 @@ _LOCK = threading.RLock()
 # `azure_landing_zone` happen before fixture setup runs) still take effect.
 # Same lesson as `_autoload_disabled()` above (#587).
 _DEFAULT_PERSIST_DIR = Path(__file__).resolve().parent.parent / "data"
+
+
+def _max_icons() -> int:
+    try:
+        return max(int(os.getenv("ICON_REGISTRY_MAX_ICONS", str(_DEFAULT_MAX_ICONS))), 1)
+    except ValueError:
+        return _DEFAULT_MAX_ICONS
+
+
+def _evict_icons_if_needed() -> None:
+    evicted_ids: list[str] = []
+    while len(_ICON_STORE) > _max_icons():
+        evicted_id, _ = _ICON_STORE.popitem(last=False)
+        evicted_ids.append(evicted_id)
+
+    if not evicted_ids:
+        return
+
+    evicted = set(evicted_ids)
+    for pid, ids in list(_PACK_INDEX.items()):
+        retained = [cid for cid in ids if cid not in evicted]
+        if retained:
+            _PACK_INDEX[pid] = retained
+        else:
+            _PACK_INDEX.pop(pid, None)
+
+    _ASSET_CACHE.clear()
+    logger.info("Icon registry evicted %s icons after reaching maxsize", len(evicted_ids))
 
 
 def _persist_dir() -> Path:
@@ -264,14 +294,17 @@ def ingest_icon_pack(
             ),
             svg=sanitized_svg,
         )
+        ingested_ids.append(cid)
         with _LOCK:
             _ICON_STORE[cid] = entry
-        ingested_ids.append(cid)
+            _ICON_STORE.move_to_end(cid)
 
     with _LOCK:
         _PACK_INDEX[pid] = ingested_ids
+        _evict_icons_if_needed()
+        retained_ids = [cid for cid in ingested_ids if cid in _ICON_STORE]
         _metrics["packs_ingested"] += 1
-        _metrics["icons_ingested"] += len(ingested_ids)
+        _metrics["icons_ingested"] += len(retained_ids)
 
     elapsed = time.monotonic() - t0
     logger.info(
@@ -281,9 +314,9 @@ def ingest_icon_pack(
 
     result = {
         "pack_id": pid,
-        "ingested": len(ingested_ids),
+        "ingested": len(retained_ids),
         "failed": failed,
-        "icons": [_ICON_STORE[cid].meta.model_dump() for cid in ingested_ids],
+        "icons": [_ICON_STORE[cid].meta.model_dump() for cid in retained_ids],
     }
     _save_to_disk()
     return result
@@ -458,8 +491,10 @@ def _load_from_disk() -> bool:
             for cid, data in raw.get("icons", {}).items():
                 meta = IconMeta(**data["meta"])
                 _ICON_STORE[cid] = IconEntry(meta=meta, svg=data["svg"])
+                _ICON_STORE.move_to_end(cid)
             for pid, ids in raw.get("packs", {}).items():
                 _PACK_INDEX[pid] = ids
+            _evict_icons_if_needed()
         logger.info("Registry loaded from disk: %s icons, %s packs", str(len(_ICON_STORE)).replace('\n', '').replace('\r', ''), str(len(_PACK_INDEX)).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
         return True
     except Exception as exc:  # noqa: BLE001 — icon metadata parsing is best-effort
