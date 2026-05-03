@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **GitHub Actions Node.js 24 readiness** — audited workflow action runtimes, moved deprecated Node.js 20 action pins to Node.js 24-compatible majors, pinned Trivy to a release tag, and documented the workflow runtime inventory for release maintenance.
 
+#### QA guardrails
+
+- **FastAPI query-parameter test guard** — CI now fails when tests send `json=` bodies to query-only FastAPI routes, and the E2E step helper converts `has_X=False` detail flags into failed steps.
+
 #### Architecture Package quality recovery
 
 - **Customer-grade package shell** — Architecture Package HTML exports now use the richer Archmorph review structure with branded header metadata, source-to-target story strip, A/B/C/D tab semantics, and grouped talking-point/limitation rows.
