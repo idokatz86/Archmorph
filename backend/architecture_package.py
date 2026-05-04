@@ -112,6 +112,20 @@ def _render_html_package(
         f"<div class=\"insight-row\"><div class=\"insight-h\">{html.escape(item[0])}</div><div class=\"insight-b\">{html.escape(item[1])}</div></div>"
         for item in _limitations(analysis, profile)
     )
+    dr_readiness = manifest.get("dr_readiness")
+    if not isinstance(dr_readiness, dict):
+        dr_readiness = _build_dr_readiness_rubric(analysis, profile)
+    dr_score = html.escape(str(dr_readiness["score"]))
+    dr_rating = html.escape(str(dr_readiness["rating"]))
+    dr_summary = html.escape(str(dr_readiness["summary"]))
+    dr_rows = "\n".join(
+        _render_dr_rubric_row(item)
+        for item in dr_readiness["dimensions"]
+    )
+    dr_limitations = "\n".join(
+        f"<li>{html.escape(item)}</li>"
+        for item in dr_readiness["limitations"]
+    )
     tier_summary = "\n".join(
         f"<li><strong>{html.escape(tier.title())}</strong><span>{html.escape(', '.join(names) or 'Review required')}</span></li>"
         for tier, names in _tier_summary(analysis)
@@ -161,12 +175,28 @@ def _render_html_package(
     .tiers li {{ display: grid; grid-template-columns: 130px 1fr; gap: 12px; margin: 0; padding: 9px 0; border-bottom: 1px solid #edf1f6; }}
     .tiers li:last-child {{ border-bottom: 0; }}
     .tiers span {{ color: var(--muted); overflow-wrap: anywhere; }}
+    .dr-layout {{ display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(360px, 0.55fr); gap: 16px; align-items: start; }}
+    .readiness-head {{ display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: center; margin-bottom: 12px; }}
+    .readiness-score {{ width: 72px; height: 72px; border: 1px solid #b8d8f5; border-radius: 8px; background: #edf4ff; color: #074f87; display: grid; place-items: center; font-size: 22px; font-weight: 800; }}
+    .readiness-head h2 {{ margin-bottom: 4px; }}
+    .readiness-head p {{ margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }}
+    .rubric {{ display: grid; gap: 8px; }}
+    .rubric-row {{ border: 1px solid #e7edf5; border-radius: 8px; padding: 10px; background: #fbfdff; }}
+    .rubric-top {{ display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 5px; }}
+    .rubric-name {{ font-size: 13px; font-weight: 800; color: var(--ink); }}
+    .rubric-status {{ border-radius: 8px; padding: 3px 7px; font-size: 11px; font-weight: 800; color: #fff; white-space: nowrap; }}
+    .rubric-status.ready {{ background: #0f766e; }}
+    .rubric-status.partial {{ background: #b45309; }}
+    .rubric-status.gap {{ background: #b91c1c; }}
+    .rubric-note {{ font-size: 12px; line-height: 1.45; color: #314158; }}
+    .dr-limits {{ margin-top: 12px; padding-left: 18px; }}
+    .dr-limits li {{ font-size: 12px; }}
         .insight-list {{ display: grid; gap: 10px; }}
         .insight-row {{ border: 1px solid #e7edf5; border-radius: 8px; padding: 12px; background: #fbfdff; }}
         .insight-h {{ font-size: 13px; font-weight: 800; color: var(--ink); margin-bottom: 5px; }}
         .insight-b {{ font-size: 13px; line-height: 1.5; color: #314158; }}
         footer {{ margin-top: 16px; color: var(--muted); font-size: 12px; }}
-        @media (max-width: 900px) {{ .shell {{ padding: 12px; }} header {{ flex-direction: column; }} .meta-pills {{ justify-content: flex-start; }} .grid {{ grid-template-columns: 1fr; }} nav {{ grid-template-columns: 1fr; position: static; }} }}
+        @media (max-width: 900px) {{ .shell {{ padding: 12px; }} header {{ flex-direction: column; }} .meta-pills {{ justify-content: flex-start; }} .grid {{ grid-template-columns: 1fr; }} .dr-layout {{ grid-template-columns: 1fr; }} nav {{ grid-template-columns: 1fr; position: static; }} }}
   </style>
 </head>
 <body>
@@ -184,7 +214,7 @@ def _render_html_package(
     </nav>
     <main>
     <section id="as-is" class="panel active"><div class="diagram">{primary_svg}</div></section>
-    <section id="dr" class="panel"><div class="diagram">{dr_svg}</div></section>
+    <section id="dr" class="panel"><div class="dr-layout"><div class="diagram">{dr_svg}</div><aside class="block"><div class="readiness-head"><div class="readiness-score">{dr_score}</div><div><h2>DR Readiness Rubric</h2><p><strong>{dr_rating}</strong> · {dr_summary}</p></div></div><div class="rubric">{dr_rows}</div><ul class="dr-limits">{dr_limitations}</ul></aside></div></section>
         <section id="talking" class="panel"><div class="grid"><div class="block"><h2>Customer Intent</h2><div class="intent">{intent_rows}</div></div><div class="block"><h2>Recommended Narrative</h2><div class="insight-list">{talking_points}</div></div></div></section>
         <section id="limits" class="panel"><div class="grid"><div class="block"><h2>Service Tiers</h2><ul class="tiers">{tier_summary}</ul></div><div class="block"><h2>Assumptions And Constraints</h2><div class="insight-list">{limitations}</div></div></div></section>
   </main>
@@ -216,6 +246,7 @@ def _build_manifest(
 ) -> dict[str, Any]:
     profile = _profile_from_analysis(analysis)
     limitations = _limitations(analysis, profile)
+    dr_readiness = _build_dr_readiness_rubric(analysis, profile)
     source_provider = _source_label(analysis)
     raw_warnings = [str(w) for w in analysis.get("warnings", []) if w]
     unsupported = analysis.get("unsupported_assumptions") or analysis.get("unsupported") or []
@@ -241,6 +272,7 @@ def _build_manifest(
         "mapping_references": _mapping_references(analysis),
         "alz_profile": build_alz_profile(analysis),
         "traceability_map": build_traceability_map(analysis),
+        "dr_readiness": dr_readiness,
         "warnings": raw_warnings[:10],
         "limitations": [
             {"title": title, "detail": detail}
@@ -402,6 +434,224 @@ def _talking_points(analysis: dict[str, Any], profile: dict[str, str]) -> list[t
     if dr_mode != "single-region":
         points.append(("Review DR before commitment", f"The DR view should be reviewed as a {dr_mode} pattern before committing RTO/RPO or runbook ownership."))
     return points[:6]
+
+
+def _build_dr_readiness_rubric(analysis: dict[str, Any], profile: dict[str, str]) -> dict[str, Any]:
+    context = _dr_readiness_context(analysis, profile)
+    dimensions = [
+        _score_dr_dimension(
+            "backup",
+            "Backup",
+            context,
+            ready_any=("backup", "recovery services", "snapshot", "point-in-time", "pitr", "vault"),
+            partial_any=("database", "sql", "storage", "blob", "file"),
+            ready_note="Backup policy evidence is present for detected data services.",
+            partial_note="Data services are detected, but backup policy, retention, or restore-test inputs are incomplete.",
+            gap_note="No backup or restore input was provided for the package.",
+        ),
+        _score_dr_dimension(
+            "replication",
+            "Replication",
+            context,
+            ready_any=("multi-region", "active-passive", "active-standby", "active-active", "geo-replication", "cross-region", "zone-redundant"),
+            partial_any=("availability zone", "zone", "ha", "99.9"),
+            ready_note="Availability intent indicates multi-region or cross-zone replication.",
+            partial_note="High availability is indicated, but cross-region replication evidence is incomplete.",
+            gap_note="No replication mode or RPO evidence was provided.",
+        ),
+        _score_dr_dimension(
+            "failover",
+            "Failover Routing",
+            context,
+            ready_any=("front door", "traffic manager", "global load", "failover", "waf", "application gateway"),
+            partial_any=("load balancer", "gateway", "ingress"),
+            ready_note="Global or regional failover routing services are detected.",
+            partial_note="Ingress is detected, but failover routing ownership or probe behavior is incomplete.",
+            gap_note="No failover routing component was detected.",
+        ),
+        _score_dr_dimension(
+            "identity",
+            "Identity Dependency",
+            context,
+            ready_any=("entra", "managed identity", "key vault", "rbac", "identity"),
+            partial_any=("secret", "iam", "credential", "oauth"),
+            ready_note="Identity and secret-management dependencies are represented in the detected services or intent.",
+            partial_note="Identity is implied, but dependency recovery order and break-glass ownership are incomplete.",
+            gap_note="No identity dependency input was provided.",
+        ),
+        _score_dr_dimension(
+            "durability",
+            "Data Durability",
+            context,
+            ready_any=("zone-redundant", "geo-redundant", "grs", "zrs", "sql", "storage", "blob", "files"),
+            partial_any=("database", "data", "file"),
+            ready_note="Durable data services or redundancy terms are present in the topology.",
+            partial_note="Data services are present, but durability tier and retention commitments are incomplete.",
+            gap_note="No durable data-store input was detected.",
+        ),
+        _score_dr_dimension(
+            "observability",
+            "Observability",
+            context,
+            ready_any=("monitor", "application insights", "log analytics", "alerts", "workbooks", "cloudwatch"),
+            partial_any=("logging", "metrics", "dashboard"),
+            ready_note="Monitoring, logging, or alerting services are included for DR review.",
+            partial_note="Telemetry is implied, but alert thresholds and DR dashboard ownership are incomplete.",
+            gap_note="No DR observability input was detected.",
+        ),
+        _score_dr_dimension(
+            "runbook",
+            "Runbook Completeness",
+            context,
+            ready_any=("runbook", "game day", "failover test", "owner", "operations"),
+            partial_any=("rto", "rpo", "recovery time", "recovery point"),
+            ready_note="Runbook, owner, or failover-test evidence is present.",
+            partial_note="RTO/RPO intent is present, but runbook owner, test cadence, or rollback steps are incomplete.",
+            gap_note="No runbook owner, test cadence, or failover procedure was provided.",
+        ),
+    ]
+    total = sum(int(item["points"]) for item in dimensions)
+    score = round((total / (len(dimensions) * 2)) * 100)
+    rating = "High readiness" if score >= 80 else "Medium readiness" if score >= 50 else "Low readiness"
+    detected = context["detected_services"]
+    availability = profile.get("availability") or "availability target not specified"
+    summary = f"{availability}; detected services reviewed: {', '.join(detected[:5]) if detected else 'none'}."
+    limitations = [str(item["limitation"]) for item in dimensions if item.get("limitation")]
+    if not limitations:
+        limitations = ["Rubric is still advisory until the customer validates recovery ownership and test evidence."]
+    return {
+        "schema_version": "dr-readiness-rubric/v1",
+        "score": score,
+        "rating": rating,
+        "summary": summary,
+        "dimensions": dimensions,
+        "limitations": limitations[:7],
+    }
+
+
+def _dr_readiness_context(analysis: dict[str, Any], profile: dict[str, str]) -> dict[str, Any]:
+    text_parts = [str(value) for value in profile.values() if value]
+    guided_answers = analysis.get("guided_answers")
+    if isinstance(guided_answers, dict):
+        text_parts.extend(_flatten_dr_values(guided_answers))
+    customer_intent = analysis.get("customer_intent")
+    if isinstance(customer_intent, dict):
+        text_parts.extend(_flatten_dr_values(customer_intent))
+    explicit = analysis.get("dr_readiness") or analysis.get("dr_readiness_inputs")
+    if isinstance(explicit, dict):
+        text_parts.extend(_flatten_dr_values(explicit))
+
+    detected_services: list[str] = []
+    categories: list[str] = []
+    for mapping in analysis.get("mappings", []):
+        if not isinstance(mapping, dict):
+            continue
+        service = mapping.get("azure_service") or mapping.get("target") or mapping.get("source_service")
+        if service:
+            detected_services.append(str(service))
+            text_parts.append(str(service))
+        if mapping.get("category"):
+            categories.append(str(mapping["category"]))
+            text_parts.append(str(mapping["category"]))
+    for connection in analysis.get("service_connections", []):
+        if isinstance(connection, dict):
+            text_parts.extend(_flatten_dr_values(connection))
+
+    return {
+        "text": " ".join(text_parts).lower(),
+        "detected_services": _dedupe(detected_services),
+        "categories": _dedupe(categories),
+    }
+
+
+def _score_dr_dimension(
+    key: str,
+    label: str,
+    context: dict[str, Any],
+    *,
+    ready_any: tuple[str, ...],
+    partial_any: tuple[str, ...],
+    ready_note: str,
+    partial_note: str,
+    gap_note: str,
+) -> dict[str, Any]:
+    text = str(context.get("text") or "")
+    if any(term in text for term in ready_any):
+        return {
+            "key": key,
+            "label": label,
+            "status": "ready",
+            "points": 2,
+            "note": _dr_note_with_services(ready_note, context),
+        }
+    if any(term in text for term in partial_any):
+        return {
+            "key": key,
+            "label": label,
+            "status": "partial",
+            "points": 1,
+            "note": _dr_note_with_services(partial_note, context),
+            "limitation": f"{label}: {partial_note}",
+        }
+    return {
+        "key": key,
+        "label": label,
+        "status": "gap",
+        "points": 0,
+        "note": gap_note,
+        "limitation": f"{label}: {gap_note}",
+    }
+
+
+def _dr_note_with_services(note: str, context: dict[str, Any]) -> str:
+    services = context.get("detected_services") or []
+    if not services:
+        return note
+    return f"{note} Detected services: {', '.join(services[:4])}."
+
+
+def _render_dr_rubric_row(item: dict[str, Any]) -> str:
+    status = str(item.get("status") or "gap")
+    label = html.escape(str(item.get("label") or "Review item"))
+    note = html.escape(str(item.get("note") or "Review required."))
+    status_label = html.escape(status.title())
+    return (
+        '<div class="rubric-row">'
+        '<div class="rubric-top">'
+        f'<div class="rubric-name">{label}</div>'
+        f'<div class="rubric-status {html.escape(status)}">{status_label}</div>'
+        '</div>'
+        f'<div class="rubric-note">{note}</div>'
+        '</div>'
+    )
+
+
+def _flatten_dr_values(value: Any) -> list[str]:
+    if isinstance(value, dict):
+        parts: list[str] = []
+        for item in value.values():
+            parts.extend(_flatten_dr_values(item))
+        return parts
+    if isinstance(value, (list, tuple, set)):
+        parts = []
+        for item in value:
+            parts.extend(_flatten_dr_values(item))
+        return parts
+    if value is None:
+        return []
+    return [str(value)]
+
+
+def _dedupe(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for item in items:
+        cleaned = item.strip()
+        key = cleaned.lower()
+        if cleaned and key not in seen:
+            seen.add(key)
+            out.append(cleaned)
+    return out
 
 
 def _source_label(analysis: dict[str, Any]) -> str:

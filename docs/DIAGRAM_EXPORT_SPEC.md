@@ -793,6 +793,23 @@ def generate_diagram(
           "schema_version": "azure-landing-zone-profile/v1",
           "name": "caf-avm-baseline"
         },
+        "dr_readiness": {
+          "schema_version": "dr-readiness-rubric/v1",
+          "score": 71,
+          "rating": "Medium readiness",
+          "summary": "Multi-region active-passive; detected services reviewed: Application Gateway, AKS, Azure SQL.",
+          "dimensions": [
+            {
+              "key": "backup",
+              "label": "Backup",
+              "status": "partial",
+              "points": 1,
+              "note": "Data services are detected, but backup policy, retention, or restore-test inputs are incomplete.",
+              "limitation": "Backup: Data services are detected, but backup policy, retention, or restore-test inputs are incomplete."
+            }
+          ],
+          "limitations": ["Backup: Data services are detected, but backup policy, retention, or restore-test inputs are incomplete."]
+        },
         "warnings": ["review warning text"],
         "limitations": [
           { "title": "Validate low-confidence mappings", "detail": "Owner validation is required." }
@@ -802,6 +819,8 @@ def generate_diagram(
       ```
 
       The manifest is emitted for both `format=html` and `format=svg` package exports. It is returned as the response `manifest` field and embedded into the artifact bytes as `archmorph-artifact-manifest` metadata. Manifest values are sanitized before emission; secret-like keys or values such as passwords, tokens, credentials, API keys, and connection strings are redacted. Raw `guided_answers` are intentionally excluded; reviewers should use `customer_intent_profile_hash` for profile traceability without exposing the source answer payload.
+
+      The DR tab in Architecture Package HTML includes a DR readiness rubric. The rubric scores seven review dimensions: backup, replication, failover routing, identity dependency, data durability, observability, and runbook completeness. Each dimension is marked `ready`, `partial`, or `gap` based on explicit customer intent, guided-answer evidence, detected Azure services, and service categories. Missing inputs are emitted as limitations; the renderer does not invent backup policies, RPOs, failover owners, or runbook evidence when those inputs are absent. The score is advisory and should be treated as a review artifact for platform, security, and operations owners, not as a production DR certification.
 
       Azure Landing Zone profile contract:
 

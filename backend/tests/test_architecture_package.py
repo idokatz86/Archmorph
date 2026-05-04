@@ -57,6 +57,45 @@ GCP_ANALYSIS: dict = {
 }
 
 
+HIGH_DR_ANALYSIS: dict = {
+    **SAMPLE_ANALYSIS,
+    "title": "High DR Package Test",
+    "mappings": [
+        {"source_service": "Route 53", "azure_service": "Azure Front Door", "category": "Networking", "confidence": 0.95},
+        {"source_service": "RDS", "azure_service": "Azure SQL", "category": "Database", "confidence": 0.92},
+        {"source_service": "S3", "azure_service": "Blob Storage", "category": "Storage", "confidence": 0.94},
+        {"source_service": "IAM", "azure_service": "Entra ID", "category": "Identity", "confidence": 0.91},
+        {"source_service": "KMS", "azure_service": "Key Vault", "category": "Secrets", "confidence": 0.91},
+        {"source_service": "CloudWatch", "azure_service": "Azure Monitor", "category": "Monitoring", "confidence": 0.93},
+        {"source_service": "AWS Backup", "azure_service": "Recovery Services vault", "category": "Backup", "confidence": 0.9},
+    ],
+    "guided_answers": {
+        **SAMPLE_ANALYSIS["guided_answers"],
+        "arch_ha": "Multi-region active-passive with geo-replication",
+        "arch_dr_rpo": "<5 min",
+        "ops_runbook_owner": "Platform operations owner with quarterly game day",
+        "ops_failover_test": "Documented failover test and rollback runbook",
+        "data_backup_policy": "Recovery Services vault backup with restore testing",
+    },
+}
+
+
+LOW_DR_ANALYSIS: dict = {
+    "title": "Low DR Package Test",
+    "source_provider": "AWS",
+    "target_provider": "azure",
+    "zones": [{"id": 1, "name": "single-tier", "number": 1, "services": []}],
+    "mappings": [
+        {"source_service": "EC2", "azure_service": "Virtual Machines", "category": "Compute", "confidence": 0.83},
+    ],
+    "guided_answers": {
+        "env_target": "Development",
+        "arch_deploy_region": "East US",
+        "arch_ha": "Single region",
+    },
+}
+
+
 MIXED_ANALYSIS: dict = json.loads(
     (Path(__file__).parent / "fixtures" / "architecture_package_mixed_analysis.json").read_text(
         encoding="utf-8"
@@ -98,6 +137,8 @@ def test_architecture_package_html_manifest_contains_traceability_fields():
     assert len(manifest["customer_intent_profile_hash"]) == 64
     assert result["filename"] in manifest["artifact_filenames"]
     assert {"source_service": "ALB", "azure_service": "Application Gateway", "category": "Networking", "confidence": 0.96} in manifest["mapping_references"]
+    assert manifest["dr_readiness"]["schema_version"] == "dr-readiness-rubric/v1"
+    assert len(manifest["dr_readiness"]["dimensions"]) == 7
     assert "archmorph-artifact-manifest" in result["content"]
 
 
@@ -152,6 +193,7 @@ def test_html_package_contains_tabs_and_namespaced_svg_ids():
     assert "Archmorph — Package Test Architecture Package" in content
     assert "A — Target Azure Topology" in content
     assert "B — DR Topology" in content
+    assert "DR Readiness Rubric" in content
     assert "Customer Intent" in content
     assert "East US" in content
     assert "(empty)" not in content
@@ -165,6 +207,78 @@ def test_html_package_contains_tabs_and_namespaced_svg_ids():
     assert 'id="a-primary"' in content
     assert 'id="a-dr"' in content
     assert 'marker-end="url(#a)"' not in content
+
+
+@pytest.mark.parametrize(
+    ("analysis", "rating"),
+    [
+        (HIGH_DR_ANALYSIS, "High readiness"),
+        (SAMPLE_ANALYSIS, "Medium readiness"),
+        (LOW_DR_ANALYSIS, "Low readiness"),
+    ],
+)
+def test_dr_readiness_rubric_scores_high_medium_and_low_examples(analysis, rating):
+    result = generate_architecture_package(analysis, format="html")
+    readiness = result["manifest"]["dr_readiness"]
+
+    assert readiness["rating"] == rating
+    if rating == "High readiness":
+        assert readiness["score"] >= 80
+    if rating == "Low readiness":
+        assert readiness["score"] < 50
+    assert "DR Readiness Rubric" in result["content"]
+    assert rating in result["content"]
+    assert {item["key"] for item in readiness["dimensions"]} == {
+        "backup",
+        "replication",
+        "failover",
+        "identity",
+        "durability",
+        "observability",
+        "runbook",
+    }
+
+
+def test_dr_readiness_rubric_surfaces_missing_inputs_as_limitations():
+    result = generate_architecture_package(LOW_DR_ANALYSIS, format="html")
+    readiness = result["manifest"]["dr_readiness"]
+
+    assert readiness["limitations"]
+    assert any("Backup" in item for item in readiness["limitations"])
+    assert any("Runbook" in item for item in readiness["limitations"])
+    assert "No backup or restore input was provided" in result["content"]
+
+
+def test_dr_readiness_rubric_ties_notes_to_detected_services_and_intent():
+    result = generate_architecture_package(HIGH_DR_ANALYSIS, format="html")
+    readiness = result["manifest"]["dr_readiness"]
+    notes = " ".join(str(item["note"]) for item in readiness["dimensions"])
+
+    assert "Multi-region active-passive" in readiness["summary"]
+    assert "Azure SQL" in notes
+    assert "Azure Front Door" in result["content"]
+
+
+def test_dr_readiness_html_uses_sanitized_manifest_rubric():
+    analysis = {
+        **LOW_DR_ANALYSIS,
+        "mappings": [
+            {
+                "source_service": "Sensitive Store",
+                "azure_service": "Blob Storage",
+                "category": "Storage",
+                "confidence": 0.82,
+            }
+        ],
+        "dr_readiness_inputs": {"backup_note": "token: restore-token"},
+    }
+
+    result = generate_architecture_package(analysis, format="html")
+    manifest_text = json.dumps(result["manifest"])
+
+    assert "restore-token" not in manifest_text
+    assert "restore-token" not in result["content"]
+    assert "token: restore-token" not in result["content"]
 
 
 @pytest.mark.parametrize(

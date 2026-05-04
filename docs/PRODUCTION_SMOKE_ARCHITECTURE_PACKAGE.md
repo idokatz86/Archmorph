@@ -36,7 +36,7 @@ Artifacts are written to `smoke-artifacts/architecture-package/<timestamp>/` by 
 | IaC | Terraform, Bicep, and CloudFormation outputs are non-empty, format-shaped, and free of markdown fences |
 | HLD | Markdown HLD is generated and customer DOCX/PDF/PPTX exports decode to real documents |
 | Cost | Cost JSON contains service rows and the CSV export contains a `TOTAL` row |
-| Architecture Package | HTML contains target, DR, customer intent, constraints, and inline SVG sections |
+| Architecture Package | HTML contains target, DR, DR readiness rubric, customer intent, constraints, and inline SVG sections |
 | Target and DR SVG | SVG XML parses and contains expected target/DR topology language |
 | Classic diagram | Excalidraw parses as JSON, Draw.io parses as mxGraph XML, and VDX parses as Visio XML |
 
