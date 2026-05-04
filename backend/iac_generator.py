@@ -52,6 +52,35 @@ def _terraform_cli_validation_enabled() -> bool:
     return os.getenv("ARCHMORPH_ENABLE_TERRAFORM_CLI_VALIDATION", "0") == "1"
 
 
+def _terraform_cli_env() -> dict[str, str]:
+    env = os.environ.copy()
+    if not env.get("TF_PLUGIN_CACHE_DIR"):
+        plugin_cache = Path(tempfile.gettempdir()) / "archmorph-terraform-plugin-cache"
+        plugin_cache.mkdir(parents=True, exist_ok=True)
+        env["TF_PLUGIN_CACHE_DIR"] = str(plugin_cache)
+    return env
+
+
+def _terraform_init_failure_is_unavailable(message: str) -> bool:
+    normalized = message.lower()
+    unavailable_markers = (
+        "registry unavailable",
+        "connection refused",
+        "connection reset",
+        "context deadline exceeded",
+        "could not connect",
+        "could not retrieve the list of available versions",
+        "failed to query available provider packages",
+        "i/o timeout",
+        "no such host",
+        "proxyconnect",
+        "service unavailable",
+        "temporary failure",
+        "tls handshake timeout",
+    )
+    return any(marker in normalized for marker in unavailable_markers)
+
+
 def _terraform_cli_validation_safe(code: str) -> bool:
     declared_sources = re.findall(r'\bsource\s*=\s*"([^"]+)"', code)
     if any(source not in _TRUSTED_TERRAFORM_PROVIDER_SOURCES for source in declared_sources):
@@ -396,6 +425,7 @@ def _validate_terraform_cli(code: str) -> List[Tuple[str, str]] | None:
     terraform = shutil.which("terraform")
     if not terraform or not _terraform_cli_validation_safe(code):
         return None
+    terraform_env = _terraform_cli_env()
 
     with tempfile.TemporaryDirectory(prefix="archmorph-tf-") as tmp:
         workdir = Path(tmp)
@@ -406,6 +436,7 @@ def _validate_terraform_cli(code: str) -> List[Tuple[str, str]] | None:
             capture_output=True,
             text=True,
             timeout=20,
+            env=terraform_env,
             check=False,
         )
         if fmt.returncode != 0:
@@ -417,17 +448,22 @@ def _validate_terraform_cli(code: str) -> List[Tuple[str, str]] | None:
             capture_output=True,
             text=True,
             timeout=60,
+            env=terraform_env,
             check=False,
         )
         if init.returncode != 0:
-            logger.warning("Terraform init unavailable; falling back to static validation: %s", (init.stderr or init.stdout).strip())
-            return None
+            message = (init.stderr or init.stdout or "terraform init failed").strip()
+            if _terraform_init_failure_is_unavailable(message):
+                logger.warning("Terraform init unavailable; falling back to static validation: %s", message)
+                return None
+            return [("error", f"terraform init failed: {message}")]
 
         validate = subprocess.run(
             [terraform, f"-chdir={workdir}", "validate", "-json", "-no-color"],
             capture_output=True,
             text=True,
             timeout=30,
+            env=terraform_env,
             check=False,
         )
         try:

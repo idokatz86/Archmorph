@@ -189,6 +189,45 @@ class TestGenerateIaCCode:
         assert "failed terraform init" not in code
         assert "resource \"azurerm_resource_group\"" in code
 
+    @patch("iac_generator.subprocess.run")
+    @patch("iac_generator.shutil.which", return_value="/usr/bin/terraform")
+    def test_terraform_init_config_failure_is_marked_inline(self, mock_which, mock_run):
+        mock_run.side_effect = [
+            MagicMock(returncode=0, stdout="", stderr=""),
+            MagicMock(returncode=1, stdout="", stderr="Invalid provider source address"),
+        ]
+
+        with patch.dict(
+            "os.environ",
+            {"ARCHMORPH_DISABLE_IAC_CLI_VALIDATION": "0", "ARCHMORPH_ENABLE_TERRAFORM_CLI_VALIDATION": "1"},
+        ):
+            code = _apply_validation(
+                'resource "azurerm_resource_group" "main" {\n  name = "rg-test"\n  location = "westeurope"\n}',
+                "terraform",
+            )
+
+        assert "failed terraform init: Invalid provider source address" in code
+
+    @patch("iac_generator.subprocess.run")
+    @patch("iac_generator.shutil.which", return_value="/usr/bin/terraform")
+    def test_terraform_cli_uses_shared_plugin_cache(self, mock_which, mock_run, monkeypatch, tmp_path):
+        plugin_cache = tmp_path / "plugin-cache"
+        monkeypatch.setenv("ARCHMORPH_DISABLE_IAC_CLI_VALIDATION", "0")
+        monkeypatch.setenv("ARCHMORPH_ENABLE_TERRAFORM_CLI_VALIDATION", "1")
+        monkeypatch.setenv("TF_PLUGIN_CACHE_DIR", str(plugin_cache))
+        mock_run.side_effect = [
+            MagicMock(returncode=0, stdout="", stderr=""),
+            MagicMock(returncode=0, stdout="", stderr=""),
+            MagicMock(returncode=0, stdout='{"diagnostics": []}', stderr=""),
+        ]
+
+        _apply_validation(
+            'resource "azurerm_resource_group" "main" {\n  name = "rg-test"\n  location = "westeurope"\n}',
+            "terraform",
+        )
+
+        assert all(call.kwargs["env"]["TF_PLUGIN_CACHE_DIR"] == str(plugin_cache) for call in mock_run.call_args_list)
+
     @patch("iac_generator._validate_terraform_cli")
     def test_terraform_builtin_provider_is_trusted(self, mock_validate, monkeypatch):
         monkeypatch.setenv("ARCHMORPH_DISABLE_IAC_CLI_VALIDATION", "0")
