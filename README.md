@@ -116,6 +116,20 @@ The post-merge CTO end-to-end review of `landing-zone-svg` (May 1, 2026) flagged
 
 ## Quick Start
 
+### Full-Spine CLI Run
+
+Start with the engineer path when the backend is running locally or in production. This uploads a diagram, analyzes it, emits IaC, exports the Azure Landing Zone SVG, estimates cost, and writes deterministic artifacts without opening the browser.
+
+```bash
+archmorph run \
+    --diagram ./fixtures/aws.png \
+    --target-rg rg-platform-prod \
+    --emit terraform,bicep,alz-svg,cost \
+    --out ./infra
+```
+
+Artifacts are written as `analysis.json`, `terraform/main.tf`, `bicep/main.bicep`, `alz.svg`, `cost-estimate.json`, and `run-summary.json`. See [docs/CLI_USAGE.md](docs/CLI_USAGE.md) for API configuration, drift baseline comparison, and GitHub PR push examples.
+
 ### Prerequisites
 - Azure subscription
 - Azure CLI installed
