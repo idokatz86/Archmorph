@@ -22,9 +22,11 @@ os.environ.setdefault("ARCHMORPH_EXPORT_CAPABILITY_REQUIRED", "false")
 os.environ.setdefault("ARCHMORPH_DISABLE_IAC_CLI_VALIDATION", "1")
 os.environ.setdefault("ENVIRONMENT", "test")
 
-BACKEND_DIR = Path(__file__).resolve().parents[1]
-REPO_DIR = BACKEND_DIR.parent
+REPO_DIR = Path(__file__).resolve().parents[2]
+BACKEND_DIR = REPO_DIR / "backend"
 CLI_DIR = REPO_DIR / "cli"
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
 if str(CLI_DIR) not in sys.path:
     sys.path.insert(0, str(CLI_DIR))
 
