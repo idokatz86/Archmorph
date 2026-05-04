@@ -4,7 +4,12 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from iac_generator import _apply_validation, _validate_bicep_cli, generate_iac_code
+from iac_generator import (
+    _apply_validation,
+    _terraform_cli_validation_safe,
+    _validate_bicep_cli,
+    generate_iac_code,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -166,7 +171,7 @@ class TestGenerateIaCCode:
 
     @patch("iac_generator.subprocess.run")
     @patch("iac_generator.shutil.which", return_value="/usr/bin/terraform")
-    def test_terraform_init_failure_falls_back_to_static_validation(self, mock_which, mock_run):
+    def test_terraform_init_failure_is_marked_inline(self, mock_which, mock_run):
         mock_run.side_effect = [
             MagicMock(returncode=0, stdout="", stderr=""),
             MagicMock(returncode=1, stdout="", stderr="registry unavailable"),
@@ -181,8 +186,20 @@ class TestGenerateIaCCode:
                 "terraform",
             )
 
-        assert "failed terraform init" not in code
-        assert "resource \"azurerm_resource_group\"" in code
+        assert "failed terraform init: registry unavailable" in code
+
+    @patch("iac_generator._validate_terraform_cli")
+    def test_terraform_builtin_provider_is_trusted(self, mock_validate, monkeypatch):
+        monkeypatch.setenv("ARCHMORPH_DISABLE_IAC_CLI_VALIDATION", "0")
+        mock_validate.return_value = []
+
+        terraform_data = 'resource "terraform_data" "main" {\n  input = { name = "rg-test" }\n}'
+
+        assert _terraform_cli_validation_safe(terraform_data)
+        code = _apply_validation(terraform_data, "terraform")
+
+        assert code.startswith('resource "terraform_data"')
+        mock_validate.assert_called_once()
 
     @patch("iac_generator._validate_terraform_cli")
     def test_terraform_cli_validation_can_run_by_default_when_safe(self, mock_validate, monkeypatch):

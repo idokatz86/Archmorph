@@ -152,6 +152,8 @@ def test_generated_iac_artifacts_validate_via_cli(fixture_path: Path, tmp_path: 
 
         assert terraform_resp.status_code == 200, terraform_resp.text
         assert bicep_resp.status_code == 200, bicep_resp.text
+        assert "failed terraform" not in terraform_resp.json()["code"]
+        assert "failed az bicep build" not in bicep_resp.json()["code"]
         for service in _mapping_services(analysis):
             assert service in terraform_resp.json()["code"]
             assert service in bicep_resp.json()["code"]

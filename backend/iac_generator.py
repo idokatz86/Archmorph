@@ -37,6 +37,7 @@ _TRUSTED_TERRAFORM_PROVIDER_SOURCES = {
 _TRUSTED_TERRAFORM_PROVIDER_NAMES = {
     source.rsplit("/", 1)[-1] for source in _TRUSTED_TERRAFORM_PROVIDER_SOURCES
 }
+_TRUSTED_TERRAFORM_PROVIDER_NAMES.add("terraform")
 
 
 def _iac_cli_validation_enabled() -> bool:
@@ -413,8 +414,8 @@ def _validate_terraform_cli(code: str) -> List[Tuple[str, str]] | None:
             check=False,
         )
         if init.returncode != 0:
-            logger.warning("Terraform init unavailable; falling back to static validation: %s", (init.stderr or init.stdout).strip())
-            return None
+            message = (init.stderr or init.stdout or "terraform init failed").strip()
+            return [("error", f"terraform init failed: {message}")]
 
         validate = subprocess.run(
             [terraform, f"-chdir={workdir}", "validate", "-json", "-no-color"],
