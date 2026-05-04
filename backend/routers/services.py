@@ -223,8 +223,14 @@ async def service_update_storage_preflight(_auth=Depends(verify_api_key)):
             "Managed identity Blob Storage preflight failed",
             details={
                 "ok": False,
-                "account_url_configured": result.get("account_url_configured", False),
-                "container": result.get("container", "service-catalog"),
+                "account_url_configured": False,
+                "container": "service-catalog",
+                "reason": "preflight_failed",
             },
         )
-    return result
+    return {
+        "ok": True,
+        "account_url_configured": True,
+        "container": "service-catalog",
+        "operations": ["write", "read", "list", "delete"],
+    }
