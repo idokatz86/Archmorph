@@ -284,6 +284,9 @@ class ArchmorphMiddleware(BaseHTTPMiddleware):
         )
 
         try:
+            request_tags = {"method": method, "path": endpoint, "status": str(status)}
+            if endpoint.endswith("/generate"):
+                request_tags["format"] = request.query_params.get("format", "unknown")
             track_request_latency(endpoint, method, duration_ms, status)
             obs_increment_counter(
                 "http.requests.total", tags={"method": method, "path": endpoint}
@@ -291,7 +294,7 @@ class ArchmorphMiddleware(BaseHTTPMiddleware):
             obs_record_histogram(
                 "http.request.duration_ms",
                 duration_ms,
-                tags={"method": method, "path": endpoint, "status": str(status)},
+                tags=request_tags,
             )
             if status >= 400:
                 obs_increment_counter(
