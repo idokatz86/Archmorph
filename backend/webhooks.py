@@ -8,6 +8,7 @@ delivery logging, and built-in integrations (Slack, Teams, Azure DevOps).
 import asyncio
 import hashlib
 import hmac
+import ipaddress
 import json
 import logging
 import threading
@@ -17,7 +18,8 @@ from collections import deque
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
+from urllib.parse import urlparse
 
 import httpx
 
@@ -122,6 +124,82 @@ RETRY_BACKOFF_BASE = 2  # seconds — exponential: 2, 4, 8
 DELIVERY_TIMEOUT = 10  # seconds
 
 
+_BLOCKED_HOSTS = {
+    "localhost",
+    "metadata",
+    "metadata.google.internal",
+    "instance-data",
+}
+_BLOCKED_HOST_SUFFIXES = (
+    ".localhost",
+    ".local",
+    ".localdomain",
+    ".internal",
+)
+
+
+IPAddress = Union[ipaddress.IPv4Address, ipaddress.IPv6Address]
+
+
+def _parse_ip_literal(host: str) -> Optional[IPAddress]:
+    """Parse obvious IP literal formats without performing DNS lookups."""
+    try:
+        return ipaddress.ip_address(host)
+    except ValueError:
+        return None
+
+
+def _is_blocked_ip(ip: IPAddress) -> bool:
+    """Return True for non-public addresses that webhooks must never target."""
+    return any((
+        ip.is_loopback,
+        ip.is_private,
+        ip.is_link_local,
+        ip.is_multicast,
+        ip.is_reserved,
+        ip.is_unspecified,
+    ))
+
+
+def validate_webhook_url(url: str) -> None:
+    """Validate webhook target URL without performing network or DNS calls."""
+    if not url or any(ch.isspace() for ch in url):
+        raise ValueError("Webhook URL must be a valid HTTPS URL")
+
+    parsed = urlparse(url)
+    if parsed.scheme.lower() != "https":
+        raise ValueError("Webhook URL must use HTTPS")
+    if not parsed.hostname:
+        raise ValueError("Webhook URL must include a host")
+
+    host = parsed.hostname.rstrip(".").lower()
+    if not host or "%" in host:
+        raise ValueError("Webhook URL host is not allowed")
+
+    ip = _parse_ip_literal(host)
+    if ip is not None:
+        if _is_blocked_ip(ip):
+            raise ValueError("Webhook URL host is not allowed")
+        mapped_ipv4 = ip.ipv4_mapped if isinstance(ip, ipaddress.IPv6Address) else None
+        if mapped_ipv4 and _is_blocked_ip(mapped_ipv4):
+            raise ValueError("Webhook URL host is not allowed")
+        return
+    if any(ch.isdigit() for ch in host) and all(ch.isdigit() or ch == "." for ch in host):
+        raise ValueError("Webhook URL host is not allowed")
+
+    labels = host.split(".")
+    if any(not label for label in labels):
+        raise ValueError("Webhook URL host is not allowed")
+    # Public webhook targets should be fully qualified; single-label hostnames
+    # are typically local DNS/search-domain names and are unsafe SSRF targets.
+    if len(labels) == 1:
+        raise ValueError("Webhook URL host is not allowed")
+    if host in _BLOCKED_HOSTS or any(label in _BLOCKED_HOSTS for label in labels):
+        raise ValueError("Webhook URL host is not allowed")
+    if host.endswith(_BLOCKED_HOST_SUFFIXES):
+        raise ValueError("Webhook URL host is not allowed")
+
+
 def register_webhook(
     url: str,
     events: List[str],
@@ -130,8 +208,7 @@ def register_webhook(
     description: str = "",
 ) -> WebhookRegistration:
     """Register a new webhook endpoint."""
-    if not url or not url.startswith(("http://", "https://")):
-        raise ValueError("Webhook URL must start with http:// or https://")
+    validate_webhook_url(url)
 
     # Validate event types
     invalid = [e for e in events if e not in ALL_EVENT_TYPES]
@@ -198,6 +275,9 @@ def update_webhook(
     description: Optional[str] = None,
 ) -> Optional[WebhookRegistration]:
     """Update a webhook registration."""
+    if url is not None:
+        validate_webhook_url(url)
+
     with _lock:
         wh = _webhooks.get(webhook_id)
         if not wh:
@@ -230,6 +310,7 @@ async def _deliver_payload(
     """Attempt a single HTTP POST delivery (async)."""
     start = time.monotonic()
     try:
+        validate_webhook_url(url)
         async with httpx.AsyncClient() as client:
             resp = await client.post(
                 url,

@@ -22,6 +22,7 @@ from webhooks import (
     update_webhook,
     delete_webhook,
     get_delivery_logs,
+    validate_webhook_url,
 )
 
 logger = logging.getLogger(__name__)
@@ -87,8 +88,10 @@ class WebhookInfo(BaseModel):
 )
 @limiter.limit("10/minute")
 async def create_webhook(body: CreateWebhookRequest, request: Request, _auth=Depends(verify_api_key)):
-    if not body.url.startswith("https://"):
-        raise ArchmorphException(400, "Webhook URL must use HTTPS")
+    try:
+        validate_webhook_url(body.url)
+    except ValueError as exc:
+        raise ArchmorphException(400, str(exc))
 
     # Validate event types against known list
     invalid = [e for e in body.events if e not in ALL_EVENT_TYPES]
@@ -135,8 +138,11 @@ async def update_webhook_route(
     if not wh:
         raise ArchmorphException(404, f"Webhook not found: {webhook_id}")
 
-    if body.url and not body.url.startswith("https://"):
-        raise ArchmorphException(400, "Webhook URL must use HTTPS")
+    if body.url:
+        try:
+            validate_webhook_url(body.url)
+        except ValueError as exc:
+            raise ArchmorphException(400, str(exc))
 
     if body.events:
         invalid = [e for e in body.events if e not in ALL_EVENT_TYPES]
@@ -207,8 +213,10 @@ async def test_webhook(body: TestWebhookRequest, request: Request, _auth=Depends
     import uuid as _uuid
     from datetime import datetime as _dt, timezone as _tz
 
-    if not body.url.startswith("https://"):
-        raise ArchmorphException(400, "Test URL must use HTTPS")
+    try:
+        validate_webhook_url(body.url)
+    except ValueError as exc:
+        raise ArchmorphException(400, str(exc))
 
     delivery_id = f"test-{_uuid.uuid4().hex[:12]}"
     envelope = {

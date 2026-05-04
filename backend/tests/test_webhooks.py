@@ -17,8 +17,10 @@ from webhooks import (
     delete_integration,
     get_integration,
     emit_event,
+    _deliver_payload,
     compute_signature,
     verify_signature,
+    validate_webhook_url,
     clear_all,
     ALL_EVENT_TYPES,
     INTEGRATION_REQUIREMENTS,
@@ -133,6 +135,74 @@ class TestWebhookCRUD:
 
     def test_update_webhook_not_found(self):
         assert update_webhook("nonexistent", url="https://x.com") is None
+
+
+class TestWebhookUrlValidation:
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "http://example.com/hook",
+            "https://localhost/hook",
+            "https://localhost./hook",
+            "https://127.0.0.1/hook",
+            "https://127.1/hook",
+            "https://10.0.0.5/hook",
+            "https://172.16.0.1/hook",
+            "https://192.168.1.10/hook",
+            "https://169.254.169.254/latest/meta-data",
+            "https://0.0.0.0/hook",
+            "https://224.0.0.1/hook",
+            "https://[::1]/hook",
+            "https://[fc00::1]/hook",
+            "https://[fe80::1]/hook",
+            "https://[ff02::1]/hook",
+            "https://metadata.google.internal/computeMetadata/v1",
+            "https://metadata/hook",
+            "https://service.internal/hook",
+            "https://printer.local/hook",
+        ],
+    )
+    def test_validate_webhook_url_blocks_internal_targets(self, url):
+        with pytest.raises(ValueError):
+            validate_webhook_url(url)
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://example.com/hook",
+            "HTTPS://hooks.example.org/webhook?token=abc",
+            "https://8.8.8.8/hook",
+            "https://[2001:4860:4860::8888]/hook",
+        ],
+    )
+    def test_validate_webhook_url_allows_public_https_targets(self, url):
+        validate_webhook_url(url)
+
+    def test_register_webhook_rejects_internal_target(self):
+        with pytest.raises(ValueError):
+            register_webhook(url="https://127.0.0.1/hook", events=["analysis.completed"])
+
+    def test_update_webhook_rejects_internal_target_without_mutating_existing_url(self):
+        wh = register_webhook(url="https://example.com/hook", events=["analysis.completed"])
+
+        with pytest.raises(ValueError):
+            update_webhook(wh.id, url="https://169.254.169.254/latest/meta-data")
+
+        assert get_webhook(wh.id).url == "https://example.com/hook"
+
+    @patch("httpx.AsyncClient")
+    def test_deliver_payload_revalidates_target_before_network_call(self, mock_client):
+        result = asyncio.run(_deliver_payload(
+            url="https://localhost/hook",
+            payload_bytes=b"{}",
+            signature="sig",
+            event_type="analysis.completed",
+            delivery_id="dlv-test",
+        ))
+
+        assert result.success is False
+        assert "not allowed" in result.error
+        mock_client.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -251,4 +321,3 @@ class TestEmitEvent:
 # ---------------------------------------------------------------------------
 # Router endpoints (via TestClient)
 # ---------------------------------------------------------------------------
-
