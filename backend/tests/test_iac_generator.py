@@ -52,6 +52,21 @@ class TestGenerateIaCCode:
         )
         assert code is not None and len(code) > 0
 
+    @patch("iac_generator._apply_validation", side_effect=lambda code, _format: code)
+    @patch("iac_generator.cached_chat_completion")
+    def test_generate_iac_validates_once_after_verification(self, mock_cached, mock_validation):
+        mock_cached.return_value = MagicMock(
+            choices=[MagicMock(message=MagicMock(content='resource "azurerm_resource_group" "main" {\n  name = "rg-test"\n  location = "westeurope"\n}'))]
+        )
+
+        generate_iac_code(
+            analysis=MOCK_ANALYSIS,
+            iac_format="terraform",
+            params={"project_name": "test", "region": "westeurope", "environment": "dev"},
+        )
+
+        mock_validation.assert_called_once()
+
     @patch("iac_generator.cached_chat_completion")
     def test_fallback_on_empty_analysis(self, mock_cached):
         mock_cached.return_value = MagicMock(
@@ -148,6 +163,26 @@ class TestGenerateIaCCode:
             code = _apply_validation('resource "azurerm_resource_group" "main" {}', "terraform")
         assert "failed terraform init: registry unavailable" in code
         assert "failed terraform validate: terraform init failed" not in code
+
+    @patch("iac_generator.subprocess.run")
+    @patch("iac_generator.shutil.which", return_value="/usr/bin/terraform")
+    def test_terraform_init_failure_falls_back_to_static_validation(self, mock_which, mock_run):
+        mock_run.side_effect = [
+            MagicMock(returncode=0, stdout="", stderr=""),
+            MagicMock(returncode=1, stdout="", stderr="registry unavailable"),
+        ]
+
+        with patch.dict(
+            "os.environ",
+            {"ARCHMORPH_DISABLE_IAC_CLI_VALIDATION": "0", "ARCHMORPH_ENABLE_IAC_CLI_VALIDATION": "1"},
+        ):
+            code = _apply_validation(
+                'resource "azurerm_resource_group" "main" {\n  name = "rg-test"\n  location = "westeurope"\n}',
+                "terraform",
+            )
+
+        assert "failed terraform init" not in code
+        assert "resource \"azurerm_resource_group\"" in code
 
     @patch("iac_generator._validate_terraform_cli")
     def test_terraform_cli_validation_can_run_by_default_when_safe(self, mock_validate, monkeypatch):

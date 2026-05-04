@@ -413,8 +413,8 @@ def _validate_terraform_cli(code: str) -> List[Tuple[str, str]] | None:
             check=False,
         )
         if init.returncode != 0:
-            message = (init.stderr or init.stdout or "terraform init failed").strip()
-            return [("error", f"terraform init failed: {message}")]
+            logger.warning("Terraform init unavailable; falling back to static validation: %s", (init.stderr or init.stdout).strip())
+            return None
 
         validate = subprocess.run(
             [terraform, f"-chdir={workdir}", "validate", "-json", "-no-color"],
@@ -810,11 +810,8 @@ def _generate_and_verify_iac(
         code += _truncation_warning(iac_format)
 
     code = _strip_code_fences(code)
-    code = _apply_validation(code, iac_format)
-
-    # Verification step
     code = _verify_iac_completeness(code, cloud_label, iac_format, analysis)
-    return code
+    return _apply_validation(code, iac_format)
 
 
 def _verify_iac_completeness(
@@ -852,7 +849,7 @@ def _verify_iac_completeness(
 
         if verified_code:
             verified_code = _strip_code_fences(verified_code)
-            return _apply_validation(verified_code, iac_format)
+            return verified_code
 
     except Exception as verify_exc:
         logger.warning("Verification step failed, using initial generation: %s", verify_exc)

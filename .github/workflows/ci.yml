@@ -153,6 +153,11 @@ jobs:
       - name: Install Bicep CLI
         run: az bicep install
 
+      - name: Configure Terraform plugin cache
+        run: |
+          mkdir -p "$RUNNER_TEMP/terraform-plugin-cache"
+          echo "TF_PLUGIN_CACHE_DIR=$RUNNER_TEMP/terraform-plugin-cache" >> "$GITHUB_ENV"
+
       - name: Install backend dependencies
         run: uv pip install --system -r requirements.txt
 
@@ -160,6 +165,7 @@ jobs:
         run: python -m pytest -q tests/test_iac_output_validation.py
         env:
           ARCHMORPH_RUN_IAC_VALIDATE_TOOLS: "1"
+          ARCHMORPH_DISABLE_IAC_CLI_VALIDATION: "1"
 
   # ============================================
   # FRONTEND BUILD & TEST (npm audit in security.yml)

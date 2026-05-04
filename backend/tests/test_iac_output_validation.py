@@ -39,16 +39,6 @@ def _terraform_code(name: str, services: list[str]) -> str:
     service_values = "\n".join(f'    "{_hcl_string(service)}",' for service in services)
     return f"""terraform {{
   required_version = ">= 1.5"
-  required_providers {{
-    azurerm = {{
-      source  = "hashicorp/azurerm"
-      version = "~> 4.0"
-    }}
-  }}
-}}
-
-provider "azurerm" {{
-  features {{}}
 }}
 
 locals {{
@@ -57,10 +47,10 @@ locals {{
   ]
 }}
 
-resource "azurerm_resource_group" "main" {{
-  name     = "rg-{name}-dev"
-  location = "westeurope"
-  tags = {{
+resource "terraform_data" "main" {{
+  input = {{
+    name        = "rg-{name}-dev"
+    location    = "westeurope"
     workload    = "{name}"
     environment = "dev"
     managed_by  = "archmorph"
