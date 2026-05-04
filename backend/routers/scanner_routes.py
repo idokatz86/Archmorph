@@ -50,7 +50,7 @@ async def run_cloud_scan(
             "status": "success",
             "provider": "aws",
             "data": report,
-            "finops": finops
+            "finops": finops,
         }
     elif provider.lower() == "azure":
         try:
@@ -61,7 +61,7 @@ async def run_cloud_scan(
                 "status": "success",
                 "provider": "azure",
                 "data": report,
-                "finops": finops
+                "finops": finops,
             }
         except Exception as e:
             logger.error(f"Error during Azure scan: {e}")
@@ -75,7 +75,7 @@ async def run_cloud_scan(
                 "status": "success",
                 "provider": "gcp",
                 "data": report,
-                "finops": finops
+                "finops": finops,
             }
         except Exception as e:
             logger.error(f"Error during GCP scan: {e}")

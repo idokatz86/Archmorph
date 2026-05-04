@@ -104,7 +104,7 @@ class ToolRegistry:
             finops = analyze_live_finops(report)
             return {
                 "scan_data": report,
-                "cost_savings": finops
+                "cost_savings": finops,
             }
         except Exception as e:
             return {"error": f"Scan failed: {str(e)}"}
