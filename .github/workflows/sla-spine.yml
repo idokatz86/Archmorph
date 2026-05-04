@@ -1,0 +1,148 @@
+name: Full-Spine SLO Gate
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  sla-spine:
+    name: sla-spine
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build backend image
+        run: docker build -t archmorph-backend-sla-spine ./backend
+
+      - name: Start deterministic backend
+        run: |
+          docker run -d \
+            --name archmorph-sla-spine \
+            -p 127.0.0.1:18082:8000 \
+            -e ENVIRONMENT=test \
+            -e RATE_LIMIT_ENABLED=false \
+            -e ARCHMORPH_CI_SMOKE_MODE=1 \
+            -e ARCHMORPH_EXPORT_CAPABILITY_REQUIRED=false \
+            -e ARCHMORPH_DISABLE_IAC_CLI_VALIDATION=1 \
+            -e DATABASE_URL=sqlite:///./data/archmorph-sla-spine.db \
+            archmorph-backend-sla-spine \
+            uvicorn main:app --host 0.0.0.0 --port 8000
+
+          echo "Waiting for backend health..."
+          for i in {1..90}; do
+            if curl -fsS http://127.0.0.1:18082/api/health >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs archmorph-sla-spine
+          exit 1
+
+      - name: Install Locust
+        run: |
+          python -m venv "${{ runner.temp }}/locust-venv"
+          "${{ runner.temp }}/locust-venv/bin/python" -m pip install --upgrade pip
+          "${{ runner.temp }}/locust-venv/bin/python" -m pip install 'locust==2.32.6'
+
+      - name: Run full-spine Locust SLO gate
+        id: sla
+        continue-on-error: true
+        env:
+          SLO_SPINE_SUMMARY_PATH: ${{ runner.temp }}/sla-spine-summary/sla-spine-summary.json
+          SLO_SPINE_TARGET_RPS: "30"
+          SLO_SPINE_USER_RPS: "1"
+        run: |
+          mkdir -p "${{ runner.temp }}/sla-spine-summary"
+          "${{ runner.temp }}/locust-venv/bin/python" -m locust \
+            -f backend/tests/performance/sla_spine_locust.py \
+            --headless \
+            --host http://127.0.0.1:18082 \
+            --users 30 \
+            --spawn-rate 30 \
+            --run-time 30s \
+            --only-summary
+
+      - name: Upload SLO summary
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sla-spine-summary
+          path: ${{ runner.temp }}/sla-spine-summary/sla-spine-summary.json
+          if-no-files-found: warn
+
+      - name: Comment SLO summary on PR
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v9
+        env:
+          SUMMARY_PATH: ${{ runner.temp }}/sla-spine-summary/sla-spine-summary.json
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- archmorph-sla-spine -->';
+            const summaryPath = process.env.SUMMARY_PATH;
+            let body;
+            if (!fs.existsSync(summaryPath)) {
+              body = `${marker}\n## Full-Spine SLO Gate\n\nNo SLO summary artifact was produced. Check the workflow logs.`;
+            } else {
+              const summary = JSON.parse(fs.readFileSync(summaryPath, 'utf8'));
+              const rows = Object.entries(summary.endpoints).map(([name, values]) => {
+                const status = values.passed ? 'PASS' : 'FAIL';
+                const p95 = values.p95_ms === null || values.p95_ms === undefined ? 'n/a' : `${Math.round(values.p95_ms)} ms`;
+                const threshold = `${values.threshold_ms} ms`;
+                return `| ${name} | ${p95} | ${threshold} | ${values.samples} | ${values.failures} | ${status} |`;
+              }).join('\n');
+              const failed = summary.failed.length ? summary.failed.join(', ') : 'none';
+              body = [
+                marker,
+                '## Full-Spine SLO Gate',
+                '',
+                `Target RPS: ${summary.target_rps}`,
+                `Failed endpoints: ${failed}`,
+                '',
+                '| Endpoint | p95 | Threshold | Samples | Failures | Status |',
+                '| --- | ---: | ---: | ---: | ---: | --- |',
+                rows,
+              ].join('\n');
+            }
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100,
+            });
+            const existing = comments.data.find((comment) => comment.body && comment.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+      - name: Fail if SLO gate failed
+        if: steps.sla.outcome == 'failure'
+        run: exit 1
+
+      - name: Dump backend logs on failure
+        if: failure()
+        run: docker logs archmorph-sla-spine
+
+      - name: Stop backend
+        if: always()
+        run: docker rm -f archmorph-sla-spine >/dev/null 2>&1 || true

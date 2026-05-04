@@ -22,6 +22,7 @@ from routers.shared import (
     SESSION_STORE, IMAGE_STORE,
     limiter, verify_api_key, MAX_UPLOAD_SIZE, generate_session_id,
 )
+import ci_smoke
 from job_queue import job_manager
 from usage_metrics import record_event, record_funnel_step
 from export_capabilities import attach_export_capability
@@ -282,6 +283,13 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
     image_b64, content_type = IMAGE_STORE[diagram_id]
     image_bytes = base64.b64decode(image_b64) if isinstance(image_b64, str) else image_b64
     logger.info("Analyzing diagram %s (%s bytes)", str(diagram_id).replace('\n', '').replace('\r', ''), str(len(image_bytes)).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
+
+    if ci_smoke.enabled():
+        result = ci_smoke.clone_analysis(diagram_id)
+        SESSION_STORE[diagram_id] = result
+        record_event("analyses_run", {"diagram_id": diagram_id, "services": result["services_detected"]})
+        record_funnel_step(diagram_id, "analyze")
+        return attach_export_capability(result, diagram_id)
 
     # No need to pre-compress, vision analyzer and classifier handle it internally
     compressed_bytes, compressed_type = image_bytes, content_type
