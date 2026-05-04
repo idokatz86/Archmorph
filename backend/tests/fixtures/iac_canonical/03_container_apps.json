@@ -1,0 +1,1 @@
+{"title":"Container Apps","source_provider":"aws","target_provider":"azure","mappings":[{"source_service":"Fargate","azure_service":"Container Apps","category":"Compute","confidence":0.9},{"source_service":"CloudWatch","azure_service":"Log Analytics","category":"Observability","confidence":0.95}]}

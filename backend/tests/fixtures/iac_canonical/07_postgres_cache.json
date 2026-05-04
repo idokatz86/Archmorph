@@ -1,0 +1,1 @@
+{"title":"Postgres Cache","source_provider":"gcp","target_provider":"azure","mappings":[{"source_service":"Cloud SQL PostgreSQL","azure_service":"PostgreSQL Flexible Server","category":"Database","confidence":0.92},{"source_service":"Memorystore","azure_service":"Azure Cache for Redis","category":"Database","confidence":0.9}]}

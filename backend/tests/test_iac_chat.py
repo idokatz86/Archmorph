@@ -26,6 +26,11 @@ from iac_chat import (
 )
 
 
+@pytest.fixture(autouse=True)
+def disable_cli_validation_by_default(monkeypatch):
+    monkeypatch.setenv("ARCHMORPH_DISABLE_IAC_CLI_VALIDATION", "1")
+
+
 SAMPLE_TF_CODE = """
 resource "azurerm_resource_group" "rg" {
   name     = "rg-archmorph-dev"
@@ -90,7 +95,8 @@ class TestIacChatProcessing:
         IAC_CHAT_SESSIONS.clear()
 
     @patch("iac_chat.cached_chat_completion")
-    def test_process_iac_chat_returns_result(self, mock_completion):
+    @patch("iac_chat._apply_validation", side_effect=lambda code, _format: code)
+    def test_process_iac_chat_returns_result(self, mock_validation, mock_completion):
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = json.dumps(MOCK_CHAT_RESPONSE)
@@ -109,6 +115,50 @@ class TestIacChatProcessing:
         assert "changes_summary" in result
         assert "services_added" in result
         assert result["error"] is False
+        mock_validation.assert_called_once()
+
+    @patch("iac_chat.cached_chat_completion")
+    @patch("iac_chat._apply_validation", side_effect=lambda code, _format: code + "\n# validation marker")
+    def test_process_iac_chat_surfaces_validation_annotations(self, mock_validation, mock_completion):
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = json.dumps(MOCK_CHAT_RESPONSE)
+        mock_response.choices[0].finish_reason = "stop"
+        mock_completion.return_value = mock_response
+
+        result = process_iac_chat(
+            diagram_id="test-validation",
+            message="Add a VNet with 3 subnets",
+            current_code=SAMPLE_TF_CODE,
+            iac_format="terraform",
+        )
+
+        assert "# validation marker" in result["code"]
+        mock_validation.assert_called_once()
+
+    @patch("iac_chat.cached_chat_completion")
+    @patch("iac_chat._apply_validation")
+    def test_process_iac_chat_preserves_explain_responses_unchanged(self, mock_validation, mock_completion):
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = json.dumps({
+            "message": "This resource group holds the deployment resources.",
+            "code": SAMPLE_TF_CODE,
+            "changes_summary": [],
+            "services_added": [],
+        })
+        mock_response.choices[0].finish_reason = "stop"
+        mock_completion.return_value = mock_response
+
+        result = process_iac_chat(
+            diagram_id="test-explain",
+            message="Explain this code",
+            current_code=SAMPLE_TF_CODE,
+            iac_format="terraform",
+        )
+
+        assert result["code"] == SAMPLE_TF_CODE
+        mock_validation.assert_not_called()
 
     @patch("iac_chat.cached_chat_completion")
     def test_process_iac_chat_stores_history(self, mock_completion):

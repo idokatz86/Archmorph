@@ -17,6 +17,7 @@ from cachetools import TTLCache
 
 from openai import RateLimitError, APITimeoutError, APIConnectionError, BadRequestError
 from openai_client import cached_chat_completion, AZURE_OPENAI_DEPLOYMENT
+from iac_generator import _apply_validation
 from prompt_guard import (
     PROMPT_ARMOR,
     sanitize_message,
@@ -229,6 +230,10 @@ def process_iac_chat(
                 code = re.sub(r"^```[a-zA-Z]*\n", "", code)
                 code = re.sub(r"\n```$", "", code)
                 code = code.strip()
+            if code == current_code or code == current_code.strip():
+                code = current_code
+            elif iac_format in ("terraform", "bicep"):
+                code = _apply_validation(code, iac_format)
 
         changes = _coerce_to_str_list(result.get("changes_summary", []))
         services = _coerce_to_str_list(result.get("services_added", []))

@@ -1,0 +1,1 @@
+{"title":"Storage","source_provider":"aws","target_provider":"azure","mappings":[{"source_service":"S3","azure_service":"Storage Account","category":"Storage","confidence":0.96},{"source_service":"EFS","azure_service":"Azure Files","category":"Storage","confidence":0.9}]}

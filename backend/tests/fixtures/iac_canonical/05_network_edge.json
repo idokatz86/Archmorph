@@ -1,0 +1,1 @@
+{"title":"Network Edge","source_provider":"aws","target_provider":"azure","mappings":[{"source_service":"ALB","azure_service":"Application Gateway","category":"Networking","confidence":0.95},{"source_service":"Route 53","azure_service":"Azure DNS","category":"Networking","confidence":0.9}]}

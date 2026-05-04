@@ -1,0 +1,1 @@
+{"title":"VM Ops","source_provider":"aws","target_provider":"azure","mappings":[{"source_service":"EC2","azure_service":"Virtual Machines","category":"Compute","confidence":0.93},{"source_service":"CloudWatch Logs","azure_service":"Log Analytics","category":"Observability","confidence":0.95}]}

@@ -5,7 +5,12 @@ Falls back to base templates when no analysis is available.
 """
 
 import logging
+import json
+import os
 import re
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 from typing import Optional, List, Tuple
 
@@ -20,6 +25,74 @@ from prompt_guard import (
 logger = logging.getLogger(__name__)
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
+_TRUSTED_TERRAFORM_PROVIDER_SOURCES = {
+    "azure/azapi",
+    "hashicorp/azuread",
+    "hashicorp/azurerm",
+    "hashicorp/null",
+    "hashicorp/random",
+    "hashicorp/time",
+    "hashicorp/tls",
+}
+_TRUSTED_TERRAFORM_PROVIDER_NAMES = {
+    source.rsplit("/", 1)[-1] for source in _TRUSTED_TERRAFORM_PROVIDER_SOURCES
+}
+_TRUSTED_TERRAFORM_PROVIDER_NAMES.add("terraform")
+
+
+def _iac_cli_validation_enabled() -> bool:
+    if os.getenv("ARCHMORPH_DISABLE_IAC_CLI_VALIDATION") == "1":
+        return False
+    return os.getenv("ARCHMORPH_ENABLE_IAC_CLI_VALIDATION", "1") == "1"
+
+
+def _terraform_cli_validation_enabled() -> bool:
+    if os.getenv("ARCHMORPH_DISABLE_IAC_CLI_VALIDATION") == "1":
+        return False
+    return os.getenv("ARCHMORPH_ENABLE_TERRAFORM_CLI_VALIDATION", "0") == "1"
+
+
+def _terraform_cli_env() -> dict[str, str]:
+    env = os.environ.copy()
+    if not env.get("TF_PLUGIN_CACHE_DIR"):
+        plugin_cache = Path(tempfile.gettempdir()) / "archmorph-terraform-plugin-cache"
+        plugin_cache.mkdir(parents=True, exist_ok=True)
+        env["TF_PLUGIN_CACHE_DIR"] = str(plugin_cache)
+    return env
+
+
+def _terraform_init_failure_is_unavailable(message: str) -> bool:
+    normalized = message.lower()
+    unavailable_markers = (
+        "registry unavailable",
+        "connection refused",
+        "connection reset",
+        "context deadline exceeded",
+        "could not connect",
+        "could not retrieve the list of available versions",
+        "failed to query available provider packages",
+        "i/o timeout",
+        "no such host",
+        "proxyconnect",
+        "service unavailable",
+        "temporary failure",
+        "tls handshake timeout",
+    )
+    return any(marker in normalized for marker in unavailable_markers)
+
+
+def _terraform_cli_validation_safe(code: str) -> bool:
+    declared_sources = re.findall(r'\bsource\s*=\s*"([^"]+)"', code)
+    if any(source not in _TRUSTED_TERRAFORM_PROVIDER_SOURCES for source in declared_sources):
+        logger.warning("Skipping Terraform CLI validation for untrusted provider source")
+        return False
+
+    resource_types = re.findall(r'\b(?:resource|data)\s+"([^"]+)"', code)
+    provider_names = {resource_type.split("_", 1)[0] for resource_type in resource_types if "_" in resource_type}
+    if any(provider not in _TRUSTED_TERRAFORM_PROVIDER_NAMES for provider in provider_names):
+        logger.warning("Skipping Terraform CLI validation for untrusted provider name")
+        return False
+    return True
 
 
 def _load_template(name: str) -> str:
@@ -291,7 +364,7 @@ def _build_aws_cdk_prompt(analysis: dict, params: dict) -> str:
 # IaC Output Validation (Issues #273, #274)
 # ─────────────────────────────────────────────────────────────
 
-def _validate_terraform(code: str) -> List[Tuple[str, str]]:
+def _validate_terraform_static(code: str) -> List[Tuple[str, str]]:
     """Validate generated Terraform HCL at the syntax / structure level.
 
     Returns a list of (severity, message) tuples.
@@ -333,7 +406,99 @@ def _validate_terraform(code: str) -> List[Tuple[str, str]]:
     return issues
 
 
-def _validate_bicep(code: str) -> List[Tuple[str, str]]:
+def _terraform_policy_checks(code: str) -> List[Tuple[str, str]]:
+    issues: List[Tuple[str, str]] = []
+    cred_patterns = [
+        (r'(?:password|secret|api_key)\s*=\s*"[^"]{4,}"', "Hardcoded credential detected in Terraform output"),
+        (r'admin_password\s*=\s*"', "Hardcoded admin_password found — must use Key Vault"),
+    ]
+    for pat, msg in cred_patterns:
+        if re.search(pat, code, re.IGNORECASE):
+            issues.append(("error", msg))
+    if "```" in code:
+        issues.append(("warning", "Markdown code fences found in Terraform output — stripping"))
+    return issues
+
+
+def _validate_terraform_cli(code: str) -> List[Tuple[str, str]] | None:
+    """Run terraform fmt/init/validate when the CLI is available."""
+    terraform = shutil.which("terraform")
+    if not terraform or not _terraform_cli_validation_safe(code):
+        return None
+    terraform_env = _terraform_cli_env()
+
+    with tempfile.TemporaryDirectory(prefix="archmorph-tf-") as tmp:
+        workdir = Path(tmp)
+        (workdir / "main.tf").write_text(code, encoding="utf-8")
+
+        fmt = subprocess.run(
+            [terraform, "fmt", "-check", "-no-color", str(workdir / "main.tf")],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            env=terraform_env,
+            check=False,
+        )
+        if fmt.returncode != 0:
+            message = (fmt.stderr or fmt.stdout or "terraform fmt -check failed").strip()
+            return [("error", f"terraform fmt failed: {message}")]
+
+        init = subprocess.run(
+            [terraform, f"-chdir={workdir}", "init", "-backend=false", "-input=false", "-no-color"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env=terraform_env,
+            check=False,
+        )
+        if init.returncode != 0:
+            message = (init.stderr or init.stdout or "terraform init failed").strip()
+            if _terraform_init_failure_is_unavailable(message):
+                logger.warning("Terraform init unavailable; falling back to static validation: %s", message)
+                return None
+            return [("error", f"terraform init failed: {message}")]
+
+        validate = subprocess.run(
+            [terraform, f"-chdir={workdir}", "validate", "-json", "-no-color"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env=terraform_env,
+            check=False,
+        )
+        try:
+            payload = json.loads(validate.stdout or "{}")
+        except json.JSONDecodeError:
+            payload = {}
+
+        issues: List[Tuple[str, str]] = []
+        for diagnostic in payload.get("diagnostics", []) if isinstance(payload, dict) else []:
+            severity = "error" if diagnostic.get("severity") == "error" else "warning"
+            summary = str(diagnostic.get("summary") or "terraform validate diagnostic")
+            detail = str(diagnostic.get("detail") or "").strip()
+            issues.append((severity, f"{summary}: {detail}" if detail else summary))
+
+        if validate.returncode != 0 and not issues:
+            message = (validate.stderr or validate.stdout or "terraform validate failed").strip()
+            issues.append(("error", f"terraform validate failed: {message}"))
+        return issues
+
+
+def _validate_terraform(code: str) -> List[Tuple[str, str]]:
+    """Validate Terraform with opt-in CLI execution, otherwise using static checks."""
+    if not _terraform_cli_validation_enabled():
+        return _validate_terraform_static(code)
+    try:
+        cli_issues = _validate_terraform_cli(code)
+    except (OSError, subprocess.SubprocessError) as exc:
+        logger.warning("Terraform CLI validation unavailable: %s", exc)
+        cli_issues = None
+    if cli_issues is None:
+        return _validate_terraform_static(code)
+    return cli_issues + _terraform_policy_checks(code)
+
+
+def _validate_bicep_static(code: str) -> List[Tuple[str, str]]:
     """Validate generated Bicep code at the syntax / structure level.
 
     Returns a list of (severity, message) tuples.
@@ -368,6 +533,70 @@ def _validate_bicep(code: str) -> List[Tuple[str, str]]:
         issues.append(("warning", "No param/var/module declarations — Bicep may be incomplete"))
 
     return issues
+
+
+def _bicep_policy_checks(code: str) -> List[Tuple[str, str]]:
+    issues: List[Tuple[str, str]] = []
+    cred_patterns = [
+        (r"(?:password|secret|apiKey)\s*:\s*'[^']{4,}'", "Hardcoded credential detected in Bicep output"),
+        (r"administratorLoginPassword\s*:\s*'", "Hardcoded admin password found — must use @secure() + Key Vault"),
+    ]
+    for pat, msg in cred_patterns:
+        if re.search(pat, code, re.IGNORECASE):
+            issues.append(("error", msg))
+    if "```" in code:
+        issues.append(("warning", "Markdown code fences found in Bicep output — stripping"))
+    return issues
+
+
+def _validate_bicep_cli(code: str) -> List[Tuple[str, str]] | None:
+    """Run az bicep build when the Azure CLI is available."""
+    az = shutil.which("az")
+    if not az:
+        return None
+
+    version_result = subprocess.run(
+        [az, "bicep", "version"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    if version_result.returncode != 0:
+        logger.warning(
+            "Bicep CLI validation unavailable: %s",
+            (version_result.stderr or version_result.stdout or "az bicep version failed").strip(),
+        )
+        return None
+
+    with tempfile.TemporaryDirectory(prefix="archmorph-bicep-") as tmp:
+        path = Path(tmp) / "main.bicep"
+        path.write_text(code, encoding="utf-8")
+        result = subprocess.run(
+            [az, "bicep", "build", "--file", str(path)],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        if result.returncode == 0:
+            return []
+        message = (result.stderr or result.stdout or "az bicep build failed").strip()
+        return [("error", f"az bicep build failed: {message}")]
+
+
+def _validate_bicep(code: str) -> List[Tuple[str, str]]:
+    """Validate Bicep with opt-in CLI execution, otherwise using static checks."""
+    if not _iac_cli_validation_enabled():
+        return _validate_bicep_static(code)
+    try:
+        cli_issues = _validate_bicep_cli(code)
+    except (OSError, subprocess.SubprocessError) as exc:
+        logger.warning("Bicep CLI validation unavailable: %s", exc)
+        cli_issues = None
+    if cli_issues is None:
+        return _validate_bicep_static(code)
+    return cli_issues + _bicep_policy_checks(code)
 
 
 def _validate_cloudformation(code: str) -> List[Tuple[str, str]]:
@@ -467,7 +696,7 @@ def _apply_validation(code: str, iac_format: str) -> str:
         logger.error("IaC validation [%s] ERROR: %s", iac_format, msg)
 
     # Append validation warnings as comments in the output
-    comment_char = "#"
+    comment_char = "//" if iac_format == "bicep" else "#"
     if warnings:
         warning_block = "\n".join(
             f"{comment_char} ⚠️  VALIDATION WARNING: {msg}" for _, msg in warnings
@@ -475,8 +704,26 @@ def _apply_validation(code: str, iac_format: str) -> str:
         code = code + "\n\n" + warning_block + "\n"
 
     if errors:
+        def _failure_label(message: str) -> tuple[str, str]:
+            if iac_format == "terraform":
+                for command in ("fmt", "init", "validate"):
+                    prefix = f"terraform {command} failed: "
+                    if message.startswith(prefix):
+                        return f"failed terraform {command}", message.removeprefix(prefix)
+                return "failed terraform validate", message
+            if iac_format == "bicep":
+                prefix = "az bicep build failed: "
+                if message.startswith(prefix):
+                    return "failed az bicep build", message.removeprefix(prefix)
+                return "failed az bicep build", message
+            if iac_format == "cloudformation":
+                return "failed CloudFormation validation", message
+            return "failed IaC validation", message
+
         error_block = "\n".join(
-            f"{comment_char} ❌ VALIDATION ERROR: {msg}" for _, msg in errors
+            f"{comment_char} ⚠ {label}: {detail}"
+            for _, msg in errors
+            for label, detail in [_failure_label(msg)]
         )
         code = code + "\n\n" + error_block + "\n"
         logger.error(
@@ -609,11 +856,8 @@ def _generate_and_verify_iac(
         code += _truncation_warning(iac_format)
 
     code = _strip_code_fences(code)
-    code = _apply_validation(code, iac_format)
-
-    # Verification step
     code = _verify_iac_completeness(code, cloud_label, iac_format, analysis)
-    return code
+    return _apply_validation(code, iac_format)
 
 
 def _verify_iac_completeness(
@@ -651,7 +895,7 @@ def _verify_iac_completeness(
 
         if verified_code:
             verified_code = _strip_code_fences(verified_code)
-            return _apply_validation(verified_code, iac_format)
+            return verified_code
 
     except Exception as verify_exc:
         logger.warning("Verification step failed, using initial generation: %s", verify_exc)
