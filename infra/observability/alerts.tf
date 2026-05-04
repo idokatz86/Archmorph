@@ -71,6 +71,32 @@ variable "tags" {
   default     = {}
 }
 
+locals {
+  spine_request_slos = {
+    analyze = {
+      name         = "analyze"
+      severity     = 2
+      threshold_ms = 8000
+      path_regex   = "^/api/diagrams/[^/]+/analyze$"
+      description  = "Analyze p95 exceeds 8 seconds."
+    }
+    iac_generate = {
+      name         = "iac-generate"
+      severity     = 2
+      threshold_ms = 12000
+      path_regex   = "^/api/diagrams/[^/]+/generate$"
+      description  = "IaC generation p95 exceeds 12 seconds."
+    }
+    drift_compare = {
+      name         = "drift-compare"
+      severity     = 3
+      threshold_ms = 5000
+      path_regex   = "^/api/drift/baselines/[^/]+/compare$"
+      description  = "Drift compare p95 exceeds 5 seconds."
+    }
+  }
+}
+
 # ─────────────────────────────────────────────────────────────
 # Alert 1 — icon resolution miss rate
 #
@@ -92,7 +118,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "lz_icon_miss_rate_hig
   evaluation_frequency = "PT5M"
   window_duration      = "PT5M"
 
-  scopes               = [var.application_insights_id]
+  scopes                = [var.application_insights_id]
   target_resource_types = ["microsoft.insights/components"]
 
   criteria {
@@ -178,10 +204,126 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "lz_svg_p95_high" {
   tags                    = var.tags
 }
 
+# ─────────────────────────────────────────────────────────────
+# Full-spine request p95 alerts (#659)
+#
+# These alerts use the generic HTTP request duration histogram emitted by
+# `backend/main.py`/`backend/observability.py`. The path dimension carries raw
+# diagram/baseline IDs, so KQL normalizes with regex matching instead of alert
+# dimensions. Landing-zone SVG keeps the purpose-built ALZ p95 alert above.
+# ─────────────────────────────────────────────────────────────
+resource "azurerm_monitor_scheduled_query_rules_alert_v2" "spine_request_p95_high" {
+  for_each = local.spine_request_slos
+
+  name                = "archmorph-spine-${each.value.name}-p95-high"
+  resource_group_name = var.resource_group_name
+  location            = var.location
+
+  description = each.value.description
+  severity    = each.value.severity
+
+  evaluation_frequency = "PT5M"
+  window_duration      = "PT10M"
+
+  scopes                = [var.application_insights_id]
+  target_resource_types = ["microsoft.insights/components"]
+
+  criteria {
+    query = <<-KQL
+      customMetrics
+      | where name == 'http.request.duration_ms'
+      | extend path = tostring(customDimensions.path)
+      | where path matches regex '${each.value.path_regex}'
+      | summarize p95 = percentile(value, 95)
+      | project p95
+    KQL
+
+    time_aggregation_method = "Maximum"
+    operator                = "GreaterThan"
+    threshold               = each.value.threshold_ms
+    metric_measure_column   = "p95"
+
+    failing_periods {
+      minimum_failing_periods_to_trigger_alert = 2
+      number_of_evaluation_periods             = 2
+    }
+  }
+
+  action {
+    action_groups = [var.action_group_critical_id]
+  }
+
+  auto_mitigation_enabled = true
+  tags                    = var.tags
+}
+
+# ─────────────────────────────────────────────────────────────
+# Full-spine two-window burn-rate alerts (#659)
+#
+# Bad events are requests over the endpoint latency SLO or HTTP 5xx responses.
+# The query evaluates both a 5-minute and 1-hour window and pages only when
+# both windows burn faster than 2x a 99% latency/error budget.
+# ─────────────────────────────────────────────────────────────
+resource "azurerm_monitor_scheduled_query_rules_alert_v2" "spine_burn_rate_high" {
+  for_each = local.spine_request_slos
+
+  name                = "archmorph-spine-${each.value.name}-burn-rate-high"
+  resource_group_name = var.resource_group_name
+  location            = var.location
+
+  description = "Two-window burn-rate alert for ${each.value.name}: 5m and 1h burn exceed 2x."
+  severity    = each.value.severity
+
+  evaluation_frequency = "PT5M"
+  window_duration      = "PT1H"
+
+  scopes                = [var.application_insights_id]
+  target_resource_types = ["microsoft.insights/components"]
+
+  criteria {
+    query = <<-KQL
+      let threshold_ms = todouble(${each.value.threshold_ms});
+      let error_budget = 0.01;
+      let spine = customMetrics
+        | where name == 'http.request.duration_ms'
+        | extend path = tostring(customDimensions.path), status = toint(customDimensions.status)
+        | where path matches regex '${each.value.path_regex}';
+      let short = spine
+        | where timestamp > ago(5m)
+        | summarize total = count(), bad = countif(value > threshold_ms or status >= 500)
+        | extend burn = iif(total < 10, 0.0, todouble(bad) / todouble(total) / error_budget);
+      let long = spine
+        | where timestamp > ago(1h)
+        | summarize total = count(), bad = countif(value > threshold_ms or status >= 500)
+        | extend burn = iif(total < 50, 0.0, todouble(bad) / todouble(total) / error_budget);
+      print burn_rate = min_of(toscalar(short | project burn), toscalar(long | project burn))
+    KQL
+
+    time_aggregation_method = "Maximum"
+    operator                = "GreaterThan"
+    threshold               = 2
+    metric_measure_column   = "burn_rate"
+
+    failing_periods {
+      minimum_failing_periods_to_trigger_alert = 1
+      number_of_evaluation_periods             = 1
+    }
+  }
+
+  action {
+    action_groups = [var.action_group_critical_id]
+  }
+
+  auto_mitigation_enabled = true
+  tags                    = var.tags
+}
+
 output "alert_ids" {
-  description = "IDs of the two alert rules wired up by this module."
+  description = "IDs of the alert rules wired up by this module."
   value = {
     icon_miss_rate_high = azurerm_monitor_scheduled_query_rules_alert_v2.lz_icon_miss_rate_high.id
     svg_p95_high        = azurerm_monitor_scheduled_query_rules_alert_v2.lz_svg_p95_high.id
+    spine_p95_high      = { for key, alert in azurerm_monitor_scheduled_query_rules_alert_v2.spine_request_p95_high : key => alert.id }
+    spine_burn_rate     = { for key, alert in azurerm_monitor_scheduled_query_rules_alert_v2.spine_burn_rate_high : key => alert.id }
   }
 }
