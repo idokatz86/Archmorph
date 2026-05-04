@@ -5,9 +5,13 @@ from __future__ import annotations
 import os
 from copy import deepcopy
 
+_NON_PRODUCTION_ENVIRONMENTS = {"ci", "dev", "development", "local", "test"}
+
 
 def enabled() -> bool:
-    return os.getenv("ARCHMORPH_CI_SMOKE_MODE", "").lower() in {"1", "true", "yes"}
+    smoke_flag = os.getenv("ARCHMORPH_CI_SMOKE_MODE", "").lower() in {"1", "true", "yes"}
+    environment = os.getenv("ENVIRONMENT", "").lower()
+    return smoke_flag and environment in _NON_PRODUCTION_ENVIRONMENTS
 
 
 def classification() -> dict:

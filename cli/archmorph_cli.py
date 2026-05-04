@@ -9,7 +9,6 @@ import json
 import logging
 import os
 import pathlib
-import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional
 
@@ -24,6 +23,7 @@ CONFIG_DIR = pathlib.Path.home() / ".archmorph"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 VERSION = "1.0.0"
 EXPORT_CAPABILITY_HEADER = "X-Export-Capability"
+VOLATILE_ANALYSIS_FIELDS = {"export_capability", "export_capability_expires_in"}
 
 logger = logging.getLogger("archmorph")
 
@@ -74,6 +74,13 @@ class ArchmorphClient:
         if not self.export_capability:
             return {}
         return {EXPORT_CAPABILITY_HEADER: self.export_capability}
+
+    def fork(self) -> "ArchmorphClient":
+        worker = ArchmorphClient(self.base_url)
+        worker.session.headers.clear()
+        worker.session.headers.update(self.session.headers)
+        worker.export_capability = self.export_capability
+        return worker
 
     def _remember_export_capability(self, payload: Any, resp: requests.Response) -> None:
         if isinstance(payload, dict) and payload.get("export_capability"):
@@ -397,6 +404,15 @@ def _apply_run_context(analysis: dict, target_rg: Optional[str]) -> dict:
     return enriched
 
 
+def _strip_volatile_analysis_fields(analysis: dict) -> dict:
+    return {key: value for key, value in analysis.items() if key not in VOLATILE_ANALYSIS_FIELDS}
+
+
+def _generate_iac_for_run(client: ArchmorphClient, diagram_id: str, iac_format: str, force: bool) -> dict:
+    worker_client = client.fork() if hasattr(client, "fork") else client
+    return worker_client.generate_iac_with_options(diagram_id, iac_format, force)
+
+
 # ── CLI definition ───────────────────────────────────────────
 @click.group()
 @click.option("--api-url", envvar="ARCHMORPH_API_URL", default=None, help="API base URL.")
@@ -560,6 +576,7 @@ def run_full_spine(
 
     click.echo(click.style("Analyzing architecture...", fg="cyan"))
     analysis = client.analyze_diagram(diagram_id)
+    analysis = _strip_volatile_analysis_fields(analysis)
     analysis = _apply_run_context(analysis, target_rg)
     if target_rg:
         client.restore_session(diagram_id, analysis)
@@ -570,7 +587,7 @@ def run_full_spine(
         click.echo(click.style(f"Generating IaC: {', '.join(iac_formats)}...", fg="cyan"))
         with ThreadPoolExecutor(max_workers=min(len(iac_formats), 4)) as executor:
             futures = {
-                executor.submit(client.generate_iac_with_options, diagram_id, iac_format, force_iac): iac_format
+                executor.submit(_generate_iac_for_run, client, diagram_id, iac_format, force_iac): iac_format
                 for iac_format in iac_formats
             }
             for future in as_completed(futures):
