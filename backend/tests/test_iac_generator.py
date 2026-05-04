@@ -152,7 +152,7 @@ class TestGenerateIaCCode:
     def test_terraform_cli_validation_errors_are_marked_inline(self, mock_validate):
         with patch.dict(
             "os.environ",
-            {"ARCHMORPH_DISABLE_IAC_CLI_VALIDATION": "0", "ARCHMORPH_ENABLE_IAC_CLI_VALIDATION": "1"},
+            {"ARCHMORPH_DISABLE_IAC_CLI_VALIDATION": "0", "ARCHMORPH_ENABLE_TERRAFORM_CLI_VALIDATION": "1"},
         ):
             mock_validate.return_value = [("error", "Unsupported argument")]
             code = _apply_validation('resource "azurerm_resource_group" "main" {}', "terraform")
@@ -162,7 +162,7 @@ class TestGenerateIaCCode:
     def test_terraform_cli_failure_labels_include_failed_command(self, mock_validate):
         with patch.dict(
             "os.environ",
-            {"ARCHMORPH_DISABLE_IAC_CLI_VALIDATION": "0", "ARCHMORPH_ENABLE_IAC_CLI_VALIDATION": "1"},
+            {"ARCHMORPH_DISABLE_IAC_CLI_VALIDATION": "0", "ARCHMORPH_ENABLE_TERRAFORM_CLI_VALIDATION": "1"},
         ):
             mock_validate.return_value = [("error", "terraform init failed: registry unavailable")]
             code = _apply_validation('resource "azurerm_resource_group" "main" {}', "terraform")
@@ -179,7 +179,7 @@ class TestGenerateIaCCode:
 
         with patch.dict(
             "os.environ",
-            {"ARCHMORPH_DISABLE_IAC_CLI_VALIDATION": "0", "ARCHMORPH_ENABLE_IAC_CLI_VALIDATION": "1"},
+            {"ARCHMORPH_DISABLE_IAC_CLI_VALIDATION": "0", "ARCHMORPH_ENABLE_TERRAFORM_CLI_VALIDATION": "1"},
         ):
             code = _apply_validation(
                 'resource "azurerm_resource_group" "main" {\n  name = "rg-test"\n  location = "westeurope"\n}',
@@ -192,6 +192,7 @@ class TestGenerateIaCCode:
     @patch("iac_generator._validate_terraform_cli")
     def test_terraform_builtin_provider_is_trusted(self, mock_validate, monkeypatch):
         monkeypatch.setenv("ARCHMORPH_DISABLE_IAC_CLI_VALIDATION", "0")
+        monkeypatch.setenv("ARCHMORPH_ENABLE_TERRAFORM_CLI_VALIDATION", "1")
         mock_validate.return_value = []
 
         terraform_data = 'resource "terraform_data" "main" {\n  input = { name = "rg-test" }\n}'
@@ -203,11 +204,25 @@ class TestGenerateIaCCode:
         mock_validate.assert_called_once()
 
     @patch("iac_generator._validate_terraform_cli")
-    def test_terraform_cli_validation_can_run_by_default_when_safe(self, mock_validate, monkeypatch):
+    def test_terraform_cli_validation_runs_when_explicitly_enabled(self, mock_validate, monkeypatch):
         monkeypatch.setenv("ARCHMORPH_DISABLE_IAC_CLI_VALIDATION", "0")
+        monkeypatch.setenv("ARCHMORPH_ENABLE_TERRAFORM_CLI_VALIDATION", "1")
         mock_validate.return_value = [("error", "Unsupported argument")]
         code = _apply_validation('resource "azurerm_resource_group" "main" {}', "terraform")
         assert "failed terraform validate: Unsupported argument" in code
+
+    @patch("iac_generator._validate_terraform_cli")
+    def test_terraform_cli_validation_is_off_by_default(self, mock_validate, monkeypatch):
+        monkeypatch.setenv("ARCHMORPH_DISABLE_IAC_CLI_VALIDATION", "0")
+        monkeypatch.delenv("ARCHMORPH_ENABLE_TERRAFORM_CLI_VALIDATION", raising=False)
+
+        code = _apply_validation(
+            'resource "azurerm_resource_group" "main" {\n  name = "rg-test"\n  location = "westeurope"\n}',
+            "terraform",
+        )
+
+        assert "failed terraform" not in code
+        mock_validate.assert_not_called()
 
     @patch("iac_generator._validate_bicep_cli")
     def test_bicep_cli_validation_errors_are_marked_inline(self, mock_validate):
@@ -219,6 +234,16 @@ class TestGenerateIaCCode:
             code = _apply_validation("resource rg 'Microsoft.Resources/resourceGroups@2023-07-01'", "bicep")
         assert "// ⚠ failed az bicep build: Expected the \"=\" character" in code
         assert "# ⚠ failed az bicep build" not in code
+
+    @patch("iac_generator._validate_bicep_cli")
+    def test_bicep_cli_validation_deduplicates_failure_label(self, mock_validate, monkeypatch):
+        monkeypatch.setenv("ARCHMORPH_DISABLE_IAC_CLI_VALIDATION", "0")
+        mock_validate.return_value = [("error", "az bicep build failed: Expected the \"=\" character")]
+
+        code = _apply_validation("resource rg 'Microsoft.Resources/resourceGroups@2023-07-01'", "bicep")
+
+        assert "// ⚠ failed az bicep build: Expected the \"=\" character" in code
+        assert "failed az bicep build: az bicep build failed" not in code
 
     def test_cloudformation_validation_errors_are_marked_inline(self):
         code = _apply_validation("Resources: {}", "cloudformation")

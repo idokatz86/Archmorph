@@ -46,6 +46,12 @@ def _iac_cli_validation_enabled() -> bool:
     return os.getenv("ARCHMORPH_ENABLE_IAC_CLI_VALIDATION", "1") == "1"
 
 
+def _terraform_cli_validation_enabled() -> bool:
+    if os.getenv("ARCHMORPH_DISABLE_IAC_CLI_VALIDATION") == "1":
+        return False
+    return os.getenv("ARCHMORPH_ENABLE_TERRAFORM_CLI_VALIDATION", "0") == "1"
+
+
 def _terraform_cli_validation_safe(code: str) -> bool:
     declared_sources = re.findall(r'\bsource\s*=\s*"([^"]+)"', code)
     if any(source not in _TRUSTED_TERRAFORM_PROVIDER_SOURCES for source in declared_sources):
@@ -444,7 +450,7 @@ def _validate_terraform_cli(code: str) -> List[Tuple[str, str]] | None:
 
 def _validate_terraform(code: str) -> List[Tuple[str, str]]:
     """Validate Terraform with opt-in CLI execution, otherwise using static checks."""
-    if not _iac_cli_validation_enabled():
+    if not _terraform_cli_validation_enabled():
         return _validate_terraform_static(code)
     try:
         cli_issues = _validate_terraform_cli(code)
@@ -670,6 +676,9 @@ def _apply_validation(code: str, iac_format: str) -> str:
                         return f"failed terraform {command}", message.removeprefix(prefix)
                 return "failed terraform validate", message
             if iac_format == "bicep":
+                prefix = "az bicep build failed: "
+                if message.startswith(prefix):
+                    return "failed az bicep build", message.removeprefix(prefix)
                 return "failed az bicep build", message
             if iac_format == "cloudformation":
                 return "failed CloudFormation validation", message

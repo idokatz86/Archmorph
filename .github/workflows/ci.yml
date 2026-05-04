@@ -165,6 +165,7 @@ jobs:
         run: python -m pytest -q tests/test_iac_output_validation.py
         env:
           ARCHMORPH_RUN_IAC_VALIDATE_TOOLS: "1"
+          ARCHMORPH_ENABLE_TERRAFORM_CLI_VALIDATION: "1"
 
   # ============================================
   # FRONTEND BUILD & TEST (npm audit in security.yml)
