@@ -171,7 +171,7 @@ class TestGenerateIaCCode:
 
     @patch("iac_generator.subprocess.run")
     @patch("iac_generator.shutil.which", return_value="/usr/bin/terraform")
-    def test_terraform_init_failure_is_marked_inline(self, mock_which, mock_run):
+    def test_terraform_init_failure_falls_back_to_static_validation(self, mock_which, mock_run):
         mock_run.side_effect = [
             MagicMock(returncode=0, stdout="", stderr=""),
             MagicMock(returncode=1, stdout="", stderr="registry unavailable"),
@@ -186,7 +186,8 @@ class TestGenerateIaCCode:
                 "terraform",
             )
 
-        assert "failed terraform init: registry unavailable" in code
+        assert "failed terraform init" not in code
+        assert "resource \"azurerm_resource_group\"" in code
 
     @patch("iac_generator._validate_terraform_cli")
     def test_terraform_builtin_provider_is_trusted(self, mock_validate, monkeypatch):

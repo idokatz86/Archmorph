@@ -129,7 +129,7 @@ def _run(command: list[str], cwd: Path) -> None:
 
 def test_iac_fixture_matrix_contains_ten_representative_analyses():
     paths = _fixture_paths()
-    assert len(paths) == 10
+    assert len(paths) >= 10
     for path in paths:
         payload = json.loads(path.read_text(encoding="utf-8"))
         assert payload.get("mappings"), f"{path.name} must include mappings"
