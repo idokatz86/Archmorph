@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,9 @@ from locust.exception import StopUser
 PNG_BYTES = b"\x89PNG\r\n\x1a\n" + (b"\0" * 100)
 SUMMARY_PATH = Path(os.getenv("SLO_SPINE_SUMMARY_PATH", "sla-spine-summary.json"))
 FAILURE_RATE_THRESHOLD = float(os.getenv("SLO_SPINE_FAILURE_RATE", "0.01"))
+TARGET_RPS = int(os.getenv("SLO_SPINE_TARGET_RPS", "30"))
+MIN_RPS_RATIO = float(os.getenv("SLO_SPINE_MIN_RPS_RATIO", "0.85"))
+_RUN_STARTED_AT: float | None = None
 
 SPINE_ENDPOINTS = {
     "analyze": {
@@ -224,9 +228,19 @@ def _build_endpoint_summary(stats) -> dict[str, dict[str, Any]]:
     return summary
 
 
+def _achieved_rps(endpoint_summary: dict[str, dict[str, Any]], elapsed_seconds: float) -> float:
+    if elapsed_seconds <= 0:
+        return 0.0
+    protected_samples = sum(values["samples"] for values in endpoint_summary.values())
+    return protected_samples / elapsed_seconds
+
+
 def _print_summary(summary: dict[str, Any]) -> None:
     print("\nArchmorph full-spine SLO summary")
-    print(f"target_rps={summary['target_rps']} failed={summary['failed']}")
+    print(
+        f"target_rps={summary['target_rps']} achieved_rps={summary['achieved_rps']:.2f} "
+        f"min_rps={summary['minimum_rps']:.2f} failed={summary['failed']}"
+    )
     for endpoint_name, values in summary["endpoints"].items():
         status = "PASS" if values["passed"] else "FAIL"
         print(
@@ -237,12 +251,28 @@ def _print_summary(summary: dict[str, Any]) -> None:
     print("")
 
 
+@events.test_start.add_listener
+def record_run_start(**_kwargs) -> None:
+    global _RUN_STARTED_AT
+    _RUN_STARTED_AT = time.perf_counter()
+
+
 @events.quitting.add_listener
 def enforce_spine_slos(environment, **_kwargs) -> None:
     endpoint_summary = _build_endpoint_summary(environment.stats)
+    elapsed_seconds = time.perf_counter() - _RUN_STARTED_AT if _RUN_STARTED_AT else 0.0
+    achieved_rps = _achieved_rps(endpoint_summary, elapsed_seconds)
+    minimum_rps = TARGET_RPS * MIN_RPS_RATIO
+    throughput_passed = achieved_rps >= minimum_rps
     failed = [name for name, values in endpoint_summary.items() if not values["passed"]]
+    if not throughput_passed:
+        failed.append("throughput")
     summary = {
-        "target_rps": int(os.getenv("SLO_SPINE_TARGET_RPS", "30")),
+        "target_rps": TARGET_RPS,
+        "achieved_rps": achieved_rps,
+        "minimum_rps": minimum_rps,
+        "elapsed_seconds": elapsed_seconds,
+        "throughput_passed": throughput_passed,
         "failure_rate_threshold": FAILURE_RATE_THRESHOLD,
         "failed": failed,
         "endpoints": endpoint_summary,

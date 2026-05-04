@@ -23,14 +23,15 @@ The `sla-spine` GitHub Actions job runs Locust at 30 RPS against a single-proces
 - `ARCHMORPH_EXPORT_CAPABILITY_REQUIRED=false`
 - `ARCHMORPH_DISABLE_IAC_CLI_VALIDATION=1`
 
-This keeps the gate stable by using the same mocked/smoke analysis path as the CLI full-spine smoke tests instead of depending on external Azure OpenAI latency. The Locust run writes `sla-spine-summary.json`, uploads it as an artifact, and comments a p95 table on pull requests.
+This keeps the gate stable by using the same mocked/smoke analysis path as the CLI full-spine smoke tests instead of depending on external Azure OpenAI latency. The Locust run writes `sla-spine-summary.json`, uploads it as an artifact, comments a p95 table on pull requests, and fails if achieved throughput drops below 85% of the 30 RPS target.
 
 ## Production Alerts
 
 `infra/observability/alerts.tf` defines Azure Monitor scheduled-query alerts for production telemetry:
 
 - Existing ALZ alerts cover landing-zone icon miss rate and landing-zone SVG p95.
-- Full-spine p95 alerts cover analyze, IaC generation, and drift compare using `http.request.duration_ms` custom metrics.
+- Full-spine p95 alerts cover analyze, Terraform generation, Bicep generation, and drift compare using `http.request.duration_ms` custom metrics.
+- Production IaC alerts split Terraform and Bicep with the `format` metric dimension emitted by request telemetry; route matching covers both `/api/...` and `/api/v1/...` clients.
 - Full-spine burn-rate alerts evaluate both 5-minute and 1-hour windows.
 
 Burn-rate alerts treat requests as bad when the request exceeds the operation latency SLO or returns HTTP 5xx. They alert when both windows burn faster than 2x a 99% latency/error budget. Low-sample windows are suppressed to avoid paging on empty traffic.

@@ -77,21 +77,32 @@ locals {
       name         = "analyze"
       severity     = 2
       threshold_ms = 8000
-      path_regex   = "^/api/diagrams/[^/]+/analyze$"
+      path_regex   = "^/api(/v1)?/diagrams/[^/]+/analyze$"
+      format       = ""
       description  = "Analyze p95 exceeds 8 seconds."
     }
-    iac_generate = {
-      name         = "iac-generate"
+    iac_terraform = {
+      name         = "iac-terraform"
       severity     = 2
       threshold_ms = 12000
-      path_regex   = "^/api/diagrams/[^/]+/generate$"
-      description  = "IaC generation p95 exceeds 12 seconds."
+      path_regex   = "^/api(/v1)?/diagrams/[^/]+/generate$"
+      format       = "terraform"
+      description  = "Terraform generation p95 exceeds 12 seconds."
+    }
+    iac_bicep = {
+      name         = "iac-bicep"
+      severity     = 2
+      threshold_ms = 12000
+      path_regex   = "^/api(/v1)?/diagrams/[^/]+/generate$"
+      format       = "bicep"
+      description  = "Bicep generation p95 exceeds 12 seconds."
     }
     drift_compare = {
       name         = "drift-compare"
       severity     = 3
       threshold_ms = 5000
-      path_regex   = "^/api/drift/baselines/[^/]+/compare$"
+      path_regex   = "^/api(/v1)?/drift/baselines/[^/]+/compare$"
+      format       = ""
       description  = "Drift compare p95 exceeds 5 seconds."
     }
   }
@@ -234,6 +245,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "spine_request_p95_hig
       | where name == 'http.request.duration_ms'
       | extend path = tostring(customDimensions.path)
       | where path matches regex '${each.value.path_regex}'
+      | where '${each.value.format}' == '' or tostring(customDimensions.format) == '${each.value.format}'
       | summarize p95 = percentile(value, 95)
       | project p95
     KQL
@@ -286,8 +298,9 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "spine_burn_rate_high"
       let error_budget = 0.01;
       let spine = customMetrics
         | where name == 'http.request.duration_ms'
-        | extend path = tostring(customDimensions.path), status = toint(customDimensions.status)
-        | where path matches regex '${each.value.path_regex}';
+        | extend path = tostring(customDimensions.path), status = toint(customDimensions.status), format = tostring(customDimensions.format)
+        | where path matches regex '${each.value.path_regex}'
+        | where '${each.value.format}' == '' or format == '${each.value.format}';
       let short = spine
         | where timestamp > ago(5m)
         | summarize total = count(), bad = countif(value > threshold_ms or status >= 500)

@@ -31,6 +31,8 @@ def test_sla_spine_locust_enforces_endpoint_p95s():
 
     assert "constant_throughput" in script
     assert "SLO_SPINE_SUMMARY_PATH" in script
+    assert "achieved_rps" in script
+    assert "SLO_SPINE_MIN_RPS_RATIO" in script
     expected = {
         "analyze": 8000,
         "generate_landing_zone": 1500,
@@ -69,12 +71,14 @@ def test_observability_alerts_cover_full_spine_p95_and_burn_rate():
 
     for resource_name in ("spine_request_p95_high", "spine_burn_rate_high"):
         assert resource_name in alerts
-    for key in ("analyze", "iac_generate", "drift_compare"):
+    for key in ("analyze", "iac_terraform", "iac_bicep", "drift_compare"):
         assert key in alerts
     for threshold in ("threshold_ms = 8000", "threshold_ms = 12000", "threshold_ms = 5000"):
         assert threshold in alerts
     assert "timestamp > ago(5m)" in alerts
     assert "timestamp > ago(1h)" in alerts
+    assert "(/v1)?" in alerts
+    assert "customDimensions.format" in alerts
     assert "threshold               = 2" in alerts
 
 

@@ -6,7 +6,8 @@ PNG_BYTES = b"\x89PNG\r\n\x1a\n" + (b"\0" * 100)
 
 def _p95(values: list[float]) -> float:
     ordered = sorted(values)
-    index = max(0, int(len(ordered) * 0.95) - 1)
+    index = int(len(ordered) * 95 / 100)
+    index = min(index, len(ordered) - 1)
     return ordered[index]
 
 
