@@ -307,11 +307,7 @@ def _build_manifest(
     profile = _profile_from_analysis(analysis)
     limitations = _limitations(analysis, profile)
     dr_readiness = _build_dr_readiness_rubric(analysis, profile)
-    cost_assumptions = build_cost_assumptions_artifact(
-        analysis,
-        cost_estimate=_package_cost_estimate(analysis),
-        analysis_id=analysis_id,
-    )
+    cost_assumptions = build_cost_assumptions_artifact(analysis, analysis_id=analysis_id)
     source_provider = _source_label(analysis)
     raw_warnings = [str(w) for w in analysis.get("warnings", []) if w]
     unsupported = analysis.get("unsupported_assumptions") or analysis.get("unsupported") or []
@@ -347,27 +343,6 @@ def _build_manifest(
         "unsupported_assumptions": [str(item) for item in unsupported if item][:10],
     }
     return _sanitize_manifest(manifest)
-
-
-def _package_cost_estimate(analysis: dict[str, Any]) -> dict[str, Any]:
-    cached = analysis.get("_cached_cost_estimate") or analysis.get("cost_estimate")
-    if isinstance(cached, dict):
-        return cached
-
-    iac_params = analysis.get("iac_parameters") if isinstance(analysis.get("iac_parameters"), dict) else {}
-    region = str(iac_params.get("deploy_region") or iac_params.get("location") or iac_params.get("region") or "westeurope")
-    sku_strategy = str(iac_params.get("sku_strategy") or "Balanced")
-    return {
-        "total_monthly_estimate": {"low": 0, "high": 0},
-        "currency": "USD",
-        "region": region,
-        "arm_region": region,
-        "sku_strategy": sku_strategy,
-        "services": [],
-        "service_count": 0,
-        "pricing_source": "not generated",
-        "cache_age_days": None,
-    }
 
 
 def _manifest_artifacts(
