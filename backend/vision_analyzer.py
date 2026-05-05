@@ -7,6 +7,7 @@ import hashlib
 import io
 import json
 import logging
+import time
 from typing import Any, Dict, Tuple
 
 from PIL import Image
@@ -16,6 +17,7 @@ import threading
 from utils.chat_coercion import coerce_to_str_list
 
 from openai_client import get_openai_client, AZURE_OPENAI_DEPLOYMENT, openai_retry
+from observability import increment_counter, record_histogram, set_gauge
 from prompt_guard import PROMPT_ARMOR
 
 logger = logging.getLogger(__name__)
@@ -35,6 +37,10 @@ _PDF_PAGE_SEPARATOR_PX = 8
 # Thread-safe in-memory cache for vision results
 _vision_cache = TTLCache(maxsize=100, ttl=3600)
 _vision_cache_lock = threading.Lock()
+
+VISION_CACHE_METRIC = "archmorph.vision.cache"
+VISION_LATENCY_METRIC = "archmorph.vision.latency_ms"
+VISION_PROMPT_HASH_METRIC = "archmorph.vision.prompt_hash"
 
 
 def _is_pdf(image_bytes: bytes, content_type: str) -> bool:
@@ -235,21 +241,73 @@ REQUIRED JSON SCHEMA TEMPLATE:
 }
 """
 
+
+def _vision_prompt() -> str:
+    return PROMPT_ARMOR + "\n\n" + SYSTEM_PROMPT
+
+
+def _compute_vision_prompt_hash(model_name: str) -> str:
+    source = _vision_prompt()[:200] + model_name
+    return hashlib.sha256(source.encode("utf-8")).hexdigest()[:12]
+
+
+def _compute_vision_cache_key(compressed_bytes: bytes, model_name: str, prompt_hash: str) -> str:
+    digest = hashlib.sha256()
+    digest.update(compressed_bytes)
+    digest.update(b"\0")
+    digest.update(model_name.encode("utf-8"))
+    digest.update(b"\0")
+    digest.update(prompt_hash.encode("utf-8"))
+    return digest.hexdigest()
+
+
+def _emit_prompt_hash_metric(model_name: str, prompt_hash: str) -> None:
+    set_gauge(
+        VISION_PROMPT_HASH_METRIC,
+        1.0,
+        tags={"model": model_name, "prompt_hash": prompt_hash},
+    )
+
+
+def _record_vision_latency(start_time: float, cache_hit: bool, model_name: str, prompt_hash: str) -> None:
+    record_histogram(
+        VISION_LATENCY_METRIC,
+        (time.perf_counter() - start_time) * 1000,
+        tags={
+            "cache_hit": str(cache_hit).lower(),
+            "model": model_name,
+            "prompt_hash": prompt_hash,
+        },
+    )
+
+
+VISION_PROMPT_HASH = _compute_vision_prompt_hash(AZURE_OPENAI_DEPLOYMENT)
+_emit_prompt_hash_metric(AZURE_OPENAI_DEPLOYMENT, VISION_PROMPT_HASH)
+
 def analyze_image(image_bytes: bytes, content_type: str = "image/png") -> Dict[str, Any]:
     """
     Analyze a cloud architecture diagram image using GPT-4o vision directly.
     """
+    start_time = time.perf_counter()
     compressed_bytes, compressed_type, img_w, img_h = compress_image(image_bytes, content_type)
     
     if isinstance(compressed_bytes, str):
         compressed_bytes = compressed_bytes.encode("utf-8")
 
-    cache_key = hashlib.sha256(compressed_bytes).hexdigest()
+    model_name = AZURE_OPENAI_DEPLOYMENT
+    prompt_hash = _compute_vision_prompt_hash(model_name)
+    _emit_prompt_hash_metric(model_name, prompt_hash)
+
+    cache_key = _compute_vision_cache_key(compressed_bytes, model_name, prompt_hash)
     with _vision_cache_lock:
         cached = _vision_cache.get(cache_key)
     if cached is not None:
         logger.info("Vision cache HIT (key=%s…)", cache_key[:12])
+        increment_counter(VISION_CACHE_METRIC, tags={"result": "hit", "model": model_name})
+        _record_vision_latency(start_time, True, model_name, prompt_hash)
         return cached
+
+    increment_counter(VISION_CACHE_METRIC, tags={"result": "miss", "model": model_name})
 
     b64_image = base64.b64encode(compressed_bytes).decode("utf-8")
     client = get_openai_client()
@@ -257,9 +315,9 @@ def analyze_image(image_bytes: bytes, content_type: str = "image/png") -> Dict[s
     logger.info("Sending base64 image to native GPT-4o vision analyzer (%d bytes, %dx%d)", len(compressed_bytes), img_w, img_h)
 
     response = openai_retry(client.chat.completions.create)(
-        model=AZURE_OPENAI_DEPLOYMENT,
+        model=model_name,
         messages=[
-            {"role": "system", "content": PROMPT_ARMOR + "\n\n" + SYSTEM_PROMPT},
+            {"role": "system", "content": _vision_prompt()},
             {
                 "role": "user",
                 "content": [
@@ -304,3 +362,5 @@ def analyze_image(image_bytes: bytes, content_type: str = "image/png") -> Dict[s
     except Exception as e:
         logger.error(f"Failed to parse GPT-4o output. Error: {e}")
         raise RuntimeError("GPT-4o vision did not return a valid JSON schema.") from e
+    finally:
+        _record_vision_latency(start_time, False, model_name, prompt_hash)
