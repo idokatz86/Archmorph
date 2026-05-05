@@ -264,6 +264,7 @@ def test_cost_assumptions_endpoint_applies_overrides(test_client, cost_contract_
     payload = response.json()
     storage = next(service for service in payload["services"] if service["service"] == "Azure Blob Storage")
     assert storage["sku"] == "Cool LRS"
+    assert storage["sku_pricing_note"].startswith("User-selected SKU label")
     assert storage["quantity"] == 2
     assert storage["quantity_assumption"] == "2 instance(s) configured by the user."
     assert storage["reservation_assumption"] == "Reserved capacity applied: 3yr."
@@ -308,7 +309,9 @@ def test_cost_assumptions_endpoint_reprices_stale_cached_region(test_client, cos
     assert response.status_code == 200
     payload = response.json()
     assert payload["arm_region"] == "westeurope"
+    assert payload["cache_age_days"] is None
     assert SESSION_STORE[DIAGRAM_ID]["_cached_cost_estimate"]["arm_region"] == "westeurope"
+    assert SESSION_STORE[DIAGRAM_ID]["_cached_cost_estimate"]["cache_age_days"] is None
     functions = next(service for service in payload["services"] if service["service"] == "Azure Functions")
     assert functions["monthly_low"] == 10.0
 

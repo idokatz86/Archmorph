@@ -1336,6 +1336,11 @@
             "title": "Sku Multiplier",
             "type": "number"
           },
+          "sku_pricing_note": {
+            "default": "",
+            "title": "Sku Pricing Note",
+            "type": "string"
+          },
           "source_service": {
             "title": "Source Service",
             "type": "string"

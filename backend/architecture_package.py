@@ -141,7 +141,8 @@ def _render_html_package(
         f"<li><strong>{html.escape(tier.title())}</strong><span>{html.escape(', '.join(names) or 'Review required')}</span></li>"
         for tier, names in _tier_summary(analysis)
     )
-    cost_panel = _render_cost_assumptions_panel(manifest.get("cost_assumptions", {}))
+    cost_filename = _cost_assumptions_filename(manifest)
+    cost_panel = _render_cost_assumptions_panel(manifest.get("cost_assumptions", {}), cost_filename)
 
     manifest_json = _manifest_json(manifest)
     cost_assumptions_json = _manifest_json(manifest.get("cost_assumptions", {}))
@@ -258,7 +259,7 @@ def _render_html_package(
 </html>"""
 
 
-def _render_cost_assumptions_panel(cost_assumptions: Any) -> str:
+def _render_cost_assumptions_panel(cost_assumptions: Any, cost_filename: str) -> str:
     if not isinstance(cost_assumptions, dict):
         cost_assumptions = {}
     total = cost_assumptions.get("total_monthly_estimate") if isinstance(cost_assumptions.get("total_monthly_estimate"), dict) else {}
@@ -278,7 +279,7 @@ def _render_cost_assumptions_panel(cost_assumptions: Any) -> str:
     return (
         "<div class=\"block\">"
         "<div class=\"cost-actions\"><h2>Cost Assumptions</h2>"
-        "<a class=\"download-link\" id=\"download-cost-assumptions\" download=\"archmorph-cost-assumptions.json\" href=\"#\">Download JSON</a></div>"
+        f"<a class=\"download-link\" id=\"download-cost-assumptions\" download=\"{html.escape(cost_filename)}\" href=\"#\">Download JSON</a></div>"
         f"<p class=\"insight-b\">{html.escape(str(cost_assumptions.get('directional_notice') or DIRECTIONAL_COST_NOTICE))}</p>"
         f"<div class=\"intent\"><div><span>Region</span><strong>{html.escape(str(cost_assumptions.get('region') or 'Not generated'))}</strong></div>"
         f"<div><span>SKU Strategy</span><strong>{html.escape(str(cost_assumptions.get('sku_strategy') or 'Not generated'))}</strong></div>"
@@ -286,6 +287,13 @@ def _render_cost_assumptions_panel(cost_assumptions: Any) -> str:
         f"<div class=\"insight-list\" style=\"margin-top:12px\">{rows}</div>"
         "</div>"
     )
+
+
+def _cost_assumptions_filename(manifest: dict[str, Any]) -> str:
+    for artifact in manifest.get("artifacts", []):
+        if isinstance(artifact, dict) and artifact.get("role") == "cost-assumptions":
+            return str(artifact.get("filename") or "archmorph-cost-assumptions.json")
+    return "archmorph-cost-assumptions.json"
 
 
 def _build_manifest(

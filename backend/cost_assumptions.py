@@ -80,6 +80,7 @@ def _service_assumptions(
         "category": str(service.get("category") or primary_mapping.get("category") or "Other"),
         "region": str(cost_estimate.get("region") or cost_estimate.get("arm_region") or "westeurope"),
         "sku": str(service.get("sku") or "Default tier"),
+        "sku_pricing_note": str(service.get("sku_pricing_note") or ""),
         "meter": str(service.get("meter") or ""),
         "quantity": quantity,
         "quantity_assumption": (
@@ -128,6 +129,7 @@ def _cost_estimate_from_analysis(
     else:
         base = estimate_services_cost(mappings, region=region, sku_strategy=sku_strategy) if mappings else {}
         if mappings:
+            base = {**base, "cache_age_days": None}
             analysis["_cached_cost_estimate"] = base
 
     overrides = analysis.get("_cost_overrides") if isinstance(analysis.get("_cost_overrides"), dict) else {}
@@ -153,6 +155,7 @@ def _apply_cost_overrides(services: list[Any], overrides: dict[str, Any]) -> lis
         name = str(service.get("service") or "")
         override = overrides.get(name, {}) if isinstance(overrides.get(name, {}), dict) else {}
         instance_count = int(override.get("instance_count") or service.get("instance_count") or 1)
+        override_sku = str(override.get("sku") or "")
         reserved_term = str(override.get("reserved_term") or service.get("reserved_term") or "none")
         discount = _RI_DISCOUNTS.get(reserved_term, 0.0)
         base_low = float(service.get("base_monthly_low") or service.get("monthly_low") or 0)
@@ -162,7 +165,12 @@ def _apply_cost_overrides(services: list[Any], overrides: dict[str, Any]) -> lis
         configured.append({
             **service,
             "instance_count": instance_count,
-            "sku": str(override.get("sku") or service.get("sku") or "Default tier"),
+            "sku": override_sku or str(service.get("sku") or "Default tier"),
+            "sku_pricing_note": (
+                "User-selected SKU label; pricing remains based on the estimator baseline and must be validated."
+                if override_sku and override_sku != str(service.get("sku") or "")
+                else service.get("sku_pricing_note", "")
+            ),
             "reserved_term": reserved_term,
             "quantity_source": "user_override" if "instance_count" in override else service.get("quantity_source", "estimator"),
             "monthly_low": monthly_low,

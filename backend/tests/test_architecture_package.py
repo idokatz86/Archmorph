@@ -187,6 +187,7 @@ def test_architecture_package_html_manifest_contains_traceability_fields():
     assert "E · Cost Assumptions JSON" in result["content"]
     assert "E — Cost Assumptions" in result["content"]
     assert "id=\"download-cost-assumptions\"" in result["content"]
+    assert "download=\"archmorph-web-tier-cost-assumptions.json\"" in result["content"]
     assert "Monthly Range" in result["content"]
 
 

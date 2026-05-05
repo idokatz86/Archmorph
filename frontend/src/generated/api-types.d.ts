@@ -8988,6 +8988,11 @@ export interface components {
             sku: string;
             /** Sku Multiplier */
             sku_multiplier: number;
+            /**
+             * Sku Pricing Note
+             * @default
+             */
+            sku_pricing_note: string;
             /** Source Service */
             source_service: string;
             /** Source Services */

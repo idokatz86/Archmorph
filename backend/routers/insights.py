@@ -494,6 +494,7 @@ class CostAssumptionService(StrictBaseModel):
     category: str
     region: str
     sku: str
+    sku_pricing_note: str = ""
     meter: str
     quantity: int
     quantity_assumption: str
