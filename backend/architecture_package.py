@@ -19,6 +19,7 @@ from typing import Any, Literal
 from alz_profile import alz_profile_summary, build_alz_profile
 from azure_landing_zone import generate_landing_zone_svg
 from azure_landing_zone_schema import infer_dr_mode, infer_regions, infer_tiers_from_mappings
+from cost_assumptions import build_cost_assumptions_artifact
 from customer_intent import build_customer_intent_profile
 from source_provider import normalize_source_provider
 from traceability_map import build_traceability_map, traceability_summary
@@ -45,12 +46,13 @@ def generate_architecture_package(
     if format == "svg":
         result = generate_landing_zone_svg(_diagram_analysis(analysis, diagram), dr_variant=diagram)
         filename = result["filename"].replace("landing-zone", "architecture-package")
+        cost_filename = f"archmorph-{_safe_filename(analysis)}-cost-assumptions.json"
         manifest = _build_manifest(
             analysis,
             format=format,
             diagram=diagram,
             analysis_id=analysis_id,
-            artifact_filenames=[filename],
+            artifact_filenames=[filename, cost_filename],
         )
         return {
             "format": "architecture-package-svg",
@@ -70,12 +72,13 @@ def generate_architecture_package(
     filename = f"archmorph-{_safe_filename(analysis)}-architecture-package.html"
     target_filename = f"archmorph-{_safe_filename(analysis)}-architecture-package-primary.svg"
     dr_filename = f"archmorph-{_safe_filename(analysis)}-architecture-package-dr.svg"
+    cost_filename = f"archmorph-{_safe_filename(analysis)}-cost-assumptions.json"
     manifest = _build_manifest(
         analysis,
         format=format,
         diagram=diagram,
         analysis_id=analysis_id,
-        artifact_filenames=[filename, target_filename, dr_filename],
+        artifact_filenames=[filename, target_filename, dr_filename, cost_filename],
     )
     content = _render_html_package(analysis, primary_svg, dr_svg, manifest)
     return {
@@ -132,6 +135,7 @@ def _render_html_package(
     )
 
     manifest_json = _manifest_json(manifest)
+    cost_assumptions_json = _manifest_json(manifest.get("cost_assumptions", {}))
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -232,6 +236,7 @@ def _render_html_package(
     }});
   </script>
   <script type="application/json" id="archmorph-artifact-manifest">{html.escape(manifest_json)}</script>
+    <script type="application/json" id="archmorph-cost-assumptions">{html.escape(cost_assumptions_json)}</script>
 </body>
 </html>"""
 
@@ -247,6 +252,7 @@ def _build_manifest(
     profile = _profile_from_analysis(analysis)
     limitations = _limitations(analysis, profile)
     dr_readiness = _build_dr_readiness_rubric(analysis, profile)
+    cost_assumptions = build_cost_assumptions_artifact(analysis, analysis_id=analysis_id)
     source_provider = _source_label(analysis)
     raw_warnings = [str(w) for w in analysis.get("warnings", []) if w]
     unsupported = analysis.get("unsupported_assumptions") or analysis.get("unsupported") or []
@@ -273,6 +279,7 @@ def _build_manifest(
         "alz_profile": build_alz_profile(analysis),
         "traceability_map": build_traceability_map(analysis),
         "dr_readiness": dr_readiness,
+        "cost_assumptions": cost_assumptions,
         "warnings": raw_warnings[:10],
         "limitations": [
             {"title": title, "detail": detail}
@@ -287,11 +294,19 @@ def _manifest_artifacts(
     filenames: list[str],
     format: PackageFormat,
 ) -> list[tuple[str, str, str]]:
+    artifacts: list[tuple[str, str, str]] = []
     if format == "svg":
-        return [(filenames[0], "selected-topology", "svg")]
-    roles = ["architecture-package-html", "target-topology-svg", "dr-topology-svg"]
-    formats = ["html", "svg", "svg"]
-    return list(zip(filenames, roles, formats))
+        artifacts.append((filenames[0], "selected-topology", "svg"))
+        remaining = filenames[1:]
+    else:
+        roles = ["architecture-package-html", "target-topology-svg", "dr-topology-svg"]
+        formats = ["html", "svg", "svg"]
+        artifacts.extend(zip(filenames[:3], roles, formats))
+        remaining = filenames[3:]
+    for filename in remaining:
+        if filename.endswith("-cost-assumptions.json"):
+            artifacts.append((filename, "cost-assumptions", "json"))
+    return artifacts
 
 
 def _mapping_references(analysis: dict[str, Any]) -> list[dict[str, Any]]:

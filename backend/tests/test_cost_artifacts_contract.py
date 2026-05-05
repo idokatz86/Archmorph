@@ -221,3 +221,82 @@ def test_cost_csv_export_applies_configured_overrides(test_client, cost_contract
     assert _decimal(total_row["Monthly High (USD)"]) == Decimal("57.00")
     assert _decimal(total_row["RI Savings (USD)"]) == Decimal("13.50")
     assert _decimal(total_row["Total Mid (USD)"]) == Decimal("41.50")
+
+
+def test_cost_assumptions_endpoint_publishes_reviewable_artifact(test_client, cost_contract_session):
+    response = test_client.get(f"/api/diagrams/{DIAGRAM_ID}/cost-assumptions")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["schema_version"] == "cost-assumptions/v1"
+    assert payload["analysis_id"] == DIAGRAM_ID
+    assert payload["directional_notice"].startswith("Cost estimates are directional")
+    assert payload["total_monthly_estimate"] == {"low": 15.0, "high": 35.0}
+    assert payload["missing_cost_warnings"] == []
+
+    functions = next(service for service in payload["services"] if service["service"] == "Azure Functions")
+    assert functions["source_service"] == "Lambda"
+    assert functions["region"] == "West Europe"
+    assert functions["sku"] == "Consumption"
+    assert functions["quantity"] == 1
+    assert functions["quantity_assumption"] == "1 instance(s) unless overridden by the user."
+    assert functions["reservation_assumption"] == "Pay-as-you-go; no reserved capacity unless configured by the user."
+    assert functions["data_transfer_assumption"].startswith("Not specified")
+
+
+def test_cost_assumptions_endpoint_applies_overrides(test_client, cost_contract_session):
+    cost_contract_session["_cost_overrides"] = {
+        "Azure Blob Storage": {
+            "instance_count": 2,
+            "sku": "Cool LRS",
+            "reserved_term": "3yr",
+        }
+    }
+    SESSION_STORE[DIAGRAM_ID] = cost_contract_session
+
+    response = test_client.get(f"/api/diagrams/{DIAGRAM_ID}/cost-assumptions")
+
+    assert response.status_code == 200
+    payload = response.json()
+    storage = next(service for service in payload["services"] if service["service"] == "Azure Blob Storage")
+    assert storage["sku"] == "Cool LRS"
+    assert storage["quantity"] == 2
+    assert storage["reservation_assumption"] == "Reserved capacity applied: 3yr."
+    assert storage["monthly_low"] == 5.0
+    assert storage["monthly_high"] == 15.0
+
+
+def test_cost_assumptions_builder_flags_missing_prices(cost_contract_fixture):
+    from cost_assumptions import build_cost_assumptions_artifact
+
+    cost_estimate = {
+        **cost_contract_fixture,
+        "services": [
+            {
+                "service": "Unmapped Mainframe Queue",
+                "sku": "Default tier",
+                "meter": "",
+                "category": "Integration",
+                "monthly_low": 0,
+                "monthly_high": 0,
+                "monthly_estimate": 0,
+                "price_source": "built-in estimate",
+                "base_price_usd": 0,
+                "hourly_rate_usd": 0,
+                "sku_multiplier": 1,
+                "assumptions": ["No pricing data available for this service"],
+                "formula": "Pricing not available - use Azure Pricing Calculator",
+            }
+        ],
+    }
+    analysis = {
+        "analysis_id": "missing-price-test",
+        "mappings": [{"source_service": "Legacy MQ", "azure_service": "Unmapped Mainframe Queue"}],
+    }
+
+    artifact = build_cost_assumptions_artifact(analysis, cost_estimate=cost_estimate)
+
+    assert artifact["missing_cost_warnings"] == [
+        "Unmapped Mainframe Queue: no Azure Retail Prices API or built-in price match; verify manually."
+    ]
+    assert artifact["services"][0]["source_service"] == "Legacy MQ"

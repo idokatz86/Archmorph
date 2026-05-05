@@ -1826,6 +1826,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/diagrams/{diagram_id}/cost-assumptions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Cost Assumptions
+         * @description Return a reviewable JSON artifact with cost-estimate assumptions.
+         */
+        get: operations["get_cost_assumptions_api_diagrams__diagram_id__cost_assumptions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/diagrams/{diagram_id}/cost-breakdown": {
         parameters: {
             query?: never;
@@ -6189,6 +6209,26 @@ export interface paths {
          * @description Return gap analysis sorted by severity across requested frameworks.
          */
         get: operations["compliance_gaps_v1_api_v1_diagrams__diagram_id__compliance_gaps_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/diagrams/{diagram_id}/cost-assumptions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Cost Assumptions V1
+         * @description Return a reviewable JSON artifact with cost-estimate assumptions.
+         */
+        get: operations["get_cost_assumptions_v1_api_v1_diagrams__diagram_id__cost_assumptions_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -13109,6 +13149,37 @@ export interface operations {
             };
         };
     };
+    get_cost_assumptions_api_diagrams__diagram_id__cost_assumptions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                diagram_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     cost_breakdown_api_diagrams__diagram_id__cost_breakdown_get: {
         parameters: {
             query?: never;
@@ -19920,6 +19991,37 @@ export interface operations {
             query?: {
                 frameworks?: string | null;
             };
+            header?: never;
+            path: {
+                diagram_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_cost_assumptions_v1_api_v1_diagrams__diagram_id__cost_assumptions_get: {
+        parameters: {
+            query?: never;
             header?: never;
             path: {
                 diagram_id: string;

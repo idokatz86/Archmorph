@@ -8580,6 +8580,44 @@
         "summary": "Compliance Gaps"
       }
     },
+    "/api/diagrams/{diagram_id}/cost-assumptions": {
+      "get": {
+        "description": "Return a reviewable JSON artifact with cost-estimate assumptions.",
+        "operationId": "get_cost_assumptions_api_diagrams__diagram_id__cost_assumptions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "diagram_id",
+            "required": true,
+            "schema": {
+              "title": "Diagram Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Cost Assumptions"
+      }
+    },
     "/api/diagrams/{diagram_id}/cost-breakdown": {
       "get": {
         "description": "Return enriched cost data for the Pricing tab.\n\nIncludes per-service formula, assumptions, alternative SKUs,\noptimization recommendations, cost-by-category, and source vs\ntarget comparison.",
@@ -19056,6 +19094,47 @@
           }
         ],
         "summary": "Compliance Gaps V1",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/diagrams/{diagram_id}/cost-assumptions": {
+      "get": {
+        "description": "Return a reviewable JSON artifact with cost-estimate assumptions.",
+        "operationId": "get_cost_assumptions_v1_api_v1_diagrams__diagram_id__cost_assumptions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "diagram_id",
+            "required": true,
+            "schema": {
+              "title": "Diagram Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Cost Assumptions V1",
         "tags": [
           "v1"
         ]

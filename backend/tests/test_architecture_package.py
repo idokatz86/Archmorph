@@ -104,6 +104,42 @@ MIXED_ANALYSIS: dict = json.loads(
 )
 
 
+@pytest.fixture(autouse=True)
+def architecture_package_cost_fixture(monkeypatch):
+    def estimate_cost_fixture(mappings, *, region="westeurope", sku_strategy="Balanced"):
+        services = []
+        for mapping in mappings:
+            azure_service = mapping.get("azure_service") or mapping.get("target") or "Unknown service"
+            services.append({
+                "service": azure_service,
+                "sku": "Standard",
+                "meter": "Default meter",
+                "category": mapping.get("category", "Other"),
+                "monthly_low": 10.0,
+                "monthly_high": 20.0,
+                "monthly_estimate": 15.0,
+                "price_source": "contract fixture",
+                "base_price_usd": 15.0,
+                "hourly_rate_usd": 0.0205,
+                "sku_multiplier": 1.0,
+                "assumptions": ["Region: East US", "Pay-as-you-go pricing"],
+                "formula": f"{azure_service}: fixture monthly estimate",
+            })
+        return {
+            "currency": "USD",
+            "region": "East US",
+            "arm_region": region,
+            "sku_strategy": sku_strategy,
+            "pricing_source": "contract fixture",
+            "total_monthly_estimate": {"low": round(10.0 * len(services), 2), "high": round(20.0 * len(services), 2)},
+            "services": services,
+            "service_count": len(services),
+            "cache_age_days": 0,
+        }
+
+    monkeypatch.setattr("cost_assumptions.estimate_services_cost", estimate_cost_fixture)
+
+
 def test_customer_intent_profile_normalises_lists():
     profile = build_customer_intent_profile({"sec_compliance": ["SOC 2", "GDPR"]})
     assert profile["compliance"] == "SOC 2, GDPR"
@@ -140,7 +176,11 @@ def test_architecture_package_html_manifest_contains_traceability_fields():
     assert {"source_service": "ALB", "azure_service": "Application Gateway", "category": "Networking", "confidence": 0.96} in manifest["mapping_references"]
     assert manifest["dr_readiness"]["schema_version"] == "dr-readiness-rubric/v1"
     assert len(manifest["dr_readiness"]["dimensions"]) == 7
+    assert manifest["cost_assumptions"]["schema_version"] == "cost-assumptions/v1"
+    assert manifest["cost_assumptions"]["directional_notice"].startswith("Cost estimates are directional")
+    assert any(artifact["role"] == "cost-assumptions" for artifact in manifest["artifacts"])
     assert "archmorph-artifact-manifest" in result["content"]
+    assert "archmorph-cost-assumptions" in result["content"]
 
 
 def test_architecture_package_svg_manifest_tracks_selected_diagram():
@@ -154,9 +194,10 @@ def test_architecture_package_svg_manifest_tracks_selected_diagram():
 
     assert manifest["analysis_id"] == "svg-analysis-676"
     assert manifest["export"] == {"format": "svg", "diagram": "dr"}
-    assert manifest["artifact_filenames"] == [result["filename"]]
+    assert result["filename"] in manifest["artifact_filenames"]
     assert manifest["artifacts"] == [
-        {"filename": result["filename"], "role": "selected-topology", "format": "svg"}
+        {"filename": result["filename"], "role": "selected-topology", "format": "svg"},
+        {"filename": "archmorph-web-tier-cost-assumptions.json", "role": "cost-assumptions", "format": "json"},
     ]
     assert "archmorph-artifact-manifest" in result["content"]
 

@@ -20,6 +20,7 @@ from routers.samples import get_or_recreate_session
 from usage_metrics import record_event
 from best_practices import analyze_architecture, get_quick_wins
 from cost_optimizer import analyze_cost_optimizations
+from cost_assumptions import build_cost_assumptions_artifact
 from services.azure_pricing import estimate_services_cost
 from terraform_preview import preview_terraform_plan
 from migration_risk import compute_risk_score
@@ -596,6 +597,45 @@ async def get_configured_cost(request: Request, diagram_id: str):
         "service_count": len(configured),
         "overrides_applied": len(overrides),
     }
+
+
+@router.get("/api/diagrams/{diagram_id}/cost-assumptions")
+@limiter.limit("15/minute")
+async def get_cost_assumptions(request: Request, diagram_id: str):
+    """Return a reviewable JSON artifact with cost-estimate assumptions."""
+    session = get_or_recreate_session(diagram_id)
+    if not session:
+        raise ArchmorphException(404, "No analysis found. Analyze a diagram first.")
+
+    mappings = session.get("mappings", [])
+    iac_params = session.get("iac_parameters", {})
+    region = iac_params.get("deploy_region", "westeurope")
+    sku_strategy = iac_params.get("sku_strategy", "Balanced")
+
+    if mappings:
+        base = estimate_services_cost(mappings, region=region, sku_strategy=sku_strategy)
+        overrides = session.get("_cost_overrides", {})
+        configured = _apply_overrides(base.get("services", []), overrides)
+        total_low = sum(s["monthly_low"] for s in configured)
+        total_high = sum(s["monthly_high"] for s in configured)
+        cost_estimate = {
+            **base,
+            "services": configured,
+            "service_count": len(configured),
+            "total_monthly_estimate": {"low": round(total_low, 2), "high": round(total_high, 2)},
+        }
+    else:
+        cost_estimate = {
+            "currency": "USD",
+            "region": "West Europe",
+            "arm_region": region,
+            "sku_strategy": sku_strategy,
+            "pricing_source": "no analysis available",
+            "total_monthly_estimate": {"low": 0, "high": 0},
+            "services": [],
+        }
+
+    return build_cost_assumptions_artifact(session, cost_estimate=cost_estimate, analysis_id=diagram_id)
 
 
 @router.get("/api/diagrams/{diagram_id}/cost-estimate/savings")
