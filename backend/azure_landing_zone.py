@@ -54,6 +54,7 @@ from observability import (
     record_histogram,
     trace_span,
 )
+from analysis_payload_bounds import AnalysisPayloadTooLarge, validate_analysis_payload_bounds
 
 # ---------------------------------------------------------------------------
 # Constants — palette, fonts, dimensions
@@ -1168,6 +1169,15 @@ def generate_landing_zone_svg(
                     tags={"stage": "validate", "error_type": "bad_analysis_type"},
                 )
                 raise ValueError("analysis must be a dict")
+
+            try:
+                validate_analysis_payload_bounds(analysis)
+            except AnalysisPayloadTooLarge:
+                increment_counter(
+                    "archmorph.lz.errors_total",
+                    tags={"stage": "validate", "error_type": "analysis_payload_too_large"},
+                )
+                raise
 
             # #576: source_provider is implicit (read from the analysis payload) and
             # validated here. Default "aws" preserves backwards-compat with #571.

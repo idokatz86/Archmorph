@@ -19,6 +19,7 @@ from service_builder import deduplicate_questions, get_smart_defaults_from_analy
 from architecture_package import generate_architecture_package
 from error_envelope import ArchmorphException
 from export_capabilities import attach_export_capability, verify_export_capability
+from analysis_payload_bounds import AnalysisPayloadTooLarge, validate_analysis_payload_bounds
 
 logger = logging.getLogger(__name__)
 
@@ -202,6 +203,11 @@ async def export_architecture_diagram(
     if not analysis:
         raise ArchmorphException(404, f"No analysis found for diagram {diagram_id}. Run /analyze first.")
 
+    try:
+        validate_analysis_payload_bounds(analysis)
+    except AnalysisPayloadTooLarge as exc:
+        raise ArchmorphException(413, str(exc), details=exc.details)
+
     if multi_page:
         analysis["multi_page"] = True
 
@@ -274,12 +280,19 @@ async def export_architecture_package(
         raise ArchmorphException(404, f"No analysis found for diagram {diagram_id}. Run /analyze first.")
 
     try:
+        validate_analysis_payload_bounds(analysis)
+    except AnalysisPayloadTooLarge as exc:
+        raise ArchmorphException(413, str(exc), details=exc.details)
+
+    try:
         result = generate_architecture_package(
             analysis,
             format=format,  # type: ignore[arg-type]
             diagram=diagram,  # type: ignore[arg-type]
             analysis_id=diagram_id,
         )
+    except AnalysisPayloadTooLarge as exc:
+        raise ArchmorphException(413, str(exc), details=exc.details)
     except ValueError as exc:
         raise ArchmorphException(400, str(exc))
 

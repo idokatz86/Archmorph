@@ -9,6 +9,7 @@ import xml.etree.ElementTree as ET
 import pytest
 
 from architecture_package import generate_architecture_package
+from analysis_payload_bounds import MAX_ANALYSIS_LIST_ITEMS
 from customer_intent import build_customer_intent_profile
 from routers.shared import SESSION_STORE
 
@@ -360,3 +361,30 @@ def test_export_architecture_package_endpoint_returns_dr_svg(test_client):
     assert data["filename"].endswith("-dr.svg")
     assert data["manifest"]["analysis_id"] == diagram_id
     ET.fromstring(data["content"])
+
+
+def test_export_architecture_package_rejects_oversized_analysis_with_413(test_client):
+    diagram_id = "package-endpoint-oversized-test"
+    SESSION_STORE[diagram_id] = {
+        **SAMPLE_ANALYSIS,
+        "tiers": {
+            "app": [
+                {"name": f"App Service {i}", "category": "Compute"}
+                for i in range(MAX_ANALYSIS_LIST_ITEMS + 1)
+            ]
+        },
+    }
+
+    try:
+        response = test_client.post(
+            f"/api/diagrams/{diagram_id}/export-architecture-package?format=html"
+        )
+    finally:
+        SESSION_STORE.delete(diagram_id)
+
+    assert response.status_code == 413, response.text
+    assert response.json()["error"]["details"] == {
+        "field": "tiers.app",
+        "count": MAX_ANALYSIS_LIST_ITEMS + 1,
+        "limit": MAX_ANALYSIS_LIST_ITEMS,
+    }
