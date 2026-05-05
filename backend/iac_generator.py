@@ -14,6 +14,7 @@ import tempfile
 from pathlib import Path
 from typing import Optional, List, Tuple
 
+import ci_smoke
 from openai_client import cached_chat_completion, AZURE_OPENAI_DEPLOYMENT
 from prompt_guard import (
     sanitize_iac_param,
@@ -786,6 +787,9 @@ def generate_iac_code(analysis: Optional[dict], iac_format: str = "terraform", p
         params.get("region", "westeurope"), "region",
         allowed_values=_VALID_REGIONS, default="westeurope",
     )
+
+    if ci_smoke.enabled():
+        return ci_smoke.iac_code(iac_format, safe_project, safe_region)
 
     # No analysis — return base template
     if not analysis or not analysis.get("mappings"):
