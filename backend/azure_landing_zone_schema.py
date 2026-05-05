@@ -100,17 +100,6 @@ DEFAULT_STANDBY_REGION = {"name": "West US 3", "role": "standby", "traffic_pct":
 
 DEFAULT_ACTOR = {"name": "End User", "kind": "external"}
 
-# Replication items derived from data-tier services for DR variants.
-_DEFAULT_REPLICATION_TEMPLATES = [
-    {"name": "Storage Account", "mode": "geo-redundant (RA-GRS) · async"},
-    {"name": "Managed DB",      "mode": "geo-replica · async · failover group"},
-    {"name": "Key Vault",       "mode": "KV replication · same-name secret IDs"},
-    {"name": "Event Hubs",      "mode": "Geo-DR pairing · alias namespace"},
-    {"name": "Front Door",      "mode": "Active/Standby routing rules · health probes"},
-    {"name": "Identity",        "mode": "Single Entra tenant · global"},
-]
-
-
 # ---------------------------------------------------------------------------
 # Public helpers
 # ---------------------------------------------------------------------------
@@ -168,11 +157,15 @@ def infer_regions(analysis: dict[str, Any], *, dr_variant: str = "primary") -> l
         for r in regions:
             if not isinstance(r, dict) or not r.get("name"):
                 continue
-            out.append({
+            region = {
                 "name": str(r["name"]),
                 "role": str(r.get("role", "primary")),
                 "traffic_pct": _coerce_pct(r.get("traffic_pct"), default=100 if not out else 0),
-            })
+            }
+            availability_zones = r.get("availability_zones")
+            if isinstance(availability_zones, list) and availability_zones:
+                region["availability_zones"] = [str(zone) for zone in availability_zones if str(zone).strip()]
+            out.append(region)
         if out:
             # Pad to two regions when DR was requested but only one configured.
             if dr_variant == "dr" and len(out) == 1:
@@ -264,8 +257,8 @@ def infer_actors(analysis: dict[str, Any]) -> list[dict[str, Any]]:
 def infer_replication(analysis: dict[str, Any]) -> list[dict[str, Any]]:
     """Return cross-region replication metadata for the DR band.
 
-    Honours ``analysis['replication']`` when present, otherwise returns a
-    canonical 6-item template covering the most common Azure stamps.
+    Honours ``analysis['replication']`` when present, otherwise derives the
+    strip from data-tier services in ``tiers`` / ``mappings``.
     Returns an empty list when ``dr_mode`` is single-region.
     """
     if infer_dr_mode(analysis) == "single-region":
@@ -290,7 +283,7 @@ def infer_replication(analysis: dict[str, Any]) -> list[dict[str, Any]]:
         if out:
             return out
 
-    return [dict(t) for t in _DEFAULT_REPLICATION_TEMPLATES]
+    return _infer_replication_from_data_tier(analysis)
 
 
 # ---------------------------------------------------------------------------
@@ -319,3 +312,31 @@ def _normalise_tier_entry(entry: Any) -> dict[str, Any] | None:
             subtitle = f"Replaces {source}"
         return {"name": name, "source": source, "subtitle": subtitle}
     return None
+
+
+def _infer_replication_from_data_tier(analysis: dict[str, Any]) -> list[dict[str, str]]:
+    tiers = infer_tiers_from_mappings(analysis)
+    services = tiers.get("data", []) + tiers.get("storage", [])
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    rules: tuple[tuple[tuple[str, ...], str, str], ...] = (
+        (("elasticache", "redis", "cache for redis"), "Azure Cache for Redis", "geo-replication / active geo-replication"),
+        (("dynamodb", "cosmos"), "Cosmos DB", "multi-region writes"),
+        (("rds", "aurora", "postgres", "postgresql", "mysql", "mariadb", "sql", "cloud sql"), "Managed DB", "geo-replica · async · failover group"),
+        (("event hubs", "eventhub", "service bus", "event grid", "kafka", "sqs", "sns", "pub/sub"), "Event Hubs / Service Bus", "Geo-DR pairing · alias namespace"),
+        (("s3", "blob", "storage account", "azure files", "filestore", "efs"), "Storage Account", "geo-redundant (RA-GRS) · async"),
+    )
+
+    for service in services:
+        text = " ".join(
+            str(service.get(key, "")).lower()
+            for key in ("name", "source", "subtitle")
+        )
+        for needles, name, mode in rules:
+            if any(needle in text for needle in needles) and name not in seen:
+                seen.add(name)
+                out.append({"name": name, "mode": mode})
+                break
+
+    return out

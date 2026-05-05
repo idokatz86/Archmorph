@@ -619,19 +619,8 @@ def _legend(y: int, source_provider: str = "aws") -> str:
 REGION_W = 1740
 REGION_H = 760
 
-# Tier-1 card slots (left → right) — must total to width REGION_W.
-# (relative_x, width, icon_key, default_label)
-_TIER1_CARDS: list[tuple[int, int, str, str]] = [
-    (50,   220, "storage", "Storage"),
-    (360,  270, "appgw",   "Application Gateway"),
-    (660,  240, "avd",     "Azure Virtual Desktop"),
-    (910,  350, "monitor", "Observability"),
-    (1290, 170, "dns",     "Private DNS"),
-    (1480, 220, "entra",   "Identity"),
-]
-
-
 def _region_stamp(x: int, y: int, region: dict[str, Any], tiers: dict[str, list[dict[str, Any]]],
+                  analysis: dict[str, Any],
                   *, status: str = "primary", role_text: str = "") -> str:
     """One region container with tiered services."""
     out = [f'<g transform="translate({x}, {y})">']
@@ -669,10 +658,11 @@ def _region_stamp(x: int, y: int, region: dict[str, Any], tiers: dict[str, list[
     out.append(_tier1_row(tiers))
 
     # VNet + subnets (centre band).
-    out.append(_vnet_block(tiers))
+    network_context = _network_context(analysis, region)
+    out.append(_vnet_block(tiers, network_context))
 
     # Files banner + Data subnet.
-    out.append(_data_band(tiers))
+    out.append(_data_band(tiers, network_context))
 
     # Networking services rail — make source-networking packages visibly accurate.
     out.append(_network_services_rail(tiers))
@@ -817,22 +807,13 @@ def _tier1_row(tiers: dict[str, list[dict[str, Any]]]) -> str:
     """Top tier — ingress / observability / identity / DNS / storage."""
     out: list[str] = []
 
-    # Resolve a per-slot service name from tiers when available.
-    ingress_names    = [s["name"] for s in tiers.get("ingress", [])]
-    storage_names    = [s["name"] for s in tiers.get("storage", [])]
-    identity_names   = [s["name"] for s in tiers.get("identity", [])]
-    obs_names        = [s["name"] for s in tiers.get("observability", [])]
-
-    slot_overrides = {
-        "storage": storage_names[0] if storage_names else None,
-        "appgw":   ingress_names[0] if ingress_names else None,
-        "entra":   identity_names[0] if identity_names else None,
-    }
-
-    for rel_x, w, icon_key, default_label in _TIER1_CARDS:
+    for card in _tier1_cards(tiers):
+        rel_x = card["x"]
+        w = card["width"]
+        icon_key = card["icon"]
+        label = card["label"]
         h = 100
         y = 76
-        label = slot_overrides.get(icon_key) or default_label
         out.append(_card(rel_x, y, w, h, stroke=COLOR_PRIMARY))
         # The Observability tile gets a row of 5 sub-icons.
         if icon_key == "monitor":
@@ -845,32 +826,146 @@ def _tier1_row(tiers: dict[str, list[dict[str, Any]]]) -> str:
                 out.append(_img(sic, cx - 11, y + 32, 22, 22))
                 out.append(_tx(cx, y + 70, slabel, "t-tinier", anchor="middle"))
             # Provide one summary line listing what we found for observability.
-            summary = ", ".join(obs_names[:3]) if obs_names else "centralised"
+            summary = card.get("subtitle") or "centralised"
             out.append(_tx(rel_x + w / 2, y + 88, summary, "t-tinier", anchor="middle"))
         else:
             out.append(_img(icon_key, rel_x + 12, y + 12, 28, 28))
             out.append(_tx(rel_x + 48, y + 28, label, "t-card-h"))
-            # Subtitle from tiers if available.
-            subtitle = ""
-            if icon_key == "storage" and tiers.get("storage"):
-                subtitle = tiers["storage"][0].get("subtitle", "")
-            elif icon_key == "appgw" and tiers.get("ingress"):
-                subtitle = tiers["ingress"][0].get("subtitle", "")
-            elif icon_key == "entra" and tiers.get("identity"):
-                subtitle = tiers["identity"][0].get("subtitle", "")
-            elif icon_key == "dns":
-                subtitle = "Private DNS zones · service discovery"
-            elif icon_key == "avd":
-                subtitle = "Bastion · session host · just-in-time"
+            subtitle = card.get("subtitle", "")
             if subtitle:
                 out.append(_tx(rel_x + 48, y + 44, subtitle, "t-tiny"))
-            out.append(_tx(rel_x + 48, y + 64, "Zone-redundant", "t-tinier"))
+            if card.get("meta"):
+                out.append(_tx(rel_x + 48, y + 64, card["meta"], "t-tinier"))
 
     return "\n".join(out)
 
 
-def _vnet_block(tiers: dict[str, list[dict[str, Any]]]) -> str:
-    """VNet container with Application Subnet + AKS + 3 AZ columns."""
+def _tier1_cards(tiers: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
+    cards: list[dict[str, Any]] = []
+    if tiers.get("storage"):
+        cards.append(_tier1_card("storage", 220, "storage", tiers["storage"][0]))
+    if tiers.get("ingress"):
+        ingress = tiers["ingress"][0]
+        cards.append(_tier1_card(_network_icon_key(ingress["name"]) or "appgw", 270, "Application Gateway", ingress))
+    vdi = _vdi_service(tiers)
+    if vdi:
+        cards.append(_tier1_card("avd", 240, "Azure Virtual Desktop", vdi))
+    if tiers.get("observability"):
+        names = ", ".join(str(s.get("name", "")) for s in tiers["observability"][:3] if s.get("name"))
+        cards.append({"icon": "monitor", "width": 350, "label": "Observability", "subtitle": names})
+    dns = _dns_service(tiers)
+    if dns:
+        cards.append(_tier1_card("dns", 170, "Private DNS", dns))
+    if tiers.get("identity"):
+        cards.append(_tier1_card("entra", 220, "Identity", tiers["identity"][0]))
+
+    x_positions = [50, 360, 660, 910, 1290, 1480]
+    for card, x in zip(cards[:6], x_positions):
+        card["x"] = x
+    return cards[:6]
+
+
+def _tier1_card(icon: str, width: int, fallback_label: str, service: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "icon": icon,
+        "width": width,
+        "label": service.get("name") or fallback_label,
+        "subtitle": service.get("subtitle", ""),
+        "meta": "Zone-redundant",
+    }
+
+
+def _vdi_service(tiers: dict[str, list[dict[str, Any]]]) -> Optional[dict[str, Any]]:
+    for entries in tiers.values():
+        for service in entries:
+            text = " ".join(str(service.get(key, "")).lower() for key in ("name", "source", "subtitle"))
+            if any(token in text for token in ("workspaces", "citrix", "vdi", "virtual desktop", "avd")):
+                return service
+    return None
+
+
+def _dns_service(tiers: dict[str, list[dict[str, Any]]]) -> Optional[dict[str, Any]]:
+    for entries in tiers.values():
+        for service in entries:
+            text = " ".join(str(service.get(key, "")).lower() for key in ("name", "source", "subtitle"))
+            if any(token in text for token in ("dns", "route 53", "private hosted zone")):
+                return service
+    return None
+
+
+def _network_context(analysis: dict[str, Any], region: dict[str, Any]) -> dict[str, Any]:
+    vpc = _first_vpc(analysis, region)
+    azs = region.get("availability_zones")
+    availability_zones = [str(zone) for zone in azs] if isinstance(azs, list) and azs else []
+    return {
+        "vpc": vpc,
+        "vnet_label": _vnet_label(vpc),
+        "app_subnet_label": _subnet_label(vpc, "application", "Application Subnet"),
+        "data_subnet_label": _subnet_label(vpc, "data", "Data Subnet"),
+        "availability_zones": availability_zones or ["Availability Zone 1", "Availability Zone 2", "Availability Zone 3"],
+        "needs_network_capture": vpc is None,
+    }
+
+
+def _first_vpc(analysis: dict[str, Any], region: dict[str, Any]) -> Optional[dict[str, Any]]:
+    vpcs = analysis.get("vpcs")
+    if not isinstance(vpcs, list):
+        return None
+    region_name = str(region.get("name", "")).lower()
+    unscoped: list[dict[str, Any]] = []
+    for vpc in vpcs:
+        if not isinstance(vpc, dict):
+            continue
+        vpc_region = str(vpc.get("region", "")).lower()
+        if vpc_region and region_name and vpc_region == region_name:
+            return vpc
+        if not vpc_region:
+            unscoped.append(vpc)
+    if unscoped and not any(isinstance(vpc, dict) and vpc.get("region") for vpc in vpcs):
+        return unscoped[0]
+    return None
+
+
+def _vnet_label(vpc: Optional[dict[str, Any]]) -> str:
+    if not vpc:
+        return "VNet (CIDR TBD)"
+    cidr = vpc.get("cidr") or vpc.get("cidr_block") or vpc.get("address_space")
+    name = vpc.get("name") or vpc.get("id") or "VNet"
+    return f"{name} · {cidr}" if cidr else f"{name} · CIDR TBD"
+
+
+def _subnet_label(vpc: Optional[dict[str, Any]], purpose: str, fallback: str) -> str:
+    subnet = _subnet_for(vpc, purpose)
+    if not subnet:
+        return f"{fallback} · CIDR TBD"
+    name = subnet.get("name") or fallback
+    cidr = subnet.get("cidr") or subnet.get("cidr_block") or subnet.get("address_prefix")
+    return f"{name} · {cidr}" if cidr else f"{name} · CIDR TBD"
+
+
+def _subnet_for(vpc: Optional[dict[str, Any]], purpose: str) -> Optional[dict[str, Any]]:
+    if not vpc:
+        return None
+    subnets = vpc.get("subnets")
+    if not isinstance(subnets, list):
+        return None
+    purpose_terms = {
+        "application": ("app", "application", "web", "compute"),
+        "data": ("data", "db", "database"),
+    }[purpose]
+    for subnet in subnets:
+        if not isinstance(subnet, dict):
+            continue
+        text = " ".join(str(subnet.get(key, "")).lower() for key in ("name", "role", "tier", "purpose"))
+        if any(term in text for term in purpose_terms):
+            return subnet
+    if purpose == "application":
+        return next((subnet for subnet in subnets if isinstance(subnet, dict)), None)
+    return None
+
+
+def _vnet_block(tiers: dict[str, list[dict[str, Any]]], network_context: dict[str, Any]) -> str:
+    """VNet container with Application Subnet + AKS + AZ columns."""
     out: list[str] = []
     vnet_x, vnet_y, vnet_w, vnet_h = 40, 200, 1480, 540
     out.append(
@@ -882,7 +977,9 @@ def _vnet_block(tiers: dict[str, list[dict[str, Any]]]) -> str:
         f'fill="{COLOR_GREEN}"/>'
     )
     out.append(_img("vnet", vnet_x + 4, vnet_y + 3, 16, 16))
-    out.append(_tx(vnet_x + 26, vnet_y + 17, "VNet · 10.0.0.0/16", "t-banner"))
+    out.append(_tx(vnet_x + 26, vnet_y + 17, network_context["vnet_label"], "t-banner"))
+    if network_context.get("needs_network_capture"):
+        out.append(_tx(vnet_x + 280, vnet_y + 17, "infer from input — needs network capture (#SUB-NETWORK)", "t-banner"))
 
     # Application Subnet.
     app_x, app_y, app_w, app_h = 60, 234, 1440, 396
@@ -895,7 +992,7 @@ def _vnet_block(tiers: dict[str, list[dict[str, Any]]]) -> str:
         f'fill="{COLOR_PURPLE}"/>'
     )
     out.append(_img("subnet", app_x + 4, app_y + 1, 16, 16))
-    out.append(_tx(app_x + 26, app_y + 15, "Application Subnet · 10.0.1.0/24", "t-banner"))
+    out.append(_tx(app_x + 26, app_y + 15, network_context["app_subnet_label"], "t-banner"))
 
     # AKS container inside Application subnet.
     aks_x, aks_y, aks_w, aks_h = 246, 272, 1000, 304
@@ -909,25 +1006,19 @@ def _vnet_block(tiers: dict[str, list[dict[str, Any]]]) -> str:
     )
     out.append(_img("aks", aks_x + 4, aks_y + 2, 18, 18))
     aks_label_names = [s["name"] for s in tiers.get("compute", [])][:1]
-    aks_title = f"{aks_label_names[0]} · 3 zones" if aks_label_names else "Azure Kubernetes Service · 3 zones"
+    az_labels = network_context["availability_zones"]
+    zone_count = len(az_labels)
+    aks_title = f"{aks_label_names[0]} · {zone_count} zones" if aks_label_names else f"Azure Kubernetes Service · {zone_count} zones"
     out.append(_tx(aks_x + 28, aks_y + 16, aks_title, "t-banner"))
 
-    # 3 AZ columns. Pull workload pod names from compute tier when available.
+    # AZ columns. Pull workload names from compute tier when available.
     compute_pods = [s["name"] for s in tiers.get("compute", [])]
-    az_pods_default = [
-        ["Workload pods", "Background workers", "Service mesh", "Sidecars", "Init pods", None],
-        ["Workload pods", "Background workers", "Service mesh", None, None, None],
-        ["Workload pods", None, "Service mesh", None, None, None],
-    ]
-    # If we have explicit compute services, surface up to 5 in AZ1.
-    if compute_pods:
-        custom = compute_pods[:5] + [None] * (6 - min(5, len(compute_pods)))
-        az_pods_default[0] = custom
+    pod_groups = _az_workload_groups(compute_pods, zone_count)
 
-    for i in range(3):
+    for i, az_label in enumerate(az_labels):
         ax = 260 + i * 330
         ay = 304
-        out.append(_az_column(ax, ay, f"Availability Zone {i + 1}", az_pods_default[i]))
+        out.append(_az_column(ax, ay, az_label, pod_groups[i]))
 
     # Files banner.
     fb_x, fb_y, fb_w, fb_h = 80, 588, 1404, 38
@@ -972,7 +1063,16 @@ def _az_column(x: int, y: int, label: str, pods: list[Optional[str]]) -> str:
     return "\n".join(out)
 
 
-def _data_band(tiers: dict[str, list[dict[str, Any]]]) -> str:
+def _az_workload_groups(compute_pods: list[str], zone_count: int) -> list[list[Optional[str]]]:
+    if not compute_pods:
+        return [["Workload (input did not specify)"] for _ in range(zone_count)]
+    groups: list[list[Optional[str]]] = [[] for _ in range(zone_count)]
+    for i, pod in enumerate(compute_pods[: max(1, zone_count * 5)]):
+        groups[i % zone_count].append(pod)
+    return [group or ["Workload (input did not specify)"] for group in groups]
+
+
+def _data_band(tiers: dict[str, list[dict[str, Any]]], network_context: dict[str, Any]) -> str:
     """Data subnet — primary + standby DB pair."""
     out: list[str] = []
     ds_x, ds_y, ds_w, ds_h = 60, 652, 1440, 88
@@ -985,7 +1085,7 @@ def _data_band(tiers: dict[str, list[dict[str, Any]]]) -> str:
         f'fill="{COLOR_PURPLE}"/>'
     )
     out.append(_img("subnet", ds_x + 4, ds_y + 1, 16, 16))
-    out.append(_tx(ds_x + 26, ds_y + 15, "Data Subnet · 10.0.2.0/24", "t-banner"))
+    out.append(_tx(ds_x + 26, ds_y + 15, network_context["data_subnet_label"], "t-banner"))
 
     db_names = [s["name"] for s in tiers.get("data", [])]
     primary_label = db_names[0] if db_names else "Managed Relational DB"
@@ -1241,7 +1341,7 @@ def generate_landing_zone_svg(
                     if primary_role == "primary" else f"{primary_role.title()} role"
                 )
                 parts.append(_region_stamp(
-                    20, 290, regions[0], tiers,
+                    20, 290, regions[0], tiers, analysis,
                     status="primary",
                     role_text=primary_role_text,
                 ))
@@ -1276,7 +1376,7 @@ def generate_landing_zone_svg(
                     if len(regions) >= 2:
                         r2 = regions[1]
                         parts.append(_region_stamp(
-                            20, r2_y, r2, tiers,
+                            20, r2_y, r2, tiers, analysis,
                             status="standby",
                             role_text=f"Standby · {r2.get('traffic_pct', 0)}% traffic · automated failover",
                         ))

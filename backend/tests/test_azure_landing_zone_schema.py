@@ -83,6 +83,11 @@ class TestInferRegions:
         assert regions[0]["name"] == "Sweden Central"
         assert regions[1]["name"] == "Norway East"
 
+    def test_preserves_availability_zones(self):
+        a = {"regions": [{"name": "us-east-1", "availability_zones": ["use1-az1", "use1-az2"]}]}
+        regions = infer_regions(a)
+        assert regions[0]["availability_zones"] == ["use1-az1", "use1-az2"]
+
     def test_dr_variant_pads_single_region_to_two(self):
         a = {"regions": [{"name": "East US", "traffic_pct": 100}]}
         regions = infer_regions(a, dr_variant="dr")
@@ -404,14 +409,21 @@ class TestInferReplication:
         assert infer_replication({}) == []
         assert infer_replication({"dr_mode": "single-region"}) == []
 
-    def test_default_template_for_dr(self):
-        a = {"dr_mode": "active-standby"}
+    def test_derives_replication_from_data_tier_for_dr(self):
+        a = {"dr_mode": "active-standby", "mappings": [
+            {"source_service": "RDS PostgreSQL", "azure_service": "Azure Database for PostgreSQL", "category": "Database"},
+            {"source_service": "ElastiCache Redis", "azure_service": "Azure Cache for Redis", "category": "Database"},
+            {"source_service": "DynamoDB", "azure_service": "Cosmos DB", "category": "Database"},
+        ]}
         rep = infer_replication(a)
-        assert len(rep) >= 6  # default template has 6 entries
         names = [r["name"] for r in rep]
-        assert "Storage Account" in names
         assert "Managed DB" in names
-        assert "Identity" in names
+        assert "Azure Cache for Redis" in names
+        assert "Cosmos DB" in names
+
+    def test_no_static_replication_strip_without_data_tier_inventory(self):
+        rep = infer_replication({"dr_mode": "active-standby"})
+        assert rep == []
 
     def test_explicit_replication_passthrough(self):
         a = {"dr_mode": "active-standby", "replication": [

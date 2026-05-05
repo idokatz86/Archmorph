@@ -224,6 +224,136 @@ class TestGenerator:
         assert texts.count("Network Services") == 2
         assert 'id="network-services"' not in result["content"]
 
+    def test_591_tier1_omits_avd_when_vdi_not_in_input(self):
+        result = generate_landing_zone_svg(SAMPLE_ANALYSIS, dr_variant="primary")
+        root = ET.fromstring(result["content"])
+        texts = [t.text or "" for t in root.iter(f"{SVG_NS}text")]
+
+        assert texts.count("Azure Virtual Desktop") == 1  # legend only
+        assert "Bastion · session host · just-in-time" not in texts
+
+    def test_591_tier1_renders_avd_when_workspaces_present(self):
+        analysis = {
+            **SAMPLE_ANALYSIS,
+            "mappings": [
+                *SAMPLE_ANALYSIS["mappings"],
+                {"source_service": "WorkSpaces", "azure_service": "Azure Virtual Desktop", "category": "Business"},
+            ],
+        }
+
+        result = generate_landing_zone_svg(analysis, dr_variant="primary")
+        root = ET.fromstring(result["content"])
+        texts = [t.text or "" for t in root.iter(f"{SVG_NS}text")]
+
+        assert texts.count("Azure Virtual Desktop") >= 2
+        assert "Replaces WorkSpaces" in texts
+
+    def test_591_vnet_block_uses_vpc_cidr_subnets_and_region_azs(self):
+        analysis = {
+            **SAMPLE_ANALYSIS,
+            "regions": [
+                {
+                    "name": "us-east-1",
+                    "role": "primary",
+                    "traffic_pct": 100,
+                    "availability_zones": ["use1-az1", "use1-az2"],
+                }
+            ],
+            "vpcs": [
+                {
+                    "name": "prod-vpc",
+                    "region": "us-east-1",
+                    "cidr": "10.42.0.0/16",
+                    "subnets": [
+                        {"name": "app-private", "purpose": "application", "cidr": "10.42.1.0/24"},
+                        {"name": "data-private", "purpose": "data", "cidr": "10.42.2.0/24"},
+                    ],
+                }
+            ],
+        }
+
+        result = generate_landing_zone_svg(analysis, dr_variant="primary")
+        root = ET.fromstring(result["content"])
+        texts = [t.text or "" for t in root.iter(f"{SVG_NS}text")]
+
+        assert "prod-vpc · 10.42.0.0/16" in texts
+        assert "app-private · 10.42.1.0/24" in texts
+        assert "data-private · 10.42.2.0/24" in texts
+        assert "use1-az1" in texts
+        assert "use1-az2" in texts
+        assert "Availability Zone 3" not in texts
+
+    def test_591_vnet_block_does_not_reuse_mismatched_region_vpc(self):
+        analysis = {
+            **SAMPLE_ANALYSIS,
+            "regions": [{"name": "West Europe", "role": "primary", "traffic_pct": 100}],
+            "vpcs": [{"name": "aws-use1", "region": "us-east-1", "cidr": "10.20.0.0/16"}],
+        }
+
+        result = generate_landing_zone_svg(analysis, dr_variant="primary")
+        root = ET.fromstring(result["content"])
+        texts = [t.text or "" for t in root.iter(f"{SVG_NS}text")]
+
+        assert "VNet (CIDR TBD)" in texts
+        assert "infer from input — needs network capture (#SUB-NETWORK)" in texts
+        assert "aws-use1 · 10.20.0.0/16" not in texts
+
+    def test_591_application_subnet_does_not_steal_private_data_subnet(self):
+        analysis = {
+            **SAMPLE_ANALYSIS,
+            "regions": [{"name": "us-east-1", "role": "primary", "traffic_pct": 100}],
+            "vpcs": [
+                {
+                    "name": "prod-vpc",
+                    "region": "us-east-1",
+                    "cidr": "10.42.0.0/16",
+                    "subnets": [
+                        {"name": "private-db", "purpose": "data", "cidr": "10.42.2.0/24"},
+                        {"name": "app-private", "purpose": "application", "cidr": "10.42.1.0/24"},
+                    ],
+                }
+            ],
+        }
+
+        result = generate_landing_zone_svg(analysis, dr_variant="primary")
+        root = ET.fromstring(result["content"])
+        texts = [t.text or "" for t in root.iter(f"{SVG_NS}text")]
+
+        assert "app-private · 10.42.1.0/24" in texts
+        assert "private-db · 10.42.2.0/24" in texts
+
+    def test_591_vnet_block_falls_back_without_fake_cidr(self):
+        result = generate_landing_zone_svg(SAMPLE_ANALYSIS, dr_variant="primary")
+        root = ET.fromstring(result["content"])
+        texts = [t.text or "" for t in root.iter(f"{SVG_NS}text")]
+
+        assert "VNet (CIDR TBD)" in texts
+        assert "infer from input — needs network capture (#SUB-NETWORK)" in texts
+        assert "VNet · 10.0.0.0/16" not in texts
+        assert "Application Subnet · 10.0.1.0/24" not in texts
+        assert "Data Subnet · 10.0.2.0/24" not in texts
+
+    def test_591_replication_band_uses_data_tier_inventory(self):
+        analysis = {
+            **DR_ANALYSIS,
+            "mappings": [
+                {"source_service": "RDS PostgreSQL", "azure_service": "Azure Database for PostgreSQL", "category": "Database"},
+                {"source_service": "ElastiCache Redis", "azure_service": "Azure Cache for Redis", "category": "Database"},
+                {"source_service": "DynamoDB", "azure_service": "Cosmos DB", "category": "Database"},
+            ],
+        }
+
+        result = generate_landing_zone_svg(analysis, dr_variant="dr")
+        root = ET.fromstring(result["content"])
+        texts = [t.text or "" for t in root.iter(f"{SVG_NS}text")]
+
+        assert "Managed DB" in texts
+        assert "Azure Cache for Redis" in texts
+        assert "Cosmos DB" in texts
+        assert "geo-replication / active geo-replication" in texts
+        assert "multi-region writes" in texts
+        assert "KV replication · same-name secret IDs" not in texts
+
     def test_landing_zone_svg_invalid_dr_variant_raises(self):
         with pytest.raises(ValueError):
             generate_landing_zone_svg(SAMPLE_ANALYSIS, dr_variant="bogus")  # type: ignore[arg-type]
