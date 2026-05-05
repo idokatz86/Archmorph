@@ -9002,7 +9002,7 @@ export interface components {
             /** Arm Region */
             arm_region: string;
             /** Cache Age Days */
-            cache_age_days: unknown;
+            cache_age_days?: number | null;
             /** Currency */
             currency: string;
             /** Directional Notice */

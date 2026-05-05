@@ -1388,6 +1388,14 @@
             "type": "string"
           },
           "cache_age_days": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Cache Age Days"
           },
           "currency": {
@@ -1448,7 +1456,6 @@
           "arm_region",
           "sku_strategy",
           "pricing_source",
-          "cache_age_days",
           "total_monthly_estimate",
           "service_count",
           "directional_notice"

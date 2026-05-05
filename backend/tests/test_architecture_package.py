@@ -183,6 +183,9 @@ def test_architecture_package_html_manifest_contains_traceability_fields():
     assert "archmorph-cost-assumptions" in result["content"]
     assert "five review outputs" in result["content"]
     assert "E · Cost Assumptions JSON" in result["content"]
+    assert "E — Cost Assumptions" in result["content"]
+    assert "id=\"download-cost-assumptions\"" in result["content"]
+    assert "Monthly Range" in result["content"]
 
 
 def test_architecture_package_svg_manifest_tracks_selected_diagram():
@@ -387,7 +390,9 @@ def test_export_architecture_package_endpoint_returns_html(test_client):
     assert data["format"] == "architecture-package-html"
     assert data["filename"].endswith(".html")
     assert "A — Target Azure Topology" in data["content"]
+    assert "E — Cost Assumptions" in data["content"]
     assert data["manifest"]["analysis_id"] == diagram_id
+    assert "_cached_cost_estimate" in SESSION_STORE[diagram_id]
 
 
 def test_export_architecture_package_endpoint_returns_dr_svg(test_client):

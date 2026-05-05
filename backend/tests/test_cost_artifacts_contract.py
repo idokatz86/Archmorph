@@ -308,8 +308,33 @@ def test_cost_assumptions_endpoint_reprices_stale_cached_region(test_client, cos
     assert response.status_code == 200
     payload = response.json()
     assert payload["arm_region"] == "westeurope"
+    assert SESSION_STORE[DIAGRAM_ID]["_cached_cost_estimate"]["arm_region"] == "westeurope"
     functions = next(service for service in payload["services"] if service["service"] == "Azure Functions")
     assert functions["monthly_low"] == 10.0
+
+
+def test_cost_assumptions_endpoint_reuses_cached_estimate_with_case_insensitive_sku_strategy(
+    monkeypatch,
+    test_client,
+    cost_contract_session,
+    cost_contract_fixture,
+):
+    cached = copy.deepcopy(cost_contract_fixture)
+    cached["sku_strategy"] = "balanced"
+    cached["services"][0]["monthly_low"] = 12.0
+    cost_contract_session["_cached_cost_estimate"] = cached
+    SESSION_STORE[DIAGRAM_ID] = cost_contract_session
+
+    def fail_live_pricing(*_args, **_kwargs):
+        raise AssertionError("case-normalized SKU strategy should reuse compatible cached estimates")
+
+    monkeypatch.setattr("cost_assumptions.estimate_services_cost", fail_live_pricing)
+
+    response = test_client.get(f"/api/diagrams/{DIAGRAM_ID}/cost-assumptions")
+
+    assert response.status_code == 200
+    functions = next(service for service in response.json()["services"] if service["service"] == "Azure Functions")
+    assert functions["monthly_low"] == 12.0
 
 
 def test_cost_assumptions_endpoint_has_openapi_schema(test_client):
@@ -319,6 +344,8 @@ def test_cost_assumptions_endpoint_has_openapi_schema(test_client):
     operation = response.json()["paths"]["/api/diagrams/{diagram_id}/cost-assumptions"]["get"]
     schema = operation["responses"]["200"]["content"]["application/json"]["schema"]
     assert schema["$ref"].endswith("/CostAssumptionsResponse")
+    cache_age_schema = response.json()["components"]["schemas"]["CostAssumptionsResponse"]["properties"]["cache_age_days"]
+    assert cache_age_schema == {"anyOf": [{"type": "number"}, {"type": "null"}], "title": "Cache Age Days"}
 
 
 def test_cost_assumptions_builder_flags_missing_prices(cost_contract_fixture):

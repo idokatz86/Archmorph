@@ -179,8 +179,8 @@ def _cached_estimate_matches(candidate: Any, *, region: str, sku_strategy: str) 
     if not isinstance(candidate, dict) or candidate.get("services") is None:
         return False
     cached_region = str(candidate.get("arm_region") or candidate.get("region") or "").lower()
-    cached_strategy = str(candidate.get("sku_strategy") or "Balanced")
-    return cached_region == region.lower() and cached_strategy == sku_strategy
+    cached_strategy = str(candidate.get("sku_strategy") or "Balanced").lower()
+    return cached_region == region.lower() and cached_strategy == sku_strategy.lower()
 
 
 def _mappings_for_service(service_name: str, mappings: list[dict[str, Any]]) -> list[dict[str, Any]]:

@@ -291,6 +291,7 @@ async def export_architecture_package(
             diagram=diagram,  # type: ignore[arg-type]
             analysis_id=diagram_id,
         )
+        SESSION_STORE[diagram_id] = analysis
     except AnalysisPayloadTooLarge as exc:
         raise ArchmorphException(413, str(exc), details=exc.details)
     except ValueError as exc:

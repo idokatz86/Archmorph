@@ -9,7 +9,7 @@ Split from diagrams.py for maintainability (#284).
 from fastapi import APIRouter, Request, Depends
 from pydantic import Field
 from strict_models import StrictBaseModel
-from typing import Any, Optional, List
+from typing import Optional, List
 import asyncio
 import csv
 import io
@@ -520,7 +520,7 @@ class CostAssumptionsResponse(StrictBaseModel):
     arm_region: str
     sku_strategy: str
     pricing_source: str
-    cache_age_days: Any
+    cache_age_days: Optional[float] = None
     total_monthly_estimate: dict[str, float]
     service_count: int
     directional_notice: str
@@ -649,7 +649,9 @@ async def get_cost_assumptions(request: Request, diagram_id: str):
     if not session:
         raise ArchmorphException(404, "No analysis found. Analyze a diagram first.")
 
-    return build_cost_assumptions_artifact(session, analysis_id=diagram_id)
+    artifact = build_cost_assumptions_artifact(session, analysis_id=diagram_id)
+    SESSION_STORE[diagram_id] = session
+    return artifact
 
 
 @router.get("/api/diagrams/{diagram_id}/cost-estimate/savings")
