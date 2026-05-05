@@ -1,5 +1,6 @@
 """Comprehensive tests for webhooks.py and routers/webhooks.py — Sprint 9 #175."""
 import asyncio
+import socket
 import pytest
 from unittest.mock import patch
 
@@ -19,6 +20,8 @@ from webhooks import (
     emit_event,
     compute_signature,
     verify_signature,
+    validate_webhook_target_url,
+    _deliver_payload,
     clear_all,
     ALL_EVENT_TYPES,
     INTEGRATION_REQUIREMENTS,
@@ -26,8 +29,9 @@ from webhooks import (
 
 
 @pytest.fixture(autouse=True)
-def reset_state():
+def reset_state(monkeypatch):
     """Clear all webhook state between tests."""
+    monkeypatch.setattr(socket, "getaddrinfo", _mock_getaddrinfo(["8.8.8.8"]))
     clear_all()
     yield
     clear_all()
@@ -136,6 +140,140 @@ class TestWebhookCRUD:
 
 
 # ---------------------------------------------------------------------------
+# SSRF protection
+# ---------------------------------------------------------------------------
+
+def _mock_getaddrinfo(addresses):
+    def _resolver(hostname, port, *args, **kwargs):
+        return [
+            (
+                socket.AF_INET6 if ":" in address else socket.AF_INET,
+                socket.SOCK_STREAM,
+                6,
+                "",
+                (address, port, 0, 0) if ":" in address else (address, port),
+            )
+            for address in addresses
+        ]
+
+    return _resolver
+
+
+class TestWebhookSSRFProtection:
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "http://example.com/hook",
+            "https://127.0.0.1/hook",
+            "https://10.0.0.5/hook",
+            "https://172.16.0.10/hook",
+            "https://192.168.1.10/hook",
+            "https://169.254.169.254/latest/meta-data",
+            "https://[::1]/hook",
+            "https://[fc00::1]/hook",
+            "https://localhost/hook",
+            "https://user:pass@example.com/hook",
+            "https://example.com:bad/hook",
+            "https://example.com:0/hook",
+        ],
+    )
+    def test_register_rejects_unsafe_literal_targets(self, url):
+        with pytest.raises(ValueError):
+            register_webhook(url=url, events=["analysis.completed"])
+
+    def test_validation_rejects_hostname_resolving_to_private_ip(self, monkeypatch):
+        monkeypatch.setattr(socket, "getaddrinfo", _mock_getaddrinfo(["10.0.0.5"]))
+
+        with pytest.raises(ValueError, match="non-public IP"):
+            validate_webhook_target_url("https://customer.example/hook", resolve=True)
+
+    def test_validation_rejects_mixed_public_and_private_dns_answers(self, monkeypatch):
+        monkeypatch.setattr(socket, "getaddrinfo", _mock_getaddrinfo(["8.8.8.8", "10.0.0.5"]))
+
+        with pytest.raises(ValueError, match="non-public IP"):
+            validate_webhook_target_url("https://customer.example/hook", resolve=True)
+
+    def test_validation_rejects_scoped_ipv6_dns_answer(self, monkeypatch):
+        monkeypatch.setattr(socket, "getaddrinfo", _mock_getaddrinfo(["fe80::1%eth0"]))
+
+        with pytest.raises(ValueError, match="non-public IP"):
+            validate_webhook_target_url("https://customer.example/hook", resolve=True)
+
+    def test_register_rejects_hostname_resolving_to_private_ip(self, monkeypatch):
+        monkeypatch.setattr(socket, "getaddrinfo", _mock_getaddrinfo(["10.0.0.5"]))
+
+        with pytest.raises(ValueError, match="non-public IP"):
+            register_webhook(url="https://customer.example/hook", events=["analysis.completed"])
+
+    def test_update_rejects_hostname_resolving_to_private_ip(self, monkeypatch):
+        wh = register_webhook(url="https://example.com/hook", events=["analysis.completed"])
+        monkeypatch.setattr(socket, "getaddrinfo", _mock_getaddrinfo(["10.0.0.5"]))
+
+        with pytest.raises(ValueError, match="non-public IP"):
+            update_webhook(wh.id, url="https://customer.example/hook")
+
+    def test_delivery_blocks_private_dns_before_http_client_opens(self, monkeypatch):
+        monkeypatch.setattr(socket, "getaddrinfo", _mock_getaddrinfo(["10.0.0.5"]))
+
+        with patch("webhooks.asyncio.open_connection") as mock_open_connection:
+            result = asyncio.run(
+                _deliver_payload(
+                    "https://customer.example/hook",
+                    b"{}",
+                    "sig",
+                    "analysis.completed",
+                    "dlv-test",
+                )
+            )
+
+        assert result.success is False
+        assert result.error is not None
+        assert "non-public IP" in result.error
+        mock_open_connection.assert_not_called()
+
+    def test_create_route_rejects_hostname_resolving_to_private_ip(self, test_client, monkeypatch):
+        monkeypatch.setattr(socket, "getaddrinfo", _mock_getaddrinfo(["10.0.0.5"]))
+
+        response = test_client.post(
+            "/api/webhooks",
+            json={
+                "url": "https://customer.example/hook",
+                "events": ["analysis.completed"],
+            },
+        )
+
+        assert response.status_code == 400
+
+    def test_test_route_rejects_hostname_resolving_to_private_ip(self, test_client, monkeypatch):
+        monkeypatch.setattr(socket, "getaddrinfo", _mock_getaddrinfo(["10.0.0.5"]))
+
+        response = test_client.post(
+            "/api/webhooks/test",
+            json={"url": "https://customer.example/hook"},
+        )
+
+        assert response.status_code == 400
+
+    def test_slack_integration_rejects_unsafe_webhook_url(self):
+        with pytest.raises(ValueError):
+            register_integration(
+                integration_type="slack",
+                name="Internal Slack",
+                config={"webhook_url": "https://127.0.0.1/hook"},
+            )
+
+    def test_slack_integration_rejects_private_dns_answer(self, monkeypatch):
+        monkeypatch.setattr(socket, "getaddrinfo", _mock_getaddrinfo(["10.0.0.5"]))
+
+        with pytest.raises(ValueError, match="non-public IP"):
+            register_integration(
+                integration_type="slack",
+                name="Internal Slack",
+                config={"webhook_url": "https://customer.example/hook"},
+            )
+
+
+# ---------------------------------------------------------------------------
 # Dispatch & Delivery
 # ---------------------------------------------------------------------------
 
@@ -179,7 +317,9 @@ class TestDispatch:
 # ---------------------------------------------------------------------------
 
 class TestIntegrations:
-    def test_register_slack_integration(self):
+    def test_register_slack_integration(self, monkeypatch):
+        monkeypatch.setattr(socket, "getaddrinfo", _mock_getaddrinfo(["8.8.8.8"]))
+
         integ = register_integration(
             integration_type="slack",
             name="My Slack",
@@ -189,7 +329,9 @@ class TestIntegrations:
         assert integ.name == "My Slack"
         assert integ.enabled is True
 
-    def test_register_teams_integration(self):
+    def test_register_teams_integration(self, monkeypatch):
+        monkeypatch.setattr(socket, "getaddrinfo", _mock_getaddrinfo(["8.8.8.8"]))
+
         integ = register_integration(
             integration_type="teams",
             name="My Teams",
@@ -205,13 +347,17 @@ class TestIntegrations:
         with pytest.raises((ValueError, KeyError)):
             register_integration(integration_type="slack", name="Bad", config={})
 
-    def test_list_integrations(self):
+    def test_list_integrations(self, monkeypatch):
+        monkeypatch.setattr(socket, "getaddrinfo", _mock_getaddrinfo(["8.8.8.8"]))
+
         register_integration("slack", "S1", {"webhook_url": "https://a.com"})
         register_integration("teams", "T1", {"webhook_url": "https://b.com"})
         result = list_integrations()
         assert len(result) == 2
 
-    def test_delete_integration(self):
+    def test_delete_integration(self, monkeypatch):
+        monkeypatch.setattr(socket, "getaddrinfo", _mock_getaddrinfo(["8.8.8.8"]))
+
         integ = register_integration("slack", "S1", {"webhook_url": "https://a.com"})
         assert delete_integration(integ.id) is True
         assert get_integration(integ.id) is None
