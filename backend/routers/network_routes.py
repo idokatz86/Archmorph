@@ -3,7 +3,8 @@ Network Topology Routes — VPC→VNet translation, CIDR planning, NSG rules, ro
 """
 
 from fastapi import APIRouter, Depends, Query, Request, Response
-from pydantic import BaseModel, Field
+from pydantic import Field
+from strict_models import StrictBaseModel
 from typing import Any, Dict, Optional
 import logging
 
@@ -31,7 +32,7 @@ _topology_cache: Dict[str, dict] = {}
 # Request / Response Models
 # ─────────────────────────────────────────────────────────────
 
-class NetworkTopologyRequest(BaseModel):
+class NetworkTopologyRequest(StrictBaseModel):
     """Optional overrides for network topology generation."""
     vnet_cidr: str = Field(default=DEFAULT_VNET_CIDR, description="VNet address space CIDR")
     subnet_prefix: int = Field(default=DEFAULT_SUBNET_PREFIX, ge=16, le=29, description="Subnet prefix length")

@@ -6,7 +6,8 @@ Split from diagrams.py for maintainability (#284).
 """
 
 from fastapi import APIRouter, Request, Depends
-from pydantic import BaseModel, Field
+from pydantic import Field
+from strict_models import StrictBaseModel
 import asyncio
 import logging
 
@@ -19,7 +20,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-class InfraImportRequest(BaseModel):
+class InfraImportRequest(StrictBaseModel):
     """Request body for infrastructure file import."""
     content: str = Field(..., min_length=10, max_length=52_428_800)
     format: str = Field(default="auto", pattern="^(auto|terraform_state|terraform_hcl|cloudformation)$")

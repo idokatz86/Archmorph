@@ -11,7 +11,8 @@ import logging
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ConfigDict, Field
+from strict_models import StrictBaseModel
 
 from routers.shared import limiter, verify_api_key
 from webhooks import (
@@ -33,7 +34,7 @@ router = APIRouter(tags=["Webhooks"])
 # Pydantic models
 # ---------------------------------------------------------------------------
 
-class CreateWebhookRequest(BaseModel):
+class CreateWebhookRequest(StrictBaseModel):
     url: str = Field(..., description="HTTPS endpoint to receive webhook POSTs")
     events: List[str] = Field(..., min_length=1, description="Event types to subscribe to")
     description: str = Field("", max_length=256, description="Human-readable description")
@@ -50,20 +51,20 @@ class CreateWebhookRequest(BaseModel):
     )
 
 
-class UpdateWebhookRequest(BaseModel):
+class UpdateWebhookRequest(StrictBaseModel):
     url: Optional[str] = Field(None, description="New endpoint URL")
     events: Optional[List[str]] = Field(None, description="Updated event list")
     active: Optional[bool] = Field(None, description="Enable/disable delivery")
     description: Optional[str] = Field(None, max_length=256)
 
 
-class TestWebhookRequest(BaseModel):
+class TestWebhookRequest(StrictBaseModel):
     url: str = Field(..., description="URL to send the test event to")
     secret: str = Field("test-secret", description="HMAC secret for signature")
     event_type: str = Field("analysis.completed", description="Event type to simulate")
 
 
-class WebhookInfo(BaseModel):
+class WebhookInfo(StrictBaseModel):
     id: str
     url: str
     secret: str  # masked

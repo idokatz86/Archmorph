@@ -5,7 +5,8 @@ Social Authentication — Microsoft, Google, GitHub (Issue #246).
 """
 
 from fastapi import APIRouter, Request, Header, Query
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import Field, EmailStr
+from strict_models import StrictBaseModel
 from typing import Optional
 
 from routers.shared import limiter
@@ -26,13 +27,13 @@ from auth import (
 router = APIRouter()
 
 
-class LoginRequest(BaseModel):
+class LoginRequest(StrictBaseModel):
     provider: str = Field(..., description="azure_ad_b2c or github")
     token: Optional[str] = None
     code: Optional[str] = None
 
 
-class LeadCaptureRequest(BaseModel):
+class LeadCaptureRequest(StrictBaseModel):
     email: EmailStr
     diagram_id: str
     action: str = Field(..., description="iac_download, hld_download, or share")
@@ -121,7 +122,7 @@ async def list_providers():
     return {"providers": providers, "anonymous_allowed": config.get("anonymous_allowed", True)}
 
 
-class RefreshRequest(BaseModel):
+class RefreshRequest(StrictBaseModel):
     refresh_token: str
 
 

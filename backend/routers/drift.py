@@ -5,7 +5,8 @@ from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 from fastapi import APIRouter
-from pydantic import BaseModel, Field
+from pydantic import Field
+from strict_models import StrictBaseModel
 from error_envelope import ArchmorphException
 
 from services.drift_detection import DriftDetector
@@ -15,23 +16,23 @@ router = APIRouter(prefix="/api/drift", tags=["Drift Detection"])
 
 _BASELINES: Dict[str, Dict[str, Any]] = {}
 
-class DriftRequest(BaseModel):
+class DriftRequest(StrictBaseModel):
     designed_state: Dict[str, Any]
     live_state: Dict[str, Any]
 
 
-class DriftBaselineCreate(BaseModel):
+class DriftBaselineCreate(StrictBaseModel):
     name: str = Field(..., min_length=1, max_length=120)
     designed_state: Dict[str, Any]
     live_state: Optional[Dict[str, Any]] = None
     source: str = Field(default="manual", max_length=40)
 
 
-class DriftCompareRequest(BaseModel):
+class DriftCompareRequest(StrictBaseModel):
     live_state: Dict[str, Any]
 
 
-class DriftFindingDecision(BaseModel):
+class DriftFindingDecision(StrictBaseModel):
     decision: str = Field(..., pattern="^(accepted|rejected|deferred|open)$")
     note: Optional[str] = Field(default=None, max_length=500)
 

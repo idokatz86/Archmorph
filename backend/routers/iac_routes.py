@@ -6,7 +6,8 @@ Split from diagrams.py for maintainability (#284).
 """
 
 from fastapi import APIRouter, Request, Depends
-from pydantic import BaseModel, Field
+from pydantic import Field
+from strict_models import StrictBaseModel
 import asyncio
 import logging
 import re
@@ -90,7 +91,7 @@ def _check_architecture_blockers(diagram_id: str, session: dict, force: bool) ->
     )
 
 
-class IaCChatMessage(BaseModel):
+class IaCChatMessage(StrictBaseModel):
     """Request body for IaC chat messages."""
     message: str = Field(..., min_length=1, max_length=5000)
     code: str = Field(default="", max_length=100000)
@@ -255,7 +256,7 @@ async def _run_iac_job(job_id: str, diagram_id: str, iac_format: str) -> None:
 _EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
 
 
-class NotifyEmailRequest(BaseModel):
+class NotifyEmailRequest(StrictBaseModel):
     """Request body for email notification."""
     email: str = Field(..., min_length=5, max_length=254)
     diagram_name: str = Field(default="", max_length=200)

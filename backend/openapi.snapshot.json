@@ -2,6 +2,7 @@
   "components": {
     "schemas": {
       "AWSCredentialsInput": {
+        "additionalProperties": false,
         "properties": {
           "access_key_id": {
             "anyOf": [
@@ -60,6 +61,7 @@
         "type": "object"
       },
       "AddEventRequest": {
+        "additionalProperties": false,
         "properties": {
           "data": {
             "additionalProperties": true,
@@ -92,6 +94,7 @@
         "type": "object"
       },
       "AddServicesRequest": {
+        "additionalProperties": false,
         "description": "Request body for natural language service additions.",
         "properties": {
           "text": {
@@ -106,6 +109,7 @@
         "type": "object"
       },
       "AdminLoginRequest": {
+        "additionalProperties": false,
         "description": "Body for POST /api/admin/login.",
         "properties": {
           "key": {
@@ -173,6 +177,7 @@
         "type": "object"
       },
       "AgentCreate": {
+        "additionalProperties": false,
         "properties": {
           "model": {
             "default": "gpt-4o",
@@ -206,6 +211,7 @@
         "type": "object"
       },
       "AgentCreateSchema": {
+        "additionalProperties": false,
         "properties": {
           "data_sources": {
             "default": [],
@@ -273,6 +279,7 @@
         "type": "object"
       },
       "AgentResponse": {
+        "additionalProperties": false,
         "properties": {
           "created_at": {
             "title": "Created At",
@@ -332,6 +339,7 @@
         "type": "object"
       },
       "AgentResponseSchema": {
+        "additionalProperties": false,
         "properties": {
           "description": {
             "anyOf": [
@@ -377,6 +385,7 @@
         "type": "object"
       },
       "AgentUpdate": {
+        "additionalProperties": false,
         "properties": {
           "model": {
             "anyOf": [
@@ -443,6 +452,7 @@
         "type": "object"
       },
       "AgentUpdateSchema": {
+        "additionalProperties": false,
         "properties": {
           "data_sources": {
             "anyOf": [
@@ -530,6 +540,7 @@
         "type": "string"
       },
       "AzureCredentialsInput": {
+        "additionalProperties": false,
         "properties": {
           "auth_method": {
             "description": "service_principal, managed_identity, default",
@@ -588,6 +599,7 @@
         "type": "object"
       },
       "BatchSKURequest": {
+        "additionalProperties": false,
         "description": "Batch translation request body.",
         "properties": {
           "provider": {
@@ -764,6 +776,7 @@
         "type": "object"
       },
       "BranchRequest": {
+        "additionalProperties": false,
         "properties": {
           "label": {
             "anyOf": [
@@ -923,6 +936,7 @@
         "type": "object"
       },
       "BugReportPayload": {
+        "additionalProperties": false,
         "description": "Bug report submission.",
         "properties": {
           "actual_behavior": {
@@ -1026,6 +1040,7 @@
         "type": "object"
       },
       "BugReportRequest": {
+        "additionalProperties": false,
         "properties": {
           "context": {
             "anyOf": [
@@ -1076,6 +1091,7 @@
         "type": "object"
       },
       "ChatMessage": {
+        "additionalProperties": false,
         "properties": {
           "message": {
             "maxLength": 5000,
@@ -1104,6 +1120,7 @@
         "type": "object"
       },
       "CollectionResponse": {
+        "additionalProperties": false,
         "properties": {
           "collection_id": {
             "title": "Collection Id",
@@ -1132,6 +1149,7 @@
         "type": "object"
       },
       "CollectionStats": {
+        "additionalProperties": false,
         "properties": {
           "chunk_count": {
             "title": "Chunk Count",
@@ -1234,6 +1252,7 @@
         "type": "object"
       },
       "CostCompareRequest": {
+        "additionalProperties": false,
         "properties": {
           "zones": {
             "items": {
@@ -1250,6 +1269,7 @@
         "type": "object"
       },
       "CostConfigureRequest": {
+        "additionalProperties": false,
         "properties": {
           "overrides": {
             "items": {
@@ -1331,6 +1351,7 @@
         "type": "object"
       },
       "CostServiceInput": {
+        "additionalProperties": false,
         "properties": {
           "config": {
             "anyOf": [
@@ -1386,6 +1407,7 @@
         "type": "object"
       },
       "CostSummary": {
+        "additionalProperties": false,
         "properties": {
           "per_agent": {
             "items": {
@@ -1428,6 +1450,7 @@
         "type": "object"
       },
       "CostZoneInput": {
+        "additionalProperties": false,
         "properties": {
           "name": {
             "description": "Category name (Compute, Storage, etc.)",
@@ -1450,6 +1473,7 @@
         "type": "object"
       },
       "CreateCollectionRequest": {
+        "additionalProperties": false,
         "properties": {
           "description": {
             "default": "",
@@ -1471,6 +1495,7 @@
         "type": "object"
       },
       "CreateKeyRequest": {
+        "additionalProperties": false,
         "properties": {
           "expires_in_days": {
             "anyOf": [
@@ -1519,6 +1544,7 @@
         "type": "object"
       },
       "CreateKeyResponse": {
+        "additionalProperties": false,
         "properties": {
           "created_at": {
             "title": "Created At",
@@ -1577,6 +1603,7 @@
         "type": "object"
       },
       "CreateSessionRequest": {
+        "additionalProperties": false,
         "properties": {
           "analysis_id": {
             "maxLength": 128,
@@ -1599,6 +1626,7 @@
         "type": "object"
       },
       "CreateSessionResponse": {
+        "additionalProperties": false,
         "properties": {
           "analysis_id": {
             "title": "Analysis Id",
@@ -1627,6 +1655,7 @@
         "type": "object"
       },
       "CreateWebhookRequest": {
+        "additionalProperties": false,
         "example": {
           "description": "My CI pipeline hook",
           "events": [
@@ -1678,6 +1707,7 @@
         "type": "object"
       },
       "CredentialResponse": {
+        "additionalProperties": false,
         "properties": {
           "message": {
             "title": "Message",
@@ -1701,6 +1731,7 @@
         "type": "object"
       },
       "DeploymentExecuteRequest": {
+        "additionalProperties": false,
         "properties": {
           "infrastructure_code": {
             "title": "Infrastructure Code",
@@ -1742,6 +1773,7 @@
         "type": "object"
       },
       "DeploymentPreviewRequest": {
+        "additionalProperties": false,
         "properties": {
           "infrastructure_code": {
             "title": "Infrastructure Code",
@@ -1772,6 +1804,7 @@
         "type": "object"
       },
       "DeploymentRequest": {
+        "additionalProperties": false,
         "properties": {
           "canvas_state": {
             "anyOf": [
@@ -1808,6 +1841,7 @@
         "type": "object"
       },
       "DocumentResponse": {
+        "additionalProperties": false,
         "properties": {
           "chunk_count": {
             "title": "Chunk Count",
@@ -1851,6 +1885,7 @@
         "type": "object"
       },
       "DocumentResponseSchema": {
+        "additionalProperties": false,
         "properties": {
           "chunk_count": {
             "title": "Chunk Count",
@@ -1884,6 +1919,7 @@
         "type": "object"
       },
       "DriftBaselineCreate": {
+        "additionalProperties": false,
         "properties": {
           "designed_state": {
             "additionalProperties": true,
@@ -1923,6 +1959,7 @@
         "type": "object"
       },
       "DriftCompareRequest": {
+        "additionalProperties": false,
         "properties": {
           "live_state": {
             "additionalProperties": true,
@@ -1937,6 +1974,7 @@
         "type": "object"
       },
       "DriftFindingDecision": {
+        "additionalProperties": false,
         "properties": {
           "decision": {
             "pattern": "^(accepted|rejected|deferred|open)$",
@@ -1963,6 +2001,7 @@
         "type": "object"
       },
       "DriftRequest": {
+        "additionalProperties": false,
         "properties": {
           "designed_state": {
             "additionalProperties": true,
@@ -1983,6 +2022,7 @@
         "type": "object"
       },
       "EntityResponseSchema": {
+        "additionalProperties": false,
         "properties": {
           "attributes": {
             "additionalProperties": true,
@@ -2012,6 +2052,7 @@
         "type": "object"
       },
       "EpisodeResponseSchema": {
+        "additionalProperties": false,
         "properties": {
           "id": {
             "title": "Id",
@@ -2043,6 +2084,7 @@
         "type": "object"
       },
       "ExecuteRequest": {
+        "additionalProperties": false,
         "properties": {
           "message": {
             "maxLength": 10000,
@@ -2058,6 +2100,7 @@
         "type": "object"
       },
       "ExecutionInputSchema": {
+        "additionalProperties": false,
         "properties": {
           "agent_id": {
             "title": "Agent Id",
@@ -2096,6 +2139,7 @@
         "type": "object"
       },
       "ExecutionResponse": {
+        "additionalProperties": false,
         "properties": {
           "agent_id": {
             "title": "Agent Id",
@@ -2161,6 +2205,7 @@
         "type": "object"
       },
       "ExecutionResponseSchema": {
+        "additionalProperties": false,
         "properties": {
           "agent_id": {
             "title": "Agent Id",
@@ -2218,6 +2263,7 @@
         "type": "object"
       },
       "FeatureFeedbackRequest": {
+        "additionalProperties": false,
         "properties": {
           "comment": {
             "anyOf": [
@@ -2263,6 +2309,7 @@
         "type": "object"
       },
       "FeatureRequestPayload": {
+        "additionalProperties": false,
         "description": "Feature request submission.",
         "properties": {
           "description": {
@@ -2314,6 +2361,7 @@
         "type": "object"
       },
       "FlagUpdateRequest": {
+        "additionalProperties": false,
         "description": "Request body for updating a feature flag.",
         "properties": {
           "description": {
@@ -2384,6 +2432,7 @@
         "type": "object"
       },
       "GenerateBatchRequest": {
+        "additionalProperties": false,
         "description": "Request body for batch AI suggestion generation.",
         "properties": {
           "services": {
@@ -2407,6 +2456,7 @@
         "type": "object"
       },
       "GenerateRequest": {
+        "additionalProperties": false,
         "description": "Request body for triggering AI suggestion generation.",
         "properties": {
           "context_services": {
@@ -2441,6 +2491,7 @@
         "type": "object"
       },
       "GitHubIssueRequest": {
+        "additionalProperties": false,
         "properties": {
           "confidence": {
             "default": "N/A",
@@ -2509,6 +2560,7 @@
         "type": "object"
       },
       "IaCChatMessage": {
+        "additionalProperties": false,
         "description": "Request body for IaC chat messages.",
         "properties": {
           "code": {
@@ -2537,6 +2589,7 @@
         "type": "object"
       },
       "InfraImportRequest": {
+        "additionalProperties": false,
         "description": "Request body for infrastructure file import.",
         "properties": {
           "content": {
@@ -2564,6 +2617,7 @@
         "type": "object"
       },
       "IngestResponse": {
+        "additionalProperties": false,
         "properties": {
           "chunk_count": {
             "title": "Chunk Count",
@@ -2607,6 +2661,7 @@
         "type": "object"
       },
       "JiraCreateRequest": {
+        "additionalProperties": false,
         "properties": {
           "api_token": {
             "description": "Jira API token",
@@ -2664,6 +2719,7 @@
         "type": "object"
       },
       "JoinSessionRequest": {
+        "additionalProperties": false,
         "properties": {
           "role": {
             "enum": [
@@ -2697,6 +2753,7 @@
         "type": "object"
       },
       "KeyInfo": {
+        "additionalProperties": false,
         "properties": {
           "created_at": {
             "title": "Created At",
@@ -2760,6 +2817,7 @@
         "type": "object"
       },
       "LeadCaptureRequest": {
+        "additionalProperties": false,
         "properties": {
           "action": {
             "description": "iac_download, hld_download, or share",
@@ -2823,6 +2881,7 @@
         "type": "object"
       },
       "LoginRequest": {
+        "additionalProperties": false,
         "properties": {
           "code": {
             "anyOf": [
@@ -2859,6 +2918,7 @@
         "type": "object"
       },
       "MemoryConfigSchema": {
+        "additionalProperties": false,
         "properties": {
           "long_term": {
             "additionalProperties": true,
@@ -2879,6 +2939,7 @@
         "type": "object"
       },
       "ModelConfigSchema": {
+        "additionalProperties": false,
         "properties": {
           "max_tokens": {
             "title": "Max Tokens",
@@ -2955,6 +3016,7 @@
         "type": "object"
       },
       "ModelEndpointCreateSchema": {
+        "additionalProperties": false,
         "properties": {
           "capabilities": {
             "anyOf": [
@@ -3012,6 +3074,7 @@
         "type": "object"
       },
       "ModelEndpointResponseSchema": {
+        "additionalProperties": false,
         "properties": {
           "capabilities": {
             "additionalProperties": true,
@@ -3057,6 +3120,7 @@
         "type": "object"
       },
       "NPSRequest": {
+        "additionalProperties": false,
         "properties": {
           "feature_context": {
             "anyOf": [
@@ -3109,6 +3173,7 @@
         "type": "object"
       },
       "NetworkTopologyRequest": {
+        "additionalProperties": false,
         "description": "Optional overrides for network topology generation.",
         "properties": {
           "network_overrides": {
@@ -3155,6 +3220,7 @@
         "type": "object"
       },
       "NotifyEmailRequest": {
+        "additionalProperties": false,
         "description": "Request body for email notification.",
         "properties": {
           "diagram_name": {
@@ -3177,6 +3243,7 @@
         "type": "object"
       },
       "PolicyCreateSchema": {
+        "additionalProperties": false,
         "properties": {
           "description": {
             "anyOf": [
@@ -3217,6 +3284,7 @@
         "type": "object"
       },
       "PolicyResponseSchema": {
+        "additionalProperties": false,
         "properties": {
           "description": {
             "anyOf": [
@@ -3268,6 +3336,7 @@
         "type": "object"
       },
       "PushIaCRequest": {
+        "additionalProperties": false,
         "properties": {
           "analysis_summary": {
             "anyOf": [
@@ -3350,6 +3419,7 @@
         "type": "object"
       },
       "RefreshRequest": {
+        "additionalProperties": false,
         "properties": {
           "refresh_token": {
             "title": "Refresh Token",
@@ -3363,6 +3433,7 @@
         "type": "object"
       },
       "RestoreSessionRequest": {
+        "additionalProperties": false,
         "description": "Request body for restoring a cached analysis session.",
         "properties": {
           "analysis": {
@@ -3445,6 +3516,7 @@
         "type": "object"
       },
       "ReviewRequest": {
+        "additionalProperties": false,
         "description": "Request body for reviewing an AI mapping suggestion.",
         "properties": {
           "decision": {
@@ -3501,6 +3573,7 @@
         "type": "object"
       },
       "SaveVersionRequest": {
+        "additionalProperties": false,
         "properties": {
           "label": {
             "anyOf": [
@@ -3519,6 +3592,7 @@
         "type": "object"
       },
       "SearchRequest": {
+        "additionalProperties": false,
         "properties": {
           "collection_ids": {
             "anyOf": [
@@ -3576,6 +3650,7 @@
         "type": "object"
       },
       "SearchResponse": {
+        "additionalProperties": false,
         "properties": {
           "query": {
             "title": "Query",
@@ -3602,6 +3677,7 @@
         "type": "object"
       },
       "SearchResultItem": {
+        "additionalProperties": false,
         "properties": {
           "bm25_score": {
             "title": "Bm25 Score",
@@ -3660,6 +3736,7 @@
         "type": "object"
       },
       "ServiceCostConfig": {
+        "additionalProperties": false,
         "properties": {
           "instance_count": {
             "default": 1,
@@ -3697,6 +3774,7 @@
         "type": "object"
       },
       "SlackNotifyRequest": {
+        "additionalProperties": false,
         "example": {
           "confidence": "high",
           "cost_estimate": "$450/month",
@@ -3757,6 +3835,7 @@
         "type": "object"
       },
       "StartRecordingRequest": {
+        "additionalProperties": false,
         "properties": {
           "analysis_id": {
             "maxLength": 128,
@@ -3784,6 +3863,7 @@
         "type": "object"
       },
       "SubmitChangeRequest": {
+        "additionalProperties": false,
         "properties": {
           "change_type": {
             "enum": [
@@ -3815,6 +3895,7 @@
         "type": "object"
       },
       "SuggestBatchRequest": {
+        "additionalProperties": false,
         "description": "Request body for batch AI mapping suggestions.",
         "properties": {
           "services": {
@@ -3838,6 +3919,7 @@
         "type": "object"
       },
       "SuggestMappingRequest": {
+        "additionalProperties": false,
         "description": "Request body for single AI mapping suggestion.",
         "properties": {
           "context_services": {
@@ -3872,6 +3954,7 @@
         "type": "object"
       },
       "TeamsNotifyRequest": {
+        "additionalProperties": false,
         "properties": {
           "confidence": {
             "default": "N/A",
@@ -3919,6 +4002,7 @@
         "type": "object"
       },
       "TerraformValidateRequest": {
+        "additionalProperties": false,
         "properties": {
           "code": {
             "maxLength": 100000,
@@ -3933,6 +4017,7 @@
         "type": "object"
       },
       "TestWebhookRequest": {
+        "additionalProperties": false,
         "properties": {
           "event_type": {
             "default": "analysis.completed",
@@ -3987,6 +4072,7 @@
         "type": "object"
       },
       "ToolAttach": {
+        "additionalProperties": false,
         "properties": {
           "tool_name": {
             "title": "Tool Name",
@@ -4033,6 +4119,7 @@
         "type": "object"
       },
       "UpdateWebhookRequest": {
+        "additionalProperties": false,
         "properties": {
           "active": {
             "anyOf": [

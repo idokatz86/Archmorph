@@ -4,7 +4,8 @@ Roadmap — Version Timeline & Feature Requests.
 """
 
 from fastapi import APIRouter, Request
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import Field, EmailStr
+from strict_models import StrictBaseModel
 from typing import Optional
 import asyncio
 
@@ -36,7 +37,7 @@ async def roadmap_release(version: str):
     return release
 
 
-class FeatureRequestPayload(BaseModel):
+class FeatureRequestPayload(StrictBaseModel):
     """Feature request submission."""
     title: str = Field(..., min_length=5, max_length=200, description="Feature title")
     description: str = Field(..., min_length=20, max_length=2000, description="Detailed description")
@@ -65,7 +66,7 @@ async def roadmap_feature_request(request: Request, payload: FeatureRequestPaylo
     return result
 
 
-class BugReportPayload(BaseModel):
+class BugReportPayload(StrictBaseModel):
     """Bug report submission."""
     title: str = Field(..., min_length=5, max_length=200, description="Bug title")
     description: str = Field(..., min_length=20, max_length=2000, description="Bug description")

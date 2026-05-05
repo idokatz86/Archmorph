@@ -3,7 +3,8 @@ API route for pushing generated IaC to GitHub as a Pull Request (#504).
 """
 
 from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel, Field
+from pydantic import Field
+from strict_models import StrictBaseModel
 from typing import Optional
 
 from iac_pr_push import push_iac_as_pr
@@ -12,7 +13,7 @@ from routers.shared import verify_api_key
 router = APIRouter()
 
 
-class PushIaCRequest(BaseModel):
+class PushIaCRequest(StrictBaseModel):
     repo: str = Field(..., description="GitHub repo in owner/repo format")
     iac_code: str = Field(..., description="Generated IaC code content")
     iac_format: str = Field("terraform", description="terraform, bicep, cloudformation, pulumi, aws-cdk")

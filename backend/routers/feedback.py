@@ -3,7 +3,8 @@ Feedback & NPS routes.
 """
 
 from fastapi import APIRouter, Request
-from pydantic import BaseModel, Field
+from pydantic import Field
+from strict_models import StrictBaseModel
 from typing import Literal, Optional, Dict, Any
 
 from routers.shared import limiter
@@ -16,21 +17,21 @@ router = APIRouter()
 
 
 # Issue #167 — Strict input validation on all feedback models
-class NPSRequest(BaseModel):
+class NPSRequest(StrictBaseModel):
     score: int = Field(..., ge=0, le=10, description="NPS score 0-10")
     follow_up: Optional[str] = Field(None, max_length=2000)
     session_id: Optional[str] = Field(None, max_length=128)
     feature_context: Optional[str] = Field(None, max_length=256)
 
 
-class FeatureFeedbackRequest(BaseModel):
+class FeatureFeedbackRequest(StrictBaseModel):
     feature: str = Field(..., min_length=1, max_length=128, pattern=r"^[\w\-. ]+$")
     helpful: bool
     comment: Optional[str] = Field(None, max_length=2000)
     session_id: Optional[str] = Field(None, max_length=128)
 
 
-class BugReportRequest(BaseModel):
+class BugReportRequest(StrictBaseModel):
     description: str = Field(..., min_length=1, max_length=5000)
     context: Optional[Dict[str, Any]] = None
     severity: Literal["low", "medium", "high", "critical"] = "medium"

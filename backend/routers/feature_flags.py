@@ -8,7 +8,8 @@ PUT  /api/flags/{name}    — update a flag (admin only)
 """
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, Field
+from pydantic import Field
+from strict_models import StrictBaseModel
 from typing import List, Optional
 
 from routers.shared import verify_admin_key
@@ -18,7 +19,7 @@ from audit_logging import audit_logger, AuditEventType
 router = APIRouter()
 
 
-class FlagUpdateRequest(BaseModel):
+class FlagUpdateRequest(StrictBaseModel):
     """Request body for updating a feature flag."""
     enabled: Optional[bool] = None
     description: Optional[str] = None

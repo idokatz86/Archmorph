@@ -5,7 +5,7 @@ Split from diagrams.py for maintainability (#284).
 """
 
 from fastapi import APIRouter, Request, Depends
-from pydantic import BaseModel
+from strict_models import StrictBaseModel
 from typing import Dict, Any
 import asyncio
 import logging
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-class AddServicesRequest(BaseModel):
+class AddServicesRequest(StrictBaseModel):
     """Request body for natural language service additions."""
     text: str
 

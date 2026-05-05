@@ -13,7 +13,8 @@ import os
 from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
-from pydantic import BaseModel, Field
+from pydantic import Field
+from strict_models import StrictBaseModel
 
 from error_envelope import ArchmorphException
 from routers.shared import limiter, verify_api_key
@@ -30,19 +31,19 @@ MAX_UPLOAD_SIZE = int(os.getenv("RAG_MAX_UPLOAD_BYTES", str(20 * 1024 * 1024)))
 # ─────────────────────────────────────────────────────────────
 # Request / Response Models
 # ─────────────────────────────────────────────────────────────
-class CreateCollectionRequest(BaseModel):
+class CreateCollectionRequest(StrictBaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     description: str = Field(default="", max_length=2000)
 
 
-class CollectionResponse(BaseModel):
+class CollectionResponse(StrictBaseModel):
     collection_id: str
     name: str
     description: str
     created_at: str
 
 
-class DocumentResponse(BaseModel):
+class DocumentResponse(StrictBaseModel):
     document_id: str
     filename: str
     file_size: int
@@ -52,7 +53,7 @@ class DocumentResponse(BaseModel):
     mime_type: str = ""
 
 
-class IngestResponse(BaseModel):
+class IngestResponse(StrictBaseModel):
     document_id: str
     filename: str
     status: str
@@ -62,7 +63,7 @@ class IngestResponse(BaseModel):
     message: str = ""
 
 
-class SearchRequest(BaseModel):
+class SearchRequest(StrictBaseModel):
     query: str = Field(..., min_length=1, max_length=5000)
     collection_ids: Optional[List[str]] = Field(default=None)
     top_k: int = Field(default=5, ge=1, le=50)
@@ -70,7 +71,7 @@ class SearchRequest(BaseModel):
     metadata_filter: Optional[Dict[str, str]] = Field(default=None)
 
 
-class SearchResultItem(BaseModel):
+class SearchResultItem(StrictBaseModel):
     text: str
     score: float
     vector_score: float
@@ -83,13 +84,13 @@ class SearchResultItem(BaseModel):
     collection_name: str
 
 
-class SearchResponse(BaseModel):
+class SearchResponse(StrictBaseModel):
     results: List[SearchResultItem]
     query: str
     total_results: int
 
 
-class CollectionStats(BaseModel):
+class CollectionStats(StrictBaseModel):
     collection_id: str
     name: str
     description: str

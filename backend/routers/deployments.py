@@ -1,7 +1,7 @@
 import logging
 from typing import Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
-from pydantic import BaseModel
+from strict_models import StrictBaseModel
 
 from services.azure_deploy_service import AzureDeployService
 from feature_flags import feature_flag_dependency
@@ -20,18 +20,18 @@ def get_azure_deploy_service() -> AzureDeployService:
 # ─────────────────────────────────────────────────────────────
 # Pydantic Schemas
 # ─────────────────────────────────────────────────────────────
-class DeploymentPreviewRequest(BaseModel):
+class DeploymentPreviewRequest(StrictBaseModel):
     provider: str
     infrastructure_code: str
     variables: Optional[Dict[str, Any]] = None
 
-class DeploymentExecuteRequest(BaseModel):
+class DeploymentExecuteRequest(StrictBaseModel):
     provider: str
     job_id: Optional[str] = None
     infrastructure_code: str
     variables: Optional[Dict[str, Any]] = None
 
-class DeploymentResponse(BaseModel):
+class DeploymentResponse(StrictBaseModel):
     job_id: str
     status: str
     message: Optional[str] = None

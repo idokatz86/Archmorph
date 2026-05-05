@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, ConfigDict
+from pydantic import ConfigDict
+from strict_models import StrictBaseModel
 
 from database import get_db
 from routers.auth import get_current_user
@@ -10,7 +11,7 @@ from models.model_registry import ModelEndpoint
 
 router = APIRouter(prefix="/api/models", tags=["Model Registry"])
 
-class ModelEndpointCreateSchema(BaseModel):
+class ModelEndpointCreateSchema(StrictBaseModel):
     name: str
     provider: str
     model_version: str
@@ -18,7 +19,7 @@ class ModelEndpointCreateSchema(BaseModel):
     capabilities: Optional[Dict[str, Any]] = {}
     pricing: Optional[Dict[str, float]] = {}
 
-class ModelEndpointResponseSchema(BaseModel):
+class ModelEndpointResponseSchema(StrictBaseModel):
     id: str
     name: str
     provider: str

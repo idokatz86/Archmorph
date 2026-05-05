@@ -18,7 +18,8 @@ from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ConfigDict, Field
+from strict_models import StrictBaseModel
 
 from routers.shared import limiter, verify_api_key
 
@@ -86,7 +87,7 @@ def _validate_https(url: str, field_name: str = "webhook_url") -> None:
 # Pydantic request models
 # ---------------------------------------------------------------------------
 
-class SlackNotifyRequest(BaseModel):
+class SlackNotifyRequest(StrictBaseModel):
     webhook_url: str = Field(..., description="Slack incoming webhook URL (HTTPS)")
     diagram_id: str = Field("unknown", description="Diagram/analysis identifier")
     total_services: int = Field(0, ge=0, description="Number of services detected")
@@ -108,7 +109,7 @@ class SlackNotifyRequest(BaseModel):
     )
 
 
-class TeamsNotifyRequest(BaseModel):
+class TeamsNotifyRequest(StrictBaseModel):
     webhook_url: str = Field(..., description="Teams incoming webhook URL (HTTPS)")
     diagram_id: str = Field("unknown")
     total_services: int = Field(0, ge=0)
@@ -117,7 +118,7 @@ class TeamsNotifyRequest(BaseModel):
     summary: str = Field("", max_length=1000)
 
 
-class JiraCreateRequest(BaseModel):
+class JiraCreateRequest(StrictBaseModel):
     api_url: str = Field(..., description="Jira REST API base URL, e.g. https://myorg.atlassian.net")
     email: str = Field(..., description="Jira user email for basic auth")
     api_token: str = Field(..., description="Jira API token")
@@ -131,7 +132,7 @@ class JiraCreateRequest(BaseModel):
     summary: str = Field("", max_length=2000)
 
 
-class GitHubIssueRequest(BaseModel):
+class GitHubIssueRequest(StrictBaseModel):
     repo: str = Field(..., description="GitHub repo in owner/repo format")
     token: str = Field(..., description="GitHub personal access token")
     title: str = Field("Archmorph Migration Tracking", max_length=256)

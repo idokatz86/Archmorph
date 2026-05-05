@@ -4,7 +4,8 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models.agent import Agent, AgentVersion
 from models.tenant import Organization
-from pydantic import BaseModel, ConfigDict
+from pydantic import ConfigDict
+from strict_models import StrictBaseModel
 import uuid
 import datetime
 
@@ -15,18 +16,18 @@ def utc_now_naive() -> datetime.datetime:
 router = APIRouter(prefix="/agents", tags=["agents"])
 
 # Pydantic schemas
-class ModelConfigSchema(BaseModel):
+class ModelConfigSchema(StrictBaseModel):
     provider: str
     model: str
     temperature: float
     max_tokens: int
     system_prompt: str
 
-class MemoryConfigSchema(BaseModel):
+class MemoryConfigSchema(StrictBaseModel):
     short_term: dict
     long_term: dict
 
-class AgentCreateSchema(BaseModel):
+class AgentCreateSchema(StrictBaseModel):
     name: str
     description: Optional[str] = None
     organization_id: str
@@ -35,7 +36,7 @@ class AgentCreateSchema(BaseModel):
     data_sources: List[dict] = []
     memory_config: Optional[MemoryConfigSchema] = None
 
-class AgentUpdateSchema(BaseModel):
+class AgentUpdateSchema(StrictBaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     model_config_data: Optional[ModelConfigSchema] = None
@@ -43,7 +44,7 @@ class AgentUpdateSchema(BaseModel):
     data_sources: Optional[List[dict]] = None
     memory_config: Optional[MemoryConfigSchema] = None
 
-class AgentResponseSchema(BaseModel):
+class AgentResponseSchema(StrictBaseModel):
     id: str
     name: str
     description: Optional[str]

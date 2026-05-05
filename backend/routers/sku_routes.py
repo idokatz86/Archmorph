@@ -90,10 +90,10 @@ async def translate_sku(
 # ─────────────────────────────────────────────────────────────
 # POST /api/sku/translate/batch — Batch SKU translation
 # ─────────────────────────────────────────────────────────────
-from pydantic import BaseModel
+from strict_models import StrictBaseModel
 
 
-class BatchSKURequest(BaseModel):
+class BatchSKURequest(StrictBaseModel):
     """Batch translation request body."""
     skus: List[str]
     provider: str = "aws"
