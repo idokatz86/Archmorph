@@ -21,7 +21,7 @@ class _ModelVisitor(ast.NodeVisitor):
             if extra_policy not in {"allow", "forbid"}:
                 self.violations.append(
                     f"line {node.lineno}: {node.name} directly inherits BaseModel "
-                    "without explicit extra='forbid' or justified extra='allow'"
+                    "without explicit extra='forbid' or extra='allow'"
                 )
         self.generic_visit(node)
 
