@@ -51,7 +51,10 @@ def cost_contract_session(monkeypatch, cost_contract_fixture):
         assert len(mappings) == 2
         assert region == "westeurope"
         assert sku_strategy == "Balanced"
-        return copy.deepcopy(cost_contract_fixture)
+        result = copy.deepcopy(cost_contract_fixture)
+        result["cache_age_days"] = 7
+        result["pricing_cache_scope"] = "partial"
+        return result
 
     monkeypatch.setattr(
         "routers.insights.estimate_services_cost",
@@ -277,6 +280,7 @@ def test_cost_assumptions_endpoint_applies_overrides(test_client, cost_contract_
 def test_cost_assumptions_endpoint_reuses_cached_estimate(monkeypatch, test_client, cost_contract_session, cost_contract_fixture):
     cached = copy.deepcopy(cost_contract_fixture)
     cached["cache_age_days"] = 7
+    cached["pricing_cache_scope"] = "global"
     cached["mapping_fingerprint"] = [
         {"source_service": "Amazon S3", "source_provider": "aws", "azure_service": "Azure Blob Storage"},
         {"source_service": "Lambda", "source_provider": "aws", "azure_service": "Azure Functions"},
@@ -296,8 +300,8 @@ def test_cost_assumptions_endpoint_reuses_cached_estimate(monkeypatch, test_clie
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["cache_age_days"] is None
-    assert SESSION_STORE[DIAGRAM_ID]["_cached_cost_estimate"]["cache_age_days"] is None
+    assert payload["cache_age_days"] == 7
+    assert SESSION_STORE[DIAGRAM_ID]["_cached_cost_estimate"]["cache_age_days"] == 7
     functions = next(service for service in payload["services"] if service["service"] == "Azure Functions")
     assert functions["monthly_low"] == 12.0
     assert functions["monthly_high"] == 24.0
@@ -354,6 +358,33 @@ def test_cost_assumptions_endpoint_reuses_cached_estimate_with_case_insensitive_
     assert response.status_code == 200
     functions = next(service for service in response.json()["services"] if service["service"] == "Azure Functions")
     assert functions["monthly_low"] == 12.0
+
+
+def test_cost_assumptions_endpoint_reuses_raw_cache_when_services_match(
+    monkeypatch,
+    test_client,
+    cost_contract_session,
+    cost_contract_fixture,
+):
+    cached = copy.deepcopy(cost_contract_fixture)
+    cached["services"][0]["monthly_low"] = 12.0
+    cost_contract_session["_cached_cost_estimate"] = cached
+    SESSION_STORE[DIAGRAM_ID] = cost_contract_session
+
+    def fail_live_pricing(*_args, **_kwargs):
+        raise AssertionError("matching raw cached estimates should be reused and annotated")
+
+    monkeypatch.setattr("cost_assumptions.estimate_services_cost", fail_live_pricing)
+
+    response = test_client.get(f"/api/diagrams/{DIAGRAM_ID}/cost-assumptions")
+
+    assert response.status_code == 200
+    functions = next(service for service in response.json()["services"] if service["service"] == "Azure Functions")
+    assert functions["monthly_low"] == 12.0
+    assert SESSION_STORE[DIAGRAM_ID]["_cached_cost_estimate"]["mapping_fingerprint"] == [
+        {"source_service": "Amazon S3", "source_provider": "aws", "azure_service": "Azure Blob Storage"},
+        {"source_service": "Lambda", "source_provider": "aws", "azure_service": "Azure Functions"},
+    ]
 
 
 def test_cost_assumptions_endpoint_has_openapi_schema(test_client):

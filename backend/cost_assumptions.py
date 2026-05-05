@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from services.azure_pricing import estimate_services_cost
@@ -139,13 +140,13 @@ def _cost_estimate_from_analysis(
     cached = analysis.get("_cached_cost_estimate") or analysis.get("cost_estimate")
     mapping_fingerprint = _mapping_fingerprint(mappings)
     if _cached_estimate_matches(cached, region=region, sku_strategy=sku_strategy, mapping_fingerprint=mapping_fingerprint):
-        base = {**cached, "cache_age_days": None}
+        base = _normalise_cache_metadata({**cached, "mapping_fingerprint": mapping_fingerprint})
         if analysis.get("_cached_cost_estimate") is cached:
             analysis["_cached_cost_estimate"] = base
     else:
         base = estimate_services_cost(mappings, region=region, sku_strategy=sku_strategy) if mappings else {}
         if mappings:
-            base = {**base, "cache_age_days": None, "mapping_fingerprint": mapping_fingerprint}
+            base = _normalise_cache_metadata({**base, "mapping_fingerprint": mapping_fingerprint})
             analysis["_cached_cost_estimate"] = base
 
     overrides = analysis.get("_cost_overrides") if isinstance(analysis.get("_cost_overrides"), dict) else {}
@@ -206,11 +207,27 @@ def _cached_estimate_matches(candidate: Any, *, region: str, sku_strategy: str, 
         return False
     cached_region = str(candidate.get("arm_region") or candidate.get("region") or "").lower()
     cached_strategy = str(candidate.get("sku_strategy") or "Balanced").lower()
+    cached_fingerprint = candidate.get("mapping_fingerprint")
+    if cached_fingerprint is None:
+        cached_services = sorted(str(service.get("service") or "") for service in candidate.get("services", []) if isinstance(service, dict))
+        mapped_services = sorted({mapping["azure_service"] for mapping in mapping_fingerprint if mapping.get("azure_service")})
+        cached_fingerprint = mapping_fingerprint if cached_services == mapped_services else None
     return (
         cached_region == region.lower()
         and cached_strategy == sku_strategy.lower()
-        and candidate.get("mapping_fingerprint") == mapping_fingerprint
+        and cached_fingerprint == mapping_fingerprint
     )
+
+
+def _normalise_cache_metadata(cost_estimate: dict[str, Any]) -> dict[str, Any]:
+    if cost_estimate.get("pricing_cache_scope") == "partial":
+        return {**cost_estimate, "cache_age_days": None}
+
+    cached_at = cost_estimate.get("pricing_cache_cached_at")
+    if isinstance(cached_at, (int, float)):
+        return {**cost_estimate, "cache_age_days": round((time.time() - float(cached_at)) / 86400, 1)}
+
+    return cost_estimate
 
 
 def _mappings_for_service(service_name: str, mappings: list[dict[str, Any]]) -> list[dict[str, Any]]:

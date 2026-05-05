@@ -396,7 +396,7 @@ def test_export_architecture_package_endpoint_returns_html(test_client):
     assert "E — Cost Assumptions" in data["content"]
     assert data["manifest"]["analysis_id"] == diagram_id
     assert data["artifact_contents"]["archmorph-web-tier-cost-assumptions.json"].startswith("{")
-    assert "_cached_cost_estimate" in SESSION_STORE[diagram_id]
+    assert "_cached_cost_estimate" not in SESSION_STORE[diagram_id]
 
 
 def test_export_architecture_package_endpoint_returns_dr_svg(test_client):
