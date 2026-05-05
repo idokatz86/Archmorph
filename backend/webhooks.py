@@ -6,10 +6,14 @@ delivery logging, and built-in integrations (Slack, Teams, Azure DevOps).
 """
 
 import asyncio
+import concurrent.futures
 import hashlib
 import hmac
+import ipaddress
 import json
 import logging
+import socket
+import ssl
 import threading
 import time
 import uuid
@@ -18,6 +22,7 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -120,6 +125,299 @@ _delivery_logs: deque = deque(maxlen=_MAX_LOGS)
 MAX_RETRIES = 3
 RETRY_BACKOFF_BASE = 2  # seconds — exponential: 2, 4, 8
 DELIVERY_TIMEOUT = 10  # seconds
+DNS_RESOLUTION_TIMEOUT = 3  # seconds
+
+
+def _contains_control_characters(value: str) -> bool:
+    return any(ord(char) < 32 or ord(char) == 127 for char in value)
+
+
+def _reject_control_characters(*values: str) -> None:
+    if any(_contains_control_characters(value) for value in values):
+        raise WebhookTargetError("Webhook URL must not include control characters")
+
+
+class WebhookTargetError(ValueError):
+    """Raised when a webhook URL targets an unsafe outbound destination."""
+
+
+@dataclass(frozen=True)
+class WebhookTarget:
+    hostname: str
+    port: int
+    path: str
+    needs_resolution: bool
+    literal_address: Optional[str] = None
+
+
+def _normalize_ip_address(address: str) -> Optional[str]:
+    candidate = address.split("%", 1)[0]
+    try:
+        ip = ipaddress.ip_address(candidate)
+    except ValueError:
+        return None
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
+        ip = ip.ipv4_mapped
+    return str(ip)
+
+
+def _is_forbidden_ip(address: str) -> bool:
+    normalized = _normalize_ip_address(address)
+    if normalized is None:
+        return True
+    return not ipaddress.ip_address(normalized).is_global
+
+
+def _addresses_from_addr_info(addr_info: list) -> List[str]:
+    addresses: List[str] = []
+    for entry in addr_info:
+        sockaddr = entry[4]
+        if not sockaddr:
+            continue
+        address = sockaddr[0]
+        if address not in addresses:
+            addresses.append(address)
+
+    if not addresses:
+        raise WebhookTargetError("Webhook target host could not be resolved")
+    return addresses
+
+
+def _resolve_host_addresses(hostname: str, port: int) -> List[str]:
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="webhook-dns")
+    future = executor.submit(socket.getaddrinfo, hostname, port, type=socket.SOCK_STREAM)
+    try:
+        addr_info = future.result(timeout=DNS_RESOLUTION_TIMEOUT)
+    except socket.gaierror as exc:
+        raise WebhookTargetError("Webhook target host could not be resolved") from exc
+    except concurrent.futures.TimeoutError as exc:
+        future.cancel()
+        raise WebhookTargetError("Webhook target DNS lookup timed out") from exc
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
+    return _addresses_from_addr_info(addr_info)
+
+
+async def _resolve_host_addresses_async(hostname: str, port: int) -> List[str]:
+    try:
+        addr_info = await asyncio.wait_for(
+            asyncio.get_running_loop().getaddrinfo(
+                hostname,
+                port,
+                type=socket.SOCK_STREAM,
+            ),
+            timeout=DNS_RESOLUTION_TIMEOUT,
+        )
+    except socket.gaierror as exc:
+        raise WebhookTargetError("Webhook target host could not be resolved") from exc
+    except asyncio.TimeoutError as exc:
+        raise WebhookTargetError("Webhook target DNS lookup timed out") from exc
+    return _addresses_from_addr_info(addr_info)
+
+
+def _parse_webhook_target(url: str) -> WebhookTarget:
+    _reject_control_characters(url)
+    parsed = urlsplit(url)
+    _reject_control_characters(parsed.scheme, parsed.netloc, parsed.path, parsed.query)
+    if parsed.scheme.lower() != "https":
+        raise WebhookTargetError("Webhook URL must use HTTPS")
+    if not parsed.hostname:
+        raise WebhookTargetError("Webhook URL must include a host")
+    if parsed.username or parsed.password:
+        raise WebhookTargetError("Webhook URL must not include credentials")
+    try:
+        parsed_port = parsed.port
+    except ValueError as exc:
+        raise WebhookTargetError("Webhook URL port is invalid") from exc
+    port = 443 if parsed_port is None else parsed_port
+    if port < 1 or port > 65535:
+        raise WebhookTargetError("Webhook URL port is invalid")
+
+    hostname = parsed.hostname.rstrip(".").lower()
+    path = parsed.path or "/"
+    if parsed.query:
+        path = f"{path}?{parsed.query}"
+
+    if hostname == "localhost" or hostname.endswith(".localhost"):
+        raise WebhookTargetError("Webhook target host is not allowed")
+
+    literal_address: Optional[str] = None
+    try:
+        host_ip = ipaddress.ip_address(hostname)
+    except ValueError:
+        pass
+    else:
+        literal_address = str(host_ip.ipv4_mapped if isinstance(host_ip, ipaddress.IPv6Address) and host_ip.ipv4_mapped else host_ip)
+        if _is_forbidden_ip(literal_address):
+            raise WebhookTargetError("Webhook target host is not allowed")
+        return WebhookTarget(hostname=hostname, port=port, path=path, needs_resolution=False, literal_address=literal_address)
+
+    return WebhookTarget(hostname=hostname, port=port, path=path, needs_resolution=True)
+
+
+def _reject_forbidden_addresses(addresses: List[str]) -> None:
+    if any(_is_forbidden_ip(address) for address in addresses):
+        raise WebhookTargetError("Webhook target host resolves to a non-public IP address")
+
+
+def validate_webhook_target_url(url: str, *, resolve: bool = False) -> None:
+    """Validate that a webhook URL is HTTPS and does not target private networks."""
+    target = _parse_webhook_target(url)
+
+    if not resolve or not target.needs_resolution:
+        return
+
+    addresses = _resolve_host_addresses(target.hostname, target.port)
+    _reject_forbidden_addresses(addresses)
+
+
+async def validate_webhook_target_url_async(url: str, *, resolve: bool = False) -> None:
+    """Async variant of webhook URL validation for request and delivery paths."""
+    target = _parse_webhook_target(url)
+
+    if not resolve or not target.needs_resolution:
+        return
+
+    addresses = await _resolve_host_addresses_async(target.hostname, target.port)
+    _reject_forbidden_addresses(addresses)
+
+
+def _validated_target_addresses(target: WebhookTarget, addresses: List[str]) -> List[str]:
+    if target.literal_address:
+        return [target.literal_address]
+    _reject_forbidden_addresses(addresses)
+    return [_normalize_ip_address(address) or address for address in addresses]
+
+
+async def _resolve_target_addresses_async(target: WebhookTarget) -> List[str]:
+    if not target.needs_resolution:
+        return _validated_target_addresses(target, [])
+    return _validated_target_addresses(
+        target,
+        await _resolve_host_addresses_async(target.hostname, target.port),
+    )
+
+
+def _resolve_target_addresses(target: WebhookTarget) -> List[str]:
+    if not target.needs_resolution:
+        return _validated_target_addresses(target, [])
+    return _validated_target_addresses(target, _resolve_host_addresses(target.hostname, target.port))
+
+
+def _host_header(target: WebhookTarget) -> str:
+    host = target.hostname
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    if target.port != 443:
+        return f"{host}:{target.port}"
+    return host
+
+
+def _format_http_headers(headers: Dict[str, str]) -> str:
+    lines: List[str] = []
+    for key, value in headers.items():
+        if _contains_control_characters(key) or _contains_control_characters(str(value)):
+            raise WebhookTargetError("Webhook request headers must not include control characters")
+        lines.append(f"{key}: {value}")
+    return "\r\n".join(lines)
+
+
+def _http_response_status(response_head: bytes) -> int:
+    status_line = response_head.split(b"\r\n", 1)[0].decode("ascii", errors="replace")
+    parts = status_line.split(" ", 2)
+    if len(parts) < 2 or not parts[1].isdigit():
+        raise WebhookTargetError("Webhook target returned an invalid HTTP response")
+    return int(parts[1])
+
+
+def _webhook_ssl_context() -> ssl.SSLContext:
+    context = ssl.create_default_context()
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    return context
+
+
+async def _post_https_pinned_async(
+    url: str,
+    *,
+    content: bytes,
+    headers: Dict[str, str],
+    timeout: float,
+) -> int:
+    target = _parse_webhook_target(url)
+    addresses = await _resolve_target_addresses_async(target)
+    ssl_context = _webhook_ssl_context()
+    request_headers = {
+        **headers,
+        "Host": _host_header(target),
+        "Content-Length": str(len(content)),
+        "Connection": "close",
+    }
+    request = (
+        f"POST {target.path} HTTP/1.1\r\n"
+        + _format_http_headers(request_headers)
+        + "\r\n\r\n"
+    ).encode("utf-8") + content
+
+    last_error: Optional[Exception] = None
+    for address in addresses:
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(
+                    address,
+                    target.port,
+                    ssl=ssl_context,
+                    server_hostname=target.hostname,
+                ),
+                timeout=timeout,
+            )
+            try:
+                writer.write(request)
+                await asyncio.wait_for(writer.drain(), timeout=timeout)
+                response_head = await asyncio.wait_for(reader.read(1024), timeout=timeout)
+                return _http_response_status(response_head)
+            finally:
+                writer.close()
+                await writer.wait_closed()
+        except Exception as exc:
+            last_error = exc
+
+    if last_error is not None:
+        raise last_error
+    raise WebhookTargetError("Webhook target host could not be resolved")
+
+
+def _post_https_pinned_json(url: str, *, payload: Dict[str, Any], timeout: float) -> int:
+    target = _parse_webhook_target(url)
+    addresses = _resolve_target_addresses(target)
+    body = json.dumps(payload, default=str).encode("utf-8")
+    ssl_context = _webhook_ssl_context()
+    request_headers = {
+        "Host": _host_header(target),
+        "Content-Type": "application/json",
+        "Content-Length": str(len(body)),
+        "User-Agent": "Archmorph-Webhooks/1.0",
+        "Connection": "close",
+    }
+    request = (
+        f"POST {target.path} HTTP/1.1\r\n"
+        + _format_http_headers(request_headers)
+        + "\r\n\r\n"
+    ).encode("utf-8") + body
+
+    last_error: Optional[Exception] = None
+    for address in addresses:
+        try:
+            with socket.create_connection((address, target.port), timeout=timeout) as sock:
+                with ssl_context.wrap_socket(sock, server_hostname=target.hostname) as tls_sock:
+                    tls_sock.settimeout(timeout)
+                    tls_sock.sendall(request)
+                    return _http_response_status(tls_sock.recv(1024))
+        except Exception as exc:
+            last_error = exc
+
+    if last_error is not None:
+        raise last_error
+    raise WebhookTargetError("Webhook target host could not be resolved")
 
 
 def register_webhook(
@@ -130,8 +428,7 @@ def register_webhook(
     description: str = "",
 ) -> WebhookRegistration:
     """Register a new webhook endpoint."""
-    if not url or not url.startswith(("http://", "https://")):
-        raise ValueError("Webhook URL must start with http:// or https://")
+    validate_webhook_target_url(url, resolve=True)
 
     # Validate event types
     invalid = [e for e in events if e not in ALL_EVENT_TYPES]
@@ -203,6 +500,7 @@ def update_webhook(
         if not wh:
             return None
         if url is not None:
+            validate_webhook_target_url(url, resolve=True)
             wh.url = url
         if events is not None:
             invalid = [e for e in events if e not in ALL_EVENT_TYPES]
@@ -230,25 +528,24 @@ async def _deliver_payload(
     """Attempt a single HTTP POST delivery (async)."""
     start = time.monotonic()
     try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                url,
-                content=payload_bytes,
-                headers={
-                    "Content-Type": "application/json",
-                    "X-Archmorph-Signature": f"sha256={signature}",
-                    "X-Archmorph-Event": event_type,
-                    "X-Archmorph-Delivery": delivery_id,
-                    "User-Agent": "Archmorph-Webhooks/1.0",
-                },
-                timeout=DELIVERY_TIMEOUT,
-            )
+        status_code = await _post_https_pinned_async(
+            url,
+            content=payload_bytes,
+            headers={
+                "Content-Type": "application/json",
+                "X-Archmorph-Signature": f"sha256={signature}",
+                "X-Archmorph-Event": event_type,
+                "X-Archmorph-Delivery": delivery_id,
+                "User-Agent": "Archmorph-Webhooks/1.0",
+            },
+            timeout=DELIVERY_TIMEOUT,
+        )
         latency = (time.monotonic() - start) * 1000
-        success = 200 <= resp.status_code < 300
+        success = 200 <= status_code < 300
         return DeliveryAttempt(
             attempt=0,
             timestamp=datetime.now(timezone.utc).isoformat(),
-            status_code=resp.status_code,
+            status_code=status_code,
             latency_ms=round(latency, 2),
             success=success,
         )
@@ -437,6 +734,9 @@ def register_integration(
     if missing:
         raise ValueError(f"Missing required config fields: {missing}")
 
+    if integration_type in {IntegrationType.SLACK, IntegrationType.TEAMS}:
+        validate_webhook_target_url(config["webhook_url"], resolve=True)
+
     integration = IntegrationConfig(
         id=f"int-{uuid.uuid4().hex[:12]}",
         type=integration_type,
@@ -594,23 +894,23 @@ def send_to_integration(
     try:
         if integration.type == IntegrationType.SLACK:
             payload = _format_slack_message(event_type, data)
-            resp = httpx.post(
+            status_code = _post_https_pinned_json(
                 integration.config["webhook_url"],
-                json=payload,
+                payload=payload,
                 timeout=10,
             )
-            result["status_code"] = resp.status_code
-            result["success"] = 200 <= resp.status_code < 300
+            result["status_code"] = status_code
+            result["success"] = 200 <= status_code < 300
 
         elif integration.type == IntegrationType.TEAMS:
             payload = _format_teams_card(event_type, data)
-            resp = httpx.post(
+            status_code = _post_https_pinned_json(
                 integration.config["webhook_url"],
-                json=payload,
+                payload=payload,
                 timeout=10,
             )
-            result["status_code"] = resp.status_code
-            result["success"] = 200 <= resp.status_code < 300
+            result["status_code"] = status_code
+            result["success"] = 200 <= status_code < 300
 
         elif integration.type == IntegrationType.AZURE_DEVOPS:
             org = integration.config["organization"]
