@@ -54,11 +54,15 @@ def generate_architecture_package(
             analysis_id=analysis_id,
             artifact_filenames=[filename, cost_filename],
         )
+        cost_assumptions_json = _manifest_json(manifest.get("cost_assumptions", {}))
         return {
             "format": "architecture-package-svg",
             "filename": filename,
             "content": _embed_svg_manifest(result["content"], manifest),
             "manifest": manifest,
+            "artifact_contents": {
+                cost_filename: cost_assumptions_json,
+            },
         }
 
     primary_svg = _namespace_svg_ids(
@@ -81,11 +85,15 @@ def generate_architecture_package(
         artifact_filenames=[filename, target_filename, dr_filename, cost_filename],
     )
     content = _render_html_package(analysis, primary_svg, dr_svg, manifest)
+    cost_assumptions_json = _manifest_json(manifest.get("cost_assumptions", {}))
     return {
         "format": "architecture-package-html",
         "filename": filename,
         "content": content,
         "manifest": manifest,
+        "artifact_contents": {
+            cost_filename: cost_assumptions_json,
+        },
     }
 
 

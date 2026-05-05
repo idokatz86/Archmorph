@@ -179,6 +179,8 @@ def test_architecture_package_html_manifest_contains_traceability_fields():
     assert manifest["cost_assumptions"]["schema_version"] == "cost-assumptions/v1"
     assert manifest["cost_assumptions"]["directional_notice"].startswith("Cost estimates are directional")
     assert any(artifact["role"] == "cost-assumptions" for artifact in manifest["artifacts"])
+    assert result["artifact_contents"]["archmorph-web-tier-cost-assumptions.json"].startswith("{")
+    assert "cost-assumptions/v1" in result["artifact_contents"]["archmorph-web-tier-cost-assumptions.json"]
     assert "archmorph-artifact-manifest" in result["content"]
     assert "archmorph-cost-assumptions" in result["content"]
     assert "five review outputs" in result["content"]
@@ -392,6 +394,7 @@ def test_export_architecture_package_endpoint_returns_html(test_client):
     assert "A — Target Azure Topology" in data["content"]
     assert "E — Cost Assumptions" in data["content"]
     assert data["manifest"]["analysis_id"] == diagram_id
+    assert data["artifact_contents"]["archmorph-web-tier-cost-assumptions.json"].startswith("{")
     assert "_cached_cost_estimate" in SESSION_STORE[diagram_id]
 
 
