@@ -1,0 +1,92 @@
+name: Landing Zone Perf Soak
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Staging base URL override"
+        required: false
+        type: string
+      target_rps:
+        description: "Target RPS"
+        required: false
+        default: "100"
+        type: string
+      run_time:
+        description: "Locust run time"
+        required: false
+        default: "5m"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  landing-zone-soak:
+    name: landing-zone-soak
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DEFAULT_TARGET_RPS: "100"
+      DEFAULT_RUN_TIME: "5m"
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Resolve soak configuration
+        id: config
+        env:
+          INPUT_BASE_URL: ${{ inputs.base_url }}
+          VAR_BASE_URL: ${{ vars.PERF_SOAK_BASE_URL }}
+          SECRET_BASE_URL: ${{ secrets.PERF_SOAK_BASE_URL }}
+          RATE_LIMIT_PROFILE: ${{ vars.PERF_SOAK_RATE_LIMIT_PROFILE }}
+          INPUT_TARGET_RPS: ${{ inputs.target_rps }}
+          INPUT_RUN_TIME: ${{ inputs.run_time }}
+        run: |
+          base_url="${INPUT_BASE_URL:-${VAR_BASE_URL:-$SECRET_BASE_URL}}"
+          if [ -z "$base_url" ]; then
+            echo "PERF_SOAK_BASE_URL must be configured as a variable, secret, or workflow_dispatch input" >&2
+            exit 1
+          fi
+          if [ "$RATE_LIMIT_PROFILE" != "soak" ]; then
+            echo "PERF_SOAK_RATE_LIMIT_PROFILE=soak is required; target staging must disable or raise per-IP limits for the 100 RPS soak" >&2
+            exit 1
+          fi
+          target_rps="${INPUT_TARGET_RPS:-$DEFAULT_TARGET_RPS}"
+          run_time="${INPUT_RUN_TIME:-$DEFAULT_RUN_TIME}"
+          echo "base_url=$base_url" >> "$GITHUB_OUTPUT"
+          echo "target_rps=$target_rps" >> "$GITHUB_OUTPUT"
+          echo "run_time=$run_time" >> "$GITHUB_OUTPUT"
+
+      - name: Install Locust
+        run: |
+          python -m venv "${{ runner.temp }}/locust-venv"
+          "${{ runner.temp }}/locust-venv/bin/python" -m pip install --upgrade pip
+          "${{ runner.temp }}/locust-venv/bin/python" -m pip install 'locust==2.32.6'
+
+      - name: Run Landing Zone soak
+        env:
+          LANDING_ZONE_SOAK_SUMMARY_PATH: ${{ runner.temp }}/landing-zone-soak/landing-zone-soak-summary.json
+          LANDING_ZONE_TARGET_RPS: ${{ steps.config.outputs.target_rps }}
+          LANDING_ZONE_USER_RPS: "1"
+          LANDING_ZONE_API_KEY: ${{ secrets.PERF_SOAK_API_KEY }}
+        run: |
+          mkdir -p "${{ runner.temp }}/landing-zone-soak"
+          users="${{ steps.config.outputs.target_rps }}"
+          "${{ runner.temp }}/locust-venv/bin/python" -m locust \
+            -f tests/perf/locustfile_landing_zone.py \
+            --headless \
+            --host "${{ steps.config.outputs.base_url }}" \
+            --users "$users" \
+            --spawn-rate "$users" \
+            --run-time "${{ steps.config.outputs.run_time }}" \
+            --only-summary
+
+      - name: Upload soak summary
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: landing-zone-soak-summary
+          path: ${{ runner.temp }}/landing-zone-soak/landing-zone-soak-summary.json
+          if-no-files-found: warn
