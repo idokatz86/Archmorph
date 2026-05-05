@@ -44,6 +44,7 @@ except ImportError:  # pragma: no cover
 # ── Lazy OTel instrument registries ───────────────────────────
 _otel_counters: Dict[str, Any] = {}
 _otel_histograms: Dict[str, Any] = {}
+_otel_gauges: Dict[str, Any] = {}
 
 
 def _get_otel_counter(name: str):
@@ -62,6 +63,15 @@ def _get_otel_histogram(name: str):
     if name not in _otel_histograms:
         _otel_histograms[name] = _meter.create_histogram(name, description=f"Histogram: {name}")
     return _otel_histograms[name]
+
+
+def _get_otel_gauge(name: str):
+    """Get or lazily create an OTel Gauge instrument when supported."""
+    if not _OTEL_AVAILABLE or _meter is None or not hasattr(_meter, "create_gauge"):
+        return None
+    if name not in _otel_gauges:
+        _otel_gauges[name] = _meter.create_gauge(name, description=f"Gauge: {name}")
+    return _otel_gauges[name]
 
 
 # ── In-memory metrics (admin dashboard) ──────────────────────
@@ -285,7 +295,8 @@ def set_gauge(name: str, value: float, tags: Optional[Dict[str, str]] = None):
     """
     Set a gauge metric value.
 
-    In-memory only — serves the admin monitoring dashboard.
+    Writes to the in-memory store and to an OpenTelemetry Gauge instrument
+    when the installed OTel API supports synchronous gauges.
     """
     key = _make_metric_key(name, tags)
     with _metrics_lock:
@@ -295,6 +306,10 @@ def set_gauge(name: str, value: float, tags: Optional[Dict[str, str]] = None):
             "value": value,
             "timestamp": time.time(),
         }
+
+    otel_gauge = _get_otel_gauge(name)
+    if otel_gauge is not None:
+        otel_gauge.set(value, attributes=tags or {})
 
 
 def get_metrics() -> Dict[str, Any]:

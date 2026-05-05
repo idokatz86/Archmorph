@@ -1,7 +1,63 @@
 """Tests for vision_analyzer.py — diagram image analysis via GPT-4o vision."""
 
+import json
 from unittest.mock import patch, MagicMock
+import pytest
+from cachetools import TTLCache
+
+import observability
+import vision_analyzer
 from vision_analyzer import analyze_image
+
+
+def _minimal_png():
+    import struct
+    import zlib
+
+    signature = b'\x89PNG\r\n\x1a\n'
+    ihdr_data = struct.pack('>IIBBBBB', 1, 1, 8, 2, 0, 0, 0)
+    ihdr_crc = zlib.crc32(b'IHDR' + ihdr_data)
+    ihdr = struct.pack('>I', 13) + b'IHDR' + ihdr_data + struct.pack('>I', ihdr_crc)
+    raw = b'\x00\x00\x00\x00'
+    idat_data = zlib.compress(raw)
+    idat_crc = zlib.crc32(b'IDAT' + idat_data)
+    idat = struct.pack('>I', len(idat_data)) + b'IDAT' + idat_data + struct.pack('>I', idat_crc)
+    iend_crc = zlib.crc32(b'IEND')
+    iend = struct.pack('>I', 0) + b'IEND' + struct.pack('>I', iend_crc)
+    return signature + ihdr + idat + iend
+
+
+def _vision_response(payload: dict):
+    response = MagicMock()
+    response.choices = [MagicMock()]
+    response.choices[0].message.content = json.dumps(payload)
+    return response
+
+
+def _metric_total(kind: str, name: str, tags: dict[str, str] | None = None) -> int:
+    total = 0
+    for entry in observability._metrics[kind].values():
+        if entry["name"] != name:
+            continue
+        entry_tags = entry.get("tags", {})
+        if tags is None or all(entry_tags.get(k) == v for k, v in tags.items()):
+            total += entry.get("value", len(entry.get("values", [])))
+    return total
+
+
+@pytest.fixture(autouse=True)
+def clean_vision_cache_and_metrics():
+    with vision_analyzer._vision_cache_lock:
+        vision_analyzer._vision_cache.clear()
+    observability._metrics["counters"].clear()
+    observability._metrics["histograms"].clear()
+    observability._metrics["gauges"].clear()
+    yield
+    with vision_analyzer._vision_cache_lock:
+        vision_analyzer._vision_cache.clear()
+    observability._metrics["counters"].clear()
+    observability._metrics["histograms"].clear()
+    observability._metrics["gauges"].clear()
 
 
 class TestAnalyzeImage:
@@ -35,24 +91,7 @@ class TestAnalyzeImage:
 
         mock_client.chat.completions.create.return_value = mock_response
 
-        # Create a minimal valid PNG (1x1 pixel)
-        import struct
-        import zlib
-        
-        def create_minimal_png():
-            signature = b'\x89PNG\r\n\x1a\n'
-            ihdr_data = struct.pack('>IIBBBBB', 1, 1, 8, 2, 0, 0, 0)
-            ihdr_crc = zlib.crc32(b'IHDR' + ihdr_data)
-            ihdr = struct.pack('>I', 13) + b'IHDR' + ihdr_data + struct.pack('>I', ihdr_crc)
-            raw = b'\x00\x00\x00\x00'
-            idat_data = zlib.compress(raw)
-            idat_crc = zlib.crc32(b'IDAT' + idat_data)
-            idat = struct.pack('>I', len(idat_data)) + b'IDAT' + idat_data + struct.pack('>I', idat_crc)
-            iend_crc = zlib.crc32(b'IEND')
-            iend = struct.pack('>I', 0) + b'IEND' + struct.pack('>I', iend_crc)
-            return signature + ihdr + idat + iend
-
-        png_bytes = create_minimal_png()
+        png_bytes = _minimal_png()
         result = analyze_image(png_bytes, "test-diagram-id")
 
         assert isinstance(result, dict)
@@ -82,19 +121,7 @@ class TestWarningsCoercion:
     """
 
     def _png(self):
-        import struct
-        import zlib
-        signature = b'\x89PNG\r\n\x1a\n'
-        ihdr_data = struct.pack('>IIBBBBB', 1, 1, 8, 2, 0, 0, 0)
-        ihdr_crc = zlib.crc32(b'IHDR' + ihdr_data)
-        ihdr = struct.pack('>I', 13) + b'IHDR' + ihdr_data + struct.pack('>I', ihdr_crc)
-        raw = b'\x00\x00\x00\x00'
-        idat_data = zlib.compress(raw)
-        idat_crc = zlib.crc32(b'IDAT' + idat_data)
-        idat = struct.pack('>I', len(idat_data)) + b'IDAT' + idat_data + struct.pack('>I', idat_crc)
-        iend_crc = zlib.crc32(b'IEND')
-        iend = struct.pack('>I', 0) + b'IEND' + struct.pack('>I', iend_crc)
-        return signature + ihdr + idat + iend
+        return _minimal_png()
 
     @patch("vision_analyzer.get_openai_client")
     def test_object_warnings_are_flattened_to_strings(self, mock_client_fn):
@@ -132,4 +159,66 @@ class TestWarningsCoercion:
         assert "Falls back to description key" in result["warnings"]
         # Object with no known string key falls back to JSON serialisation
         assert any('"type"' in w and '"no_message_key"' in w for w in result["warnings"])
+
+
+class TestVisionCacheObservability:
+    @patch("vision_analyzer.get_openai_client")
+    def test_same_image_uses_cache_and_emits_hit_rate_metrics(self, mock_client_fn):
+        mock_client = MagicMock()
+        mock_client_fn.return_value = mock_client
+        mock_client.chat.completions.create.return_value = _vision_response({
+            "diagram_type": "AWS Architecture",
+            "services_detected": 1,
+        })
+
+        first = analyze_image(_minimal_png())
+        second = analyze_image(_minimal_png())
+
+        assert first == second
+        assert mock_client.chat.completions.create.call_count == 1
+        assert _metric_total("counters", vision_analyzer.VISION_CACHE_METRIC, {"result": "miss"}) == 1
+        assert _metric_total("counters", vision_analyzer.VISION_CACHE_METRIC, {"result": "hit"}) == 1
+        assert _metric_total("histograms", vision_analyzer.VISION_LATENCY_METRIC) == 2
+
+    @patch("vision_analyzer.get_openai_client")
+    def test_model_change_changes_prompt_hash_and_cache_key(self, mock_client_fn, monkeypatch):
+        mock_client = MagicMock()
+        mock_client_fn.return_value = mock_client
+        mock_client.chat.completions.create.side_effect = [
+            _vision_response({"diagram_type": "old-model"}),
+            _vision_response({"diagram_type": "new-model"}),
+        ]
+
+        monkeypatch.setattr(vision_analyzer, "AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
+        old_hash = vision_analyzer._compute_vision_prompt_hash("gpt-4o")
+        first = analyze_image(_minimal_png())
+
+        monkeypatch.setattr(vision_analyzer, "AZURE_OPENAI_DEPLOYMENT", "gpt-5.4")
+        new_hash = vision_analyzer._compute_vision_prompt_hash("gpt-5.4")
+        second = analyze_image(_minimal_png())
+
+        assert old_hash != new_hash
+        assert first != second
+        assert mock_client.chat.completions.create.call_count == 2
+        assert mock_client.chat.completions.create.call_args_list[0].kwargs["model"] == "gpt-4o"
+        assert mock_client.chat.completions.create.call_args_list[1].kwargs["model"] == "gpt-5.4"
+        assert _metric_total("counters", vision_analyzer.VISION_CACHE_METRIC, {"result": "miss"}) == 2
+
+    @patch("vision_analyzer.get_openai_client")
+    def test_cache_ttl_expiry_forces_fresh_analysis(self, mock_client_fn, monkeypatch):
+        mock_client = MagicMock()
+        mock_client_fn.return_value = mock_client
+        mock_client.chat.completions.create.side_effect = [
+            _vision_response({"diagram_type": "before-expiry"}),
+            _vision_response({"diagram_type": "after-expiry"}),
+        ]
+        monkeypatch.setattr(vision_analyzer, "_vision_cache", TTLCache(maxsize=100, ttl=0))
+
+        first = analyze_image(_minimal_png())
+        second = analyze_image(_minimal_png())
+
+        assert first != second
+        assert mock_client.chat.completions.create.call_count == 2
+        assert _metric_total("counters", vision_analyzer.VISION_CACHE_METRIC, {"result": "miss"}) == 2
+        assert _metric_total("counters", vision_analyzer.VISION_CACHE_METRIC, {"result": "hit"}) == 0
 

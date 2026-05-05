@@ -1591,6 +1591,84 @@ resource "azurerm_application_insights_workbook" "dashboard" {
         name = "openai-metrics"
       },
 
+      # Vision analyzer custom metrics (#656)
+      {
+        type    = 1
+        content = { json = "## 👁️ Vision Analyzer Health\nCache effectiveness, prompt-version hash, and latency split by cache state." }
+        name    = "section-vision-analyzer"
+      },
+      {
+        type = 3
+        content = {
+          version       = "KqlItem/1.0"
+          query         = <<-KQL
+            customMetrics
+            | where name == "archmorph.vision.cache"
+            | extend result = tostring(customDimensions.result)
+            | summarize total = sum(valueCount) by result
+            | summarize
+                Hits = sumif(total, result == "hit"),
+                Misses = sumif(total, result == "miss"),
+                Total = sum(total)
+            | extend HitRatePct = round(100.0 * Hits / iff(Total == 0, 1, Total), 2)
+            | project ["Hit Rate %"] = HitRatePct, Hits, Misses, Total
+          KQL
+          size          = 4
+          title         = "Vision Cache Hit Rate"
+          queryType     = 0
+          resourceType  = "microsoft.insights/components"
+          visualization = "tiles"
+        }
+        customWidth = "33"
+        name        = "vision-cache-hit-rate"
+      },
+      {
+        type = 3
+        content = {
+          version       = "KqlItem/1.0"
+          query         = <<-KQL
+            customMetrics
+            | where name == "archmorph.vision.prompt_hash"
+            | extend
+                Model = tostring(customDimensions.model),
+                PromptHash = tostring(customDimensions.prompt_hash)
+            | summarize LastSeen = max(timestamp), Samples = sum(valueCount) by Model, PromptHash
+            | order by LastSeen desc
+          KQL
+          size          = 1
+          title         = "Vision Prompt Version Hash"
+          queryType     = 0
+          resourceType  = "microsoft.insights/components"
+          visualization = "table"
+        }
+        customWidth = "34"
+        name        = "vision-prompt-hash"
+      },
+      {
+        type = 3
+        content = {
+          version       = "KqlItem/1.0"
+          query         = <<-KQL
+            customMetrics
+            | where name == "archmorph.vision.latency_ms"
+            | extend cache_hit = tostring(customDimensions.cache_hit)
+            | summarize
+                P50 = percentile(value, 50),
+                P95 = percentile(value, 95),
+                P99 = percentile(value, 99)
+              by cache_hit, bin(timestamp, {TimeRange:grain})
+            | render timechart
+          KQL
+          size          = 0
+          title         = "Vision Latency by Cache State (ms)"
+          queryType     = 0
+          resourceType  = "microsoft.insights/components"
+          visualization = "timechart"
+        }
+        customWidth = "33"
+        name        = "vision-latency-by-cache-state"
+      },
+
       # ══════════════════════════════════════════════════════════
       # SECTION 6: Infrastructure Metrics
       # ══════════════════════════════════════════════════════════
