@@ -214,7 +214,7 @@ def test_cost_csv_export_applies_configured_overrides(test_client, cost_contract
     functions_row = next(row for row in rows if row["Service"] == "Azure Functions")
     total_row = rows[-1]
 
-    assert functions_row["SKU"] == "Premium"
+    assert functions_row["SKU"] == "Consumption"
     assert functions_row["Instances"] == "3"
     assert functions_row["Reserved Term"] == "1yr"
     assert _decimal(functions_row["Monthly Low (USD)"]) == Decimal("21.00")
@@ -263,8 +263,9 @@ def test_cost_assumptions_endpoint_applies_overrides(test_client, cost_contract_
     assert response.status_code == 200
     payload = response.json()
     storage = next(service for service in payload["services"] if service["service"] == "Azure Blob Storage")
-    assert storage["sku"] == "Cool LRS"
-    assert storage["sku_pricing_note"].startswith("User-selected SKU label")
+    assert storage["sku"] == "Hot LRS"
+    assert storage["requested_sku"] == "Cool LRS"
+    assert storage["sku_pricing_note"].startswith("User-selected SKU label recorded separately")
     assert storage["quantity"] == 2
     assert storage["quantity_assumption"] == "2 instance(s) configured by the user."
     assert storage["reservation_assumption"] == "Reserved capacity applied: 3yr."
@@ -275,6 +276,10 @@ def test_cost_assumptions_endpoint_applies_overrides(test_client, cost_contract_
 
 def test_cost_assumptions_endpoint_reuses_cached_estimate(monkeypatch, test_client, cost_contract_session, cost_contract_fixture):
     cached = copy.deepcopy(cost_contract_fixture)
+    cached["mapping_fingerprint"] = [
+        {"source_service": "Amazon S3", "source_provider": "aws", "azure_service": "Azure Blob Storage"},
+        {"source_service": "Lambda", "source_provider": "aws", "azure_service": "Azure Functions"},
+    ]
     cached["services"][0]["monthly_low"] = 12.0
     cached["services"][0]["monthly_high"] = 24.0
     cached["services"][0]["monthly_estimate"] = 18.0
@@ -298,6 +303,10 @@ def test_cost_assumptions_endpoint_reuses_cached_estimate(monkeypatch, test_clie
 
 def test_cost_assumptions_endpoint_reprices_stale_cached_region(test_client, cost_contract_session, cost_contract_fixture):
     stale = copy.deepcopy(cost_contract_fixture)
+    stale["mapping_fingerprint"] = [
+        {"source_service": "Amazon S3", "source_provider": "aws", "azure_service": "Azure Blob Storage"},
+        {"source_service": "Lambda", "source_provider": "aws", "azure_service": "Azure Functions"},
+    ]
     stale["arm_region"] = "eastus"
     stale["region"] = "East US"
     stale["services"][0]["monthly_low"] = 999.0
@@ -323,6 +332,10 @@ def test_cost_assumptions_endpoint_reuses_cached_estimate_with_case_insensitive_
     cost_contract_fixture,
 ):
     cached = copy.deepcopy(cost_contract_fixture)
+    cached["mapping_fingerprint"] = [
+        {"source_service": "Amazon S3", "source_provider": "aws", "azure_service": "Azure Blob Storage"},
+        {"source_service": "Lambda", "source_provider": "aws", "azure_service": "Azure Functions"},
+    ]
     cached["sku_strategy"] = "balanced"
     cached["services"][0]["monthly_low"] = 12.0
     cost_contract_session["_cached_cost_estimate"] = cached
@@ -349,6 +362,26 @@ def test_cost_assumptions_endpoint_has_openapi_schema(test_client):
     assert schema["$ref"].endswith("/CostAssumptionsResponse")
     cache_age_schema = response.json()["components"]["schemas"]["CostAssumptionsResponse"]["properties"]["cache_age_days"]
     assert cache_age_schema == {"anyOf": [{"type": "number"}, {"type": "null"}], "title": "Cache Age Days"}
+
+
+def test_cost_assumptions_endpoint_reprices_when_mappings_change(test_client, cost_contract_session, cost_contract_fixture):
+    stale = copy.deepcopy(cost_contract_fixture)
+    stale["mapping_fingerprint"] = [
+        {"source_service": "Legacy Queue", "source_provider": "aws", "azure_service": "Azure Service Bus"},
+    ]
+    stale["services"][0]["monthly_low"] = 999.0
+    cost_contract_session["_cached_cost_estimate"] = stale
+    SESSION_STORE[DIAGRAM_ID] = cost_contract_session
+
+    response = test_client.get(f"/api/diagrams/{DIAGRAM_ID}/cost-assumptions")
+
+    assert response.status_code == 200
+    functions = next(service for service in response.json()["services"] if service["service"] == "Azure Functions")
+    assert functions["monthly_low"] == 10.0
+    assert SESSION_STORE[DIAGRAM_ID]["_cached_cost_estimate"]["mapping_fingerprint"] == [
+        {"source_service": "Amazon S3", "source_provider": "aws", "azure_service": "Azure Blob Storage"},
+        {"source_service": "Lambda", "source_provider": "aws", "azure_service": "Azure Functions"},
+    ]
 
 
 def test_cost_assumptions_builder_flags_missing_prices(cost_contract_fixture):
@@ -427,10 +460,17 @@ def test_cost_assumptions_builder_uses_cached_estimate_and_applies_overrides(mon
         },
     }
 
+    analysis["_cached_cost_estimate"]["mapping_fingerprint"] = [
+        {"source_service": "Lambda", "source_provider": "", "azure_service": "Azure Functions"},
+        {"source_service": "Queue A", "source_provider": "", "azure_service": "Azure Service Bus"},
+        {"source_service": "Queue B", "source_provider": "", "azure_service": "Azure Service Bus"},
+    ]
+
     artifact = build_cost_assumptions_artifact(analysis)
 
     functions = next(service for service in artifact["services"] if service["service"] == "Azure Functions")
-    assert functions["sku"] == "Premium"
+    assert functions["sku"] == "Consumption"
+    assert functions["requested_sku"] == "Premium"
     assert functions["quantity"] == 2
     assert functions["quantity_assumption"] == "2 instance(s) configured by the user."
     assert functions["reservation_assumption"] == "Reserved capacity applied: 1yr."

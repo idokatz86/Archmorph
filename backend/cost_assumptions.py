@@ -58,6 +58,18 @@ def build_cost_assumptions_artifact(
     }
 
 
+def _mapping_fingerprint(mappings: list[dict[str, Any]]) -> list[dict[str, str]]:
+    fingerprint = [
+            {
+                "source_service": str(mapping.get("source_service") or mapping.get("source") or mapping.get("aws_service") or mapping.get("gcp_service") or ""),
+                "source_provider": str(mapping.get("source_provider") or mapping.get("provider") or ""),
+                "azure_service": str(mapping.get("azure_service") or mapping.get("target") or ""),
+            }
+        for mapping in mappings
+    ]
+    return sorted(fingerprint, key=lambda item: (item["source_service"], item["source_provider"], item["azure_service"]))
+
+
 def _service_assumptions(
     service: dict[str, Any],
     mappings: list[dict[str, Any]],
@@ -80,6 +92,7 @@ def _service_assumptions(
         "category": str(service.get("category") or primary_mapping.get("category") or "Other"),
         "region": str(cost_estimate.get("region") or cost_estimate.get("arm_region") or "westeurope"),
         "sku": str(service.get("sku") or "Default tier"),
+        "requested_sku": str(service.get("requested_sku") or service.get("sku") or "Default tier"),
         "sku_pricing_note": str(service.get("sku_pricing_note") or ""),
         "meter": str(service.get("meter") or ""),
         "quantity": quantity,
@@ -124,12 +137,13 @@ def _cost_estimate_from_analysis(
     sku_strategy: str,
 ) -> dict[str, Any]:
     cached = analysis.get("_cached_cost_estimate") or analysis.get("cost_estimate")
-    if _cached_estimate_matches(cached, region=region, sku_strategy=sku_strategy):
+    mapping_fingerprint = _mapping_fingerprint(mappings)
+    if _cached_estimate_matches(cached, region=region, sku_strategy=sku_strategy, mapping_fingerprint=mapping_fingerprint):
         base = cached
     else:
         base = estimate_services_cost(mappings, region=region, sku_strategy=sku_strategy) if mappings else {}
         if mappings:
-            base = {**base, "cache_age_days": None}
+            base = {**base, "cache_age_days": None, "mapping_fingerprint": mapping_fingerprint}
             analysis["_cached_cost_estimate"] = base
 
     overrides = analysis.get("_cost_overrides") if isinstance(analysis.get("_cost_overrides"), dict) else {}
@@ -162,13 +176,15 @@ def _apply_cost_overrides(services: list[Any], overrides: dict[str, Any]) -> lis
         base_high = float(service.get("base_monthly_high") or service.get("monthly_high") or 0)
         monthly_low = round(base_low * instance_count * (1 - discount), 2)
         monthly_high = round(base_high * instance_count * (1 - discount), 2)
+        priced_sku = str(service.get("sku") or "Default tier")
         configured.append({
             **service,
             "instance_count": instance_count,
-            "sku": override_sku or str(service.get("sku") or "Default tier"),
+            "sku": priced_sku,
+            "requested_sku": override_sku or priced_sku,
             "sku_pricing_note": (
-                "User-selected SKU label; pricing remains based on the estimator baseline and must be validated."
-                if override_sku and override_sku != str(service.get("sku") or "")
+                "User-selected SKU label recorded separately; pricing remains based on the estimator baseline SKU and must be validated."
+                if override_sku and override_sku != priced_sku
                 else service.get("sku_pricing_note", "")
             ),
             "reserved_term": reserved_term,
@@ -183,12 +199,16 @@ def _apply_cost_overrides(services: list[Any], overrides: dict[str, Any]) -> lis
     return configured
 
 
-def _cached_estimate_matches(candidate: Any, *, region: str, sku_strategy: str) -> bool:
+def _cached_estimate_matches(candidate: Any, *, region: str, sku_strategy: str, mapping_fingerprint: list[dict[str, str]]) -> bool:
     if not isinstance(candidate, dict) or candidate.get("services") is None:
         return False
     cached_region = str(candidate.get("arm_region") or candidate.get("region") or "").lower()
     cached_strategy = str(candidate.get("sku_strategy") or "Balanced").lower()
-    return cached_region == region.lower() and cached_strategy == sku_strategy.lower()
+    return (
+        cached_region == region.lower()
+        and cached_strategy == sku_strategy.lower()
+        and candidate.get("mapping_fingerprint") == mapping_fingerprint
+    )
 
 
 def _mappings_for_service(service_name: str, mappings: list[dict[str, Any]]) -> list[dict[str, Any]]:

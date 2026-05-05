@@ -494,6 +494,7 @@ class CostAssumptionService(StrictBaseModel):
     category: str
     region: str
     sku: str
+    requested_sku: str
     sku_pricing_note: str = ""
     meter: str
     quantity: int
@@ -545,7 +546,8 @@ def _apply_overrides(services: list, overrides: dict) -> list:
         override = overrides.get(name, {})
 
         instance_count = override.get("instance_count", svc.get("instance_count", 1))
-        sku = override.get("sku") or svc.get("sku", "Default tier")
+        priced_sku = svc.get("sku", "Default tier")
+        requested_sku = override.get("sku") or priced_sku
         reserved_term = override.get("reserved_term", svc.get("reserved_term", "none"))
         discount = _RI_DISCOUNTS.get(reserved_term, 0.0)
 
@@ -563,7 +565,13 @@ def _apply_overrides(services: list, overrides: dict) -> list:
         result.append({
             **svc,
             "instance_count": instance_count,
-            "sku": sku,
+            "sku": priced_sku,
+            "requested_sku": requested_sku,
+            "sku_pricing_note": (
+                "User-selected SKU label recorded separately; pricing remains based on the estimator baseline SKU and must be validated."
+                if requested_sku != priced_sku
+                else svc.get("sku_pricing_note", "")
+            ),
             "reserved_term": reserved_term,
             "monthly_low": adj_low,
             "monthly_high": adj_high,

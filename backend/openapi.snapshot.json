@@ -1320,6 +1320,10 @@
             "title": "Region",
             "type": "string"
           },
+          "requested_sku": {
+            "title": "Requested Sku",
+            "type": "string"
+          },
           "reservation_assumption": {
             "title": "Reservation Assumption",
             "type": "string"
@@ -1363,6 +1367,7 @@
           "category",
           "region",
           "sku",
+          "requested_sku",
           "meter",
           "quantity",
           "quantity_assumption",

@@ -8980,6 +8980,8 @@ export interface components {
             quantity_assumption: string;
             /** Region */
             region: string;
+            /** Requested Sku */
+            requested_sku: string;
             /** Reservation Assumption */
             reservation_assumption: string;
             /** Service */
