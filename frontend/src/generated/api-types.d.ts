@@ -1826,6 +1826,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/diagrams/{diagram_id}/cost-assumptions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Cost Assumptions
+         * @description Return a reviewable JSON artifact with cost-estimate assumptions.
+         */
+        get: operations["get_cost_assumptions_api_diagrams__diagram_id__cost_assumptions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/diagrams/{diagram_id}/cost-breakdown": {
         parameters: {
             query?: never;
@@ -6197,6 +6217,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/diagrams/{diagram_id}/cost-assumptions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Cost Assumptions V1
+         * @description Return a reviewable JSON artifact with cost-estimate assumptions.
+         */
+        get: operations["get_cost_assumptions_v1_api_v1_diagrams__diagram_id__cost_assumptions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/diagrams/{diagram_id}/cost-breakdown": {
         parameters: {
             query?: never;
@@ -8907,6 +8947,91 @@ export interface components {
             threshold_pct: number;
             /** Timestamp */
             timestamp?: string;
+        };
+        /** CostAssumptionService */
+        CostAssumptionService: {
+            /** Assumptions */
+            assumptions?: string[];
+            /** Base Price Usd */
+            base_price_usd: number;
+            /** Category */
+            category: string;
+            /** Data Transfer Assumption */
+            data_transfer_assumption: string;
+            /** Formula */
+            formula: string;
+            /** Hourly Rate Usd */
+            hourly_rate_usd: number;
+            /** Meter */
+            meter: string;
+            /** Missing Cost Warnings */
+            missing_cost_warnings?: string[];
+            /** Monthly Estimate */
+            monthly_estimate: number;
+            /** Monthly High */
+            monthly_high: number;
+            /** Monthly Low */
+            monthly_low: number;
+            /** Price Source */
+            price_source: string;
+            /** Quantity */
+            quantity: number;
+            /** Quantity Assumption */
+            quantity_assumption: string;
+            /** Region */
+            region: string;
+            /** Requested Sku */
+            requested_sku: string;
+            /** Reservation Assumption */
+            reservation_assumption: string;
+            /** Service */
+            service: string;
+            /** Sku */
+            sku: string;
+            /** Sku Multiplier */
+            sku_multiplier: number;
+            /**
+             * Sku Pricing Note
+             * @default
+             */
+            sku_pricing_note: string;
+            /** Source Service */
+            source_service: string;
+            /** Source Services */
+            source_services?: string[];
+            /** Storage Assumption */
+            storage_assumption: string;
+        };
+        /** CostAssumptionsResponse */
+        CostAssumptionsResponse: {
+            /** Analysis Id */
+            analysis_id: string;
+            /** Arm Region */
+            arm_region: string;
+            /** Cache Age Days */
+            cache_age_days?: number | null;
+            /** Currency */
+            currency: string;
+            /** Directional Notice */
+            directional_notice: string;
+            /** Missing Cost Warnings */
+            missing_cost_warnings?: string[];
+            /** Pricing Source */
+            pricing_source: string;
+            /** Region */
+            region: string;
+            /** Schema Version */
+            schema_version: string;
+            /** Service Count */
+            service_count: number;
+            /** Services */
+            services?: components["schemas"]["CostAssumptionService"][];
+            /** Sku Strategy */
+            sku_strategy: string;
+            /** Total Monthly Estimate */
+            total_monthly_estimate: {
+                [key: string]: number;
+            };
         };
         /** CostCompareRequest */
         CostCompareRequest: {
@@ -13096,6 +13221,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_cost_assumptions_api_diagrams__diagram_id__cost_assumptions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                diagram_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CostAssumptionsResponse"];
                 };
             };
             /** @description Validation Error */
@@ -19935,6 +20091,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_cost_assumptions_v1_api_v1_diagrams__diagram_id__cost_assumptions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                diagram_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CostAssumptionsResponse"];
                 };
             };
             /** @description Validation Error */

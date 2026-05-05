@@ -19,6 +19,7 @@ from typing import Any, Literal
 from alz_profile import alz_profile_summary, build_alz_profile
 from azure_landing_zone import generate_landing_zone_svg
 from azure_landing_zone_schema import infer_dr_mode, infer_regions, infer_tiers_from_mappings
+from cost_assumptions import DIRECTIONAL_COST_NOTICE, build_cost_assumptions_artifact
 from customer_intent import build_customer_intent_profile
 from source_provider import normalize_source_provider
 from traceability_map import build_traceability_map, traceability_summary
@@ -57,6 +58,7 @@ def generate_architecture_package(
             "filename": filename,
             "content": _embed_svg_manifest(result["content"], manifest),
             "manifest": manifest,
+            "artifact_contents": {},
         }
 
     primary_svg = _namespace_svg_ids(
@@ -70,19 +72,24 @@ def generate_architecture_package(
     filename = f"archmorph-{_safe_filename(analysis)}-architecture-package.html"
     target_filename = f"archmorph-{_safe_filename(analysis)}-architecture-package-primary.svg"
     dr_filename = f"archmorph-{_safe_filename(analysis)}-architecture-package-dr.svg"
+    cost_filename = f"archmorph-{_safe_filename(analysis)}-cost-assumptions.json"
     manifest = _build_manifest(
         analysis,
         format=format,
         diagram=diagram,
         analysis_id=analysis_id,
-        artifact_filenames=[filename, target_filename, dr_filename],
+        artifact_filenames=[filename, target_filename, dr_filename, cost_filename],
     )
     content = _render_html_package(analysis, primary_svg, dr_svg, manifest)
+    cost_assumptions_json = _manifest_json(manifest.get("cost_assumptions", {}))
     return {
         "format": "architecture-package-html",
         "filename": filename,
         "content": content,
         "manifest": manifest,
+        "artifact_contents": {
+            cost_filename: cost_assumptions_json,
+        },
     }
 
 
@@ -130,8 +137,11 @@ def _render_html_package(
         f"<li><strong>{html.escape(tier.title())}</strong><span>{html.escape(', '.join(names) or 'Review required')}</span></li>"
         for tier, names in _tier_summary(analysis)
     )
+    cost_filename = _cost_assumptions_filename(manifest)
+    cost_panel = _render_cost_assumptions_panel(manifest.get("cost_assumptions", {}), cost_filename)
 
     manifest_json = _manifest_json(manifest)
+    cost_assumptions_json = _manifest_json(manifest.get("cost_assumptions", {}))
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -152,7 +162,7 @@ def _render_html_package(
     .brand-pill {{ display: inline-flex; align-items: center; min-height: 28px; border-radius: 8px; padding: 5px 9px; background: var(--soft); color: #155f9f; font-size: 12px; font-weight: 700; }}
     .story {{ display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 14px 0; padding: 12px 14px; background: #fff; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); font-size: 13px; }}
     .story strong {{ color: var(--ink); }}
-    nav {{ display: grid; grid-template-columns: repeat(4, minmax(180px, 1fr)); gap: 10px; margin-bottom: 14px; position: sticky; top: 0; z-index: 2; background: rgba(246, 248, 251, 0.94); padding: 8px 0; backdrop-filter: blur(8px); }}
+    nav {{ display: grid; grid-template-columns: repeat(5, minmax(160px, 1fr)); gap: 10px; margin-bottom: 14px; position: sticky; top: 0; z-index: 2; background: rgba(246, 248, 251, 0.94); padding: 8px 0; backdrop-filter: blur(8px); }}
     button.tab {{ border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 8px; padding: 11px 12px; font: inherit; font-size: 13px; font-weight: 750; cursor: pointer; text-align: left; box-shadow: 0 4px 14px rgba(17, 24, 39, 0.04); }}
     button.tab span {{ display: block; margin-top: 4px; color: var(--muted); font-size: 11px; font-weight: 650; }}
     button.tab[aria-selected="true"] {{ border-color: #b8d8f5; background: #edf4ff; color: #074f87; }}
@@ -195,6 +205,8 @@ def _render_html_package(
         .insight-row {{ border: 1px solid #e7edf5; border-radius: 8px; padding: 12px; background: #fbfdff; }}
         .insight-h {{ font-size: 13px; font-weight: 800; color: var(--ink); margin-bottom: 5px; }}
         .insight-b {{ font-size: 13px; line-height: 1.5; color: #314158; }}
+        .cost-actions {{ display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 12px; }}
+        .download-link {{ display: inline-flex; align-items: center; min-height: 34px; border: 1px solid #b8d8f5; border-radius: 8px; padding: 7px 10px; background: #edf4ff; color: #074f87; font-size: 12px; font-weight: 800; text-decoration: none; }}
         footer {{ margin-top: 16px; color: var(--muted); font-size: 12px; }}
         @media (max-width: 900px) {{ .shell {{ padding: 12px; }} header {{ flex-direction: column; }} .meta-pills {{ justify-content: flex-start; }} .grid {{ grid-template-columns: 1fr; }} .dr-layout {{ grid-template-columns: 1fr; }} nav {{ grid-template-columns: 1fr; position: static; }} }}
   </style>
@@ -205,18 +217,20 @@ def _render_html_package(
         <div class="brand"><div class="mark">A↻</div><div><h1>{title}</h1><p>Cross-cloud architecture translation and Azure hardening package</p></div></div>
         <div class="meta-pills"><span class="brand-pill">Customer / workload: {display_name}</span><span class="brand-pill">Source: {source}</span><span class="brand-pill">Target: Azure</span><span class="brand-pill">Region: {target_region}</span></div>
     </header>
-    <div class="story"><strong>{source_file}</strong><span>→</span><span>Archmorph produced four review outputs:</span><span class="brand-pill">A · Target</span><span class="brand-pill">B · DR</span><span class="brand-pill">C · Talking Points</span><span class="brand-pill">D · Limitations</span></div>
+    <div class="story"><strong>{source_file}</strong><span>→</span><span>Archmorph produced five review outputs:</span><span class="brand-pill">A · Target</span><span class="brand-pill">B · DR</span><span class="brand-pill">C · Talking Points</span><span class="brand-pill">D · Limitations</span><span class="brand-pill">E · Cost Assumptions JSON</span></div>
     <nav aria-label="Architecture package sections">
         <button class="tab" type="button" data-tab="as-is" aria-selected="true">A — Target Azure Topology<span>customer-ready package</span></button>
         <button class="tab" type="button" data-tab="dr" aria-selected="false">B — DR Topology<span>resilience review</span></button>
         <button class="tab" type="button" data-tab="talking" aria-selected="false">C — Talking Points<span>customer-facing narrative</span></button>
         <button class="tab" type="button" data-tab="limits" aria-selected="false">D — Services Limitations<span>technical gotchas</span></button>
+        <button class="tab" type="button" data-tab="cost" aria-selected="false">E — Cost Assumptions<span>reviewable JSON artifact</span></button>
     </nav>
     <main>
     <section id="as-is" class="panel active"><div class="diagram">{primary_svg}</div></section>
     <section id="dr" class="panel"><div class="dr-layout"><div class="diagram">{dr_svg}</div><aside class="block"><div class="readiness-head"><div class="readiness-score">{dr_score}</div><div><h2>DR Readiness Rubric</h2><p><strong>{dr_rating}</strong> · {dr_summary}</p></div></div><div class="rubric">{dr_rows}</div><ul class="dr-limits">{dr_limitations}</ul></aside></div></section>
         <section id="talking" class="panel"><div class="grid"><div class="block"><h2>Customer Intent</h2><div class="intent">{intent_rows}</div></div><div class="block"><h2>Recommended Narrative</h2><div class="insight-list">{talking_points}</div></div></div></section>
         <section id="limits" class="panel"><div class="grid"><div class="block"><h2>Service Tiers</h2><ul class="tiers">{tier_summary}</ul></div><div class="block"><h2>Assumptions And Constraints</h2><div class="insight-list">{limitations}</div></div></div></section>
+          <section id="cost" class="panel">{cost_panel}</section>
   </main>
     <footer>Archmorph · {display_name} · {source} → Azure · generated from the customer-uploaded architecture diagram.</footer>
     </div>
@@ -230,10 +244,52 @@ def _render_html_package(
         document.getElementById(button.dataset.tab).classList.add('active');
       }});
     }});
+        const costDownload = document.getElementById('download-cost-assumptions');
+        if (costDownload) {{
+            costDownload.href = 'data:application/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(window.__ARCHMORPH_ARTIFACT_MANIFEST__.cost_assumptions || {{}}, null, 2));
+        }}
   </script>
   <script type="application/json" id="archmorph-artifact-manifest">{html.escape(manifest_json)}</script>
+    <script type="application/json" id="archmorph-cost-assumptions">{html.escape(cost_assumptions_json)}</script>
 </body>
 </html>"""
+
+
+def _render_cost_assumptions_panel(cost_assumptions: Any, cost_filename: str) -> str:
+    if not isinstance(cost_assumptions, dict):
+        cost_assumptions = {}
+    total = cost_assumptions.get("total_monthly_estimate") if isinstance(cost_assumptions.get("total_monthly_estimate"), dict) else {}
+    services = [service for service in cost_assumptions.get("services", []) if isinstance(service, dict)]
+    rows = "\n".join(
+        "<div class=\"insight-row\">"
+        f"<div class=\"insight-h\">{html.escape(str(service.get('service') or 'Unknown service'))}</div>"
+        f"<div class=\"insight-b\">{html.escape(str(service.get('quantity_assumption') or 'Quantity not specified.'))} "
+        f"{html.escape(str(service.get('reservation_assumption') or 'Reservation not specified.'))} "
+        f"Monthly range: ${float(service.get('monthly_low') or 0):,.2f} to ${float(service.get('monthly_high') or 0):,.2f}. "
+        f"Source: {html.escape(', '.join(str(item) for item in service.get('source_services', []) if item) or str(service.get('source_service') or 'Not mapped'))}.</div>"
+        "</div>"
+        for service in services[:12]
+    )
+    if not rows:
+        rows = "<div class=\"insight-row\"><div class=\"insight-b\">No priced services were generated for this package.</div></div>"
+    return (
+        "<div class=\"block\">"
+        "<div class=\"cost-actions\"><h2>Cost Assumptions</h2>"
+        f"<a class=\"download-link\" id=\"download-cost-assumptions\" download=\"{html.escape(cost_filename)}\" href=\"#\">Download JSON</a></div>"
+        f"<p class=\"insight-b\">{html.escape(str(cost_assumptions.get('directional_notice') or DIRECTIONAL_COST_NOTICE))}</p>"
+        f"<div class=\"intent\"><div><span>Region</span><strong>{html.escape(str(cost_assumptions.get('region') or 'Not generated'))}</strong></div>"
+        f"<div><span>SKU Strategy</span><strong>{html.escape(str(cost_assumptions.get('sku_strategy') or 'Not generated'))}</strong></div>"
+        f"<div><span>Monthly Range</span><strong>${float(total.get('low') or 0):,.2f} to ${float(total.get('high') or 0):,.2f}</strong></div></div>"
+        f"<div class=\"insight-list\" style=\"margin-top:12px\">{rows}</div>"
+        "</div>"
+    )
+
+
+def _cost_assumptions_filename(manifest: dict[str, Any]) -> str:
+    for artifact in manifest.get("artifacts", []):
+        if isinstance(artifact, dict) and artifact.get("role") == "cost-assumptions":
+            return str(artifact.get("filename") or "archmorph-cost-assumptions.json")
+    return "archmorph-cost-assumptions.json"
 
 
 def _build_manifest(
@@ -247,6 +303,7 @@ def _build_manifest(
     profile = _profile_from_analysis(analysis)
     limitations = _limitations(analysis, profile)
     dr_readiness = _build_dr_readiness_rubric(analysis, profile)
+    cost_assumptions = build_cost_assumptions_artifact(analysis, analysis_id=analysis_id)
     source_provider = _source_label(analysis)
     raw_warnings = [str(w) for w in analysis.get("warnings", []) if w]
     unsupported = analysis.get("unsupported_assumptions") or analysis.get("unsupported") or []
@@ -273,6 +330,7 @@ def _build_manifest(
         "alz_profile": build_alz_profile(analysis),
         "traceability_map": build_traceability_map(analysis),
         "dr_readiness": dr_readiness,
+        "cost_assumptions": cost_assumptions,
         "warnings": raw_warnings[:10],
         "limitations": [
             {"title": title, "detail": detail}
@@ -287,11 +345,19 @@ def _manifest_artifacts(
     filenames: list[str],
     format: PackageFormat,
 ) -> list[tuple[str, str, str]]:
+    artifacts: list[tuple[str, str, str]] = []
     if format == "svg":
-        return [(filenames[0], "selected-topology", "svg")]
-    roles = ["architecture-package-html", "target-topology-svg", "dr-topology-svg"]
-    formats = ["html", "svg", "svg"]
-    return list(zip(filenames, roles, formats))
+        artifacts.append((filenames[0], "selected-topology", "svg"))
+        remaining = filenames[1:]
+    else:
+        roles = ["architecture-package-html", "target-topology-svg", "dr-topology-svg"]
+        formats = ["html", "svg", "svg"]
+        artifacts.extend(zip(filenames[:3], roles, formats))
+        remaining = filenames[3:]
+    for filename in remaining:
+        if filename.endswith("-cost-assumptions.json"):
+            artifacts.append((filename, "cost-assumptions", "json"))
+    return artifacts
 
 
 def _mapping_references(analysis: dict[str, Any]) -> list[dict[str, Any]]:

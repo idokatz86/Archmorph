@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### QA guardrails
 
+- **Cost assumptions artifact** — Architecture Package and cost-estimate flows now publish a reviewable assumptions JSON artifact with region/SKU/quantity/storage/data-transfer/reservation context, directional-cost notice, and missing-price warnings.
 - **Landing Zone SLO soak** — nightly Locust performance soak now exercises primary and DR Landing Zone SVG exports at the 100 RPS / 5 minute contract, publishes a JSON summary artifact, and pairs the runbook with App Insights p95 and 1h/24h burn-rate alerts.
 - **FastAPI query-parameter test guard** — CI now fails when tests send `json=` bodies to query-only FastAPI routes, and the E2E step helper converts `has_X=False` detail flags into failed steps.
 - **Mappings freshness guard** — cross-cloud service mappings now carry `last_reviewed` metadata, with non-blocking CI freshness lint and a quarterly review issue workflow.

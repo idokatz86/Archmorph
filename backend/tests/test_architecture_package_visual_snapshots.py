@@ -48,6 +48,7 @@ def _html_snapshot(content: str) -> dict:
             "B — DR Topology",
             "C — Talking Points",
             "D — Services Limitations",
+            "E — Cost Assumptions",
             "Customer Intent",
             "Assumptions And Constraints",
             "AWS/GCP → Azure",

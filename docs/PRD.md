@@ -94,6 +94,8 @@ The PRD distinguishes three maturity levels. **Live** features are usable in the
 - **Optimized targeted queries:** Only fetches prices for services actually detected in the diagram (not the full catalog)
 - Provides per-service low/high range and total monthly estimate
 - Displays region, service count, and pricing source in the UI
+- **Reviewable assumptions artifact:** Architecture Package exports and `/api/diagrams/{id}/cost-assumptions` include region, SKU, quantity, storage, data transfer, reservation posture, pricing source, cache age, and missing-price warnings.
+- Cost estimates are directional planning inputs until FinOps/service owners validate SKUs, usage, reservations, data transfer, and Azure Pricing Calculator totals.
 - **E2E validated:** Real pricing confirmed across 5 diagrams (3 AWS + 2 GCP), ranges $120–$2,100/mo
 
 ### 3.7 Diagram Export (v2.0)

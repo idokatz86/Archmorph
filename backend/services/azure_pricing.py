@@ -1545,7 +1545,13 @@ def estimate_services_cost(
         if canonical and canonical in SERVICE_PRICE_QUERIES:
             needed_keys.add(canonical)
 
+    cache_key = f"prices_{region}"
+    pricing_cache = _load_cache()
+    used_regional_cache = cache_key in pricing_cache
     prices = fetch_prices_for_region(region, needed_services=needed_keys or None)
+    pricing_cache_scope = "partial" if needed_keys and not used_regional_cache else "global"
+    metadata_cache = pricing_cache or _price_cache
+    cache_timestamp = metadata_cache.get("cached_at") if pricing_cache_scope == "global" and metadata_cache else None
 
     # SKU strategy multipliers
     strategy_multipliers = {
@@ -1630,5 +1636,7 @@ def estimate_services_cost(
         "services": service_costs,
         "service_count": len(service_costs),
         "pricing_source": "Azure Retail Prices API" if HAS_HTTPX else "built-in estimates",
-        "cache_age_days": round((time.time() - _price_cache.get("cached_at", time.time())) / 86400, 1) if _price_cache else 0,
+        "cache_age_days": round((time.time() - cache_timestamp) / 86400, 1) if cache_timestamp else None,
+        "pricing_cache_scope": pricing_cache_scope,
+        "pricing_cache_cached_at": cache_timestamp,
     }

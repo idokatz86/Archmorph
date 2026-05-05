@@ -20,6 +20,7 @@ from routers.samples import get_or_recreate_session
 from usage_metrics import record_event
 from best_practices import analyze_architecture, get_quick_wins
 from cost_optimizer import analyze_cost_optimizations
+from cost_assumptions import build_cost_assumptions_artifact
 from services.azure_pricing import estimate_services_cost
 from terraform_preview import preview_terraform_plan
 from migration_risk import compute_risk_score
@@ -486,6 +487,49 @@ class CostConfigureRequest(StrictBaseModel):
     overrides: List[ServiceCostConfig]
 
 
+class CostAssumptionService(StrictBaseModel):
+    service: str
+    source_service: str
+    source_services: List[str] = Field(default_factory=list)
+    category: str
+    region: str
+    sku: str
+    requested_sku: str
+    sku_pricing_note: str = ""
+    meter: str
+    quantity: int
+    quantity_assumption: str
+    storage_assumption: str
+    data_transfer_assumption: str
+    reservation_assumption: str
+    monthly_low: float
+    monthly_high: float
+    monthly_estimate: float
+    price_source: str
+    base_price_usd: float
+    hourly_rate_usd: float
+    sku_multiplier: float
+    formula: str
+    assumptions: List[str] = Field(default_factory=list)
+    missing_cost_warnings: List[str] = Field(default_factory=list)
+
+
+class CostAssumptionsResponse(StrictBaseModel):
+    schema_version: str
+    analysis_id: str
+    currency: str
+    region: str
+    arm_region: str
+    sku_strategy: str
+    pricing_source: str
+    cache_age_days: Optional[float] = None
+    total_monthly_estimate: dict[str, float]
+    service_count: int
+    directional_notice: str
+    missing_cost_warnings: List[str] = Field(default_factory=list)
+    services: List[CostAssumptionService] = Field(default_factory=list)
+
+
 def _get_cost_overrides(diagram_id: str) -> dict:
     """Get user cost overrides from the session."""
     session = get_or_recreate_session(diagram_id)
@@ -501,13 +545,14 @@ def _apply_overrides(services: list, overrides: dict) -> list:
         name = svc.get("service", "")
         override = overrides.get(name, {})
 
-        instance_count = override.get("instance_count", 1)
-        sku = override.get("sku") or svc.get("sku", "Default tier")
-        reserved_term = override.get("reserved_term", "none")
+        instance_count = override.get("instance_count", svc.get("instance_count", 1))
+        priced_sku = svc.get("sku", "Default tier")
+        requested_sku = override.get("sku") or priced_sku
+        reserved_term = override.get("reserved_term", svc.get("reserved_term", "none"))
         discount = _RI_DISCOUNTS.get(reserved_term, 0.0)
 
-        base_low = svc.get("monthly_low", 0)
-        base_high = svc.get("monthly_high", 0)
+        base_low = svc.get("base_monthly_low", svc.get("monthly_low", 0))
+        base_high = svc.get("base_monthly_high", svc.get("monthly_high", 0))
 
         adj_low = round(base_low * instance_count * (1 - discount), 2)
         adj_high = round(base_high * instance_count * (1 - discount), 2)
@@ -520,10 +565,17 @@ def _apply_overrides(services: list, overrides: dict) -> list:
         result.append({
             **svc,
             "instance_count": instance_count,
-            "sku": sku,
+            "sku": priced_sku,
+            "requested_sku": requested_sku,
+            "sku_pricing_note": (
+                "User-selected SKU label recorded separately; pricing remains based on the estimator baseline SKU and must be validated."
+                if requested_sku != priced_sku
+                else svc.get("sku_pricing_note", "")
+            ),
             "reserved_term": reserved_term,
             "monthly_low": adj_low,
             "monthly_high": adj_high,
+            "monthly_estimate": round((adj_low + adj_high) / 2, 2),
             "base_monthly_low": base_low,
             "base_monthly_high": base_high,
             "ri_savings": ri_savings,
@@ -596,6 +648,19 @@ async def get_configured_cost(request: Request, diagram_id: str):
         "service_count": len(configured),
         "overrides_applied": len(overrides),
     }
+
+
+@router.get("/api/diagrams/{diagram_id}/cost-assumptions", response_model=CostAssumptionsResponse)
+@limiter.limit("15/minute")
+async def get_cost_assumptions(request: Request, diagram_id: str):
+    """Return a reviewable JSON artifact with cost-estimate assumptions."""
+    session = get_or_recreate_session(diagram_id)
+    if not session:
+        raise ArchmorphException(404, "No analysis found. Analyze a diagram first.")
+
+    artifact = build_cost_assumptions_artifact(session, analysis_id=diagram_id)
+    SESSION_STORE[diagram_id] = session
+    return artifact
 
 
 @router.get("/api/diagrams/{diagram_id}/cost-estimate/savings")
