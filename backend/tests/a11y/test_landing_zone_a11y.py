@@ -5,6 +5,7 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 
 from azure_landing_zone import (
+    COLOR_BG,
     COLOR_DB,
     COLOR_GREEN,
     COLOR_INK,
@@ -51,7 +52,8 @@ def test_landing_zone_svg_has_accessible_root_label():
 
     assert root.tag == f"{SVG_NS}svg"
     assert root.get("role") == "img"
-    assert root.get("aria-labelledby") == "lz-title lz-desc"
+    assert root.get("aria-labelledby") == "lz-title"
+    assert root.get("aria-describedby") == "lz-desc"
 
     titles = _children_by_tag(root, "title")
     descs = _children_by_tag(root, "desc")
@@ -79,7 +81,6 @@ def test_service_groups_have_title_and_description():
 
 def test_landing_zone_key_text_colors_pass_wcag_aa_contrast():
     white = "#FFFFFF"
-    pale_canvas = "#FAFBFC"
     dark_header_colors = [
         COLOR_PRIMARY,
         COLOR_PURPLE,
@@ -94,4 +95,4 @@ def test_landing_zone_key_text_colors_pass_wcag_aa_contrast():
         assert _contrast_ratio(white, color) >= 4.5
 
     for color in (COLOR_INK, COLOR_INK_2, COLOR_GREEN, COLOR_RED, COLOR_DB):
-        assert _contrast_ratio(color, pale_canvas) >= 4.5
+        assert _contrast_ratio(color, COLOR_BG) >= 4.5

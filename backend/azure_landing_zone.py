@@ -1382,7 +1382,8 @@ def generate_landing_zone_svg(
 
                 parts: list[str] = [
                     f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {CANVAS_W} {H}" '
-                    f'width="{CANVAS_W}" height="{H}" role="img" aria-labelledby="lz-title lz-desc" focusable="false">',
+                    f'width="{CANVAS_W}" height="{H}" role="img" aria-labelledby="lz-title" '
+                    f'aria-describedby="lz-desc" focusable="false">',
                     _defs(),
                     f'<title id="lz-title">{_xml_escape(_truncate(title, 120))}</title>',
                     f'<desc id="lz-desc">{_xml_escape(_truncate(subtitle, 240))}</desc>',
