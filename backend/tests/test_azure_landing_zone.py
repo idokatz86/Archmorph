@@ -21,6 +21,7 @@ from azure_landing_zone import (
     _networking_services,
     generate_landing_zone_svg,
 )
+from analysis_payload_bounds import AnalysisPayloadTooLarge, MAX_ANALYSIS_LIST_ITEMS
 from azure_landing_zone_schema import infer_tiers_from_mappings
 
 # #588 — canonical AWS estate fixture used by the tier-population +
@@ -226,6 +227,64 @@ class TestGenerator:
     def test_landing_zone_svg_invalid_dr_variant_raises(self):
         with pytest.raises(ValueError):
             generate_landing_zone_svg(SAMPLE_ANALYSIS, dr_variant="bogus")  # type: ignore[arg-type]
+
+    def test_landing_zone_svg_rejects_oversized_mappings_before_render(self):
+        oversized = {
+            **SAMPLE_ANALYSIS,
+            "mappings": [
+                {
+                    "source_service": f"Source {i}",
+                    "azure_service": f"Azure Service {i}",
+                    "category": "Compute",
+                }
+                for i in range(MAX_ANALYSIS_LIST_ITEMS + 1)
+            ],
+        }
+
+        with pytest.raises(AnalysisPayloadTooLarge, match="mappings") as exc_info:
+            generate_landing_zone_svg(oversized, dr_variant="primary")
+
+        assert exc_info.value.count == MAX_ANALYSIS_LIST_ITEMS + 1
+        assert exc_info.value.limit == MAX_ANALYSIS_LIST_ITEMS
+
+    def test_landing_zone_svg_rejects_oversized_zone_services_before_render(self):
+        oversized = {
+            **SAMPLE_ANALYSIS,
+            "zones": [
+                {
+                    "id": 1,
+                    "name": "web-tier",
+                    "number": 1,
+                    "services": [
+                        {"name": f"Service {i}", "category": "Compute"}
+                        for i in range(MAX_ANALYSIS_LIST_ITEMS + 1)
+                    ],
+                }
+            ],
+        }
+
+        with pytest.raises(AnalysisPayloadTooLarge, match="zones") as exc_info:
+            generate_landing_zone_svg(oversized, dr_variant="primary")
+
+        assert exc_info.value.field == "zones[0].services"
+        assert exc_info.value.count == MAX_ANALYSIS_LIST_ITEMS + 1
+
+    def test_landing_zone_svg_rejects_oversized_explicit_tier_before_render(self):
+        oversized = {
+            **SAMPLE_ANALYSIS,
+            "tiers": {
+                "app": [
+                    {"name": f"App Service {i}", "category": "Compute"}
+                    for i in range(MAX_ANALYSIS_LIST_ITEMS + 1)
+                ]
+            },
+        }
+
+        with pytest.raises(AnalysisPayloadTooLarge, match="tiers.app") as exc_info:
+            generate_landing_zone_svg(oversized, dr_variant="primary")
+
+        assert exc_info.value.field == "tiers.app"
+        assert exc_info.value.count == MAX_ANALYSIS_LIST_ITEMS + 1
 
 
 # ---------------------------------------------------------------------------
@@ -505,6 +564,90 @@ class TestRouter:
         assert body["filename"].endswith("-dr.svg")
         root = ET.fromstring(body["content"])
         assert root.get("height") == str(CANVAS_H_DR)
+
+    def test_export_diagram_rejects_oversized_analysis_with_413(self, client):
+        from main import SESSION_STORE
+
+        diagram_id = "oversized-analysis-001"
+        SESSION_STORE[diagram_id] = {
+            **SAMPLE_ANALYSIS,
+            "mappings": [
+                {
+                    "source_service": f"Source {i}",
+                    "azure_service": f"Azure Service {i}",
+                    "category": "Compute",
+                }
+                for i in range(MAX_ANALYSIS_LIST_ITEMS + 1)
+            ],
+        }
+        try:
+            resp = client.post(
+                f"/api/diagrams/{diagram_id}/export-diagram?format=landing-zone-svg"
+            )
+        finally:
+            SESSION_STORE.delete(diagram_id)
+
+        assert resp.status_code == 413, resp.text
+        body = resp.json()
+        assert body["error"]["code"] == "PAYLOAD_TOO_LARGE"
+        assert body["error"]["details"] == {
+            "field": "mappings",
+            "count": MAX_ANALYSIS_LIST_ITEMS + 1,
+            "limit": MAX_ANALYSIS_LIST_ITEMS,
+        }
+
+    def test_export_diagram_bounds_apply_before_mcp_export(self, client):
+        from main import SESSION_STORE
+
+        diagram_id = "oversized-analysis-drawio-001"
+        SESSION_STORE[diagram_id] = {
+            **SAMPLE_ANALYSIS,
+            "service_connections": [
+                {"source": "A", "target": "B", "type": "traffic"}
+                for _ in range(MAX_ANALYSIS_LIST_ITEMS + 1)
+            ],
+        }
+        try:
+            resp = client.post(
+                f"/api/diagrams/{diagram_id}/export-diagram?format=drawio"
+            )
+        finally:
+            SESSION_STORE.delete(diagram_id)
+
+        assert resp.status_code == 413, resp.text
+        assert resp.json()["error"]["details"]["field"] == "service_connections"
+
+    def test_export_diagram_rejects_oversized_nested_zone_services(self, client):
+        from main import SESSION_STORE
+
+        diagram_id = "oversized-zone-services-001"
+        SESSION_STORE[diagram_id] = {
+            **SAMPLE_ANALYSIS,
+            "zones": [
+                {
+                    "id": 1,
+                    "name": "web-tier",
+                    "number": 1,
+                    "services": [
+                        {"name": f"Service {i}", "category": "Compute"}
+                        for i in range(MAX_ANALYSIS_LIST_ITEMS + 1)
+                    ],
+                }
+            ],
+        }
+        try:
+            resp = client.post(
+                f"/api/diagrams/{diagram_id}/export-diagram?format=drawio"
+            )
+        finally:
+            SESSION_STORE.delete(diagram_id)
+
+        assert resp.status_code == 413, resp.text
+        assert resp.json()["error"]["details"] == {
+            "field": "zones[0].services",
+            "count": MAX_ANALYSIS_LIST_ITEMS + 1,
+            "limit": MAX_ANALYSIS_LIST_ITEMS,
+        }
 
 
 # ---------------------------------------------------------------------------
