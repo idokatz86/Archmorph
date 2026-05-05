@@ -121,6 +121,21 @@ class TestEstimateServicesCost:
         assert len(result["services"]) == 1
 
     @patch("services.azure_pricing.fetch_prices_for_region")
+    @patch("services.azure_pricing._load_cache")
+    def test_partial_request_uses_global_scope_when_regional_cache_exists(self, mock_load_cache, mock_fetch):
+        mock_load_cache.return_value = {
+            "cached_at": 1_700_000_000,
+            "prices_westeurope": {"Azure Functions": 20.0},
+        }
+        mock_fetch.return_value = {"Azure Functions": 20.0}
+        mappings = [{"azure_service": "Azure Functions", "notes": "Zone 1"}]
+
+        result = estimate_services_cost(mappings, region="westeurope")
+
+        assert result["pricing_cache_scope"] == "global"
+        assert result["pricing_cache_cached_at"] == 1_700_000_000
+
+    @patch("services.azure_pricing.fetch_prices_for_region")
     def test_balanced_multiplier_is_1x(self, mock_fetch):
         mock_fetch.return_value = {"Azure Functions": 100.0}
         mappings = [{"azure_service": "Azure Functions"}]

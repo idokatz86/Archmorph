@@ -46,23 +46,19 @@ def generate_architecture_package(
     if format == "svg":
         result = generate_landing_zone_svg(_diagram_analysis(analysis, diagram), dr_variant=diagram)
         filename = result["filename"].replace("landing-zone", "architecture-package")
-        cost_filename = f"archmorph-{_safe_filename(analysis)}-cost-assumptions.json"
         manifest = _build_manifest(
             analysis,
             format=format,
             diagram=diagram,
             analysis_id=analysis_id,
-            artifact_filenames=[filename, cost_filename],
+            artifact_filenames=[filename],
         )
-        cost_assumptions_json = _manifest_json(manifest.get("cost_assumptions", {}))
         return {
             "format": "architecture-package-svg",
             "filename": filename,
             "content": _embed_svg_manifest(result["content"], manifest),
             "manifest": manifest,
-            "artifact_contents": {
-                cost_filename: cost_assumptions_json,
-            },
+            "artifact_contents": {},
         }
 
     primary_svg = _namespace_svg_ids(

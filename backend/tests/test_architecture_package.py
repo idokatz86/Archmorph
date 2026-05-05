@@ -205,8 +205,8 @@ def test_architecture_package_svg_manifest_tracks_selected_diagram():
     assert result["filename"] in manifest["artifact_filenames"]
     assert manifest["artifacts"] == [
         {"filename": result["filename"], "role": "selected-topology", "format": "svg"},
-        {"filename": "archmorph-web-tier-cost-assumptions.json", "role": "cost-assumptions", "format": "json"},
     ]
+    assert result["artifact_contents"] == {}
     assert "archmorph-artifact-manifest" in result["content"]
 
 
