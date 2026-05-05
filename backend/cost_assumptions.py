@@ -12,6 +12,8 @@ DIRECTIONAL_COST_NOTICE = (
     "data transfer, and regional availability with FinOps and Azure Pricing Calculator before commitment."
 )
 
+_RI_DISCOUNTS = {"none": 0.0, "1yr": 0.30, "3yr": 0.50}
+
 
 def build_cost_assumptions_artifact(
     analysis: dict[str, Any],
@@ -29,7 +31,12 @@ def build_cost_assumptions_artifact(
     mappings = [mapping for mapping in analysis.get("mappings", []) if isinstance(mapping, dict)]
 
     if cost_estimate is None:
-        cost_estimate = estimate_services_cost(mappings, region=region, sku_strategy=sku_strategy) if mappings else {}
+        cost_estimate = _cost_estimate_from_analysis(
+            analysis,
+            mappings=mappings,
+            region=region,
+            sku_strategy=sku_strategy,
+        )
 
     services = [_service_assumptions(service, mappings, cost_estimate) for service in cost_estimate.get("services", []) if isinstance(service, dict)]
     missing_warnings = [warning for service in services for warning in service.get("missing_cost_warnings", [])]
@@ -57,7 +64,8 @@ def _service_assumptions(
     cost_estimate: dict[str, Any],
 ) -> dict[str, Any]:
     service_name = str(service.get("service") or "Unknown service")
-    mapping = _mapping_for_service(service_name, mappings)
+    service_mappings = _mappings_for_service(service_name, mappings)
+    primary_mapping = service_mappings[0] if service_mappings else {}
     assumptions = [str(item) for item in service.get("assumptions", []) if item]
     formula = str(service.get("formula") or "")
     quantity = int(service.get("instance_count") or service.get("quantity") or 1)
@@ -66,8 +74,9 @@ def _service_assumptions(
 
     return {
         "service": service_name,
-        "source_service": str(mapping.get("source_service") or mapping.get("source") or mapping.get("aws_service") or mapping.get("gcp_service") or ""),
-        "category": str(service.get("category") or mapping.get("category") or "Other"),
+        "source_service": _source_service_name(primary_mapping),
+        "source_services": [_source_service_name(mapping) for mapping in service_mappings if _source_service_name(mapping)],
+        "category": str(service.get("category") or primary_mapping.get("category") or "Other"),
         "region": str(cost_estimate.get("region") or cost_estimate.get("arm_region") or "westeurope"),
         "sku": str(service.get("sku") or "Default tier"),
         "meter": str(service.get("meter") or ""),
@@ -101,12 +110,74 @@ def _service_assumptions(
     }
 
 
-def _mapping_for_service(service_name: str, mappings: list[dict[str, Any]]) -> dict[str, Any]:
-    for mapping in mappings:
-        target = str(mapping.get("azure_service") or mapping.get("target") or "")
-        if target == service_name:
-            return mapping
-    return {}
+def _cost_estimate_from_analysis(
+    analysis: dict[str, Any],
+    *,
+    mappings: list[dict[str, Any]],
+    region: str,
+    sku_strategy: str,
+) -> dict[str, Any]:
+    cached = analysis.get("_cached_cost_estimate") or analysis.get("cost_estimate")
+    if isinstance(cached, dict) and cached.get("services") is not None:
+        base = cached
+    else:
+        base = estimate_services_cost(mappings, region=region, sku_strategy=sku_strategy) if mappings else {}
+        if mappings:
+            analysis["_cached_cost_estimate"] = base
+
+    overrides = analysis.get("_cost_overrides") if isinstance(analysis.get("_cost_overrides"), dict) else {}
+    if not overrides:
+        return base
+
+    configured = _apply_cost_overrides(base.get("services", []), overrides)
+    total_low = sum(float(service.get("monthly_low") or 0) for service in configured)
+    total_high = sum(float(service.get("monthly_high") or 0) for service in configured)
+    return {
+        **base,
+        "services": configured,
+        "service_count": len(configured),
+        "total_monthly_estimate": {"low": round(total_low, 2), "high": round(total_high, 2)},
+    }
+
+
+def _apply_cost_overrides(services: list[Any], overrides: dict[str, Any]) -> list[dict[str, Any]]:
+    configured: list[dict[str, Any]] = []
+    for service in services:
+        if not isinstance(service, dict):
+            continue
+        name = str(service.get("service") or "")
+        override = overrides.get(name, {}) if isinstance(overrides.get(name, {}), dict) else {}
+        instance_count = int(override.get("instance_count") or service.get("instance_count") or 1)
+        reserved_term = str(override.get("reserved_term") or service.get("reserved_term") or "none")
+        discount = _RI_DISCOUNTS.get(reserved_term, 0.0)
+        base_low = float(service.get("base_monthly_low") or service.get("monthly_low") or 0)
+        base_high = float(service.get("base_monthly_high") or service.get("monthly_high") or 0)
+        monthly_low = round(base_low * instance_count * (1 - discount), 2)
+        monthly_high = round(base_high * instance_count * (1 - discount), 2)
+        configured.append({
+            **service,
+            "instance_count": instance_count,
+            "sku": str(override.get("sku") or service.get("sku") or "Default tier"),
+            "reserved_term": reserved_term,
+            "monthly_low": monthly_low,
+            "monthly_high": monthly_high,
+            "monthly_estimate": round((monthly_low + monthly_high) / 2, 2),
+            "base_monthly_low": base_low,
+            "base_monthly_high": base_high,
+            "ri_savings": round(((base_low + base_high) * instance_count / 2) - ((monthly_low + monthly_high) / 2), 2),
+        })
+    return configured
+
+
+def _mappings_for_service(service_name: str, mappings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        mapping for mapping in mappings
+        if str(mapping.get("azure_service") or mapping.get("target") or "") == service_name
+    ]
+
+
+def _source_service_name(mapping: dict[str, Any]) -> str:
+    return str(mapping.get("source_service") or mapping.get("source") or mapping.get("aws_service") or mapping.get("gcp_service") or "")
 
 
 def _first_matching_assumption(assumptions: list[str], needles: tuple[str, ...], fallback: str) -> str:

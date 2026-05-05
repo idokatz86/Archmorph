@@ -300,3 +300,57 @@ def test_cost_assumptions_builder_flags_missing_prices(cost_contract_fixture):
         "Unmapped Mainframe Queue: no Azure Retail Prices API or built-in price match; verify manually."
     ]
     assert artifact["services"][0]["source_service"] == "Legacy MQ"
+
+
+def test_cost_assumptions_builder_uses_cached_estimate_and_applies_overrides(monkeypatch, cost_contract_fixture):
+    from cost_assumptions import build_cost_assumptions_artifact
+
+    def fail_live_pricing(*_args, **_kwargs):
+        raise AssertionError("package export should reuse cached cost estimates")
+
+    monkeypatch.setattr("cost_assumptions.estimate_services_cost", fail_live_pricing)
+    analysis = {
+        "analysis_id": "cached-cost-test",
+        "mappings": [
+            {"source_service": "Lambda", "azure_service": "Azure Functions"},
+            {"source_service": "Queue A", "azure_service": "Azure Service Bus"},
+            {"source_service": "Queue B", "azure_service": "Azure Service Bus"},
+        ],
+        "_cached_cost_estimate": {
+            **cost_contract_fixture,
+            "services": [
+                *cost_contract_fixture["services"],
+                {
+                    "service": "Azure Service Bus",
+                    "sku": "Standard",
+                    "meter": "Operations",
+                    "category": "Integration",
+                    "monthly_low": 8.0,
+                    "monthly_high": 12.0,
+                    "monthly_estimate": 10.0,
+                    "price_source": "Azure Retail Prices API",
+                    "base_price_usd": 10.0,
+                    "hourly_rate_usd": 0.0137,
+                    "sku_multiplier": 1.0,
+                    "assumptions": ["Region: westeurope", "1M operations/month"],
+                    "formula": "Standard tier operations estimate",
+                },
+            ],
+        },
+        "_cost_overrides": {
+            "Azure Functions": {"instance_count": 2, "sku": "Premium", "reserved_term": "1yr"}
+        },
+    }
+
+    artifact = build_cost_assumptions_artifact(analysis)
+
+    functions = next(service for service in artifact["services"] if service["service"] == "Azure Functions")
+    assert functions["sku"] == "Premium"
+    assert functions["quantity"] == 2
+    assert functions["reservation_assumption"] == "Reserved capacity applied: 1yr."
+    assert functions["monthly_low"] == 14.0
+    assert functions["monthly_high"] == 28.0
+
+    service_bus = next(service for service in artifact["services"] if service["service"] == "Azure Service Bus")
+    assert service_bus["source_service"] == "Queue A"
+    assert service_bus["source_services"] == ["Queue A", "Queue B"]
