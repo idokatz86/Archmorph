@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, ConfigDict
+from pydantic import ConfigDict
+from strict_models import StrictBaseModel
 
 from database import get_db
 from routers.auth import get_current_user
@@ -9,14 +10,14 @@ from models.policy import AgentPolicy, AgentPolicyBinding
 
 router = APIRouter(prefix="/api/policies", tags=["Policies"])
 
-class PolicyCreateSchema(BaseModel):
+class PolicyCreateSchema(StrictBaseModel):
     name: str
     description: Optional[str] = None
     policy_type: str
     rules: Dict[str, Any]
     enforcement_level: str = "block"
 
-class PolicyResponseSchema(BaseModel):
+class PolicyResponseSchema(StrictBaseModel):
     id: str
     name: str
     description: Optional[str]

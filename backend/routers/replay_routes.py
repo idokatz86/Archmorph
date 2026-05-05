@@ -12,7 +12,8 @@ import uuid
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, Query, Request
-from pydantic import BaseModel, Field
+from pydantic import Field
+from strict_models import StrictBaseModel
 
 from error_envelope import ArchmorphException
 from log_sanitizer import safe
@@ -37,12 +38,12 @@ EventType = Literal[
 ]
 
 
-class StartRecordingRequest(BaseModel):
+class StartRecordingRequest(StrictBaseModel):
     analysis_id: str = Field(..., min_length=1, max_length=128)
     title: Optional[str] = Field(None, max_length=256)
 
 
-class AddEventRequest(BaseModel):
+class AddEventRequest(StrictBaseModel):
     replay_id: str = Field(..., min_length=1, max_length=128)
     event_type: EventType
     data: dict = Field(default_factory=dict)

@@ -12,7 +12,7 @@ Other diagram-related routes have been split into focused modules (#284):
 """
 
 from fastapi import APIRouter, UploadFile, File, Request, Depends
-from pydantic import BaseModel
+from strict_models import StrictBaseModel
 from typing import Dict, Any, Optional
 import asyncio
 import base64
@@ -148,7 +148,7 @@ def _normalize_analysis(result: dict) -> dict:
 # ─────────────────────────────────────────────────────────────
 # Models
 # ─────────────────────────────────────────────────────────────
-class RestoreSessionRequest(BaseModel):
+class RestoreSessionRequest(StrictBaseModel):
     """Request body for restoring a cached analysis session."""
     analysis: Dict[str, Any]
     hld: Optional[Dict[str, Any]] = None

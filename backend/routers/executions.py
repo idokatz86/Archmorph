@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, ConfigDict
+from pydantic import ConfigDict
+from strict_models import StrictBaseModel
 
 from database import get_db
 from routers.auth import get_current_user
@@ -12,13 +13,13 @@ from fastapi import BackgroundTasks
 
 router = APIRouter(prefix="/api/executions", tags=["Executions"])
 
-class ExecutionInputSchema(BaseModel):
+class ExecutionInputSchema(StrictBaseModel):
     agent_id: str
     messages: List[Dict[str, Any]]
     thread_id: Optional[str] = None
     stream: bool = False
 
-class ExecutionResponseSchema(BaseModel):
+class ExecutionResponseSchema(StrictBaseModel):
     id: str
     agent_id: str
     thread_id: Optional[str] = None

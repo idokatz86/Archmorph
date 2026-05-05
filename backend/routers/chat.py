@@ -3,7 +3,8 @@ Chat routes — AI assistant with GitHub issue creation.
 """
 
 from fastapi import APIRouter, Request, Depends
-from pydantic import BaseModel, Field
+from pydantic import Field
+from strict_models import StrictBaseModel
 from typing import Optional
 
 from routers.shared import limiter, verify_api_key
@@ -15,7 +16,7 @@ import asyncio
 router = APIRouter()
 
 
-class ChatMessage(BaseModel):
+class ChatMessage(StrictBaseModel):
     message: str = Field(..., min_length=1, max_length=5000)
     session_id: Optional[str] = Field(default="default", max_length=100)
 

@@ -11,7 +11,8 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Request
-from pydantic import BaseModel, Field
+from pydantic import Field
+from strict_models import StrictBaseModel
 
 from error_envelope import ArchmorphException
 from routers.shared import limiter
@@ -27,7 +28,7 @@ _cost_cache = get_store("cost_comparison", maxsize=200, ttl=3600)
 
 # ── Request / Response Models ────────────────────────────────
 
-class CostServiceInput(BaseModel):
+class CostServiceInput(StrictBaseModel):
     name: str
     type: str
     provider: Optional[str] = None
@@ -35,12 +36,12 @@ class CostServiceInput(BaseModel):
     dependencies: Optional[List[str]] = None
 
 
-class CostZoneInput(BaseModel):
+class CostZoneInput(StrictBaseModel):
     name: str = Field(..., description="Category name (Compute, Storage, etc.)")
     services: List[CostServiceInput]
 
 
-class CostCompareRequest(BaseModel):
+class CostCompareRequest(StrictBaseModel):
     zones: List[CostZoneInput]
 
 

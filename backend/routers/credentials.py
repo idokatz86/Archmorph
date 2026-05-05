@@ -8,7 +8,8 @@ import logging
 from typing import Optional, Dict, Any
 
 from fastapi import APIRouter, Request, Header, Depends
-from pydantic import BaseModel, Field
+from pydantic import Field
+from strict_models import StrictBaseModel
 
 from services.credential_manager import store_credentials, get_credentials, clear_credentials
 from error_envelope import ArchmorphException
@@ -21,18 +22,18 @@ logger = logging.getLogger(__name__)
 
 # --- Pydantic Models for Input ---
 
-class AWSCredentialsInput(BaseModel):
+class AWSCredentialsInput(StrictBaseModel):
     auth_method: str = Field(..., description="access_key, sso, instance_profile, assume_role")
     access_key_id: Optional[str] = None
     secret_access_key: Optional[str] = None
     session_token: Optional[str] = None
     role_arn: Optional[str] = None
 
-class GCPCredentialsInput(BaseModel):
+class GCPCredentialsInput(StrictBaseModel):
     auth_method: str = Field(..., description="service_account_json, oauth2, workload_identity")
     service_account_json: Optional[Dict[str, Any]] = None
 
-class AzureCredentialsInput(BaseModel):
+class AzureCredentialsInput(StrictBaseModel):
     auth_method: str = Field(..., description="service_principal, managed_identity, default")
     client_id: Optional[str] = None
     client_secret: Optional[str] = None
@@ -40,7 +41,7 @@ class AzureCredentialsInput(BaseModel):
     subscription_id: Optional[str] = None
 
 
-class CredentialResponse(BaseModel):
+class CredentialResponse(StrictBaseModel):
     status: str = "ok"
     provider: str
     message: str

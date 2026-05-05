@@ -18,7 +18,8 @@ from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional, Set
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, Field
+from pydantic import Field
+from strict_models import StrictBaseModel
 
 from routers.shared import limiter, verify_api_key
 
@@ -215,14 +216,14 @@ def validate_api_key_by_raw(raw_key: str) -> Optional[APIKeyRecord]:
 # Pydantic request/response models
 # ---------------------------------------------------------------------------
 
-class CreateKeyRequest(BaseModel):
+class CreateKeyRequest(StrictBaseModel):
     name: str = Field(..., min_length=1, max_length=128, description="Human-readable key name")
     scopes: List[str] = Field(..., min_length=1, description="Permission scopes: read, write, admin")
     rate_limit: int = Field(DEFAULT_RATE_LIMIT, ge=1, le=10000, description="Max requests per minute")
     expires_in_days: Optional[int] = Field(None, ge=1, le=365, description="Days until expiry (optional)")
 
 
-class CreateKeyResponse(BaseModel):
+class CreateKeyResponse(StrictBaseModel):
     id: str
     name: str
     key: str = Field(..., description="Full API key — shown only once")
@@ -233,7 +234,7 @@ class CreateKeyResponse(BaseModel):
     expires_at: Optional[str] = None
 
 
-class KeyInfo(BaseModel):
+class KeyInfo(StrictBaseModel):
     id: str
     name: str
     key_prefix: str

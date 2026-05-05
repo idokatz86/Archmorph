@@ -6,7 +6,8 @@ Version snapshots and diffing for analysis results.
 """
 
 from fastapi import APIRouter, Request, Query
-from pydantic import BaseModel, Field
+from pydantic import Field
+from strict_models import StrictBaseModel
 from typing import Optional
 import logging
 
@@ -19,11 +20,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-class SaveVersionRequest(BaseModel):
+class SaveVersionRequest(StrictBaseModel):
     label: Optional[str] = Field(None, max_length=200)
 
 
-class BranchRequest(BaseModel):
+class BranchRequest(StrictBaseModel):
     label: Optional[str] = Field(None, max_length=200)
 
 

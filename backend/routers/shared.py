@@ -11,7 +11,7 @@ from typing import Optional, List
 
 from fastapi import Security
 from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel
+from strict_models import StrictBaseModel
 
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -147,13 +147,13 @@ async def get_session_lock(session_id: str) -> asyncio.Lock:
 # ─────────────────────────────────────────────────────────────
 # General Pydantic Models
 # ─────────────────────────────────────────────────────────────
-class Project(BaseModel):
+class Project(StrictBaseModel):
     id: Optional[str] = None
     name: str
     description: Optional[str] = None
 
 
-class ServiceMapping(BaseModel):
+class ServiceMapping(StrictBaseModel):
     source_service: str
     source_provider: str
     azure_service: str
@@ -161,7 +161,7 @@ class ServiceMapping(BaseModel):
     notes: Optional[str] = None
 
 
-class AnalysisResult(BaseModel):
+class AnalysisResult(StrictBaseModel):
     diagram_id: str
     services_detected: int
     mappings: List[ServiceMapping]

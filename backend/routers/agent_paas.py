@@ -19,7 +19,8 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import Field
+from strict_models import StrictBaseModel
 
 from openai_client import get_openai_client, AZURE_OPENAI_DEPLOYMENT, openai_retry
 from agent_tools import (
@@ -53,26 +54,26 @@ MAX_REACT_ITERATIONS = 3
 # Pydantic schemas
 # ─────────────────────────────────────────────────────────────
 
-class AgentCreate(BaseModel):
+class AgentCreate(StrictBaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     model: str = "gpt-4o"
     system_prompt: str = "You are a helpful AI assistant."
     rag_collections: List[str] = []
 
-class AgentUpdate(BaseModel):
+class AgentUpdate(StrictBaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=200)
     model: Optional[str] = None
     system_prompt: Optional[str] = None
     rag_collections: Optional[List[str]] = None
     status: Optional[str] = None
 
-class ToolAttach(BaseModel):
+class ToolAttach(StrictBaseModel):
     tool_name: str
 
-class ExecuteRequest(BaseModel):
+class ExecuteRequest(StrictBaseModel):
     message: str = Field(..., min_length=1, max_length=10000)
 
-class AgentResponse(BaseModel):
+class AgentResponse(StrictBaseModel):
     id: str
     name: str
     model: str
@@ -83,7 +84,7 @@ class AgentResponse(BaseModel):
     created_at: str
     updated_at: str
 
-class ExecutionResponse(BaseModel):
+class ExecutionResponse(StrictBaseModel):
     id: str
     agent_id: str
     user_message: str
@@ -95,7 +96,7 @@ class ExecutionResponse(BaseModel):
     rag_context_used: bool
     created_at: str
 
-class CostSummary(BaseModel):
+class CostSummary(StrictBaseModel):
     total_executions: int
     total_prompt_tokens: int
     total_completion_tokens: int

@@ -4,7 +4,8 @@ Admin Authentication, Metrics, Monitoring, Audit, Observability, Analytics route
 """
 
 from fastapi import APIRouter, Depends, Header, Query, Request
-from pydantic import BaseModel, Field
+from pydantic import Field
+from strict_models import StrictBaseModel
 from typing import Optional, Dict, Any
 import os
 import time
@@ -36,7 +37,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-class AdminLoginRequest(BaseModel):
+class AdminLoginRequest(StrictBaseModel):
     """Body for POST /api/admin/login."""
     key: str = Field(..., min_length=1, description="Admin secret key")
 

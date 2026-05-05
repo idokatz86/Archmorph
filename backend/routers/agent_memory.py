@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Dict, Any
-from pydantic import BaseModel, ConfigDict
+from pydantic import ConfigDict
+from strict_models import StrictBaseModel
 
 from database import get_db
 from routers.auth import get_current_user
@@ -10,7 +11,7 @@ from models.memory import AgentMemoryDocument, AgentEpisodicMemory, AgentEntityM
 
 router = APIRouter(prefix="/api/agents/{agent_id}/memory", tags=["Agent Memory"])
 
-class DocumentResponseSchema(BaseModel):
+class DocumentResponseSchema(StrictBaseModel):
     id: str
     filename: str
     file_type: str
@@ -19,7 +20,7 @@ class DocumentResponseSchema(BaseModel):
     
     model_config = ConfigDict(from_attributes=True)
 
-class EpisodeResponseSchema(BaseModel):
+class EpisodeResponseSchema(StrictBaseModel):
     id: str
     summary: str
     importance_score: float
@@ -27,7 +28,7 @@ class EpisodeResponseSchema(BaseModel):
     
     model_config = ConfigDict(from_attributes=True)
 
-class EntityResponseSchema(BaseModel):
+class EntityResponseSchema(StrictBaseModel):
     id: str
     entity_name: str
     entity_type: str

@@ -6,7 +6,8 @@ Split from diagrams.py for maintainability (#284).
 """
 
 from fastapi import APIRouter, Request, Depends
-from pydantic import BaseModel, Field, field_validator
+from pydantic import Field, field_validator
+from strict_models import StrictBaseModel
 from typing import Optional
 import asyncio
 import logging
@@ -30,7 +31,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-class SourceProviderRequest(BaseModel):
+class SourceProviderRequest(StrictBaseModel):
     source_provider: str = Field("aws", pattern="^(aws|gcp)$")
 
     @field_validator("source_provider", mode="before")
@@ -50,7 +51,7 @@ class SuggestBatchRequest(SourceProviderRequest):
     services: list = Field(..., min_length=1, max_length=50)
 
 
-class ReviewRequest(BaseModel):
+class ReviewRequest(StrictBaseModel):
     """Request body for reviewing an AI mapping suggestion."""
     decision: str = Field(..., pattern="^(approved|rejected)$")
     reviewer: str = Field(..., min_length=1)

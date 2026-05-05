@@ -13,7 +13,8 @@ import uuid
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, Field
+from pydantic import Field
+from strict_models import StrictBaseModel
 
 from error_envelope import ArchmorphException
 from log_sanitizer import safe
@@ -34,25 +35,25 @@ Role = Literal["architect", "devops", "manager", "security"]
 ChangeType = Literal["answer_update", "annotation", "comment", "approval"]
 
 
-class CreateSessionRequest(BaseModel):
+class CreateSessionRequest(StrictBaseModel):
     analysis_id: str = Field(..., min_length=1, max_length=128)
     owner: str = Field(..., min_length=1, max_length=128)
 
 
-class CreateSessionResponse(BaseModel):
+class CreateSessionResponse(StrictBaseModel):
     session_id: str
     share_code: str
     analysis_id: str
     owner: str
 
 
-class JoinSessionRequest(BaseModel):
+class JoinSessionRequest(StrictBaseModel):
     share_code: str = Field(..., min_length=1, max_length=16)
     user_id: str = Field(..., min_length=1, max_length=128)
     role: Role
 
 
-class SubmitChangeRequest(BaseModel):
+class SubmitChangeRequest(StrictBaseModel):
     user_id: str = Field(..., min_length=1, max_length=128)
     change_type: ChangeType
     payload: dict = Field(default_factory=dict)

@@ -2,7 +2,7 @@ import logging
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from strict_models import StrictBaseModel
 
 from routers.auth import get_current_user
 from services.terraform_runner import TerraformRunner
@@ -17,7 +17,7 @@ router = APIRouter(
     tags=["deploy"]
 )
 
-class DeploymentRequest(BaseModel):
+class DeploymentRequest(StrictBaseModel):
     project_id: str
     iac_code: Optional[str] = None
     canvas_state: Optional[dict] = None

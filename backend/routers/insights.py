@@ -7,7 +7,8 @@ Split from diagrams.py for maintainability (#284).
 """
 
 from fastapi import APIRouter, Request, Depends
-from pydantic import BaseModel, Field
+from pydantic import Field
+from strict_models import StrictBaseModel
 from typing import Optional, List
 import asyncio
 import csv
@@ -474,14 +475,14 @@ Diagram type: {analysis.get('diagram_type', 'unknown')}"""
 _RI_DISCOUNTS = {"none": 0.0, "1yr": 0.30, "3yr": 0.50}
 
 
-class ServiceCostConfig(BaseModel):
+class ServiceCostConfig(StrictBaseModel):
     service: str
     instance_count: int = Field(1, ge=1, le=1000)
     sku: Optional[str] = None
     reserved_term: str = Field("none", pattern=r"^(none|1yr|3yr)$")
 
 
-class CostConfigureRequest(BaseModel):
+class CostConfigureRequest(StrictBaseModel):
     overrides: List[ServiceCostConfig]
 
 
