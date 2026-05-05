@@ -243,7 +243,7 @@ def test_cost_assumptions_endpoint_publishes_reviewable_artifact(test_client, co
     assert functions["region"] == "West Europe"
     assert functions["sku"] == "Consumption"
     assert functions["quantity"] == 1
-    assert functions["quantity_assumption"] == "1 instance(s) unless overridden by the user."
+    assert functions["quantity_assumption"] == "1 instance(s) from estimator defaults unless overridden by the user."
     assert functions["reservation_assumption"] == "Pay-as-you-go; no reserved capacity unless configured by the user."
     assert functions["data_transfer_assumption"].startswith("Not specified")
 
@@ -265,6 +265,7 @@ def test_cost_assumptions_endpoint_applies_overrides(test_client, cost_contract_
     storage = next(service for service in payload["services"] if service["service"] == "Azure Blob Storage")
     assert storage["sku"] == "Cool LRS"
     assert storage["quantity"] == 2
+    assert storage["quantity_assumption"] == "2 instance(s) configured by the user."
     assert storage["reservation_assumption"] == "Reserved capacity applied: 3yr."
     assert storage["monthly_low"] == 5.0
     assert storage["monthly_high"] == 15.0
@@ -292,6 +293,32 @@ def test_cost_assumptions_endpoint_reuses_cached_estimate(monkeypatch, test_clie
     assert functions["monthly_low"] == 12.0
     assert functions["monthly_high"] == 24.0
     assert functions["monthly_estimate"] == 18.0
+
+
+def test_cost_assumptions_endpoint_reprices_stale_cached_region(test_client, cost_contract_session, cost_contract_fixture):
+    stale = copy.deepcopy(cost_contract_fixture)
+    stale["arm_region"] = "eastus"
+    stale["region"] = "East US"
+    stale["services"][0]["monthly_low"] = 999.0
+    cost_contract_session["_cached_cost_estimate"] = stale
+    SESSION_STORE[DIAGRAM_ID] = cost_contract_session
+
+    response = test_client.get(f"/api/diagrams/{DIAGRAM_ID}/cost-assumptions")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["arm_region"] == "westeurope"
+    functions = next(service for service in payload["services"] if service["service"] == "Azure Functions")
+    assert functions["monthly_low"] == 10.0
+
+
+def test_cost_assumptions_endpoint_has_openapi_schema(test_client):
+    response = test_client.get("/openapi.json")
+
+    assert response.status_code == 200
+    operation = response.json()["paths"]["/api/diagrams/{diagram_id}/cost-assumptions"]["get"]
+    schema = operation["responses"]["200"]["content"]["application/json"]["schema"]
+    assert schema["$ref"].endswith("/CostAssumptionsResponse")
 
 
 def test_cost_assumptions_builder_flags_missing_prices(cost_contract_fixture):
@@ -375,6 +402,7 @@ def test_cost_assumptions_builder_uses_cached_estimate_and_applies_overrides(mon
     functions = next(service for service in artifact["services"] if service["service"] == "Azure Functions")
     assert functions["sku"] == "Premium"
     assert functions["quantity"] == 2
+    assert functions["quantity_assumption"] == "2 instance(s) configured by the user."
     assert functions["reservation_assumption"] == "Reserved capacity applied: 1yr."
     assert functions["monthly_low"] == 14.0
     assert functions["monthly_high"] == 28.0

@@ -9,7 +9,7 @@ Split from diagrams.py for maintainability (#284).
 from fastapi import APIRouter, Request, Depends
 from pydantic import Field
 from strict_models import StrictBaseModel
-from typing import Optional, List
+from typing import Any, Optional, List
 import asyncio
 import csv
 import io
@@ -487,6 +487,47 @@ class CostConfigureRequest(StrictBaseModel):
     overrides: List[ServiceCostConfig]
 
 
+class CostAssumptionService(StrictBaseModel):
+    service: str
+    source_service: str
+    source_services: List[str] = Field(default_factory=list)
+    category: str
+    region: str
+    sku: str
+    meter: str
+    quantity: int
+    quantity_assumption: str
+    storage_assumption: str
+    data_transfer_assumption: str
+    reservation_assumption: str
+    monthly_low: float
+    monthly_high: float
+    monthly_estimate: float
+    price_source: str
+    base_price_usd: float
+    hourly_rate_usd: float
+    sku_multiplier: float
+    formula: str
+    assumptions: List[str] = Field(default_factory=list)
+    missing_cost_warnings: List[str] = Field(default_factory=list)
+
+
+class CostAssumptionsResponse(StrictBaseModel):
+    schema_version: str
+    analysis_id: str
+    currency: str
+    region: str
+    arm_region: str
+    sku_strategy: str
+    pricing_source: str
+    cache_age_days: Any
+    total_monthly_estimate: dict[str, float]
+    service_count: int
+    directional_notice: str
+    missing_cost_warnings: List[str] = Field(default_factory=list)
+    services: List[CostAssumptionService] = Field(default_factory=list)
+
+
 def _get_cost_overrides(diagram_id: str) -> dict:
     """Get user cost overrides from the session."""
     session = get_or_recreate_session(diagram_id)
@@ -600,7 +641,7 @@ async def get_configured_cost(request: Request, diagram_id: str):
     }
 
 
-@router.get("/api/diagrams/{diagram_id}/cost-assumptions")
+@router.get("/api/diagrams/{diagram_id}/cost-assumptions", response_model=CostAssumptionsResponse)
 @limiter.limit("15/minute")
 async def get_cost_assumptions(request: Request, diagram_id: str):
     """Return a reviewable JSON artifact with cost-estimate assumptions."""

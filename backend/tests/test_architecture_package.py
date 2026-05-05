@@ -181,6 +181,8 @@ def test_architecture_package_html_manifest_contains_traceability_fields():
     assert any(artifact["role"] == "cost-assumptions" for artifact in manifest["artifacts"])
     assert "archmorph-artifact-manifest" in result["content"]
     assert "archmorph-cost-assumptions" in result["content"]
+    assert "five review outputs" in result["content"]
+    assert "E · Cost Assumptions JSON" in result["content"]
 
 
 def test_architecture_package_svg_manifest_tracks_selected_diagram():

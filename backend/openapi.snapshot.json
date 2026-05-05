@@ -1251,6 +1251,211 @@
         "title": "CostAlert",
         "type": "object"
       },
+      "CostAssumptionService": {
+        "additionalProperties": false,
+        "properties": {
+          "assumptions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Assumptions",
+            "type": "array"
+          },
+          "base_price_usd": {
+            "title": "Base Price Usd",
+            "type": "number"
+          },
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "data_transfer_assumption": {
+            "title": "Data Transfer Assumption",
+            "type": "string"
+          },
+          "formula": {
+            "title": "Formula",
+            "type": "string"
+          },
+          "hourly_rate_usd": {
+            "title": "Hourly Rate Usd",
+            "type": "number"
+          },
+          "meter": {
+            "title": "Meter",
+            "type": "string"
+          },
+          "missing_cost_warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing Cost Warnings",
+            "type": "array"
+          },
+          "monthly_estimate": {
+            "title": "Monthly Estimate",
+            "type": "number"
+          },
+          "monthly_high": {
+            "title": "Monthly High",
+            "type": "number"
+          },
+          "monthly_low": {
+            "title": "Monthly Low",
+            "type": "number"
+          },
+          "price_source": {
+            "title": "Price Source",
+            "type": "string"
+          },
+          "quantity": {
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "quantity_assumption": {
+            "title": "Quantity Assumption",
+            "type": "string"
+          },
+          "region": {
+            "title": "Region",
+            "type": "string"
+          },
+          "reservation_assumption": {
+            "title": "Reservation Assumption",
+            "type": "string"
+          },
+          "service": {
+            "title": "Service",
+            "type": "string"
+          },
+          "sku": {
+            "title": "Sku",
+            "type": "string"
+          },
+          "sku_multiplier": {
+            "title": "Sku Multiplier",
+            "type": "number"
+          },
+          "source_service": {
+            "title": "Source Service",
+            "type": "string"
+          },
+          "source_services": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Source Services",
+            "type": "array"
+          },
+          "storage_assumption": {
+            "title": "Storage Assumption",
+            "type": "string"
+          }
+        },
+        "required": [
+          "service",
+          "source_service",
+          "category",
+          "region",
+          "sku",
+          "meter",
+          "quantity",
+          "quantity_assumption",
+          "storage_assumption",
+          "data_transfer_assumption",
+          "reservation_assumption",
+          "monthly_low",
+          "monthly_high",
+          "monthly_estimate",
+          "price_source",
+          "base_price_usd",
+          "hourly_rate_usd",
+          "sku_multiplier",
+          "formula"
+        ],
+        "title": "CostAssumptionService",
+        "type": "object"
+      },
+      "CostAssumptionsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "analysis_id": {
+            "title": "Analysis Id",
+            "type": "string"
+          },
+          "arm_region": {
+            "title": "Arm Region",
+            "type": "string"
+          },
+          "cache_age_days": {
+            "title": "Cache Age Days"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "directional_notice": {
+            "title": "Directional Notice",
+            "type": "string"
+          },
+          "missing_cost_warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing Cost Warnings",
+            "type": "array"
+          },
+          "pricing_source": {
+            "title": "Pricing Source",
+            "type": "string"
+          },
+          "region": {
+            "title": "Region",
+            "type": "string"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "service_count": {
+            "title": "Service Count",
+            "type": "integer"
+          },
+          "services": {
+            "items": {
+              "$ref": "#/components/schemas/CostAssumptionService"
+            },
+            "title": "Services",
+            "type": "array"
+          },
+          "sku_strategy": {
+            "title": "Sku Strategy",
+            "type": "string"
+          },
+          "total_monthly_estimate": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Total Monthly Estimate",
+            "type": "object"
+          }
+        },
+        "required": [
+          "schema_version",
+          "analysis_id",
+          "currency",
+          "region",
+          "arm_region",
+          "sku_strategy",
+          "pricing_source",
+          "cache_age_days",
+          "total_monthly_estimate",
+          "service_count",
+          "directional_notice"
+        ],
+        "title": "CostAssumptionsResponse",
+        "type": "object"
+      },
       "CostCompareRequest": {
         "additionalProperties": false,
         "properties": {
@@ -8599,7 +8804,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/CostAssumptionsResponse"
+                }
               }
             },
             "description": "Successful Response"
@@ -19118,7 +19325,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/CostAssumptionsResponse"
+                }
               }
             },
             "description": "Successful Response"

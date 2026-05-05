@@ -71,6 +71,7 @@ def _service_assumptions(
     quantity = int(service.get("instance_count") or service.get("quantity") or 1)
     reserved_term = str(service.get("reserved_term") or "none")
     warnings = _missing_price_warnings(service_name, service, assumptions, formula)
+    quantity_source = str(service.get("quantity_source") or "estimator")
 
     return {
         "service": service_name,
@@ -81,7 +82,11 @@ def _service_assumptions(
         "sku": str(service.get("sku") or "Default tier"),
         "meter": str(service.get("meter") or ""),
         "quantity": quantity,
-        "quantity_assumption": f"{quantity} instance(s) unless overridden by the user.",
+        "quantity_assumption": (
+            f"{quantity} instance(s) configured by the user."
+            if quantity_source == "user_override"
+            else f"{quantity} instance(s) from estimator defaults unless overridden by the user."
+        ),
         "storage_assumption": _first_matching_assumption(
             assumptions,
             ("storage", "gb", "tb", "data stored", "disk"),
@@ -118,7 +123,7 @@ def _cost_estimate_from_analysis(
     sku_strategy: str,
 ) -> dict[str, Any]:
     cached = analysis.get("_cached_cost_estimate") or analysis.get("cost_estimate")
-    if isinstance(cached, dict) and cached.get("services") is not None:
+    if _cached_estimate_matches(cached, region=region, sku_strategy=sku_strategy):
         base = cached
     else:
         base = estimate_services_cost(mappings, region=region, sku_strategy=sku_strategy) if mappings else {}
@@ -159,6 +164,7 @@ def _apply_cost_overrides(services: list[Any], overrides: dict[str, Any]) -> lis
             "instance_count": instance_count,
             "sku": str(override.get("sku") or service.get("sku") or "Default tier"),
             "reserved_term": reserved_term,
+            "quantity_source": "user_override" if "instance_count" in override else service.get("quantity_source", "estimator"),
             "monthly_low": monthly_low,
             "monthly_high": monthly_high,
             "monthly_estimate": round((monthly_low + monthly_high) / 2, 2),
@@ -167,6 +173,14 @@ def _apply_cost_overrides(services: list[Any], overrides: dict[str, Any]) -> lis
             "ri_savings": round(((base_low + base_high) * instance_count / 2) - ((monthly_low + monthly_high) / 2), 2),
         })
     return configured
+
+
+def _cached_estimate_matches(candidate: Any, *, region: str, sku_strategy: str) -> bool:
+    if not isinstance(candidate, dict) or candidate.get("services") is None:
+        return False
+    cached_region = str(candidate.get("arm_region") or candidate.get("region") or "").lower()
+    cached_strategy = str(candidate.get("sku_strategy") or "Balanced")
+    return cached_region == region.lower() and cached_strategy == sku_strategy
 
 
 def _mappings_for_service(service_name: str, mappings: list[dict[str, Any]]) -> list[dict[str, Any]]:
