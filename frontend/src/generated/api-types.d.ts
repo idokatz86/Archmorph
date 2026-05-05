@@ -8948,6 +8948,84 @@ export interface components {
             /** Timestamp */
             timestamp?: string;
         };
+        /** CostAssumptionService */
+        CostAssumptionService: {
+            /** Assumptions */
+            assumptions?: string[];
+            /** Base Price Usd */
+            base_price_usd: number;
+            /** Category */
+            category: string;
+            /** Data Transfer Assumption */
+            data_transfer_assumption: string;
+            /** Formula */
+            formula: string;
+            /** Hourly Rate Usd */
+            hourly_rate_usd: number;
+            /** Meter */
+            meter: string;
+            /** Missing Cost Warnings */
+            missing_cost_warnings?: string[];
+            /** Monthly Estimate */
+            monthly_estimate: number;
+            /** Monthly High */
+            monthly_high: number;
+            /** Monthly Low */
+            monthly_low: number;
+            /** Price Source */
+            price_source: string;
+            /** Quantity */
+            quantity: number;
+            /** Quantity Assumption */
+            quantity_assumption: string;
+            /** Region */
+            region: string;
+            /** Reservation Assumption */
+            reservation_assumption: string;
+            /** Service */
+            service: string;
+            /** Sku */
+            sku: string;
+            /** Sku Multiplier */
+            sku_multiplier: number;
+            /** Source Service */
+            source_service: string;
+            /** Source Services */
+            source_services?: string[];
+            /** Storage Assumption */
+            storage_assumption: string;
+        };
+        /** CostAssumptionsResponse */
+        CostAssumptionsResponse: {
+            /** Analysis Id */
+            analysis_id: string;
+            /** Arm Region */
+            arm_region: string;
+            /** Cache Age Days */
+            cache_age_days: unknown;
+            /** Currency */
+            currency: string;
+            /** Directional Notice */
+            directional_notice: string;
+            /** Missing Cost Warnings */
+            missing_cost_warnings?: string[];
+            /** Pricing Source */
+            pricing_source: string;
+            /** Region */
+            region: string;
+            /** Schema Version */
+            schema_version: string;
+            /** Service Count */
+            service_count: number;
+            /** Services */
+            services?: components["schemas"]["CostAssumptionService"][];
+            /** Sku Strategy */
+            sku_strategy: string;
+            /** Total Monthly Estimate */
+            total_monthly_estimate: {
+                [key: string]: number;
+            };
+        };
         /** CostCompareRequest */
         CostCompareRequest: {
             /** Zones */
@@ -13166,7 +13244,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["CostAssumptionsResponse"];
                 };
             };
             /** @description Validation Error */
@@ -20036,7 +20114,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["CostAssumptionsResponse"];
                 };
             };
             /** @description Validation Error */
