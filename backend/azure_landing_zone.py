@@ -410,6 +410,28 @@ def _tx(x: float, y: float, text: str, cls: str, anchor: str = "start", weight: 
     )
 
 
+def _service_group(
+    title: str,
+    desc: str,
+    body: list[str],
+    *,
+    group_id: str = "",
+    transform: str = "",
+) -> str:
+    """Accessible group for rendered service cards."""
+    id_attr = f' id="{_xml_escape(group_id)}"' if group_id else ""
+    transform_attr = f' transform="{_xml_escape(transform)}"' if transform else ""
+    service_name = _truncate(str(title or "Service"), 120)
+    service_desc = _truncate(str(desc or "Azure service in the landing zone diagram"), 220)
+    return "\n".join([
+        f'<g{id_attr} class="lz-service" role="group" data-service-name="{_xml_escape(service_name)}"{transform_attr}>',
+        f'<title>{_xml_escape(service_name)}</title>',
+        f'<desc>{_xml_escape(service_desc)}</desc>',
+        *body,
+        '</g>',
+    ])
+
+
 def _card(x: float, y: float, w: float, h: float, *, stroke: str = COLOR_PRIMARY,
           fill: str = "#FFFFFF", rx: int = 6) -> str:
     """White rounded card."""
@@ -514,12 +536,13 @@ def _actors_row(actors: list[dict[str, Any]]) -> str:
 def _front_door(regions: list[dict[str, Any]], dr_mode: str) -> str:
     """Front Door banner with traffic chips per region."""
     x, y, w, h = 560, 208, 900, 56
-    out = [f'<g id="front-door" transform="translate({x}, {y})">',
-           _card(0, 0, w, h, stroke=COLOR_CYAN),
-           _img("frontdoor", 12, 12, 32, 32),
-           _tx(54, 24, "Azure Front Door + WAF", "t-card-h-lg"),
-           _tx(54, 40, "Global edge · TLS termination · path-based routing · health probes",
-               "t-meta")]
+    out = [
+        _card(0, 0, w, h, stroke=COLOR_CYAN),
+        _img("frontdoor", 12, 12, 32, 32),
+        _tx(54, 24, "Azure Front Door + WAF", "t-card-h-lg"),
+        _tx(54, 40, "Global edge · TLS termination · path-based routing · health probes",
+            "t-meta"),
+    ]
 
     # Traffic chips for up to two regions.
     chip_x = [660, 770]
@@ -537,8 +560,13 @@ def _front_door(regions: list[dict[str, Any]], dr_mode: str) -> str:
             f'fill="#FFFFFF" stroke="{color}" stroke-width="1.5"/>'
         )
         out.append(_tx(cx + 50, 30, f"{pct}% → R{i + 1}", cls, anchor="middle"))
-    out.append('</g>')
-    return "\n".join(out)
+    return _service_group(
+        "Azure Front Door + WAF",
+        "Global edge service for TLS termination, path-based routing, WAF inspection, and regional health probes.",
+        out,
+        group_id="front-door",
+        transform=f"translate({x}, {y})",
+    )
 
 
 def _legend(y: int, source_provider: str = "aws") -> str:
@@ -690,14 +718,19 @@ def _network_services_rail(tiers: dict[str, list[dict[str, Any]]]) -> str:
 
     for i, item in enumerate(visible):
         row_y = 34 + i * row_h
-        out.append(
+        body = [
             f'<rect x="8" y="{row_y}" width="{w - 16}" height="44" rx="5" '
-            f'fill="#F7FBFF" stroke="#cdd5e3" stroke-width="1"/>'
-        )
-        out.append(_img(item["icon"], 14, row_y + 8, 28, 28))
-        out.append(_tx(48, row_y + 20, _truncate(item["label"], 18), "t-tiny"))
+            f'fill="#F7FBFF" stroke="#cdd5e3" stroke-width="1"/>',
+            _img(item["icon"], 14, row_y + 8, 28, 28),
+            _tx(48, row_y + 20, _truncate(item["label"], 18), "t-tiny"),
+        ]
         if item.get("source"):
-            out.append(_tx(48, row_y + 34, _truncate(item["source"], 18), "t-tinier"))
+            body.append(_tx(48, row_y + 34, _truncate(item["source"], 18), "t-tinier"))
+        out.append(_service_group(
+            item["label"],
+            f"Networking service inferred from {item.get('source') or 'the source architecture'}.",
+            body,
+        ))
     out.append("</g>")
     return "\n".join(out)
 
@@ -814,28 +847,33 @@ def _tier1_row(tiers: dict[str, list[dict[str, Any]]]) -> str:
         label = card["label"]
         h = 100
         y = 76
-        out.append(_card(rel_x, y, w, h, stroke=COLOR_PRIMARY))
+        body = [_card(rel_x, y, w, h, stroke=COLOR_PRIMARY)]
         # The Observability tile gets a row of 5 sub-icons.
         if icon_key == "monitor":
-            out.append(_tx(rel_x + w / 2, y + 22, "Observability", "t-card-h-lg",
-                           anchor="middle"))
+            body.append(_tx(rel_x + w / 2, y + 22, "Observability", "t-card-h-lg",
+                            anchor="middle"))
             sub_icons = ["monitor", "appinsights", "loganalytics", "monitor", "monitor"]
             sub_labels = ["Monitor", "App Insights", "Log Analytics", "Alerts", "Workbooks"]
             for i, (sic, slabel) in enumerate(zip(sub_icons, sub_labels)):
                 cx = rel_x + 22 + i * 64
-                out.append(_img(sic, cx - 11, y + 32, 22, 22))
-                out.append(_tx(cx, y + 70, slabel, "t-tinier", anchor="middle"))
+                body.append(_img(sic, cx - 11, y + 32, 22, 22))
+                body.append(_tx(cx, y + 70, slabel, "t-tinier", anchor="middle"))
             # Provide one summary line listing what we found for observability.
             summary = card.get("subtitle") or "centralised"
-            out.append(_tx(rel_x + w / 2, y + 88, summary, "t-tinier", anchor="middle"))
+            body.append(_tx(rel_x + w / 2, y + 88, summary, "t-tinier", anchor="middle"))
         else:
-            out.append(_img(icon_key, rel_x + 12, y + 12, 28, 28))
-            out.append(_tx(rel_x + 48, y + 28, label, "t-card-h"))
+            body.append(_img(icon_key, rel_x + 12, y + 12, 28, 28))
+            body.append(_tx(rel_x + 48, y + 28, label, "t-card-h"))
             subtitle = card.get("subtitle", "")
             if subtitle:
-                out.append(_tx(rel_x + 48, y + 44, subtitle, "t-tiny"))
+                body.append(_tx(rel_x + 48, y + 44, subtitle, "t-tiny"))
             if card.get("meta"):
-                out.append(_tx(rel_x + 48, y + 64, card["meta"], "t-tinier"))
+                body.append(_tx(rel_x + 48, y + 64, card["meta"], "t-tinier"))
+        out.append(_service_group(
+            label,
+            card.get("subtitle") or f"{label} service in the region-level landing zone summary.",
+            body,
+        ))
 
     return "\n".join(out)
 
@@ -996,20 +1034,23 @@ def _vnet_block(tiers: dict[str, list[dict[str, Any]]], network_context: dict[st
 
     # AKS container inside Application subnet.
     aks_x, aks_y, aks_w, aks_h = 246, 272, 1000, 304
-    out.append(
+    aks_body = [
         f'<rect x="{aks_x}" y="{aks_y}" width="{aks_w}" height="{aks_h}" rx="6" '
-        f'fill="#FFFFFF" stroke="{COLOR_K8S}" stroke-width="1.5"/>'
-    )
-    out.append(
+        f'fill="#FFFFFF" stroke="{COLOR_K8S}" stroke-width="1.5"/>',
         f'<rect x="{aks_x}" y="{aks_y}" width="340" height="22" rx="2" '
-        f'fill="{COLOR_K8S}"/>'
-    )
-    out.append(_img("aks", aks_x + 4, aks_y + 2, 18, 18))
+        f'fill="{COLOR_K8S}"/>',
+        _img("aks", aks_x + 4, aks_y + 2, 18, 18),
+    ]
     aks_label_names = [s["name"] for s in tiers.get("compute", [])][:1]
     az_labels = network_context["availability_zones"]
     zone_count = len(az_labels)
     aks_title = f"{aks_label_names[0]} · {zone_count} zones" if aks_label_names else f"Azure Kubernetes Service · {zone_count} zones"
-    out.append(_tx(aks_x + 28, aks_y + 16, aks_title, "t-banner"))
+    aks_body.append(_tx(aks_x + 28, aks_y + 16, aks_title, "t-banner"))
+    out.append(_service_group(
+        aks_title,
+        f"Compute service distributed across {zone_count} availability zones in the application subnet.",
+        aks_body,
+    ))
 
     # AZ columns. Pull workload names from compute tier when available.
     compute_pods = [s["name"] for s in tiers.get("compute", [])]
@@ -1022,8 +1063,6 @@ def _vnet_block(tiers: dict[str, list[dict[str, Any]]], network_context: dict[st
 
     # Files banner.
     fb_x, fb_y, fb_w, fb_h = 80, 588, 1404, 38
-    out.append(_card(fb_x, fb_y, fb_w, fb_h, stroke=COLOR_PRIMARY))
-    out.append(_img("files", fb_x + 8, fb_y + 4, 30, 30))
     files_name = "Azure Files (SMB)"
     files_subtitle = "Shared file storage · zone-redundant"
     for s in tiers.get("storage", []):
@@ -1032,8 +1071,16 @@ def _vnet_block(tiers: dict[str, list[dict[str, Any]]], network_context: dict[st
             if s.get("subtitle"):
                 files_subtitle = s["subtitle"]
             break
-    out.append(_tx(fb_x + 48, fb_y + 18, files_name, "t-card-h"))
-    out.append(_tx(fb_x + 48, fb_y + 32, files_subtitle, "t-meta"))
+    out.append(_service_group(
+        files_name,
+        files_subtitle,
+        [
+            _card(fb_x, fb_y, fb_w, fb_h, stroke=COLOR_PRIMARY),
+            _img("files", fb_x + 8, fb_y + 4, 30, 30),
+            _tx(fb_x + 48, fb_y + 18, files_name, "t-card-h"),
+            _tx(fb_x + 48, fb_y + 32, files_subtitle, "t-meta"),
+        ],
+    ))
     return "\n".join(out)
 
 
@@ -1092,12 +1139,17 @@ def _data_band(tiers: dict[str, list[dict[str, Any]]], network_context: dict[str
     secondary_label = db_names[1] if len(db_names) > 1 else f"{primary_label} · Standby"
 
     # Primary DB.
-    out.append(f'<g transform="translate({ds_x + 300}, {ds_y + 28})">')
-    out.append(_card(0, 0, 320, 50, stroke=COLOR_DB))
-    out.append(_img("sql", 8, 8, 36, 36))
-    out.append(_tx(50, 22, f"{primary_label} · Primary", "t-card-h"))
-    out.append(_tx(50, 38, "Zone 1 · synchronous HA · zone-redundant", "t-meta"))
-    out.append('</g>')
+    out.append(_service_group(
+        f"{primary_label} · Primary",
+        "Primary managed database with synchronous high availability in Zone 1.",
+        [
+            _card(0, 0, 320, 50, stroke=COLOR_DB),
+            _img("sql", 8, 8, 36, 36),
+            _tx(50, 22, f"{primary_label} · Primary", "t-card-h"),
+            _tx(50, 38, "Zone 1 · synchronous HA · zone-redundant", "t-meta"),
+        ],
+        transform=f"translate({ds_x + 300}, {ds_y + 28})",
+    ))
 
     # HA replication arrow.
     arrow_x1 = ds_x + 620
@@ -1110,12 +1162,17 @@ def _data_band(tiers: dict[str, list[dict[str, Any]]], network_context: dict[str
                    "HA replication · Multi-AZ sync", "t-edge", anchor="middle", weight="700"))
 
     # Standby DB.
-    out.append(f'<g transform="translate({ds_x + 820}, {ds_y + 28})">')
-    out.append(_card(0, 0, 320, 50, stroke=COLOR_DB))
-    out.append(_img("sql", 8, 8, 36, 36))
-    out.append(_tx(50, 22, secondary_label, "t-card-h"))
-    out.append(_tx(50, 38, "Zone 2 · HA replica · automatic failover", "t-meta"))
-    out.append('</g>')
+    out.append(_service_group(
+        secondary_label,
+        "Standby managed database replica for automatic failover in Zone 2.",
+        [
+            _card(0, 0, 320, 50, stroke=COLOR_DB),
+            _img("sql", 8, 8, 36, 36),
+            _tx(50, 22, secondary_label, "t-card-h"),
+            _tx(50, 38, "Zone 2 · HA replica · automatic failover", "t-meta"),
+        ],
+        transform=f"translate({ds_x + 820}, {ds_y + 28})",
+    ))
     return "\n".join(out)
 
 
@@ -1325,8 +1382,10 @@ def generate_landing_zone_svg(
 
                 parts: list[str] = [
                     f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {CANVAS_W} {H}" '
-                    f'width="{CANVAS_W}" height="{H}">',
+                    f'width="{CANVAS_W}" height="{H}" role="img" aria-labelledby="lz-title lz-desc" focusable="false">',
                     _defs(),
+                    f'<title id="lz-title">{_xml_escape(_truncate(title, 120))}</title>',
+                    f'<desc id="lz-desc">{_xml_escape(_truncate(subtitle, 240))}</desc>',
                     f'<rect width="{CANVAS_W}" height="{H}" fill="{COLOR_BG}"/>',
                     _tx(40, 38, _truncate(title, 90), "t-title"),
                     _tx(40, 60, _truncate(subtitle, 200), "t-sub"),
