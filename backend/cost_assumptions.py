@@ -139,7 +139,9 @@ def _cost_estimate_from_analysis(
     cached = analysis.get("_cached_cost_estimate") or analysis.get("cost_estimate")
     mapping_fingerprint = _mapping_fingerprint(mappings)
     if _cached_estimate_matches(cached, region=region, sku_strategy=sku_strategy, mapping_fingerprint=mapping_fingerprint):
-        base = cached
+        base = {**cached, "cache_age_days": None}
+        if analysis.get("_cached_cost_estimate") is cached:
+            analysis["_cached_cost_estimate"] = base
     else:
         base = estimate_services_cost(mappings, region=region, sku_strategy=sku_strategy) if mappings else {}
         if mappings:

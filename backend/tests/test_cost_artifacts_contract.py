@@ -276,6 +276,7 @@ def test_cost_assumptions_endpoint_applies_overrides(test_client, cost_contract_
 
 def test_cost_assumptions_endpoint_reuses_cached_estimate(monkeypatch, test_client, cost_contract_session, cost_contract_fixture):
     cached = copy.deepcopy(cost_contract_fixture)
+    cached["cache_age_days"] = 7
     cached["mapping_fingerprint"] = [
         {"source_service": "Amazon S3", "source_provider": "aws", "azure_service": "Azure Blob Storage"},
         {"source_service": "Lambda", "source_provider": "aws", "azure_service": "Azure Functions"},
@@ -295,6 +296,8 @@ def test_cost_assumptions_endpoint_reuses_cached_estimate(monkeypatch, test_clie
 
     assert response.status_code == 200
     payload = response.json()
+    assert payload["cache_age_days"] is None
+    assert SESSION_STORE[DIAGRAM_ID]["_cached_cost_estimate"]["cache_age_days"] is None
     functions = next(service for service in payload["services"] if service["service"] == "Azure Functions")
     assert functions["monthly_low"] == 12.0
     assert functions["monthly_high"] == 24.0
