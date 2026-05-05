@@ -106,6 +106,21 @@ locals {
       description  = "Drift compare p95 exceeds 5 seconds."
     }
   }
+
+  landing_zone_variant_slos = {
+    primary = {
+      name         = "primary"
+      severity     = 2
+      threshold_ms = 1500
+      description  = "Landing Zone primary export p95 exceeds 1.5 seconds."
+    }
+    dr = {
+      name         = "dr"
+      severity     = 2
+      threshold_ms = 3000
+      description  = "Landing Zone DR export p95 exceeds 3 seconds."
+    }
+  }
 }
 
 # ─────────────────────────────────────────────────────────────
@@ -331,11 +346,128 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "spine_burn_rate_high"
   tags                    = var.tags
 }
 
+# ─────────────────────────────────────────────────────────────
+# Landing Zone variant p95 alerts (#597)
+#
+# These use request latency dimensions emitted by backend/main.py so primary
+# and DR variants keep separate budgets: 1.5s and 3s respectively.
+# ─────────────────────────────────────────────────────────────
+resource "azurerm_monitor_scheduled_query_rules_alert_v2" "landing_zone_variant_p95_high" {
+  for_each = local.landing_zone_variant_slos
+
+  name                = "archmorph-lz-${each.value.name}-p95-high"
+  resource_group_name = var.resource_group_name
+  location            = var.location
+
+  description = each.value.description
+  severity    = each.value.severity
+
+  evaluation_frequency = "PT5M"
+  window_duration      = "PT10M"
+
+  scopes                = [var.application_insights_id]
+  target_resource_types = ["microsoft.insights/components"]
+
+  criteria {
+    query = <<-KQL
+      customMetrics
+      | where name == 'http.request.duration_ms'
+      | extend path = tostring(customDimensions.path), format = tostring(customDimensions.format), dr_variant = tostring(customDimensions.dr_variant)
+      | where path matches regex '^/api(/v1)?/diagrams/[^/]+/export-diagram$'
+      | where format == 'landing-zone-svg'
+      | where dr_variant == '${each.value.name}'
+      | summarize p95 = percentile(value, 95)
+      | project p95
+    KQL
+
+    time_aggregation_method = "Maximum"
+    operator                = "GreaterThan"
+    threshold               = each.value.threshold_ms
+    metric_measure_column   = "p95"
+
+    failing_periods {
+      minimum_failing_periods_to_trigger_alert = 2
+      number_of_evaluation_periods             = 2
+    }
+  }
+
+  action {
+    action_groups = [var.action_group_critical_id]
+  }
+
+  auto_mitigation_enabled = true
+  tags                    = var.tags
+}
+
+# ─────────────────────────────────────────────────────────────
+# Landing Zone multi-window burn-rate alerts (#597)
+#
+# Bad events are requests above the variant latency SLO or HTTP 5xx responses.
+# The query evaluates 1-hour fast burn and 24-hour slow burn windows.
+# ─────────────────────────────────────────────────────────────
+resource "azurerm_monitor_scheduled_query_rules_alert_v2" "landing_zone_burn_rate_high" {
+  for_each = local.landing_zone_variant_slos
+
+  name                = "archmorph-lz-${each.value.name}-burn-rate-high"
+  resource_group_name = var.resource_group_name
+  location            = var.location
+
+  description = "Multi-window burn-rate alert for Landing Zone ${each.value.name}: 1h fast and 24h slow windows."
+  severity    = each.value.severity
+
+  evaluation_frequency = "PT5M"
+  window_duration      = "P1D"
+
+  scopes                = [var.application_insights_id]
+  target_resource_types = ["microsoft.insights/components"]
+
+  criteria {
+    query = <<-KQL
+      let threshold_ms = todouble(${each.value.threshold_ms});
+      let error_budget = 0.001;
+      let lz = customMetrics
+        | where name == 'http.request.duration_ms'
+        | extend path = tostring(customDimensions.path), status = toint(customDimensions.status), format = tostring(customDimensions.format), dr_variant = tostring(customDimensions.dr_variant)
+        | where path matches regex '^/api(/v1)?/diagrams/[^/]+/export-diagram$'
+        | where format == 'landing-zone-svg'
+        | where dr_variant == '${each.value.name}';
+      let fast = lz
+        | where timestamp > ago(1h)
+        | summarize total = count(), bad = countif(value > threshold_ms or status >= 500)
+        | extend burn = iif(total < 50, 0.0, todouble(bad) / todouble(total) / error_budget);
+      let slow = lz
+        | where timestamp > ago(24h)
+        | summarize total = count(), bad = countif(value > threshold_ms or status >= 500)
+        | extend burn = iif(total < 200, 0.0, todouble(bad) / todouble(total) / error_budget);
+      print burn_rate = min_of(toscalar(fast | project burn), toscalar(slow | project burn))
+    KQL
+
+    time_aggregation_method = "Maximum"
+    operator                = "GreaterThan"
+    threshold               = 2
+    metric_measure_column   = "burn_rate"
+
+    failing_periods {
+      minimum_failing_periods_to_trigger_alert = 1
+      number_of_evaluation_periods             = 1
+    }
+  }
+
+  action {
+    action_groups = [var.action_group_critical_id]
+  }
+
+  auto_mitigation_enabled = true
+  tags                    = var.tags
+}
+
 output "alert_ids" {
   description = "IDs of the alert rules wired up by this module."
   value = {
     icon_miss_rate_high = azurerm_monitor_scheduled_query_rules_alert_v2.lz_icon_miss_rate_high.id
     svg_p95_high        = azurerm_monitor_scheduled_query_rules_alert_v2.lz_svg_p95_high.id
+    lz_variant_p95      = { for key, alert in azurerm_monitor_scheduled_query_rules_alert_v2.landing_zone_variant_p95_high : key => alert.id }
+    lz_burn_rate        = { for key, alert in azurerm_monitor_scheduled_query_rules_alert_v2.landing_zone_burn_rate_high : key => alert.id }
     spine_p95_high      = { for key, alert in azurerm_monitor_scheduled_query_rules_alert_v2.spine_request_p95_high : key => alert.id }
     spine_burn_rate     = { for key, alert in azurerm_monitor_scheduled_query_rules_alert_v2.spine_burn_rate_high : key => alert.id }
   }

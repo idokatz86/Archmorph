@@ -287,6 +287,9 @@ class ArchmorphMiddleware(BaseHTTPMiddleware):
             request_tags = {"method": method, "path": endpoint, "status": str(status)}
             if endpoint.endswith("/generate"):
                 request_tags["format"] = request.query_params.get("format", "unknown")
+            if endpoint.endswith("/export-diagram"):
+                request_tags["format"] = request.query_params.get("format", "unknown")
+                request_tags["dr_variant"] = request.query_params.get("dr_variant", "primary")
             track_request_latency(endpoint, method, duration_ms, status)
             obs_increment_counter(
                 "http.requests.total", tags={"method": method, "path": endpoint}
