@@ -502,13 +502,13 @@ def _apply_overrides(services: list, overrides: dict) -> list:
         name = svc.get("service", "")
         override = overrides.get(name, {})
 
-        instance_count = override.get("instance_count", 1)
+        instance_count = override.get("instance_count", svc.get("instance_count", 1))
         sku = override.get("sku") or svc.get("sku", "Default tier")
-        reserved_term = override.get("reserved_term", "none")
+        reserved_term = override.get("reserved_term", svc.get("reserved_term", "none"))
         discount = _RI_DISCOUNTS.get(reserved_term, 0.0)
 
-        base_low = svc.get("monthly_low", 0)
-        base_high = svc.get("monthly_high", 0)
+        base_low = svc.get("base_monthly_low", svc.get("monthly_low", 0))
+        base_high = svc.get("base_monthly_high", svc.get("monthly_high", 0))
 
         adj_low = round(base_low * instance_count * (1 - discount), 2)
         adj_high = round(base_high * instance_count * (1 - discount), 2)
@@ -525,6 +525,7 @@ def _apply_overrides(services: list, overrides: dict) -> list:
             "reserved_term": reserved_term,
             "monthly_low": adj_low,
             "monthly_high": adj_high,
+            "monthly_estimate": round((adj_low + adj_high) / 2, 2),
             "base_monthly_low": base_low,
             "base_monthly_high": base_high,
             "ri_savings": ri_savings,
@@ -607,35 +608,7 @@ async def get_cost_assumptions(request: Request, diagram_id: str):
     if not session:
         raise ArchmorphException(404, "No analysis found. Analyze a diagram first.")
 
-    mappings = session.get("mappings", [])
-    iac_params = session.get("iac_parameters", {})
-    region = iac_params.get("deploy_region", "westeurope")
-    sku_strategy = iac_params.get("sku_strategy", "Balanced")
-
-    if mappings:
-        base = estimate_services_cost(mappings, region=region, sku_strategy=sku_strategy)
-        overrides = session.get("_cost_overrides", {})
-        configured = _apply_overrides(base.get("services", []), overrides)
-        total_low = sum(s["monthly_low"] for s in configured)
-        total_high = sum(s["monthly_high"] for s in configured)
-        cost_estimate = {
-            **base,
-            "services": configured,
-            "service_count": len(configured),
-            "total_monthly_estimate": {"low": round(total_low, 2), "high": round(total_high, 2)},
-        }
-    else:
-        cost_estimate = {
-            "currency": "USD",
-            "region": "West Europe",
-            "arm_region": region,
-            "sku_strategy": sku_strategy,
-            "pricing_source": "no analysis available",
-            "total_monthly_estimate": {"low": 0, "high": 0},
-            "services": [],
-        }
-
-    return build_cost_assumptions_artifact(session, cost_estimate=cost_estimate, analysis_id=diagram_id)
+    return build_cost_assumptions_artifact(session, analysis_id=diagram_id)
 
 
 @router.get("/api/diagrams/{diagram_id}/cost-estimate/savings")

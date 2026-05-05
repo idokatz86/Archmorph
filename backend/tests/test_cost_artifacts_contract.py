@@ -57,6 +57,10 @@ def cost_contract_session(monkeypatch, cost_contract_fixture):
         "routers.insights.estimate_services_cost",
         estimate_cost_fixture,
     )
+    monkeypatch.setattr(
+        "cost_assumptions.estimate_services_cost",
+        estimate_cost_fixture,
+    )
     yield SESSION_STORE[DIAGRAM_ID]
     SESSION_STORE.clear()
 
@@ -264,6 +268,30 @@ def test_cost_assumptions_endpoint_applies_overrides(test_client, cost_contract_
     assert storage["reservation_assumption"] == "Reserved capacity applied: 3yr."
     assert storage["monthly_low"] == 5.0
     assert storage["monthly_high"] == 15.0
+    assert storage["monthly_estimate"] == 10.0
+
+
+def test_cost_assumptions_endpoint_reuses_cached_estimate(monkeypatch, test_client, cost_contract_session, cost_contract_fixture):
+    cached = copy.deepcopy(cost_contract_fixture)
+    cached["services"][0]["monthly_low"] = 12.0
+    cached["services"][0]["monthly_high"] = 24.0
+    cached["services"][0]["monthly_estimate"] = 18.0
+    cost_contract_session["_cached_cost_estimate"] = cached
+    SESSION_STORE[DIAGRAM_ID] = cost_contract_session
+
+    def fail_live_pricing(*_args, **_kwargs):
+        raise AssertionError("cost assumptions endpoint should reuse cached cost estimates")
+
+    monkeypatch.setattr("cost_assumptions.estimate_services_cost", fail_live_pricing)
+
+    response = test_client.get(f"/api/diagrams/{DIAGRAM_ID}/cost-assumptions")
+
+    assert response.status_code == 200
+    payload = response.json()
+    functions = next(service for service in payload["services"] if service["service"] == "Azure Functions")
+    assert functions["monthly_low"] == 12.0
+    assert functions["monthly_high"] == 24.0
+    assert functions["monthly_estimate"] == 18.0
 
 
 def test_cost_assumptions_builder_flags_missing_prices(cost_contract_fixture):
