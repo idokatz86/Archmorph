@@ -507,7 +507,7 @@ Full mapping database: 405+ services across AWS, Azure, and GCP with 122 mapping
 
 Deterministic rule engine that flags structurally invalid Azure compositions during analysis — for example, an SFTP client connecting to Azure Storage's SFTP endpoint **through Azure Front Door** (Front Door is HTTP/HTTPS only and cannot tunnel SSH). The diagram and Terraform would deploy cleanly; the runtime traffic would never connect.
 
-- 25 curated rules across 7 categories (protocol, network-topology, sku-prereq, identity-auth, data-plane, region, tier-feature)
+- 30 curated rules across 10 categories (protocol, network-topology, sku-prereq, identity-auth, data-plane, region, tier-feature, resilience, security, governance)
 - YAML-driven rule library at [`backend/data/architecture_rules.yaml`](backend/data/architecture_rules.yaml); override via `ARCHMORPH_ARCH_RULES_PATH`
 - Three severities: `blocker` (IaC will be wrong), `warning` (works but has gaps), `info` (best-practice nudges)
 - IaC generation refuses with `409` when blockers exist; pass `?force=true` to override

@@ -255,6 +255,79 @@ def service_count_at_least(
     )
 
 
+@register_predicate("service_keywords_without_companion")
+def service_keywords_without_companion(
+    analysis: Dict[str, Any],
+    *,
+    keywords: List[str],
+    companions: List[str],
+    exclude_keywords: List[str] | None = None,
+    threshold: int = 1,
+    companion_mode: str = "any",
+) -> Optional[PredicateMatch]:
+    """Fire when services match ``keywords`` but no companion control is present.
+
+    This is useful for additive posture rules such as "stateful services without
+    backup" or "internet-facing services without WAF evidence". Set
+    ``threshold`` above 1 for broad governance rules that should only fire on
+    multi-service architectures. ``companion_mode=coverage`` treats companion
+    services as coverage evidence and only suppresses when there is at least one
+    companion signal per matched workload.
+    """
+    if not keywords or threshold < 1:
+        return None
+
+    companion_names = companions or []
+    exclusions = exclude_keywords or []
+    matched: List[str] = []
+    seen: set[str] = set()
+    for service_name in _services_in_analysis(analysis):
+        is_companion_service = any(
+            _service_matches(service_name, companion)
+            for companion in companion_names
+        )
+        is_excluded_service = any(
+            _service_matches(service_name, excluded)
+            for excluded in exclusions
+        )
+        if is_companion_service or is_excluded_service:
+            continue
+        if any(_service_matches(service_name, keyword) for keyword in keywords):
+            if service_name not in seen:
+                matched.append(service_name)
+                seen.add(service_name)
+
+    if len(matched) < threshold:
+        return None
+
+    companion_hits: List[str] = []
+    companion_seen: set[str] = set()
+    for companion in companion_names:
+        for hit in _has_service(analysis, companion):
+            if hit not in companion_seen:
+                companion_hits.append(hit)
+                companion_seen.add(hit)
+
+    if companion_mode == "coverage":
+        if len(companion_hits) >= len(matched):
+            return None
+    elif companion_hits:
+        return None
+
+    return PredicateMatch(
+        affected_services=matched,
+        evidence={
+            "keywords": keywords,
+            "missing_companions": companions,
+            "exclude_keywords": exclusions,
+            "companion_mode": companion_mode,
+            "companion_matches": companion_hits,
+            "count": len(matched),
+            "threshold": threshold,
+        },
+    )
+
+
 @register_predicate("category_present_without_companion")
 def category_present_without_companion(
     analysis: Dict[str, Any], *, category: str, companions: List[str]

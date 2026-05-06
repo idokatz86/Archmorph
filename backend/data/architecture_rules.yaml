@@ -656,3 +656,189 @@ rules:
     predicate_args:
       name: Service Bus
     tags: [servicebus, sessions, tier]
+
+  # ────────────────────────────────────────────────────────────
+  # Category 8 — Resilience / security / governance posture
+  # ────────────────────────────────────────────────────────────
+
+  - id: dr-cross-region-replication-warning
+    title: Stateful workloads need explicit cross-region recovery posture
+    severity: warning
+    category: resilience
+    message: |
+      Stateful services were detected without clear evidence of a
+      cross-region recovery pattern. Zone redundancy protects against
+      datacenter failure, but it does not by itself cover regional outage,
+      accidental deletion, or region-scoped service disruption.
+    remediation: |
+      Add explicit disaster-recovery evidence such as SQL failover groups,
+      Cosmos DB multi-region writes, geo-redundant storage, Azure Site
+      Recovery, paired-region deployment, or Traffic Manager / Front Door
+      failover routing. Document RPO/RTO targets with the chosen pattern.
+    docs_url: https://learn.microsoft.com/azure/reliability/overview
+    predicate: service_keywords_without_companion
+    predicate_args:
+      keywords:
+        - SQL Database
+        - PostgreSQL
+        - MySQL
+        - Cosmos DB
+        - Storage
+        - Blob
+        - Database
+      companions:
+        - Failover Group
+        - Geo-redundant
+        - GRS
+        - RA-GRS
+        - Cross-region
+        - Paired Region
+        - Traffic Manager
+        - Site Recovery
+        - Multi-region
+      companion_mode: coverage
+    tags: [resilience, disaster-recovery, replication]
+
+  - id: edge-security-waf-ddos-warning
+    title: Internet-facing entry points need WAF or DDoS posture
+    severity: warning
+    category: security
+    message: |
+      Internet-facing entry services were detected without a clear WAF,
+      Azure Firewall, or DDoS protection signal. Public HTTP entry points
+      should declare where request inspection, managed rules, rate controls,
+      and volumetric protection are enforced.
+    remediation: |
+      Add Azure Web Application Firewall on Front Door or Application Gateway
+      for HTTP workloads. For network-layer exposure, document Azure DDoS
+      Network Protection, Azure Firewall, or an equivalent NVA pattern.
+    docs_url: https://learn.microsoft.com/azure/web-application-firewall/overview
+    predicate: service_keywords_without_companion
+    predicate_args:
+      keywords:
+        - Front Door
+        - Application Gateway
+        - Public IP
+        - CDN
+        - Internet
+        - External Endpoint
+      companions:
+        - WAF
+        - Web Application Firewall
+        - DDoS
+        - Azure Firewall
+        - Firewall Policy
+    tags: [edge, waf, ddos, security]
+
+  - id: identity-layer-missing-warning
+    title: Application workloads should declare an identity layer
+    severity: warning
+    category: identity-auth
+    message: |
+      Application workloads were detected without visible Microsoft Entra ID,
+      managed identity, or Key Vault integration. Without an explicit identity
+      layer, generated deployments often drift toward shared keys, embedded
+      secrets, or ad-hoc authentication.
+    remediation: |
+      Add Microsoft Entra ID for user and workload identity, enable managed
+      identities on compute resources, and store secrets/certificates in Key
+      Vault with least-privilege RBAC assignments.
+    docs_url: https://learn.microsoft.com/entra/identity/managed-identities-azure-resources/overview
+    predicate: service_keywords_without_companion
+    predicate_args:
+      keywords:
+        - App Service
+        - Container Apps
+        - AKS
+        - Kubernetes
+        - Azure Functions
+        - API Management
+        - Virtual Machine
+      companions:
+        - Entra
+        - Azure AD
+        - Microsoft Entra
+        - Managed Identity
+        - Key Vault
+        - Workload Identity
+      companion_mode: coverage
+    tags: [identity, managed-identity, entra]
+
+  - id: backup-posture-missing-warning
+    title: Data services need an explicit backup and restore posture
+    severity: warning
+    category: resilience
+    message: |
+      Data-bearing services were detected without backup or restore evidence.
+      Replication is not a substitute for recoverable backups: operator error,
+      ransomware, bad migrations, and destructive application bugs can be
+      replicated quickly across healthy infrastructure.
+    remediation: |
+      Document Azure Backup, Recovery Services Vault / Backup Vault, database
+      point-in-time restore, immutable backup, retention period, and restore
+      test cadence for every stateful service.
+    docs_url: https://learn.microsoft.com/azure/backup/backup-overview
+    predicate: service_keywords_without_companion
+    predicate_args:
+      keywords:
+        - SQL Database
+        - PostgreSQL
+        - MySQL
+        - Cosmos DB
+        - Storage
+        - Blob
+        - Database
+        - Virtual Machine
+      companions:
+        - Backup
+        - Recovery Services Vault
+        - Backup Vault
+        - Point-in-time Restore
+        - PITR
+        - Immutable Backup
+        - Snapshot
+      exclude_keywords:
+        - Failover Group
+        - Geo-redundant
+      companion_mode: coverage
+    tags: [backup, restore, resilience]
+
+  - id: tagging-policy-missing-info
+    title: Multi-service designs should include tagging or policy governance
+    severity: info
+    category: governance
+    message: |
+      A multi-service architecture was detected without tagging or Azure Policy
+      evidence. Missing ownership, environment, cost-center, and data-class tags
+      make cost allocation, incident response, and compliance reporting harder
+      once the design is deployed.
+    remediation: |
+      Add an Azure Policy or landing-zone governance component that enforces
+      required tags such as owner, environment, costCenter, application, and
+      dataClassification. Apply inheritance at management group, subscription,
+      or resource-group scope where appropriate.
+    docs_url: https://learn.microsoft.com/azure/azure-resource-manager/management/tag-resources
+    predicate: service_keywords_without_companion
+    predicate_args:
+      keywords:
+        - App Service
+        - Container Apps
+        - Front Door
+        - Application Gateway
+        - SQL Database
+        - PostgreSQL
+        - MySQL
+        - Cosmos DB
+        - Storage
+        - Service Bus
+        - Key Vault
+        - Virtual Network
+      companions:
+        - Tagging
+        - Tags
+        - Azure Policy
+        - Management Group
+        - Cost Management
+        - Resource Graph
+      threshold: 3
+    tags: [tagging, governance, policy]

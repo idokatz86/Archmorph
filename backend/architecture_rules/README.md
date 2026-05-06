@@ -5,7 +5,7 @@ YAML entries in `backend/data/architecture_rules.yaml`; predicates are Python
 helpers registered in `predicates.py`; `engine.py` loads and evaluates the
 library against a `vision_analyzer` analysis result.
 
-The current library has 25 curated rules. Issue #662 expands it to 40+ rules
+The current library has 30 curated rules. Issue #662 expands it to 40+ rules
 without changing the public API or moving rules out of YAML.
 
 ## Rule Schema
@@ -65,6 +65,7 @@ Existing predicates cover most additive rules:
 | `service_pair_connected` | A connection links two named services. |
 | `connection_uses_protocol` | Any connection type contains a requested protocol token. |
 | `service_count_at_least` | At least N services match one of the supplied keywords. |
+| `service_keywords_without_companion` | One or more service keywords appear without companion controls; supports `exclude_keywords` plus `companion_mode: any` or `coverage`. |
 | `category_present_without_companion` | A category appears without any required companion service. |
 | `service_in_category_with_other` | A category coexists with another named service. |
 | `path_uses_service_with_protocol_mismatch` | Traffic through a service uses an unsupported protocol. |

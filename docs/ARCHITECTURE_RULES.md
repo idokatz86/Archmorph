@@ -1,6 +1,6 @@
 # Architecture Limitations Engine
 
-> Status: Phase 1 (curated rules + IaC blocker gate) — landed in PR [#615](https://github.com/idokatz86/Archmorph/pull/615). Subsequent phases tracked at [#616](https://github.com/idokatz86/Archmorph/issues/616) (AI fallback), [#617](https://github.com/idokatz86/Archmorph/issues/617) (admin review queue), [#618](https://github.com/idokatz86/Archmorph/issues/618) (frontend panel), [#619](https://github.com/idokatz86/Archmorph/issues/619) (rule-library expansion).
+> Status: Phase 1 (curated rules + IaC blocker gate) — landed in PR [#615](https://github.com/idokatz86/Archmorph/pull/615). Rule-library expansion [#662](https://github.com/idokatz86/Archmorph/issues/662) has started, bringing the curated library to 30 rules. Subsequent engine phases tracked at [#616](https://github.com/idokatz86/Archmorph/issues/616) (AI fallback), [#617](https://github.com/idokatz86/Archmorph/issues/617) (admin review queue), [#618](https://github.com/idokatz86/Archmorph/issues/618) (frontend panel), [#619](https://github.com/idokatz86/Archmorph/issues/619) (rule-library expansion).
 
 ## Why this exists
 
@@ -29,9 +29,9 @@ on POST /generate: if any severity == "blocker" → 409 unless ?force=true
 | File | Purpose |
 | --- | --- |
 | [backend/architecture_rules/models.py](../backend/architecture_rules/models.py) | `Severity`, `Rule`, `ArchitectureIssue` dataclasses. |
-| [backend/architecture_rules/predicates.py](../backend/architecture_rules/predicates.py) | 8 reusable predicates + decorator-based registry. |
+| [backend/architecture_rules/predicates.py](../backend/architecture_rules/predicates.py) | 9 reusable predicates + decorator-based registry. |
 | [backend/architecture_rules/engine.py](../backend/architecture_rules/engine.py) | YAML loader, schema validation, lazy thread-safe singleton, `evaluate()`. |
-| [backend/data/architecture_rules.yaml](../backend/data/architecture_rules.yaml) | 25 curated rules. |
+| [backend/data/architecture_rules.yaml](../backend/data/architecture_rules.yaml) | 30 curated rules. |
 | [backend/routers/diagrams.py](../backend/routers/diagrams.py) | Wires `evaluate()` into the analysis enrichment pipeline. |
 | [backend/routers/iac_routes.py](../backend/routers/iac_routes.py) | 409 gate on blockers; `?force=true` override. |
 | [backend/tests/test_architecture_rules.py](../backend/tests/test_architecture_rules.py) | Engine + golden scenario tests. |
