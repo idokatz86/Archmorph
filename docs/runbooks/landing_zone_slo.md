@@ -48,6 +48,12 @@ Nightly staging soak:
 - Rate-limit guard: `vars.PERF_SOAK_RATE_LIMIT_PROFILE=soak`
 - Summary artifact: `landing-zone-soak-summary`
 
+Scheduled runs skip cleanly when `PERF_SOAK_BASE_URL` or
+`PERF_SOAK_RATE_LIMIT_PROFILE=soak` is not configured, and write the reason to
+the GitHub Actions step summary. Manual `workflow_dispatch` runs remain strict:
+missing target or rate-limit guard configuration fails before Locust is
+installed.
+
 ## Alerts
 
 `infra/observability/alerts.tf` wires Landing Zone p95 and burn-rate alerts from Application Insights `customMetrics`:
