@@ -268,16 +268,6 @@ The PRD distinguishes three maturity levels. **Live** features are usable in the
 - **LocalStorage persistence** — selected language remembered across sessions
 - **Extensible** — add new locales by dropping a JSON file in `/locales/{lng}/translation.json`
 
-### 3.37 Living Architecture Engine (v3.0.0)
-- **Health scoring** — 5 weighted dimensions: Availability (25%), Cost Efficiency (20%), Compliance (20%), Performance (20%), Security (15%)
-- **Status classification** — healthy (≥80), warning (≥60), critical (<60) per dimension and overall
-- **Drift detection** — identifies configuration drift, missing tags, version skew, network exposure, unencrypted resources
-- **Drift baselines** — `/api/drift/baselines` stores intended-state snapshots, repeat compare history, deterministic finding IDs, accepted/rejected/deferred decisions, and Markdown report export
-- **Cost anomaly alerts** — detects deviation from expected daily spend with percentage thresholds
-- **Recommendations** — actionable remediation suggestions per drift/anomaly finding
-- **Registration API** — `POST /living-architecture/register` to onboard an architecture for monitoring
-- **5 API endpoints** — register, health, drifts, cost-anomalies, registered list
-
 ### 3.38 Migration Intelligence (v3.0.0)
 - **Anonymous event pipeline** — records anonymized migration events (service pair + success boolean + confidence)
 - **Community confidence scoring** — blends base mapping confidence (60%) with community success rate (30%) and volume factor (10%)
@@ -304,12 +294,6 @@ The PRD distinguishes three maturity levels. **Live** features are usable in the
 - **Error categories** — validation, authentication, authorization, not_found, rate_limit, internal
 - **Correlation ID propagation** — unique request ID in every response header and error body for debugging
 - **Client-friendly messages** — user-facing messages separated from technical details
-
-### 3.42 Compliance Mapper (v3.0.1)
-- **4 framework support** — GDPR, HIPAA, SOC2, PCI DSS compliance mapping
-- **Azure service alignment** — maps detected architecture services to compliance requirements
-- **Gap analysis** — identifies missing compliance controls in the architecture
-- **Remediation suggestions** — actionable recommendations for each compliance gap
 
 ### 3.43 AI-Powered Service Suggestions (v3.0.1)
 - **Context-aware recommendations** — GPT-4o suggests additional Azure services based on architecture patterns
@@ -735,7 +719,6 @@ Only when 1–7 all green does the README/PRD Capability Status table flip ALZ r
 | Pricing | Azure Retail Prices API with 30-day disk cache (134 service entries, 56 aliases, targeted queries) |
 | IaC | Terraform (infra) and Bicep support in-app |
 | Testing | pytest (1554 backend tests), Vitest (262 frontend tests), Playwright smoke (17 browser tests), integration tests, contract tests, chaos tests, coverage gap tests, middleware tests, pre-commit hooks (ruff, eslint, prettier) |
-| Best Practices | In-process WAF linter (5 pillars, 15+ rules, quick wins, pillar scores) |
 | Cost Optimizer | In-process engine (7 categories, RI/Spot/tiering/auto-shutdown recommendations) |
 | Feedback | In-process NPS/feature/bug collection (30-day trend, admin dashboard) |
 | HLD Generator | In-process GPT-4o engine (60+ Azure doc links, 13-section HLD, markdown converter) |
@@ -750,11 +733,10 @@ Only when 1–7 all green does the README/PRD Capability Status table flip ALZ r
 | NL Service Builder | In-process GPT-4o engine (fuzzy Azure service matching, alias support, confidence scoring) |
 | Smart Question Dedup | In-process engine (implicit answer detection, smart defaults from analysis) |
 | E2E Monitoring | GitHub Actions workflow (Azure Monitor + App Insights health checks, auto GitHub issue creation) |
-| Living Architecture | In-process engine (saved drift baselines, compare history, finding decisions, Markdown reports; live scanner validation still gated) |
 | Migration Intelligence | In-process engine (anonymous event pipeline, community confidence scoring, 18 seed patterns, trending analysis) |
 | White-Label SDK | In-process engine (config-driven branding, partner API keys, embeddable widgets, 7 color tokens) |
 | Authentication | In-process (Azure AD B2C JWT validation, GitHub OAuth, session tokens, usage quotas) |
-| Migration Runbook | In-process generator (7 phases, task templates, risk assessment, Markdown export) |
+| Migration Runbook | In-process generator (7 phases, task templates, readiness checklist, Markdown export) |
 | Architecture Versioning | In-memory store (change detection, version comparison, restore, 7-day TTL) |
 | Terraform Preview | In-process HCL parser (resource extraction, syntax validation, plan simulation) |
 | Application Analytics | Persistent metrics via Azure Blob Storage (background flush, crash-safe shutdown, event tracking, sessions, funnels) |
@@ -784,7 +766,6 @@ Only when 1–7 all green does the README/PRD Capability Status table flip ALZ r
 | `/api/diagrams/{id}/generate` | POST | Generate IaC code (Terraform/Bicep) |
 | `/api/diagrams/{id}/export` | GET | Export IaC file download |
 | `/api/diagrams/{id}/cost-estimate` | GET | Dynamic cost estimate (Azure Retail Prices API) |
-| `/api/diagrams/{id}/best-practices` | GET | Analyze architecture against Azure WAF (v2.8) |
 | `/api/diagrams/{id}/cost-optimization` | GET | Get cost optimization recommendations (v2.8) |
 | `/api/diagrams/{id}/share` | POST | Create shareable read-only link (v2.8) |
 | `/api/shared/{id}` | GET | Get shared analysis by share ID (v2.8) |
@@ -849,11 +830,6 @@ Only when 1–7 all green does the README/PRD Capability Status table flip ALZ r
 | `/api/dashboard/analyses/{id}/save` | DELETE | Remove bookmark (v3.0) |
 | `/api/templates` | GET | List architecture templates with category/provider filters (v3.0) |
 | `/api/templates/{id}` | GET | Get template details by ID (v3.0) |
-| `/api/living-architecture/register` | POST | Register architecture for health monitoring (v3.0) |
-| `/api/living-architecture/{id}/health` | GET | Get architecture health scores (v3.0) |
-| `/api/living-architecture/{id}/drifts` | GET | Get drift detection findings (v3.0) |
-| `/api/living-architecture/{id}/cost-anomalies` | GET | Get cost anomaly alerts (v3.0) |
-| `/api/living-architecture/registered` | GET | List registered architectures (v3.0) |
 | `/api/drift/detect` | POST | Run one-off environmental drift detection |
 | `/api/drift/baselines` | POST | Create a drift baseline with optional first compare |
 | `/api/drift/baselines` | GET | List drift baselines with latest audit summary |
@@ -902,16 +878,16 @@ Only when 1–7 all green does the README/PRD Capability Status table flip ALZ r
 | **v2.5 — Audit & Quality** | Done | 34 audit improvements, comprehensive test coverage (290 → 348 tests) |
 | **v2.6 — Icon Registry & Security** | Done | Icon Registry (405 icons, 3 library formats, SVG sanitization, thread-safe, persistent, auto-load), security hardening (timing-safe auth, security headers, ZIP slip protection, XSS prevention, Dependabot), diagram export bridge to registry |
 | **v2.7 — NL Builder & Monitoring** | Done | Natural Language Service Builder (add Azure services via text after diagram analysis), Smart Question Deduplication (filters questions based on implicit user answers), E2E Monitoring (Azure Monitor + Application Insights health checks, automatic GitHub issue creation), enhanced test coverage (21 service builder tests, integration tests, E2E monitoring workflow) |
-| **v2.8 — UX & Insights** | Done | Sample diagrams for onboarding (4 pre-built AWS/GCP examples), WAF Best Practices Linter (5 pillars, 15+ rules), Cost Optimization recommendations (7 categories, RI/Spot/tiering), NPS & Feedback collection (surveys, feature ratings, bug reports), share links (24h TTL), question progress bar, Feedback Widget UI, 438 unit tests |
+| **v2.8 — UX & Insights** | Done | Sample diagrams for onboarding (4 pre-built AWS/GCP examples), Cost Optimization recommendations (7 categories, RI/Spot/tiering), NPS & Feedback collection (surveys, feature ratings, bug reports), share links (24h TTL), question progress bar, Feedback Widget UI, 438 unit tests |
 | **v2.9 — Enterprise Security** | Done | Azure AD B2C authentication, GitHub OAuth, free customer access safeguards, Lead capture, Migration runbook generator (7 phases), Architecture versioning with restore, Terraform plan preview, Application analytics, Azure Monitor alerts & workbook |
 | **v2.10 — AI Assistant & Roadmap** | Done | GPT-4o AI Assistant (natural language, context-aware), Product Roadmap UI (timeline from Day 0), Feature request system (GitHub integration), Bug report system (GitHub integration), Buy Me a Coffee support link |
 | **v2.11.0 — Admin & Analytics** | Done | JWT admin auth (HS256, 1h TTL, in-memory revocation), persistent analytics (Azure Blob Storage with background flush), conversion funnel, security headers middleware |
 | **v2.11.1 — UX Polish & Document Export** | Done | HLD export (DOCX/PDF/PPTX), 15 UX improvements, CI/CD security (Semgrep SAST, Gitleaks secret detection, Trivy container scan, CycloneDX SBOM), Python 3.11+3.12 matrix testing, 747 tests in 30 files across 82 endpoints |
 | **v2.12.0 — Modular Architecture & Security** | Done | Router decomposition (main.py 2,189→181 lines, 13 router modules), API versioning (v1 prefix), feature flags system (% rollout + user targeting), comprehensive audit logging (risk levels, alerting rules, compliance queries), session persistence (InMemory/Redis), GPT-4o response caching (content-hash TTLCache), DiagramTranslator decomposed (1,201→ 9 sub-components with useReducer), structured JSON logging with correlation IDs, OTel observability rewrite, Azure Front Door WAF + Zero Trust, Helm charts for self-hosted K8s, blue-green deployment with instant rollback, SBOM (CycloneDX + Grype), SAST/DAST/SCA pipeline (Semgrep, Bandit, CodeQL, Trivy, Gitleaks), storage RBAC auth (DefaultAzureCredential), pricing cache persisted to Blob Storage, monitoring reduced to hourly, "None" alerting option, service_updater JSON output, 1149 tests (contract 56, chaos 26, coverage 46, middleware 55) in 35+ files |
-| **v3.0.0 — Multi-Cloud & Enterprise** | Done | Multi-cloud discovery, User Dashboard (stats, history, bookmarks), Template Gallery (10 patterns, 8 categories), Visio (.vsdx) import with Open XML parser, i18n (en/es/fr with react-i18next), Living Architecture engine (health scoring, drift detection, cost anomalies), Migration Intelligence (community confidence, pattern library, trending), White-Label SDK (branding, partner API keys, embeddable widgets), multi-tenant foundation (organizations, teams, invitations), inter-question constraint system, enhanced PR template with DoD checklist |
-| **v3.0.1 — Sprint 1: Production Critical** | Done | Error envelope middleware with correlation IDs, Visio import parser, white-label theming engine, session restore & UX improvements, API versioning with /v1/ prefix, best-practice validation engine, cost optimizer engine, migration assessment & risk scoring, compliance mapper (GDPR/HIPAA/SOC2/PCI DSS), living architecture health monitoring, AI-powered service suggestions |
+| **v3.0.0 — Multi-Cloud & Enterprise** | Done | Multi-cloud discovery, User Dashboard (stats, history, bookmarks), Template Gallery (10 patterns, 8 categories), Visio (.vsdx) import with Open XML parser, i18n (en/es/fr with react-i18next), Migration Intelligence (community confidence, pattern library, trending), White-Label SDK (branding, partner API keys, embeddable widgets), multi-tenant foundation (organizations, teams, invitations), inter-question constraint system, enhanced PR template with DoD checklist |
+| **v3.0.1 — Sprint 1: Production Critical** | Done | Error envelope middleware with correlation IDs, Visio import parser, white-label theming engine, session restore & UX improvements, API versioning with /v1/ prefix, cost optimizer engine, AI-powered service suggestions |
 | **v3.0.2 — Sprint 2: Reliability & DX** | Done | API client rewrite with retry/backoff/timeout, user-friendly error messages, configurable OpenAI timeout & fallback model, GPT output truncation detection, vision analysis cache (TTLCache), IaC security scanning (8 rules), session cache for IaC/HLD persistence, session expiry countdown warning, cancel analysis button, error clearing on new file, mobile responsive buttons, Docker Compose (PostgreSQL 16 + Redis 7), configurable user cache TTL |
-| **v3.0.3 — Sprint 3: Advanced Features** | Done | Azure/GCP services pagination fix, prompt guard for IaC chat, migration runbook generator, Terraform plan preview, architecture versioning with diff, migration intelligence with community data, infrastructure import from live cloud, organization & team management, journey analytics, dependency graph visualization, risk score & compliance panels, URL hash sync, feature flags system, admin dashboard with analytics |
+| **v3.0.3 — Sprint 3: Advanced Features** | Done | Azure/GCP services pagination fix, prompt guard for IaC chat, migration runbook generator, Terraform plan preview, architecture versioning with diff, migration intelligence with community data, infrastructure import from live cloud, organization & team management, journey analytics, dependency graph visualization, URL hash sync, feature flags system, admin dashboard with analytics |
 | **v3.1.0 — Landing Page Redesign** | Done | Landing page redesign with feature cards, stats bar, updated FAQs, and preview-friendly messaging |
 | **v3.2.0 — Confidence Transparency** | Done | Confidence score transparency with human-readable explanations, visual confidence badges, tooltip explanations, critical stabilization fixes (HLD 404, memory leaks, CORS, version sync) |
 | **v3.3.0 — Stabilization & Quality** | Done | 13 stability issues closed, DiagramTranslator lazy-loaded, ChatWidget migrated to apiClient, dead components removed, HLD export fixed, SSE deduplication, AbortController cleanup, session leak prevention |
@@ -962,13 +938,11 @@ Only when 1–7 all green does the README/PRD Capability Status table flip ALZ r
 | **Persistent analysis history** | Analysis history tied to user accounts | Engineering | P2 | #245 |
 | **RBAC & multi-tenant isolation** | Retired from active API surface; future work should start from scoped API keys and explicit project-sharing requirements | Engineering | P3 | #238 |
 | **Collaboration features** | Shared projects, comments, review workflow | Engineering | P2 | #237 |
-| **Compliance framework mapping** | Auto-detect regulatory requirements, map to Azure compliance services | Engineering | P2 | #239 |
 | **Deferred extra IaC formats** | Deferred additional IaC formats beyond Terraform/Bicep | Engineering | P2 | #242 |
 | **Multi-diagram project support** | Multiple diagrams per project with unified analysis | Engineering | P2 | #241 |
 | **VS Code extension** | In-editor architecture translation and IaC generation | Engineering | P2 | #240 |
 | **Real infrastructure scanning** | Provider scanners are route-gated behind `live_cloud_scanner`; tenant credential validation and provider-contract tests remain before beta enablement | Engineering | P3 | #243 |
 | **One-click Deploy to Azure** | Preview/preflight can run, but execute/rollback paths are gated behind `deploy_engine` and release controls | Engineering | P1 | #248 |
-| **Migration risk scorecard** | Comprehensive readiness assessment with risk factors | Engineering | P1 | #249 |
 | **Interactive before/after visualization** | Side-by-side source vs target architecture view | Engineering | P1 | #250 |
 | **End-to-end migration wizard** | Full migration package export with step-by-step flow | Engineering | P1 | #252 |
 | **AI Architecture Advisor** | Proactive optimization suggestions based on architecture patterns | Engineering | P1 | #255 |
@@ -1005,7 +979,6 @@ Identified by CEO Master + CTO Master cross-functional review with all agent hie
 | S10 | Waitlist / early access with referral loop | P1 | No growth loop for pre-seed traction | CRO + FE | 3 |
 | S11 | Investor data room & metrics dashboard | P1 | No structured data room for fundraising | Venture + PM | 5 |
 | S12 | GitHub/GitLab integration for IaC push | P2 | Push Terraform as PR = one-click workflow | DevOps + Backend | 5 |
-| S13 | Migration risk scoring & blast radius analysis | P2 | Advisory layer enterprises pay premium for | Cloud + Backend | 8 |
 | S14 | Slack / Teams notification integrations | P2 | Enterprise teams live in these tools | Backend | 3 |
 | S15 | White-label / embed SDK for partners | P2 | MSP distribution channel = B2B2B revenue | CTO + API | 13 |
 

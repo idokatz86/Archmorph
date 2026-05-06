@@ -312,13 +312,8 @@
       "White-label theming engine with custom branding (#273)",
       "Session restore & UX improvements (#274, #279)",
       "API versioning with /v1/ prefix (#291)",
-      "Best-practice validation engine (#287)",
       "Cost optimizer engine (#293)",
-      "Migration assessment scoring (#294)",
-      "Compliance mapper (GDPR/HIPAA/SOC2/PCI DSS) (#296)",
-      "Living architecture health monitoring (#286)",
-      "AI-powered service suggestions (#303)",
-      "Migration risk scoring (#294)"
+      "AI-powered service suggestions (#303)"
     ],
     "metrics": {
       "services": 405,

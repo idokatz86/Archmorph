@@ -90,7 +90,6 @@ from routers.deployments import router as deployments_router  # noqa: E402
 from routers.cost_routes import router as cost_router  # noqa: E402
 from routers.timeline_routes import router as timeline_router  # noqa: E402
 from routers.report_routes import router as report_router  # noqa: E402
-from routers.compliance_routes import router as compliance_router  # noqa: E402
 from routers.api_keys_routes import router as api_keys_router  # noqa: E402
 from routers.webhook_routes import router as webhook_routes_router  # noqa: E402
 from routers.integrations_routes import router as integrations_router  # noqa: E402
@@ -269,8 +268,6 @@ class ArchmorphMiddleware(BaseHTTPMiddleware):
                 response.headers["Cache-Control"] = "no-cache"
             elif "/cost-estimate" in endpoint or "/cost-breakdown" in endpoint:
                 response.headers["Cache-Control"] = "private, max-age=120"
-            elif "/best-practices" in endpoint or "/compliance" in endpoint:
-                response.headers["Cache-Control"] = "private, max-age=600"
 
         logger.info(
             "request completed",
@@ -377,7 +374,6 @@ app.include_router(deployments_router)
 app.include_router(cost_router)
 app.include_router(timeline_router)
 app.include_router(report_router)
-app.include_router(compliance_router)
 app.include_router(api_keys_router)
 app.include_router(webhook_routes_router)
 app.include_router(integrations_router)
@@ -426,7 +422,6 @@ _all_routers = [
     (credentials_router, ""),
     (cost_router, ""),
     (report_router, ""),
-    (compliance_router, ""),
     (api_keys_router, ""),
     (webhook_routes_router, ""),
     (integrations_router, ""),

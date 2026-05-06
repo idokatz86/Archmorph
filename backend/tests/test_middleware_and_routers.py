@@ -407,23 +407,11 @@ class TestHLDExportRoutes:
 
 
 # ====================================================================
-# 8. Best Practices & Cost Optimization Routes
+# 8. Cost Optimization Routes
 # ====================================================================
 
-class TestBestPracticesRoutes:
-    """Test best practices and cost optimization endpoints."""
-
-    def test_best_practices_404_without_analysis(self, client, clean_session):
-        resp = client.get("/api/diagrams/no-exist/best-practices")
-        assert resp.status_code == 404
-
-    def test_best_practices_with_analysis(self, client, clean_session):
-        diagram_id = _upload_and_analyze(client, clean_session)
-        resp = client.get(f"/api/diagrams/{diagram_id}/best-practices")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "recommendations" in data
-        assert "quick_wins" in data
+class TestCostOptimizationRoutes:
+    """Test cost optimization endpoints."""
 
     def test_cost_optimization_404_without_analysis(self, client, clean_session):
         resp = client.get("/api/diagrams/no-exist/cost-optimization")
