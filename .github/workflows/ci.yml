@@ -27,6 +27,24 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  azure-skills-governance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Check azure-skills upstream pin and collisions
+        run: python scripts/check_azure_skills_upstream.py --check-telemetry-env
+        env:
+          AZURE_MCP_COLLECT_TELEMETRY: "false"
+
   mappings-freshness:
     runs-on: ubuntu-latest
     timeout-minutes: 5

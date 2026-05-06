@@ -1,0 +1,3 @@
+[submodule "infra/skills-upstream/azure-skills"]
+	path = infra/skills-upstream/azure-skills
+	url = https://github.com/microsoft/azure-skills.git
