@@ -2183,6 +2183,18 @@
       "DriftCompareRequest": {
         "additionalProperties": false,
         "properties": {
+          "current_iac": {
+            "anyOf": [
+              {
+                "maxLength": 200000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Iac"
+          },
           "live_state": {
             "additionalProperties": true,
             "title": "Live State",
@@ -2220,6 +2232,25 @@
           "decision"
         ],
         "title": "DriftFindingDecision",
+        "type": "object"
+      },
+      "DriftPatchRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "current_iac": {
+            "anyOf": [
+              {
+                "maxLength": 200000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Iac"
+          }
+        },
+        "title": "DriftPatchRequest",
         "type": "object"
       },
       "DriftRequest": {
@@ -11186,6 +11217,20 @@
               "title": "Baseline Id",
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "terraform",
+              "enum": [
+                "terraform",
+                "bicep"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -11279,6 +11324,71 @@
           }
         },
         "summary": "Decide Finding",
+        "tags": [
+          "Drift Detection"
+        ]
+      }
+    },
+    "/api/drift/baselines/{baseline_id}/patch": {
+      "post": {
+        "description": "Return a review-only IaC patch artifact for the latest baseline drift audit.",
+        "operationId": "build_baseline_patch_api_drift_baselines__baseline_id__patch_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "baseline_id",
+            "required": true,
+            "schema": {
+              "title": "Baseline Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "terraform",
+              "enum": [
+                "terraform",
+                "bicep"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DriftPatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Build Baseline Patch",
         "tags": [
           "Drift Detection"
         ]
@@ -21451,6 +21561,20 @@
               "title": "Baseline Id",
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "terraform",
+              "enum": [
+                "terraform",
+                "bicep"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -21546,6 +21670,73 @@
           }
         },
         "summary": "Decide Finding V1",
+        "tags": [
+          "infra",
+          "Drift Detection",
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/drift/baselines/{baseline_id}/patch": {
+      "post": {
+        "description": "Return a review-only IaC patch artifact for the latest baseline drift audit.",
+        "operationId": "build_baseline_patch_v1_api_v1_drift_baselines__baseline_id__patch_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "baseline_id",
+            "required": true,
+            "schema": {
+              "title": "Baseline Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "terraform",
+              "enum": [
+                "terraform",
+                "bicep"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DriftPatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Build Baseline Patch V1",
         "tags": [
           "infra",
           "Drift Detection",

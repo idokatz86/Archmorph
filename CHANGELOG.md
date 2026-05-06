@@ -94,7 +94,7 @@ Phase 2-5 follow-ups (AI fallback, admin review queue, frontend Architecture Hea
 - **OpenAPI contract snapshot gate** so backend route/schema drift fails CI unless the committed API baseline is updated intentionally.
 - **Admin release gate view** for deployment metadata and required smoke checks, plus confirmation before enabling risky scaffold feature flags.
 - **Admin dashboard health and feature flag tabs** with live monitoring, audit visibility, and runtime flag toggles.
-- **Drift baselines** with compare history, deterministic finding IDs, finding accept/reject decisions, and Markdown report export. Drift dashboard wired to create a baseline, rerun live/sample compares, resolve findings, and download reports.
+- **Drift baselines** with compare history, deterministic finding IDs, finding accept/reject decisions, review-only IaC patch artifacts, and Markdown report export. Drift dashboard wired to create a baseline, rerun live/sample compares, resolve findings, and download reports.
 - **Post-deploy smoke job** that verifies the deployed frontend, hash-routed product paths, API health, and OpenAPI schema after production deploys.
 - **Release checklist** covering required secrets, quality gates, manual smoke checks, scaffolded feature approvals, and rollback evidence.
 - **Disabled-by-default feature flags** for scaffolded deploy, drift, cloud scanner, and SSO/SCIM capabilities, with frontend gating for drift and deploy surfaces.
