@@ -79,9 +79,96 @@ def sane_web_analysis():
     }
 
 
+@pytest.fixture
+def phase2_missing_posture_analysis():
+    return {
+        "identified_services": [
+            {"name": "Browser", "category": "Client"},
+            {"name": "Azure Front Door", "category": "Networking"},
+            {"name": "Azure App Service", "category": "Compute"},
+            {"name": "Azure SQL Database", "category": "Database"},
+            {"name": "Azure Storage Account", "category": "Storage"},
+        ],
+        "service_connections": [
+            {"from": "Browser", "to": "Azure Front Door", "type": "HTTPS"},
+            {"from": "Azure Front Door", "to": "Azure App Service", "type": "HTTPS"},
+            {"from": "Azure App Service", "to": "Azure SQL Database", "type": "TDS"},
+            {"from": "Azure App Service", "to": "Azure Storage Account", "type": "HTTPS"},
+        ],
+    }
+
+
+@pytest.fixture
+def phase2_complete_posture_analysis():
+    return {
+        "identified_services": [
+            {"name": "Browser", "category": "Client"},
+            {"name": "Azure Front Door", "category": "Networking"},
+            {"name": "Front Door WAF Policy", "category": "Security"},
+            {"name": "Azure DDoS Network Protection", "category": "Security"},
+            {"name": "Azure App Service", "category": "Compute"},
+            {"name": "Managed Identity", "category": "Identity"},
+            {"name": "Microsoft Entra ID", "category": "Identity"},
+            {"name": "Azure SQL Database", "category": "Database"},
+            {"name": "SQL Failover Group", "category": "Resilience"},
+            {"name": "Azure Storage Account", "category": "Storage"},
+            {"name": "Geo-redundant Storage", "category": "Resilience"},
+            {"name": "Recovery Services Vault", "category": "Backup"},
+            {"name": "Azure Backup", "category": "Backup"},
+            {"name": "Azure Policy Tagging Initiative", "category": "Governance"},
+        ],
+        "service_connections": [
+            {"from": "Browser", "to": "Azure Front Door", "type": "HTTPS"},
+            {"from": "Azure Front Door", "to": "Azure App Service", "type": "HTTPS"},
+            {"from": "Azure App Service", "to": "Azure SQL Database", "type": "TDS"},
+            {"from": "Azure App Service", "to": "Azure Storage Account", "type": "HTTPS"},
+        ],
+    }
+
+
+@pytest.fixture
+def phase2_mixed_stateful_posture_analysis():
+    return {
+        "identified_services": [
+            {"name": "Azure App Service", "category": "Compute"},
+            {"name": "Managed Identity", "category": "Identity"},
+            {"name": "Azure SQL Database", "category": "Database"},
+            {"name": "SQL Failover Group", "category": "Resilience"},
+            {"name": "Azure Storage Account", "category": "Storage"},
+            {"name": "Azure Backup", "category": "Backup"},
+        ],
+        "service_connections": [
+            {"from": "Azure App Service", "to": "Azure SQL Database", "type": "TDS"},
+            {"from": "Azure App Service", "to": "Azure Storage Account", "type": "HTTPS"},
+        ],
+    }
+
+
+@pytest.fixture
+def private_backend_analysis():
+    return {
+        "identified_services": [
+            {"name": "Azure App Service", "category": "Compute"},
+            {"name": "Managed Identity", "category": "Identity"},
+            {"name": "Azure SQL Database", "category": "Database"},
+            {"name": "SQL Failover Group", "category": "Resilience"},
+            {"name": "Azure Backup", "category": "Backup"},
+            {"name": "Virtual Network", "category": "Networking"},
+            {"name": "Private Endpoint", "category": "Networking"},
+        ],
+        "service_connections": [
+            {"from": "Azure App Service", "to": "Azure SQL Database", "type": "TDS"},
+        ],
+    }
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _rule_ids(analysis):
+    return {issue.rule_id for issue in evaluate(analysis)}
 
 
 class TestServiceHelpers:
@@ -170,6 +257,42 @@ class TestSimplePredicates:
             sftp_frontdoor_analysis, protocols=["sftp"]
         )
         assert match is not None
+
+    def test_service_keywords_without_companion_positive(
+        self, phase2_missing_posture_analysis
+    ):
+        match = preds.service_keywords_without_companion(
+            phase2_missing_posture_analysis,
+            keywords=["SQL Database"],
+            companions=["Backup"],
+        )
+        assert match is not None
+        assert match.affected_services == ["Azure SQL Database"]
+
+    def test_service_keywords_without_companion_negative(
+        self, phase2_complete_posture_analysis
+    ):
+        match = preds.service_keywords_without_companion(
+            phase2_complete_posture_analysis,
+            keywords=["SQL Database"],
+            companions=["Backup"],
+        )
+        assert match is None
+
+    def test_service_keywords_without_companion_coverage_keeps_mixed_gap(
+        self, phase2_mixed_stateful_posture_analysis
+    ):
+        match = preds.service_keywords_without_companion(
+            phase2_mixed_stateful_posture_analysis,
+            keywords=["SQL Database", "Storage"],
+            companions=["Failover Group"],
+            companion_mode="coverage",
+        )
+        assert match is not None
+        assert set(match.affected_services) == {
+            "Azure SQL Database",
+            "Azure Storage Account",
+        }
 
     def test_get_predicate_unknown_returns_none(self):
         assert preds.get_predicate("does-not-exist") is None
@@ -387,6 +510,39 @@ class TestGoldenScenarios:
         }, (
             f"Expected SFTP/FrontDoor blocker rule to fire. Got: {blocker_ids}"
         )
+
+
+class TestPhase2RulePack:
+    def test_phase2_rules_fire_when_posture_missing(self, phase2_missing_posture_analysis):
+        ids = _rule_ids(phase2_missing_posture_analysis)
+        assert {
+            "dr-cross-region-replication-warning",
+            "edge-security-waf-ddos-warning",
+            "identity-layer-missing-warning",
+            "backup-posture-missing-warning",
+            "tagging-policy-missing-info",
+        }.issubset(ids)
+
+    def test_phase2_rules_do_not_fire_when_posture_present(
+        self, phase2_complete_posture_analysis
+    ):
+        ids = _rule_ids(phase2_complete_posture_analysis)
+        assert "dr-cross-region-replication-warning" not in ids
+        assert "edge-security-waf-ddos-warning" not in ids
+        assert "identity-layer-missing-warning" not in ids
+        assert "backup-posture-missing-warning" not in ids
+        assert "tagging-policy-missing-info" not in ids
+
+    def test_stateful_rules_still_fire_on_mixed_partial_coverage(
+        self, phase2_mixed_stateful_posture_analysis
+    ):
+        ids = _rule_ids(phase2_mixed_stateful_posture_analysis)
+        assert "dr-cross-region-replication-warning" in ids
+        assert "backup-posture-missing-warning" in ids
+
+    def test_edge_rule_does_not_fire_on_private_backend(self, private_backend_analysis):
+        ids = _rule_ids(private_backend_analysis)
+        assert "edge-security-waf-ddos-warning" not in ids
 
 
 # ---------------------------------------------------------------------------
