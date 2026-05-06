@@ -162,6 +162,103 @@ def private_backend_analysis():
     }
 
 
+@pytest.fixture
+def phase3_missing_controls_analysis():
+    return {
+        "identified_services": [
+            {"name": "Browser", "category": "Client"},
+            {"name": "Azure Front Door", "category": "Networking"},
+            {"name": "Custom Domain", "category": "Networking"},
+            {"name": "DNS Zone", "category": "Networking"},
+            {"name": "API Management", "category": "API"},
+            {"name": "Azure App Service", "category": "Compute"},
+            {"name": "Azure SQL Database", "category": "Database"},
+            {"name": "Azure Storage Account", "category": "Storage"},
+            {"name": "Service Bus Queue", "category": "Messaging"},
+            {"name": "Event Hubs Namespace", "category": "Streaming"},
+            {"name": "HIPAA Workload", "category": "Compliance"},
+            {"name": "Multi-tenant SaaS Portal", "category": "Application"},
+        ],
+        "service_connections": [
+            {"from": "Browser", "to": "Azure Front Door", "type": "HTTPS"},
+            {"from": "Azure Front Door", "to": "API Management", "type": "HTTPS"},
+            {"from": "API Management", "to": "Azure App Service", "type": "HTTPS"},
+            {"from": "Azure App Service", "to": "Azure SQL Database", "type": "TDS"},
+            {"from": "Azure App Service", "to": "Service Bus Queue", "type": "AMQP"},
+            {"from": "Azure App Service", "to": "Event Hubs Namespace", "type": "AMQP"},
+        ],
+    }
+
+
+@pytest.fixture
+def phase3_complete_controls_analysis():
+    return {
+        "identified_services": [
+            {"name": "Browser", "category": "Client"},
+            {"name": "Azure Front Door", "category": "Networking"},
+            {"name": "Custom Domain", "category": "Networking"},
+            {"name": "DNS Zone", "category": "Networking"},
+            {"name": "DNS Validation", "category": "Networking"},
+            {"name": "Managed Certificate", "category": "Security"},
+            {"name": "API Management", "category": "API"},
+            {"name": "Rate Limit Policy", "category": "Security"},
+            {"name": "Azure App Service", "category": "Compute"},
+            {"name": "Managed Identity", "category": "Identity"},
+            {"name": "Azure Key Vault", "category": "Security"},
+            {"name": "Application Insights", "category": "Operations"},
+            {"name": "Azure Policy", "category": "Governance"},
+            {"name": "Defender for Cloud", "category": "Governance"},
+            {"name": "Private Endpoint", "category": "Networking"},
+            {"name": "Availability Zones", "category": "Resilience"},
+            {"name": "Azure SQL Database", "category": "Database"},
+            {"name": "Azure Storage Account", "category": "Storage"},
+            {"name": "Service Bus Queue", "category": "Messaging"},
+            {"name": "Service Bus DLQ", "category": "Messaging"},
+            {"name": "Event Hubs Namespace", "category": "Streaming"},
+            {"name": "Event Hubs Checkpoint Blob", "category": "Storage"},
+            {"name": "HIPAA Workload", "category": "Compliance"},
+            {"name": "Tenant Isolation", "category": "Architecture"},
+            {"name": "Partition Key", "category": "Data"},
+            {"name": "Multi-tenant SaaS Portal", "category": "Application"},
+        ],
+        "service_connections": [
+            {"from": "Browser", "to": "Azure Front Door", "type": "HTTPS"},
+            {"from": "Azure Front Door", "to": "API Management", "type": "HTTPS"},
+            {"from": "API Management", "to": "Azure App Service", "type": "HTTPS"},
+            {"from": "Azure App Service", "to": "Azure SQL Database", "type": "TDS"},
+            {"from": "Azure App Service", "to": "Service Bus Queue", "type": "AMQP"},
+            {"from": "Azure App Service", "to": "Event Hubs Namespace", "type": "AMQP"},
+        ],
+    }
+
+
+@pytest.fixture
+def observability_overlap_analysis():
+    return {
+        "identified_services": [
+            {"name": "Azure App Service", "category": "Compute"},
+            {"name": "Application Insights", "category": "Operations"},
+            {"name": "Log Analytics Workspace", "category": "Operations"},
+            {"name": "Datadog", "category": "Operations"},
+        ],
+        "service_connections": [],
+    }
+
+
+@pytest.fixture
+def frontdoor_private_origin_analysis():
+    return {
+        "identified_services": [
+            {"name": "Azure Front Door", "category": "Networking"},
+            {"name": "Private Endpoint", "category": "Networking"},
+            {"name": "Azure App Service", "category": "Compute"},
+        ],
+        "service_connections": [
+            {"from": "Azure Front Door", "to": "Private Endpoint", "type": "HTTPS"},
+        ],
+    }
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -421,7 +518,7 @@ rules:
 class TestYAMLLoaderFromDisk:
     def test_default_rules_load(self):
         rules = list_rules()
-        assert len(rules) >= 25
+        assert len(rules) >= 40
 
     def test_default_rules_have_unique_ids(self):
         rules = list_rules()
@@ -543,6 +640,60 @@ class TestPhase2RulePack:
     def test_edge_rule_does_not_fire_on_private_backend(self, private_backend_analysis):
         ids = _rule_ids(private_backend_analysis)
         assert "edge-security-waf-ddos-warning" not in ids
+
+
+class TestPhase3RulePack:
+    def test_phase3_rules_fire_when_controls_missing(
+        self, phase3_missing_controls_analysis
+    ):
+        ids = _rule_ids(phase3_missing_controls_analysis)
+        assert {
+            "public-data-service-without-private-link-warning",
+            "workload-secrets-without-key-vault-warning",
+            "observability-anchor-missing-warning",
+            "regulated-workload-without-policy-anchor-warning",
+            "multi-domain-edge-validation-info",
+            "multi-tenant-app-without-tenant-isolation-warning",
+            "service-bus-without-dead-letter-operations-warning",
+            "event-hubs-without-checkpoint-storage-warning",
+            "public-api-without-rate-limiting-warning",
+            "zone-redundancy-posture-missing-warning",
+        }.issubset(ids)
+
+    def test_phase3_rules_do_not_fire_when_controls_present(
+        self, phase3_complete_controls_analysis
+    ):
+        ids = _rule_ids(phase3_complete_controls_analysis)
+        assert "public-data-service-without-private-link-warning" not in ids
+        assert "workload-secrets-without-key-vault-warning" not in ids
+        assert "observability-anchor-missing-warning" not in ids
+        assert "regulated-workload-without-policy-anchor-warning" not in ids
+        assert "multi-domain-edge-validation-info" not in ids
+        assert "multi-tenant-app-without-tenant-isolation-warning" not in ids
+        assert "service-bus-without-dead-letter-operations-warning" not in ids
+        assert "event-hubs-without-checkpoint-storage-warning" not in ids
+        assert "public-api-without-rate-limiting-warning" not in ids
+        assert "zone-redundancy-posture-missing-warning" not in ids
+
+    def test_observability_overlap_rule_fires_on_multiple_stacks(
+        self, observability_overlap_analysis, phase3_complete_controls_analysis
+    ):
+        assert "observability-stack-overlap-info" in _rule_ids(
+            observability_overlap_analysis
+        )
+        assert "observability-stack-overlap-info" not in _rule_ids(
+            phase3_complete_controls_analysis
+        )
+
+    def test_premium_edge_cost_rule_requires_private_origin(
+        self, frontdoor_private_origin_analysis, sane_web_analysis
+    ):
+        assert "premium-edge-cost-acknowledgement-info" in _rule_ids(
+            frontdoor_private_origin_analysis
+        )
+        assert "premium-edge-cost-acknowledgement-info" not in _rule_ids(
+            sane_web_analysis
+        )
 
 
 # ---------------------------------------------------------------------------
