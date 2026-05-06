@@ -820,15 +820,18 @@ Production hardening switches:
 
 [^1]: Tracked for consolidation into West Europe — see [#607](https://github.com/idokatz86/Archmorph/issues/607). The April 2026 hub used to also run an `archmorph-backend` App Service (Canada Central), a duplicate `cafd43cfd4deacr` registry (East US), and a stray `secondnature-openai-whisper` cognitive account. All three were retired during the May 2026 infra consolidation; the dev RG now hosts only the active Container Apps stack and supporting data services.
 
+Terraform topology and no-break state-sync guardrails are documented in [infra/README.md](infra/README.md). Do not run Terraform import, state removal, or apply steps for the OpenAI region sync until #607 is complete and an operator change window is approved.
+
 ### CI/CD Pipeline
 
 The CI/CD workflow (`.github/workflows/ci.yml`) runs the main quality gates:
 
 1. **backend-tests** — installs with `uv`, runs Ruff, executes pytest with coverage threshold, exports OpenAPI, generates backend SBOM, and runs Grype
 2. **frontend-build** — installs npm dependencies, runs ESLint, runs Vitest, builds Vite output, generates frontend SBOM, and runs Grype
-3. **upload-sarif** — uploads Grype SARIF when available without blocking successful builds on upload rate limits
-4. **deploy-backend / deploy-frontend** — production Azure Container Apps and Static Web Apps deployment from `main` using GitHub Secrets and OIDC
-5. **post-deploy-smoke** — deployed frontend/API smoke checks for root, sample routes, health, and OpenAPI schema
+3. **iac-validate / terraform-config-validate** — validates generated IaC artifacts and the checked-in Terraform configuration without initializing the live remote backend
+4. **upload-sarif** — uploads Grype SARIF when available without blocking successful builds on upload rate limits
+5. **deploy-backend / deploy-frontend** — production Azure Container Apps and Static Web Apps deployment from `main` using GitHub Secrets and OIDC
+6. **post-deploy-smoke** — deployed frontend/API smoke checks for root, sample routes, health, and OpenAPI schema
 
 Additional workflows:
 - **security.yml** — SAST/DAST/SCA security pipeline (Semgrep, Bandit, CodeQL, Trivy, Gitleaks)

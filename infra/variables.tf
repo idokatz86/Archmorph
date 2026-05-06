@@ -12,7 +12,8 @@ variable "location" {
 variable "openai_location" {
   description = "Azure region for OpenAI (limited availability)"
   type        = string
-  default     = "eastus" # GPT-4 Vision available, Sweden blocked by policy
+  default     = "eastus"
+  # Keep East US until #607 completes and the existing West Europe account is imported into Terraform state.
 }
 
 variable "openai_capacity" {

@@ -186,6 +186,40 @@ jobs:
           ARCHMORPH_ENABLE_TERRAFORM_CLI_VALIDATION: "1"
 
   # ============================================
+  # CHECKED-IN TERRAFORM VALIDATION
+  # ============================================
+  terraform-config-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: infra
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.x"
+
+      - name: Configure Terraform plugin cache
+        run: |
+          mkdir -p "$RUNNER_TEMP/terraform-plugin-cache"
+          echo "TF_PLUGIN_CACHE_DIR=$RUNNER_TEMP/terraform-plugin-cache" >> "$GITHUB_ENV"
+
+      - name: Check Terraform formatting
+        run: find . -path './.terraform' -prune -o -name '*.tf' -print0 | xargs -0 terraform fmt -check
+
+      - name: Validate checked-in Terraform roots without remote backends
+        run: |
+          for dir in . staging dr observability; do
+            echo "::group::terraform validate infra/$dir"
+            terraform -chdir="$dir" init -backend=false -input=false
+            terraform -chdir="$dir" validate -no-color
+            echo "::endgroup::"
+          done
+
+  # ============================================
   # CLI FULL-SPINE ARTIFACT CONTRACT
   # ============================================
   cli-full-spine-smoke:
@@ -442,6 +476,9 @@ jobs:
 
       - name: Provision metrics storage
         run: |
+          # #608: This workflow-owned storage account is intentionally kept here until
+          # it is imported into Terraform state or replaced by azurerm_storage_account.main
+          # through a separate no-break state plan. Do not change region/SKU inline.
           STORAGE_NAME="archmorphmetrics"
           STORAGE_ACCOUNT_URL="https://${STORAGE_NAME}.blob.core.windows.net"
           echo "STORAGE_NAME=$STORAGE_NAME" >> "$GITHUB_ENV"
