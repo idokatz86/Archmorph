@@ -15,6 +15,7 @@ import { isFeatureEnabled } from './featureFlags';
 // Lazy-loaded tab components — only fetched when the user switches tabs (#173)
 const DiagramTranslator = lazy(() => import('./components/DiagramTranslator'));
 const ServicesBrowser = lazy(() => import('./components/ServicesBrowser'));
+const TemplateGallery = lazy(() => import('./components/TemplateGallery'));
 const Roadmap = lazy(() => import('./components/Roadmap'));
 const ChatWidget = lazy(() => import('./components/ChatWidget'));
 const DriftDashboard = lazy(() => import('./components/DriftDashboard'));
@@ -88,6 +89,7 @@ export default function App() {
             {activeTab === 'dashboard' && <DashboardPage />}
             {activeTab === 'translator' && <DiagramTranslator />}
             {activeTab === 'services' && <ServicesBrowser />}
+            {activeTab === 'templates' && <TemplateGallery />}
             {activeTab === 'roadmap' && <Roadmap />}
             {activeTab === 'drift' && isFeatureEnabled('livingArchitectureDrift') && <DriftDashboard />}
             {activeTab === 'api-docs' && <ApiDocs />}

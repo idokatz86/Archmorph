@@ -13736,6 +13736,131 @@
         ]
       }
     },
+    "/api/templates": {
+      "get": {
+        "description": "Browse curated architecture templates.",
+        "operationId": "list_templates_api_templates_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "title": "Category",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "source_provider",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Source Provider",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Templates"
+      }
+    },
+    "/api/templates/{template_id}": {
+      "get": {
+        "description": "Get one curated architecture template.",
+        "operationId": "get_template_api_templates__template_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "template_id",
+            "required": true,
+            "schema": {
+              "title": "Template Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Template"
+      }
+    },
+    "/api/templates/{template_id}/analyze": {
+      "post": {
+        "description": "Create a translator-ready deterministic analysis for a template.",
+        "operationId": "analyze_template_api_templates__template_id__analyze_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "template_id",
+            "required": true,
+            "schema": {
+              "title": "Template Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Analyze Template"
+      }
+    },
     "/api/terraform/state/{project_id}/{environment}": {
       "get": {
         "operationId": "get_tf_state_api_terraform_state__project_id___environment__get",
@@ -22602,6 +22727,140 @@
         "summary": "Api Suggest Mapping V1",
         "tags": [
           "ai-suggestion",
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/templates": {
+      "get": {
+        "description": "Browse curated architecture templates.",
+        "operationId": "list_templates_v1_api_v1_templates_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "title": "Category",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "source_provider",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Source Provider",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Templates V1",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/templates/{template_id}": {
+      "get": {
+        "description": "Get one curated architecture template.",
+        "operationId": "get_template_v1_api_v1_templates__template_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "template_id",
+            "required": true,
+            "schema": {
+              "title": "Template Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Template V1",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/templates/{template_id}/analyze": {
+      "post": {
+        "description": "Create a translator-ready deterministic analysis for a template.",
+        "operationId": "analyze_template_v1_api_v1_templates__template_id__analyze_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "template_id",
+            "required": true,
+            "schema": {
+              "title": "Template Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Analyze Template V1",
+        "tags": [
           "v1"
         ]
       }

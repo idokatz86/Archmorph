@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
-import { CloudCog, Layers, Server, Activity, Rocket, MessageSquare, LayoutDashboard, Menu, X, Moon, Sun, ChevronDown, Search } from 'lucide-react';
+import { CloudCog, Layers, Server, Activity, Rocket, MessageSquare, LayoutDashboard, Menu, X, Moon, Sun, ChevronDown, Search, LayoutTemplate } from 'lucide-react';
 import FeedbackWidget from './FeedbackWidget';
 import { UserMenu } from './Auth';
 import { isFeatureEnabled } from '../featureFlags';
@@ -24,6 +24,7 @@ function useTheme() {
 const PRIMARY_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { id: 'translator', label: 'Translator', icon: Layers },
+  { id: 'templates', label: 'Templates', icon: LayoutTemplate },
   { id: 'services', label: 'Services', icon: Server },
 ];
 

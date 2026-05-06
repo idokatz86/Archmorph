@@ -193,6 +193,8 @@ export default function DiagramTranslator() {
   // ── Resume analysis from Dashboard (#517) ──
   const pendingResumeId = useAppStore(s => s.pendingResumeId);
   const setPendingResumeId = useAppStore(s => s.setPendingResumeId);
+  const pendingTemplateAnalysis = useAppStore(s => s.pendingTemplateAnalysis);
+  const setPendingTemplateAnalysis = useAppStore(s => s.setPendingTemplateAnalysis);
   useEffect(() => {
     if (!pendingResumeId) return;
     const resumeId = pendingResumeId;
@@ -219,6 +221,35 @@ export default function DiagramTranslator() {
       }
     })();
   }, [pendingResumeId, setPendingResumeId, set]);
+
+  // ── Load architecture template from Template Gallery (#244) ──
+  useEffect(() => {
+    if (!pendingTemplateAnalysis) return;
+    const analysis = pendingTemplateAnalysis;
+    setPendingTemplateAnalysis(null);
+    reset();
+    set({
+      step: 'analyzing',
+      diagramId: analysis.diagram_id,
+      analysis,
+      exportCapability: analysis.export_capability || null,
+      analyzeProgress: [`Loading ${analysis.template_title || analysis.diagram_type} template...`],
+    });
+    (async () => {
+      try {
+        const qData = await api.post(`/diagrams/${analysis.diagram_id}/questions`);
+        const questionState = buildQuestionState(qData);
+        saveSession(analysis.diagram_id, analysis, questionState.questions, questionState.answers, {
+          exportCapability: analysis.export_capability || null,
+          allQuestions: questionState.allQuestions,
+          questionAssumptions: questionState.questionAssumptions,
+        });
+        set({ ...questionState, step: 'results' });
+      } catch {
+        set({ step: 'results' });
+      }
+    })();
+  }, [pendingTemplateAnalysis, setPendingTemplateAnalysis, reset, set]);
 
   // ── Auto-trigger HLD generation when entering HLD tab (#400) ──
   useEffect(() => {

@@ -75,6 +75,7 @@ from routers.admin import domain_router as admin_router  # noqa: E402
 from routers.chat import router as chat_router  # noqa: E402
 from routers.roadmap import router as roadmap_router  # noqa: E402
 from routers.samples import router as samples_router  # noqa: E402
+from routers.templates import router as templates_router  # noqa: E402
 from routers.feedback import router as feedback_router  # noqa: E402
 from routers.auth import router as auth_router  # noqa: E402
 from routers.versioning import router as versioning_router  # noqa: E402
@@ -359,6 +360,7 @@ app.include_router(admin_router)
 app.include_router(chat_router)
 app.include_router(roadmap_router)
 app.include_router(samples_router)
+app.include_router(templates_router)
 app.include_router(feedback_router)
 app.include_router(auth_router)
 app.include_router(versioning_router)
@@ -413,6 +415,7 @@ _all_routers = [
     (chat_router, ""),
     (roadmap_router, ""),
     (samples_router, ""),
+    (templates_router, ""),
     (feedback_router, ""),
     (auth_router, ""),
     (versioning_router, ""),
