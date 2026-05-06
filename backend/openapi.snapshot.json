@@ -13504,6 +13504,92 @@
         ]
       }
     },
+    "/api/projects/{project_id}": {
+      "get": {
+        "description": "Return project metadata and per-diagram analysis status.",
+        "operationId": "get_project_status_api_projects__project_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Project Status"
+      }
+    },
+    "/api/projects/{project_id}/analysis": {
+      "get": {
+        "description": "Return a deterministic combined analysis for all analyzed project diagrams.",
+        "operationId": "get_project_analysis_api_projects__project_id__analysis_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Project Analysis"
+      }
+    },
     "/api/projects/{project_id}/diagrams": {
       "post": {
         "description": "Upload an architecture diagram image for analysis.\n\nAccepts PNG, JPEG, SVG, PDF, and Visio (.vsdx) files up to the\nconfigured MAX_UPLOAD_SIZE limit.",
@@ -13555,6 +13641,73 @@
           }
         ],
         "summary": "Upload Diagram"
+      }
+    },
+    "/api/projects/{project_id}/generate": {
+      "post": {
+        "description": "Generate unified Infrastructure as Code from combined project analysis.",
+        "operationId": "generate_project_iac_api_projects__project_id__generate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "terraform",
+              "enum": [
+                "terraform",
+                "bicep"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "force",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Force",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Generate Project Iac"
       }
     },
     "/api/rag/collections": {
@@ -23102,6 +23255,98 @@
         ]
       }
     },
+    "/api/v1/projects/{project_id}": {
+      "get": {
+        "description": "Return project metadata and per-diagram analysis status.",
+        "operationId": "get_project_status_v1_api_v1_projects__project_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Project Status V1",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/analysis": {
+      "get": {
+        "description": "Return a deterministic combined analysis for all analyzed project diagrams.",
+        "operationId": "get_project_analysis_v1_api_v1_projects__project_id__analysis_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Project Analysis V1",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
     "/api/v1/projects/{project_id}/diagrams": {
       "post": {
         "description": "Upload an architecture diagram image for analysis.\n\nAccepts PNG, JPEG, SVG, PDF, and Visio (.vsdx) files up to the\nconfigured MAX_UPLOAD_SIZE limit.",
@@ -23153,6 +23398,76 @@
           }
         ],
         "summary": "Upload Diagram V1",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/generate": {
+      "post": {
+        "description": "Generate unified Infrastructure as Code from combined project analysis.",
+        "operationId": "generate_project_iac_v1_api_v1_projects__project_id__generate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "terraform",
+              "enum": [
+                "terraform",
+                "bicep"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "force",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Force",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Generate Project Iac V1",
         "tags": [
           "v1"
         ]
