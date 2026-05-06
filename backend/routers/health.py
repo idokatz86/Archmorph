@@ -132,7 +132,6 @@ async def health():
         checks["service_catalog_providers_failed"] = ",".join(
             freshness["providers_failed"]
         )
-        degraded = True
     # Issue #640 — generalised scheduled-job freshness signal. Any registered
     # job stale beyond its budget marks the system degraded; the watchdog
     # workflow polls this block and files an alert issue.

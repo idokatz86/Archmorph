@@ -227,6 +227,48 @@ class TestHealthContract:
                 },
             )
 
+    def test_health_provider_failure_does_not_degrade_fresh_catalog(self, client, monkeypatch):
+        import routers.health as health_router
+
+        monkeypatch.setattr(
+            health_router,
+            "get_freshness",
+            lambda: {
+                "last_check": "2026-01-01T00:00:00+00:00",
+                "age_hours": 1.0,
+                "budget_hours": 36.0,
+                "stale": False,
+                "last_errors": {"azure": "HTTP 429 from AZURE"},
+                "providers_failed": ["azure"],
+            },
+        )
+        monkeypatch.setattr(
+            health_router,
+            "get_scheduled_jobs",
+            lambda: [
+                {
+                    "name": "service_catalog_refresh",
+                    "budget_hours": 36.0,
+                    "last_success": "2026-01-01T00:00:00+00:00",
+                    "age_hours": 1.0,
+                    "stale": False,
+                    "description": "test job",
+                }
+            ],
+        )
+        monkeypatch.setattr(
+            health_router,
+            "_run_dependency_checks",
+            lambda: ({"openai": "ok", "storage": "ok"}, False, False),
+        )
+
+        data = client.get("/api/health").json()
+
+        assert data["status"] == "healthy"
+        assert data["checks"]["service_catalog_refresh"] == "fresh (1.0h)"
+        assert data["checks"]["service_catalog_providers_failed"] == "azure"
+        assert data["service_catalog_refresh"]["providers_failed"] == ["azure"]
+
     def test_health_scheduled_job_staleness_degrades(self, client, monkeypatch):
         import routers.health as health_router
 
