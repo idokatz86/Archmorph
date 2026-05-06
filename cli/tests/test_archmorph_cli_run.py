@@ -68,15 +68,26 @@ class FakeArchmorphClient:
             "services": [{"service": "Azure Blob Storage", "monthly_low": 10, "monthly_high": 20}],
         }
 
-    def push_iac_pr(self, repo, iac_code, iac_format, analysis_summary=None, cost_estimate=None):
+    def push_iac_pr(
+        self,
+        repo,
+        iac_code,
+        iac_format,
+        base_branch="main",
+        target_path=None,
+        analysis_summary=None,
+        cost_estimate=None,
+    ):
         self.pushed = {
             "repo": repo,
             "iac_code": iac_code,
             "iac_format": iac_format,
+            "base_branch": base_branch,
+            "target_path": target_path,
             "analysis_summary": analysis_summary,
             "cost_estimate": cost_estimate,
         }
-        return {"success": True, "pull_request_url": "https://github.com/acme/infra/pull/1"}
+        return {"success": True, "pr_url": "https://github.com/acme/infra/pull/1"}
 
 
 def test_run_emits_full_spine_artifacts(monkeypatch, tmp_path):
@@ -150,15 +161,22 @@ def test_run_push_pr_uses_first_generated_iac(monkeypatch, tmp_path):
             str(tmp_path / "out"),
             "--push-pr",
             "acme/infra",
+            "--pr-base",
+            "develop",
+            "--pr-path",
+            "deploy/main.bicep",
         ],
     )
 
     assert result.exit_code == 0, result.output
     assert client.pushed["repo"] == "acme/infra"
     assert client.pushed["iac_format"] == "bicep"
+    assert client.pushed["base_branch"] == "develop"
+    assert client.pushed["target_path"] == "deploy/main.bicep"
     assert client.pushed["analysis_summary"]["diagram_id"] == "diag-test-660"
     pr = json.loads((tmp_path / "out" / "github-pr.json").read_text())
     assert pr["success"] is True
+    assert "GitHub PR created: https://github.com/acme/infra/pull/1" in result.output
 
 
 def test_run_rejects_unknown_emit_target(tmp_path):

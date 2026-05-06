@@ -219,6 +219,8 @@ class ArchmorphClient:
         repo: str,
         iac_code: str,
         iac_format: str,
+        base_branch: str = "main",
+        target_path: Optional[str] = None,
         analysis_summary: Optional[dict] = None,
         cost_estimate: Optional[dict] = None,
     ) -> dict:
@@ -229,7 +231,8 @@ class ArchmorphClient:
                 "repo": repo,
                 "iac_code": iac_code,
                 "iac_format": iac_format,
-                "target_path": f"infra/main.{ext_map.get(iac_format, 'txt')}",
+                "base_branch": base_branch,
+                "target_path": target_path or f"infra/main.{ext_map.get(iac_format, 'txt')}",
                 "analysis_summary": analysis_summary or {},
                 "cost_estimate": cost_estimate or {},
             },
@@ -543,6 +546,8 @@ def analyze(ctx, image_path, project_id):
     metavar="OWNER/REPO",
     help="Optional GitHub repo to open a PR with the first generated IaC artifact.",
 )
+@click.option("--pr-base", default="main", show_default=True, help="Base branch for --push-pr.")
+@click.option("--pr-path", default=None, help="Target path for --push-pr, for example infra/main.tf.")
 @click.option("--force-iac", is_flag=True, help="Pass force=true to IaC generation when architecture blockers exist.")
 @click.pass_context
 def run_full_spine(
@@ -554,6 +559,8 @@ def run_full_spine(
     project_id,
     baseline,
     push_pr,
+    pr_base,
+    pr_path,
     force_iac,
 ):
     """Run the full engineer spine from diagram upload to artifacts on disk.
@@ -628,10 +635,15 @@ def run_full_spine(
             push_pr,
             iac_outputs[preferred_format],
             preferred_format,
+            base_branch=pr_base,
+            target_path=pr_path,
             analysis_summary=_summarize_analysis(analysis, diagram_id, target_rg),
             cost_estimate=cost_estimate,
         )
         artifact_paths["github-pr"] = str(_write_json_artifact(out_root / "github-pr.json", pr_result))
+        pr_url = pr_result.get("pr_url") or pr_result.get("pull_request_url")
+        if pr_url:
+            click.echo(click.style(f"GitHub PR created: {pr_url}", fg="green"))
 
     summary = {
         "diagram_id": diagram_id,

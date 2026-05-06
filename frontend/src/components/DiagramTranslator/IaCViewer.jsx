@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import Prism from '../../lib/prism';
 import DOMPurify from 'dompurify';
 import {
@@ -34,8 +34,17 @@ export default function IaCViewer({
   iacChatEndRef, iacChatInputRef,
   onCopyWithFeedback, onToggleChat, onOpenChatWithMessage,
   onResetChat, onSendChat, onSetChatInput, onDownload,
+  onPushPr,
 }) {
   const safeIacFormat = iacFormat === 'bicep' ? 'bicep' : 'terraform';
+  const [pushOpen, setPushOpen] = useState(false);
+  const [repo, setRepo] = useState('');
+  const [baseBranch, setBaseBranch] = useState('main');
+  const [targetPath, setTargetPath] = useState('');
+  const [githubToken, setGithubToken] = useState('');
+  const [pushLoading, setPushLoading] = useState(false);
+  const [pushError, setPushError] = useState('');
+  const [pushResult, setPushResult] = useState(null);
 
   // Compute which lines are new/changed compared to previous version
   const changedLineSet = useMemo(() => {
@@ -59,6 +68,29 @@ export default function IaCViewer({
       return DOMPurify.sanitize(rawHighlighted, { ALLOWED_TAGS: ['span'], ALLOWED_ATTR: ['class'] });
     });
   }, [iacCode, safeIacFormat]);
+
+  const handlePushSubmit = async (event) => {
+    event.preventDefault();
+    if (!onPushPr || !repo.trim()) return;
+    setPushLoading(true);
+    setPushError('');
+    setPushResult(null);
+    try {
+      const result = await onPushPr({
+        repo: repo.trim(),
+        baseBranch: baseBranch.trim() || 'main',
+        targetPath: targetPath.trim() || undefined,
+        githubToken: githubToken.trim() || undefined,
+      });
+      setPushResult(result || null);
+    } catch (err) {
+      setPushError(err?.message || 'Failed to create GitHub PR');
+    } finally {
+      setPushLoading(false);
+    }
+  };
+
+  const prUrl = pushResult?.pr_url || pushResult?.pull_request_url;
 
   return (
     <>
@@ -86,25 +118,68 @@ export default function IaCViewer({
               URL.revokeObjectURL(url);
               onDownload?.();
             }} variant="secondary" size="sm" icon={Download}>Download</Button>
-            <Button onClick={() => {
-              const repo = prompt('Enter GitHub repo (owner/repo):');
-              if (!repo) return;
-              const token = prompt('Enter GitHub Personal Access Token:');
-              if (!token) return;
-              fetch('/api/integrations/github/push-pr', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ repo, iac_code: iacCode, iac_format: safeIacFormat, github_token: token }),
-              })
-                .then(r => r.json())
-                .then(data => {
-                  if (data.pr_url) { window.open(data.pr_url, '_blank'); }
-                  else { alert(data.detail || data.error || 'Failed to create PR'); }
-                })
-                .catch(() => alert('Failed to push to GitHub'));
-            }} variant="secondary" size="sm" icon={GitPullRequest}>Push to GitHub</Button>
+            <Button onClick={() => setPushOpen(value => !value)} variant={pushOpen ? 'primary' : 'secondary'} size="sm" icon={GitPullRequest}>
+              Push PR
+            </Button>
           </div>
         </div>
+        {pushOpen && (
+          <form onSubmit={handlePushSubmit} className="mb-4 rounded-lg border border-border bg-secondary/40 p-3">
+            <div className="grid gap-2 sm:grid-cols-[minmax(0,1.4fr)_minmax(0,0.8fr)_minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
+              <label className="flex flex-col gap-1 text-xs font-medium text-text-secondary">
+                Repository
+                <input
+                  value={repo}
+                  onChange={event => setRepo(event.target.value)}
+                  placeholder="owner/repo"
+                  className="h-9 rounded-lg border border-border bg-primary px-3 text-sm text-text-primary placeholder:text-text-muted focus:border-cta focus:outline-none focus:ring-2 focus:ring-cta/50"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs font-medium text-text-secondary">
+                Base
+                <input
+                  value={baseBranch}
+                  onChange={event => setBaseBranch(event.target.value)}
+                  placeholder="main"
+                  className="h-9 rounded-lg border border-border bg-primary px-3 text-sm text-text-primary placeholder:text-text-muted focus:border-cta focus:outline-none focus:ring-2 focus:ring-cta/50"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs font-medium text-text-secondary">
+                Path
+                <input
+                  value={targetPath}
+                  onChange={event => setTargetPath(event.target.value)}
+                  placeholder={safeIacFormat === 'terraform' ? 'infra/main.tf' : 'infra/main.bicep'}
+                  className="h-9 rounded-lg border border-border bg-primary px-3 text-sm text-text-primary placeholder:text-text-muted focus:border-cta focus:outline-none focus:ring-2 focus:ring-cta/50"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs font-medium text-text-secondary">
+                Token
+                <input
+                  type="password"
+                  value={githubToken}
+                  onChange={event => setGithubToken(event.target.value)}
+                  placeholder="server default"
+                  className="h-9 rounded-lg border border-border bg-primary px-3 text-sm text-text-primary placeholder:text-text-muted focus:border-cta focus:outline-none focus:ring-2 focus:ring-cta/50"
+                />
+              </label>
+              <Button type="submit" variant="primary" size="sm" loading={pushLoading} disabled={!repo.trim()}>
+                Create PR
+              </Button>
+            </div>
+            {(pushError || prUrl) && (
+              <div className="mt-3 text-xs">
+                {pushError && <p className="text-danger">{pushError}</p>}
+                {prUrl && (
+                  <a href={prUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-medium text-cta hover:text-cta-hover">
+                    <GitPullRequest className="h-3.5 w-3.5" aria-hidden="true" />
+                    Open pull request
+                  </a>
+                )}
+              </div>
+            )}
+          </form>
+        )}
         <div className="bg-surface rounded-lg border border-border overflow-auto max-h-[600px]">
           <pre className="p-4 text-xs leading-relaxed">
             <code>
