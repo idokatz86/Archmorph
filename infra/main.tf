@@ -304,12 +304,28 @@ resource "azurerm_key_vault_secret" "redis_connection" {
 resource "azurerm_cognitive_account" "openai" {
   name                  = "archmorph-openai-${local.name_suffix}"
   resource_group_name   = azurerm_resource_group.main.name
-  location              = var.openai_location # OpenAI has limited regions
+  location              = var.openai_location
   kind                  = "OpenAI"
   sku_name              = "S0"
   custom_subdomain_name = "archmorph-openai-${local.name_suffix}"
 
   tags = local.tags
+}
+
+resource "azurerm_cognitive_deployment" "gpt41_primary" {
+  name                 = "gpt-4.1"
+  cognitive_account_id = azurerm_cognitive_account.openai.id
+
+  model {
+    format  = "OpenAI"
+    name    = "gpt-4.1"
+    version = "2025-04-14"
+  }
+
+  sku {
+    name     = "GlobalStandard"
+    capacity = var.openai_capacity
+  }
 }
 
 resource "azurerm_cognitive_deployment" "gpt4_vision" {
@@ -319,12 +335,12 @@ resource "azurerm_cognitive_deployment" "gpt4_vision" {
   model {
     format  = "OpenAI"
     name    = "gpt-4o"
-    version = "2024-05-13"
+    version = "2024-11-20"
   }
 
   sku {
-    name     = "Standard"
-    capacity = var.openai_capacity # Issue #296 — was hardcoded to 10 (≈1 concurrent call)
+    name     = "GlobalStandard"
+    capacity = var.openai_capacity
   }
 }
 
@@ -472,7 +488,17 @@ resource "azurerm_container_app" "backend" {
 
       env {
         name  = "AZURE_OPENAI_DEPLOYMENT"
+        value = azurerm_cognitive_deployment.gpt41_primary.name
+      }
+
+      env {
+        name  = "AZURE_OPENAI_FALLBACK_DEPLOYMENT"
         value = azurerm_cognitive_deployment.gpt4_vision.name
+      }
+
+      env {
+        name  = "AZURE_OPENAI_API_VERSION"
+        value = "2025-04-01-preview"
       }
 
       env {

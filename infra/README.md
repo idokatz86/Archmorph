@@ -7,13 +7,13 @@ This directory contains the checked-in Terraform configuration for the Azure-hos
 | Component | Terraform owner | Region note |
 | --- | --- | --- |
 | Resource group, Container Apps, Container Registry, PostgreSQL, Redis, Application Insights, Log Analytics, and primary Blob Storage | `infra/main.tf` | `var.location`, default `westeurope` |
-| Azure OpenAI account and model deployments | `infra/main.tf` | `var.openai_location`, currently `eastus` until #607 cutover and #608 state sync finish |
+| Azure OpenAI account and model deployments | `infra/main.tf` | Live traffic uses West Europe account `archmorph-openai-we-acm7pd` with `gpt-4.1` primary and `gpt-4o` fallback; Terraform now targets `var.openai_location = westeurope`, but #608 import/state sync must run before apply |
 | Metrics storage account `archmorphmetrics` | `.github/workflows/ci.yml` | Workflow-owned for current deployment smoke/runtime metrics path; do not alter inline region or SKU without a Terraform import or replacement plan |
 | Terraform remote state storage | Bootstrap command comments in `infra/main.tf` | `archmorph-tfstate-rg` / `archmorphtfstate`, `westeurope` |
 
 ## No-Break State Sync Guardrails
 
-Issue #608 tracks bringing Terraform state back in line with the consolidated Azure estate. The safe repo-only work is validation and documentation. The following operations must stay manual and change-window controlled:
+Issue #608 tracks bringing Terraform state back in line with the consolidated Azure estate. The #607 live traffic cutover to West Europe is complete, but the East US account remains online for rollback and the live West Europe account still needs to be adopted into Terraform state. The following operations must stay manual and change-window controlled:
 
 - `terraform plan` against the live dev workspace
 - `terraform import`
@@ -23,11 +23,12 @@ Issue #608 tracks bringing Terraform state back in line with the consolidated Az
 
 Before any state-changing operation:
 
-1. Confirm #607 has completed and traffic is using the West Europe OpenAI account.
+1. Confirm production traffic is still using the West Europe OpenAI account and App Insights shows no East US dependency traffic in the verification window.
 2. Run `terraform state pull > backup.tfstate` and keep the backup outside the repository.
 3. Capture `terraform plan -lock=false` output and verify there is no unrelated drift.
-4. Prefer importing the existing West Europe OpenAI account into state and removing the retired East US state entry over destroy/recreate.
-5. Apply only from an approved operator session with rollback notes and smoke checks ready.
+4. Import `archmorph-openai-we-acm7pd` and its `gpt-4.1` / `gpt-4o` deployments into the Terraform resources before changing or removing the East US state entry.
+5. Keep the East US account alive until at least 24 hours of zero traffic is verified.
+6. Apply only from an approved operator session with rollback notes and smoke checks ready.
 
 ## Local Validation
 

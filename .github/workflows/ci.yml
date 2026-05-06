@@ -618,6 +618,7 @@ jobs:
 
           SHORT_SHA="${{ github.sha }}"
           SHORT_SHA="${SHORT_SHA:0:8}"
+          REVISION_SUFFIX="sha-${SHORT_SHA}-run-${{ github.run_attempt }}"
           az containerapp update \
             --name ${{ env.CONTAINER_APP_NAME }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
@@ -633,7 +634,7 @@ jobs:
               AZURE_OPENAI_API_VERSION="2025-04-01-preview" \
               ACS_CONNECTION_STRING="${{ secrets.ACS_CONNECTION_STRING }}" \
               ACS_SENDER_EMAIL="${{ secrets.ACS_SENDER_EMAIL }}" \
-            --revision-suffix "sha-${SHORT_SHA}" \
+            --revision-suffix "$REVISION_SUFFIX" \
             --no-wait
 
           echo "Waiting for green revision to provision..."
@@ -642,7 +643,7 @@ jobs:
           GREEN_REV=$(az containerapp revision list \
             --name ${{ env.CONTAINER_APP_NAME }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --query "[?contains(name, 'sha-${SHORT_SHA}')].name" -o tsv | head -1)
+            --query "[?contains(name, '$REVISION_SUFFIX')].name" -o tsv | head -1)
 
           echo "green_revision=$GREEN_REV" >> $GITHUB_OUTPUT
           echo "Green revision: $GREEN_REV"

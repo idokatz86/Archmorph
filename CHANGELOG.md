@@ -14,6 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+#### Infrastructure and security maintenance
+
+- **#607 Azure OpenAI West Europe cutover** — provisioned the parallel West Europe OpenAI account `archmorph-openai-we-acm7pd`, deployed `gpt-4.1` primary and `gpt-4o` fallback with matching runtime names, granted the Container App managed identity `Cognitive Services OpenAI User`, updated the deployment secret, and routed `archmorph-api` traffic to a healthy West Europe revision while leaving the East US account online for rollback and 24-hour zero-traffic verification.
+- **#608 Terraform OpenAI target sync** — updated checked-in Terraform defaults and deployment resources to target the live West Europe `gpt-4.1` / `gpt-4o` shape. Live import/state adoption remains operator-controlled before any Terraform apply.
+- **Backend deploy reruns** — made Azure Container App revision suffixes include the GitHub run attempt so rerunning a failed deploy does not collide with an existing `sha-*` revision.
+- **Dependabot alert #33** — bumped root `ip-address` from 10.1.0 to 10.2.0, resolving GHSA-v2v4-37r5-5v8g / CVE-2026-42338.
+
 #### CI and release maintenance
 
 - **GitHub Actions Node.js 24 readiness** — audited workflow action runtimes, moved deprecated Node.js 20 action pins to Node.js 24-compatible majors, pinned Trivy to a release tag, and documented the workflow runtime inventory for release maintenance.
@@ -123,7 +130,7 @@ Resource-group hygiene pass on `archmorph-rg-dev` (West Europe). Three orphaned 
 - **Container Registry `cafd43cfd4deacr`** (East US, Basic) — deleted. The `archmorph-mcp-gateway` Container App image (`archmorph-mcp-gateway:20260309101659330272`, plus the `:20260309103959778879` companion tag for safety) was imported server-side into the primary `archmorphacm7pd` registry (West Europe) using `az acr import`, the Container App was reconfigured with the new registry credentials and image, the new revision (`archmorph-mcp-gateway--0000004`) was verified `Healthy` at 100% traffic with `/health` returning HTTP 200, and only then was the legacy registry binding removed and the registry deleted. Cuts cross-region image pulls and the second-registry monthly line item.
 - **Cognitive Services `secondnature-openai-whisper`** (originally in `archmorph-rg-dev`) — moved to its actual project resource group `rg-secondnature`. Note: `az resource move` returned a misleading `ResourceMoveFailed` referencing an unrelated linked-notification provider error, but the move itself completed — verification (presence in `rg-secondnature`, absence from `archmorph-rg-dev`) confirmed success.
 
-Net effect: roughly $18/mo in idle resource spend eliminated, IaC footprint matches reality except for the OpenAI account region. Follow-ups: [#607](https://github.com/idokatz86/Archmorph/issues/607) tracks the West Europe OpenAI cutover, [#608](https://github.com/idokatz86/Archmorph/issues/608) tracks the Terraform `var.openai_location` sync once the live account has been moved.
+Net effect: roughly $18/mo in idle resource spend eliminated. The later #607 cutover moved production OpenAI traffic to West Europe; [#608](https://github.com/idokatz86/Archmorph/issues/608) remains the follow-up for importing the live account/deployments into Terraform state before apply.
 
 #### Other changes
 

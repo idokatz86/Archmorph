@@ -12,14 +12,14 @@ variable "location" {
 variable "openai_location" {
   description = "Azure region for OpenAI (limited availability)"
   type        = string
-  default     = "eastus"
-  # Keep East US until #607 completes and the existing West Europe account is imported into Terraform state.
+  default     = "westeurope"
+  # #607 cutover is live in West Europe. Import the live account before applying #608 Terraform state sync.
 }
 
 variable "openai_capacity" {
-  description = "Azure OpenAI deployment capacity in thousands of tokens per minute (TPM). 10 = ~1 concurrent call; 80+ recommended for production (Issue #296)."
+  description = "Azure OpenAI deployment capacity in thousands of tokens per minute (TPM). 10 matches the live West Europe cutover; raise only after quota validation."
   type        = number
-  default     = 80
+  default     = 10
 
   validation {
     condition     = var.openai_capacity >= 10 && var.openai_capacity <= 1000
