@@ -5,7 +5,7 @@ API route for pushing generated IaC to GitHub as a Pull Request (#504).
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import Field
 from strict_models import StrictBaseModel
-from typing import Optional
+from typing import Literal, Optional
 
 from iac_pr_push import push_iac_as_pr
 from routers.shared import verify_api_key
@@ -16,7 +16,7 @@ router = APIRouter()
 class PushIaCRequest(StrictBaseModel):
     repo: str = Field(..., description="GitHub repo in owner/repo format")
     iac_code: str = Field(..., description="Generated IaC code content")
-    iac_format: str = Field("terraform", description="terraform, bicep, cloudformation, pulumi, aws-cdk")
+    iac_format: Literal["terraform", "bicep"] = Field("terraform", description="terraform or bicep")
     base_branch: str = Field("main", description="Target branch for the PR")
     target_path: Optional[str] = Field(None, description="File path in the repo (default: infra/main.<ext>)")
     github_token: Optional[str] = Field(None, description="GitHub PAT (optional, uses server token if not provided)")

@@ -77,7 +77,6 @@ The PRD distinguishes three maturity levels. **Live** features are usable in the
 ### 3.5 IaC Generation
 - **Terraform (HCL):** Primary output with `random_password` for credentials, Key Vault secret storage
 - **Bicep:** Secondary output with `@secure()` parameter for sensitive values
-- **CloudFormation (YAML):** AWS-native IaC with VPC, subnet, IGW scaffolding and Secrets Manager integration
 - **Scope:** Greenfield deployments only
 - **Import blocks:** Phase 4 feature for existing resource adoption
 - Read-only code preview with syntax highlighting (Prism.js)
@@ -245,7 +244,6 @@ The PRD distinguishes three maturity levels. **Live** features are usable in the
 - **Backward compatible** — `azure_service` field preserved alongside new `target_service` + `target_provider` fields
 - **120+ cross-cloud mappings** — tri-directional: AWS↔Azure, GCP↔Azure, GCP↔AWS
 - **Frontend target badge** — dynamic provider badge in AnalysisResults based on target_provider
-- **CloudFormation IaC** — AWS-specific prompt engineering with Secrets Manager, IAM, valid regions
 
 ### 3.34 User Dashboard (v3.0.0)
 - **Analysis history** — paginated list of past analyses with provider badges and bookmarking
@@ -738,7 +736,7 @@ Only when 1–7 all green does the README/PRD Capability Status table flip ALZ r
 | Guided Questions | In-process engine (32 questions, 8 categories) |
 | Diagram Export | In-process engine (Excalidraw, Draw.io, Visio with 36 Azure stencils + 405-icon registry fallback) |
 | Pricing | Azure Retail Prices API with 30-day disk cache (134 service entries, 56 aliases, targeted queries) |
-| IaC | Terraform (infra), Bicep + CloudFormation support in-app |
+| IaC | Terraform (infra) and Bicep support in-app |
 | Testing | pytest (1554 backend tests), Vitest (262 frontend tests), Playwright smoke (17 browser tests), integration tests, contract tests, chaos tests, coverage gap tests, middleware tests, pre-commit hooks (ruff, eslint, prettier) |
 | Best Practices | In-process WAF linter (5 pillars, 15+ rules, quick wins, pillar scores) |
 | Cost Optimizer | In-process engine (7 categories, RI/Spot/tiering/auto-shutdown recommendations) |
@@ -913,10 +911,10 @@ Only when 1–7 all green does the README/PRD Capability Status table flip ALZ r
 | **v2.11.0 — Admin & Analytics** | Done | JWT admin auth (HS256, 1h TTL, in-memory revocation), persistent analytics (Azure Blob Storage with background flush), conversion funnel, security headers middleware |
 | **v2.11.1 — UX Polish & Document Export** | Done | HLD export (DOCX/PDF/PPTX), 15 UX improvements, CI/CD security (Semgrep SAST, Gitleaks secret detection, Trivy container scan, CycloneDX SBOM), Python 3.11+3.12 matrix testing, 747 tests in 30 files across 82 endpoints |
 | **v2.12.0 — Modular Architecture & Security** | Done | Router decomposition (main.py 2,189→181 lines, 13 router modules), API versioning (v1 prefix), feature flags system (% rollout + user targeting), comprehensive audit logging (risk levels, alerting rules, compliance queries), session persistence (InMemory/Redis), GPT-4o response caching (content-hash TTLCache), DiagramTranslator decomposed (1,201→ 9 sub-components with useReducer), structured JSON logging with correlation IDs, OTel observability rewrite, Azure Front Door WAF + Zero Trust, Helm charts for self-hosted K8s, blue-green deployment with instant rollback, SBOM (CycloneDX + Grype), SAST/DAST/SCA pipeline (Semgrep, Bandit, CodeQL, Trivy, Gitleaks), storage RBAC auth (DefaultAzureCredential), pricing cache persisted to Blob Storage, monitoring reduced to hourly, "None" alerting option, service_updater JSON output, 1149 tests (contract 56, chaos 26, coverage 46, middleware 55) in 35+ files |
-| **v3.0.0 — Multi-Cloud & Enterprise** | Done | Multi-cloud target support (AWS/GCP/Azure as target), CloudFormation IaC generation, User Dashboard (stats, history, bookmarks), Template Gallery (10 patterns, 8 categories), Visio (.vsdx) import with Open XML parser, i18n (en/es/fr with react-i18next), Living Architecture engine (health scoring, drift detection, cost anomalies), Migration Intelligence (community confidence, pattern library, trending), White-Label SDK (branding, partner API keys, embeddable widgets), multi-tenant foundation (organizations, teams, invitations), inter-question constraint system, enhanced PR template with DoD checklist |
+| **v3.0.0 — Multi-Cloud & Enterprise** | Done | Multi-cloud discovery, User Dashboard (stats, history, bookmarks), Template Gallery (10 patterns, 8 categories), Visio (.vsdx) import with Open XML parser, i18n (en/es/fr with react-i18next), Living Architecture engine (health scoring, drift detection, cost anomalies), Migration Intelligence (community confidence, pattern library, trending), White-Label SDK (branding, partner API keys, embeddable widgets), multi-tenant foundation (organizations, teams, invitations), inter-question constraint system, enhanced PR template with DoD checklist |
 | **v3.0.1 — Sprint 1: Production Critical** | Done | Error envelope middleware with correlation IDs, Visio import parser, white-label theming engine, session restore & UX improvements, API versioning with /v1/ prefix, best-practice validation engine, cost optimizer engine, migration assessment & risk scoring, compliance mapper (GDPR/HIPAA/SOC2/PCI DSS), living architecture health monitoring, AI-powered service suggestions |
 | **v3.0.2 — Sprint 2: Reliability & DX** | Done | API client rewrite with retry/backoff/timeout, user-friendly error messages, configurable OpenAI timeout & fallback model, GPT output truncation detection, vision analysis cache (TTLCache), IaC security scanning (8 rules), session cache for IaC/HLD persistence, session expiry countdown warning, cancel analysis button, error clearing on new file, mobile responsive buttons, Docker Compose (PostgreSQL 16 + Redis 7), configurable user cache TTL |
-| **v3.0.3 — Sprint 3: Advanced Features** | Done | Azure/GCP services pagination fix, prompt guard for IaC chat, migration runbook generator, CloudFormation IaC format, Terraform plan preview, architecture versioning with diff, migration intelligence with community data, infrastructure import from live cloud, organization & team management, journey analytics, dependency graph visualization, risk score & compliance panels, URL hash sync, feature flags system, admin dashboard with analytics |
+| **v3.0.3 — Sprint 3: Advanced Features** | Done | Azure/GCP services pagination fix, prompt guard for IaC chat, migration runbook generator, Terraform plan preview, architecture versioning with diff, migration intelligence with community data, infrastructure import from live cloud, organization & team management, journey analytics, dependency graph visualization, risk score & compliance panels, URL hash sync, feature flags system, admin dashboard with analytics |
 | **v3.1.0 — Landing Page Redesign** | Done | Landing page redesign with feature cards, stats bar, updated FAQs, and preview-friendly messaging |
 | **v3.2.0 — Confidence Transparency** | Done | Confidence score transparency with human-readable explanations, visual confidence badges, tooltip explanations, critical stabilization fixes (HLD 404, memory leaks, CORS, version sync) |
 | **v3.3.0 — Stabilization & Quality** | Done | 13 stability issues closed, DiagramTranslator lazy-loaded, ChatWidget migrated to apiClient, dead components removed, HLD export fixed, SSE deduplication, AbortController cleanup, session leak prevention |
@@ -968,7 +966,7 @@ Only when 1–7 all green does the README/PRD Capability Status table flip ALZ r
 | **RBAC & multi-tenant isolation** | Retired from active API surface; future work should start from scoped API keys and explicit project-sharing requirements | Engineering | P3 | #238 |
 | **Collaboration features** | Shared projects, comments, review workflow | Engineering | P2 | #237 |
 | **Compliance framework mapping** | Auto-detect regulatory requirements, map to Azure compliance services | Engineering | P2 | #239 |
-| **Pulumi & CDK IaC output** | Additional IaC formats beyond Terraform/Bicep/CloudFormation | Engineering | P2 | #242 |
+| **Deferred extra IaC formats** | Deferred additional IaC formats beyond Terraform/Bicep | Engineering | P2 | #242 |
 | **Multi-diagram project support** | Multiple diagrams per project with unified analysis | Engineering | P2 | #241 |
 | **VS Code extension** | In-editor architecture translation and IaC generation | Engineering | P2 | #240 |
 | **Real infrastructure scanning** | Provider scanners are route-gated behind `live_cloud_scanner`; tenant credential validation and provider-contract tests remain before beta enablement | Engineering | P3 | #243 |

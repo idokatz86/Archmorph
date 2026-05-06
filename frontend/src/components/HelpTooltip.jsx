@@ -65,7 +65,7 @@ export const HELP_CONTENT = {
   },
   iac: {
     title: 'Infrastructure as Code',
-    content: 'Generated IaC code (Terraform, Bicep, or CloudFormation) provisions your Azure architecture automatically. The code includes resource definitions, networking, and security configurations. Review and customize before applying to your Azure subscription.',
+    content: 'Generated IaC code (Terraform or Bicep) provisions your Azure architecture automatically. The code includes resource definitions, networking, and security configurations. Review and customize before applying to your Azure subscription.',
     learnMoreUrl: 'https://learn.microsoft.com/en-us/azure/developer/terraform/overview',
   },
   migration_effort: {

@@ -11,6 +11,7 @@ from strict_models import StrictBaseModel
 import asyncio
 import logging
 import re
+from typing import Literal
 
 from routers.shared import SESSION_STORE, limiter, verify_api_key
 from job_queue import job_manager
@@ -95,7 +96,7 @@ class IaCChatMessage(StrictBaseModel):
     """Request body for IaC chat messages."""
     message: str = Field(..., min_length=1, max_length=5000)
     code: str = Field(default="", max_length=100000)
-    format: str = Field(default="terraform", pattern="^(terraform|bicep|cloudformation)$")
+    format: Literal["terraform", "bicep"] = "terraform"
 
 
 # ─────────────────────────────────────────────────────────────
@@ -103,14 +104,17 @@ class IaCChatMessage(StrictBaseModel):
 # ─────────────────────────────────────────────────────────────
 @router.post("/api/diagrams/{diagram_id}/generate")
 @limiter.limit("5/minute")
-async def generate_iac(request: Request, diagram_id: str, format: str = "terraform", force: bool = False, _auth=Depends(verify_api_key)):
+async def generate_iac(
+    request: Request,
+    diagram_id: str,
+    format: Literal["terraform", "bicep"] = "terraform",
+    force: bool = False,
+    _auth=Depends(verify_api_key),
+):
     """Generate Infrastructure as Code from the architecture analysis.
 
     ``force=true`` overrides the architecture-blocker gate (Issue #610).
     """
-    if format not in ["terraform", "bicep", "cloudformation"]:
-        raise ArchmorphException(400, "Format must be 'terraform', 'bicep', or 'cloudformation'")
-
     session = SESSION_STORE.get(diagram_id, {})
     iac_params = session.get("iac_parameters", {})
 
@@ -186,15 +190,16 @@ async def iac_chat_clear(request: Request, diagram_id: str):
 @router.post("/api/diagrams/{diagram_id}/generate-async")
 @limiter.limit("5/minute")
 async def generate_iac_async(
-    request: Request, diagram_id: str, format: str = "terraform", force: bool = False, _auth=Depends(verify_api_key),
+    request: Request,
+    diagram_id: str,
+    format: Literal["terraform", "bicep"] = "terraform",
+    force: bool = False,
+    _auth=Depends(verify_api_key),
 ):
     """Start async IaC code generation. Returns 202 with job_id.
 
     ``force=true`` overrides the architecture-blocker gate (Issue #610).
     """
-    if format not in ["terraform", "bicep", "cloudformation"]:
-        raise ArchmorphException(400, "Format must be 'terraform', 'bicep', or 'cloudformation'")
-
     session = SESSION_STORE.get(diagram_id, {})
     _check_architecture_blockers(diagram_id, session, force)
 

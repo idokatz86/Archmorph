@@ -2793,7 +2793,10 @@
           },
           "format": {
             "default": "terraform",
-            "pattern": "^(terraform|bicep|cloudformation)$",
+            "enum": [
+              "terraform",
+              "bicep"
+            ],
             "title": "Format",
             "type": "string"
           },
@@ -3611,7 +3614,11 @@
           },
           "iac_format": {
             "default": "terraform",
-            "description": "terraform, bicep, cloudformation, pulumi, aws-cdk",
+            "description": "terraform or bicep",
+            "enum": [
+              "terraform",
+              "bicep"
+            ],
             "title": "Iac Format",
             "type": "string"
           },
@@ -9502,6 +9509,10 @@
             "required": false,
             "schema": {
               "default": "terraform",
+              "enum": [
+                "terraform",
+                "bicep"
+              ],
               "title": "Format",
               "type": "string"
             }
@@ -9565,6 +9576,10 @@
             "required": false,
             "schema": {
               "default": "terraform",
+              "enum": [
+                "terraform",
+                "bicep"
+              ],
               "title": "Format",
               "type": "string"
             }
@@ -20002,6 +20017,10 @@
             "required": false,
             "schema": {
               "default": "terraform",
+              "enum": [
+                "terraform",
+                "bicep"
+              ],
               "title": "Format",
               "type": "string"
             }
@@ -20068,6 +20087,10 @@
             "required": false,
             "schema": {
               "default": "terraform",
+              "enum": [
+                "terraform",
+                "bicep"
+              ],
               "title": "Format",
               "type": "string"
             }

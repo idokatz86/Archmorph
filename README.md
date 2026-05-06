@@ -440,7 +440,7 @@ Input (Upload / Scan / Import) → AI Analysis → Guided Questions → Collabor
 10. **Collaboration** — Invite team members via share code with role-based access (architect/devops/manager/security)
 
 **Phase 3 — Deliverables** (tabbed interface):
-11. **IaC Code** — Terraform HCL, Bicep, or CloudFormation with security scanning and IaC Chat assistant
+11. **IaC Code** — Terraform HCL or Bicep with security scanning and IaC Chat assistant
 12. **HLD Document** — 13-section AI-generated design document with WAF assessment, export as DOCX/PDF/PPTX
 13. **Cost Analysis** — Side-by-side Azure vs AWS vs GCP TCO with optimization recommendations
 14. **Deploy scaffold** — Preview (plan/what-if) and execute paths are feature-gated and require operator review before tenant use
@@ -912,7 +912,7 @@ See [docs/DEPLOYMENT_COSTS.md](docs/DEPLOYMENT_COSTS.md) for full breakdown.
 | v2.11.0 — Admin & Analytics | Done | JWT admin auth, persistent analytics (Azure Blob Storage), conversion funnel |
 | v2.11.1 — UX Polish & Document Export | Done | HLD export (DOCX/PDF/PPTX), 15 UX improvements, CI/CD security (Semgrep, Gitleaks, SBOM, Trivy), 747 tests |
 | v2.12.0 — Modular Architecture & Security | Done | Router decomposition (main.py 2,189→181 lines, 13 router modules), API versioning (v1 prefix), feature flags system, comprehensive audit logging, session persistence (InMemory/Redis), GPT response caching, DiagramTranslator decomposed (1,201→ 9 sub-components), structured JSON logging with correlation IDs, OTel observability rewrite, Azure Front Door WAF + Zero Trust, Helm charts, blue-green deployment, SBOM (CycloneDX + Grype), SAST/DAST/SCA pipeline, storage RBAC auth, pricing cache to Blob, monitoring optimization, 1149 tests |
-| v3.0 — Multi-Cloud & Enterprise | Done | Multi-cloud targets (AWS/GCP/Azure), CloudFormation IaC, User Dashboard, Template Gallery, Visio import, i18n (en/es/fr), Living Architecture engine, Migration Intelligence, White-Label SDK, multi-tenant foundation |
+| v3.0 — Multi-Cloud & Enterprise | Done | Multi-cloud discovery, User Dashboard, Template Gallery, Visio import, i18n (en/es/fr), Living Architecture engine, Migration Intelligence, White-Label SDK, multi-tenant foundation |
 | v3.0.1 — Confidence Transparency | Done | Confidence score explanations, transparency badge indicators, factor breakdown in analysis results |
 | v3.1.0 — Stabilization Sprint | Done | Docker Compose stack, error envelope middleware, Gunicorn + Uvicorn workers, session expiry handling, before-unload protection, focus trap accessibility, toast notifications |
 | v3.2.0 — Intelligence Suite | Done | AI suggestions engine, compliance mapper (GDPR/HIPAA/SOC2/FedRAMP), migration risk assessment, migration runbook generator, infrastructure import (TF/ARM/CFN) |
@@ -925,7 +925,7 @@ See [docs/DEPLOYMENT_COSTS.md](docs/DEPLOYMENT_COSTS.md) for full breakdown.
 | v4.0.0 — Platform Scale | Done | RAG pipeline, AI Agent PaaS PoC, cost/token observability, AI mapping auto-suggestions, migration timeline generator, service dependency graph, social auth/profile/RBAC experiments, PDF report export, DevOps modernization (uv, Trivy, Helm) |
 | v4.1.0 — Enterprise & Collaboration Preview | Mixed | Product analytics, UX Wave 1/2, Terraform import, replay/gallery/collaboration, RAG/Agent PaaS, cost observability, drift baselines, admin release gates, and security evidence are implemented or beta. Live scanner, deploy engine, and credential vault remain scaffolded/hardening work; SSO/org/profile routes were retired from the active API in the v4.3 main convergence. |
 | v4.3.0-main — Convergence & Architecture Package | Done | Merged service freshness, analytics-retention cleanup, SSO/org/profile removal, and Architecture Package HTML/SVG exports; open PR count returned to zero and active branches converged to main. |
-| v5.0 — Next | Planned | VS Code extension, Pulumi/CDK output, multi-diagram projects, GitHub/GitLab IaC PR integration |
+| v5.0 — Next | Planned | VS Code extension, multi-diagram projects, GitHub/GitLab IaC PR integration |
 
 ---
 

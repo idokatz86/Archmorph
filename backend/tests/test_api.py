@@ -390,7 +390,7 @@ class TestIaCGeneration:
 
     def test_generate_bad_format(self, client, analyzed_diagram):
         resp = client.post(f"/api/diagrams/{analyzed_diagram}/generate?format=pulumi")
-        assert resp.status_code == 400
+        assert resp.status_code == 422
 
     @patch("routers.iac_routes.generate_iac_code", return_value="resource aws_instance {}")
     def test_generate_any_diagram_id(self, mock_iac, client, clean_session):

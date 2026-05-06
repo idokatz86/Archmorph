@@ -32,7 +32,7 @@ def push_iac_as_pr(
     Args:
         repo_full_name: "owner/repo" format
         iac_code: The generated IaC content
-        iac_format: terraform, bicep, cloudformation, pulumi, aws-cdk
+        iac_format: terraform or bicep
         analysis_summary: Optional analysis data for PR description
         cost_estimate: Optional cost data for PR description
         base_branch: Branch to merge into (default: main)
@@ -56,11 +56,10 @@ def push_iac_as_pr(
         ext_map = {
             "terraform": ".tf",
             "bicep": ".bicep",
-            "cloudformation": ".yaml",
-            "pulumi": ".ts",
-            "aws-cdk": ".ts",
         }
-        ext = ext_map.get(iac_format, ".tf")
+        if iac_format not in ext_map:
+            return {"success": False, "error": "IaC format must be 'terraform' or 'bicep'."}
+        ext = ext_map[iac_format]
         path = target_path or f"infra/main{ext}"
 
         # Create branch

@@ -222,7 +222,7 @@ class ArchmorphClient:
         analysis_summary: Optional[dict] = None,
         cost_estimate: Optional[dict] = None,
     ) -> dict:
-        ext_map = {"terraform": "tf", "bicep": "bicep", "cloudformation": "yaml"}
+        ext_map = {"terraform": "tf", "bicep": "bicep"}
         resp = self.session.post(
             self._url("/api/integrations/github/push-pr"),
             json={
@@ -330,8 +330,6 @@ def _parse_emit_list(raw_emit: str) -> List[str]:
         "tf": "terraform",
         "terraform": "terraform",
         "bicep": "bicep",
-        "cloudformation": "cloudformation",
-        "cfn": "cloudformation",
         "alz": "alz-svg",
         "alz-svg": "alz-svg",
         "landing-zone-svg": "alz-svg",
@@ -346,7 +344,7 @@ def _parse_emit_list(raw_emit: str) -> List[str]:
             continue
         if key not in aliases:
             raise click.ClickException(
-                f"Unsupported emit target '{item}'. Use terraform,bicep,cloudformation,alz-svg,cost,all."
+                f"Unsupported emit target '{item}'. Use terraform,bicep,alz-svg,cost,all."
             )
         value = aliases[key]
         if value == "all":
@@ -363,7 +361,7 @@ def _iac_artifact_path(output_dir: pathlib.Path, iac_format: str) -> pathlib.Pat
         return output_dir / "terraform" / "main.tf"
     if iac_format == "bicep":
         return output_dir / "bicep" / "main.bicep"
-    return output_dir / "cloudformation" / "main.yaml"
+    raise click.ClickException(f"Unsupported IaC output format '{iac_format}'. Use terraform or bicep.")
 
 
 def _summarize_analysis(analysis: dict, diagram_id: str, target_rg: Optional[str]) -> dict:
@@ -534,7 +532,7 @@ def analyze(ctx, image_path, project_id):
     "emit_targets",
     default="terraform,bicep,alz-svg,cost",
     show_default=True,
-    help="Comma-separated outputs: terraform,bicep,cloudformation,alz-svg,cost,all.",
+    help="Comma-separated outputs: terraform,bicep,alz-svg,cost,all.",
 )
 @click.option("--out", "output_dir", required=True, type=click.Path(file_okay=False), help="Directory for generated artifacts.")
 @click.option("--project-id", default="default", show_default=True, help="Project ID for the uploaded diagram.")
@@ -582,7 +580,7 @@ def run_full_spine(
         client.restore_session(diagram_id, analysis)
     artifact_paths["analysis"] = str(_write_json_artifact(out_root / "analysis.json", analysis))
 
-    iac_formats = [target for target in requested if target in {"terraform", "bicep", "cloudformation"}]
+    iac_formats = [target for target in requested if target in {"terraform", "bicep"}]
     if iac_formats:
         click.echo(click.style(f"Generating IaC: {', '.join(iac_formats)}...", fg="cyan"))
         with ThreadPoolExecutor(max_workers=min(len(iac_formats), 4)) as executor:
@@ -653,7 +651,7 @@ def run_full_spine(
 @click.argument("diagram_id")
 @click.option(
     "--iac-format", "iac_format",
-    type=click.Choice(["terraform", "bicep", "cloudformation"]),
+    type=click.Choice(["terraform", "bicep"]),
     default="terraform",
     help="IaC output format.",
 )
@@ -661,7 +659,7 @@ def run_full_spine(
 def generate(ctx, diagram_id, iac_format):
     """Generate Infrastructure as Code from an analyzed diagram.
 
-    Outputs Terraform, Bicep, or CloudFormation code.
+    Outputs Terraform or Bicep code.
     """
     client: ArchmorphClient = ctx.obj["client"]
     click.echo(click.style(f"Generating {iac_format}...", fg="cyan"))
@@ -669,7 +667,7 @@ def generate(ctx, diagram_id, iac_format):
 
     code = result.get("code", "")
     if ctx.obj["output_file"]:
-        ext_map = {"terraform": ".tf", "bicep": ".bicep", "cloudformation": ".yaml"}
+        ext_map = {"terraform": ".tf", "bicep": ".bicep"}
         out = ctx.obj["output_file"]
         if not pathlib.Path(out).suffix:
             out += ext_map.get(iac_format, ".txt")

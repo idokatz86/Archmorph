@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 vi.mock('../../../services/apiClient', () => ({
@@ -69,7 +69,6 @@ describe('ExportHub accessibility', () => {
   })
 
   it('lets Enter toggle deliverables from the keyboard', async () => {
-    const user = userEvent.setup()
     render(<ExportHub diagramId="diag-1" />)
 
     openExportHub()
@@ -78,9 +77,9 @@ describe('ExportHub accessibility', () => {
     expect(iacCheckbox).toBeChecked()
 
     iacCheckbox.focus()
-    await user.keyboard('{Enter}')
+    fireEvent.keyDown(iacCheckbox, { key: 'Enter', code: 'Enter' })
 
-    expect(iacCheckbox).not.toBeChecked()
+    await waitFor(() => expect(iacCheckbox).not.toBeChecked())
     expect(screen.getByRole('status')).toHaveTextContent('6 of 7 deliverables selected')
   })
 

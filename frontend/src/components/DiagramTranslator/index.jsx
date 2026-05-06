@@ -23,6 +23,8 @@ const PricingTab = lazy(() => import('./PricingTab'));
 const MigrationChat = lazy(() => import('./MigrationChat'));
 const DeployPanel = lazy(() => import('./DeployPanel'));
 
+const normalizeIacFormat = (format) => (format === 'bicep' ? 'bicep' : 'terraform');
+
 /* ── Wave 2: 3-Phase layout (#512) ──
  * Phase 1 — Input:        upload, analyzing, questions
  * Phase 2 — Analysis:     results (+ dependency graph, migration chat)
@@ -145,7 +147,7 @@ export default function DiagramTranslator() {
         questionAssumptions: cached.questionAssumptions || [],
         answers: cached.answers || {},
         iacCode: cached.iacCode || null,
-        iacFormat: cached.iacFormat || 'terraform',
+        iacFormat: normalizeIacFormat(cached.iacFormat),
         hldData: cached.hldData || null,
         exportCapability: cached.exportCapability || cached.analysis?.export_capability || null,
         step: cached.iacCode ? 'iac' : 'results',
@@ -173,7 +175,7 @@ export default function DiagramTranslator() {
             questionAssumptions: data.question_assumptions || [],
             answers: data.answers || {},
             iacCode: data.iac_code || null,
-            iacFormat: data.iac_format || 'terraform',
+            iacFormat: normalizeIacFormat(data.iac_format),
             hldData: data.hld_data || null,
             step: data.iac_code ? 'iac' : data.analysis ? 'results' : 'upload',
           });

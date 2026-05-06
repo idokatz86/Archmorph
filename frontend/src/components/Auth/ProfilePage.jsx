@@ -27,8 +27,9 @@ const SOURCE_CLOUDS = [
 const IAC_FORMATS = [
   { value: 'terraform', label: 'Terraform' },
   { value: 'bicep', label: 'Bicep' },
-  { value: 'cloudformation', label: 'CloudFormation' },
 ];
+
+const normalizeIacFormat = (format) => (format === 'terraform' || format === 'bicep' ? format : null);
 
 function Select({ label, value, onChange, options, placeholder }) {
   return (
@@ -78,7 +79,7 @@ export default function ProfilePage({ isOpen, onClose }) {
             company: data.company || '',
             role: data.role || null,
             preferred_source_cloud: data.preferred_source_cloud || null,
-            preferred_iac_format: data.preferred_iac_format || null,
+            preferred_iac_format: normalizeIacFormat(data.preferred_iac_format),
           });
         }
       })
