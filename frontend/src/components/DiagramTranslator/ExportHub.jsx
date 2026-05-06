@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   X, Download, Check, Loader2, Package, FileCode,
   FileText, DollarSign, CalendarClock, ShieldCheck, FileDown,
@@ -7,6 +7,8 @@ import {
 import { Button, Card } from '../ui';
 import api from '../../services/apiClient';
 import { loadCachedImage } from '../../services/sessionCache';
+import useFocusTrap from '../../hooks/useFocusTrap';
+import LandingZoneViewer from './LandingZoneViewer';
 
 const DELIVERABLES = [
   {
@@ -106,7 +108,13 @@ async function generateDeliverable(diagramId, deliverable, format, hldIncludeDia
     const content = typeof data.content === 'string' ? data.content : JSON.stringify(data.content, null, 2);
     const mime = packageFormat === 'html' ? 'text/html' : 'image/svg+xml';
     const filename = data.filename || `archmorph-architecture-package${format === 'svg-dr' ? '-dr' : ''}.${packageFormat}`;
-    return { blob: new Blob([content], { type: mime }), filename, exportCapability: data.export_capability || null };
+    return {
+      blob: new Blob([content], { type: mime }),
+      filename,
+      exportCapability: data.export_capability || null,
+      svgContent: packageFormat === 'svg' ? content : null,
+      svgVariant: format === 'svg-dr' ? 'dr' : 'primary',
+    };
   }
 
   if (id === 'hld') {
@@ -218,7 +226,7 @@ export default function ExportHub({ diagramId, hldIncludeDiagrams = true, export
   const [itemStatus, setItemStatus] = useState({});
   const [results, setResults] = useState({});
   const [generating, setGenerating] = useState(false);
-  const modalRef = useRef(null);
+  const modalRef = useFocusTrap(open);
 
   // Keyboard: Cmd+E to open
   useEffect(() => {
@@ -294,6 +302,12 @@ export default function ExportHub({ diagramId, hldIncludeDiagrams = true, export
 
   const doneCount = Object.values(itemStatus).filter(s => s === 'done').length;
   const hasResults = doneCount > 0;
+  const statusMessage = generating
+    ? `Generating ${selectedItems.length} selected deliverables`
+    : hasResults
+      ? `${doneCount} deliverable${doneCount === 1 ? '' : 's'} ready`
+      : `${selectedItems.length} of ${DELIVERABLES.length} deliverables selected`;
+  const svgPreview = results['architecture-package']?.svgContent ? results['architecture-package'] : null;
 
   if (!open) return null;
 
@@ -303,7 +317,7 @@ export default function ExportHub({ diagramId, hldIncludeDiagrams = true, export
       onClick={handleBackdropClick}
       role="dialog"
       aria-modal="true"
-      aria-label="Export Hub"
+      aria-labelledby="export-hub-title"
     >
       <div
         ref={modalRef}
@@ -314,13 +328,13 @@ export default function ExportHub({ diagramId, hldIncludeDiagrams = true, export
           <div className="flex items-center gap-3">
             <Package className="w-5 h-5 text-cta" />
             <div>
-              <h2 className="text-lg font-bold text-text-primary">Generate Deliverables</h2>
+              <h2 id="export-hub-title" className="text-lg font-bold text-text-primary">Generate Deliverables</h2>
               <p className="text-xs text-text-muted">Select outputs and formats, then generate all at once</p>
             </div>
           </div>
           <button
             onClick={() => setOpen(false)}
-            className="p-1.5 rounded-lg hover:bg-secondary transition-colors cursor-pointer"
+            className="p-1.5 rounded-lg hover:bg-secondary transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-cta/50"
             aria-label="Close"
           >
             <X className="w-5 h-5 text-text-muted" />
@@ -332,6 +346,7 @@ export default function ExportHub({ diagramId, hldIncludeDiagrams = true, export
           {DELIVERABLES.map(d => {
             const Icon = d.icon;
             const status = itemStatus[d.id];
+            const checkboxId = `export-hub-${d.id}`;
             return (
               <div
                 key={d.id}
@@ -341,14 +356,23 @@ export default function ExportHub({ diagramId, hldIncludeDiagrams = true, export
               >
                 <div className="flex items-center gap-3 min-w-0">
                   <input
+                    id={checkboxId}
                     type="checkbox"
                     checked={selected[d.id]}
                     onChange={() => toggleItem(d.id)}
-                    className="accent-cta w-4 h-4 shrink-0 cursor-pointer"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        toggleItem(d.id);
+                      }
+                    }}
+                    className="accent-cta w-4 h-4 shrink-0 cursor-pointer focus:outline-none focus:ring-2 focus:ring-cta/50 focus:ring-offset-2 focus:ring-offset-primary rounded-sm"
                     aria-label={`Include ${d.label}`}
                   />
-                  <Icon className={`w-4 h-4 shrink-0 ${selected[d.id] ? 'text-cta' : 'text-text-muted'}`} />
-                  <span className={`text-sm font-medium ${selected[d.id] ? 'text-text-primary' : 'text-text-muted'}`}>{d.label}</span>
+                  <label htmlFor={checkboxId} className="flex items-center gap-3 min-w-0 cursor-pointer">
+                    <Icon className={`w-4 h-4 shrink-0 ${selected[d.id] ? 'text-cta' : 'text-text-muted'}`} aria-hidden="true" />
+                    <span className={`text-sm font-medium ${selected[d.id] ? 'text-text-primary' : 'text-text-muted'}`}>{d.label}</span>
+                  </label>
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0">
@@ -359,6 +383,7 @@ export default function ExportHub({ diagramId, hldIncludeDiagrams = true, export
                         value={formats[d.id] || d.defaultFormat}
                         onChange={(e) => setFormat(d.id, e.target.value)}
                         className="appearance-none text-xs px-2.5 py-1.5 pr-7 rounded-lg bg-secondary border border-border text-text-primary cursor-pointer focus:outline-none focus:ring-1 focus:ring-cta"
+                        aria-label={`${d.label} format`}
                       >
                         {d.formats.map(f => (
                           <option key={f.id} value={f.id}>{f.label}</option>
@@ -377,7 +402,7 @@ export default function ExportHub({ diagramId, hldIncludeDiagrams = true, export
                   {status === 'done' && results[d.id] && (
                     <button
                       onClick={() => downloadBlob(results[d.id].blob, results[d.id].filename)}
-                      className="p-1 rounded hover:bg-secondary transition-colors cursor-pointer"
+                      className="p-1 rounded hover:bg-secondary transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-cta/50"
                       aria-label={`Download ${d.label}`}
                       title={`Download ${results[d.id].filename}`}
                     >
@@ -388,11 +413,19 @@ export default function ExportHub({ diagramId, hldIncludeDiagrams = true, export
               </div>
             );
           })}
+          {svgPreview && (
+            <LandingZoneViewer
+              svgContent={svgPreview.svgContent}
+              variant={svgPreview.svgVariant}
+              filename={svgPreview.filename}
+            />
+          )}
         </div>
 
         {/* Footer */}
         <div className="flex items-center justify-between px-6 py-4 border-t border-border bg-surface/50">
-          <p className="text-xs text-text-muted">
+          <p className="text-xs text-text-muted" role="status" aria-live="polite">
+            <span className="sr-only">{statusMessage}. </span>
             {selectedItems.length} of {DELIVERABLES.length} selected
             {hasResults && ` · ${doneCount} ready`}
           </p>

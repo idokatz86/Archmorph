@@ -69,6 +69,30 @@ const MOCK_ANALYSIS = {
   ts: Date.now(),
 };
 
+const ACCESSIBLE_LANDING_ZONE_SVG = `
+<svg role="img" aria-labelledby="lz-title" aria-describedby="lz-desc" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180">
+  <title id="lz-title">Azure Landing Zone</title>
+  <desc id="lz-desc">Target architecture with compute and data tiers</desc>
+  <g data-tier="Compute">
+    <title>Compute tier</title>
+    <desc>Hosts application workloads</desc>
+    <g>
+      <title>Azure Kubernetes Service</title>
+      <desc>Compute tier service for container workloads</desc>
+      <rect x="20" y="30" width="120" height="50" fill="#2563eb"></rect>
+    </g>
+  </g>
+  <g data-tier="Data">
+    <title>Data tier</title>
+    <desc>Stores operational data</desc>
+    <g>
+      <title>Azure SQL Database</title>
+      <desc>Data tier service for relational data</desc>
+      <rect x="180" y="30" width="120" height="50" fill="#16a34a"></rect>
+    </g>
+  </g>
+</svg>`;
+
 function injectMockSession(page: any) {
   return page.addInitScript((data: any) => {
     sessionStorage.setItem('archmorph_active_diagram', data.diagramId);
@@ -271,5 +295,57 @@ test.describe('Accessibility: axe-core scan', () => {
 
     const critical = results.violations.filter(v => v.impact === 'critical');
     expect(critical).toHaveLength(0);
+  });
+
+  test('rendered landing-zone SVG has no serious accessibility violations', async ({ page }) => {
+    await injectMockSession(page);
+    await page.route('**/api/diagrams/e2e-test-001/export-architecture-package?format=svg', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          content: ACCESSIBLE_LANDING_ZONE_SVG,
+          filename: 'archmorph-landing-zone.svg',
+        }),
+      });
+    });
+
+    await page.goto('/#translator');
+    await expect(page.locator('#root')).toBeVisible({ timeout: 15000 });
+
+    await page.getByRole('button', { name: 'Export All' }).click();
+    for (const label of [
+      'Infrastructure Code',
+      'High-Level Design',
+      'Cost Estimate',
+      'Migration Timeline',
+      'Compliance Report',
+      'PDF Analysis Report',
+    ]) {
+      const checkbox = page.getByLabel(`Include ${label}`);
+      if (await checkbox.isChecked()) {
+        await checkbox.uncheck();
+      }
+    }
+    await page.getByLabel('Architecture Package format').selectOption('svg-primary');
+    await page.getByRole('button', { name: /Generate All Selected/i }).click();
+
+    const viewer = page.getByTestId('landing-zone-viewer');
+    await expect(viewer).toBeVisible({ timeout: 10000 });
+    const svg = page.getByTestId('landing-zone-svg-preview').locator('svg');
+    await expect(svg).toHaveAttribute('role', 'img');
+    await expect(svg.locator('title').first()).toHaveText('Azure Landing Zone');
+
+    await page.getByRole('button', { name: 'Azure Kubernetes Service' }).focus();
+    await expect(page.getByTestId('landing-zone-live-region')).toContainText('Compute tier: Azure Kubernetes Service');
+
+    const results = await new AxeBuilder({ page })
+      .include('[data-testid="landing-zone-viewer"]')
+      .withTags(['wcag2a', 'wcag2aa'])
+      .disableRules(['color-contrast'])
+      .analyze();
+
+    const seriousOrCritical = results.violations.filter(v => v.impact === 'serious' || v.impact === 'critical');
+    expect(seriousOrCritical).toHaveLength(0);
   });
 });
