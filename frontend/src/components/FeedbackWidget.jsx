@@ -203,7 +203,6 @@ const FeedbackWidget = forwardRef(function FeedbackWidget({ position = 'bottom' 
                   <option value="hld_generation">HLD Document</option>
                   <option value="cost_estimate">Cost Estimate</option>
                   <option value="diagram_export">Diagram Export</option>
-                  <option value="best_practices">Best Practices</option>
                 </select>
                 <div className="flex gap-3">
                   <Button onClick={() => handleSubmitFeature(true)} loading={loading} variant="ghost" className="flex-1" icon={ThumbsUp}>

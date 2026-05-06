@@ -26,7 +26,7 @@ Archmorph is an AI-assisted cloud migration workbench. The live path analyzes up
 |--------|---------|--------------|
 | Live | Usable in the current product path | Diagram upload, sample playground, AI service mapping, guided questions, IaC/HLD/report export, **Architecture Package HTML/SVG export**, cost estimates, service catalog freshness health, admin health/release evidence, auth shell, CI/security scanning |
 | Beta | Implemented but needs hardening, deeper tests, or production validation | Cost/token observability, collaboration, gallery, replay, Terraform state import, multi-cloud cost comparison, **Azure Landing Zone target diagram** (visual scaffold; production-ready push targeted for v4.3.0 under epic #586 — see [Production-Ready Roadmap](#production-ready-roadmap-azure-landing-zone-v430-target) below) |
-| Scaffold | UI/routes/models exist, but execution needs integration or operator review | Live cloud scanner, deploy engine, credential vault, live drift/living architecture |
+| Scaffold | UI/routes/models exist, but execution needs integration or operator review | Live cloud scanner, deploy engine, credential vault |
 | Planned | Not production-ready yet | VS Code extension, PR-based IaC workflow, multi-diagram projects |
 
 ### Production-Ready Roadmap — Azure Landing Zone (v4.3.0 target)
@@ -71,8 +71,6 @@ The post-merge CTO end-to-end review of `landing-zone-svg` (May 1, 2026) flagged
 - **Full analysis PDF report** — 6-section branded report (cover, summary, mappings, costs, risks, IaC appendix)
 - **IaC Chat assistant** — interactive GPT-4o assistant for code modifications
 - **Chatbot assistant** — FAQ support and GitHub issue creation with intent detection
-- **Compliance mapper** — map requirements to Azure compliance frameworks (GDPR, HIPAA, SOC2, FedRAMP)
-- **Migration risk assessment** — risk scoring with automated runbook generation
 - **Migration intelligence** — ML-powered analysis with historical pattern matching
 - **Infrastructure import** — import existing Terraform/ARM/CloudFormation configurations
 - **Terraform State Import** — reverse-engineer existing infrastructure from tfstate/CloudFormation/ARM into architecture diagrams
@@ -83,7 +81,6 @@ The post-merge CTO end-to-end review of `landing-zone-svg` (May 1, 2026) flagged
 - **Migration Gallery** — public anonymized success stories, filterable by cloud and complexity
 - **Product Analytics** — funnel tracking (PostHog + backend), session-based event ingestion
 - **API Developer Portal** — Swagger/Redoc integration with category overview and curl examples
-- **Living architecture scaffold** — drift/versioning APIs include saved baselines, repeat compares, finding decisions, and Markdown report export; live environment monitoring still requires tenant-specific scanner validation
 - **Social authentication** — Microsoft, Google, GitHub sign-in (Azure SWA + JWT fallback)
 - **User profiles** — preferences, avatar, GDPR-compliant account deletion
 - **Scoped API keys and admin gates** — current access control focuses on API keys, admin session checks, feature flags, and guarded scaffold execution; multi-tenant org/profile surfaces are no longer active routes
@@ -210,12 +207,9 @@ flowchart TB
                 HLDExport[HLD Export<br/>DOCX/PDF/PPTX]
                 Chat[IaC Chat<br/>GPT-4o Assistant]
                 AISuggest[AI Suggestions<br/>Few-Shot Learning]
-                Compliance[Compliance Mapper<br/>GDPR/HIPAA/SOC2/FedRAMP]
-                MigRisk[Migration Risk<br/>Assessment + Runbook]
                 MigIntel[Migration Intelligence<br/>ML Pattern Matching]
                 MigTimeline[Migration Timeline<br/>7-Phase DAG + Topo Sort]
                 InfraImport[Infra Import<br/>TF/ARM/CFN]
-                Living[Living Architecture<br/>Drift Baselines]
                 CostComp[Cost Comparison<br/>Cross-Cloud Analysis]
                 CostOpt[Cost Optimizer<br/>Savings Recommendations]
                 CostMeter[Cost Metering<br/>Token/Budget Tracking]
@@ -264,11 +258,8 @@ flowchart TB
     HLD --> HLDExport
     API --> Chat --> GPT4O
     API --> AISuggest --> GPT4O
-    API --> Compliance
-    API --> MigRisk
     API --> MigIntel
     API --> InfraImport
-    API --> Living
     API --> CostComp
     API --> CostOpt
     API --> CostMeter
@@ -321,12 +312,9 @@ flowchart TB
 | IaC Generator | Terraform/Bicep + security scanning | In-process engine |
 | IaC Chat | GPT-4o interactive assistant | In-process engine |
 | AI Suggestions | Few-shot learning, review queue, auto-approve | In-process engine |
-| Compliance Mapper | GDPR/HIPAA/SOC2/FedRAMP mapping | In-process engine |
-| Migration Risk | Risk assessment + runbook generation | In-process engine |
 | Migration Intelligence | ML-powered pattern matching | In-process engine |
 | Migration Timeline | 7-phase DAG, topo sort, JSON/MD/CSV export | In-process engine |
 | Infrastructure Import | TF/ARM/CloudFormation parser | In-process engine |
-| Living Architecture | Drift baselines, compare history, finding decisions, report export | In-process engine |
 | Cost Metering | Token tracking, budgets, alerts, CSV export | In-process engine |
 | PDF Report | 6-section branded report generator | In-process engine |
 | Auth | Auth shell, JWT/SWA integration, API keys | Middleware |
@@ -620,11 +608,8 @@ Dynamic pricing powered by the [Azure Retail Prices API](https://prices.azure.co
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/ai-suggestions` | POST | Generate AI-powered service recommendations |
-| `/api/compliance-map` | POST | Map architecture to compliance frameworks |
-| `/api/migration-risk` | POST | Assess migration risks + generate runbook |
 | `/api/migration-intelligence` | POST | ML-powered migration pattern matching |
 | `/api/infra-import` | POST | Import existing TF/ARM/CFN infrastructure |
-| `/api/living-architecture` | GET | Drift detection and change tracking |
 | `/api/cost-comparison` | POST | Cross-cloud cost comparison |
 | `/api/cost-optimizer` | POST | Savings recommendations |
 
@@ -730,7 +715,6 @@ Archmorph/
 │   │   └── ... (59 total)           # + 35 more domain routers
 │   ├── admin_auth.py                # JWT session management (HS256, 1h TTL)
 │   ├── ai_suggestion.py             # AI-powered service recommendations
-│   ├── compliance_mapper.py         # GDPR/HIPAA/SOC2/FedRAMP compliance mapping
 │   ├── cost_comparison.py           # Cross-cloud cost comparison engine
 │   ├── cost_optimizer.py            # Savings recommendation engine
 │   ├── error_envelope.py            # Structured error response middleware
@@ -746,9 +730,7 @@ Archmorph/
 │   ├── infra_import.py              # Import TF/ARM/CloudFormation
 │   ├── job_queue.py                 # Background job queue + SSE
 │   ├── journey_analytics.py         # User journey tracking engine
-│   ├── living_architecture.py       # Drift detection & change tracking
 │   ├── migration_intelligence.py    # ML-powered migration patterns
-│   ├── migration_risk.py            # Risk assessment engine
 │   ├── migration_runbook.py         # Automated runbook generation
 │   ├── service_updater.py           # APScheduler daily catalog sync
 │   ├── openai_client.py             # Shared Azure OpenAI client factory
@@ -759,7 +741,6 @@ Archmorph/
 │   ├── api_versioning.py            # API v1 prefix mirror middleware
 │   ├── usage_metrics.py             # Analytics with Azure Blob Storage persistence
 │   ├── prompt_guard.py              # Prompt injection detection
-│   ├── best_practices.py            # Best practices evaluation
 │   ├── marketplace.py               # Template marketplace engine
 │   ├── whitelabel.py                # White-label SDK
 │   ├── icons/                       # Icon Registry system
@@ -902,10 +883,10 @@ See [docs/DEPLOYMENT_COSTS.md](docs/DEPLOYMENT_COSTS.md) for full breakdown.
 | v2.11.0 — Admin & Analytics | Done | JWT admin auth, persistent analytics (Azure Blob Storage), conversion funnel |
 | v2.11.1 — UX Polish & Document Export | Done | HLD export (DOCX/PDF/PPTX), 15 UX improvements, CI/CD security (Semgrep, Gitleaks, SBOM, Trivy), 747 tests |
 | v2.12.0 — Modular Architecture & Security | Done | Router decomposition (main.py 2,189→181 lines, 13 router modules), API versioning (v1 prefix), feature flags system, comprehensive audit logging, session persistence (InMemory/Redis), GPT response caching, DiagramTranslator decomposed (1,201→ 9 sub-components), structured JSON logging with correlation IDs, OTel observability rewrite, Azure Front Door WAF + Zero Trust, Helm charts, blue-green deployment, SBOM (CycloneDX + Grype), SAST/DAST/SCA pipeline, storage RBAC auth, pricing cache to Blob, monitoring optimization, 1149 tests |
-| v3.0 — Multi-Cloud & Enterprise | Done | Multi-cloud discovery, User Dashboard, Template Gallery, Visio import, i18n (en/es/fr), Living Architecture engine, Migration Intelligence, White-Label SDK, multi-tenant foundation |
+| v3.0 — Multi-Cloud & Enterprise | Done | Multi-cloud discovery, User Dashboard, Template Gallery, Visio import, i18n (en/es/fr), Migration Intelligence, White-Label SDK, multi-tenant foundation |
 | v3.0.1 — Confidence Transparency | Done | Confidence score explanations, transparency badge indicators, factor breakdown in analysis results |
 | v3.1.0 — Stabilization Sprint | Done | Docker Compose stack, error envelope middleware, Gunicorn + Uvicorn workers, session expiry handling, before-unload protection, focus trap accessibility, toast notifications |
-| v3.2.0 — Intelligence Suite | Done | AI suggestions engine, compliance mapper (GDPR/HIPAA/SOC2/FedRAMP), migration risk assessment, migration runbook generator, infrastructure import (TF/ARM/CFN) |
+| v3.2.0 — Intelligence Suite | Done | AI suggestions engine, migration runbook generator, infrastructure import (TF/ARM/CFN) |
 | v3.3.0 — Analytics & UX | Done | Journey analytics engine, cost comparison engine, cost optimizer, job queue with SSE, cookie consent banner, landing page, legal pages, organization settings |
 | v3.4.0 — Quality & Documentation | Done | 1609 backend tests (70 files), PRD v3.4.0, roadmap alignment with 40 open issues, comprehensive documentation update |
 | v3.5.0 — Customer Intelligence | Done | Confidence deep-dive (strengths/limitations/migration notes per mapping), 7-step workflow (Upload→Analyze→Customize→Results→IaC→HLD→Pricing), HLD auto-generation tab, dedicated Pricing tab with cost drivers, SKU alternatives, optimization recommendations, source vs target comparison, custom domain archmorphai.com |

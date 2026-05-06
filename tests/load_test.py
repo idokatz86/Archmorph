@@ -118,24 +118,6 @@ class ArchmorphAnalyzeUser(HttpUser):
             headers=HEADERS,
         )
 
-    @tag("analyze", "risk")
-    @task(1)
-    def risk_score(self):
-        if self.diagram_id:
-            self.client.get(
-                f"/api/diagrams/{self.diagram_id}/risk-score",
-                headers=HEADERS,
-            )
-
-    @tag("analyze", "compliance")
-    @task(1)
-    def compliance_check(self):
-        if self.diagram_id:
-            self.client.get(
-                f"/api/diagrams/{self.diagram_id}/compliance",
-                headers=HEADERS,
-            )
-
     @tag("analyze", "dependency")
     @task(1)
     def dependency_graph(self):

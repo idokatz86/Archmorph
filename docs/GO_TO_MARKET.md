@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-Archmorph is a free AI-powered cloud architecture translator that converts AWS/GCP infrastructure into Azure equivalents with automated IaC generation, HLD/report exports, compliance context, migration risk scoring, and Azure cost estimation. The go-to-market motion optimizes for adoption, trust, community proof, partner usage, and Azure migration influence. Customers do not need a subscription, paid tier, billing setup, or credit card to use the application.
+Archmorph is a free AI-powered cloud architecture translator that converts AWS/GCP infrastructure into Azure equivalents with automated IaC generation, HLD/report exports, migration planning, and Azure cost estimation. The go-to-market motion optimizes for adoption, trust, community proof, partner usage, and Azure migration influence. Customers do not need a subscription, paid tier, billing setup, or credit card to use the application.
 
 ---
 
@@ -49,9 +49,8 @@ For cloud architects and DevOps teams planning Azure migrations, Archmorph is th
 1. **Free to use** — no paid tier, subscription, billing prompt, or credit-card requirement
 2. **AI-powered mapping** — GPT-4o vision analyzes architecture diagrams directly
 3. **Complete IaC generation** — Terraform/Bicep drafts, not just documentation
-4. **Migration risk scoring** — quantified risk across architecture, data, security, and operations
-5. **Compliance-aware output** — HIPAA, PCI-DSS, SOC 2, GDPR, ISO 27001 gap context
-6. **Cost context** — Azure Retail Prices API estimates for planning and FinOps review
+4. **Migration planning** — guided questions, dependency graphing, and review-ready artifacts
+5. **Cost context** — Azure Retail Prices API estimates for planning and FinOps review
 
 ---
 
