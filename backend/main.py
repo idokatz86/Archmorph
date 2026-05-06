@@ -57,6 +57,7 @@ from routers.shared import limiter, SESSION_STORE, IMAGE_STORE, SHARE_STORE  # n
 # Routers
 from routers.health import router as health_router  # noqa: E402
 from routers.diagrams import router as diagrams_router  # noqa: E402
+from routers.projects import router as projects_router  # noqa: E402
 from routers.analysis import router as analysis_router  # noqa: E402
 from routers.iac_routes import router as iac_routes_router  # noqa: E402
 from routers.hld_routes import router as hld_routes_router
@@ -345,6 +346,7 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.include_router(icon_router)
 app.include_router(health_router)
 app.include_router(diagrams_router)
+app.include_router(projects_router)
 app.include_router(analysis_router)
 app.include_router(iac_routes_router)
 app.include_router(hld_routes_router)
@@ -401,6 +403,7 @@ _all_routers = [
     (icon_router, "/api"),       # icon_router has prefix="/api"
     (health_router, ""),         # routes define /api/... in decorators
     (diagrams_router, ""),
+    (projects_router, ""),
     (analysis_router, ""),
     (iac_routes_router, ""),
     (hld_routes_router, ""),
