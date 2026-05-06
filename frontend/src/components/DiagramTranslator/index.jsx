@@ -1,7 +1,7 @@
 import React, { useRef, useCallback, useEffect, Suspense, lazy } from 'react';
 import {
   Upload, ChevronRight, CheckCircle, XCircle, X,
-  Loader2, Eye, Clock, FileCode, FileText, DollarSign, Rocket,
+  Loader2, Eye, Clock, FileCode, FileText, DollarSign, Rocket, Layers3, GitMerge,
 } from 'lucide-react';
 import { Button, Card, ErrorCard, Tabs } from '../ui';
 import { API_BASE } from '../../constants';
@@ -24,6 +24,7 @@ const MigrationChat = lazy(() => import('./MigrationChat'));
 const DeployPanel = lazy(() => import('./DeployPanel'));
 
 const normalizeIacFormat = (format) => (format === 'bicep' ? 'bicep' : 'terraform');
+const DEFAULT_PROJECT_ID = 'demo-project';
 
 /* ── Wave 2: 3-Phase layout (#512) ──
  * Phase 1 — Input:        upload, analyzing, questions
@@ -71,6 +72,39 @@ function buildQuestionState(qData = {}) {
     questionConstraints: qData.constraints || [],
     regionGroups: qData.region_groups || {},
   };
+}
+
+function ProjectPanel({ projectId, diagrams = [], combined, onAddDiagram, onViewCombined }) {
+  if (!projectId || diagrams.length === 0) return null;
+  const analyzedCount = diagrams.filter(d => d.status === 'analyzed').length;
+
+  return (
+    <Card className="p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <Layers3 className="w-4 h-4 text-cta" aria-hidden="true" />
+            <h2 className="text-sm font-semibold text-text-primary">Project Diagrams</h2>
+            <span className="text-xs text-text-muted">{analyzedCount}/{diagrams.length} analyzed</span>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {diagrams.map(diagram => (
+              <span key={diagram.diagram_id} className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-border bg-secondary px-2 py-1 text-xs text-text-secondary">
+                <span className={`h-1.5 w-1.5 rounded-full ${diagram.status === 'analyzed' ? 'bg-cta' : 'bg-warning'}`} aria-hidden="true" />
+                <span className="truncate max-w-[10rem]">{diagram.filename || diagram.diagram_id}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <Button variant="secondary" size="sm" icon={Upload} onClick={onAddDiagram}>Add Diagram</Button>
+          <Button variant={combined ? 'primary' : 'secondary'} size="sm" icon={GitMerge} onClick={onViewCombined} disabled={analyzedCount === 0}>
+            Combined Analysis
+          </Button>
+        </div>
+      </div>
+    </Card>
+  );
 }
 
 export default function DiagramTranslator() {
@@ -206,6 +240,33 @@ export default function DiagramTranslator() {
   }, [state.step]);
 
   // ── Drag & drop ──
+  const refreshProjectStatus = useCallback(async (projectId) => {
+    if (!projectId) return null;
+    try {
+      const project = await api.get(`/projects/${projectId}`);
+      set({ projectId, projectStatus: project, projectDiagrams: project.diagrams || [] });
+      return project;
+    } catch {
+      return null;
+    }
+  }, [set]);
+
+  const handleViewCombinedAnalysis = async () => {
+    if (!state.projectId) return;
+    set({ loading: true, error: null });
+    try {
+      const combined = await api.get(`/projects/${state.projectId}/analysis`);
+      set({ analysis: combined, step: 'results', loading: false, iacCode: null, diagramId: combined.diagram_id || state.diagramId });
+      await refreshProjectStatus(state.projectId);
+    } catch (err) {
+      set({ error: err.message, loading: false });
+    }
+  };
+
+  const handleAddProjectDiagram = () => {
+    set({ step: 'upload', selectedFile: null, filePreviewUrl: null, iacCode: null, error: null, analysis: null });
+  };
+
   // ── Session auto-recovery: push cached analysis back to backend on 404 ──
   const tryRestoreSession = async (diagramId) => {
     const cached = loadSession();
@@ -314,9 +375,11 @@ export default function DiagramTranslator() {
       formData.append('file', file);
 
       addProgress('Uploading diagram...');
-      const uploadData = await api.post('/projects/demo-project/diagrams', formData, signal);
+      const projectId = state.projectId || DEFAULT_PROJECT_ID;
+      const uploadData = await api.post(`/projects/${projectId}/diagrams`, formData, signal);
       const { diagram_id } = uploadData;
-      set({ diagramId: diagram_id, exportCapability: uploadData.export_capability || null });
+      set({ projectId: uploadData.project_id || projectId, diagramId: diagram_id, exportCapability: uploadData.export_capability || null });
+      await refreshProjectStatus(uploadData.project_id || projectId);
 
       // Cache uploaded image for session restore (#333)
       if (file.type.startsWith('image/') && file.size < 1_000_000) {
@@ -417,6 +480,7 @@ export default function DiagramTranslator() {
         await new Promise(r => setTimeout(r, 400));
 
         set({ analysis: result, exportCapability: result.export_capability || state.exportCapability || null });
+        await refreshProjectStatus(uploadData.project_id || projectId);
         const qData = await api.post(`/diagrams/${diagram_id}/questions`, undefined, signal);
         const questionState = buildQuestionState(qData);
         saveSession(diagram_id, result, questionState.questions, questionState.answers, {
@@ -474,6 +538,7 @@ export default function DiagramTranslator() {
         await new Promise(r => setTimeout(r, 800));
 
         set({ analysis: result, exportCapability: result.export_capability || uploadData.export_capability || null });
+        await refreshProjectStatus(uploadData.project_id || projectId);
         const qData = await api.post(`/diagrams/${diagram_id}/questions`, undefined, signal);
         const questionState = buildQuestionState(qData);
         saveSession(diagram_id, result, questionState.questions, questionState.answers, {
@@ -545,8 +610,11 @@ export default function DiagramTranslator() {
   const handleGenerateIac = async (fmt) => {
     set({ loading: true, iacFormat: fmt, generatingIac: true });
     try {
+      const generationPath = state.analysis?.combined && state.projectId
+        ? `/projects/${state.projectId}/generate?format=${fmt}`
+        : `/diagrams/${state.diagramId}/generate?format=${fmt}`;
       const iacData = await withRestore(
-        () => api.post(`/diagrams/${state.diagramId}/generate?format=${fmt}`, undefined, undefined, 180_000),
+        () => api.post(generationPath, undefined, undefined, 180_000),
         { cleanup: () => set({ loading: false, generatingIac: false }) },
       );
       if (iacData) {
@@ -567,12 +635,21 @@ export default function DiagramTranslator() {
   const handleGenerateAll = async (fmt) => {
     set({ loading: true, iacFormat: fmt, generatingIac: true, generatingAll: true, genProgress: 'Generating infrastructure code...' });
     try {
+      const isCombinedProject = state.analysis?.combined && state.projectId;
+      const generationPath = isCombinedProject
+        ? `/projects/${state.projectId}/generate?format=${fmt}`
+        : `/diagrams/${state.diagramId}/generate?format=${fmt}`;
       // Start IaC generation
       const iacData = await withRestore(
-        () => api.post(`/diagrams/${state.diagramId}/generate?format=${fmt}`, undefined, undefined, 180_000),
+        () => api.post(generationPath, undefined, undefined, 180_000),
         { cleanup: () => set({ loading: false, generatingIac: false, generatingAll: false }) },
       );
       if (iacData) {
+        if (isCombinedProject) {
+          set({ iacCode: iacData.code, step: 'iac', generatingIac: false, generatingAll: false, genProgress: null });
+          updateSessionCache({ iacCode: iacData.code, iacFormat: fmt });
+          return;
+        }
         set({ iacCode: iacData.code, genProgress: 'IaC complete. Generating HLD document...' });
         updateSessionCache({ iacCode: iacData.code, iacFormat: fmt });
         // Start HLD generation in parallel
@@ -909,6 +986,14 @@ export default function DiagramTranslator() {
         </Card>
       )}
 
+      <ProjectPanel
+        projectId={state.projectId}
+        diagrams={state.projectDiagrams}
+        combined={!!state.analysis?.combined}
+        onAddDiagram={handleAddProjectDiagram}
+        onViewCombined={handleViewCombinedAnalysis}
+      />
+
       <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 animate-spin text-cta" /></div>}>
 
       {/* ═══ Phase 1: Input (Upload + Analyzing + Questions) ═══ */}
@@ -1011,7 +1096,7 @@ export default function DiagramTranslator() {
       )}
 
       {/* Migration Q&A Chat — visible on Analysis + Deliverables phases (#258) */}
-      {state.diagramId && state.analysis && ['results', 'iac', 'hld'].includes(state.step) && (
+      {state.diagramId && state.analysis && !state.analysis.combined && ['results', 'iac', 'hld'].includes(state.step) && (
         <MigrationChat diagramId={state.diagramId} />
       )}
 

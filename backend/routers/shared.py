@@ -94,6 +94,12 @@ SESSION_STORE = get_store("sessions", maxsize=500, ttl=7200)
 # Reduced from 200->50 to limit memory ceiling (50x10MB=500MB vs 2GB) — Issue #294
 IMAGE_STORE = get_store("images", maxsize=int(os.getenv("IMAGE_STORE_MAXSIZE", "50")), ttl=7200)
 
+# Multi-diagram project store keyed by project_id -> metadata (TTL: 2 hours).
+# Separate diagram->project index keeps existing diagram routes compatible while
+# allowing analysis completion to update parent project status (#241).
+PROJECT_STORE = get_store("projects", maxsize=500, ttl=7200)
+DIAGRAM_PROJECT_STORE = get_store("diagram_projects", maxsize=1000, ttl=7200)
+
 # Share links store (TTL: 24 hours, max 100)
 SHARE_STORE = get_store("shares", maxsize=100, ttl=86400)
 
