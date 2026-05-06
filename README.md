@@ -25,7 +25,7 @@ Archmorph is an AI-assisted cloud migration workbench. The live path analyzes up
 | Status | Meaning | Capabilities |
 |--------|---------|--------------|
 | Live | Usable in the current product path | Diagram upload, sample playground, AI service mapping, guided questions, IaC/HLD/report export, **Architecture Package HTML/SVG export**, cost estimates, service catalog freshness health, admin health/release evidence, auth shell, CI/security scanning |
-| Beta | Implemented but needs hardening, deeper tests, or production validation | RAG, Agent PaaS proof, cost/token observability, collaboration, gallery, replay, Terraform state import, multi-cloud cost comparison, **Azure Landing Zone target diagram** (visual scaffold; production-ready push targeted for v4.3.0 under epic #586 — see [Production-Ready Roadmap](#production-ready-roadmap-azure-landing-zone-v430-target) below) |
+| Beta | Implemented but needs hardening, deeper tests, or production validation | Cost/token observability, collaboration, gallery, replay, Terraform state import, multi-cloud cost comparison, **Azure Landing Zone target diagram** (visual scaffold; production-ready push targeted for v4.3.0 under epic #586 — see [Production-Ready Roadmap](#production-ready-roadmap-azure-landing-zone-v430-target) below) |
 | Scaffold | UI/routes/models exist, but execution needs integration or operator review | Live cloud scanner, deploy engine, credential vault, live drift/living architecture |
 | Planned | Not production-ready yet | VS Code extension, PR-based IaC workflow, multi-diagram projects |
 
@@ -62,8 +62,6 @@ The post-merge CTO end-to-end review of `landing-zone-svg` (May 1, 2026) flagged
 - **Dynamic cost estimates** — region-aware pricing via Azure Retail Prices API with 46 service mappings and monthly cache
 - **Cost & Token Observability** — per-execution token metering, budget management with alerts, timeseries analytics, CSV export
 - **Cost comparison** — side-by-side AWS/GCP vs Azure cost analysis with optimization recommendations
-- **RAG Pipeline** — document ingestion (PDF/DOCX/HTML/CSV/JSON), hybrid search (vector + BM25), citation tracking for grounded AI responses
-- **AI Agent PaaS** — agent creation, tool attachment, ReAct execution loop, RAG-grounded responses, per-agent cost tracking
 - **Migration Timeline Generator** — 7-phase migration plan with dependency ordering (topological sort), parallel workstreams, export as JSON/Markdown/CSV
 - **Self-updating service catalog** — daily auto-discovery and auto-integration of new cloud services with fuzzy matching and category classification
 - **AI cross-cloud mapping suggestions** — GPT-powered mapping with few-shot learning, auto-approve at 0.9 confidence, admin review queue
@@ -221,8 +219,6 @@ flowchart TB
                 CostComp[Cost Comparison<br/>Cross-Cloud Analysis]
                 CostOpt[Cost Optimizer<br/>Savings Recommendations]
                 CostMeter[Cost Metering<br/>Token/Budget Tracking]
-                RAG[RAG Pipeline<br/>Ingest/Embed/Search]
-                AgentPaaS[Agent PaaS<br/>ReAct Execution]
                 ReportGen[PDF Report<br/>6-Section Export]
                 Scanner[Cloud Scanner<br/>Scaffold / gated]
                 CredVault[Credential Vault<br/>AES-256 + 1hr TTL]
@@ -276,9 +272,6 @@ flowchart TB
     API --> CostComp
     API --> CostOpt
     API --> CostMeter
-    API --> RAG --> GPT4O
-    API --> AgentPaaS --> GPT4O
-    AgentPaaS --> RAG
     API --> MigTimeline
     API --> ReportGen
     API --> Scanner --> CredVault
@@ -334,8 +327,6 @@ flowchart TB
 | Migration Timeline | 7-phase DAG, topo sort, JSON/MD/CSV export | In-process engine |
 | Infrastructure Import | TF/ARM/CloudFormation parser | In-process engine |
 | Living Architecture | Drift baselines, compare history, finding decisions, report export | In-process engine |
-| RAG Pipeline | Document ingest, embed, hybrid search (vector+BM25) | In-process engine |
-| Agent PaaS | Agent CRUD, ReAct loop, tool execution | In-process engine |
 | Cost Metering | Token tracking, budgets, alerts, CSV export | In-process engine |
 | PDF Report | 6-section branded report generator | In-process engine |
 | Auth | Auth shell, JWT/SWA integration, API keys | Middleware |
@@ -658,7 +649,7 @@ Dynamic pricing powered by the [Azure Retail Prices API](https://prices.azure.co
 
 ### Coverage
 
-- **76 backend test files** covering the translation flow, admin/auth/API-key paths, RAG/Agent PaaS proof paths, policies, models, service freshness, and property-based checks
+- **76 backend test files** covering the translation flow, admin/auth/API-key paths, policies, models, service freshness, and property-based checks
 - **262 frontend Vitest tests** covering component rendering, navigation, storage/session behavior, and interaction contracts
 - **17 Playwright smoke tests** covering golden-path UI flows, React Flow canvas behavior, and critical accessibility checks
 - CI now treats backend coverage, frontend lint, and frontend tests as hard gates. Previously ignored backend tests are included.
@@ -730,9 +721,8 @@ Archmorph/
 │   │   ├── deployments.py           # Deploy engine (preview + execute)
 │   │   ├── terraform_import_routes.py # TF state/ARM/CF import
 │   │   ├── cost_comparison_routes.py # Multi-cloud cost compare
-│   │   ├── agents.py                # Agent PaaS CRUD
-│   │   ├── executions.py            # Agent execution + ReAct loop
-│   │   ├── rag_routes.py            # RAG pipeline routes
+│   │   ├── agents.py                # Agent registry CRUD
+│   │   ├── executions.py            # Async agent execution + tool-calling loop
 │   │   ├── drift.py                 # Infrastructure drift detection
 │   │   ├── feature_flags.py         # Feature flag management
 │   │   ├── jobs.py                  # Background job & SSE routes
@@ -922,8 +912,8 @@ See [docs/DEPLOYMENT_COSTS.md](docs/DEPLOYMENT_COSTS.md) for full breakdown.
 | v3.6.0 — Platform Hardening & UX | Done | Dark mode toggle with light/full theme, skeleton loaders, focus-visible a11y, reduced-motion support, Cache-Control headers on read endpoints, HLD v2 with 10 professional sections, contextual help tooltips, confidence deep-dive UI (Strengths/Limitations/Migration tabs per mapping) |
 | v3.8.0 — Complete Migration Flow | Done | Migration package ZIP export (IaC + HLD + costs), before/after architecture visualization, guided onboarding tour, CI coverage gate (60%), stale bot, migration Q&A chat advisor |
 | v3.8.1 — UX Polish & Bug Bash | Done | Fix HLD generation 500 crashes, recover missing Map layers, unblock IaC dynamic modifications, populate Coming Soon tab, and Drift Alpha warnings |
-| v4.0.0 — Platform Scale | Done | RAG pipeline, AI Agent PaaS PoC, cost/token observability, AI mapping auto-suggestions, migration timeline generator, service dependency graph, social auth/profile/RBAC experiments, PDF report export, DevOps modernization (uv, Trivy, Helm) |
-| v4.1.0 — Enterprise & Collaboration Preview | Mixed | Product analytics, UX Wave 1/2, Terraform import, replay/gallery/collaboration, RAG/Agent PaaS, cost observability, drift baselines, admin release gates, and security evidence are implemented or beta. Live scanner, deploy engine, and credential vault remain scaffolded/hardening work; SSO/org/profile routes were retired from the active API in the v4.3 main convergence. |
+| v4.0.0 — Platform Scale | Done | RAG pipeline and AI Agent PaaS PoC experiments, cost/token observability, AI mapping auto-suggestions, migration timeline generator, service dependency graph, social auth/profile/RBAC experiments, PDF report export, DevOps modernization (uv, Trivy, Helm) |
+| v4.1.0 — Enterprise & Collaboration Preview | Mixed | Product analytics, UX Wave 1/2, Terraform import, replay/gallery/collaboration, cost observability, drift baselines, admin release gates, and security evidence are implemented or beta. Live scanner, deploy engine, and credential vault remain scaffolded/hardening work; RAG/Agent PaaS, SSO/org/profile routes were retired from the active API during main convergence. |
 | v4.3.0-main — Convergence & Architecture Package | Done | Merged service freshness, analytics-retention cleanup, SSO/org/profile removal, and Architecture Package HTML/SVG exports; open PR count returned to zero and active branches converged to main. |
 | v5.0 — Next | Planned | VS Code extension, multi-diagram projects, GitHub/GitLab IaC PR integration |
 
