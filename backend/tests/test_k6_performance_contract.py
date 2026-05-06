@@ -96,6 +96,7 @@ def test_perf_soak_workflow_runs_nightly_landing_zone_locust():
 
     assert "name: Landing Zone Perf Soak" in workflow
     assert "cron:" in workflow
+    assert "EVENT_NAME: ${{ github.event_name }}" in workflow
     assert "tests/perf/locustfile_landing_zone.py" in workflow
     assert "PERF_SOAK_BASE_URL" in workflow
     assert "PERF_SOAK_API_KEY" in workflow
@@ -103,6 +104,27 @@ def test_perf_soak_workflow_runs_nightly_landing_zone_locust():
     assert "target staging must disable or raise per-IP limits" in workflow
     assert "LANDING_ZONE_TARGET_RPS" in workflow
     assert "landing-zone-soak-summary" in workflow
+
+
+def test_perf_soak_workflow_skips_scheduled_when_unconfigured():
+    workflow = PERF_SOAK_WORKFLOW.read_text(encoding="utf-8")
+
+    assert "skip_scheduled()" in workflow
+    assert "Landing Zone soak skipped" in workflow
+    assert "echo \"should_run=false\" >> \"$GITHUB_OUTPUT\"" in workflow
+    assert "if [ \"$EVENT_NAME\" = \"schedule\" ]; then" in workflow
+    assert "PERF_SOAK_BASE_URL is not configured" in workflow
+    assert "Configure PERF_SOAK_BASE_URL and PERF_SOAK_RATE_LIMIT_PROFILE=soak" in workflow
+
+
+def test_perf_soak_workflow_keeps_manual_dispatch_strict_and_gates_locust():
+    workflow = PERF_SOAK_WORKFLOW.read_text(encoding="utf-8")
+
+    assert "PERF_SOAK_BASE_URL must be configured" in workflow
+    assert "PERF_SOAK_RATE_LIMIT_PROFILE=soak is required" in workflow
+    assert "echo \"should_run=true\" >> \"$GITHUB_OUTPUT\"" in workflow
+    assert "if: ${{ steps.config.outputs.should_run == 'true' }}" in workflow
+    assert "if: ${{ always() && steps.config.outputs.should_run == 'true' }}" in workflow
 
 
 def test_observability_alerts_cover_full_spine_p95_and_burn_rate():

@@ -37,6 +37,7 @@ jobs:
       - name: Resolve soak configuration
         id: config
         env:
+          EVENT_NAME: ${{ github.event_name }}
           INPUT_BASE_URL: ${{ inputs.base_url }}
           VAR_BASE_URL: ${{ vars.PERF_SOAK_BASE_URL }}
           SECRET_BASE_URL: ${{ secrets.PERF_SOAK_BASE_URL }}
@@ -44,28 +45,51 @@ jobs:
           INPUT_TARGET_RPS: ${{ inputs.target_rps }}
           INPUT_RUN_TIME: ${{ inputs.run_time }}
         run: |
+          skip_scheduled() {
+            reason="$1"
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "## Landing Zone soak skipped"
+              echo ""
+              echo "$reason"
+              echo ""
+              echo "Configure PERF_SOAK_BASE_URL and PERF_SOAK_RATE_LIMIT_PROFILE=soak to enable the scheduled soak."
+            } >> "$GITHUB_STEP_SUMMARY"
+          }
+
           base_url="${INPUT_BASE_URL:-${VAR_BASE_URL:-$SECRET_BASE_URL}}"
           if [ -z "$base_url" ]; then
+            if [ "$EVENT_NAME" = "schedule" ]; then
+              skip_scheduled "PERF_SOAK_BASE_URL is not configured as a variable, secret, or workflow_dispatch input."
+              exit 0
+            fi
             echo "PERF_SOAK_BASE_URL must be configured as a variable, secret, or workflow_dispatch input" >&2
             exit 1
           fi
           if [ "$RATE_LIMIT_PROFILE" != "soak" ]; then
+            if [ "$EVENT_NAME" = "schedule" ]; then
+              skip_scheduled "PERF_SOAK_RATE_LIMIT_PROFILE=soak is required; target staging must disable or raise per-IP limits for the 100 RPS soak."
+              exit 0
+            fi
             echo "PERF_SOAK_RATE_LIMIT_PROFILE=soak is required; target staging must disable or raise per-IP limits for the 100 RPS soak" >&2
             exit 1
           fi
           target_rps="${INPUT_TARGET_RPS:-$DEFAULT_TARGET_RPS}"
           run_time="${INPUT_RUN_TIME:-$DEFAULT_RUN_TIME}"
+          echo "should_run=true" >> "$GITHUB_OUTPUT"
           echo "base_url=$base_url" >> "$GITHUB_OUTPUT"
           echo "target_rps=$target_rps" >> "$GITHUB_OUTPUT"
           echo "run_time=$run_time" >> "$GITHUB_OUTPUT"
 
       - name: Install Locust
+        if: ${{ steps.config.outputs.should_run == 'true' }}
         run: |
           python -m venv "${{ runner.temp }}/locust-venv"
           "${{ runner.temp }}/locust-venv/bin/python" -m pip install --upgrade pip
           "${{ runner.temp }}/locust-venv/bin/python" -m pip install 'locust==2.32.6'
 
       - name: Run Landing Zone soak
+        if: ${{ steps.config.outputs.should_run == 'true' }}
         env:
           LANDING_ZONE_SOAK_SUMMARY_PATH: ${{ runner.temp }}/landing-zone-soak/landing-zone-soak-summary.json
           LANDING_ZONE_TARGET_RPS: ${{ steps.config.outputs.target_rps }}
@@ -84,7 +108,7 @@ jobs:
             --only-summary
 
       - name: Upload soak summary
-        if: always()
+        if: ${{ always() && steps.config.outputs.should_run == 'true' }}
         uses: actions/upload-artifact@v7
         with:
           name: landing-zone-soak-summary
