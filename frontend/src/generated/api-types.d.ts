@@ -2836,6 +2836,26 @@ export interface paths {
         patch: operations["decide_finding_api_drift_baselines__baseline_id__findings__finding_id__patch"];
         trace?: never;
     };
+    "/api/drift/baselines/{baseline_id}/patch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Build Baseline Patch
+         * @description Return a review-only IaC patch artifact for the latest baseline drift audit.
+         */
+        post: operations["build_baseline_patch_api_drift_baselines__baseline_id__patch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/drift/baselines/{baseline_id}/report": {
         parameters: {
             query?: never;
@@ -7110,6 +7130,26 @@ export interface paths {
         patch: operations["decide_finding_v1_api_v1_drift_baselines__baseline_id__findings__finding_id__patch"];
         trace?: never;
     };
+    "/api/v1/drift/baselines/{baseline_id}/patch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Build Baseline Patch V1
+         * @description Return a review-only IaC patch artifact for the latest baseline drift audit.
+         */
+        post: operations["build_baseline_patch_v1_api_v1_drift_baselines__baseline_id__patch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/drift/baselines/{baseline_id}/report": {
         parameters: {
             query?: never;
@@ -9434,6 +9474,8 @@ export interface components {
         };
         /** DriftCompareRequest */
         DriftCompareRequest: {
+            /** Current Iac */
+            current_iac?: string | null;
             /** Live State */
             live_state: {
                 [key: string]: unknown;
@@ -9445,6 +9487,11 @@ export interface components {
             decision: string;
             /** Note */
             note?: string | null;
+        };
+        /** DriftPatchRequest */
+        DriftPatchRequest: {
+            /** Current Iac */
+            current_iac?: string | null;
         };
         /** DriftRequest */
         DriftRequest: {
@@ -14942,7 +14989,9 @@ export interface operations {
     };
     compare_baseline_api_drift_baselines__baseline_id__compare_post: {
         parameters: {
-            query?: never;
+            query?: {
+                format?: "terraform" | "bicep";
+            };
             header?: never;
             path: {
                 baseline_id: string;
@@ -14988,6 +15037,43 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["DriftFindingDecision"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    build_baseline_patch_api_drift_baselines__baseline_id__patch_post: {
+        parameters: {
+            query?: {
+                format?: "terraform" | "bicep";
+            };
+            header?: never;
+            path: {
+                baseline_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DriftPatchRequest"];
             };
         };
         responses: {
@@ -21575,7 +21661,9 @@ export interface operations {
     };
     compare_baseline_v1_api_v1_drift_baselines__baseline_id__compare_post: {
         parameters: {
-            query?: never;
+            query?: {
+                format?: "terraform" | "bicep";
+            };
             header?: never;
             path: {
                 baseline_id: string;
@@ -21621,6 +21709,43 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["DriftFindingDecision"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    build_baseline_patch_v1_api_v1_drift_baselines__baseline_id__patch_post: {
+        parameters: {
+            query?: {
+                format?: "terraform" | "bicep";
+            };
+            header?: never;
+            path: {
+                baseline_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DriftPatchRequest"];
             };
         };
         responses: {

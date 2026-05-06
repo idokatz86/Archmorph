@@ -1,7 +1,7 @@
 import logging
 from copy import deepcopy
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 from uuid import uuid4
 
 from fastapi import APIRouter
@@ -9,6 +9,7 @@ from pydantic import Field
 from strict_models import StrictBaseModel
 from error_envelope import ArchmorphException
 
+from drift_iac_patch import build_drift_iac_patch
 from services.drift_detection import DriftDetector
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,11 @@ class DriftBaselineCreate(StrictBaseModel):
 
 class DriftCompareRequest(StrictBaseModel):
     live_state: Dict[str, Any]
+    current_iac: Optional[str] = Field(default=None, max_length=200000)
+
+
+class DriftPatchRequest(StrictBaseModel):
+    current_iac: Optional[str] = Field(default=None, max_length=200000)
 
 
 class DriftFindingDecision(StrictBaseModel):
@@ -55,6 +61,15 @@ def _baseline_or_404(baseline_id: str) -> Dict[str, Any]:
 def _run_compare(designed_state: Dict[str, Any], live_state: Dict[str, Any]) -> Dict[str, Any]:
     result = _detector().detect_environmental_drift(designed_state, live_state)
     result["audit_id"] = f"audit-{uuid4().hex[:12]}"
+    return result
+
+
+def _attach_iac_patch(result: Dict[str, Any], current_iac: Optional[str], iac_format: Literal["terraform", "bicep"] = "terraform") -> Dict[str, Any]:
+    result["iac_patch"] = build_drift_iac_patch(
+        result.get("detailed_findings") or [],
+        current_iac=current_iac,
+        iac_format=iac_format,
+    )
     return result
 
 
@@ -116,6 +131,7 @@ async def detect_drift(request: DriftRequest):
     try:
         detector = DriftDetector()
         results = detector.detect_environmental_drift(request.designed_state, request.live_state)
+        _attach_iac_patch(results, current_iac=None)
         return results
     except Exception as e:
         logger.error(f"Drift detection failed: {e}")
@@ -139,6 +155,7 @@ async def create_baseline(request: DriftBaselineCreate):
     }
     if request.live_state is not None:
         result = _run_compare(request.designed_state, request.live_state)
+        _attach_iac_patch(result, current_iac=None)
         baseline["last_result"] = result
         baseline["history"].append(result)
     _BASELINES[baseline_id] = baseline
@@ -161,14 +178,37 @@ async def get_baseline(baseline_id: str):
 
 
 @router.post("/baselines/{baseline_id}/compare")
-async def compare_baseline(baseline_id: str, request: DriftCompareRequest):
+async def compare_baseline(
+    baseline_id: str,
+    request: DriftCompareRequest,
+    format: Literal["terraform", "bicep"] = "terraform",
+):
     """Run a new drift audit against a saved baseline."""
     baseline = _baseline_or_404(baseline_id)
     result = _run_compare(baseline["designed_state"], request.live_state)
+    _attach_iac_patch(result, current_iac=request.current_iac, iac_format=format)
     baseline["last_result"] = result
     baseline["history"].append(result)
     baseline["updated_at"] = _now()
     return deepcopy(result)
+
+
+@router.post("/baselines/{baseline_id}/patch")
+async def build_baseline_patch(
+    baseline_id: str,
+    request: DriftPatchRequest,
+    format: Literal["terraform", "bicep"] = "terraform",
+):
+    """Return a review-only IaC patch artifact for the latest baseline drift audit."""
+    baseline = _baseline_or_404(baseline_id)
+    result = baseline.get("last_result")
+    if not result:
+        raise ArchmorphException(status_code=404, detail="Baseline has no drift audit yet")
+    return build_drift_iac_patch(
+        result.get("detailed_findings") or [],
+        current_iac=request.current_iac,
+        iac_format=format,
+    )
 
 
 @router.patch("/baselines/{baseline_id}/findings/{finding_id}")

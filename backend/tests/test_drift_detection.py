@@ -82,13 +82,26 @@ def test_drift_baseline_compare_decision_and_report_api():
 
     compared = client.post(
         f"/api/drift/baselines/{baseline['baseline_id']}/compare",
-        json={"live_state": SAMPLE_LIVE},
+        json={
+            "live_state": SAMPLE_LIVE,
+            "current_iac": 'resource "azurerm_container_app" "api" {\n  sku = "consumption"\n}\n',
+        },
     )
     assert compared.status_code == 200
+    assert compared.json()["iac_patch"]["review_only"] is True
+    assert 'sku = "dedicated"' in compared.json()["iac_patch"]["patch"]
     finding = next(
         item for item in compared.json()["detailed_findings"]
         if item["status"] == "yellow"
     )
+
+    patch = client.post(
+        f"/api/drift/baselines/{baseline['baseline_id']}/patch?format=terraform",
+        json={"current_iac": 'resource "azurerm_container_app" "api" {\n  sku = "consumption"\n}\n'},
+    )
+    assert patch.status_code == 200
+    assert patch.json()["format"] == "terraform"
+    assert patch.json()["review_only"] is True
 
     decided = client.patch(
         f"/api/drift/baselines/{baseline['baseline_id']}/findings/{finding['finding_id']}",
