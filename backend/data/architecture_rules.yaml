@@ -842,3 +842,386 @@ rules:
         - Resource Graph
       threshold: 3
     tags: [tagging, governance, policy]
+
+  # ────────────────────────────────────────────────────────────
+  # Category 9 — Phase 3 posture expansion (#662)
+  # ────────────────────────────────────────────────────────────
+
+  - id: public-data-service-without-private-link-warning
+    title: Data services should show Private Link or network isolation
+    severity: warning
+    category: network-topology
+    message: |
+      Data-bearing services were detected without visible Private Link,
+      private endpoint, VNet, service endpoint, or firewall isolation evidence.
+      Public data-plane exposure increases exfiltration risk and makes it
+      harder to prove least-privilege network access during migration review.
+    remediation: |
+      Add Private Endpoints or service endpoints for databases, storage, and
+      vaults where possible. Document firewall rules, trusted service bypass,
+      DNS resolution, and any intentionally public endpoint exceptions.
+    docs_url: https://learn.microsoft.com/azure/private-link/private-link-overview
+    predicate: service_keywords_without_companion
+    predicate_args:
+      keywords:
+        - SQL Database
+        - PostgreSQL
+        - MySQL
+        - Cosmos DB
+        - Storage
+        - Blob
+        - Key Vault
+      companions:
+        - Private Endpoint
+        - Private Link
+        - Service Endpoint
+        - Virtual Network
+        - VNet
+        - Firewall
+    tags: [privatelink, data-plane, network-isolation]
+
+  - id: workload-secrets-without-key-vault-warning
+    title: Workloads should externalize secrets through Key Vault or workload identity
+    severity: warning
+    category: identity-auth
+    message: |
+      Application workloads were detected without a clear managed secret store,
+      managed identity, or workload identity signal. This often leads to
+      environment variables, shared keys, or repository-stored credentials
+      becoming the implicit secret-management design.
+    remediation: |
+      Use Azure Key Vault with managed identity or workload identity for every
+      compute workload. Store certificates, connection strings, API keys, and
+      rotation metadata outside application code and deployment templates.
+    docs_url: https://learn.microsoft.com/azure/key-vault/general/overview
+    predicate: service_keywords_without_companion
+    predicate_args:
+      keywords:
+        - App Service
+        - Container Apps
+        - AKS
+        - Kubernetes
+        - Azure Functions
+        - Virtual Machine
+        - API Management
+      companions:
+        - Key Vault
+        - Managed Identity
+        - Workload Identity
+        - Microsoft Entra
+        - Entra
+        - Secret Store
+    tags: [secrets, keyvault, managed-identity]
+
+  - id: observability-anchor-missing-warning
+    title: Production workloads need an observability anchor
+    severity: warning
+    category: operations
+    message: |
+      Production workload services were detected without a visible telemetry,
+      logging, alerting, or tracing anchor. Without a declared observability
+      path, incident response depends on ad-hoc portal checks and post-failure
+      instrumentation.
+    remediation: |
+      Add Application Insights, Azure Monitor, Log Analytics, OpenTelemetry,
+      managed Prometheus/Grafana, or an approved third-party telemetry stack.
+      Include alerts for availability, saturation, errors, and dependency
+      failures before production cutover.
+    docs_url: https://learn.microsoft.com/azure/azure-monitor/overview
+    predicate: service_keywords_without_companion
+    predicate_args:
+      keywords:
+        - App Service
+        - Container Apps
+        - AKS
+        - Kubernetes
+        - Azure Functions
+        - API Management
+        - SQL Database
+        - Service Bus
+        - Event Hubs
+      companions:
+        - Application Insights
+        - Azure Monitor
+        - Log Analytics
+        - OpenTelemetry
+        - Grafana
+        - Prometheus
+        - Alert
+        - Workbook
+        - Datadog
+        - Splunk
+    tags: [observability, monitoring, alerts]
+
+  - id: observability-stack-overlap-info
+    title: Multiple observability stacks need clear ownership boundaries
+    severity: info
+    category: operations
+    message: |
+      Several observability tools were detected. Multiple telemetry stacks can
+      be valid, but without ownership boundaries they commonly duplicate
+      ingestion cost, split incident response, and create competing alert rules.
+    remediation: |
+      Document the system of record for metrics, logs, traces, dashboards, and
+      paging. Route shared signals through one primary workspace or event path
+      and define which team owns each alert policy.
+    docs_url: https://learn.microsoft.com/azure/azure-monitor/best-practices
+    predicate: service_count_at_least
+    predicate_args:
+      keywords:
+        - Application Insights
+        - Azure Monitor
+        - Log Analytics
+        - Sentinel
+        - Grafana
+        - Prometheus
+        - Datadog
+        - Splunk
+      threshold: 3
+    tags: [observability, cost, operations]
+
+  - id: regulated-workload-without-policy-anchor-warning
+    title: Regulated workloads need compliance and audit anchors
+    severity: warning
+    category: governance
+    message: |
+      Regulated workload signals were detected without clear Azure Policy,
+      Defender, Purview, Sentinel, Key Vault, private endpoint, or immutable
+      audit evidence. Regulated migrations need controls visible in the target
+      architecture, not only in deployment runbooks.
+    remediation: |
+      Add compliance boundaries such as Azure Policy initiatives, Defender for
+      Cloud recommendations, Purview data governance, Sentinel audit routing,
+      Key Vault, Private Link, and immutable log or storage retention.
+    docs_url: https://learn.microsoft.com/azure/governance/policy/overview
+    predicate: service_keywords_without_companion
+    predicate_args:
+      keywords:
+        - HIPAA
+        - PCI
+        - FedRAMP
+        - PHI
+        - PII
+        - Government
+        - Confidential
+        - Healthcare
+        - Financial
+      companions:
+        - Azure Policy
+        - Defender
+        - Purview
+        - Sentinel
+        - Key Vault
+        - Private Endpoint
+        - Immutable
+        - Audit
+    tags: [regulated, compliance, audit]
+
+  - id: multi-domain-edge-validation-info
+    title: Multi-domain edge designs need DNS and certificate validation ownership
+    severity: info
+    category: network-topology
+    message: |
+      Domain, DNS, certificate, and edge-service signals were detected without
+      explicit validation or certificate-rotation ownership. Multi-domain edge
+      migrations often stall on DNS proof, SAN/wildcard constraints, or manual
+      certificate renewal paths.
+    remediation: |
+      Document DNS ownership validation, managed certificate eligibility,
+      wildcard/SAN limits, Key Vault-backed certificate rotation, and the team
+      responsible for domain cutover approvals.
+    docs_url: https://learn.microsoft.com/azure/frontdoor/standard-premium/how-to-add-custom-domain
+    predicate: service_keywords_without_companion
+    predicate_args:
+      keywords:
+        - Custom Domain
+        - DNS Zone
+        - Certificate
+        - Front Door
+        - Application Gateway
+      companions:
+        - DNS Validation
+        - Managed Certificate
+        - Certificate Rotation
+        - Key Vault
+      threshold: 3
+    tags: [dns, certificate, edge]
+
+  - id: multi-tenant-app-without-tenant-isolation-warning
+    title: Multi-tenant apps need an explicit tenant-isolation model
+    severity: warning
+    category: identity-auth
+    message: |
+      Multi-tenant or SaaS workload signals were detected without tenant
+      isolation, external identity, partitioning, or per-tenant boundary
+      evidence. Missing tenant boundaries make data leakage, noisy-neighbor
+      behavior, and support escalations much harder to contain.
+    remediation: |
+      Define the tenancy model explicitly: pooled, siloed, or hybrid. Add
+      Entra External ID/B2C where appropriate, tenant-aware partition keys,
+      row-level security, per-tenant encryption or resource boundaries, and
+      tenant-scoped observability dimensions.
+    docs_url: https://learn.microsoft.com/azure/architecture/guide/multitenant/overview
+    predicate: service_keywords_without_companion
+    predicate_args:
+      keywords:
+        - Multi-tenant
+        - SaaS
+        - Tenant
+        - Customer Portal
+      companions:
+        - Tenant Isolation
+        - Entra External ID
+        - B2C
+        - Partition Key
+        - Row-level Security
+        - Elastic Pool
+        - Per-tenant
+    tags: [multitenant, saas, isolation]
+
+  - id: service-bus-without-dead-letter-operations-warning
+    title: Service Bus workloads need dead-letter operations
+    severity: warning
+    category: data-plane
+    message: |
+      Service Bus queues, topics, or subscriptions were detected without a
+      dead-letter handling signal. Dead-letter queues are only useful when the
+      architecture includes monitoring, triage ownership, replay, and poison
+      message handling.
+    remediation: |
+      Configure dead-letter monitoring and alerts, define replay/runbook
+      ownership, track max delivery count, and make poison-message handling a
+      first-class operational workflow before cutover.
+    docs_url: https://learn.microsoft.com/azure/service-bus-messaging/service-bus-dead-letter-queues
+    predicate: service_keywords_without_companion
+    predicate_args:
+      keywords:
+        - Service Bus
+        - Queue
+        - Topic
+        - Subscription
+      companions:
+        - Dead Letter
+        - DLQ
+        - Poison Queue
+        - Replay
+      exclude_keywords:
+        - Storage Queue
+    tags: [servicebus, dlq, operations]
+
+  - id: event-hubs-without-checkpoint-storage-warning
+    title: Event Hubs consumers need durable checkpointing
+    severity: warning
+    category: data-plane
+    message: |
+      Event Hubs was detected without a checkpoint, consumer-group, or offset
+      store signal. Event Processor clients need durable checkpointing to resume
+      consumption predictably after restarts, scale-out, or failover.
+    remediation: |
+      Add Blob Storage-backed checkpointing, define consumer groups per
+      application boundary, monitor lag, and document replay behavior for
+      poison or out-of-order event handling.
+    docs_url: https://learn.microsoft.com/azure/event-hubs/event-processor-balance-partition-load
+    predicate: service_keywords_without_companion
+    predicate_args:
+      keywords:
+        - Event Hubs
+        - Event Hub
+      companions:
+        - Checkpoint
+        - Consumer Group
+        - Offset Store
+        - Blob Lease
+    tags: [eventhubs, checkpoint, streaming]
+
+  - id: public-api-without-rate-limiting-warning
+    title: Public APIs need rate limiting or request controls
+    severity: warning
+    category: security
+    message: |
+      Public API entry points were detected without rate limiting, quota,
+      throttling, WAF policy, or cache-based request control evidence. Public
+      endpoints without request controls are vulnerable to abuse, cost spikes,
+      and noisy-neighbor traffic.
+    remediation: |
+      Add API Management rate-limit/quota policies, Front Door or Application
+      Gateway WAF controls, application throttling, or Redis-backed request
+      counters. Document expected burst, sustained RPS, and client quotas.
+    docs_url: https://learn.microsoft.com/azure/api-management/rate-limit-policy
+    predicate: service_keywords_without_companion
+    predicate_args:
+      keywords:
+        - API Management
+        - API Gateway
+        - Public API
+        - Front Door
+        - Application Gateway
+        - App Service
+        - Azure Functions
+      companions:
+        - Rate Limit
+        - Throttling
+        - Quota
+        - WAF
+        - APIM Policy
+        - Redis
+    tags: [api, rate-limit, security]
+
+  - id: zone-redundancy-posture-missing-warning
+    title: Zone-capable production services need zone redundancy decisions
+    severity: warning
+    category: resilience
+    message: |
+      Zone-capable production services were detected without availability zone,
+      zone-redundant, or ZRS evidence. Region-local resilience depends on an
+      explicit zone posture; default single-zone or non-zonal deployments can
+      become hidden availability risks.
+    remediation: |
+      Decide per service whether to use zone redundancy, zonal pinning, or a
+      documented exception. Capture ZRS storage, zone-redundant gateways,
+      zone-balanced AKS/node pools, and database HA tier choices in the design.
+    docs_url: https://learn.microsoft.com/azure/reliability/availability-zones-overview
+    predicate: service_keywords_without_companion
+    predicate_args:
+      keywords:
+        - Application Gateway
+        - Azure Firewall
+        - AKS
+        - Kubernetes
+        - App Service
+        - Container Apps
+        - SQL Database
+        - PostgreSQL
+        - Storage
+        - Redis
+        - Cosmos DB
+      companions:
+        - Availability Zone
+        - Availability Zones
+        - Zone Redundant
+        - Zone-redundant
+        - ZRS
+        - AZ
+    tags: [zones, resilience, ha]
+
+  - id: premium-edge-cost-acknowledgement-info
+    title: Private-origin Front Door designs should acknowledge Premium edge cost
+    severity: info
+    category: cost
+    message: |
+      Front Door with private endpoint or Private Link origin evidence was
+      detected. That architecture normally requires Front Door Premium, which
+      can be the right choice but should be an explicit cost and capability
+      decision rather than an incidental dependency.
+    remediation: |
+      Confirm traffic volume, WAF requirements, private-origin value, and
+      monthly edge cost before committing. If private origin is not required,
+      compare Standard Front Door with origin hardening using service tags,
+      FDID headers, and application-level access controls.
+    docs_url: https://learn.microsoft.com/azure/frontdoor/private-link
+    predicate: services_all_present
+    predicate_args:
+      names:
+        - Front Door
+        - Private Endpoint
+    tags: [frontdoor, cost, premium]
