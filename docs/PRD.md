@@ -4,13 +4,13 @@
 **Date:** May 3, 2026
 **Author:** Ido Katz
 
-**Release Note:** Secure icon-pack ingestion gate and Architecture Package documentation refresh.
+**Release Note:** Off-spine Agent PaaS proof and RAG API surfaces retired from the active backend contract.
 
 ---
 
 ## 1. Executive Summary
 
-Archmorph is an AI-assisted cloud migration workbench in preview/stabilization. Its live product path converts uploaded AWS/GCP architecture diagrams into Azure migration artifacts: detected services, confidence-scored mappings, guided migration questions, IaC drafts, HLD/report exports, Architecture Package HTML/SVG deliverables, and cost estimates. The application is 100% free for customers: no subscriptions, paid tiers, billing setup, or hidden fees are required. The platform codebase also contains beta and scaffolded modules for collaboration, replay, gallery, RAG/Agent PaaS, Terraform state import, scanner, deploy, and drift.
+Archmorph is an AI-assisted cloud migration workbench in preview/stabilization. Its live product path converts uploaded AWS/GCP architecture diagrams into Azure migration artifacts: detected services, confidence-scored mappings, guided migration questions, IaC drafts, HLD/report exports, Architecture Package HTML/SVG deliverables, and cost estimates. The application is 100% free for customers: no subscriptions, paid tiers, billing setup, or hidden fees are required. The platform codebase also contains beta and scaffolded modules for collaboration, replay, gallery, Terraform state import, scanner, deploy, and drift.
 
 The PRD distinguishes three maturity levels. **Live** features are usable in the core flow and should remain protected by CI. **Beta** features are implemented but need production validation, UX hardening, or broader tests. **Scaffold** features have routes, UI, or models present but must not be described as production-ready until cloud/provider execution is verified.
 
@@ -23,7 +23,7 @@ The PRD distinguishes three maturity levels. **Live** features are usable in the
 | Maturity | Capabilities |
 |----------|--------------|
 | Live | Diagram upload, sample playground, service mapping, guided questions, IaC/HLD/report export, Architecture Package HTML/SVG export, cost estimates, service catalog freshness health, admin health/release evidence, auth shell, API versioning, CI/security gates |
-| Beta | RAG, Agent PaaS proof, cost/token observability, collaboration, migration gallery, migration replay, Terraform state import, multi-cloud cost comparison, **Azure Landing Zone target diagram** (multi-source: AWS + GCP; T3 fidelity in progress under epic #586) |
+| Beta | Cost/token observability, collaboration, migration gallery, migration replay, Terraform state import, multi-cloud cost comparison, **Azure Landing Zone target diagram** (multi-source: AWS + GCP; T3 fidelity in progress under epic #586) |
 | Scaffold | Live cloud scanner, credential vault, deploy engine production validation |
 | Beta/Hardening | Living architecture/drift baselines, admin release gates, release evidence, dependency/security remediation workflow |
 | Planned | VS Code extension, PR-based IaC workflows, multi-diagram projects |
@@ -567,10 +567,7 @@ Only when 1–7 all green does the README/PRD Capability Status table flip ALZ r
 | `iac_generator` + `iac_chat` | `gpt-5.3-codex` (fallback `gpt-5.4`) | GA, Codex-tuned, Responses API; better at HCL/Bicep |
 | `hld_generator` | `gpt-5.4` | 1 M in / 128 K out, structured outputs, vision |
 | `mapping_suggester` | `gpt-5.4-mini` | Mid-tier reasoning, cheap, identical capabilities to `gpt-5.4` at ~⅓ cost |
-| `agent_paas_react` | `gpt-5.4-mini` | Parallel tool calling + cost |
 | `retention_anonymizer` | `gpt-5.4-nano` | Smallest GA, fast, deterministic |
-| Embeddings (RAG) | `text-embedding-3-large` | Latest GA embedding; no migration needed |
-| Re-rank (RAG hybrid search) | `Cohere-rerank-v4.0-fast` | Drop-in upgrade |
 | **GA judge (#604)** | **`gpt-5-pro`** (locked) | Decoupled from any production model → unbiased verdict |
 
 **Avoid in production**: every `*-chat` Preview tag (`gpt-5.5-chat`, `gpt-5.4-chat`, `gpt-5.3-chat`, `gpt-5.2-chat`, `gpt-5-chat`), `o1-preview`, `gpt-4o-realtime-preview`, anything tagged Preview — Microsoft explicitly says "We don't recommend using preview models in production."
@@ -924,7 +921,7 @@ Only when 1–7 all green does the README/PRD Capability Status table flip ALZ r
 | **v3.8.0 — Complete Migration Flow** | Done | Migration package ZIP export (IaC + HLD + costs), before/after architecture visualization, guided onboarding tour, CI coverage gate (60%), stale bot, migration Q&A chat advisor |
 | **v3.8.1 — UX Polish & Bug Bash** | Done | Fix HLD generation 500 crashes, recover missing Map layers, unblock IaC dynamic modifications, populate Coming Soon tab, and Drift Alpha warnings |
 | **v3.9.0 — AI Upgrade & Architecture Map** | Done | GPT-4.1 with 32K output tokens, interactive Architecture Map (dagre layout, confidence rings, effort badges, typed edges, zone grouping, MiniMap), email notifications via Azure Communication Services, IaC diff highlighting, parallel IaC+HLD generation, limitations UX redesign, Deploy/Drift Coming Soon overlays |
-| **v4.0 — Platform Maturity** | Mixed | RAG, Agent PaaS proof, cost/token observability, AI mapping suggestions, migration timeline, service dependency graph, social auth, user profiles, RBAC/multi-tenant, PDF report export, and DevOps modernization are implemented/beta. Scanner/deploy paths remain hardening work. |
+| **v4.0 — Platform Maturity** | Mixed | RAG and Agent PaaS proof experiments, cost/token observability, AI mapping suggestions, migration timeline, service dependency graph, social auth, user profiles, RBAC/multi-tenant, PDF report export, and DevOps modernization landed during the platform-maturity wave. RAG/Agent PaaS were later retired from the active API contract. Scanner/deploy paths remain hardening work. |
 | **v4.1 — Release Hardening** | Mixed | Drift baselines, admin release gate, post-deploy smoke, dependency/security remediation, release evidence, and warning cleanup are implemented. Live scanner/deploy execution remains scaffolded/operator-gated; SSO/org/profile routes were later retired from the active API during v4.3 main convergence. Customer billing is not part of the release path. |
 
 ---
@@ -982,7 +979,7 @@ Only when 1–7 all green does the README/PRD Capability Status table flip ALZ r
 | **Migration replay** | Animated analysis timeline for presentations | Engineering | P3 | #254 |
 | **Migration Gallery** | Public anonymized success stories from community | Engineering | P2 | #256 |
 | **Public API & webhooks** | Enterprise integrations (Slack, Teams, Jira) | Engineering | P2 | #259 |
-| **AI Agent PaaS** | Control/Runtime design with routing/memory/policy | Engineering | P1 | #319 |
+| **AI Agent PaaS** | Retired from active API surface; revisit only with a concrete customer workflow and production ownership model | Engineering | P3 | #319 |
 | **Live Cloud Discovery & Auto-Deploy** | End-to-end migration execution platform | Engineering | P1 | #321 |
 | **GitHub Actions reliability** | Keep CI runners healthy; backend coverage, frontend lint, and frontend tests are hard gates | DevOps | High | #320 |
 
