@@ -793,6 +793,20 @@ export default function DiagramTranslator() {
     setTimeout(() => iacChatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
   };
 
+  const handlePushPr = async ({ repo, baseBranch, targetPath, githubToken }) => {
+    const payload = {
+      repo,
+      iac_code: state.iacCode,
+      iac_format: normalizeIacFormat(state.iacFormat),
+      base_branch: baseBranch || 'main',
+      target_path: targetPath || undefined,
+      github_token: githubToken || undefined,
+      analysis_summary: state.analysis || {},
+      cost_estimate: state.costEstimate || state.costBreakdown || {},
+    };
+    return api.post('/integrations/github/push-pr', payload, undefined, 120_000);
+  };
+
   const handleNotifyEmail = async (email) => {
     try {
       await api.post(`/diagrams/${state.diagramId}/notify-email`, {
@@ -894,6 +908,7 @@ export default function DiagramTranslator() {
           onResetChat={handleResetChat}
           onSendChat={handleIacChat}
           onSetChatInput={(v) => set({ iacChatInput: v })}
+          onPushPr={handlePushPr}
         />
       ) : tab.id === 'hld' ? (
         <HLDTab

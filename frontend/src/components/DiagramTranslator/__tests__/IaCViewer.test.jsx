@@ -31,6 +31,7 @@ describe('IaCViewer', () => {
     onResetChat: vi.fn(),
     onSendChat: vi.fn(),
     onSetChatInput: vi.fn(),
+    onPushPr: vi.fn(),
   }
 
   it('renders Terraform Code title', () => {
@@ -58,6 +59,28 @@ describe('IaCViewer', () => {
     render(<IaCViewer {...defaultProps} />)
     expect(screen.getByText('Copy')).toBeInTheDocument()
     expect(screen.getByText('Download')).toBeInTheDocument()
+    expect(screen.getByText('Push PR')).toBeInTheDocument()
+  })
+
+  it('creates a GitHub PR from the inline publish panel', async () => {
+    const user = userEvent.setup()
+    const onPushPr = vi.fn().mockResolvedValue({ pr_url: 'https://github.com/acme/infra/pull/7' })
+    render(<IaCViewer {...defaultProps} onPushPr={onPushPr} />)
+
+    await user.click(screen.getByText('Push PR'))
+    await user.type(screen.getByLabelText('Repository'), 'acme/infra')
+    await user.clear(screen.getByLabelText('Base'))
+    await user.type(screen.getByLabelText('Base'), 'develop')
+    await user.type(screen.getByLabelText('Path'), 'deploy/main.tf')
+    await user.click(screen.getByText('Create PR'))
+
+    expect(onPushPr).toHaveBeenCalledWith({
+      repo: 'acme/infra',
+      baseBranch: 'develop',
+      targetPath: 'deploy/main.tf',
+      githubToken: undefined,
+    })
+    expect(await screen.findByText('Open pull request')).toHaveAttribute('href', 'https://github.com/acme/infra/pull/7')
   })
 
   it('renders IaC Assistant section', () => {
