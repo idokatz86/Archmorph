@@ -346,6 +346,8 @@ async def export_migration_package(request: Request, diagram_id: str, _auth=Depe
             include_diagrams = body.get("include_diagrams", True)
     except Exception:
         pass
+    if iac_format not in {"terraform", "bicep"}:
+        raise ArchmorphException(422, "IaC format must be 'terraform' or 'bicep'.")
 
     session = await _ensure_hld(session, diagram_id)
 
@@ -355,7 +357,7 @@ async def export_migration_package(request: Request, diagram_id: str, _auth=Depe
         # 1. IaC code
         iac_code = session.get("generated_iac", "")
         if iac_code:
-            ext = {"terraform": "tf", "bicep": "bicep", "cloudformation": "yaml"}.get(iac_format, "tf")
+            ext = {"terraform": "tf", "bicep": "bicep"}[iac_format]
             zf.writestr(f"infrastructure/main.{ext}", iac_code)
 
         # 2. Analysis summary

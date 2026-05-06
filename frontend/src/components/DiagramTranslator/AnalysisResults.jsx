@@ -416,7 +416,7 @@ export default function AnalysisResults({
             <Loader2 className="w-5 h-5 text-cta animate-spin shrink-0" aria-hidden="true" />
             <div>
               <p className="text-sm text-text-primary font-medium">
-                {genProgress || `Generating ${iacFormat === 'terraform' ? 'Terraform' : iacFormat === 'bicep' ? 'Bicep' : iacFormat === 'pulumi' ? 'Pulumi' : iacFormat === 'aws-cdk' ? 'AWS CDK' : 'CloudFormation'} code...`}
+                {genProgress || `Generating ${iacFormat === 'terraform' ? 'Terraform' : 'Bicep'} code...`}
               </p>
               {genProgress && <p className="text-xs text-text-muted mt-0.5">Generating IaC + HLD together to save you time</p>}
             </div>
@@ -467,9 +467,6 @@ export default function AnalysisResults({
         <div className="flex flex-wrap items-center gap-2 justify-end">
           <Button onClick={() => onGenerateIac('terraform')} loading={loading && iacFormat === 'terraform'} icon={FileCode}>Terraform</Button>
           <Button onClick={() => onGenerateIac('bicep')} variant="secondary" loading={loading && iacFormat === 'bicep'} icon={FileCode}>Bicep</Button>
-          <Button onClick={() => onGenerateIac('cloudformation')} variant="secondary" loading={loading && iacFormat === 'cloudformation'} icon={FileCode}>CloudFormation</Button>
-          <Button onClick={() => onGenerateIac('pulumi')} variant="secondary" loading={loading && iacFormat === 'pulumi'} icon={FileCode}>Pulumi</Button>
-          <Button onClick={() => onGenerateIac('aws-cdk')} variant="secondary" loading={loading && iacFormat === 'aws-cdk'} icon={FileCode}>AWS CDK</Button>
         </div>
       </div>
     </div>

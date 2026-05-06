@@ -43,7 +43,6 @@
     "analyzing": "Analyzing your diagram…",
     "generate_terraform": "Generate Terraform",
     "generate_bicep": "Generate Bicep",
-    "generate_cloudformation": "CloudFormation",
     "generate_hld": "Generate HLD",
     "back_to_questions": "Back to Questions"
   },

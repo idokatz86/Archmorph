@@ -5,8 +5,8 @@ YAML entries in `backend/data/architecture_rules.yaml`; predicates are Python
 helpers registered in `predicates.py`; `engine.py` loads and evaluates the
 library against a `vision_analyzer` analysis result.
 
-The current library has 30 curated rules. Issue #662 expands it to 40+ rules
-without changing the public API or moving rules out of YAML.
+The current library has 42 curated rules. Issue #662 expands it past the 40+
+rule target without changing the public API or moving rules out of YAML.
 
 ## Rule Schema
 

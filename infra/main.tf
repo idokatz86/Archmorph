@@ -214,15 +214,15 @@ resource "azurerm_postgresql_flexible_server_firewall_rule" "allow_azure" {
 # Azure Cache for Redis — session store & caching layer
 # ─────────────────────────────────────────────────────────────
 resource "azurerm_redis_cache" "main" {
-  name                               = "archmorph-redis-${local.name_suffix}"
-  resource_group_name                = azurerm_resource_group.main.name
-  location                           = azurerm_resource_group.main.location
-  capacity                           = var.redis_capacity
-  family                             = var.environment == "prod" ? "C" : "C"
-  sku_name                           = var.environment == "prod" ? "Standard" : "Basic"
-  non_ssl_port_enabled               = false # TLS-only (port 6380)
-  minimum_tls_version                = "1.2"
-  public_network_access_enabled      = var.environment == "prod" ? false : true
+  name                          = "archmorph-redis-${local.name_suffix}"
+  resource_group_name           = azurerm_resource_group.main.name
+  location                      = azurerm_resource_group.main.location
+  capacity                      = var.redis_capacity
+  family                        = var.environment == "prod" ? "C" : "C"
+  sku_name                      = var.environment == "prod" ? "Standard" : "Basic"
+  non_ssl_port_enabled          = false # TLS-only (port 6380)
+  minimum_tls_version           = "1.2"
+  public_network_access_enabled = var.environment == "prod" ? false : true
   # access_key_authentication_disabled = false # Required for REDIS_URL access key auth (#320)
 
   redis_configuration {
@@ -409,10 +409,10 @@ resource "azurerm_container_app" "backend" {
     # app itself 502s/503s or times out (Container Apps returns its own
     # error page which would otherwise strip application-level CORS).
     cors {
-      allowed_origins   = [var.frontend_url, "https://www.archmorphai.com"]
-      allowed_methods   = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"]
-      allowed_headers   = ["Content-Type", "Authorization", "X-API-Key", "X-Correlation-ID"]
-      exposed_headers = ["X-Correlation-ID", "X-Response-Time"]
+      allowed_origins    = [var.frontend_url, "https://www.archmorphai.com"]
+      allowed_methods    = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"]
+      allowed_headers    = ["Content-Type", "Authorization", "X-API-Key", "X-Correlation-ID"]
+      exposed_headers    = ["X-Correlation-ID", "X-Response-Time"]
       max_age_in_seconds = 3600
     }
   }

@@ -625,189 +625,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/agent-paas/agents": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List Agents
-         * @description List all agents (excludes archived).
-         */
-        get: operations["list_agents_api_agent_paas_agents_get"];
-        put?: never;
-        /**
-         * Create Agent
-         * @description Create a new agent with name, model, and system prompt.
-         */
-        post: operations["create_agent_api_agent_paas_agents_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/agent-paas/agents/{agent_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Agent
-         * @description Get a single agent by ID.
-         */
-        get: operations["get_agent_api_agent_paas_agents__agent_id__get"];
-        /**
-         * Update Agent
-         * @description Update an agent's configuration.
-         */
-        put: operations["update_agent_api_agent_paas_agents__agent_id__put"];
-        post?: never;
-        /**
-         * Delete Agent
-         * @description Archive an agent (soft delete).
-         */
-        delete: operations["delete_agent_api_agent_paas_agents__agent_id__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/agent-paas/agents/{agent_id}/execute": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Execute Agent
-         * @description Execute an agent with a user message using a ReAct loop.
-         *
-         *     1. Load agent config (system prompt, tools, RAG collections)
-         *     2. If RAG collections configured, search for relevant context
-         *     3. Build messages array: system prompt + RAG context + user message
-         *     4. Call OpenAI with function calling (if tools attached)
-         *     5. ReAct loop (max 3 iterations): tool calls → observe → re-call
-         *     6. Track token usage and calculate cost
-         */
-        post: operations["execute_agent_api_agent_paas_agents__agent_id__execute_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/agent-paas/agents/{agent_id}/executions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List Agent Executions
-         * @description List past executions for an agent.
-         */
-        get: operations["list_agent_executions_api_agent_paas_agents__agent_id__executions_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/agent-paas/agents/{agent_id}/tools": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List Agent Tools
-         * @description List tools attached to an agent.
-         */
-        get: operations["list_agent_tools_api_agent_paas_agents__agent_id__tools_get"];
-        put?: never;
-        /**
-         * Attach Tool
-         * @description Attach a built-in tool to an agent.
-         */
-        post: operations["attach_tool_api_agent_paas_agents__agent_id__tools_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/agent-paas/cost/summary": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Cost Summary
-         * @description Get aggregate cost summary across all executions.
-         */
-        get: operations["cost_summary_api_agent_paas_cost_summary_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/agent-paas/executions/{execution_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Execution
-         * @description Get details of a specific execution.
-         */
-        get: operations["get_execution_api_agent_paas_executions__execution_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/agent-paas/tools": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List Available Tools
-         * @description List all built-in tools available for attachment.
-         */
-        get: operations["list_available_tools_api_agent_paas_tools_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/agents/{agent_id}/memory/": {
         parameters: {
             query?: never;
@@ -1743,89 +1560,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/diagrams/{diagram_id}/best-practices": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Best Practices
-         * @description Analyze architecture against Azure Well-Architected Framework.
-         */
-        get: operations["get_best_practices_api_diagrams__diagram_id__best_practices_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/diagrams/{diagram_id}/compliance": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Compliance Mapping
-         * @description Map detected Azure services to compliance framework controls.
-         *
-         *     Returns per-framework readiness scores, covered controls, gaps,
-         *     and prioritised remediation recommendations.
-         */
-        get: operations["compliance_mapping_api_diagrams__diagram_id__compliance_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/diagrams/{diagram_id}/compliance/export": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Compliance Export
-         * @description Export compliance report as JSON or Markdown.
-         */
-        get: operations["compliance_export_api_diagrams__diagram_id__compliance_export_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/diagrams/{diagram_id}/compliance/gaps": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Compliance Gaps
-         * @description Return gap analysis sorted by severity across requested frameworks.
-         */
-        get: operations["compliance_gaps_api_diagrams__diagram_id__compliance_gaps_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/diagrams/{diagram_id}/cost-assumptions": {
         parameters: {
             query?: never;
@@ -2542,29 +2276,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/diagrams/{diagram_id}/risk-score": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Risk Score
-         * @description Compute the Migration Risk Score (MRS) for a diagram analysis.
-         *
-         *     Returns a composite score (0-100) with per-factor breakdown,
-         *     risk tier, and actionable recommendations.
-         */
-        get: operations["get_risk_score_api_diagrams__diagram_id__risk_score_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/diagrams/{diagram_id}/share": {
         parameters: {
             query?: never;
@@ -2834,6 +2545,26 @@ export interface paths {
          * @description Accept, reject, defer, or reopen a drift finding.
          */
         patch: operations["decide_finding_api_drift_baselines__baseline_id__findings__finding_id__patch"];
+        trace?: never;
+    };
+    "/api/drift/baselines/{baseline_id}/patch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Build Baseline Patch
+         * @description Return a review-only IaC patch artifact for the latest baseline drift audit.
+         */
+        post: operations["build_baseline_patch_api_drift_baselines__baseline_id__patch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/drift/baselines/{baseline_id}/report": {
@@ -3736,6 +3467,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{project_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Project Status
+         * @description Return project metadata and per-diagram analysis status.
+         */
+        get: operations["get_project_status_api_projects__project_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/analysis": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Project Analysis
+         * @description Return a deterministic combined analysis for all analyzed project diagrams.
+         */
+        get: operations["get_project_analysis_api_projects__project_id__analysis_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{project_id}/diagrams": {
         parameters: {
             query?: never;
@@ -3759,91 +3530,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/rag/collections": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List Collections
-         * @description List all document collections.
-         */
-        get: operations["list_collections_api_rag_collections_get"];
-        put?: never;
-        /**
-         * Create Collection
-         * @description Create a new document collection for RAG.
-         */
-        post: operations["create_collection_api_rag_collections_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/rag/collections/{collection_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Delete Collection
-         * @description Delete a document collection and all its documents.
-         */
-        delete: operations["delete_collection_api_rag_collections__collection_id__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/rag/collections/{collection_id}/documents": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List Documents
-         * @description List all documents in a collection.
-         */
-        get: operations["list_documents_api_rag_collections__collection_id__documents_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/rag/collections/{collection_id}/documents/{document_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Remove Document
-         * @description Remove a document from a collection.
-         */
-        delete: operations["remove_document_api_rag_collections__collection_id__documents__document_id__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/rag/collections/{collection_id}/ingest": {
+    "/api/projects/{project_id}/generate": {
         parameters: {
             query?: never;
             header?: never;
@@ -3853,54 +3540,10 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Ingest Document
-         * @description Upload and ingest a document into a collection.
-         *
-         *     Supports: PDF, DOCX, TXT, MD, HTML, CSV, JSON, YAML, XML, TF, Bicep
+         * Generate Project Iac
+         * @description Generate unified Infrastructure as Code from combined project analysis.
          */
-        post: operations["ingest_document_api_rag_collections__collection_id__ingest_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/rag/collections/{collection_id}/stats": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Collection Stats
-         * @description Get statistics for a document collection.
-         */
-        get: operations["collection_stats_api_rag_collections__collection_id__stats_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/rag/search": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Search
-         * @description Semantic search across document collections.
-         *
-         *     Uses hybrid scoring (vector similarity + BM25 keyword matching).
-         */
-        post: operations["search_api_rag_search_post"];
+        post: operations["generate_project_iac_api_projects__project_id__generate_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4535,6 +4178,66 @@ export interface paths {
          * @description AI-powered Azure mapping suggestion for a single source service.
          */
         post: operations["api_suggest_mapping_api_suggest_mapping_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Templates
+         * @description Browse curated architecture templates.
+         */
+        get: operations["list_templates_api_templates_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/templates/{template_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Template
+         * @description Get one curated architecture template.
+         */
+        get: operations["get_template_api_templates__template_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/templates/{template_id}/analyze": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Analyze Template
+         * @description Create a translator-ready deterministic analysis for a template.
+         */
+        post: operations["analyze_template_api_templates__template_id__analyze_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6134,89 +5837,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/diagrams/{diagram_id}/best-practices": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Best Practices V1
-         * @description Analyze architecture against Azure Well-Architected Framework.
-         */
-        get: operations["get_best_practices_v1_api_v1_diagrams__diagram_id__best_practices_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/diagrams/{diagram_id}/compliance": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Compliance Mapping V1
-         * @description Map detected Azure services to compliance framework controls.
-         *
-         *     Returns per-framework readiness scores, covered controls, gaps,
-         *     and prioritised remediation recommendations.
-         */
-        get: operations["compliance_mapping_v1_api_v1_diagrams__diagram_id__compliance_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/diagrams/{diagram_id}/compliance/export": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Compliance Export V1
-         * @description Export compliance report as JSON or Markdown.
-         */
-        get: operations["compliance_export_v1_api_v1_diagrams__diagram_id__compliance_export_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/diagrams/{diagram_id}/compliance/gaps": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Compliance Gaps V1
-         * @description Return gap analysis sorted by severity across requested frameworks.
-         */
-        get: operations["compliance_gaps_v1_api_v1_diagrams__diagram_id__compliance_gaps_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/diagrams/{diagram_id}/cost-assumptions": {
         parameters: {
             query?: never;
@@ -6836,29 +6456,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/diagrams/{diagram_id}/risk-score": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Risk Score V1
-         * @description Compute the Migration Risk Score (MRS) for a diagram analysis.
-         *
-         *     Returns a composite score (0-100) with per-factor breakdown,
-         *     risk tier, and actionable recommendations.
-         */
-        get: operations["get_risk_score_v1_api_v1_diagrams__diagram_id__risk_score_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/diagrams/{diagram_id}/terraform-preview": {
         parameters: {
             query?: never;
@@ -7048,6 +6645,26 @@ export interface paths {
          * @description Accept, reject, defer, or reopen a drift finding.
          */
         patch: operations["decide_finding_v1_api_v1_drift_baselines__baseline_id__findings__finding_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/drift/baselines/{baseline_id}/patch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Build Baseline Patch V1
+         * @description Return a review-only IaC patch artifact for the latest baseline drift audit.
+         */
+        post: operations["build_baseline_patch_v1_api_v1_drift_baselines__baseline_id__patch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/drift/baselines/{baseline_id}/report": {
@@ -7710,6 +7327,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{project_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Project Status V1
+         * @description Return project metadata and per-diagram analysis status.
+         */
+        get: operations["get_project_status_v1_api_v1_projects__project_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/analysis": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Project Analysis V1
+         * @description Return a deterministic combined analysis for all analyzed project diagrams.
+         */
+        get: operations["get_project_analysis_v1_api_v1_projects__project_id__analysis_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}/diagrams": {
         parameters: {
             query?: never;
@@ -7727,6 +7384,26 @@ export interface paths {
          *     configured MAX_UPLOAD_SIZE limit.
          */
         post: operations["upload_diagram_v1_api_v1_projects__project_id__diagrams_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Generate Project Iac V1
+         * @description Generate unified Infrastructure as Code from combined project analysis.
+         */
+        post: operations["generate_project_iac_v1_api_v1_projects__project_id__generate_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -8223,6 +7900,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Templates V1
+         * @description Browse curated architecture templates.
+         */
+        get: operations["list_templates_v1_api_v1_templates_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/templates/{template_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Template V1
+         * @description Get one curated architecture template.
+         */
+        get: operations["get_template_v1_api_v1_templates__template_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/templates/{template_id}/analyze": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Analyze Template V1
+         * @description Create a translator-ready deterministic analysis for a template.
+         */
+        post: operations["analyze_template_v1_api_v1_templates__template_id__analyze_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/terraform/state/{project_id}/{environment}": {
         parameters: {
             query?: never;
@@ -8566,26 +8303,6 @@ export interface components {
             /** Total Tokens */
             total_tokens: number;
         };
-        /** AgentCreate */
-        AgentCreate: {
-            /**
-             * Model
-             * @default gpt-4o
-             */
-            model: string;
-            /** Name */
-            name: string;
-            /**
-             * Rag Collections
-             * @default []
-             */
-            rag_collections: string[];
-            /**
-             * System Prompt
-             * @default You are a helpful AI assistant.
-             */
-            system_prompt: string;
-        };
         /** AgentCreateSchema */
         AgentCreateSchema: {
             /**
@@ -8611,27 +8328,6 @@ export interface components {
                 [key: string]: unknown;
             }[];
         };
-        /** AgentResponse */
-        AgentResponse: {
-            /** Created At */
-            created_at: string;
-            /** Id */
-            id: string;
-            /** Model */
-            model: string;
-            /** Name */
-            name: string;
-            /** Rag Collections */
-            rag_collections: string[];
-            /** Status */
-            status: string;
-            /** System Prompt */
-            system_prompt: string;
-            /** Tools */
-            tools: string[];
-            /** Updated At */
-            updated_at: string;
-        };
         /** AgentResponseSchema */
         AgentResponseSchema: {
             /** Description */
@@ -8646,19 +8342,6 @@ export interface components {
             status: string;
             /** Version */
             version: string;
-        };
-        /** AgentUpdate */
-        AgentUpdate: {
-            /** Model */
-            model?: string | null;
-            /** Name */
-            name?: string | null;
-            /** Rag Collections */
-            rag_collections?: string[] | null;
-            /** Status */
-            status?: string | null;
-            /** System Prompt */
-            system_prompt?: string | null;
         };
         /** AgentUpdateSchema */
         AgentUpdateSchema: {
@@ -8738,11 +8421,6 @@ export interface components {
         };
         /** Body_import_terraform_v1_api_v1_import_terraform_post */
         Body_import_terraform_v1_api_v1_import_terraform_post: {
-            /** File */
-            file: string;
-        };
-        /** Body_ingest_document_api_rag_collections__collection_id__ingest_post */
-        Body_ingest_document_api_rag_collections__collection_id__ingest_post: {
             /** File */
             file: string;
         };
@@ -8893,34 +8571,6 @@ export interface components {
              * @default default
              */
             session_id: string | null;
-        };
-        /** CollectionResponse */
-        CollectionResponse: {
-            /** Collection Id */
-            collection_id: string;
-            /** Created At */
-            created_at: string;
-            /** Description */
-            description: string;
-            /** Name */
-            name: string;
-        };
-        /** CollectionStats */
-        CollectionStats: {
-            /** Chunk Count */
-            chunk_count: number;
-            /** Collection Id */
-            collection_id: string;
-            /** Created At */
-            created_at: string;
-            /** Description */
-            description: string;
-            /** Document Count */
-            document_count: number;
-            /** Name */
-            name: string;
-            /** Total Tokens */
-            total_tokens: number;
         };
         /** CostAlert */
         CostAlert: {
@@ -9079,23 +8729,6 @@ export interface components {
             /** Type */
             type: string;
         };
-        /** CostSummary */
-        CostSummary: {
-            /** Per Agent */
-            per_agent: {
-                [key: string]: unknown;
-            }[];
-            /** Total Completion Tokens */
-            total_completion_tokens: number;
-            /** Total Cost Usd */
-            total_cost_usd: number;
-            /** Total Executions */
-            total_executions: number;
-            /** Total Prompt Tokens */
-            total_prompt_tokens: number;
-            /** Total Tokens */
-            total_tokens: number;
-        };
         /** CostZoneInput */
         CostZoneInput: {
             /**
@@ -9105,16 +8738,6 @@ export interface components {
             name: string;
             /** Services */
             services: components["schemas"]["CostServiceInput"][];
-        };
-        /** CreateCollectionRequest */
-        CreateCollectionRequest: {
-            /**
-             * Description
-             * @default
-             */
-            description: string;
-            /** Name */
-            name: string;
         };
         /** CreateKeyRequest */
         CreateKeyRequest: {
@@ -9261,26 +8884,6 @@ export interface components {
             /** Project Id */
             project_id: string;
         };
-        /** DocumentResponse */
-        DocumentResponse: {
-            /** Chunk Count */
-            chunk_count: number;
-            /** Content Hash */
-            content_hash: string;
-            /** Document Id */
-            document_id: string;
-            /** File Size */
-            file_size: number;
-            /** Filename */
-            filename: string;
-            /** Ingested At */
-            ingested_at: string;
-            /**
-             * Mime Type
-             * @default
-             */
-            mime_type: string;
-        };
         /** DocumentResponseSchema */
         DocumentResponseSchema: {
             /** Chunk Count */
@@ -9314,6 +8917,8 @@ export interface components {
         };
         /** DriftCompareRequest */
         DriftCompareRequest: {
+            /** Current Iac */
+            current_iac?: string | null;
             /** Live State */
             live_state: {
                 [key: string]: unknown;
@@ -9325,6 +8930,11 @@ export interface components {
             decision: string;
             /** Note */
             note?: string | null;
+        };
+        /** DriftPatchRequest */
+        DriftPatchRequest: {
+            /** Current Iac */
+            current_iac?: string | null;
         };
         /** DriftRequest */
         DriftRequest: {
@@ -9361,11 +8971,6 @@ export interface components {
             /** Tags */
             tags: string[];
         };
-        /** ExecuteRequest */
-        ExecuteRequest: {
-            /** Message */
-            message: string;
-        };
         /** ExecutionInputSchema */
         ExecutionInputSchema: {
             /** Agent Id */
@@ -9381,33 +8986,6 @@ export interface components {
             stream: boolean;
             /** Thread Id */
             thread_id?: string | null;
-        };
-        /** ExecutionResponse */
-        ExecutionResponse: {
-            /** Agent Id */
-            agent_id: string;
-            /** Cost Usd */
-            cost_usd: number;
-            /** Created At */
-            created_at: string;
-            /** Execution Time Ms */
-            execution_time_ms: number;
-            /** Id */
-            id: string;
-            /** Rag Context Used */
-            rag_context_used: boolean;
-            /** Response */
-            response: string;
-            /** Token Usage */
-            token_usage: {
-                [key: string]: number;
-            };
-            /** Tool Calls Made */
-            tool_calls_made: {
-                [key: string]: unknown;
-            }[];
-            /** User Message */
-            user_message: string;
         };
         /** ExecutionResponseSchema */
         ExecutionResponseSchema: {
@@ -9565,8 +9143,9 @@ export interface components {
             /**
              * Format
              * @default terraform
+             * @enum {string}
              */
-            format: string;
+            format: "terraform" | "bicep";
             /** Message */
             message: string;
         };
@@ -9587,32 +9166,6 @@ export interface components {
              * @default auto
              */
             format: string;
-        };
-        /** IngestResponse */
-        IngestResponse: {
-            /** Chunk Count */
-            chunk_count: number;
-            /**
-             * Content Hash
-             * @default
-             */
-            content_hash: string;
-            /** Document Id */
-            document_id: string;
-            /**
-             * File Size
-             * @default 0
-             */
-            file_size: number;
-            /** Filename */
-            filename: string;
-            /**
-             * Message
-             * @default
-             */
-            message: string;
-            /** Status */
-            status: string;
         };
         /** JiraCreateRequest */
         JiraCreateRequest: {
@@ -9943,10 +9496,11 @@ export interface components {
             iac_code: string;
             /**
              * Iac Format
-             * @description terraform, bicep, cloudformation, pulumi, aws-cdk
+             * @description terraform or bicep
              * @default terraform
+             * @enum {string}
              */
-            iac_format: string;
+            iac_format: "terraform" | "bicep";
             /**
              * Repo
              * @description GitHub repo in owner/repo format
@@ -10007,59 +9561,6 @@ export interface components {
         SaveVersionRequest: {
             /** Label */
             label?: string | null;
-        };
-        /** SearchRequest */
-        SearchRequest: {
-            /** Collection Ids */
-            collection_ids?: string[] | null;
-            /** Metadata Filter */
-            metadata_filter?: {
-                [key: string]: string;
-            } | null;
-            /**
-             * Min Score
-             * @default 0
-             */
-            min_score: number;
-            /** Query */
-            query: string;
-            /**
-             * Top K
-             * @default 5
-             */
-            top_k: number;
-        };
-        /** SearchResponse */
-        SearchResponse: {
-            /** Query */
-            query: string;
-            /** Results */
-            results: components["schemas"]["SearchResultItem"][];
-            /** Total Results */
-            total_results: number;
-        };
-        /** SearchResultItem */
-        SearchResultItem: {
-            /** Bm25 Score */
-            bm25_score: number;
-            /** Chunk Index */
-            chunk_index: number;
-            /** Collection Id */
-            collection_id: string;
-            /** Collection Name */
-            collection_name: string;
-            /** Document Id */
-            document_id: string;
-            /** Page */
-            page: number;
-            /** Score */
-            score: number;
-            /** Source Document */
-            source_document: string;
-            /** Text */
-            text: string;
-            /** Vector Score */
-            vector_score: number;
         };
         /** ServiceCostConfig */
         ServiceCostConfig: {
@@ -10239,11 +9740,6 @@ export interface components {
             timestamp: string;
             /** Tokens */
             tokens: number;
-        };
-        /** ToolAttach */
-        ToolAttach: {
-            /** Tool Name */
-            tool_name: string;
         };
         /** TopConsumer */
         TopConsumer: {
@@ -11229,359 +10725,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_agents_api_agent_paas_agents_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AgentResponse"][];
-                };
-            };
-        };
-    };
-    create_agent_api_agent_paas_agents_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AgentCreate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AgentResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_agent_api_agent_paas_agents__agent_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AgentResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    update_agent_api_agent_paas_agents__agent_id__put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AgentUpdate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AgentResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    delete_agent_api_agent_paas_agents__agent_id__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    execute_agent_api_agent_paas_agents__agent_id__execute_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ExecuteRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ExecutionResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_agent_executions_api_agent_paas_agents__agent_id__executions_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ExecutionResponse"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_agent_tools_api_agent_paas_agents__agent_id__tools_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    attach_tool_api_agent_paas_agents__agent_id__tools_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ToolAttach"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    cost_summary_api_agent_paas_cost_summary_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CostSummary"];
-                };
-            };
-        };
-    };
-    get_execution_api_agent_paas_executions__execution_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                execution_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ExecutionResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_available_tools_api_agent_paas_tools_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
                 };
             };
         };
@@ -13102,138 +12245,6 @@ export interface operations {
             };
         };
     };
-    get_best_practices_api_diagrams__diagram_id__best_practices_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                diagram_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    compliance_mapping_api_diagrams__diagram_id__compliance_get: {
-        parameters: {
-            query?: {
-                /** @description Comma-separated framework IDs: soc2, hipaa, pci_dss, gdpr, iso27001, fedramp */
-                frameworks?: string | null;
-            };
-            header?: never;
-            path: {
-                diagram_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    compliance_export_api_diagrams__diagram_id__compliance_export_get: {
-        parameters: {
-            query?: {
-                frameworks?: string | null;
-                format?: string;
-            };
-            header?: never;
-            path: {
-                diagram_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    compliance_gaps_api_diagrams__diagram_id__compliance_gaps_get: {
-        parameters: {
-            query?: {
-                frameworks?: string | null;
-            };
-            header?: never;
-            path: {
-                diagram_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     get_cost_assumptions_api_diagrams__diagram_id__cost_assumptions_get: {
         parameters: {
             query?: never;
@@ -13691,7 +12702,7 @@ export interface operations {
     generate_iac_api_diagrams__diagram_id__generate_post: {
         parameters: {
             query?: {
-                format?: string;
+                format?: "terraform" | "bicep";
                 force?: boolean;
             };
             header?: never;
@@ -13725,7 +12736,7 @@ export interface operations {
     generate_iac_async_api_diagrams__diagram_id__generate_async_post: {
         parameters: {
             query?: {
-                format?: string;
+                format?: "terraform" | "bicep";
                 force?: boolean;
             };
             header?: never;
@@ -14372,37 +13383,6 @@ export interface operations {
             };
         };
     };
-    get_risk_score_api_diagrams__diagram_id__risk_score_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                diagram_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     create_stakeholder_share_api_diagrams__diagram_id__share_post: {
         parameters: {
             query?: {
@@ -14820,7 +13800,9 @@ export interface operations {
     };
     compare_baseline_api_drift_baselines__baseline_id__compare_post: {
         parameters: {
-            query?: never;
+            query?: {
+                format?: "terraform" | "bicep";
+            };
             header?: never;
             path: {
                 baseline_id: string;
@@ -14866,6 +13848,43 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["DriftFindingDecision"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    build_baseline_patch_api_drift_baselines__baseline_id__patch_post: {
+        parameters: {
+            query?: {
+                format?: "terraform" | "bicep";
+            };
+            header?: never;
+            path: {
+                baseline_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DriftPatchRequest"];
             };
         };
         responses: {
@@ -16389,6 +15408,68 @@ export interface operations {
             };
         };
     };
+    get_project_status_api_projects__project_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_project_analysis_api_projects__project_id__analysis_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     upload_diagram_api_projects__project_id__diagrams_post: {
         parameters: {
             query?: never;
@@ -16424,197 +15505,15 @@ export interface operations {
             };
         };
     };
-    list_collections_api_rag_collections_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CollectionResponse"][];
-                };
-            };
-        };
-    };
-    create_collection_api_rag_collections_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateCollectionRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CollectionResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    delete_collection_api_rag_collections__collection_id__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                collection_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_documents_api_rag_collections__collection_id__documents_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                collection_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DocumentResponse"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    remove_document_api_rag_collections__collection_id__documents__document_id__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                collection_id: string;
-                document_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    ingest_document_api_rag_collections__collection_id__ingest_post: {
+    generate_project_iac_api_projects__project_id__generate_post: {
         parameters: {
             query?: {
-                chunk_size?: number;
-                chunk_overlap?: number;
+                format?: "terraform" | "bicep";
+                force?: boolean;
             };
             header?: never;
             path: {
-                collection_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "multipart/form-data": components["schemas"]["Body_ingest_document_api_rag_collections__collection_id__ingest_post"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["IngestResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    collection_stats_api_rag_collections__collection_id__stats_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                collection_id: string;
+                project_id: string;
             };
             cookie?: never;
         };
@@ -16626,40 +15525,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["CollectionStats"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    search_api_rag_search_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SearchRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SearchResponse"];
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
@@ -17579,6 +16445,100 @@ export interface operations {
                 "application/json": components["schemas"]["SuggestMappingRequest"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_templates_api_templates_get: {
+        parameters: {
+            query?: {
+                category?: string;
+                source_provider?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_template_api_templates__template_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                template_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    analyze_template_api_templates__template_id__analyze_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                template_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
@@ -19972,138 +18932,6 @@ export interface operations {
             };
         };
     };
-    get_best_practices_v1_api_v1_diagrams__diagram_id__best_practices_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                diagram_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    compliance_mapping_v1_api_v1_diagrams__diagram_id__compliance_get: {
-        parameters: {
-            query?: {
-                /** @description Comma-separated framework IDs: soc2, hipaa, pci_dss, gdpr, iso27001, fedramp */
-                frameworks?: string | null;
-            };
-            header?: never;
-            path: {
-                diagram_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    compliance_export_v1_api_v1_diagrams__diagram_id__compliance_export_get: {
-        parameters: {
-            query?: {
-                frameworks?: string | null;
-                format?: string;
-            };
-            header?: never;
-            path: {
-                diagram_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    compliance_gaps_v1_api_v1_diagrams__diagram_id__compliance_gaps_get: {
-        parameters: {
-            query?: {
-                frameworks?: string | null;
-            };
-            header?: never;
-            path: {
-                diagram_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     get_cost_assumptions_v1_api_v1_diagrams__diagram_id__cost_assumptions_get: {
         parameters: {
             query?: never;
@@ -20527,7 +19355,7 @@ export interface operations {
     generate_iac_v1_api_v1_diagrams__diagram_id__generate_post: {
         parameters: {
             query?: {
-                format?: string;
+                format?: "terraform" | "bicep";
                 force?: boolean;
             };
             header?: never;
@@ -20561,7 +19389,7 @@ export interface operations {
     generate_iac_async_v1_api_v1_diagrams__diagram_id__generate_async_post: {
         parameters: {
             query?: {
-                format?: string;
+                format?: "terraform" | "bicep";
                 force?: boolean;
             };
             header?: never;
@@ -21045,37 +19873,6 @@ export interface operations {
             };
         };
     };
-    get_risk_score_v1_api_v1_diagrams__diagram_id__risk_score_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                diagram_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     preview_terraform_plan_endpoint_v1_api_v1_diagrams__diagram_id__terraform_preview_post: {
         parameters: {
             query?: never;
@@ -21357,7 +20154,9 @@ export interface operations {
     };
     compare_baseline_v1_api_v1_drift_baselines__baseline_id__compare_post: {
         parameters: {
-            query?: never;
+            query?: {
+                format?: "terraform" | "bicep";
+            };
             header?: never;
             path: {
                 baseline_id: string;
@@ -21403,6 +20202,43 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["DriftFindingDecision"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    build_baseline_patch_v1_api_v1_drift_baselines__baseline_id__patch_post: {
+        parameters: {
+            query?: {
+                format?: "terraform" | "bicep";
+            };
+            header?: never;
+            path: {
+                baseline_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DriftPatchRequest"];
             };
         };
         responses: {
@@ -22587,6 +21423,68 @@ export interface operations {
             };
         };
     };
+    get_project_status_v1_api_v1_projects__project_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_project_analysis_v1_api_v1_projects__project_id__analysis_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     upload_diagram_v1_api_v1_projects__project_id__diagrams_post: {
         parameters: {
             query?: never;
@@ -22601,6 +21499,40 @@ export interface operations {
                 "multipart/form-data": components["schemas"]["Body_upload_diagram_v1_api_v1_projects__project_id__diagrams_post"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    generate_project_iac_v1_api_v1_projects__project_id__generate_post: {
+        parameters: {
+            query?: {
+                format?: "terraform" | "bicep";
+                force?: boolean;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
@@ -23273,6 +22205,100 @@ export interface operations {
                 "application/json": components["schemas"]["SuggestMappingRequest"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_templates_v1_api_v1_templates_get: {
+        parameters: {
+            query?: {
+                category?: string;
+                source_provider?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_template_v1_api_v1_templates__template_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                template_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    analyze_template_v1_api_v1_templates__template_id__analyze_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                template_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {

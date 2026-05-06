@@ -1,7 +1,6 @@
 from error_envelope import ArchmorphException
 """
-Insights routes — best practices, cost estimation, cost optimization,
-risk score, compliance, terraform preview.
+Insights routes — cost estimation, cost optimization, terraform preview.
 
 Split from diagrams.py for maintainability (#284).
 """
@@ -18,13 +17,10 @@ import logging
 from routers.shared import limiter, verify_api_key, SESSION_STORE
 from routers.samples import get_or_recreate_session
 from usage_metrics import record_event
-from best_practices import analyze_architecture, get_quick_wins
 from cost_optimizer import analyze_cost_optimizations
 from cost_assumptions import build_cost_assumptions_artifact
 from services.azure_pricing import estimate_services_cost
 from terraform_preview import preview_terraform_plan
-from migration_risk import compute_risk_score
-from compliance_mapper import assess_compliance
 from utils.chat_coercion import coerce_to_str_list
 from iac_generator import generate_iac_code
 
@@ -253,25 +249,6 @@ async def cost_breakdown(request: Request, diagram_id: str):
 
 
 # ─────────────────────────────────────────────────────────────
-# Best Practices & WAF Analysis
-# ─────────────────────────────────────────────────────────────
-@router.get("/api/diagrams/{diagram_id}/best-practices")
-@limiter.limit("30/minute")
-async def get_best_practices(request: Request, diagram_id: str):
-    """Analyze architecture against Azure Well-Architected Framework."""
-    analysis = get_or_recreate_session(diagram_id)
-    if not analysis:
-        raise ArchmorphException(404, "Analysis not found")
-
-    answers = analysis.get("applied_answers", {})
-
-    result = await asyncio.to_thread(analyze_architecture, analysis, answers)
-    result["quick_wins"] = await asyncio.to_thread(get_quick_wins, result["recommendations"])
-
-    return result
-
-
-# ─────────────────────────────────────────────────────────────
 # Cost Optimization
 # ─────────────────────────────────────────────────────────────
 @router.get("/api/diagrams/{diagram_id}/cost-optimization")
@@ -323,55 +300,6 @@ async def preview_terraform_plan_endpoint(
     result = preview_terraform_plan(iac_code, diagram_id, use_simulation=True)
 
     return result.to_dict()
-
-
-# ─────────────────────────────────────────────────────────────
-# Migration Risk Score (Issue #158)
-# ─────────────────────────────────────────────────────────────
-@router.get("/api/diagrams/{diagram_id}/risk-score")
-@limiter.limit("20/minute")
-async def get_risk_score(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
-    """Compute the Migration Risk Score (MRS) for a diagram analysis.
-
-    Returns a composite score (0-100) with per-factor breakdown,
-    risk tier, and actionable recommendations.
-    """
-    analysis = get_or_recreate_session(diagram_id)
-    if not analysis:
-        raise ArchmorphException(404, "Analysis not found — analyze a diagram first")
-
-    result = await asyncio.to_thread(compute_risk_score, analysis)
-    record_event("risk_score_computed", {
-        "diagram_id": diagram_id,
-        "score": result["overall_score"],
-        "tier": result["risk_tier"],
-    })
-    return result
-
-
-# ─────────────────────────────────────────────────────────────
-# Compliance Assessment (Issue #160)
-# ─────────────────────────────────────────────────────────────
-@router.get("/api/diagrams/{diagram_id}/compliance")
-@limiter.limit("20/minute")
-async def get_compliance(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
-    """Assess compliance posture for a diagram analysis.
-
-    Auto-detects applicable regulatory frameworks (HIPAA, PCI-DSS,
-    SOC 2, GDPR, ISO 27001, FedRAMP) and returns scores, gaps,
-    and remediation guidance.
-    """
-    analysis = get_or_recreate_session(diagram_id)
-    if not analysis:
-        raise ArchmorphException(404, "Analysis not found — analyze a diagram first")
-
-    result = await asyncio.to_thread(assess_compliance, analysis)
-    record_event("compliance_assessed", {
-        "diagram_id": diagram_id,
-        "frameworks": list(result["frameworks"].keys()),
-        "overall_score": result["overall_score"],
-    })
-    return result
 
 
 # ─────────────────────────────────────────────────────────────

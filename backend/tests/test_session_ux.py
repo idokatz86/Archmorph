@@ -98,7 +98,7 @@ class TestSessionExpiryMidWorkflow:
     def test_session_read_refreshes_ttl(self):
         """FIX (Issue #260): Reading a session now EXTENDS its TTL.
 
-        A user browsing cost-estimate, best-practices, etc. (read-only
+        A user browsing cost-estimate, dependency graph, etc. (read-only
         endpoints) keeps their session alive.  Each .get() re-inserts the
         value, resetting the TTL countdown.
         """

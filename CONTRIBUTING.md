@@ -78,6 +78,46 @@ Run linters before submitting:
 cd backend && ruff check . && bandit -r . -x ./tests --skip B101
 ```
 
+## Managed Azure Skills Upstream
+
+Archmorph consumes `microsoft/azure-skills` as a managed upstream dependency.
+The upstream repository is pinned as a git submodule at
+`infra/skills-upstream/azure-skills`, with the expected commit and skill list
+recorded in `infra/skills-upstream/azure-skills.lock.json`.
+
+Custom local skills must use the `archmorph-*` namespace so VS Code extension
+auto-sync cannot shadow them if Microsoft later adds a similarly named Azure
+skill:
+
+| Legacy local name | Protected name |
+| --- | --- |
+| `azure-observability` | `archmorph-observability` |
+| `azure-postgres` | `archmorph-postgres` |
+| `ui-ux-pro-max` | `archmorph-ui-ux` |
+
+Before adopting an upstream update:
+
+1. Fetch the new upstream commit in `infra/skills-upstream/azure-skills`.
+2. Review the diff manually because skill content is authoritative agent
+	instruction text.
+3. Update `azure-skills.lock.json` with the new SHA and expected skill list.
+4. Run:
+	```bash
+	AZURE_MCP_COLLECT_TELEMETRY=false python scripts/check_azure_skills_upstream.py --check-telemetry-env
+	```
+5. On a machine with VS Code Azure MCP skills installed, also compare local
+	installed upstream skills against the pinned submodule before applying any
+	sync:
+	```bash
+	AZURE_MCP_COLLECT_TELEMETRY=false python scripts/check_azure_skills_upstream.py --check-telemetry-env --require-local-skills --diff-local-upstream
+	```
+6. Include the upstream SHA and review notes in the PR description.
+
+The checker is dry-run safe: it reports SHA drift, upstream skill-list drift,
+protected-name collisions, legacy local skill names, local-vs-pinned content
+drift, and telemetry default misconfiguration. It never overwrites
+`~/.agents/skills`.
+
 ## Pull Request Process
 
 1. Fork the repository and create a feature branch from `main`.

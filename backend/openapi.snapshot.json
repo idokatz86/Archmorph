@@ -176,40 +176,6 @@
         "title": "AgentCostResponse",
         "type": "object"
       },
-      "AgentCreate": {
-        "additionalProperties": false,
-        "properties": {
-          "model": {
-            "default": "gpt-4o",
-            "title": "Model",
-            "type": "string"
-          },
-          "name": {
-            "maxLength": 200,
-            "minLength": 1,
-            "title": "Name",
-            "type": "string"
-          },
-          "rag_collections": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "title": "Rag Collections",
-            "type": "array"
-          },
-          "system_prompt": {
-            "default": "You are a helpful AI assistant.",
-            "title": "System Prompt",
-            "type": "string"
-          }
-        },
-        "required": [
-          "name"
-        ],
-        "title": "AgentCreate",
-        "type": "object"
-      },
       "AgentCreateSchema": {
         "additionalProperties": false,
         "properties": {
@@ -278,66 +244,6 @@
         "title": "AgentCreateSchema",
         "type": "object"
       },
-      "AgentResponse": {
-        "additionalProperties": false,
-        "properties": {
-          "created_at": {
-            "title": "Created At",
-            "type": "string"
-          },
-          "id": {
-            "title": "Id",
-            "type": "string"
-          },
-          "model": {
-            "title": "Model",
-            "type": "string"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "rag_collections": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Rag Collections",
-            "type": "array"
-          },
-          "status": {
-            "title": "Status",
-            "type": "string"
-          },
-          "system_prompt": {
-            "title": "System Prompt",
-            "type": "string"
-          },
-          "tools": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Tools",
-            "type": "array"
-          },
-          "updated_at": {
-            "title": "Updated At",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "name",
-          "model",
-          "system_prompt",
-          "tools",
-          "rag_collections",
-          "status",
-          "created_at",
-          "updated_at"
-        ],
-        "title": "AgentResponse",
-        "type": "object"
-      },
       "AgentResponseSchema": {
         "additionalProperties": false,
         "properties": {
@@ -382,73 +288,6 @@
           "organization_id"
         ],
         "title": "AgentResponseSchema",
-        "type": "object"
-      },
-      "AgentUpdate": {
-        "additionalProperties": false,
-        "properties": {
-          "model": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Model"
-          },
-          "name": {
-            "anyOf": [
-              {
-                "maxLength": 200,
-                "minLength": 1,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Name"
-          },
-          "rag_collections": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Rag Collections"
-          },
-          "status": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Status"
-          },
-          "system_prompt": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "System Prompt"
-          }
-        },
-        "title": "AgentUpdate",
         "type": "object"
       },
       "AgentUpdateSchema": {
@@ -703,20 +542,6 @@
           "file"
         ],
         "title": "Body_import_terraform_v1_api_v1_import_terraform_post",
-        "type": "object"
-      },
-      "Body_ingest_document_api_rag_collections__collection_id__ingest_post": {
-        "properties": {
-          "file": {
-            "contentMediaType": "application/octet-stream",
-            "title": "File",
-            "type": "string"
-          }
-        },
-        "required": [
-          "file"
-        ],
-        "title": "Body_ingest_document_api_rag_collections__collection_id__ingest_post",
         "type": "object"
       },
       "Body_upload_diagram_api_projects__project_id__diagrams_post": {
@@ -1117,79 +942,6 @@
           "message"
         ],
         "title": "ChatMessage",
-        "type": "object"
-      },
-      "CollectionResponse": {
-        "additionalProperties": false,
-        "properties": {
-          "collection_id": {
-            "title": "Collection Id",
-            "type": "string"
-          },
-          "created_at": {
-            "title": "Created At",
-            "type": "string"
-          },
-          "description": {
-            "title": "Description",
-            "type": "string"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          }
-        },
-        "required": [
-          "collection_id",
-          "name",
-          "description",
-          "created_at"
-        ],
-        "title": "CollectionResponse",
-        "type": "object"
-      },
-      "CollectionStats": {
-        "additionalProperties": false,
-        "properties": {
-          "chunk_count": {
-            "title": "Chunk Count",
-            "type": "integer"
-          },
-          "collection_id": {
-            "title": "Collection Id",
-            "type": "string"
-          },
-          "created_at": {
-            "title": "Created At",
-            "type": "string"
-          },
-          "description": {
-            "title": "Description",
-            "type": "string"
-          },
-          "document_count": {
-            "title": "Document Count",
-            "type": "integer"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "total_tokens": {
-            "title": "Total Tokens",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "collection_id",
-          "name",
-          "description",
-          "created_at",
-          "document_count",
-          "chunk_count",
-          "total_tokens"
-        ],
-        "title": "CollectionStats",
         "type": "object"
       },
       "CostAlert": {
@@ -1628,49 +1380,6 @@
         "title": "CostServiceInput",
         "type": "object"
       },
-      "CostSummary": {
-        "additionalProperties": false,
-        "properties": {
-          "per_agent": {
-            "items": {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            "title": "Per Agent",
-            "type": "array"
-          },
-          "total_completion_tokens": {
-            "title": "Total Completion Tokens",
-            "type": "integer"
-          },
-          "total_cost_usd": {
-            "title": "Total Cost Usd",
-            "type": "number"
-          },
-          "total_executions": {
-            "title": "Total Executions",
-            "type": "integer"
-          },
-          "total_prompt_tokens": {
-            "title": "Total Prompt Tokens",
-            "type": "integer"
-          },
-          "total_tokens": {
-            "title": "Total Tokens",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "total_executions",
-          "total_prompt_tokens",
-          "total_completion_tokens",
-          "total_tokens",
-          "total_cost_usd",
-          "per_agent"
-        ],
-        "title": "CostSummary",
-        "type": "object"
-      },
       "CostZoneInput": {
         "additionalProperties": false,
         "properties": {
@@ -1692,28 +1401,6 @@
           "services"
         ],
         "title": "CostZoneInput",
-        "type": "object"
-      },
-      "CreateCollectionRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "description": {
-            "default": "",
-            "maxLength": 2000,
-            "title": "Description",
-            "type": "string"
-          },
-          "name": {
-            "maxLength": 200,
-            "minLength": 1,
-            "title": "Name",
-            "type": "string"
-          }
-        },
-        "required": [
-          "name"
-        ],
-        "title": "CreateCollectionRequest",
         "type": "object"
       },
       "CreateKeyRequest": {
@@ -2062,50 +1749,6 @@
         "title": "DeploymentRequest",
         "type": "object"
       },
-      "DocumentResponse": {
-        "additionalProperties": false,
-        "properties": {
-          "chunk_count": {
-            "title": "Chunk Count",
-            "type": "integer"
-          },
-          "content_hash": {
-            "title": "Content Hash",
-            "type": "string"
-          },
-          "document_id": {
-            "title": "Document Id",
-            "type": "string"
-          },
-          "file_size": {
-            "title": "File Size",
-            "type": "integer"
-          },
-          "filename": {
-            "title": "Filename",
-            "type": "string"
-          },
-          "ingested_at": {
-            "title": "Ingested At",
-            "type": "string"
-          },
-          "mime_type": {
-            "default": "",
-            "title": "Mime Type",
-            "type": "string"
-          }
-        },
-        "required": [
-          "document_id",
-          "filename",
-          "file_size",
-          "chunk_count",
-          "content_hash",
-          "ingested_at"
-        ],
-        "title": "DocumentResponse",
-        "type": "object"
-      },
       "DocumentResponseSchema": {
         "additionalProperties": false,
         "properties": {
@@ -2183,6 +1826,18 @@
       "DriftCompareRequest": {
         "additionalProperties": false,
         "properties": {
+          "current_iac": {
+            "anyOf": [
+              {
+                "maxLength": 200000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Iac"
+          },
           "live_state": {
             "additionalProperties": true,
             "title": "Live State",
@@ -2220,6 +1875,25 @@
           "decision"
         ],
         "title": "DriftFindingDecision",
+        "type": "object"
+      },
+      "DriftPatchRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "current_iac": {
+            "anyOf": [
+              {
+                "maxLength": 200000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Iac"
+          }
+        },
+        "title": "DriftPatchRequest",
         "type": "object"
       },
       "DriftRequest": {
@@ -2305,22 +1979,6 @@
         "title": "EpisodeResponseSchema",
         "type": "object"
       },
-      "ExecuteRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "message": {
-            "maxLength": 10000,
-            "minLength": 1,
-            "title": "Message",
-            "type": "string"
-          }
-        },
-        "required": [
-          "message"
-        ],
-        "title": "ExecuteRequest",
-        "type": "object"
-      },
       "ExecutionInputSchema": {
         "additionalProperties": false,
         "properties": {
@@ -2358,72 +2016,6 @@
           "messages"
         ],
         "title": "ExecutionInputSchema",
-        "type": "object"
-      },
-      "ExecutionResponse": {
-        "additionalProperties": false,
-        "properties": {
-          "agent_id": {
-            "title": "Agent Id",
-            "type": "string"
-          },
-          "cost_usd": {
-            "title": "Cost Usd",
-            "type": "number"
-          },
-          "created_at": {
-            "title": "Created At",
-            "type": "string"
-          },
-          "execution_time_ms": {
-            "title": "Execution Time Ms",
-            "type": "number"
-          },
-          "id": {
-            "title": "Id",
-            "type": "string"
-          },
-          "rag_context_used": {
-            "title": "Rag Context Used",
-            "type": "boolean"
-          },
-          "response": {
-            "title": "Response",
-            "type": "string"
-          },
-          "token_usage": {
-            "additionalProperties": {
-              "type": "integer"
-            },
-            "title": "Token Usage",
-            "type": "object"
-          },
-          "tool_calls_made": {
-            "items": {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            "title": "Tool Calls Made",
-            "type": "array"
-          },
-          "user_message": {
-            "title": "User Message",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "agent_id",
-          "user_message",
-          "response",
-          "tool_calls_made",
-          "token_usage",
-          "cost_usd",
-          "execution_time_ms",
-          "rag_context_used",
-          "created_at"
-        ],
-        "title": "ExecutionResponse",
         "type": "object"
       },
       "ExecutionResponseSchema": {
@@ -2793,7 +2385,10 @@
           },
           "format": {
             "default": "terraform",
-            "pattern": "^(terraform|bicep|cloudformation)$",
+            "enum": [
+              "terraform",
+              "bicep"
+            ],
             "title": "Format",
             "type": "string"
           },
@@ -2836,50 +2431,6 @@
           "content"
         ],
         "title": "InfraImportRequest",
-        "type": "object"
-      },
-      "IngestResponse": {
-        "additionalProperties": false,
-        "properties": {
-          "chunk_count": {
-            "title": "Chunk Count",
-            "type": "integer"
-          },
-          "content_hash": {
-            "default": "",
-            "title": "Content Hash",
-            "type": "string"
-          },
-          "document_id": {
-            "title": "Document Id",
-            "type": "string"
-          },
-          "file_size": {
-            "default": 0,
-            "title": "File Size",
-            "type": "integer"
-          },
-          "filename": {
-            "title": "Filename",
-            "type": "string"
-          },
-          "message": {
-            "default": "",
-            "title": "Message",
-            "type": "string"
-          },
-          "status": {
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "document_id",
-          "filename",
-          "status",
-          "chunk_count"
-        ],
-        "title": "IngestResponse",
         "type": "object"
       },
       "JiraCreateRequest": {
@@ -3611,7 +3162,11 @@
           },
           "iac_format": {
             "default": "terraform",
-            "description": "terraform, bicep, cloudformation, pulumi, aws-cdk",
+            "description": "terraform or bicep",
+            "enum": [
+              "terraform",
+              "bicep"
+            ],
             "title": "Iac Format",
             "type": "string"
           },
@@ -3811,150 +3366,6 @@
           }
         },
         "title": "SaveVersionRequest",
-        "type": "object"
-      },
-      "SearchRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "collection_ids": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Collection Ids"
-          },
-          "metadata_filter": {
-            "anyOf": [
-              {
-                "additionalProperties": {
-                  "type": "string"
-                },
-                "type": "object"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Metadata Filter"
-          },
-          "min_score": {
-            "default": 0.0,
-            "maximum": 1.0,
-            "minimum": 0.0,
-            "title": "Min Score",
-            "type": "number"
-          },
-          "query": {
-            "maxLength": 5000,
-            "minLength": 1,
-            "title": "Query",
-            "type": "string"
-          },
-          "top_k": {
-            "default": 5,
-            "maximum": 50.0,
-            "minimum": 1.0,
-            "title": "Top K",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "query"
-        ],
-        "title": "SearchRequest",
-        "type": "object"
-      },
-      "SearchResponse": {
-        "additionalProperties": false,
-        "properties": {
-          "query": {
-            "title": "Query",
-            "type": "string"
-          },
-          "results": {
-            "items": {
-              "$ref": "#/components/schemas/SearchResultItem"
-            },
-            "title": "Results",
-            "type": "array"
-          },
-          "total_results": {
-            "title": "Total Results",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "results",
-          "query",
-          "total_results"
-        ],
-        "title": "SearchResponse",
-        "type": "object"
-      },
-      "SearchResultItem": {
-        "additionalProperties": false,
-        "properties": {
-          "bm25_score": {
-            "title": "Bm25 Score",
-            "type": "number"
-          },
-          "chunk_index": {
-            "title": "Chunk Index",
-            "type": "integer"
-          },
-          "collection_id": {
-            "title": "Collection Id",
-            "type": "string"
-          },
-          "collection_name": {
-            "title": "Collection Name",
-            "type": "string"
-          },
-          "document_id": {
-            "title": "Document Id",
-            "type": "string"
-          },
-          "page": {
-            "title": "Page",
-            "type": "integer"
-          },
-          "score": {
-            "title": "Score",
-            "type": "number"
-          },
-          "source_document": {
-            "title": "Source Document",
-            "type": "string"
-          },
-          "text": {
-            "title": "Text",
-            "type": "string"
-          },
-          "vector_score": {
-            "title": "Vector Score",
-            "type": "number"
-          }
-        },
-        "required": [
-          "text",
-          "score",
-          "vector_score",
-          "bm25_score",
-          "source_document",
-          "document_id",
-          "page",
-          "chunk_index",
-          "collection_id",
-          "collection_name"
-        ],
-        "title": "SearchResultItem",
         "type": "object"
       },
       "ServiceCostConfig": {
@@ -4291,20 +3702,6 @@
           "calls"
         ],
         "title": "TimeseriesPoint",
-        "type": "object"
-      },
-      "ToolAttach": {
-        "additionalProperties": false,
-        "properties": {
-          "tool_name": {
-            "title": "Tool Name",
-            "type": "string"
-          }
-        },
-        "required": [
-          "tool_name"
-        ],
-        "title": "ToolAttach",
         "type": "object"
       },
       "TopConsumer": {
@@ -5811,480 +5208,6 @@
         "summary": "Api Review Suggestion",
         "tags": [
           "ai-suggestion"
-        ]
-      }
-    },
-    "/api/agent-paas/agents": {
-      "get": {
-        "description": "List all agents (excludes archived).",
-        "operationId": "list_agents_api_agent_paas_agents_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/AgentResponse"
-                  },
-                  "title": "Response List Agents Api Agent Paas Agents Get",
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "List Agents",
-        "tags": [
-          "Agent PaaS PoC"
-        ]
-      },
-      "post": {
-        "description": "Create a new agent with name, model, and system prompt.",
-        "operationId": "create_agent_api_agent_paas_agents_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AgentCreate"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AgentResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Create Agent",
-        "tags": [
-          "Agent PaaS PoC"
-        ]
-      }
-    },
-    "/api/agent-paas/agents/{agent_id}": {
-      "delete": {
-        "description": "Archive an agent (soft delete).",
-        "operationId": "delete_agent_api_agent_paas_agents__agent_id__delete",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "agent_id",
-            "required": true,
-            "schema": {
-              "title": "Agent Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Delete Agent",
-        "tags": [
-          "Agent PaaS PoC"
-        ]
-      },
-      "get": {
-        "description": "Get a single agent by ID.",
-        "operationId": "get_agent_api_agent_paas_agents__agent_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "agent_id",
-            "required": true,
-            "schema": {
-              "title": "Agent Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AgentResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Get Agent",
-        "tags": [
-          "Agent PaaS PoC"
-        ]
-      },
-      "put": {
-        "description": "Update an agent's configuration.",
-        "operationId": "update_agent_api_agent_paas_agents__agent_id__put",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "agent_id",
-            "required": true,
-            "schema": {
-              "title": "Agent Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AgentUpdate"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AgentResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Update Agent",
-        "tags": [
-          "Agent PaaS PoC"
-        ]
-      }
-    },
-    "/api/agent-paas/agents/{agent_id}/execute": {
-      "post": {
-        "description": "Execute an agent with a user message using a ReAct loop.\n\n1. Load agent config (system prompt, tools, RAG collections)\n2. If RAG collections configured, search for relevant context\n3. Build messages array: system prompt + RAG context + user message\n4. Call OpenAI with function calling (if tools attached)\n5. ReAct loop (max 3 iterations): tool calls → observe → re-call\n6. Track token usage and calculate cost",
-        "operationId": "execute_agent_api_agent_paas_agents__agent_id__execute_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "agent_id",
-            "required": true,
-            "schema": {
-              "title": "Agent Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ExecuteRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ExecutionResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Execute Agent",
-        "tags": [
-          "Agent PaaS PoC"
-        ]
-      }
-    },
-    "/api/agent-paas/agents/{agent_id}/executions": {
-      "get": {
-        "description": "List past executions for an agent.",
-        "operationId": "list_agent_executions_api_agent_paas_agents__agent_id__executions_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "agent_id",
-            "required": true,
-            "schema": {
-              "title": "Agent Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ExecutionResponse"
-                  },
-                  "title": "Response List Agent Executions Api Agent Paas Agents  Agent Id  Executions Get",
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "List Agent Executions",
-        "tags": [
-          "Agent PaaS PoC"
-        ]
-      }
-    },
-    "/api/agent-paas/agents/{agent_id}/tools": {
-      "get": {
-        "description": "List tools attached to an agent.",
-        "operationId": "list_agent_tools_api_agent_paas_agents__agent_id__tools_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "agent_id",
-            "required": true,
-            "schema": {
-              "title": "Agent Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "List Agent Tools",
-        "tags": [
-          "Agent PaaS PoC"
-        ]
-      },
-      "post": {
-        "description": "Attach a built-in tool to an agent.",
-        "operationId": "attach_tool_api_agent_paas_agents__agent_id__tools_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "agent_id",
-            "required": true,
-            "schema": {
-              "title": "Agent Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ToolAttach"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Attach Tool",
-        "tags": [
-          "Agent PaaS PoC"
-        ]
-      }
-    },
-    "/api/agent-paas/cost/summary": {
-      "get": {
-        "description": "Get aggregate cost summary across all executions.",
-        "operationId": "cost_summary_api_agent_paas_cost_summary_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CostSummary"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Cost Summary",
-        "tags": [
-          "Agent PaaS PoC"
-        ]
-      }
-    },
-    "/api/agent-paas/executions/{execution_id}": {
-      "get": {
-        "description": "Get details of a specific execution.",
-        "operationId": "get_execution_api_agent_paas_executions__execution_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "execution_id",
-            "required": true,
-            "schema": {
-              "title": "Execution Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ExecutionResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Get Execution",
-        "tags": [
-          "Agent PaaS PoC"
-        ]
-      }
-    },
-    "/api/agent-paas/tools": {
-      "get": {
-        "description": "List all built-in tools available for attachment.",
-        "operationId": "list_available_tools_api_agent_paas_tools_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "List Available Tools",
-        "tags": [
-          "Agent PaaS PoC"
         ]
       }
     },
@@ -8574,234 +7497,6 @@
         "summary": "Apply Guided Answers"
       }
     },
-    "/api/diagrams/{diagram_id}/best-practices": {
-      "get": {
-        "description": "Analyze architecture against Azure Well-Architected Framework.",
-        "operationId": "get_best_practices_api_diagrams__diagram_id__best_practices_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "diagram_id",
-            "required": true,
-            "schema": {
-              "title": "Diagram Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Get Best Practices"
-      }
-    },
-    "/api/diagrams/{diagram_id}/compliance": {
-      "get": {
-        "description": "Map detected Azure services to compliance framework controls.\n\nReturns per-framework readiness scores, covered controls, gaps,\nand prioritised remediation recommendations.",
-        "operationId": "compliance_mapping_api_diagrams__diagram_id__compliance_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "diagram_id",
-            "required": true,
-            "schema": {
-              "title": "Diagram Id",
-              "type": "string"
-            }
-          },
-          {
-            "description": "Comma-separated framework IDs: soc2, hipaa, pci_dss, gdpr, iso27001, fedramp",
-            "in": "query",
-            "name": "frameworks",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Comma-separated framework IDs: soc2, hipaa, pci_dss, gdpr, iso27001, fedramp",
-              "title": "Frameworks"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Compliance Mapping"
-      }
-    },
-    "/api/diagrams/{diagram_id}/compliance/export": {
-      "get": {
-        "description": "Export compliance report as JSON or Markdown.",
-        "operationId": "compliance_export_api_diagrams__diagram_id__compliance_export_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "diagram_id",
-            "required": true,
-            "schema": {
-              "title": "Diagram Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "frameworks",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Frameworks"
-            }
-          },
-          {
-            "in": "query",
-            "name": "format",
-            "required": false,
-            "schema": {
-              "default": "json",
-              "pattern": "^(json|md)$",
-              "title": "Format",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Compliance Export"
-      }
-    },
-    "/api/diagrams/{diagram_id}/compliance/gaps": {
-      "get": {
-        "description": "Return gap analysis sorted by severity across requested frameworks.",
-        "operationId": "compliance_gaps_api_diagrams__diagram_id__compliance_gaps_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "diagram_id",
-            "required": true,
-            "schema": {
-              "title": "Diagram Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "frameworks",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Frameworks"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Compliance Gaps"
-      }
-    },
     "/api/diagrams/{diagram_id}/cost-assumptions": {
       "get": {
         "description": "Return a reviewable JSON artifact with cost-estimate assumptions.",
@@ -9502,6 +8197,10 @@
             "required": false,
             "schema": {
               "default": "terraform",
+              "enum": [
+                "terraform",
+                "bicep"
+              ],
               "title": "Format",
               "type": "string"
             }
@@ -9565,6 +8264,10 @@
             "required": false,
             "schema": {
               "default": "terraform",
+              "enum": [
+                "terraform",
+                "bicep"
+              ],
               "title": "Format",
               "type": "string"
             }
@@ -10513,49 +9216,6 @@
         "summary": "Restore Session"
       }
     },
-    "/api/diagrams/{diagram_id}/risk-score": {
-      "get": {
-        "description": "Compute the Migration Risk Score (MRS) for a diagram analysis.\n\nReturns a composite score (0-100) with per-factor breakdown,\nrisk tier, and actionable recommendations.",
-        "operationId": "get_risk_score_api_diagrams__diagram_id__risk_score_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "diagram_id",
-            "required": true,
-            "schema": {
-              "title": "Diagram Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Get Risk Score"
-      }
-    },
     "/api/diagrams/{diagram_id}/share": {
       "post": {
         "description": "Generate a shareable stakeholder link with role-based views.",
@@ -11171,6 +9831,20 @@
               "title": "Baseline Id",
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "terraform",
+              "enum": [
+                "terraform",
+                "bicep"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -11264,6 +9938,71 @@
           }
         },
         "summary": "Decide Finding",
+        "tags": [
+          "Drift Detection"
+        ]
+      }
+    },
+    "/api/drift/baselines/{baseline_id}/patch": {
+      "post": {
+        "description": "Return a review-only IaC patch artifact for the latest baseline drift audit.",
+        "operationId": "build_baseline_patch_api_drift_baselines__baseline_id__patch_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "baseline_id",
+            "required": true,
+            "schema": {
+              "title": "Baseline Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "terraform",
+              "enum": [
+                "terraform",
+                "bicep"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DriftPatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Build Baseline Patch",
         "tags": [
           "Drift Detection"
         ]
@@ -13489,6 +12228,92 @@
         ]
       }
     },
+    "/api/projects/{project_id}": {
+      "get": {
+        "description": "Return project metadata and per-diagram analysis status.",
+        "operationId": "get_project_status_api_projects__project_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Project Status"
+      }
+    },
+    "/api/projects/{project_id}/analysis": {
+      "get": {
+        "description": "Return a deterministic combined analysis for all analyzed project diagrams.",
+        "operationId": "get_project_analysis_api_projects__project_id__analysis_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Project Analysis"
+      }
+    },
     "/api/projects/{project_id}/diagrams": {
       "post": {
         "description": "Upload an architecture diagram image for analysis.\n\nAccepts PNG, JPEG, SVG, PDF, and Visio (.vsdx) files up to the\nconfigured MAX_UPLOAD_SIZE limit.",
@@ -13542,88 +12367,42 @@
         "summary": "Upload Diagram"
       }
     },
-    "/api/rag/collections": {
-      "get": {
-        "description": "List all document collections.",
-        "operationId": "list_collections_api_rag_collections_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/CollectionResponse"
-                  },
-                  "title": "Response List Collections Api Rag Collections Get",
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "List Collections"
-      },
+    "/api/projects/{project_id}/generate": {
       "post": {
-        "description": "Create a new document collection for RAG.",
-        "operationId": "create_collection_api_rag_collections_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateCollectionRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CollectionResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Create Collection"
-      }
-    },
-    "/api/rag/collections/{collection_id}": {
-      "delete": {
-        "description": "Delete a document collection and all its documents.",
-        "operationId": "delete_collection_api_rag_collections__collection_id__delete",
+        "description": "Generate unified Infrastructure as Code from combined project analysis.",
+        "operationId": "generate_project_iac_api_projects__project_id__generate_post",
         "parameters": [
           {
             "in": "path",
-            "name": "collection_id",
+            "name": "project_id",
             "required": true,
             "schema": {
-              "title": "Collection Id",
+              "title": "Project Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "terraform",
+              "enum": [
+                "terraform",
+                "bicep"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "force",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Force",
+              "type": "boolean"
             }
           }
         ],
@@ -13652,276 +12431,7 @@
             "APIKeyHeader": []
           }
         ],
-        "summary": "Delete Collection"
-      }
-    },
-    "/api/rag/collections/{collection_id}/documents": {
-      "get": {
-        "description": "List all documents in a collection.",
-        "operationId": "list_documents_api_rag_collections__collection_id__documents_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "collection_id",
-            "required": true,
-            "schema": {
-              "title": "Collection Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/DocumentResponse"
-                  },
-                  "title": "Response List Documents Api Rag Collections  Collection Id  Documents Get",
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "List Documents"
-      }
-    },
-    "/api/rag/collections/{collection_id}/documents/{document_id}": {
-      "delete": {
-        "description": "Remove a document from a collection.",
-        "operationId": "remove_document_api_rag_collections__collection_id__documents__document_id__delete",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "collection_id",
-            "required": true,
-            "schema": {
-              "title": "Collection Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "document_id",
-            "required": true,
-            "schema": {
-              "title": "Document Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Remove Document"
-      }
-    },
-    "/api/rag/collections/{collection_id}/ingest": {
-      "post": {
-        "description": "Upload and ingest a document into a collection.\n\nSupports: PDF, DOCX, TXT, MD, HTML, CSV, JSON, YAML, XML, TF, Bicep",
-        "operationId": "ingest_document_api_rag_collections__collection_id__ingest_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "collection_id",
-            "required": true,
-            "schema": {
-              "title": "Collection Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "chunk_size",
-            "required": false,
-            "schema": {
-              "default": 1024,
-              "maximum": 4096,
-              "minimum": 128,
-              "title": "Chunk Size",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "chunk_overlap",
-            "required": false,
-            "schema": {
-              "default": 128,
-              "maximum": 512,
-              "minimum": 0,
-              "title": "Chunk Overlap",
-              "type": "integer"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "multipart/form-data": {
-              "schema": {
-                "$ref": "#/components/schemas/Body_ingest_document_api_rag_collections__collection_id__ingest_post"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/IngestResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Ingest Document"
-      }
-    },
-    "/api/rag/collections/{collection_id}/stats": {
-      "get": {
-        "description": "Get statistics for a document collection.",
-        "operationId": "collection_stats_api_rag_collections__collection_id__stats_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "collection_id",
-            "required": true,
-            "schema": {
-              "title": "Collection Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CollectionStats"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Collection Stats"
-      }
-    },
-    "/api/rag/search": {
-      "post": {
-        "description": "Semantic search across document collections.\n\nUses hybrid scoring (vector similarity + BM25 keyword matching).",
-        "operationId": "search_api_rag_search_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SearchRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SearchResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Search"
+        "summary": "Generate Project Iac"
       }
     },
     "/api/replay/events": {
@@ -15224,6 +13734,131 @@
         "tags": [
           "ai-suggestion"
         ]
+      }
+    },
+    "/api/templates": {
+      "get": {
+        "description": "Browse curated architecture templates.",
+        "operationId": "list_templates_api_templates_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "title": "Category",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "source_provider",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Source Provider",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Templates"
+      }
+    },
+    "/api/templates/{template_id}": {
+      "get": {
+        "description": "Get one curated architecture template.",
+        "operationId": "get_template_api_templates__template_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "template_id",
+            "required": true,
+            "schema": {
+              "title": "Template Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Template"
+      }
+    },
+    "/api/templates/{template_id}/analyze": {
+      "post": {
+        "description": "Create a translator-ready deterministic analysis for a template.",
+        "operationId": "analyze_template_api_templates__template_id__analyze_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "template_id",
+            "required": true,
+            "schema": {
+              "title": "Template Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Analyze Template"
       }
     },
     "/api/terraform/state/{project_id}/{environment}": {
@@ -19083,246 +17718,6 @@
         ]
       }
     },
-    "/api/v1/diagrams/{diagram_id}/best-practices": {
-      "get": {
-        "description": "Analyze architecture against Azure Well-Architected Framework.",
-        "operationId": "get_best_practices_v1_api_v1_diagrams__diagram_id__best_practices_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "diagram_id",
-            "required": true,
-            "schema": {
-              "title": "Diagram Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Get Best Practices V1",
-        "tags": [
-          "v1"
-        ]
-      }
-    },
-    "/api/v1/diagrams/{diagram_id}/compliance": {
-      "get": {
-        "description": "Map detected Azure services to compliance framework controls.\n\nReturns per-framework readiness scores, covered controls, gaps,\nand prioritised remediation recommendations.",
-        "operationId": "compliance_mapping_v1_api_v1_diagrams__diagram_id__compliance_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "diagram_id",
-            "required": true,
-            "schema": {
-              "title": "Diagram Id",
-              "type": "string"
-            }
-          },
-          {
-            "description": "Comma-separated framework IDs: soc2, hipaa, pci_dss, gdpr, iso27001, fedramp",
-            "in": "query",
-            "name": "frameworks",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Comma-separated framework IDs: soc2, hipaa, pci_dss, gdpr, iso27001, fedramp",
-              "title": "Frameworks"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Compliance Mapping V1",
-        "tags": [
-          "v1"
-        ]
-      }
-    },
-    "/api/v1/diagrams/{diagram_id}/compliance/export": {
-      "get": {
-        "description": "Export compliance report as JSON or Markdown.",
-        "operationId": "compliance_export_v1_api_v1_diagrams__diagram_id__compliance_export_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "diagram_id",
-            "required": true,
-            "schema": {
-              "title": "Diagram Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "frameworks",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Frameworks"
-            }
-          },
-          {
-            "in": "query",
-            "name": "format",
-            "required": false,
-            "schema": {
-              "default": "json",
-              "pattern": "^(json|md)$",
-              "title": "Format",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Compliance Export V1",
-        "tags": [
-          "v1"
-        ]
-      }
-    },
-    "/api/v1/diagrams/{diagram_id}/compliance/gaps": {
-      "get": {
-        "description": "Return gap analysis sorted by severity across requested frameworks.",
-        "operationId": "compliance_gaps_v1_api_v1_diagrams__diagram_id__compliance_gaps_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "diagram_id",
-            "required": true,
-            "schema": {
-              "title": "Diagram Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "frameworks",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Frameworks"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Compliance Gaps V1",
-        "tags": [
-          "v1"
-        ]
-      }
-    },
     "/api/v1/diagrams/{diagram_id}/cost-assumptions": {
       "get": {
         "description": "Return a reviewable JSON artifact with cost-estimate assumptions.",
@@ -20002,6 +18397,10 @@
             "required": false,
             "schema": {
               "default": "terraform",
+              "enum": [
+                "terraform",
+                "bicep"
+              ],
               "title": "Format",
               "type": "string"
             }
@@ -20068,6 +18467,10 @@
             "required": false,
             "schema": {
               "default": "terraform",
+              "enum": [
+                "terraform",
+                "bicep"
+              ],
               "title": "Format",
               "type": "string"
             }
@@ -20806,52 +19209,6 @@
         ]
       }
     },
-    "/api/v1/diagrams/{diagram_id}/risk-score": {
-      "get": {
-        "description": "Compute the Migration Risk Score (MRS) for a diagram analysis.\n\nReturns a composite score (0-100) with per-factor breakdown,\nrisk tier, and actionable recommendations.",
-        "operationId": "get_risk_score_v1_api_v1_diagrams__diagram_id__risk_score_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "diagram_id",
-            "required": true,
-            "schema": {
-              "title": "Diagram Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Get Risk Score V1",
-        "tags": [
-          "v1"
-        ]
-      }
-    },
     "/api/v1/diagrams/{diagram_id}/terraform-preview": {
       "post": {
         "description": "Generate a preview of what Terraform would create.\n\nUses simulation mode only — never executes real Terraform CLI\nto prevent Remote Code Execution via user-supplied HCL.",
@@ -21275,6 +19632,20 @@
               "title": "Baseline Id",
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "terraform",
+              "enum": [
+                "terraform",
+                "bicep"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -21370,6 +19741,73 @@
           }
         },
         "summary": "Decide Finding V1",
+        "tags": [
+          "infra",
+          "Drift Detection",
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/drift/baselines/{baseline_id}/patch": {
+      "post": {
+        "description": "Return a review-only IaC patch artifact for the latest baseline drift audit.",
+        "operationId": "build_baseline_patch_v1_api_v1_drift_baselines__baseline_id__patch_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "baseline_id",
+            "required": true,
+            "schema": {
+              "title": "Baseline Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "terraform",
+              "enum": [
+                "terraform",
+                "bicep"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DriftPatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Build Baseline Patch V1",
         "tags": [
           "infra",
           "Drift Detection",
@@ -23079,6 +21517,98 @@
         ]
       }
     },
+    "/api/v1/projects/{project_id}": {
+      "get": {
+        "description": "Return project metadata and per-diagram analysis status.",
+        "operationId": "get_project_status_v1_api_v1_projects__project_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Project Status V1",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/analysis": {
+      "get": {
+        "description": "Return a deterministic combined analysis for all analyzed project diagrams.",
+        "operationId": "get_project_analysis_v1_api_v1_projects__project_id__analysis_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Project Analysis V1",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
     "/api/v1/projects/{project_id}/diagrams": {
       "post": {
         "description": "Upload an architecture diagram image for analysis.\n\nAccepts PNG, JPEG, SVG, PDF, and Visio (.vsdx) files up to the\nconfigured MAX_UPLOAD_SIZE limit.",
@@ -23130,6 +21660,76 @@
           }
         ],
         "summary": "Upload Diagram V1",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/generate": {
+      "post": {
+        "description": "Generate unified Infrastructure as Code from combined project analysis.",
+        "operationId": "generate_project_iac_v1_api_v1_projects__project_id__generate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "terraform",
+              "enum": [
+                "terraform",
+                "bicep"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "force",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Force",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Generate Project Iac V1",
         "tags": [
           "v1"
         ]
@@ -24127,6 +22727,140 @@
         "summary": "Api Suggest Mapping V1",
         "tags": [
           "ai-suggestion",
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/templates": {
+      "get": {
+        "description": "Browse curated architecture templates.",
+        "operationId": "list_templates_v1_api_v1_templates_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "title": "Category",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "source_provider",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Source Provider",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Templates V1",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/templates/{template_id}": {
+      "get": {
+        "description": "Get one curated architecture template.",
+        "operationId": "get_template_v1_api_v1_templates__template_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "template_id",
+            "required": true,
+            "schema": {
+              "title": "Template Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Template V1",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/templates/{template_id}/analyze": {
+      "post": {
+        "description": "Create a translator-ready deterministic analysis for a template.",
+        "operationId": "analyze_template_v1_api_v1_templates__template_id__analyze_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "template_id",
+            "required": true,
+            "schema": {
+              "title": "Template Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Analyze Template V1",
+        "tags": [
           "v1"
         ]
       }

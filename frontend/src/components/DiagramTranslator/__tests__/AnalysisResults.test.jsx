@@ -96,6 +96,13 @@ describe('AnalysisResults', () => {
     expect(screen.getByText('Bicep')).toBeInTheDocument()
   })
 
+  it('does not render deprecated IaC output buttons', () => {
+    render(<AnalysisResults {...defaultProps} />)
+    expect(screen.queryByText('CloudFormation')).not.toBeInTheDocument()
+    expect(screen.queryByText('Pulumi')).not.toBeInTheDocument()
+    expect(screen.queryByText('AWS CDK')).not.toBeInTheDocument()
+  })
+
   it('calls onGenerateIac with terraform when Terraform clicked', async () => {
     const user = userEvent.setup()
     render(<AnalysisResults {...defaultProps} />)

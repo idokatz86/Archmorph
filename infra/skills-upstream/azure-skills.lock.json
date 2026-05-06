@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "upstream": {
+    "repo": "https://github.com/microsoft/azure-skills.git",
+    "owner_repo": "microsoft/azure-skills",
+    "path": "infra/skills-upstream/azure-skills",
+    "skills_path": "skills",
+    "pinned_sha": "27c9afeabd7912543d9a9041b9210b69adfd13f9",
+    "expected_skill_count": 26,
+    "expected_skill_names": [
+      "airunway-aks-setup",
+      "appinsights-instrumentation",
+      "azure-ai",
+      "azure-aigateway",
+      "azure-cloud-migrate",
+      "azure-compliance",
+      "azure-compute",
+      "azure-cost",
+      "azure-deploy",
+      "azure-diagnostics",
+      "azure-enterprise-infra-planner",
+      "azure-hosted-copilot-sdk",
+      "azure-kubernetes",
+      "azure-kusto",
+      "azure-messaging",
+      "azure-prepare",
+      "azure-quotas",
+      "azure-rbac",
+      "azure-resource-lookup",
+      "azure-resource-visualizer",
+      "azure-storage",
+      "azure-upgrade",
+      "azure-validate",
+      "entra-agent-id",
+      "entra-app-registration",
+      "microsoft-foundry"
+    ]
+  },
+  "custom_skills": [
+    {
+      "legacy_name": "azure-observability",
+      "protected_name": "archmorph-observability",
+      "owner": "Archmorph"
+    },
+    {
+      "legacy_name": "azure-postgres",
+      "protected_name": "archmorph-postgres",
+      "owner": "Archmorph"
+    },
+    {
+      "legacy_name": "ui-ux-pro-max",
+      "protected_name": "archmorph-ui-ux",
+      "owner": "Archmorph"
+    }
+  ],
+  "telemetry": {
+    "env": "AZURE_MCP_COLLECT_TELEMETRY",
+    "default": "false"
+  }
+}

@@ -3,11 +3,14 @@ import { clearSession } from '../../services/sessionCache';
 
 export const DEFAULT_CHAT_MESSAGE = {
   role: 'assistant',
-  content: 'Hi! I\'m your **IaC Assistant**. I can help you modify your Terraform, Bicep, or CloudFormation code. Try asking me to:\n\n- Add VNet with subnets and NSGs\n- Configure public/private IPs\n- Add storage accounts\n- Apply naming conventions\n- Set up monitoring & diagnostics\n- Add Key Vault access policies\n\nWhat would you like to change?',
+  content: 'Hi! I\'m your **IaC Assistant**. I can help you modify your Terraform or Bicep code. Try asking me to:\n\n- Add VNet with subnets and NSGs\n- Configure public/private IPs\n- Add storage accounts\n- Apply naming conventions\n- Set up monitoring & diagnostics\n- Add Key Vault access policies\n\nWhat would you like to change?',
 };
 
 const initialState = {
   step: 'upload',
+  projectId: null,
+  projectDiagrams: [],
+  projectStatus: null,
   diagramId: null,
   exportCapability: null,
   jobId: null,

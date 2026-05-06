@@ -33,7 +33,6 @@ ExportPayload = {
     "architecture_style": str,       # "hub-spoke", "3-tier", "microservices"
     "primary_region": str,           # "West Europe"
     "dr_region": Optional[str],      # "North Europe"
-    "compliance_frameworks": List[str],  # ["SOC 2", "GDPR"]
 }
 ```
 

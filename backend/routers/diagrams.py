@@ -37,6 +37,7 @@ from confidence_provenance import build_provenance
 from architecture_rules import evaluate as evaluate_architecture_rules
 from architecture_review import build_audit_pipeline_issue, classify_regulated_workload
 from source_provider import normalize_source_provider
+from project_store import mark_diagram_analyzed, register_diagram
 
 logger = logging.getLogger(__name__)
 
@@ -212,10 +213,13 @@ async def upload_diagram(request: Request, project_id: str, file: UploadFile = F
             str(img_usage * 100).replace('\n', '').replace('\r', ''), str(len(IMAGE_STORE)).replace('\n', '').replace('\r', ''), str(IMAGE_STORE.maxsize).replace('\n', '').replace('\r', ''),
         )
 
+    register_diagram(project_id, diagram_id, file.filename, len(image_bytes))
+
     record_event("diagrams_uploaded", {"filename": file.filename})
     record_funnel_step(diagram_id, "upload")
     return attach_export_capability({
         "diagram_id": diagram_id,
+        "project_id": project_id,
         "filename": file.filename,
         "size": len(image_bytes),
         "status": "uploaded"
@@ -287,6 +291,7 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
     if ci_smoke.enabled():
         result = ci_smoke.clone_analysis(diagram_id)
         SESSION_STORE[diagram_id] = result
+        mark_diagram_analyzed(diagram_id, result)
         record_event("analyses_run", {"diagram_id": diagram_id, "services": result["services_detected"]})
         record_funnel_step(diagram_id, "analyze")
         return attach_export_capability(result, diagram_id)
@@ -337,6 +342,7 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
         logger.warning("Session store at capacity (%d/%d) — oldest sessions will be evicted",
                        str(len(SESSION_STORE)).replace('\n', '').replace('\r', ''), str(SESSION_STORE.maxsize).replace('\n', '').replace('\r', ''))
     SESSION_STORE[diagram_id] = result
+    mark_diagram_analyzed(diagram_id, result)
     record_event("analyses_run", {"diagram_id": diagram_id, "services": result["services_detected"]})
     record_funnel_step(diagram_id, "analyze")
 
@@ -432,6 +438,7 @@ async def _run_analysis_job(job_id: str, diagram_id: str) -> None:
 
         job_manager.update_progress(job_id, 80, "Storing analysis results...")
         SESSION_STORE[diagram_id] = result
+        mark_diagram_analyzed(diagram_id, result)
 
         job_manager.update_progress(job_id, 90, "Generating guided questions...")
 

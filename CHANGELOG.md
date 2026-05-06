@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **#661 Compliance/risk/best-practices/living-architecture retirement** — removed off-spine analyzer modules, API routes, generated contract entries, direct tests, and active UI references for the retired compliance, migration-risk, best-practices, and living-architecture surfaces.
+- **#664 Agent PaaS/RAG beta surface retirement** — removed the off-spine `/api/agent-paas/*` and `/api/rag/*` routers, their private ReAct/RAG helper modules, and the RAG-only backend dependencies from the active API contract.
+
 ### Added
 
 #### CI and release maintenance
@@ -71,7 +76,7 @@ Phase 2-5 follow-ups (AI fallback, admin review queue, frontend Architecture Hea
 - **#599 API stability** — locked OpenAPI 3.1 contract, `dr_variant` enum locked to `primary|secondary`, 90-day deprecation policy with `Deprecation`/`Sunset` headers, `oasdiff` breaking-change CI gate (Sprint 2, P1, API).
 - **#600 Golden PDF regression suite** — 3 redacted customer PDFs (AWS-only, GCP-only, mixed) + the original CTO-review PDF (redacted) checked in as `backend/tests/fixtures/golden_pdfs/`. Legal/Privacy review gates redaction; synthetic-equivalent fallback if blocked (Sprint 2, P0, QA + PM).
 - **#601 Frontend exposure** — closes #575: ExportHub option + `LandingZoneViewer` with DR toggle, pan/zoom, download, deep-linkable URL state, full E2E + unit coverage (Sprint 2, P1, FE + UX).
-- **#602 Foundry model evaluation spike** — bench `gpt-5.4` / `gpt-5.5` / `gpt-5.3-codex` / `mistral-document-ai-2512` against `gpt-4.1` for vision_analyzer / iac_generator / hld_generator / mapping_suggester / agent_paas_react / retention_anonymizer using #600 fixtures + `gpt-5-pro` rubric grader. Locks per-agent model picks (Sprint 1, P0, Backend + Cloud).
+- **#602 Foundry model evaluation spike** — bench `gpt-5.4` / `gpt-5.5` / `gpt-5.3-codex` / `mistral-document-ai-2512` against `gpt-4.1` for vision_analyzer / iac_generator / hld_generator / mapping_suggester / retention_anonymizer using #600 fixtures + `gpt-5-pro` rubric grader. Locks per-agent model picks (Sprint 1, P0, Backend + Cloud).
 - **#603 Customer-facing docs** — `docs/features/landing_zone.md` + sample gallery + FAQ (Sprint 3, P1, PM).
 - **#604 GA gate** — re-run the original CTO E2E with the same PDF; binary rubric (icon hit ≥95%, all 8 tiers populated, ≥3 service_connections rendered, golden-file pixel diff <2%, p95 SLO met, CISO sign-off) plus `gpt-5-pro` rubric judge that **must** return `production-ready` (Sprint 3, P0, QA).
 - **#605 Beta → Live promotion** — flip Capability Status table, cut v4.3.0 release with rendered before/after gallery, close epic #586 (Sprint 3, P0, PM + DevOps).
@@ -82,7 +87,7 @@ Phase 2-5 follow-ups (AI fallback, admin review queue, frontend Architecture Hea
 - Sprint 3 (GA): #603, #604, #605
 - Sprint 4: fix-forward headroom only (no new work)
 
-**Per-agent Foundry model strategy** (locked pending #602 verification): `gpt-5.4` for vision_analyzer + hld_generator (1 M ctx, GA, multimodal + reasoning); `gpt-5.3-codex` for iac_generator (Codex-tuned, GA, Responses API); `gpt-5.4-mini` for mapping_suggester + agent_paas_react (cheaper mid-tier reasoning); `gpt-5.4-nano` for retention_anonymizer (smallest GA, deterministic); **`gpt-5-pro` locked for the GA judge in #604** (decoupled from production code → unbiased). Fallback: `gpt-5.4` everywhere if `gpt-5.5` Tier 5/6 quota is unavailable.
+**Per-agent Foundry model strategy** (locked pending #602 verification): `gpt-5.4` for vision_analyzer + hld_generator (1 M ctx, GA, multimodal + reasoning); `gpt-5.3-codex` for iac_generator (Codex-tuned, GA, Responses API); `gpt-5.4-mini` for mapping_suggester (cheaper mid-tier reasoning); `gpt-5.4-nano` for retention_anonymizer (smallest GA, deterministic); **`gpt-5-pro` locked for the GA judge in #604** (decoupled from production code → unbiased). Fallback: `gpt-5.4` everywhere if `gpt-5.5` Tier 5/6 quota is unavailable.
 
 ## [4.2.0] - 2026-05-01
 
@@ -94,7 +99,7 @@ Phase 2-5 follow-ups (AI fallback, admin review queue, frontend Architecture Hea
 - **OpenAPI contract snapshot gate** so backend route/schema drift fails CI unless the committed API baseline is updated intentionally.
 - **Admin release gate view** for deployment metadata and required smoke checks, plus confirmation before enabling risky scaffold feature flags.
 - **Admin dashboard health and feature flag tabs** with live monitoring, audit visibility, and runtime flag toggles.
-- **Drift baselines** with compare history, deterministic finding IDs, finding accept/reject decisions, and Markdown report export. Drift dashboard wired to create a baseline, rerun live/sample compares, resolve findings, and download reports.
+- **Drift baselines** with compare history, deterministic finding IDs, finding accept/reject decisions, review-only IaC patch artifacts, and Markdown report export. Drift dashboard wired to create a baseline, rerun live/sample compares, resolve findings, and download reports.
 - **Post-deploy smoke job** that verifies the deployed frontend, hash-routed product paths, API health, and OpenAPI schema after production deploys.
 - **Release checklist** covering required secrets, quality gates, manual smoke checks, scaffolded feature approvals, and rollback evidence.
 - **Disabled-by-default feature flags** for scaffolded deploy, drift, cloud scanner, and SSO/SCIM capabilities, with frontend gating for drift and deploy surfaces.

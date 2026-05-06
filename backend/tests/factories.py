@@ -18,12 +18,6 @@ from cost_metering import (
     TimeseriesPoint,
 )
 from error_envelope import ErrorBody, ErrorEnvelope
-from living_architecture import (
-    ArchitectureHealthResponse,
-    CostAnomaly,
-    DriftItem,
-    HealthDimension,
-)
 from models.infrastructure import CloudResource, LiveArchitectureSchema, ScanMetadata
 
 
@@ -71,25 +65,6 @@ class ErrorBodyFactory(ModelFactory):
 
 class ErrorEnvelopeFactory(ModelFactory):
     __model__ = ErrorEnvelope
-
-
-# ── Living Architecture Factories ────────────────────────────
-
-
-class HealthDimensionFactory(ModelFactory):
-    __model__ = HealthDimension
-
-
-class DriftItemFactory(ModelFactory):
-    __model__ = DriftItem
-
-
-class CostAnomalyFactory(ModelFactory):
-    __model__ = CostAnomaly
-
-
-class ArchitectureHealthResponseFactory(ModelFactory):
-    __model__ = ArchitectureHealthResponse
 
 
 # ── Infrastructure Factories ─────────────────────────────────

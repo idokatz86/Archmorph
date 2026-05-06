@@ -57,6 +57,7 @@ from routers.shared import limiter, SESSION_STORE, IMAGE_STORE, SHARE_STORE  # n
 # Routers
 from routers.health import router as health_router  # noqa: E402
 from routers.diagrams import router as diagrams_router  # noqa: E402
+from routers.projects import router as projects_router  # noqa: E402
 from routers.analysis import router as analysis_router  # noqa: E402
 from routers.iac_routes import router as iac_routes_router  # noqa: E402
 from routers.hld_routes import router as hld_routes_router
@@ -74,6 +75,7 @@ from routers.admin import domain_router as admin_router  # noqa: E402
 from routers.chat import router as chat_router  # noqa: E402
 from routers.roadmap import router as roadmap_router  # noqa: E402
 from routers.samples import router as samples_router  # noqa: E402
+from routers.templates import router as templates_router  # noqa: E402
 from routers.feedback import router as feedback_router  # noqa: E402
 from routers.auth import router as auth_router  # noqa: E402
 from routers.versioning import router as versioning_router  # noqa: E402
@@ -86,12 +88,9 @@ from routers.drift import router as drift_router  # noqa: E402
 from routers.scanner_routes import router as scanner_router  # noqa: E402
 from routers.deploy import router as deploy_router  # noqa: E402
 from routers.deployments import router as deployments_router  # noqa: E402
-from routers.rag_routes import router as rag_router  # noqa: E402
-from routers.agent_paas import router as agent_paas_router  # noqa: E402
 from routers.cost_routes import router as cost_router  # noqa: E402
 from routers.timeline_routes import router as timeline_router  # noqa: E402
 from routers.report_routes import router as report_router  # noqa: E402
-from routers.compliance_routes import router as compliance_router  # noqa: E402
 from routers.api_keys_routes import router as api_keys_router  # noqa: E402
 from routers.webhook_routes import router as webhook_routes_router  # noqa: E402
 from routers.integrations_routes import router as integrations_router  # noqa: E402
@@ -270,8 +269,6 @@ class ArchmorphMiddleware(BaseHTTPMiddleware):
                 response.headers["Cache-Control"] = "no-cache"
             elif "/cost-estimate" in endpoint or "/cost-breakdown" in endpoint:
                 response.headers["Cache-Control"] = "private, max-age=120"
-            elif "/best-practices" in endpoint or "/compliance" in endpoint:
-                response.headers["Cache-Control"] = "private, max-age=600"
 
         logger.info(
             "request completed",
@@ -345,6 +342,7 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.include_router(icon_router)
 app.include_router(health_router)
 app.include_router(diagrams_router)
+app.include_router(projects_router)
 app.include_router(analysis_router)
 app.include_router(iac_routes_router)
 app.include_router(hld_routes_router)
@@ -362,6 +360,7 @@ app.include_router(admin_router)
 app.include_router(chat_router)
 app.include_router(roadmap_router)
 app.include_router(samples_router)
+app.include_router(templates_router)
 app.include_router(feedback_router)
 app.include_router(auth_router)
 app.include_router(versioning_router)
@@ -374,12 +373,9 @@ app.include_router(drift_router)
 app.include_router(scanner_router)
 app.include_router(deploy_router)
 app.include_router(deployments_router)
-app.include_router(rag_router)
-app.include_router(agent_paas_router)
 app.include_router(cost_router)
 app.include_router(timeline_router)
 app.include_router(report_router)
-app.include_router(compliance_router)
 app.include_router(api_keys_router)
 app.include_router(webhook_routes_router)
 app.include_router(integrations_router)
@@ -401,6 +397,7 @@ _all_routers = [
     (icon_router, "/api"),       # icon_router has prefix="/api"
     (health_router, ""),         # routes define /api/... in decorators
     (diagrams_router, ""),
+    (projects_router, ""),
     (analysis_router, ""),
     (iac_routes_router, ""),
     (hld_routes_router, ""),
@@ -418,6 +415,7 @@ _all_routers = [
     (chat_router, ""),
     (roadmap_router, ""),
     (samples_router, ""),
+    (templates_router, ""),
     (feedback_router, ""),
     (auth_router, ""),
     (versioning_router, ""),
@@ -427,7 +425,6 @@ _all_routers = [
     (credentials_router, ""),
     (cost_router, ""),
     (report_router, ""),
-    (compliance_router, ""),
     (api_keys_router, ""),
     (webhook_routes_router, ""),
     (integrations_router, ""),

@@ -17,7 +17,6 @@ from scanners.aws_scanner import AWSScanner
 from scanners.azure_scanner import AzureScanner
 from scanners.gcp_scanner import GCPScanner
 from cost_optimizer import analyze_live_finops
-from compliance_mapper import analyze_live_compliance
 from feature_flags import feature_flag_dependency
 
 router = APIRouter()
@@ -47,26 +46,22 @@ async def run_cloud_scan(
         scanner = AWSScanner(credentials=creds)
         report = scanner.perform_full_scan()
         finops = analyze_live_finops(report)
-        compliance = analyze_live_compliance(report)
         return {
             "status": "success",
             "provider": "aws",
             "data": report,
-            "finops": finops,
-            "compliance": compliance
+            "finops": finops
         }
     elif provider.lower() == "azure":
         try:
             scanner = AzureScanner(credentials=creds)
             report = scanner.perform_full_scan()
             finops = analyze_live_finops(report)
-            compliance = analyze_live_compliance(report)
             return {
                 "status": "success",
                 "provider": "azure",
                 "data": report,
-                "finops": finops,
-                "compliance": compliance
+                "finops": finops
             }
         except Exception as e:
             logger.error(f"Error during Azure scan: {e}")
@@ -76,13 +71,11 @@ async def run_cloud_scan(
             scanner = GCPScanner(credentials=creds)
             report = scanner.perform_full_scan()
             finops = analyze_live_finops(report)
-            compliance = analyze_live_compliance(report)
             return {
                 "status": "success",
                 "provider": "gcp",
                 "data": report,
-                "finops": finops,
-                "compliance": compliance
+                "finops": finops
             }
         except Exception as e:
             logger.error(f"Error during GCP scan: {e}")

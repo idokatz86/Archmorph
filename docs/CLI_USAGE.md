@@ -40,7 +40,7 @@ Expected output:
 Use `--emit all` for the default engineer bundle, or select any comma-separated subset of:
 
 ```text
-terraform,bicep,cloudformation,alz-svg,cost
+terraform,bicep,alz-svg,cost
 ```
 
 ## Drift Baseline Comparison
@@ -68,6 +68,8 @@ archmorph run \
   --diagram ./fixtures/aws.png \
   --emit terraform,cost \
   --push-pr owner/repo \
+  --pr-base main \
+  --pr-path infra/main.tf \
   --out ./infra
 ```
 
@@ -78,6 +80,8 @@ The CLI sends the first generated IaC artifact to `/api/integrations/github/push
 ```
 
 When Terraform is emitted, Terraform is preferred for the PR. Otherwise the first requested IaC format is used.
+
+Authentication is handled by the API server. For local development, run the backend with `GITHUB_TOKEN` set to a PAT that can create branches, write files, and open pull requests in the target repository. For shared environments, prefer a GitHub App credential managed by the server rather than sending personal tokens from clients.
 
 ## Existing Focused Commands
 
