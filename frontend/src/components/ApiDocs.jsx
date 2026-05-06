@@ -7,7 +7,7 @@ const API_BASE = '/api';
 const CATEGORIES = [
   { icon: Key, label: 'Authentication', description: 'OAuth2 login, token refresh, session management' },
   { icon: BarChart3, label: 'Analysis', description: 'Architecture analysis, modernization recommendations' },
-  { icon: Code, label: 'IaC Generation', description: 'Generate Terraform, Bicep, Pulumi from diagrams' },
+  { icon: Code, label: 'IaC Generation', description: 'Generate Terraform or Bicep from diagrams' },
   { icon: BarChart3, label: 'Cost Estimation', description: 'Cloud cost estimates for target architectures' },
   { icon: Cloud, label: 'Cloud Scanner', description: 'Live cloud resource discovery and inventory' },
   { icon: Rocket, label: 'Deployments', description: 'Deploy generated IaC to cloud providers' },

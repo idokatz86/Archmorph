@@ -255,9 +255,9 @@ class TestAsyncAnalyzeEndpoint:
         assert res.status_code == 404
 
     def test_generate_async_invalid_format(self, test_client):
-        """Invalid IaC format should return 400."""
+        """Invalid IaC format should return 422 from schema validation."""
         res = test_client.post("/api/diagrams/test/generate-async?format=invalid")
-        assert res.status_code == 400
+        assert res.status_code == 422
 
     def test_generate_hld_async_no_analysis(self, test_client):
         """Without prior analysis, should return 404."""

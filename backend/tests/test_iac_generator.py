@@ -86,34 +86,14 @@ class TestGenerateIaCCode:
         assert code is not None
 
     @patch("iac_generator.cached_chat_completion")
-    def test_generate_cloudformation(self, mock_cached):
-        mock_cached.return_value = MagicMock(choices=[MagicMock(message=MagicMock(content='Resources:\n  MyBucket:\n    Type: AWS::S3::Bucket'))])
-        code = generate_iac_code(
-            analysis=MOCK_ANALYSIS,
-            iac_format="cloudformation",
-            params={"project_name": "test", "region": "us-east-1", "environment": "prod"}
-        )
-        assert "Resources" in code
-
-    @patch("iac_generator.cached_chat_completion")
-    def test_generate_pulumi(self, mock_cached):
-        mock_cached.return_value = MagicMock(choices=[MagicMock(message=MagicMock(content='import pulumi_aws as aws\n\nbucket = aws.s3.Bucket("my-bucket")'))])
-        code = generate_iac_code(
-            analysis=MOCK_ANALYSIS,
-            iac_format="pulumi",
-            params={}
-        )
-        assert "pulumi" in code
-
-    @patch("iac_generator.cached_chat_completion")
     def test_generate_iac_code_invalid_format(self, mock_cached):
         mock_cached.return_value = MagicMock(choices=[MagicMock(message=MagicMock(content='provider "azurerm" {}'))])
-        code = generate_iac_code(
-            analysis={"mappings": []},
-            iac_format="unknown_format",
-            params={}
-        )
-        assert "azurerm" in code
+        with pytest.raises(ValueError, match="Unsupported IaC format"):
+            generate_iac_code(
+                analysis={"mappings": []},
+                iac_format="cloudformation",
+                params={}
+            )
 
     @patch("iac_generator.cached_chat_completion")
     def test_generate_iac_empty_components(self, mock_cached):
@@ -283,11 +263,6 @@ class TestGenerateIaCCode:
 
         assert "// ⚠ failed az bicep build: Expected the \"=\" character" in code
         assert "failed az bicep build: az bicep build failed" not in code
-
-    def test_cloudformation_validation_errors_are_marked_inline(self):
-        code = _apply_validation("Resources: {}", "cloudformation")
-        assert "failed CloudFormation validation" in code
-        assert "failed az bicep build" not in code
 
     @patch("iac_generator.subprocess.run")
     @patch("iac_generator.shutil.which", return_value="/usr/bin/az")

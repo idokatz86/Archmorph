@@ -9565,8 +9565,9 @@ export interface components {
             /**
              * Format
              * @default terraform
+             * @enum {string}
              */
-            format: string;
+            format: "terraform" | "bicep";
             /** Message */
             message: string;
         };
@@ -9943,10 +9944,11 @@ export interface components {
             iac_code: string;
             /**
              * Iac Format
-             * @description terraform, bicep, cloudformation, pulumi, aws-cdk
+             * @description terraform or bicep
              * @default terraform
+             * @enum {string}
              */
-            iac_format: string;
+            iac_format: "terraform" | "bicep";
             /**
              * Repo
              * @description GitHub repo in owner/repo format
@@ -13691,7 +13693,7 @@ export interface operations {
     generate_iac_api_diagrams__diagram_id__generate_post: {
         parameters: {
             query?: {
-                format?: string;
+                format?: "terraform" | "bicep";
                 force?: boolean;
             };
             header?: never;
@@ -13725,7 +13727,7 @@ export interface operations {
     generate_iac_async_api_diagrams__diagram_id__generate_async_post: {
         parameters: {
             query?: {
-                format?: string;
+                format?: "terraform" | "bicep";
                 force?: boolean;
             };
             header?: never;
@@ -20527,7 +20529,7 @@ export interface operations {
     generate_iac_v1_api_v1_diagrams__diagram_id__generate_post: {
         parameters: {
             query?: {
-                format?: string;
+                format?: "terraform" | "bicep";
                 force?: boolean;
             };
             header?: never;
@@ -20561,7 +20563,7 @@ export interface operations {
     generate_iac_async_v1_api_v1_diagrams__diagram_id__generate_async_post: {
         parameters: {
             query?: {
-                format?: string;
+                format?: "terraform" | "bicep";
                 force?: boolean;
             };
             header?: never;

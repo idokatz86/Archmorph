@@ -35,6 +35,8 @@ export default function IaCViewer({
   onCopyWithFeedback, onToggleChat, onOpenChatWithMessage,
   onResetChat, onSendChat, onSetChatInput, onDownload,
 }) {
+  const safeIacFormat = iacFormat === 'bicep' ? 'bicep' : 'terraform';
+
   // Compute which lines are new/changed compared to previous version
   const changedLineSet = useMemo(() => {
     if (!previousIacCode || previousIacCode === iacCode) return new Set();
@@ -50,19 +52,13 @@ export default function IaCViewer({
 
   // Memoize syntax highlighting — avoids per-line Prism.highlight + DOMPurify on every render (#219)
   const highlightedLines = useMemo(() => {
-    const grammar = iacFormat === 'terraform' ? Prism.languages.hcl
-      : iacFormat === 'cloudformation' ? Prism.languages.yaml
-      : (iacFormat === 'pulumi' || iacFormat === 'aws-cdk') ? Prism.languages.typescript
-      : Prism.languages.json;
-    const lang = iacFormat === 'terraform' ? 'hcl'
-      : iacFormat === 'cloudformation' ? 'yaml'
-      : (iacFormat === 'pulumi' || iacFormat === 'aws-cdk') ? 'typescript'
-      : 'json';
+    const grammar = safeIacFormat === 'terraform' ? Prism.languages.hcl : Prism.languages.json;
+    const lang = safeIacFormat === 'terraform' ? 'hcl' : 'json';
     return iacCode.split('\n').map((line) => {
       const rawHighlighted = grammar ? Prism.highlight(line || ' ', grammar, lang) : (line || ' ');
       return DOMPurify.sanitize(rawHighlighted, { ALLOWED_TAGS: ['span'], ALLOWED_ATTR: ['class'] });
     });
-  }, [iacCode, iacFormat]);
+  }, [iacCode, safeIacFormat]);
 
   return (
     <>
@@ -73,7 +69,7 @@ export default function IaCViewer({
             <FileCode className="w-6 h-6 text-cta" />
             <div>
               <h2 className="text-xl font-bold text-text-primary">
-                {iacFormat === 'terraform' ? 'Terraform' : iacFormat === 'cloudformation' ? 'CloudFormation' : iacFormat === 'pulumi' ? 'Pulumi' : iacFormat === 'aws-cdk' ? 'AWS CDK' : 'Bicep'} Code
+                {safeIacFormat === 'terraform' ? 'Terraform' : 'Bicep'} Code
               </h2>
               <p className="text-xs text-text-muted">{highlightedLines.length} lines generated</p>
             </div>
@@ -86,7 +82,7 @@ export default function IaCViewer({
               const blob = new Blob([iacCode], { type: 'text/plain' });
               const url = URL.createObjectURL(blob);
               const a = document.createElement('a');
-              a.href = url; a.download = iacFormat === 'terraform' ? 'main.tf' : iacFormat === 'cloudformation' ? 'template.yaml' : (iacFormat === 'pulumi' || iacFormat === 'aws-cdk') ? 'index.ts' : 'main.bicep'; a.click();
+              a.href = url; a.download = safeIacFormat === 'terraform' ? 'main.tf' : 'main.bicep'; a.click();
               URL.revokeObjectURL(url);
               onDownload?.();
             }} variant="secondary" size="sm" icon={Download}>Download</Button>
@@ -98,7 +94,7 @@ export default function IaCViewer({
               fetch('/api/integrations/github/push-pr', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ repo, iac_code: iacCode, iac_format: iacFormat, github_token: token }),
+                body: JSON.stringify({ repo, iac_code: iacCode, iac_format: safeIacFormat, github_token: token }),
               })
                 .then(r => r.json())
                 .then(data => {

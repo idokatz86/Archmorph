@@ -43,6 +43,12 @@ describe('IaCViewer', () => {
     expect(screen.getByText('Bicep Code')).toBeInTheDocument()
   })
 
+  it('falls back deprecated format labels to Terraform Code', () => {
+    render(<IaCViewer {...defaultProps} iacFormat="cloudformation" />)
+    expect(screen.getByText('Terraform Code')).toBeInTheDocument()
+    expect(screen.queryByText('CloudFormation Code')).not.toBeInTheDocument()
+  })
+
   it('shows line count', () => {
     render(<IaCViewer {...defaultProps} />)
     expect(screen.getByText('4 lines generated')).toBeInTheDocument()

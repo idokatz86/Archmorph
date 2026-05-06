@@ -54,7 +54,7 @@ archmorph report diag-abc12345
 | Command     | Description                                      |
 |-------------|--------------------------------------------------|
 | `analyze`   | Upload and analyze an architecture diagram       |
-| `generate`  | Generate IaC (Terraform / Bicep / CloudFormation)|
+| `generate`  | Generate IaC (Terraform / Bicep)|
 | `cost`      | Get monthly cost estimate                        |
 | `hld`       | Generate High-Level Design document              |
 | `export`    | Export diagram (Excalidraw / Draw.io / Visio)    |

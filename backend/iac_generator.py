@@ -1,6 +1,6 @@
 """
 Archmorph – Dynamic IaC Generator
-Uses GPT-4o to generate Terraform, Bicep, or CloudFormation code from analysis results.
+Uses GPT-4o to generate Terraform or Bicep code from analysis results.
 Falls back to base templates when no analysis is available.
 """
 
@@ -105,17 +105,6 @@ def _load_template(name: str) -> str:
 
 
 # ─────────────────────────────────────────────────────────────
-# Valid AWS regions for CloudFormation
-# ─────────────────────────────────────────────────────────────
-_VALID_AWS_REGIONS = {
-    "us-east-1", "us-east-2", "us-west-1", "us-west-2",
-    "eu-west-1", "eu-west-2", "eu-west-3", "eu-central-1", "eu-north-1",
-    "ap-southeast-1", "ap-southeast-2", "ap-northeast-1", "ap-northeast-2",
-    "ap-south-1", "sa-east-1", "ca-central-1", "me-south-1",
-}
-
-
-# ─────────────────────────────────────────────────────────────
 # Shared prompt builder — DRY refactor (#314)
 # ─────────────────────────────────────────────────────────────
 # Format-specific configuration for each IaC format
@@ -176,108 +165,29 @@ _FORMAT_CONFIG = {
         ),
         "return_instruction": "Return ONLY the Bicep code, no markdown fences, no explanations.",
     },
-    "cloudformation": {
-        "expert_role": "AWS infrastructure engineer",
-        "code_type": "AWS CloudFormation YAML",
-        "target_field": "target_service",
-        "target_label": "AWS",
-        "use_azure_region": False,
-        "requirements": (
-            "1. Use AWSTemplateFormatVersion: '2010-09-09'\n"
-            "2. Follow AWS naming conventions and tagging best practices\n"
-            "3. Use Parameters for environment, region, and any secrets\n"
-            "4. Include all AWS resources from the mappings above\n"
-            "5. Group resources by logical function with clear comments\n"
-            "6. Use appropriate instance types based on the strategy ({sku_strategy})\n"
-            "7. Include IAM roles and policies with least-privilege principle\n"
-            "8. **CRITICAL — Credential Handling:**\n"
-            "   - ALWAYS use AWS Secrets Manager or SSM Parameter Store for secrets\n"
-            "   - NEVER use inline/hardcoded passwords, credentials, or API keys\n"
-            "   - For RDS: use ManageMasterUserPassword with Secrets Manager integration\n"
-            "   - For EC2: use IAM instance profiles instead of access keys\n"
-            "   - Mark secret parameters with NoEcho: true\n"
-            "9. Include meaningful Outputs (endpoints, ARNs, URLs) — NEVER output secrets\n"
-            "10. Do NOT include any markdown formatting — return ONLY valid CloudFormation YAML\n"
-            "11. Add comments explaining which source service each resource replaces\n"
-            "12. Use !Ref, !Sub, !GetAtt, and !Join for dynamic values"
-        ),
-        "return_instruction": "Return ONLY the CloudFormation YAML, no markdown fences, no explanations.",
-    },
-    "pulumi": {
-        "expert_role": "cloud infrastructure engineer specializing in Pulumi",
-        "code_type": "Pulumi TypeScript code",
-        "target_field": "azure_service",
-        "target_label": "Azure",
-        "use_azure_region": True,
-        "requirements": (
-            "1. Use @pulumi/azure-native SDK\n"
-            "2. Follow Azure naming conventions\n"
-            "3. Use Pulumi Config for environment, region, and secrets\n"
-            "4. Include a resource group as the foundation\n"
-            "5. Generate EVERY Azure resource from the mappings above\n"
-            "6. Group resources by logical function with clear comments\n"
-            "7. Use appropriate SKUs based on the strategy ({sku_strategy})\n"
-            "8. Include managed identities where applicable\n"
-            "9. **CRITICAL — Credential Handling:**\n"
-            "   - ALWAYS use Azure Key Vault for secrets\n"
-            "   - NEVER use inline/hardcoded passwords or credentials\n"
-            "   - Use pulumi.secret() for secret outputs\n"
-            "10. Export meaningful outputs (endpoints, URLs) — NEVER export secrets\n"
-            "11. Do NOT include any markdown formatting — return ONLY valid TypeScript code\n"
-            "12. Add comments explaining which source service each resource replaces"
-        ),
-        "return_instruction": "Return ONLY the Pulumi TypeScript code, no markdown fences, no explanations.",
-    },
-    "aws-cdk": {
-        "expert_role": "AWS infrastructure engineer specializing in AWS CDK",
-        "code_type": "AWS CDK TypeScript code",
-        "target_field": "target_service",
-        "target_label": "AWS",
-        "use_azure_region": False,
-        "requirements": (
-            "1. Use aws-cdk-lib constructs\n"
-            "2. Follow AWS naming conventions and tagging best practices\n"
-            "3. Use CfnParameter or environment variables for configuration\n"
-            "4. Include all AWS resources from the mappings above\n"
-            "5. Group resources by logical function with clear comments\n"
-            "6. Use appropriate instance types based on the strategy ({sku_strategy})\n"
-            "7. Include IAM roles and policies with least-privilege principle\n"
-            "8. **CRITICAL — Credential Handling:**\n"
-            "   - ALWAYS use AWS Secrets Manager for secrets\n"
-            "   - NEVER use inline/hardcoded passwords or credentials\n"
-            "9. Include meaningful CfnOutput (endpoints, ARNs) — NEVER output secrets\n"
-            "10. Do NOT include any markdown formatting — return ONLY valid TypeScript code\n"
-            "11. Add comments explaining which source service each resource replaces"
-        ),
-        "return_instruction": "Return ONLY the CDK TypeScript code, no markdown fences, no explanations.",
-    },
 }
+
+SUPPORTED_IAC_FORMATS = frozenset(_FORMAT_CONFIG)
 
 
 def _build_iac_prompt(iac_format: str, analysis: dict, params: dict) -> str:
     """Build a GPT-4o prompt for the given IaC format.
 
-    Shared logic for Terraform, Bicep, and CloudFormation  — DRY refactor (#314).
+    Shared logic for Terraform and Bicep — DRY refactor (#314).
     """
     config = _FORMAT_CONFIG[iac_format]
 
     mappings = analysis.get("mappings", [])
     services_detected = analysis.get("services_detected", 0)
-    source_provider = analysis.get("source_provider", "AWS" if config["use_azure_region"] else "unknown")
+    source_provider = analysis.get("source_provider", "AWS")
     project_name = sanitize_iac_param(
         params.get("project_name", "cloud-migration"), "project_name", default="cloud-migration",
     )
 
-    # Region handling differs between Azure and AWS formats
-    if config["use_azure_region"]:
-        region = sanitize_iac_param(
-            params.get("region", "westeurope"), "region",
-            allowed_values=_VALID_REGIONS, default="westeurope",
-        )
-    else:
-        region = params.get("region", "us-east-1")
-        if region not in _VALID_AWS_REGIONS:
-            region = "us-east-1"
+    region = sanitize_iac_param(
+        params.get("region", "westeurope"), "region",
+        allowed_values=_VALID_REGIONS, default="westeurope",
+    )
 
     env = sanitize_iac_param(
         params.get("environment", "dev"), "environment",
@@ -347,18 +257,6 @@ def _build_terraform_prompt(analysis: dict, params: dict) -> str:
 
 def _build_bicep_prompt(analysis: dict, params: dict) -> str:
     return _build_iac_prompt("bicep", analysis, params)
-
-
-def _build_cloudformation_prompt(analysis: dict, params: dict) -> str:
-    return _build_iac_prompt("cloudformation", analysis, params)
-
-
-def _build_pulumi_prompt(analysis: dict, params: dict) -> str:
-    return _build_iac_prompt("pulumi", analysis, params)
-
-
-def _build_aws_cdk_prompt(analysis: dict, params: dict) -> str:
-    return _build_iac_prompt("aws-cdk", analysis, params)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -600,23 +498,6 @@ def _validate_bicep(code: str) -> List[Tuple[str, str]]:
     return cli_issues + _bicep_policy_checks(code)
 
 
-def _validate_cloudformation(code: str) -> List[Tuple[str, str]]:
-    """Validate generated CloudFormation YAML at the structure level."""
-    issues: List[Tuple[str, str]] = []
-
-    if "AWSTemplateFormatVersion" not in code:
-        issues.append(("error", "Missing AWSTemplateFormatVersion header"))
-
-    if "Resources:" not in code and "Resources :" not in code:
-        issues.append(("error", "No Resources section found"))
-
-    # Check for hardcoded secrets
-    if re.search(r'Default:\s*["\'][^"\']{8,}["\']', code) and re.search(r'(?:Password|Secret|Key)', code, re.IGNORECASE):
-        issues.append(("warning", "Possible hardcoded secret in Parameters Default value"))
-
-    return issues
-
-
 def _scan_security(code: str, iac_format: str) -> List[Tuple[str, str]]:
     """Scan IaC code for common security anti-patterns (Issue #276).
 
@@ -675,7 +556,6 @@ def _apply_validation(code: str, iac_format: str) -> str:
     validators = {
         "terraform": _validate_terraform,
         "bicep": _validate_bicep,
-        "cloudformation": _validate_cloudformation,
     }
 
     validator = validators.get(iac_format)
@@ -717,8 +597,6 @@ def _apply_validation(code: str, iac_format: str) -> str:
                 if message.startswith(prefix):
                     return "failed az bicep build", message.removeprefix(prefix)
                 return "failed az bicep build", message
-            if iac_format == "cloudformation":
-                return "failed CloudFormation validation", message
             return "failed IaC validation", message
 
         error_block = "\n".join(
@@ -752,11 +630,8 @@ def _load_fallback_template(iac_format: str, safe_project: str, safe_env: str, s
     template_map = {
         "terraform": "terraform_base.tf",
         "bicep": "bicep_base.bicep",
-        "cloudformation": "cloudformation_base.yaml",
-        "pulumi": "pulumi_base.ts",
-        "aws-cdk": "aws-cdk_base.ts",
     }
-    template_name = template_map.get(iac_format, "terraform_base.tf")
+    template_name = template_map[iac_format]
     template = _load_template(template_name)
     result = template.replace(
         "{{PROJECT_NAME}}", safe_project
@@ -774,6 +649,10 @@ def generate_iac_code(analysis: Optional[dict], iac_format: str = "terraform", p
 
     If no analysis is available, returns a base template.
     """
+    if iac_format not in SUPPORTED_IAC_FORMATS:
+        supported = ", ".join(sorted(SUPPORTED_IAC_FORMATS))
+        raise ValueError(f"Unsupported IaC format '{iac_format}'. Supported formats: {supported}.")
+
     params = params or {}
 
     safe_project = sanitize_iac_param(
@@ -801,11 +680,9 @@ def generate_iac_code(analysis: Optional[dict], iac_format: str = "terraform", p
     # Build prompt based on format
     prompt_builders = {
         "terraform": _build_terraform_prompt,
-        "cloudformation": _build_cloudformation_prompt,
-        "pulumi": _build_pulumi_prompt,
-        "aws-cdk": _build_aws_cdk_prompt,
+        "bicep": _build_bicep_prompt,
     }
-    build_prompt = prompt_builders.get(iac_format, _build_bicep_prompt)
+    build_prompt = prompt_builders[iac_format]
     prompt = build_prompt(analysis or {}, params)
 
     target_provider = (analysis or {}).get("target_provider", "azure")
@@ -909,5 +786,5 @@ def _verify_iac_completeness(
 
 def _truncation_warning(iac_format: str) -> str:
     """Return a format-appropriate truncation warning comment."""
-    comment_style = "#" if iac_format in ("terraform", "cloudformation") else "//"
+    comment_style = "#" if iac_format == "terraform" else "//"
     return f"\n\n{comment_style} \u26a0\ufe0f WARNING: This output was truncated by the AI model.\n{comment_style} Some resources may be incomplete. Please review and regenerate if needed.\n"

@@ -40,7 +40,7 @@ Expected output:
 Use `--emit all` for the default engineer bundle, or select any comma-separated subset of:
 
 ```text
-terraform,bicep,cloudformation,alz-svg,cost
+terraform,bicep,alz-svg,cost
 ```
 
 ## Drift Baseline Comparison

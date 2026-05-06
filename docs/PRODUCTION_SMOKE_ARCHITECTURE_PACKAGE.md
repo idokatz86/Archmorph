@@ -33,7 +33,7 @@ Artifacts are written to `smoke-artifacts/architecture-package/<timestamp>/` by 
 | Health and scheduled jobs | `/api/health` status, service catalog freshness, scheduled job `last_success`, age, and stale flag |
 | Sample analysis | `diagram_id`, non-empty mappings, non-empty service connections |
 | Guided answers | Questions endpoint responds and applied answers persist `customer_intent` plus IaC parameters |
-| IaC | Terraform, Bicep, and CloudFormation outputs are non-empty, format-shaped, and free of markdown fences |
+| IaC | Terraform and Bicep outputs are non-empty, format-shaped, and free of markdown fences |
 | HLD | Markdown HLD is generated and customer DOCX/PDF/PPTX exports decode to real documents |
 | Cost | Cost JSON contains service rows and the CSV export contains a `TOTAL` row |
 | Architecture Package | HTML contains target, DR, DR readiness rubric, customer intent, constraints, and inline SVG sections |

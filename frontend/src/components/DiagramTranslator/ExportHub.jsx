@@ -18,7 +18,6 @@ const DELIVERABLES = [
     formats: [
       { id: 'terraform', label: 'Terraform' },
       { id: 'bicep', label: 'Bicep' },
-      { id: 'cloudformation', label: 'CloudFormation' },
     ],
     defaultFormat: 'terraform',
   },
