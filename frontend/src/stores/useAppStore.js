@@ -16,6 +16,7 @@ const VALID_TABS = new Set([
   'dashboard',
   'translator',
   'services',
+  'templates',
   'roadmap',
   'drift',
   'api-docs',
@@ -50,6 +51,7 @@ const useAppStore = create((set) => {
     adminOpen: false,
     updateStatus: null,
     pendingResumeId: null,
+    pendingTemplateAnalysis: null,
 
     // ── Actions ──
     setActiveTab: (tab) => {
@@ -64,6 +66,7 @@ const useAppStore = create((set) => {
       }
     },
     setPendingResumeId: (id) => set({ pendingResumeId: id }),
+    setPendingTemplateAnalysis: (analysis) => set({ pendingTemplateAnalysis: analysis }),
     setAdminOpen: (open) => set({ adminOpen: open }),
     toggleAdmin: () => set((s) => ({ adminOpen: !s.adminOpen })),
 

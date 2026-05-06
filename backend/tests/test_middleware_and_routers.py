@@ -477,7 +477,40 @@ class TestTerraformPreviewRoute:
 
 
 # ====================================================================
-# 11. V1 Route Parity for New Routes
+# 11. Template Gallery Routes
+# ====================================================================
+
+class TestTemplateGalleryRoutes:
+    """Test template gallery listing and translator-ready analysis."""
+
+    def test_list_templates_has_no_cost_fields(self, client):
+        resp = client.get("/api/templates")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] > 0
+        assert data["categories"]
+        assert all("estimated_monthly_cost" not in template for template in data["templates"])
+        assert all("sample_id" not in template for template in data["templates"])
+
+    def test_filter_templates_by_category(self, client):
+        resp = client.get("/api/templates?category=containers")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["templates"]
+        assert {template["category"] for template in data["templates"]} == {"containers"}
+
+    def test_analyze_template_creates_translator_session(self, client, clean_session):
+        resp = client.post("/api/templates/aws-iaas-web/analyze")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["diagram_id"].startswith("template-aws-iaas-web-")
+        assert data["is_template"] is True
+        assert data["template_id"] == "aws-iaas-web"
+        assert data["diagram_id"] in SESSION_STORE
+
+
+# ====================================================================
+# 12. V1 Route Parity for New Routes
 # ====================================================================
 
 class TestV1RouteParityForNewRoutes:
@@ -496,6 +529,11 @@ class TestV1RouteParityForNewRoutes:
     def test_v1_samples(self, client):
         resp = client.get("/api/v1/samples")
         assert resp.status_code == 200
+
+    def test_v1_templates(self, client):
+        resp = client.get("/api/v1/templates")
+        assert resp.status_code == 200
+        assert resp.json()["total"] > 0
 
     def test_v1_services_stats(self, client):
         resp = client.get("/api/v1/services/stats")
