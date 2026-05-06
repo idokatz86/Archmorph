@@ -55,7 +55,12 @@ output "openai_endpoint" {
 }
 
 output "openai_deployment_name" {
-  description = "GPT-4 Vision deployment name"
+  description = "Primary Azure OpenAI deployment name"
+  value       = azurerm_cognitive_deployment.gpt41_primary.name
+}
+
+output "openai_fallback_deployment_name" {
+  description = "Fallback Azure OpenAI deployment name"
   value       = azurerm_cognitive_deployment.gpt4_vision.name
 }
 

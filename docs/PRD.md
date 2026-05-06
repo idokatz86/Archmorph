@@ -1,10 +1,10 @@
 # Archmorph — Cloud Architecture Translator to Azure
 ## Product Requirements Document (PRD)
 **Version:** 4.3.0-main
-**Date:** May 3, 2026
+**Date:** May 7, 2026
 **Author:** Ido Katz
 
-**Release Note:** Off-spine Agent PaaS proof and RAG API surfaces retired from the active backend contract.
+**Release Note:** Azure OpenAI production traffic is consolidated into West Europe with `gpt-4.1` primary and `gpt-4o` fallback; Terraform state adoption remains an operator-controlled follow-up.
 
 ---
 
@@ -50,7 +50,7 @@ The PRD distinguishes three maturity levels. **Live** features are usable in the
 - **Analysis time:** ≤30 seconds for diagrams ≤50 services
 
 ### 3.2 Service Detection
-- AI-powered identification using Azure OpenAI GPT-4o Vision
+- AI-powered identification using Azure OpenAI `gpt-4.1` with `gpt-4o` fallback in West Europe
 - Detects: Services, connections/data flows, annotations
 - **Multi-pass analysis:** Diagrams with >30 services trigger 2-pass analysis (quadrant split + merge)
 - **405+ service catalog:** 145 AWS, 143 Azure, 117 GCP services with 122 cross-cloud mappings (grows automatically via auto-discovery)
@@ -708,7 +708,7 @@ Only when 1–7 all green does the README/PRD Capability Status table flip ALZ r
 |-------|------------|
 | Frontend | React 19.2, Vite 8.0, TailwindCSS 4.2, Lucide React (icons), Prism.js (syntax highlighting), react-i18next (i18n) |
 | Backend | Python 3.12, FastAPI, Gunicorn (UvicornWorker) |
-| AI | Azure OpenAI GPT-4.1 (deployment `gpt-4.1`, model 2025-04-14) with GPT-4o fallback |
+| AI | Azure OpenAI GPT-4.1 (deployment `gpt-4.1`, model 2025-04-14) with GPT-4o fallback, served from West Europe |
 | Database | PostgreSQL (Azure Flexible Server) |
 | Storage | Azure Blob Storage |
 | Hosting | Azure Container Apps (API + MCP gateway), Static Web Apps (frontend) |

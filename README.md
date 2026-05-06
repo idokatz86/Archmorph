@@ -813,14 +813,14 @@ Production hardening switches:
 | Container Apps (`archmorph-api`, `archmorph-mcp-gateway`) | Consumption | West Europe |
 | Static Web Apps | Free | West Europe |
 | Container Registry (`archmorphacm7pd`) | Basic | West Europe |
-| Azure OpenAI | S0 | East US [^1] |
+| Azure OpenAI | S0 | West Europe [^1] |
 | PostgreSQL Flexible Server | Burstable B1ms | West Europe |
 | Azure Cache for Redis | Basic C0 | West Europe |
 | Application Insights | — | West Europe |
 
-[^1]: Tracked for consolidation into West Europe — see [#607](https://github.com/idokatz86/Archmorph/issues/607). The April 2026 hub used to also run an `archmorph-backend` App Service (Canada Central), a duplicate `cafd43cfd4deacr` registry (East US), and a stray `secondnature-openai-whisper` cognitive account. All three were retired during the May 2026 infra consolidation; the dev RG now hosts only the active Container Apps stack and supporting data services.
+[^1]: #607 cut production traffic over to the West Europe account `archmorph-openai-we-acm7pd` with `gpt-4.1` primary and `gpt-4o` fallback. The prior East US account remains online during the rollback/zero-traffic verification window. The April 2026 hub used to also run an `archmorph-backend` App Service (Canada Central), a duplicate `cafd43cfd4deacr` registry (East US), and a stray `secondnature-openai-whisper` cognitive account. All three were retired during the May 2026 infra consolidation; the dev RG now hosts only the active Container Apps stack and supporting data services.
 
-Terraform topology and no-break state-sync guardrails are documented in [infra/README.md](infra/README.md). Do not run Terraform import, state removal, or apply steps for the OpenAI region sync until #607 is complete and an operator change window is approved.
+Terraform topology and no-break state-sync guardrails are documented in [infra/README.md](infra/README.md). Do not run Terraform state removal or apply steps for the OpenAI region sync until the live West Europe account and deployments have been imported and an operator change window is approved.
 
 ### CI/CD Pipeline
 
