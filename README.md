@@ -722,7 +722,7 @@ Archmorph/
 │   │   ├── terraform_import_routes.py # TF state/ARM/CF import
 │   │   ├── cost_comparison_routes.py # Multi-cloud cost compare
 │   │   ├── agents.py                # Agent registry CRUD
-│   │   ├── executions.py            # Agent execution + ReAct loop
+│   │   ├── executions.py            # Async agent execution + tool-calling loop
 │   │   ├── drift.py                 # Infrastructure drift detection
 │   │   ├── feature_flags.py         # Feature flag management
 │   │   ├── jobs.py                  # Background job & SSE routes
