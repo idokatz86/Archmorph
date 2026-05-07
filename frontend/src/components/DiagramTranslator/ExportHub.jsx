@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   X, Download, Check, Loader2, Package, FileCode,
-  FileText, DollarSign, CalendarClock, ShieldCheck, FileDown,
+  FileText, DollarSign, CalendarClock, FileDown,
   ChevronDown, PanelTop,
 } from 'lucide-react';
 import { Button, Card } from '../ui';
@@ -61,16 +61,6 @@ const DELIVERABLES = [
       { id: 'json', label: 'JSON' },
       { id: 'markdown', label: 'Markdown' },
       { id: 'csv', label: 'CSV' },
-    ],
-    defaultFormat: 'markdown',
-  },
-  {
-    id: 'compliance',
-    label: 'Compliance Report',
-    icon: ShieldCheck,
-    formats: [
-      { id: 'json', label: 'JSON' },
-      { id: 'markdown', label: 'Markdown' },
     ],
     defaultFormat: 'markdown',
   },
@@ -168,21 +158,6 @@ async function generateDeliverable(diagramId, deliverable, format, hldIncludeDia
     // markdown
     const md = `# Migration Timeline\n\n${timeline.phases.map(p => `## ${p.phase}\n- **Duration:** ${p.duration}\n- **Services:** ${p.services.join(', ') || 'All'}`).join('\n\n')}`;
     return { blob: new Blob([md], { type: 'text/markdown' }), filename: 'archmorph-timeline.md' };
-  }
-
-  if (id === 'compliance') {
-    const data = await api.get(`/diagrams/${diagramId}/cost-estimate`);
-    const report = {
-      generated: new Date().toISOString(),
-      services_reviewed: (data.services || []).length,
-      compliance_frameworks: ['SOC 2', 'ISO 27001', 'GDPR'],
-      status: 'Azure services selected support all listed frameworks.',
-    };
-    if (format === 'json') {
-      return { blob: new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' }), filename: 'archmorph-compliance.json' };
-    }
-    const md = `# Compliance Report\n\n- **Services Reviewed:** ${report.services_reviewed}\n- **Frameworks:** ${report.compliance_frameworks.join(', ')}\n- **Status:** ${report.status}`;
-    return { blob: new Blob([md], { type: 'text/markdown' }), filename: 'archmorph-compliance.md' };
   }
 
   if (id === 'pdf-report') {

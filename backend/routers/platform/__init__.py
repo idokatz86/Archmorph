@@ -1,5 +1,5 @@
 """
-Platform domain — routes for health, services, legal, compliance, jobs, etc.
+Platform domain — routes for health, services, legal, jobs, etc.
 
 Consolidates 14 router files into one importable package (#503).
 """
