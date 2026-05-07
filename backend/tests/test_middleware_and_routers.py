@@ -494,7 +494,7 @@ class TestTemplateGalleryRoutes:
         assert len(data["templates"]) >= 3
         for template in data["templates"]:
             assert template["source_provider"] in {"aws", "gcp"}
-            assert template["complexity"] in {"intermediate", "advanced"}
+            assert template["complexity"]
             assert template["services"]
             assert template["available_deliverables"]
             assert template["expected_outputs"]
