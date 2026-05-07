@@ -45,21 +45,21 @@ describe('Nav', () => {
 
   it('renders navigation tabs', () => {
     render(<Nav {...defaultProps} />)
-    expect(screen.getByText('Translator')).toBeInTheDocument()
-    expect(screen.getByText('Services')).toBeInTheDocument()
+    expect(screen.getByText('Workbench')).toBeInTheDocument()
+    expect(screen.getByText('Reference')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /More/ })).toBeInTheDocument()
   })
 
   it('highlights the active tab', () => {
     render(<Nav {...defaultProps} activeTab="services" />)
-    const servicesBtn = screen.getByText('Services').closest('button')
+    const servicesBtn = screen.getByText('Reference').closest('button')
     expect(servicesBtn).toHaveAttribute('aria-current', 'page')
   })
 
   it('calls setActiveTab when a tab is clicked', async () => {
     const user = userEvent.setup()
     render(<Nav {...defaultProps} />)
-    await user.click(screen.getByText('Services'))
+    await user.click(screen.getByText('Reference'))
     expect(defaultProps.setActiveTab).toHaveBeenCalledWith('services')
   })
 

@@ -21,14 +21,17 @@ describe('DiagramTranslator', () => {
 
   it('renders without crashing', async () => {
     render(<DiagramTranslator />)
-    expect(await screen.findByText('Input')).toBeInTheDocument()
+    expect(await screen.findByText('Translation Workbench')).toBeInTheDocument()
+    expect(await screen.findAllByText('Input')).toHaveLength(2)
   })
 
   it('shows the step progress bar', async () => {
     render(<DiagramTranslator />)
-    expect(await screen.findByText('Input')).toBeInTheDocument()
-    expect(await screen.findByText('Analysis')).toBeInTheDocument()
-    expect(await screen.findByText('Deliverables')).toBeInTheDocument()
+    expect(await screen.findAllByText('Input')).toHaveLength(2)
+    expect(await screen.findAllByText('Analysis')).toHaveLength(2)
+    expect(await screen.findByText('Decisions')).toBeInTheDocument()
+    expect(await screen.findAllByText('Deliverables')).toHaveLength(2)
+    expect(await screen.findByText('Share/Export')).toBeInTheDocument()
   })
 
   it('shows upload step by default', async () => {
