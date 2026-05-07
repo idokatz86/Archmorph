@@ -1,10 +1,12 @@
-"""Tests for the #602 model evaluation harness.
+"""Tests for the #602/#781 model evaluation harness.
 
-Three concerns:
+The suite covers:
 1. Bench harness is structurally correct in dry-run mode (offline,
    deterministic, no Foundry calls).
 2. The CLI is wired up.
-3. The cache-key versioning AC from #602 is satisfied —
+3. The #781 benchmark plan captures regional availability, workload lanes,
+   managed-identity auth posture, and the no-production-routing guardrail.
+4. The cache-key versioning AC from #602 is satisfied —
    `_compute_cache_key` already includes `model`, so swapping models
    automatically invalidates cache entries. Lock that with an explicit
    test against the production code path.
@@ -121,6 +123,49 @@ class TestCorpusIntegrity:
                 )
 
 
+class TestBenchmarkPlan781:
+    def test_plan_has_at_least_five_archmorph_lanes(self) -> None:
+        plan = model_bench.build_benchmark_plan()
+        assert len(plan["benchmark_lanes"]) >= plan["minimum_required_lanes"] >= 5
+        for required in (
+            "diagram_image_understanding",
+            "cloud_service_mapping",
+            "iac_generation_repair",
+            "hld_architecture_narrative",
+            "cost_explanation",
+        ):
+            assert required in plan["benchmark_lanes"]
+
+    def test_plan_keeps_current_baseline_and_no_routing_change(self) -> None:
+        plan = model_bench.build_benchmark_plan()
+        assert plan["production_routing_change"] is False
+        assert plan["current_deployments"]["primary"]["deployment"] == "gpt-4.1"
+        assert plan["current_deployments"]["fallback"]["deployment"] == "gpt-4o"
+        assert "Keep current gpt-4.1/gpt-4o" in plan["decision_rule"]
+
+    def test_plan_requires_managed_identity_not_keys(self) -> None:
+        plan = model_bench.build_benchmark_plan()
+        auth = plan["auth_requirements"]
+        assert auth["local_auth_enabled"] is False
+        assert auth["required_role"] == "Cognitive Services OpenAI User"
+        assert any("API-key" in item for item in auth["forbidden"])
+
+    def test_plan_records_west_europe_and_sweden_central_status(self) -> None:
+        plan = model_bench.build_benchmark_plan()
+        regional = plan["regional_availability"]
+        assert "westeurope" in regional
+        assert "swedencentral" in regional
+        assert "gpt-5.4" in regional["westeurope"]["deployable_candidates"]
+        assert regional["swedencentral"]["deployable_candidates"] == {}
+
+    def test_recommendation_matrix_uses_allowed_decisions(self) -> None:
+        plan = model_bench.build_benchmark_plan()
+        allowed = {"keep_current", "add_routed_model_candidate", "defer"}
+        assert plan["recommendation_matrix"]
+        for row in plan["recommendation_matrix"]:
+            assert row["decision"] in allowed
+
+
 class TestCacheKeyVersioning:
     """Lock the AC: 'cached_chat_completion cache invalidates cleanly when
     model changes'.
@@ -170,6 +215,15 @@ class TestCli:
         assert payload["dry_run"] is True
         # Full run touches every workload
         assert set(payload["workloads_run"]) == set(model_bench.WORKLOAD_CANDIDATES)
+        assert payload["benchmark_plan"]["issue"] == 781
+
+    def test_cli_plan_to_stdout(self, capsys: pytest.CaptureFixture[str]) -> None:
+        rc = model_bench.main(["--plan"])
+        assert rc == 0
+        out = capsys.readouterr().out
+        payload = json.loads(out)
+        assert payload["issue"] == 781
+        assert payload["production_routing_change"] is False
 
     def test_cli_full_with_workloads_is_error(self) -> None:
         # Mutually exclusive flags

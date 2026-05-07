@@ -1,0 +1,262 @@
+{
+  "auth_requirements": {
+    "forbidden": [
+      "API-key based benchmark routing",
+      "committing secrets",
+      "production deployment mutation"
+    ],
+    "local_auth_enabled": false,
+    "required_role": "Cognitive Services OpenAI User",
+    "runtime_identity": "Container App user-assigned managed identity with system-assigned fallback"
+  },
+  "benchmark_lanes": {
+    "chat_refinement_assistant": {
+      "baseline": [
+        "gpt-4.1",
+        "gpt-4o"
+      ],
+      "candidates": [
+        "gpt-5.4-mini",
+        "gpt-5-mini",
+        "o4-mini"
+      ],
+      "dataset": "multi-turn refinement prompts with tool-call expectations and customer constraints",
+      "harness_workload": "agent_paas_react",
+      "lane_id": "agent_paas_react",
+      "quality_gates": [
+        "tool-call accuracy",
+        "constraint retention",
+        "latency p95",
+        "safe refusal behavior"
+      ]
+    },
+    "cloud_service_mapping": {
+      "baseline": [
+        "gpt-4.1",
+        "gpt-4o"
+      ],
+      "candidates": [
+        "gpt-4.1-mini",
+        "gpt-4o-mini",
+        "gpt-5.4-mini"
+      ],
+      "dataset": "AWS/GCP/on-prem service mapping prompts with catalog references",
+      "harness_workload": "mapping_suggester",
+      "lane_id": "mapping_suggester",
+      "quality_gates": [
+        "primary mapping accuracy",
+        "confidence calibration",
+        "rationale safety",
+        "JSON schema validity"
+      ]
+    },
+    "cost_explanation": {
+      "baseline": [
+        "gpt-4.1",
+        "gpt-4o"
+      ],
+      "candidates": [
+        "gpt-4.1-mini",
+        "gpt-4o-mini",
+        "gpt-5.4-mini"
+      ],
+      "dataset": "Azure retail-price summaries and FinOps trade-off prompts",
+      "harness_workload": null,
+      "lane_id": "cost_explainer",
+      "quality_gates": [
+        "numeric consistency",
+        "SKU caveat accuracy",
+        "unit-cost clarity",
+        "no fabricated prices"
+      ]
+    },
+    "diagram_image_understanding": {
+      "baseline": [
+        "gpt-4.1",
+        "gpt-4o"
+      ],
+      "candidates": [
+        "gpt-5.4",
+        "gpt-5.5"
+      ],
+      "dataset": "synthetic architecture diagrams plus the legal-approved golden PDF corpus when available",
+      "harness_workload": "vision_analyzer",
+      "lane_id": "vision_analyzer",
+      "quality_gates": [
+        "service inventory F1",
+        "relationship edge F1",
+        "JSON schema validity",
+        "image/PDF refusal rate"
+      ]
+    },
+    "hld_architecture_narrative": {
+      "baseline": [
+        "gpt-4.1",
+        "gpt-4o"
+      ],
+      "candidates": [
+        "gpt-5.4",
+        "gpt-5",
+        "gpt-5-mini"
+      ],
+      "dataset": "HLD prompts with expected sections, risks, service map, and cost context",
+      "harness_workload": "hld_generator",
+      "lane_id": "hld_generator",
+      "quality_gates": [
+        "required section coverage",
+        "migration-risk accuracy",
+        "concise executive narrative",
+        "policy-safe recommendations"
+      ]
+    },
+    "iac_generation_repair": {
+      "baseline": [
+        "gpt-4.1",
+        "gpt-4o"
+      ],
+      "candidates": [
+        "gpt-5.3-codex",
+        "gpt-5-codex",
+        "gpt-5.4"
+      ],
+      "dataset": "Terraform/Bicep generation and repair prompts from canonical starter architectures",
+      "harness_workload": "iac_generator",
+      "lane_id": "iac_generator",
+      "quality_gates": [
+        "terraform fmt/validate",
+        "bicep diagnostics",
+        "least-privilege defaults",
+        "no secret leakage"
+      ]
+    },
+    "regression_judge": {
+      "baseline": [
+        "gpt-4o",
+        "gpt-4.1"
+      ],
+      "candidates": [
+        "gpt-5-pro",
+        "gpt-5.4",
+        "o4-mini"
+      ],
+      "dataset": "known-pass/known-fail regression answers for quality, schema, safety, and concision rubrics",
+      "harness_workload": null,
+      "lane_id": "eval_judge",
+      "quality_gates": [
+        "grader agreement",
+        "false-pass rate",
+        "false-fail rate",
+        "stable JSON scores"
+      ]
+    }
+  },
+  "current_account": {
+    "account_name": "archmorph-openai-we-acm7pd",
+    "region": "westeurope",
+    "resource_group": "archmorph-rg-dev",
+    "resource_id": "<redacted-foundry-account-resource-id>",
+    "subscription_id": "<redacted-subscription-id>",
+    "tenant_id": "<redacted-tenant-id>"
+  },
+  "current_deployments": {
+    "fallback": {
+      "capacity": 10,
+      "deployment": "gpt-4o",
+      "model": "gpt-4o",
+      "rai_policy": "Microsoft.DefaultV2",
+      "sku": "GlobalStandard",
+      "version": "2024-11-20"
+    },
+    "primary": {
+      "capacity": 10,
+      "deployment": "gpt-4.1",
+      "model": "gpt-4.1",
+      "rai_policy": "Microsoft.DefaultV2",
+      "sku": "GlobalStandard",
+      "version": "2025-04-14"
+    }
+  },
+  "decision_rule": "Keep current gpt-4.1/gpt-4o unless a candidate improves quality or cost without breaking structured output, export artifacts, safety gates, quota headroom, or SLA.",
+  "generated_for_date": "2026-05-07",
+  "issue": 781,
+  "minimum_required_lanes": 5,
+  "production_routing_change": false,
+  "recommendation_matrix": [
+    {
+      "candidate": "gpt-5.4",
+      "decision": "defer",
+      "lane": "diagram_image_understanding",
+      "reason": "Potential quality candidate, but requires live image/PDF benchmark and quota proof before routed model deployment."
+    },
+    {
+      "candidate": "gpt-5.4-mini",
+      "decision": "add_routed_model_candidate",
+      "lane": "cloud_service_mapping",
+      "reason": "Low-risk structured mapping lane; benchmark for cost and p95 latency savings before any feature-flagged route."
+    },
+    {
+      "candidate": "gpt-5.3-codex",
+      "decision": "add_routed_model_candidate",
+      "lane": "iac_generation_repair",
+      "reason": "Codex-specialized deployable candidate; must pass IaC validation and security gates before canary."
+    },
+    {
+      "candidate": "gpt-5.4",
+      "decision": "defer",
+      "lane": "hld_architecture_narrative",
+      "reason": "Narrative quality may improve, but current baseline remains until live report shows better section coverage without verbosity regressions."
+    },
+    {
+      "candidate": "gpt-5.4-mini",
+      "decision": "add_routed_model_candidate",
+      "lane": "cost_explanation",
+      "reason": "Candidate for cheaper explanation prompts if numeric consistency and no fabricated pricing hold in the benchmark."
+    },
+    {
+      "candidate": "gpt-5-pro",
+      "decision": "defer",
+      "lane": "regression_judge",
+      "reason": "Use only as an offline judge candidate until cost and evaluator agreement justify continuous use."
+    },
+    {
+      "candidate": "gpt-5.4-mini",
+      "decision": "defer",
+      "lane": "chat_refinement_assistant",
+      "reason": "Multi-turn tool use needs stronger evidence on tool-call accuracy and constraint retention before routing."
+    }
+  ],
+  "regional_availability": {
+    "swedencentral": {
+      "current_deployments": [],
+      "deployable_candidates": {},
+      "quota_notes": "Treat as migration-region validation pending. Do not route Archmorph traffic here until account model list, quota, RBAC, and rollback drills are captured.",
+      "source": "subscription resource inventory found AIServices account agentsecysbz; list-models query was interrupted after hanging, 2026-05-07"
+    },
+    "westeurope": {
+      "current_deployments": [
+        "gpt-4.1",
+        "gpt-4o"
+      ],
+      "deployable_candidates": {
+        "gpt-4.1": "baseline primary, GlobalStandard, version 2025-04-14",
+        "gpt-4.1-mini": "Standard, version 2025-04-14",
+        "gpt-4.1-nano": "GlobalStandard, version 2025-04-14",
+        "gpt-4o": "baseline fallback, GlobalStandard deployable versions include 2024-05-13/2024-08-06 and current deployment 2024-11-20",
+        "gpt-4o-mini": "GlobalStandard, version 2024-07-18",
+        "gpt-5": "GlobalStandard, version 2025-08-07",
+        "gpt-5-codex": "GlobalStandard, version 2025-09-15",
+        "gpt-5-mini": "GlobalStandard, version 2025-08-07",
+        "gpt-5-nano": "GlobalStandard, version 2025-08-07",
+        "gpt-5-pro": "GlobalStandard, version 2025-10-06",
+        "gpt-5.3-codex": "GlobalStandard, version 2026-02-24",
+        "gpt-5.4": "GlobalStandard, version 2026-03-05",
+        "gpt-5.4-mini": "GlobalStandard, version 2026-03-17",
+        "gpt-5.4-nano": "GlobalStandard, version 2026-03-17",
+        "gpt-5.5": "GlobalProvisionedManaged, version 2026-04-24; benchmark only after capacity approval",
+        "o4-mini": "GlobalStandard, version 2025-04-16"
+      },
+      "quota_notes": "Usage CLI returned no rows in this environment; live run must capture TPM/RPM and throttling before any routed deployment.",
+      "source": "az cognitiveservices account list-models on archmorph-openai-we-acm7pd, 2026-05-07"
+    }
+  }
+}
