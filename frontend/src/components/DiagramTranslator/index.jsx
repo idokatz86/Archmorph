@@ -49,6 +49,99 @@ const DELIVERABLE_TABS = [
   { id: 'deploy', label: 'Deploy', icon: Rocket, feature: 'deployEngine' },
 ].filter(tab => !tab.feature || isFeatureEnabled(tab.feature));
 
+const SPINE_STEPS = [
+  { id: 'input', label: 'Input' },
+  { id: 'analysis', label: 'Analysis' },
+  { id: 'decisions', label: 'Decisions' },
+  { id: 'deliverables', label: 'Deliverables' },
+  { id: 'share', label: 'Share/Export' },
+];
+
+const STATUS_STYLES = {
+  ready: 'border-cta/30 bg-cta/10 text-cta',
+  generating: 'border-info/30 bg-info/10 text-info',
+  failed: 'border-danger/30 bg-danger/10 text-danger',
+  stale: 'border-warning/30 bg-warning/10 text-warning',
+  needsReview: 'border-warning/30 bg-warning/10 text-warning',
+  notGenerated: 'border-border bg-secondary text-text-muted',
+};
+
+function StatusPill({ status, label }) {
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-medium ${STATUS_STYLES[status] || STATUS_STYLES.notGenerated}`}>
+      <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
+      {label}
+    </span>
+  );
+}
+
+function getWorkbenchSpine(state) {
+  const hasQuestions = (state.questions || []).length > 0 || (state.questionAssumptions || []).length > 0;
+  const inputFailed = state.step === 'upload' && !!state.error;
+  const analysisFailed = ['analyzing', 'results'].includes(state.step) && !!state.error;
+  const deliverablesGenerating = state.generatingIac || state.hldLoading || state.costBreakdownLoading;
+  const deliverablesFailed = ['iac', 'hld', 'pricing', 'deploy'].includes(state.step) && !!state.error;
+  return [
+    { id: 'input', status: inputFailed ? 'failed' : state.selectedFile || state.analysis ? 'ready' : 'notGenerated', label: inputFailed ? 'Failed' : state.analysis ? 'Ready' : state.selectedFile ? 'Selected' : 'Awaiting input' },
+    { id: 'analysis', status: analysisFailed ? 'failed' : state.step === 'analyzing' ? 'generating' : state.analysis ? 'ready' : 'notGenerated', label: analysisFailed ? 'Failed' : state.step === 'analyzing' ? 'Analyzing' : state.analysis ? 'Ready' : 'Not started' },
+    { id: 'decisions', status: hasQuestions && state.step === 'questions' ? 'needsReview' : hasQuestions ? 'ready' : state.analysis ? 'notGenerated' : 'notGenerated', label: hasQuestions && state.step === 'questions' ? 'Needs review' : hasQuestions ? 'Captured' : 'Not started' },
+    { id: 'deliverables', status: deliverablesFailed ? 'failed' : deliverablesGenerating ? 'generating' : state.iacCode ? 'ready' : 'notGenerated', label: deliverablesFailed ? 'Failed' : deliverablesGenerating ? 'Generating' : state.iacCode ? 'Ready' : 'Not generated' },
+    { id: 'share', status: state.exportCapability ? 'ready' : state.iacCode ? 'needsReview' : 'notGenerated', label: state.exportCapability ? 'Ready' : state.iacCode ? 'Needs review' : 'Not generated' },
+  ];
+}
+
+function getDeliverableStatuses(state) {
+  return [
+    { id: 'iac', label: 'IaC', status: state.generatingIac ? 'generating' : state.iacCode ? 'ready' : state.error && state.step === 'iac' ? 'failed' : 'notGenerated', text: state.generatingIac ? 'Generating' : state.iacCode ? 'Ready' : state.error && state.step === 'iac' ? 'Failed' : 'Not generated' },
+    { id: 'hld', label: 'HLD', status: state.hldLoading ? 'generating' : state.hldData ? 'ready' : state.error && state.step === 'hld' ? 'failed' : 'notGenerated', text: state.hldLoading ? 'Generating' : state.hldData ? 'Ready' : state.error && state.step === 'hld' ? 'Failed' : 'Not generated' },
+    { id: 'pricing', label: 'Cost', status: state.costBreakdownLoading ? 'generating' : state.costBreakdown ? 'ready' : 'notGenerated', text: state.costBreakdownLoading ? 'Generating' : state.costBreakdown ? 'Ready' : 'Not generated' },
+    { id: 'package', label: 'Package', status: state.exportCapability ? 'ready' : state.iacCode ? 'needsReview' : 'notGenerated', text: state.exportCapability ? 'Ready' : state.iacCode ? 'Needs review' : 'Not generated' },
+  ];
+}
+
+function WorkbenchSpineHeader({ state }) {
+  const statusByStep = new Map(getWorkbenchSpine(state).map(item => [item.id, item]));
+  return (
+    <Card className="p-4">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <h1 id="workbench-spine-title" className="text-xl font-bold text-text-primary">Translation Workbench</h1>
+        </div>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-5 lg:min-w-[42rem]" role="group" aria-labelledby="workbench-spine-title">
+          {SPINE_STEPS.map(step => {
+            const stateForStep = statusByStep.get(step.id);
+            return (
+              <div key={step.id} className="min-w-0 rounded-lg border border-border bg-secondary/40 p-2">
+                <div className="truncate text-xs font-semibold text-text-secondary">{step.label}</div>
+                <div className="mt-1">
+                  <StatusPill status={stateForStep.status} label={stateForStep.label} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function DeliverablesHubHeader({ state }) {
+  return (
+    <Card className="p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <h2 id="deliverables-hub-title" className="text-base font-semibold text-text-primary">Deliverables Hub</h2>
+        </div>
+        <div className="flex flex-wrap gap-2" role="group" aria-labelledby="deliverables-hub-title">
+          {getDeliverableStatuses(state).map(item => (
+            <StatusPill key={item.id} status={item.status} label={`${item.label}: ${item.text}`} />
+          ))}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 function buildQuestionState(qData = {}) {
   const questions = qData.questions || [];
   const allQuestions = qData.all_questions || questions;
@@ -973,6 +1066,8 @@ export default function DiagramTranslator() {
 
   return (
     <div className="space-y-6">
+      <WorkbenchSpineHeader state={state} />
+
       {/* Phase Bar (#512 — 3-phase progress) */}
       <div className="flex items-center justify-center gap-3 text-sm font-medium">
         {PHASES.map((phase, i) => {
@@ -1149,6 +1244,7 @@ export default function DiagramTranslator() {
       {/* ═══ Phase 3: Deliverables (Tabbed — IaC | HLD | Pricing | Deploy) ═══ */}
       {PHASES[2].steps.includes(state.step) && state.iacCode && (
         <div className="space-y-4">
+          <DeliverablesHubHeader state={state} />
           <div className="flex items-center justify-between">
             <Button onClick={() => set({ step: 'results' })} variant="ghost" size="sm" icon={Eye}>Back to Analysis</Button>
           </div>
