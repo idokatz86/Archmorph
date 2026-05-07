@@ -14,7 +14,7 @@ Archmorph is an AI-assisted cloud migration workbench in preview/stabilization. 
 
 The PRD distinguishes three maturity levels. **Live** features are usable in the core flow and should remain protected by CI. **Beta** features are implemented but need production validation, UX hardening, or broader tests. **Scaffold** features have routes, UI, or models present but must not be described as production-ready until cloud/provider execution is verified.
 
-Current infrastructure posture: West Europe remains the active production region for app and Azure OpenAI traffic. A Sweden Central migration is planned as a gated parallel-build effort, not an in-place Terraform region edit. The project has no open Dependabot security alerts as of the latest maintenance pass, and CI Terraform setup now uses `hashicorp/setup-terraform@v4`.
+Current infrastructure posture: West Europe remains the active production region for app and Azure OpenAI traffic. A Sweden Central migration is planned as a gated parallel-build effort, not an in-place Terraform region edit. The project had no open Dependabot security alerts as of May 7, 2026, and CI Terraform setup now uses `hashicorp/setup-terraform@v4`.
 
 **Problem:** Organizations migrating to Azure spend weeks manually mapping source architecture to Azure services. This process is error-prone, requires deep multi-cloud expertise, and lacks tooling for interactive refinement.
 
