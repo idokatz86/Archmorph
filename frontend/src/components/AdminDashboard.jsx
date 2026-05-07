@@ -17,7 +17,6 @@ const TABS = [
 
 const FEATURE_FLAG_ORDER = [
   'deploy_engine',
-  'living_architecture_drift',
   'live_cloud_scanner',
   'enterprise_sso_scim',
   'new_ai_model',
@@ -115,7 +114,7 @@ export default function AdminDashboard({ onClose }) {
   const toggleFlag = async (name) => {
     const current = flags[name];
     if (!current || !sessionToken) return;
-    const riskyFlags = new Set(['deploy_engine', 'living_architecture_drift', 'live_cloud_scanner', 'enterprise_sso_scim']);
+    const riskyFlags = new Set(['deploy_engine', 'live_cloud_scanner', 'enterprise_sso_scim']);
     if (!current.enabled && riskyFlags.has(name)) {
       const ok = window.confirm(`Enable ${formatFlagName(name)}? Confirm that tenant credentials, rollback, and customer-facing preview copy are ready.`);
       if (!ok) return;

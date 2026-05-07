@@ -93,7 +93,6 @@ After deployment, verify:
 These flags default to disabled and require owner approval before enabling:
 
 - `deploy_engine`
-- `living_architecture_drift`
 - `live_cloud_scanner`
 - `enterprise_sso_scim`
 

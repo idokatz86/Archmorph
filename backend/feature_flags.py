@@ -67,11 +67,6 @@ DEFAULT_FLAGS: Dict[str, Flag] = {
         enabled=False,
         description="Enable scaffolded one-click deployment flows after production readiness review",
     ),
-    "living_architecture_drift": Flag(
-        name="living_architecture_drift",
-        enabled=False,
-        description="Enable scaffolded drift detection and live architecture monitoring",
-    ),
     "live_cloud_scanner": Flag(
         name="live_cloud_scanner",
         enabled=False,
