@@ -481,9 +481,9 @@ class TestTerraformPreviewRoute:
 # ====================================================================
 
 class TestTemplateGalleryRoutes:
-    """Test template gallery listing and translator-ready analysis."""
+    """Test starter architecture listing and Workbench-ready analysis."""
 
-    def test_list_templates_has_no_cost_fields(self, client):
+    def test_list_templates_has_starter_regression_metadata(self, client):
         resp = client.get("/api/templates")
         assert resp.status_code == 200
         data = resp.json()
@@ -491,6 +491,14 @@ class TestTemplateGalleryRoutes:
         assert data["categories"]
         assert all("estimated_monthly_cost" not in template for template in data["templates"])
         assert all("sample_id" not in template for template in data["templates"])
+        assert len(data["templates"]) >= 3
+        for template in data["templates"]:
+            assert template["source_provider"] in {"aws", "gcp"}
+            assert template["complexity"]
+            assert template["services"]
+            assert template["available_deliverables"]
+            assert template["expected_outputs"]
+            assert template["regression_profile"]["coverage"] == "golden"
 
     def test_filter_templates_by_category(self, client):
         resp = client.get("/api/templates?category=containers")
@@ -505,7 +513,10 @@ class TestTemplateGalleryRoutes:
         data = resp.json()
         assert data["diagram_id"].startswith("template-aws-iaas-web-")
         assert data["is_template"] is True
+        assert data["is_starter"] is True
         assert data["template_id"] == "aws-iaas-web"
+        assert data["starter_metadata"]["available_deliverables"]
+        assert data["starter_metadata"]["regression_profile"]["id"] == "golden-aws-iaas-web"
         assert data["diagram_id"] in SESSION_STORE
 
 

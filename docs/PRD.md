@@ -252,13 +252,13 @@ The PRD distinguishes three maturity levels. **Live** features are usable in the
 - **Bookmarks** — save/unsave analyses for quick access
 - **Navigation integration** — dedicated Dashboard tab in the navbar
 
-### 3.35 Template Gallery (v3.0.0)
-- **10 architecture patterns** — 3-tier-web, serverless-api, microservices-k8s, data-pipeline, ml-platform, static-site-cdn, event-driven-saga, multi-region-ha, iot-platform, gcp-web-app
-- **8 categories** — Web, API, Microservices, Data, AI/ML, Static, Event-Driven, IoT
-- **Search & filter** — category buttons and text search across template names, descriptions, services
-- **Difficulty badges** — Beginner, Intermediate, Advanced with color coding
-- **Use template** — one-click navigation to translator with pre-populated services
-- **Template API** — `GET /templates` (with category/source_provider filters), `GET /templates/{template_id}`
+### 3.35 Starter Architectures (v3.0.0)
+- **Activation surface** — curated AWS and GCP examples that open directly in the Workbench instead of acting as a decorative template marketplace
+- **Regression corpus** — each starter carries golden-example metadata so QA can use it for automated or manual translation checks
+- **Canonical starter set** — AWS hub-spoke landing zone, AWS/GCP IaaS web stacks, and AWS/GCP container platforms
+- **Starter metadata** — source cloud, complexity, services, assumptions, available deliverables, expected outputs, and regression profile
+- **Search & filter** — category buttons, source-provider filter, and text search across starter names, services, deliverables, tags, and expected outputs
+- **Template API compatibility** — existing `GET /templates`, `GET /templates/{template_id}`, and `POST /templates/{template_id}/analyze` routes remain, with starter metadata added to responses
 
 ### 3.36 Internationalization (v3.0.0)
 - **react-i18next** — lazy-loaded translations with HTTP backend and browser language detection
