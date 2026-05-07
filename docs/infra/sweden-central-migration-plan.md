@@ -32,8 +32,8 @@ Out of scope:
 
 | Area | Current configuration | Migration implication |
 | --- | --- | --- |
-| Main Azure region | `var.location`, currently `westeurope` in `infra/terraform.tfvars` | Create a separate Sweden Central stack or workspace; do not mutate the current state in place. |
-| Azure OpenAI region | `var.openai_location`, currently `westeurope` | Validate Sweden Central model availability and quota before any AI cutover. App/data can move first if AI capacity is blocked. |
+| Main Azure region | `var.location`, default `westeurope` in `infra/variables.tf`; operator tfvars may override it outside the repository | Create a separate Sweden Central stack or workspace; do not mutate the current state in place. |
+| Azure OpenAI region | `var.openai_location`, default `westeurope` in `infra/variables.tf` | Validate Sweden Central model availability and quota before any AI cutover. App/data can move first if AI capacity is blocked. |
 | Static Web Apps | Hardcoded `westeurope` in `infra/main.tf` | Must be parameterized or replaced during the parallel build plan. Treat as ForceNew. |
 | Terraform remote state bootstrap | Commented bootstrap uses West Europe state RG/storage | Keep current state untouched; create a separate state key/workspace for Sweden Central. Do not reuse the current state key. |
 | Front Door/WAF | Global services in `infra/main.tf` | Can front both old and new origins during migration; traffic shift must be explicit and reversible. |
@@ -200,12 +200,13 @@ Example no-apply preview for the future isolated Sweden stack:
 
 ```bash
 cd infra
+cp sweden-central.example.tfvars sweden-central.tfvars
 terraform plan \
   -var-file=sweden-central.tfvars \
   -out=/tmp/archmorph-sweden-central.tfplan
 ```
 
-Only run the preview above against an explicitly isolated backend/workspace. Do not run it against the current West Europe state key.
+Populate the operator-local `sweden-central.tfvars` with approved secret inputs before planning. Only run the preview above against an explicitly isolated backend/workspace. Do not run it against the current West Europe state key.
 
 ## Open Follow-Ups
 

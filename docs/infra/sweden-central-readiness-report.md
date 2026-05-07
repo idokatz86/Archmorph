@@ -8,7 +8,7 @@ This report is the controlled evidence table for the Sweden Central migration. I
 
 ## Current Evidence Summary
 
-| Gate | Current status | Required evidence before proceed |
+| Gate | Current status | Required evidence before proceeding |
 | --- | --- | --- |
 | Resource inventory and freeze | Not started | Exported inventory, state backup owner, app settings/secrets/RBAC/DNS/monitoring capture, drift review. |
 | Sweden Central service/SKU availability | Not started | Availability and quota results for each required Azure service/SKU in `swedencentral`. |
