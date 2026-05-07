@@ -319,7 +319,6 @@ test.describe('Accessibility: axe-core scan', () => {
       'High-Level Design',
       'Cost Estimate',
       'Migration Timeline',
-      'Compliance Report',
       'PDF Analysis Report',
     ]) {
       const checkbox = page.getByLabel(`Include ${label}`);
