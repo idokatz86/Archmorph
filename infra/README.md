@@ -30,6 +30,22 @@ Before any state-changing operation:
 5. Keep the East US account alive until at least 24 hours of zero traffic is verified.
 6. Apply only from an approved operator session with rollback notes and smoke checks ready.
 
+## Sweden Central One-Region Migration Guardrails
+
+Issue #783 tracks the plan to move Archmorph toward a single `swedencentral` regional footprint. This is a parallel-build migration, not an in-place edit of `location` or `openai_location` against the current state.
+
+- Runbook: [../docs/infra/sweden-central-migration-plan.md](../docs/infra/sweden-central-migration-plan.md)
+- Readiness report template: [../docs/infra/sweden-central-readiness-report.md](../docs/infra/sweden-central-readiness-report.md)
+- Example variables for a future isolated stack: [sweden-central.example.tfvars](sweden-central.example.tfvars)
+
+Before any Sweden Central plan or apply:
+
+1. Use a separate backend key, Terraform workspace, or environment folder from the current West Europe state.
+2. Validate Sweden Central service/SKU availability for Container Apps, Static Web Apps, ACR, PostgreSQL, Redis, Storage, Key Vault, Log Analytics, Application Insights, networking, DNS, and monitoring.
+3. Validate Azure OpenAI / Foundry model availability and quota for `gpt-4.1`, `gpt-4o`, and any benchmark candidates before changing AI routing.
+4. Keep West Europe and East US rollback paths live until Sweden Central passes dark launch, traffic shift, soak, and rollback drills.
+5. Treat old-region deletion as a separate reviewed destroy plan after zero-traffic evidence.
+
 ## Local Validation
 
 Run these commands when editing files under `infra/`:

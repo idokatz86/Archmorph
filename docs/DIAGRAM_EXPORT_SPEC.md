@@ -712,7 +712,7 @@ The export function must receive or compute these values:
 | `source_provider` | `analysis.source_provider` | Page 1 (source cloud color) |
 | `title` | `analysis.title` or `hld.title` | Title cartouche |
 | `primary_region` | `hld.region_strategy.primary_region` | Title cartouche |
-| `compliance_frameworks` | `compliance_mapper.py` result | Footer context |
+| `compliance_frameworks` | `hld.security_design.compliance_frameworks` when present | Footer context |
 | `version` | Auto-generated or user-provided | Header/footer |
 | `feature_gaps` | From `mappings[].notes` or AI analysis | Page 3 |
 | `migration_effort` | From `mappings[].effort` or inferred from confidence | Pages 1, 3 |

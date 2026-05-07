@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
-  Upload, BarChart3, Code, FileText, DollarSign,
+  Upload, Code, FileText, DollarSign,
   Download, Image, FileDown, MessageSquare, Moon, Sun,
   Copy, ExternalLink, Trash2, Search, Command,
 } from 'lucide-react';
@@ -24,8 +24,7 @@ function fuzzyMatch(query, text) {
 function buildCommands(setActiveTab, toggleTheme, theme) {
   return [
     // Navigation
-    { id: 'nav-upload', label: 'Go to Upload', section: 'Navigation', shortcut: '1', icon: Upload, action: () => setActiveTab('translator') },
-    { id: 'nav-results', label: 'Go to Results', section: 'Navigation', shortcut: '2', icon: BarChart3, action: () => setActiveTab('translator') },
+    { id: 'nav-workbench', label: 'Go to Workbench', section: 'Navigation', shortcut: '1', icon: Upload, action: () => setActiveTab('translator') },
     { id: 'nav-iac', label: 'Go to IaC', section: 'Navigation', shortcut: '3', icon: Code, action: () => setActiveTab('translator') },
     { id: 'nav-hld', label: 'Go to HLD', section: 'Navigation', shortcut: '4', icon: FileText, action: () => setActiveTab('translator') },
     { id: 'nav-cost', label: 'Go to Cost', section: 'Navigation', shortcut: '5', icon: DollarSign, action: () => setActiveTab('translator') },

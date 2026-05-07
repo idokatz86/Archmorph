@@ -22,10 +22,10 @@ function useTheme() {
 }
 
 const PRIMARY_ITEMS = [
-  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { id: 'translator', label: 'Translator', icon: Layers },
-  { id: 'templates', label: 'Templates', icon: LayoutTemplate },
-  { id: 'services', label: 'Services', icon: Server },
+  { id: 'translator', label: 'Workbench', icon: Layers },
+  { id: 'templates', label: 'Starters', icon: LayoutTemplate },
+  { id: 'dashboard', label: 'History', icon: LayoutDashboard },
+  { id: 'services', label: 'Reference', icon: Server },
 ];
 
 const MORE_ITEMS = [

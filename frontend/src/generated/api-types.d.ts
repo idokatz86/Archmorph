@@ -4193,7 +4193,7 @@ export interface paths {
         };
         /**
          * List Templates
-         * @description Browse curated architecture templates.
+         * @description Browse curated starter architectures.
          */
         get: operations["list_templates_api_templates_get"];
         put?: never;
@@ -4213,7 +4213,7 @@ export interface paths {
         };
         /**
          * Get Template
-         * @description Get one curated architecture template.
+         * @description Get one curated starter architecture.
          */
         get: operations["get_template_api_templates__template_id__get"];
         put?: never;
@@ -4235,7 +4235,7 @@ export interface paths {
         put?: never;
         /**
          * Analyze Template
-         * @description Create a translator-ready deterministic analysis for a template.
+         * @description Create a Workbench-ready deterministic analysis for a starter.
          */
         post: operations["analyze_template_api_templates__template_id__analyze_post"];
         delete?: never;
@@ -7909,7 +7909,7 @@ export interface paths {
         };
         /**
          * List Templates V1
-         * @description Browse curated architecture templates.
+         * @description Browse curated starter architectures.
          */
         get: operations["list_templates_v1_api_v1_templates_get"];
         put?: never;
@@ -7929,7 +7929,7 @@ export interface paths {
         };
         /**
          * Get Template V1
-         * @description Get one curated architecture template.
+         * @description Get one curated starter architecture.
          */
         get: operations["get_template_v1_api_v1_templates__template_id__get"];
         put?: never;
@@ -7951,7 +7951,7 @@ export interface paths {
         put?: never;
         /**
          * Analyze Template V1
-         * @description Create a translator-ready deterministic analysis for a template.
+         * @description Create a Workbench-ready deterministic analysis for a starter.
          */
         post: operations["analyze_template_v1_api_v1_templates__template_id__analyze_post"];
         delete?: never;

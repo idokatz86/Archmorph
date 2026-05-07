@@ -13738,7 +13738,7 @@
     },
     "/api/templates": {
       "get": {
-        "description": "Browse curated architecture templates.",
+        "description": "Browse curated starter architectures.",
         "operationId": "list_templates_api_templates_get",
         "parameters": [
           {
@@ -13787,7 +13787,7 @@
     },
     "/api/templates/{template_id}": {
       "get": {
-        "description": "Get one curated architecture template.",
+        "description": "Get one curated starter architecture.",
         "operationId": "get_template_api_templates__template_id__get",
         "parameters": [
           {
@@ -13825,7 +13825,7 @@
     },
     "/api/templates/{template_id}/analyze": {
       "post": {
-        "description": "Create a translator-ready deterministic analysis for a template.",
+        "description": "Create a Workbench-ready deterministic analysis for a starter.",
         "operationId": "analyze_template_api_templates__template_id__analyze_post",
         "parameters": [
           {
@@ -22733,7 +22733,7 @@
     },
     "/api/v1/templates": {
       "get": {
-        "description": "Browse curated architecture templates.",
+        "description": "Browse curated starter architectures.",
         "operationId": "list_templates_v1_api_v1_templates_get",
         "parameters": [
           {
@@ -22785,7 +22785,7 @@
     },
     "/api/v1/templates/{template_id}": {
       "get": {
-        "description": "Get one curated architecture template.",
+        "description": "Get one curated starter architecture.",
         "operationId": "get_template_v1_api_v1_templates__template_id__get",
         "parameters": [
           {
@@ -22826,7 +22826,7 @@
     },
     "/api/v1/templates/{template_id}/analyze": {
       "post": {
-        "description": "Create a translator-ready deterministic analysis for a template.",
+        "description": "Create a Workbench-ready deterministic analysis for a starter.",
         "operationId": "analyze_template_v1_api_v1_templates__template_id__analyze_post",
         "parameters": [
           {

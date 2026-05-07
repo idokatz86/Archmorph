@@ -1,5 +1,5 @@
 """
-Platform domain — routes for health, services, legal, compliance, jobs, etc.
+Platform domain — routes for health, services, legal, jobs, etc.
 
 Consolidates 14 router files into one importable package (#503).
 """
@@ -11,7 +11,6 @@ from routers.services import router as services_router
 from routers.roadmap import router as roadmap_router
 from routers.feedback import router as feedback_router
 from routers.jobs import router as jobs_router
-from routers.compliance_routes import router as compliance_router
 from routers.webhook_routes import router as webhook_routes_router
 from routers.integrations_routes import router as integrations_router
 from routers.cost_routes import router as cost_router
@@ -26,7 +25,6 @@ domain_router.include_router(services_router)
 domain_router.include_router(roadmap_router)
 domain_router.include_router(feedback_router)
 domain_router.include_router(jobs_router)
-domain_router.include_router(compliance_router)
 domain_router.include_router(webhook_routes_router)
 domain_router.include_router(integrations_router)
 domain_router.include_router(cost_router)

@@ -80,7 +80,7 @@ describe('ExportHub accessibility', () => {
     fireEvent.keyDown(iacCheckbox, { key: 'Enter', code: 'Enter' })
 
     await waitFor(() => expect(iacCheckbox).not.toBeChecked())
-    expect(screen.getByRole('status')).toHaveTextContent('6 of 7 deliverables selected')
+  expect(screen.getByRole('status')).toHaveTextContent('5 of 6 deliverables selected')
   })
 
   it('renders generated SVG in a live Landing Zone viewer', async () => {
@@ -99,7 +99,6 @@ describe('ExportHub accessibility', () => {
       'High-Level Design',
       'Cost Estimate',
       'Migration Timeline',
-      'Compliance Report',
       'PDF Analysis Report',
     ]) {
       await user.click(await screen.findByLabelText(`Include ${label}`))
