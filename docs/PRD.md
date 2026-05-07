@@ -4,7 +4,7 @@
 **Date:** May 7, 2026
 **Author:** Ido Katz
 
-**Release Note:** Azure OpenAI production traffic is consolidated into West Europe with `gpt-4.1` primary and `gpt-4o` fallback; Terraform state adoption remains an operator-controlled follow-up.
+**Release Note:** Azure OpenAI production traffic is consolidated into West Europe with `gpt-4.1` primary and `gpt-4o` fallback; the Foundry benchmark plan keeps production routing unchanged until live gates pass, and the Sweden Central one-region plan requires a parallel build with isolated Terraform state before any traffic shift.
 
 ---
 
@@ -13,6 +13,8 @@
 Archmorph is an AI-assisted cloud migration workbench in preview/stabilization. Its live product path converts uploaded AWS/GCP architecture diagrams into Azure migration artifacts: detected services, confidence-scored mappings, guided migration questions, IaC drafts, HLD/report exports, Architecture Package HTML/SVG deliverables, and cost estimates. The application is 100% free for customers: no subscriptions, paid tiers, billing setup, or hidden fees are required. The platform codebase also contains beta and scaffolded modules for collaboration, replay, gallery, Terraform state import, scanner, deploy, and drift.
 
 The PRD distinguishes three maturity levels. **Live** features are usable in the core flow and should remain protected by CI. **Beta** features are implemented but need production validation, UX hardening, or broader tests. **Scaffold** features have routes, UI, or models present but must not be described as production-ready until cloud/provider execution is verified.
+
+Current infrastructure posture: West Europe remains the active production region for app and Azure OpenAI traffic. A Sweden Central migration is planned as a gated parallel-build effort, not an in-place Terraform region edit. The project has no open Dependabot security alerts as of the latest maintenance pass, and CI Terraform setup now uses `hashicorp/setup-terraform@v4`.
 
 **Problem:** Organizations migrating to Azure spend weeks manually mapping source architecture to Azure services. This process is error-prone, requires deep multi-cloud expertise, and lacks tooling for interactive refinement.
 
@@ -51,6 +53,7 @@ The PRD distinguishes three maturity levels. **Live** features are usable in the
 
 ### 3.2 Service Detection
 - AI-powered identification using Azure OpenAI `gpt-4.1` with `gpt-4o` fallback in West Europe
+- The #781 Foundry benchmark plan defines candidate lanes and decision rules, but does not change production model routing until regional availability, quota, content-safety, latency, quality, and rollback gates pass.
 - Detects: Services, connections/data flows, annotations
 - **Multi-pass analysis:** Diagrams with >30 services trigger 2-pass analysis (quadrant split + merge)
 - **405+ service catalog:** 145 AWS, 143 Azure, 117 GCP services with 122 cross-cloud mappings (grows automatically via auto-discovery)

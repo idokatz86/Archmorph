@@ -18,12 +18,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **#607 Azure OpenAI West Europe cutover** — provisioned the parallel West Europe OpenAI account `archmorph-openai-we-acm7pd`, deployed `gpt-4.1` primary and `gpt-4o` fallback with matching runtime names, granted the Container App managed identity `Cognitive Services OpenAI User`, updated the deployment secret, and routed `archmorph-api` traffic to a healthy West Europe revision while leaving the East US account online for rollback and 24-hour zero-traffic verification.
 - **#608 Terraform OpenAI target sync** — updated checked-in Terraform defaults and deployment resources to target the live West Europe `gpt-4.1` / `gpt-4o` shape. Live import/state adoption remains operator-controlled before any Terraform apply.
+- **#781 Foundry benchmark spike plan** — added a deployment-aware benchmark plan for Azure AI Foundry candidates against the current West Europe `gpt-4.1` primary and `gpt-4o` fallback, including redacted baseline metadata, benchmark lanes, auth/safety requirements, regional availability notes, decision rules, and generated JSON artifacts. Production routing remains unchanged until live availability, quota, quality, and safety gates pass.
+- **#783 Sweden Central one-region migration plan** — added a parallel-build migration runbook, readiness/evidence report, and isolated `sweden-central.example.tfvars` for a future Sweden Central stack. The plan explicitly forbids in-place `location` / `openai_location` mutation against the current West Europe state and gates old-region retirement on zero-traffic evidence.
 - **Backend deploy reruns** — made Azure Container App revision suffixes include the GitHub run attempt so rerunning a failed deploy does not collide with an existing `sha-*` revision.
 - **Dependabot alert #33** — bumped root `ip-address` from 10.1.0 to 10.2.0, resolving GHSA-v2v4-37r5-5v8g / CVE-2026-42338.
 
 #### CI and release maintenance
 
 - **GitHub Actions Node.js 24 readiness** — audited workflow action runtimes, moved deprecated Node.js 20 action pins to Node.js 24-compatible majors, pinned Trivy to a release tag, and documented the workflow runtime inventory for release maintenance.
+- **Dependabot PR #785** — upgraded `hashicorp/setup-terraform` from v3 to v4 in CI after a clean rebase and green checks, keeping Terraform validation on the action's Node.js 24-compatible runtime.
 
 #### QA guardrails
 

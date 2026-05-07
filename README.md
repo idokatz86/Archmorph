@@ -40,7 +40,7 @@ The post-merge CTO end-to-end review of `landing-zone-svg` (May 1, 2026) flagged
 | **Security + a11y + API** | [#596](https://github.com/idokatz86/Archmorph/issues/596), [#598](https://github.com/idokatz86/Archmorph/issues/598), [#599](https://github.com/idokatz86/Archmorph/issues/599) | OWASP API Top 10 pass, WCAG 2.1 AA + screen-reader semantics, locked OpenAPI 3.1 contract + 90-day deprecation policy |
 | **Frontend exposure** | [#601](https://github.com/idokatz86/Archmorph/issues/601) (closes [#575](https://github.com/idokatz86/Archmorph/issues/575)) | ExportHub option + `LandingZoneViewer` with DR toggle, pan/zoom, deep-link state |
 | **Quality assurance** | [#600](https://github.com/idokatz86/Archmorph/issues/600), [#604](https://github.com/idokatz86/Archmorph/issues/604) | Golden PDF regression suite (AWS/GCP/mixed/CTO-redacted); GA gate re-runs CTO E2E with `gpt-5-pro` rubric judge |
-| **Foundry model evaluation** | [#602](https://github.com/idokatz86/Archmorph/issues/602) | Bench `gpt-5.4` / `gpt-5.5` / `gpt-5.3-codex` / `mistral-document-ai-2512` vs current `gpt-4.1` to lock per-agent model picks (model freedom granted to specialist agents) |
+| **Foundry model evaluation** | [#602](https://github.com/idokatz86/Archmorph/issues/602), [#781](https://github.com/idokatz86/Archmorph/issues/781) | Benchmark candidate model lanes against the current `gpt-4.1` primary and `gpt-4o` fallback. #781 delivered a deployment-aware plan and explicitly keeps production routing unchanged until live availability, quota, safety, and quality gates pass. |
 | **Docs + release** | [#603](https://github.com/idokatz86/Archmorph/issues/603), [#605](https://github.com/idokatz86/Archmorph/issues/605) | Customer-facing "What is the ALZ diagram?" doc + sample gallery; Beta → Live promotion + v4.3.0 release |
 
 **GA gate ([#604](https://github.com/idokatz86/Archmorph/issues/604))**: re-run the same PDF that produced the original demo-ware verdict. Pass requires icon hit rate ≥ 95%, all 8 tiers populated, ≥ 3 `service_connections` rendered, golden-file pixel diff < 2%, SLO budgets met, CISO sign-off, and `gpt-5-pro` judge returning `production-ready`. Anything less and Sprint 4 absorbs fix-forward — we don't ship.
@@ -822,13 +822,15 @@ Production hardening switches:
 
 Terraform topology and no-break state-sync guardrails are documented in [infra/README.md](infra/README.md). Do not run Terraform state removal or apply steps for the OpenAI region sync until the live West Europe account and deployments have been imported and an operator change window is approved.
 
+Sweden Central one-region planning is documented in [docs/infra/sweden-central-migration-plan.md](docs/infra/sweden-central-migration-plan.md), with the evidence checklist in [docs/infra/sweden-central-readiness-report.md](docs/infra/sweden-central-readiness-report.md). The migration strategy is parallel build first: do not edit `location` / `openai_location` in place against the current West Europe state key. Build Sweden Central with isolated state, validate service/SKU and Azure OpenAI quota, dark-launch, shift traffic gradually, then retire old regions under a separate zero-traffic gate.
+
 ### CI/CD Pipeline
 
 The CI/CD workflow (`.github/workflows/ci.yml`) runs the main quality gates:
 
 1. **backend-tests** — installs with `uv`, runs Ruff, executes pytest with coverage threshold, exports OpenAPI, generates backend SBOM, and runs Grype
 2. **frontend-build** — installs npm dependencies, runs ESLint, runs Vitest, builds Vite output, generates frontend SBOM, and runs Grype
-3. **iac-validate / terraform-config-validate** — validates generated IaC artifacts and the checked-in Terraform configuration without initializing the live remote backend
+3. **iac-validate / terraform-config-validate** — validates generated IaC artifacts and the checked-in Terraform configuration without initializing the live remote backend; Terraform setup uses `hashicorp/setup-terraform@v4`
 4. **upload-sarif** — uploads Grype SARIF when available without blocking successful builds on upload rate limits
 5. **deploy-backend / deploy-frontend** — production Azure Container Apps and Static Web Apps deployment from `main` using GitHub Secrets and OIDC
 6. **post-deploy-smoke** — deployed frontend/API smoke checks for root, sample routes, health, and OpenAPI schema
