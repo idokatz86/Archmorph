@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import DiagramTranslator from '../../DiagramTranslator'
 
 // Mock Prism to avoid require issues
@@ -21,17 +21,18 @@ describe('DiagramTranslator', () => {
 
   it('renders without crashing', async () => {
     render(<DiagramTranslator />)
-    expect(await screen.findByText('Translation Workbench')).toBeInTheDocument()
-    expect(await screen.findAllByText('Input')).toHaveLength(2)
+    expect(await screen.findByRole('heading', { name: 'Translation Workbench' })).toBeInTheDocument()
+    expect(screen.getByRole('group', { name: 'Translation Workbench' })).toBeInTheDocument()
   })
 
   it('shows the step progress bar', async () => {
     render(<DiagramTranslator />)
-    expect(await screen.findAllByText('Input')).toHaveLength(2)
-    expect(await screen.findAllByText('Analysis')).toHaveLength(2)
-    expect(await screen.findByText('Decisions')).toBeInTheDocument()
-    expect(await screen.findAllByText('Deliverables')).toHaveLength(2)
-    expect(await screen.findByText('Share/Export')).toBeInTheDocument()
+    const spine = await screen.findByRole('group', { name: 'Translation Workbench' })
+    expect(within(spine).getByText('Input')).toBeInTheDocument()
+    expect(within(spine).getByText('Analysis')).toBeInTheDocument()
+    expect(within(spine).getByText('Decisions')).toBeInTheDocument()
+    expect(within(spine).getByText('Deliverables')).toBeInTheDocument()
+    expect(within(spine).getByText('Share/Export')).toBeInTheDocument()
   })
 
   it('shows upload step by default', async () => {
