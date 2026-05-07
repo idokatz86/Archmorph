@@ -377,7 +377,7 @@ The PRD distinguishes three maturity levels. **Live** features are usable in the
 - **Keyboard navigation** — footer version easter egg accessible via Enter/Space keys with `role="button"` and `tabIndex`
 - **ARIA pressed state** — ServicesBrowser view toggle buttons expose selected state via `aria-pressed`
 - **Role groups** — related controls wrapped in `role="group"` with `aria-label` for screen readers
-- **Components fixed** — ServicesBrowser, CompliancePanel, FeedbackWidget, Nav, App footer
+- **Components fixed** — ServicesBrowser, FeedbackWidget, Nav, App footer
 
 ### 3.52 Performance Optimizations (v3.4.0)
 - **Gunicorn process manager** — Dockerfile switched from uvicorn to gunicorn with UvicornWorker, `--max-requests 1000` for worker recycling, `--preload` for memory efficiency

@@ -28,7 +28,6 @@ class TestFeatureFlagsCore:
         assert "export_pptx" in flags
         assert "dark_mode" in flags
         assert "deploy_engine" in flags
-        assert "living_architecture_drift" in flags
         assert "live_cloud_scanner" in flags
         assert "enterprise_sso_scim" in flags
 
@@ -39,7 +38,6 @@ class TestFeatureFlagsCore:
         assert ff.is_enabled("export_pptx") is True
         assert ff.is_enabled("dark_mode") is True
         assert ff.is_enabled("deploy_engine") is False
-        assert ff.is_enabled("living_architecture_drift") is False
         assert ff.is_enabled("live_cloud_scanner") is False
         assert ff.is_enabled("enterprise_sso_scim") is False
 
@@ -196,7 +194,6 @@ class TestFeatureFlagsAPI:
             "export_pptx",
             "dark_mode",
             "deploy_engine",
-            "living_architecture_drift",
             "live_cloud_scanner",
             "enterprise_sso_scim",
         }
