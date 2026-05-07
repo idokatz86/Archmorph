@@ -3,6 +3,7 @@ import {
   Activity,
   Boxes,
   CheckCircle2,
+  ClipboardCheck,
   Filter,
   Globe2,
   Layers,
@@ -46,21 +47,36 @@ function TemplateSkeleton() {
 
 function TemplateCard({ template, onUse, loading }) {
   const CategoryIcon = CATEGORY_ICONS[template.category] || Network;
+  const deliverables = template.available_deliverables || [];
+  const expectedOutputs = template.expected_outputs || [];
+  const complexity = template.complexity || template.difficulty;
+
   return (
-    <Card className="p-5 flex flex-col min-h-[18rem]" hover>
+    <Card className="p-5 flex flex-col min-h-[22rem]" hover>
       <div className="flex items-start justify-between gap-3 mb-4">
         <div className="w-10 h-10 rounded-lg bg-cta/10 border border-cta/20 flex items-center justify-center shrink-0">
           <CategoryIcon className="w-5 h-5 text-cta" aria-hidden="true" />
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
           <Badge variant={template.source_provider}>{template.source_provider.toUpperCase()}</Badge>
-          <Badge variant={DIFFICULTY_VARIANTS[template.difficulty] || 'default'}>{template.difficulty}</Badge>
+          <Badge variant={DIFFICULTY_VARIANTS[complexity] || 'default'}>{complexity}</Badge>
         </div>
       </div>
 
       <div className="min-w-0 flex-1">
         <h2 className="text-base font-semibold text-text-primary leading-snug">{template.title}</h2>
         <p className="text-sm text-text-secondary mt-2 leading-relaxed">{template.description}</p>
+
+        {expectedOutputs.length > 0 && (
+          <div className="mt-4 space-y-1.5" aria-label={`${template.title} expected outputs`}>
+            {expectedOutputs.slice(0, 3).map(output => (
+              <div key={output} className="flex items-start gap-2 text-xs text-text-muted leading-relaxed">
+                <CheckCircle2 className="w-3.5 h-3.5 mt-0.5 text-cta shrink-0" aria-hidden="true" />
+                <span>{output}</span>
+              </div>
+            ))}
+          </div>
+        )}
 
         <div className="mt-4 flex flex-wrap gap-1.5">
           {template.services.slice(0, 6).map(service => (
@@ -71,14 +87,35 @@ function TemplateCard({ template, onUse, loading }) {
         </div>
       </div>
 
-      <div className="mt-5 pt-4 border-t border-border flex items-center justify-between gap-3">
-        <div className="flex items-center gap-1.5 text-xs text-text-muted">
-          <CheckCircle2 className="w-3.5 h-3.5 text-cta" aria-hidden="true" />
-          {template.services.length} services
+      <div className="mt-5 pt-4 border-t border-border space-y-3">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-text-muted">
+          <span className="inline-flex items-center gap-1.5">
+            <CheckCircle2 className="w-3.5 h-3.5 text-cta" aria-hidden="true" />
+            {template.services.length} services
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <Layers className="w-3.5 h-3.5 text-info" aria-hidden="true" />
+            {deliverables.length} deliverables
+          </span>
+          {template.regression_profile && (
+            <span className="inline-flex items-center gap-1.5">
+              <ClipboardCheck className="w-3.5 h-3.5 text-warning" aria-hidden="true" />
+              regression-ready
+            </span>
+          )}
         </div>
-        <Button size="sm" icon={Layers} loading={loading} onClick={() => onUse(template)}>
-          Use Template
-        </Button>
+        <div className="flex flex-wrap gap-1.5" aria-label={`${template.title} available deliverables`}>
+          {deliverables.slice(0, 5).map(deliverable => (
+            <span key={deliverable} className="px-2 py-1 rounded-md bg-surface text-[11px] text-text-secondary border border-border">
+              {deliverable}
+            </span>
+          ))}
+        </div>
+        <div className="flex justify-end">
+          <Button size="sm" icon={Layers} loading={loading} onClick={() => onUse(template)}>
+            Open in Workbench
+          </Button>
+        </div>
       </div>
     </Card>
   );
@@ -132,6 +169,8 @@ export default function TemplateGallery() {
       template.source_provider,
       ...(template.services || []),
       ...(template.tags || []),
+      ...(template.available_deliverables || []),
+      ...(template.expected_outputs || []),
     ].some(value => String(value).toLowerCase().includes(normalized)));
   }, [query, templates]);
 
@@ -155,22 +194,22 @@ export default function TemplateGallery() {
         <div>
           <div className="flex items-center gap-2 mb-2">
             <Layers className="w-5 h-5 text-cta" aria-hidden="true" />
-            <h1 className="text-2xl font-bold text-text-primary">Template Gallery</h1>
+            <h1 className="text-2xl font-bold text-text-primary">Starter Architectures</h1>
           </div>
           <p className="text-sm text-text-secondary max-w-2xl">
-            Start from a curated AWS or GCP architecture and open it directly in the translator.
+            Open curated AWS and GCP examples in the Workbench, with canonical outputs that double as regression coverage.
           </p>
         </div>
 
         <div className="flex flex-col sm:flex-row gap-2 lg:justify-end">
           <label className="relative min-w-[16rem]">
-            <span className="sr-only">Search templates</span>
+            <span className="sr-only">Search starter architectures</span>
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" aria-hidden="true" />
             <input
               value={query}
               onChange={event => setQuery(event.target.value)}
               className="w-full h-9 pl-9 pr-3 text-sm bg-secondary border border-border rounded-lg text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-cta/50 focus:border-cta"
-              placeholder="Search templates"
+              placeholder="Search starters"
             />
           </label>
           <select
@@ -186,7 +225,7 @@ export default function TemplateGallery() {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2" aria-label="Template categories">
+      <div className="flex flex-wrap items-center gap-2" aria-label="Starter architecture categories">
         <Filter className="w-4 h-4 text-text-muted" aria-hidden="true" />
         {categories.map(item => (
           <button
@@ -222,7 +261,7 @@ export default function TemplateGallery() {
       {!loading && filteredTemplates.length === 0 && (
         <Card className="p-8 text-center">
           <Activity className="w-8 h-8 text-text-muted mx-auto mb-3" aria-hidden="true" />
-          <h2 className="text-base font-semibold text-text-primary">No templates found</h2>
+          <h2 className="text-base font-semibold text-text-primary">No starter architectures found</h2>
           <p className="text-sm text-text-muted mt-1">Adjust the category, provider, or search term.</p>
         </Card>
       )}

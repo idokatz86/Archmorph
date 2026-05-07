@@ -3,7 +3,7 @@
     "home": "Home",
     "dashboard": "Dashboard",
     "translator": "Translator",
-    "templates": "Templates",
+    "templates": "Starters",
     "services": "Services",
     "roadmap": "Roadmap",
     "pricing": "Pricing",
@@ -47,11 +47,11 @@
     "back_to_questions": "Back to Questions"
   },
   "templates": {
-    "title": "Architecture Templates",
-    "subtitle": "Start from proven architecture patterns — click \"Use Template\" to load into the translator",
-    "search": "Search templates…",
-    "use_template": "Use Template",
-    "no_results": "No templates match your search"
+    "title": "Starter Architectures",
+    "subtitle": "Open canonical AWS and GCP examples in the Workbench",
+    "search": "Search starters…",
+    "use_template": "Open in Workbench",
+    "no_results": "No starter architectures match your search"
   },
   "common": {
     "loading": "Loading…",
