@@ -1,9 +1,15 @@
-"""Foundry model evaluation harness (#602).
+"""Foundry model evaluation harness (#602, refreshed for #781).
 
 Bench candidate Azure Foundry models against the six Archmorph workloads,
 collect accuracy / latency / cost / refusal metrics, and emit a JSON report
 that the human-readable analysis at `docs/eval/model_bench_2026_05.md`
 references.
+
+Issue #781 extends the original spike with a deployment-aware benchmark plan:
+compare the current West Europe `gpt-4.1` primary and `gpt-4o` fallback
+against deployable Foundry candidates, record regional availability, and keep
+production routing unchanged until live evidence clears quality, cost,
+latency, throttling, safety, structured-output, and rollback gates.
 
 Design constraints
 ------------------
@@ -99,6 +105,180 @@ PRICING_PER_1M_TOKENS_USD: Dict[str, Tuple[float, float]] = {
 }
 
 JUDGE_MODEL = "gpt-5-pro"
+
+
+# ───────────────────────────────────────────────────────────────────
+# #781 deployment-aware benchmark plan metadata
+# ───────────────────────────────────────────────────────────────────
+
+CURRENT_FOUNDRY_ACCOUNT = {
+    "subscription_id": "152f2bd5-8f6b-48ba-a702-21a23172a224",
+    "tenant_id": "16b3c013-d300-468d-ac64-7eda0820b6d3",
+    "resource_group": "archmorph-rg-dev",
+    "account_name": "archmorph-openai-we-acm7pd",
+    "region": "westeurope",
+    "resource_id": "/subscriptions/152f2bd5-8f6b-48ba-a702-21a23172a224/resourceGroups/archmorph-rg-dev/providers/Microsoft.CognitiveServices/accounts/archmorph-openai-we-acm7pd",
+}
+
+CURRENT_DEPLOYMENTS = {
+    "primary": {
+        "deployment": "gpt-4.1",
+        "model": "gpt-4.1",
+        "version": "2025-04-14",
+        "sku": "GlobalStandard",
+        "capacity": 10,
+        "rai_policy": "Microsoft.DefaultV2",
+    },
+    "fallback": {
+        "deployment": "gpt-4o",
+        "model": "gpt-4o",
+        "version": "2024-11-20",
+        "sku": "GlobalStandard",
+        "capacity": 10,
+        "rai_policy": "Microsoft.DefaultV2",
+    },
+}
+
+AUTH_REQUIREMENTS = {
+    "local_auth_enabled": False,
+    "runtime_identity": "Container App user-assigned managed identity with system-assigned fallback",
+    "required_role": "Cognitive Services OpenAI User",
+    "forbidden": ["API-key based benchmark routing", "committing secrets", "production deployment mutation"],
+}
+
+REGIONAL_AVAILABILITY = {
+    "westeurope": {
+        "source": "az cognitiveservices account list-models on archmorph-openai-we-acm7pd, 2026-05-07",
+        "current_deployments": ["gpt-4.1", "gpt-4o"],
+        "deployable_candidates": {
+            "gpt-4.1": "baseline primary, GlobalStandard, version 2025-04-14",
+            "gpt-4o": "baseline fallback, GlobalStandard deployable versions include 2024-05-13/2024-08-06 and current deployment 2024-11-20",
+            "gpt-4o-mini": "GlobalStandard, version 2024-07-18",
+            "gpt-4.1-mini": "Standard, version 2025-04-14",
+            "gpt-4.1-nano": "GlobalStandard, version 2025-04-14",
+            "o4-mini": "GlobalStandard, version 2025-04-16",
+            "gpt-5": "GlobalStandard, version 2025-08-07",
+            "gpt-5-mini": "GlobalStandard, version 2025-08-07",
+            "gpt-5-nano": "GlobalStandard, version 2025-08-07",
+            "gpt-5-codex": "GlobalStandard, version 2025-09-15",
+            "gpt-5-pro": "GlobalStandard, version 2025-10-06",
+            "gpt-5.3-codex": "GlobalStandard, version 2026-02-24",
+            "gpt-5.4": "GlobalStandard, version 2026-03-05",
+            "gpt-5.4-mini": "GlobalStandard, version 2026-03-17",
+            "gpt-5.4-nano": "GlobalStandard, version 2026-03-17",
+            "gpt-5.5": "GlobalProvisionedManaged, version 2026-04-24; benchmark only after capacity approval",
+        },
+        "quota_notes": "Usage CLI returned no rows in this environment; live run must capture TPM/RPM and throttling before any routed deployment.",
+    },
+    "swedencentral": {
+        "source": "subscription resource inventory found AIServices account agentsecysbz; list-models query was interrupted after hanging, 2026-05-07",
+        "current_deployments": [],
+        "deployable_candidates": {},
+        "quota_notes": "Treat as migration-region validation pending. Do not route Archmorph traffic here until account model list, quota, RBAC, and rollback drills are captured.",
+    },
+}
+
+BENCHMARK_LANES = {
+    "diagram_image_understanding": {
+        "workload": "vision_analyzer",
+        "baseline": ["gpt-4.1", "gpt-4o"],
+        "candidates": ["gpt-5.4", "gpt-5.5"],
+        "dataset": "synthetic architecture diagrams plus the legal-approved golden PDF corpus when available",
+        "quality_gates": ["service inventory F1", "relationship edge F1", "JSON schema validity", "image/PDF refusal rate"],
+    },
+    "cloud_service_mapping": {
+        "workload": "mapping_suggester",
+        "baseline": ["gpt-4.1", "gpt-4o"],
+        "candidates": ["gpt-4.1-mini", "gpt-4o-mini", "gpt-5.4-mini"],
+        "dataset": "AWS/GCP/on-prem service mapping prompts with catalog references",
+        "quality_gates": ["primary mapping accuracy", "confidence calibration", "rationale safety", "JSON schema validity"],
+    },
+    "iac_generation_repair": {
+        "workload": "iac_generator",
+        "baseline": ["gpt-4.1", "gpt-4o"],
+        "candidates": ["gpt-5.3-codex", "gpt-5-codex", "gpt-5.4"],
+        "dataset": "Terraform/Bicep generation and repair prompts from canonical starter architectures",
+        "quality_gates": ["terraform fmt/validate", "bicep diagnostics", "least-privilege defaults", "no secret leakage"],
+    },
+    "hld_architecture_narrative": {
+        "workload": "hld_generator",
+        "baseline": ["gpt-4.1", "gpt-4o"],
+        "candidates": ["gpt-5.4", "gpt-5", "gpt-5-mini"],
+        "dataset": "HLD prompts with expected sections, risks, service map, and cost context",
+        "quality_gates": ["required section coverage", "migration-risk accuracy", "concise executive narrative", "policy-safe recommendations"],
+    },
+    "cost_explanation": {
+        "workload": "cost_explainer",
+        "baseline": ["gpt-4.1", "gpt-4o"],
+        "candidates": ["gpt-4.1-mini", "gpt-4o-mini", "gpt-5.4-mini"],
+        "dataset": "Azure retail-price summaries and FinOps trade-off prompts",
+        "quality_gates": ["numeric consistency", "SKU caveat accuracy", "unit-cost clarity", "no fabricated prices"],
+    },
+    "regression_judge": {
+        "workload": "eval_judge",
+        "baseline": ["gpt-4o", "gpt-4.1"],
+        "candidates": ["gpt-5-pro", "gpt-5.4", "o4-mini"],
+        "dataset": "known-pass/known-fail regression answers for quality, schema, safety, and concision rubrics",
+        "quality_gates": ["grader agreement", "false-pass rate", "false-fail rate", "stable JSON scores"],
+    },
+    "chat_refinement_assistant": {
+        "workload": "agent_paas_react",
+        "baseline": ["gpt-4.1", "gpt-4o"],
+        "candidates": ["gpt-5.4-mini", "gpt-5-mini", "o4-mini"],
+        "dataset": "multi-turn refinement prompts with tool-call expectations and customer constraints",
+        "quality_gates": ["tool-call accuracy", "constraint retention", "latency p95", "safe refusal behavior"],
+    },
+}
+
+RECOMMENDATION_MATRIX = [
+    {
+        "lane": "diagram_image_understanding",
+        "candidate": "gpt-5.4",
+        "decision": "defer",
+        "reason": "Potential quality candidate, but requires live image/PDF benchmark and quota proof before routed model deployment.",
+    },
+    {
+        "lane": "cloud_service_mapping",
+        "candidate": "gpt-5.4-mini",
+        "decision": "add_routed_model_candidate",
+        "reason": "Low-risk structured mapping lane; benchmark for cost and p95 latency savings before any feature-flagged route.",
+    },
+    {
+        "lane": "iac_generation_repair",
+        "candidate": "gpt-5.3-codex",
+        "decision": "add_routed_model_candidate",
+        "reason": "Codex-specialized deployable candidate; must pass IaC validation and security gates before canary.",
+    },
+    {
+        "lane": "hld_architecture_narrative",
+        "candidate": "gpt-5.4",
+        "decision": "defer",
+        "reason": "Narrative quality may improve, but current baseline remains until live report shows better section coverage without verbosity regressions.",
+    },
+    {
+        "lane": "cost_explanation",
+        "candidate": "gpt-5.4-mini",
+        "decision": "add_routed_model_candidate",
+        "reason": "Candidate for cheaper explanation prompts if numeric consistency and no fabricated pricing hold in the benchmark.",
+    },
+    {
+        "lane": "regression_judge",
+        "candidate": "gpt-5-pro",
+        "decision": "defer",
+        "reason": "Use only as an offline judge candidate until cost and evaluator agreement justify continuous use.",
+    },
+    {
+        "lane": "chat_refinement_assistant",
+        "candidate": "gpt-5.4-mini",
+        "decision": "defer",
+        "reason": "Multi-turn tool use needs stronger evidence on tool-call accuracy and constraint retention before routing.",
+    },
+]
+
+DECISION_RULE = (
+    "Keep current gpt-4.1/gpt-4o unless a candidate improves quality or cost "
+    "without breaking structured output, export artifacts, safety gates, quota headroom, or SLA."
+)
 
 
 # ───────────────────────────────────────────────────────────────────
@@ -541,6 +721,29 @@ def _percentile(values: List[float], p: float) -> float:
     return s[lo] + (s[hi] - s[lo]) * (k - lo)
 
 
+def build_benchmark_plan() -> Dict[str, Any]:
+    """Return the #781 deployment-aware benchmark plan.
+
+    This is intentionally static and offline-friendly. The live benchmark can
+    attach measured result files later, but the candidate set, auth posture,
+    regional evidence, and decision rule should be reviewable in CI without
+    touching Azure resources.
+    """
+    return {
+        "issue": 781,
+        "generated_for_date": "2026-05-07",
+        "current_account": CURRENT_FOUNDRY_ACCOUNT,
+        "current_deployments": CURRENT_DEPLOYMENTS,
+        "auth_requirements": AUTH_REQUIREMENTS,
+        "regional_availability": REGIONAL_AVAILABILITY,
+        "benchmark_lanes": BENCHMARK_LANES,
+        "recommendation_matrix": RECOMMENDATION_MATRIX,
+        "decision_rule": DECISION_RULE,
+        "production_routing_change": False,
+        "minimum_required_lanes": 5,
+    }
+
+
 def run_bench(
     workloads: Optional[List[str]] = None,
     models_filter: Optional[List[str]] = None,
@@ -588,6 +791,7 @@ def _report_to_json(report: BenchReport) -> str:
         "started_at":     report.started_at,
         "finished_at":    report.finished_at,
         "dry_run":        report.dry_run,
+        "benchmark_plan": build_benchmark_plan(),
         "workloads_run":  report.workloads_run,
         "models_seen":    report.models_seen,
         "judge_model":    report.judge_model,
@@ -602,6 +806,7 @@ def _parse_cli(argv: Optional[List[str]] = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(prog="model_bench", description=__doc__.split("\n", 1)[0])
     p.add_argument("--dry-run", action="store_true", help="Use synthetic responses; no Foundry calls.")
     p.add_argument("--full", action="store_true", help="Run the full matrix in #602 acceptance criteria.")
+    p.add_argument("--plan", action="store_true", help="Emit the #781 benchmark plan only; no model calls.")
     p.add_argument("--workloads", default=None,
                    help=f"Comma-separated subset of: {','.join(WORKLOAD_CANDIDATES)}")
     p.add_argument("--models", default=None,
@@ -621,6 +826,17 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.full and (args.workloads or args.models):
         logger.error("--full is incompatible with --workloads / --models")
         return 2
+
+    if args.plan:
+        payload = json.dumps(build_benchmark_plan(), indent=2, sort_keys=True)
+        if args.output == "-":
+            print(payload)
+        else:
+            out = Path(args.output)
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(payload, encoding="utf-8")
+            logger.info("wrote benchmark plan: %s", out)
+        return 0
 
     workloads = list(WORKLOAD_CANDIDATES) if args.full else (
         [w.strip() for w in args.workloads.split(",")] if args.workloads else None
