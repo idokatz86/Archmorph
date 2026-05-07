@@ -16,8 +16,8 @@ Read-only Azure inventory on May 7, 2026 confirmed:
 
 | Field | Value |
 | --- | --- |
-| Subscription | `152f2bd5-8f6b-48ba-a702-21a23172a224` |
-| Tenant | `16b3c013-d300-468d-ac64-7eda0820b6d3` |
+| Subscription | Redacted in-repo; use the private operator runbook or Azure context for the concrete ID. |
+| Tenant | Redacted in-repo; use the private operator runbook or Azure context for the concrete ID. |
 | Resource group | `archmorph-rg-dev` |
 | Account | `archmorph-openai-we-acm7pd` |
 | Region | West Europe (`westeurope`) |

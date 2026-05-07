@@ -112,12 +112,12 @@ JUDGE_MODEL = "gpt-5-pro"
 # ───────────────────────────────────────────────────────────────────
 
 CURRENT_FOUNDRY_ACCOUNT = {
-    "subscription_id": "152f2bd5-8f6b-48ba-a702-21a23172a224",
-    "tenant_id": "16b3c013-d300-468d-ac64-7eda0820b6d3",
+    "subscription_id": "<redacted-subscription-id>",
+    "tenant_id": "<redacted-tenant-id>",
     "resource_group": "archmorph-rg-dev",
     "account_name": "archmorph-openai-we-acm7pd",
     "region": "westeurope",
-    "resource_id": "/subscriptions/152f2bd5-8f6b-48ba-a702-21a23172a224/resourceGroups/archmorph-rg-dev/providers/Microsoft.CognitiveServices/accounts/archmorph-openai-we-acm7pd",
+    "resource_id": "<redacted-foundry-account-resource-id>",
 }
 
 CURRENT_DEPLOYMENTS = {
@@ -180,49 +180,56 @@ REGIONAL_AVAILABILITY = {
 
 BENCHMARK_LANES = {
     "diagram_image_understanding": {
-        "workload": "vision_analyzer",
+        "lane_id": "vision_analyzer",
+        "harness_workload": "vision_analyzer",
         "baseline": ["gpt-4.1", "gpt-4o"],
         "candidates": ["gpt-5.4", "gpt-5.5"],
         "dataset": "synthetic architecture diagrams plus the legal-approved golden PDF corpus when available",
         "quality_gates": ["service inventory F1", "relationship edge F1", "JSON schema validity", "image/PDF refusal rate"],
     },
     "cloud_service_mapping": {
-        "workload": "mapping_suggester",
+        "lane_id": "mapping_suggester",
+        "harness_workload": "mapping_suggester",
         "baseline": ["gpt-4.1", "gpt-4o"],
         "candidates": ["gpt-4.1-mini", "gpt-4o-mini", "gpt-5.4-mini"],
         "dataset": "AWS/GCP/on-prem service mapping prompts with catalog references",
         "quality_gates": ["primary mapping accuracy", "confidence calibration", "rationale safety", "JSON schema validity"],
     },
     "iac_generation_repair": {
-        "workload": "iac_generator",
+        "lane_id": "iac_generator",
+        "harness_workload": "iac_generator",
         "baseline": ["gpt-4.1", "gpt-4o"],
         "candidates": ["gpt-5.3-codex", "gpt-5-codex", "gpt-5.4"],
         "dataset": "Terraform/Bicep generation and repair prompts from canonical starter architectures",
         "quality_gates": ["terraform fmt/validate", "bicep diagnostics", "least-privilege defaults", "no secret leakage"],
     },
     "hld_architecture_narrative": {
-        "workload": "hld_generator",
+        "lane_id": "hld_generator",
+        "harness_workload": "hld_generator",
         "baseline": ["gpt-4.1", "gpt-4o"],
         "candidates": ["gpt-5.4", "gpt-5", "gpt-5-mini"],
         "dataset": "HLD prompts with expected sections, risks, service map, and cost context",
         "quality_gates": ["required section coverage", "migration-risk accuracy", "concise executive narrative", "policy-safe recommendations"],
     },
     "cost_explanation": {
-        "workload": "cost_explainer",
+        "lane_id": "cost_explainer",
+        "harness_workload": None,
         "baseline": ["gpt-4.1", "gpt-4o"],
         "candidates": ["gpt-4.1-mini", "gpt-4o-mini", "gpt-5.4-mini"],
         "dataset": "Azure retail-price summaries and FinOps trade-off prompts",
         "quality_gates": ["numeric consistency", "SKU caveat accuracy", "unit-cost clarity", "no fabricated prices"],
     },
     "regression_judge": {
-        "workload": "eval_judge",
+        "lane_id": "eval_judge",
+        "harness_workload": None,
         "baseline": ["gpt-4o", "gpt-4.1"],
         "candidates": ["gpt-5-pro", "gpt-5.4", "o4-mini"],
         "dataset": "known-pass/known-fail regression answers for quality, schema, safety, and concision rubrics",
         "quality_gates": ["grader agreement", "false-pass rate", "false-fail rate", "stable JSON scores"],
     },
     "chat_refinement_assistant": {
-        "workload": "agent_paas_react",
+        "lane_id": "agent_paas_react",
+        "harness_workload": "agent_paas_react",
         "baseline": ["gpt-4.1", "gpt-4o"],
         "candidates": ["gpt-5.4-mini", "gpt-5-mini", "o4-mini"],
         "dataset": "multi-turn refinement prompts with tool-call expectations and customer constraints",

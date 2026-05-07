@@ -1,6 +1,6 @@
 """Tests for the #602/#781 model evaluation harness.
 
-Three concerns:
+The suite covers:
 1. Bench harness is structurally correct in dry-run mode (offline,
    deterministic, no Foundry calls).
 2. The CLI is wired up.

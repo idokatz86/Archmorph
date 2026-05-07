@@ -21,13 +21,14 @@
         "o4-mini"
       ],
       "dataset": "multi-turn refinement prompts with tool-call expectations and customer constraints",
+      "harness_workload": "agent_paas_react",
+      "lane_id": "agent_paas_react",
       "quality_gates": [
         "tool-call accuracy",
         "constraint retention",
         "latency p95",
         "safe refusal behavior"
-      ],
-      "workload": "agent_paas_react"
+      ]
     },
     "cloud_service_mapping": {
       "baseline": [
@@ -40,13 +41,14 @@
         "gpt-5.4-mini"
       ],
       "dataset": "AWS/GCP/on-prem service mapping prompts with catalog references",
+      "harness_workload": "mapping_suggester",
+      "lane_id": "mapping_suggester",
       "quality_gates": [
         "primary mapping accuracy",
         "confidence calibration",
         "rationale safety",
         "JSON schema validity"
-      ],
-      "workload": "mapping_suggester"
+      ]
     },
     "cost_explanation": {
       "baseline": [
@@ -59,13 +61,14 @@
         "gpt-5.4-mini"
       ],
       "dataset": "Azure retail-price summaries and FinOps trade-off prompts",
+      "harness_workload": null,
+      "lane_id": "cost_explainer",
       "quality_gates": [
         "numeric consistency",
         "SKU caveat accuracy",
         "unit-cost clarity",
         "no fabricated prices"
-      ],
-      "workload": "cost_explainer"
+      ]
     },
     "diagram_image_understanding": {
       "baseline": [
@@ -77,13 +80,14 @@
         "gpt-5.5"
       ],
       "dataset": "synthetic architecture diagrams plus the legal-approved golden PDF corpus when available",
+      "harness_workload": "vision_analyzer",
+      "lane_id": "vision_analyzer",
       "quality_gates": [
         "service inventory F1",
         "relationship edge F1",
         "JSON schema validity",
         "image/PDF refusal rate"
-      ],
-      "workload": "vision_analyzer"
+      ]
     },
     "hld_architecture_narrative": {
       "baseline": [
@@ -96,13 +100,14 @@
         "gpt-5-mini"
       ],
       "dataset": "HLD prompts with expected sections, risks, service map, and cost context",
+      "harness_workload": "hld_generator",
+      "lane_id": "hld_generator",
       "quality_gates": [
         "required section coverage",
         "migration-risk accuracy",
         "concise executive narrative",
         "policy-safe recommendations"
-      ],
-      "workload": "hld_generator"
+      ]
     },
     "iac_generation_repair": {
       "baseline": [
@@ -115,13 +120,14 @@
         "gpt-5.4"
       ],
       "dataset": "Terraform/Bicep generation and repair prompts from canonical starter architectures",
+      "harness_workload": "iac_generator",
+      "lane_id": "iac_generator",
       "quality_gates": [
         "terraform fmt/validate",
         "bicep diagnostics",
         "least-privilege defaults",
         "no secret leakage"
-      ],
-      "workload": "iac_generator"
+      ]
     },
     "regression_judge": {
       "baseline": [
@@ -134,22 +140,23 @@
         "o4-mini"
       ],
       "dataset": "known-pass/known-fail regression answers for quality, schema, safety, and concision rubrics",
+      "harness_workload": null,
+      "lane_id": "eval_judge",
       "quality_gates": [
         "grader agreement",
         "false-pass rate",
         "false-fail rate",
         "stable JSON scores"
-      ],
-      "workload": "eval_judge"
+      ]
     }
   },
   "current_account": {
     "account_name": "archmorph-openai-we-acm7pd",
     "region": "westeurope",
     "resource_group": "archmorph-rg-dev",
-    "resource_id": "/subscriptions/152f2bd5-8f6b-48ba-a702-21a23172a224/resourceGroups/archmorph-rg-dev/providers/Microsoft.CognitiveServices/accounts/archmorph-openai-we-acm7pd",
-    "subscription_id": "152f2bd5-8f6b-48ba-a702-21a23172a224",
-    "tenant_id": "16b3c013-d300-468d-ac64-7eda0820b6d3"
+    "resource_id": "<redacted-foundry-account-resource-id>",
+    "subscription_id": "<redacted-subscription-id>",
+    "tenant_id": "<redacted-tenant-id>"
   },
   "current_deployments": {
     "fallback": {
