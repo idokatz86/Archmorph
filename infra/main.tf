@@ -302,12 +302,13 @@ resource "azurerm_key_vault_secret" "redis_connection" {
 # Azure OpenAI Service
 # ─────────────────────────────────────────────────────────────
 resource "azurerm_cognitive_account" "openai" {
-  name                  = "archmorph-openai-${local.name_suffix}"
+  name                  = "archmorph-openai-we-${local.name_suffix}"
   resource_group_name   = azurerm_resource_group.main.name
   location              = var.openai_location
   kind                  = "OpenAI"
   sku_name              = "S0"
-  custom_subdomain_name = "archmorph-openai-${local.name_suffix}"
+  custom_subdomain_name = "archmorph-openai-we-${local.name_suffix}"
+  local_auth_enabled    = false
 
   tags = local.tags
 }
@@ -315,6 +316,7 @@ resource "azurerm_cognitive_account" "openai" {
 resource "azurerm_cognitive_deployment" "gpt41_primary" {
   name                 = "gpt-4.1"
   cognitive_account_id = azurerm_cognitive_account.openai.id
+  rai_policy_name      = "Microsoft.DefaultV2"
 
   model {
     format  = "OpenAI"
@@ -331,6 +333,7 @@ resource "azurerm_cognitive_deployment" "gpt41_primary" {
 resource "azurerm_cognitive_deployment" "gpt4_vision" {
   name                 = "gpt-4o"
   cognitive_account_id = azurerm_cognitive_account.openai.id
+  rai_policy_name      = "Microsoft.DefaultV2"
 
   model {
     format  = "OpenAI"
@@ -342,12 +345,6 @@ resource "azurerm_cognitive_deployment" "gpt4_vision" {
     name     = "GlobalStandard"
     capacity = var.openai_capacity
   }
-}
-
-resource "azurerm_key_vault_secret" "openai_key" {
-  name         = "openai-api-key"
-  value        = azurerm_cognitive_account.openai.primary_access_key
-  key_vault_id = azurerm_key_vault.main.id
 }
 
 # ─────────────────────────────────────────────────────────────
@@ -380,7 +377,7 @@ resource "azurerm_container_app" "backend" {
 
   # Managed identity for secure access to Azure resources
   identity {
-    type         = "UserAssigned"
+    type         = "SystemAssigned, UserAssigned"
     identity_ids = [azurerm_user_assigned_identity.container_app.id]
   }
 
@@ -395,11 +392,6 @@ resource "azurerm_container_app" "backend" {
   }
 
   # Storage uses RBAC (shared_access_key_enabled = false) — no connection string needed
-
-  secret {
-    name  = "openai-key"
-    value = azurerm_cognitive_account.openai.primary_access_key
-  }
 
   secret {
     name  = "appinsights-connection"
@@ -474,11 +466,6 @@ resource "azurerm_container_app" "backend" {
       env {
         name  = "AZURE_CLIENT_ID"
         value = azurerm_user_assigned_identity.container_app.client_id
-      }
-
-      env {
-        name        = "AZURE_OPENAI_API_KEY"
-        secret_name = "openai-key"
       }
 
       env {
@@ -592,6 +579,20 @@ resource "azurerm_role_assignment" "container_app_acr" {
   scope                = azurerm_container_registry.main.id
   role_definition_name = "AcrPull"
   principal_id         = azurerm_user_assigned_identity.container_app.principal_id
+}
+
+# Grant Container App identity access to Azure OpenAI data plane
+resource "azurerm_role_assignment" "container_app_openai" {
+  scope                = azurerm_cognitive_account.openai.id
+  role_definition_name = "Cognitive Services OpenAI User"
+  principal_id         = azurerm_user_assigned_identity.container_app.principal_id
+}
+
+# Grant Container App system-assigned identity access to Azure OpenAI data plane
+resource "azurerm_role_assignment" "container_app_system_openai" {
+  scope                = azurerm_cognitive_account.openai.id
+  role_definition_name = "Cognitive Services OpenAI User"
+  principal_id         = azurerm_container_app.backend.identity[0].principal_id
 }
 
 # ─────────────────────────────────────────────────────────────
