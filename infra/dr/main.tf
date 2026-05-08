@@ -46,6 +46,12 @@ variable "frontend_url" {
   default     = "https://archmorphai.com"
 }
 
+variable "health_probe_path" {
+  description = "Health probe path used by DR traffic manager checks."
+  type        = string
+  default     = "/healthz"
+}
+
 # ─────────────────────────────────────────────────────────────
 # DR Resource Group
 # ─────────────────────────────────────────────────────────────
@@ -177,7 +183,7 @@ resource "azurerm_traffic_manager_profile" "failover" {
   monitor_config {
     protocol                     = "HTTPS"
     port                         = 443
-    path                         = "/api/health"
+    path                         = var.health_probe_path
     interval_in_seconds          = 30
     timeout_in_seconds           = 10
     tolerated_number_of_failures = 3

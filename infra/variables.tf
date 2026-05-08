@@ -95,3 +95,114 @@ variable "dr_location" {
   type        = string
   default     = "northeurope"
 }
+
+variable "prefer_paired_dr_region" {
+  description = "When true, derive DR region from Azure paired-region map for the primary location."
+  type        = bool
+  default     = true
+}
+
+variable "paired_region_overrides" {
+  description = "Optional overrides for paired DR regions keyed by primary region."
+  type        = map(string)
+  default     = {}
+}
+
+variable "backend_container_image" {
+  description = "Container image reference for backend app (tag or immutable digest). Empty uses ACR latest."
+  type        = string
+  default     = ""
+}
+
+variable "acr_prod_sku" {
+  description = "ACR SKU used in production."
+  type        = string
+  default     = "Premium"
+
+  validation {
+    condition     = contains(["Standard", "Premium"], var.acr_prod_sku)
+    error_message = "acr_prod_sku must be Standard or Premium."
+  }
+}
+
+variable "enable_redis_private_endpoint" {
+  description = "Enable Redis private endpoint + private DNS in production."
+  type        = bool
+  default     = false
+}
+
+variable "enable_front_door_waf" {
+  description = "Enable Azure Front Door Premium and WAF resources."
+  type        = bool
+  default     = true
+}
+
+variable "enable_policy_assignments" {
+  description = "Enable baseline policy definitions and assignments for location/tags/SKUs."
+  type        = bool
+  default     = false
+}
+
+variable "allowed_resource_locations" {
+  description = "Allowed Azure locations enforced by policy assignment."
+  type        = list(string)
+  default     = ["westeurope", "northeurope"]
+}
+
+variable "openai_auth_mode" {
+  description = "Azure OpenAI auth mode for app config."
+  type        = string
+  default     = "managed_identity"
+
+  validation {
+    condition     = contains(["managed_identity", "api_key"], var.openai_auth_mode)
+    error_message = "openai_auth_mode must be managed_identity or api_key."
+  }
+}
+
+variable "prod_max_replicas" {
+  description = "Maximum replicas for production backend Container App."
+  type        = number
+  default     = 10
+}
+
+variable "prod_http_concurrent_requests" {
+  description = "HTTP concurrent requests scale threshold for production."
+  type        = number
+  default     = 25
+}
+
+variable "cpu_scale_threshold_percent" {
+  description = "CPU utilization scale-out threshold percent."
+  type        = number
+  default     = 70
+}
+
+variable "aoai_monthly_budget_amount" {
+  description = "Monthly AOAI budget amount for resource-group budget alerts. Set to 0 to disable."
+  type        = number
+  default     = 0
+}
+
+variable "aoai_budget_start_date" {
+  description = "Stable UTC start date for AOAI budget alerts in RFC3339 format."
+  type        = string
+  default     = "2026-01-01T00:00:00Z"
+}
+
+variable "storage_cmk_key_vault_key_id" {
+  description = "Optional Key Vault key ID to enable customer-managed key encryption for Storage."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.storage_cmk_key_vault_key_id == "" || can(regex("^https://[a-zA-Z0-9-]+\\.vault\\.azure\\.net/keys/[^/]+/[^/]+$", var.storage_cmk_key_vault_key_id))
+    error_message = "storage_cmk_key_vault_key_id must be empty or a full Key Vault URL like https://<vault>.vault.azure.net/keys/<name>/<version>."
+  }
+}
+
+variable "health_probe_path" {
+  description = "Health probe path for infra checks. Defaults to the anonymous health endpoint."
+  type        = string
+  default     = "/healthz"
+}

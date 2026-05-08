@@ -57,10 +57,23 @@ resource "random_string" "suffix" {
 
 locals {
   name_suffix = random_string.suffix.result
+  paired_region_defaults = {
+    westeurope    = "northeurope"
+    northeurope   = "westeurope"
+    swedencentral = "norwayeast"
+  }
+  dr_planned_location = var.prefer_paired_dr_region ? lookup(
+    merge(local.paired_region_defaults, var.paired_region_overrides),
+    lower(var.location),
+    var.dr_location
+  ) : var.dr_location
+  backend_image     = var.backend_container_image != "" ? var.backend_container_image : "${azurerm_container_registry.main.login_server}/archmorph-api:latest"
+  storage_cmk_parts = var.storage_cmk_key_vault_key_id != "" ? regex("^https://([a-zA-Z0-9-]+)\\.vault\\.azure\\.net/keys/([^/]+)/([^/]+)$", var.storage_cmk_key_vault_key_id) : []
   tags = {
     project     = "archmorph"
     environment = var.environment
     managed_by  = "terraform"
+    dr_region   = local.dr_planned_location
   }
 }
 
@@ -71,6 +84,174 @@ resource "azurerm_resource_group" "main" {
   name     = "archmorph-rg-${var.environment}"
   location = var.location
   tags     = local.tags
+}
+
+resource "azurerm_consumption_budget_resource_group" "aoai" {
+  count             = var.aoai_monthly_budget_amount > 0 ? 1 : 0
+  name              = "archmorph-aoai-budget"
+  resource_group_id = azurerm_resource_group.main.id
+
+  amount     = var.aoai_monthly_budget_amount
+  time_grain = "Monthly"
+
+  time_period {
+    start_date = var.aoai_budget_start_date
+  }
+
+  filter {
+    dimension {
+      name   = "ResourceType"
+      values = ["Microsoft.CognitiveServices/accounts"]
+    }
+  }
+
+  notification {
+    enabled        = true
+    threshold      = 80
+    operator       = "GreaterThan"
+    threshold_type = "Forecasted"
+    contact_emails = [var.alert_email]
+  }
+
+  notification {
+    enabled        = true
+    threshold      = 100
+    operator       = "GreaterThan"
+    threshold_type = "Actual"
+    contact_emails = [var.alert_email]
+  }
+}
+
+resource "azurerm_policy_definition" "allowed_locations" {
+  count        = var.enable_policy_assignments ? 1 : 0
+  name         = "archmorph-allowed-locations"
+  policy_type  = "Custom"
+  mode         = "Indexed"
+  display_name = "Archmorph allowed resource locations"
+  description  = "Restrict resource deployments to approved regions."
+
+  metadata = jsonencode({
+    category = "General"
+  })
+
+  parameters = jsonencode({
+    allowedLocations = {
+      type = "Array"
+      metadata = {
+        displayName = "Allowed locations"
+      }
+    }
+  })
+
+  policy_rule = jsonencode({
+    if = {
+      allOf = [
+        {
+          field = "location"
+          notIn = "[parameters('allowedLocations')]"
+        },
+        {
+          field     = "type"
+          notEquals = "Microsoft.Resources/subscriptions/resourceGroups"
+        }
+      ]
+    }
+    then = {
+      effect = "deny"
+    }
+  })
+}
+
+resource "azurerm_policy_definition" "required_tags" {
+  count        = var.enable_policy_assignments ? 1 : 0
+  name         = "archmorph-required-tags"
+  policy_type  = "Custom"
+  mode         = "Indexed"
+  display_name = "Archmorph required baseline tags"
+  description  = "Require project/environment/managed_by tags."
+
+  metadata = jsonencode({
+    category = "Tags"
+  })
+
+  policy_rule = jsonencode({
+    if = {
+      anyOf = [
+        { field = "tags['project']", exists = "false" },
+        { field = "tags['environment']", exists = "false" },
+        { field = "tags['managed_by']", exists = "false" }
+      ]
+    }
+    then = {
+      effect = "deny"
+    }
+  })
+}
+
+resource "azurerm_policy_definition" "approved_skus" {
+  count        = var.enable_policy_assignments ? 1 : 0
+  name         = "archmorph-approved-skus"
+  policy_type  = "Custom"
+  mode         = "All"
+  display_name = "Archmorph approved compute/data SKUs"
+  description  = "Restrict critical services to approved SKUs."
+
+  policy_rule = jsonencode({
+    if = {
+      anyOf = [
+        {
+          allOf = [
+            { field = "type", equals = "Microsoft.ContainerRegistry/registries" },
+            { field = "Microsoft.ContainerRegistry/registries/sku.name", notIn = ["Basic", "Standard", "Premium"] }
+          ]
+        },
+        {
+          allOf = [
+            { field = "type", equals = "Microsoft.DBforPostgreSQL/flexibleServers" },
+            { field = "Microsoft.DBforPostgreSQL/flexibleServers/sku.name", notLike = "GP_*" },
+            { field = "Microsoft.DBforPostgreSQL/flexibleServers/sku.name", notLike = "MO_*" },
+            { field = "Microsoft.DBforPostgreSQL/flexibleServers/sku.name", notLike = "B_*" }
+          ]
+        },
+        {
+          allOf = [
+            { field = "type", equals = "Microsoft.Cache/Redis" },
+            { field = "Microsoft.Cache/Redis/sku.name", notIn = ["Basic", "Standard", "Premium"] }
+          ]
+        }
+      ]
+    }
+    then = {
+      effect = "deny"
+    }
+  })
+}
+
+resource "azurerm_resource_group_policy_assignment" "allowed_locations" {
+  count                = var.enable_policy_assignments ? 1 : 0
+  name                 = "archmorph-allowed-locations"
+  resource_group_id    = azurerm_resource_group.main.id
+  policy_definition_id = azurerm_policy_definition.allowed_locations[0].id
+
+  parameters = jsonencode({
+    allowedLocations = {
+      value = var.allowed_resource_locations
+    }
+  })
+}
+
+resource "azurerm_resource_group_policy_assignment" "required_tags" {
+  count                = var.enable_policy_assignments ? 1 : 0
+  name                 = "archmorph-required-tags"
+  resource_group_id    = azurerm_resource_group.main.id
+  policy_definition_id = azurerm_policy_definition.required_tags[0].id
+}
+
+resource "azurerm_resource_group_policy_assignment" "approved_skus" {
+  count                = var.enable_policy_assignments ? 1 : 0
+  name                 = "archmorph-approved-skus"
+  resource_group_id    = azurerm_resource_group.main.id
+  policy_definition_id = azurerm_policy_definition.approved_skus[0].id
 }
 
 # ─────────────────────────────────────────────────────────────
@@ -100,6 +281,10 @@ resource "azurerm_storage_account" "main" {
   public_network_access_enabled     = true # Disable in prod with VNet integration
   https_traffic_only_enabled        = true
   infrastructure_encryption_enabled = true # Double encryption at rest
+
+  identity {
+    type = "SystemAssigned"
+  }
 
   blob_properties {
     cors_rule {
@@ -132,6 +317,19 @@ resource "azurerm_storage_account" "main" {
   tags = local.tags
 }
 
+resource "azurerm_storage_account_customer_managed_key" "main" {
+  count              = var.storage_cmk_key_vault_key_id != "" ? 1 : 0
+  storage_account_id = azurerm_storage_account.main.id
+  key_vault_id       = azurerm_key_vault.main.id
+  key_name           = local.storage_cmk_parts[1]
+  key_version        = local.storage_cmk_parts[2]
+
+  depends_on = [
+    azurerm_key_vault_access_policy.storage_cmk,
+    azurerm_role_assignment.storage_cmk_crypto_user,
+  ]
+}
+
 resource "azurerm_storage_container" "diagrams" {
   name                  = "diagrams"
   storage_account_id    = azurerm_storage_account.main.id
@@ -151,7 +349,7 @@ resource "azurerm_container_registry" "main" {
   name                          = "archmorph${local.name_suffix}"
   resource_group_name           = azurerm_resource_group.main.name
   location                      = azurerm_resource_group.main.location
-  sku                           = var.environment == "prod" ? "Standard" : "Basic"
+  sku                           = var.environment == "prod" ? var.acr_prod_sku : "Basic"
   admin_enabled                 = false                                    # Use managed identity — never admin credentials (#98 — I-002)
   public_network_access_enabled = var.environment == "prod" ? false : true # Disable public access in prod (#289)
   zone_redundancy_enabled       = var.environment == "prod"
@@ -443,14 +641,14 @@ resource "azurerm_container_app" "backend" {
 
   template {
     min_replicas = 1
-    max_replicas = var.environment == "prod" ? 10 : 3
+    max_replicas = var.environment == "prod" ? var.prod_max_replicas : 3
 
     # ── Scaling rules (#180) ──
     # HTTP concurrency: GPT vision calls block ~5-30s each, so keep
     # concurrent_requests low to trigger scale-out before thread exhaustion.
     http_scale_rule {
       name                = "http-concurrency"
-      concurrent_requests = var.environment == "prod" ? "25" : "15"
+      concurrent_requests = var.environment == "prod" ? tostring(var.prod_http_concurrent_requests) : "15"
     }
 
     # CPU-based scaling: scale out when sustained CPU > 70%
@@ -459,13 +657,13 @@ resource "azurerm_container_app" "backend" {
       custom_rule_type = "cpu"
       metadata = {
         type  = "Utilization"
-        value = "70"
+        value = tostring(var.cpu_scale_threshold_percent)
       }
     }
 
     container {
       name   = "api"
-      image  = "${azurerm_container_registry.main.login_server}/archmorph-api:latest"
+      image  = local.backend_image
       cpu    = var.environment == "prod" ? 1.0 : 0.5
       memory = var.environment == "prod" ? "2Gi" : "1Gi"
 
@@ -505,6 +703,11 @@ resource "azurerm_container_app" "backend" {
       }
 
       env {
+        name  = "AZURE_OPENAI_AUTH_MODE"
+        value = var.openai_auth_mode
+      }
+
+      env {
         name  = "ENVIRONMENT"
         value = var.environment
       }
@@ -525,7 +728,7 @@ resource "azurerm_container_app" "backend" {
       }
 
       liveness_probe {
-        path                    = "/healthz"
+        path                    = var.health_probe_path
         port                    = 8000
         transport               = "HTTP"
         initial_delay           = 10
@@ -534,7 +737,7 @@ resource "azurerm_container_app" "backend" {
       }
 
       readiness_probe {
-        path                    = "/healthz"
+        path                    = var.health_probe_path
         port                    = 8000
         transport               = "HTTP"
         interval_seconds        = 10
@@ -542,13 +745,19 @@ resource "azurerm_container_app" "backend" {
       }
 
       startup_probe {
-        path                    = "/healthz"
+        path                    = var.health_probe_path
         port                    = 8000
         transport               = "HTTP"
         interval_seconds        = 5
         failure_count_threshold = 10
       }
     }
+  }
+
+  lifecycle {
+    ignore_changes = [
+      template[0].container[0].image,
+    ]
   }
 }
 
@@ -581,6 +790,22 @@ resource "azurerm_key_vault_access_policy" "container_app" {
   object_id    = azurerm_user_assigned_identity.container_app.principal_id
 
   secret_permissions = ["Get", "List"]
+}
+
+resource "azurerm_key_vault_access_policy" "storage_cmk" {
+  count        = var.storage_cmk_key_vault_key_id != "" ? 1 : 0
+  key_vault_id = azurerm_key_vault.main.id
+  tenant_id    = data.azurerm_client_config.current.tenant_id
+  object_id    = azurerm_storage_account.main.identity[0].principal_id
+
+  key_permissions = ["Get", "WrapKey", "UnwrapKey"]
+}
+
+resource "azurerm_role_assignment" "storage_cmk_crypto_user" {
+  count                = var.storage_cmk_key_vault_key_id != "" ? 1 : 0
+  scope                = azurerm_key_vault.main.id
+  role_definition_name = "Key Vault Crypto Service Encryption User"
+  principal_id         = azurerm_storage_account.main.identity[0].principal_id
 }
 
 # Key Vault Secrets User RBAC role — required when rbac_authorization_enabled=true (prod).
@@ -671,6 +896,30 @@ resource "azurerm_monitor_diagnostic_setting" "openai" {
 
   enabled_log {
     category = "RequestResponse"
+  }
+}
+
+resource "azurerm_monitor_diagnostic_setting" "redis" {
+  name                       = "redis-diagnostics"
+  target_resource_id         = azurerm_redis_cache.main.id
+  log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
+
+  enabled_metric {
+    category = "AllMetrics"
+  }
+}
+
+resource "azurerm_monitor_diagnostic_setting" "container_app" {
+  name                       = "containerapp-diagnostics"
+  target_resource_id         = azurerm_container_app.backend.id
+  log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
+
+  enabled_log {
+    category_group = "allLogs"
+  }
+
+  enabled_metric {
+    category = "AllMetrics"
   }
 }
 
@@ -992,7 +1241,7 @@ resource "azurerm_application_insights_standard_web_test" "health_check" {
   enabled                 = true
 
   request {
-    url = "https://${azurerm_container_app.backend.ingress[0].fqdn}/healthz"
+    url = "https://${azurerm_container_app.backend.ingress[0].fqdn}${var.health_probe_path}"
   }
 
   validation_rules {
@@ -2000,6 +2249,12 @@ resource "azurerm_security_center_subscription_pricing" "containers" {
   resource_type = "Containers"
 }
 
+resource "azurerm_security_center_subscription_pricing" "container_registry" {
+  count         = var.environment == "prod" ? 1 : 0
+  tier          = "Standard"
+  resource_type = "ContainerRegistry"
+}
+
 resource "azurerm_security_center_subscription_pricing" "databases" {
   count         = var.environment == "prod" ? 1 : 0
   tier          = "Standard"
@@ -2064,6 +2319,44 @@ resource "azurerm_private_endpoint" "postgresql" {
   private_dns_zone_group {
     name                 = "archmorph-pg-dns"
     private_dns_zone_ids = [azurerm_private_dns_zone.postgresql[0].id]
+  }
+}
+
+resource "azurerm_private_dns_zone" "redis" {
+  count               = var.environment == "prod" && var.enable_redis_private_endpoint ? 1 : 0
+  name                = "privatelink.redis.cache.windows.net"
+  resource_group_name = azurerm_resource_group.main.name
+  tags                = local.tags
+}
+
+resource "azurerm_private_dns_zone_virtual_network_link" "redis" {
+  count                 = var.environment == "prod" && var.enable_redis_private_endpoint ? 1 : 0
+  name                  = "archmorph-redis-dns-link"
+  resource_group_name   = azurerm_resource_group.main.name
+  private_dns_zone_name = azurerm_private_dns_zone.redis[0].name
+  virtual_network_id    = azurerm_virtual_network.main.id
+  registration_enabled  = false
+  tags                  = local.tags
+}
+
+resource "azurerm_private_endpoint" "redis" {
+  count               = var.environment == "prod" && var.enable_redis_private_endpoint ? 1 : 0
+  name                = "archmorph-redis-pe-${local.name_suffix}"
+  resource_group_name = azurerm_resource_group.main.name
+  location            = azurerm_resource_group.main.location
+  subnet_id           = azurerm_subnet.private_endpoints.id
+  tags                = local.tags
+
+  private_service_connection {
+    name                           = "archmorph-redis-psc"
+    private_connection_resource_id = azurerm_redis_cache.main.id
+    is_manual_connection           = false
+    subresource_names              = ["redisCache"]
+  }
+
+  private_dns_zone_group {
+    name                 = "archmorph-redis-dns"
+    private_dns_zone_ids = [azurerm_private_dns_zone.redis[0].id]
   }
 }
 
@@ -2157,6 +2450,8 @@ resource "azurerm_management_lock" "storage" {
 
 # WAF Policy with OWASP CRS 3.2 managed ruleset
 resource "azurerm_cdn_frontdoor_firewall_policy" "waf" {
+  count = var.enable_front_door_waf ? 1 : 0
+
   name                              = "archmorphwaf${local.name_suffix}"
   resource_group_name               = azurerm_resource_group.main.name
   sku_name                          = "Premium_AzureFrontDoor"
@@ -2221,6 +2516,8 @@ resource "azurerm_cdn_frontdoor_firewall_policy" "waf" {
 
 # Azure Front Door profile
 resource "azurerm_cdn_frontdoor_profile" "main" {
+  count = var.enable_front_door_waf ? 1 : 0
+
   name                = "archmorph-fd-${local.name_suffix}"
   resource_group_name = azurerm_resource_group.main.name
   sku_name            = "Premium_AzureFrontDoor"
@@ -2229,16 +2526,20 @@ resource "azurerm_cdn_frontdoor_profile" "main" {
 
 # Front Door endpoint
 resource "azurerm_cdn_frontdoor_endpoint" "api" {
+  count = var.enable_front_door_waf ? 1 : 0
+
   name                     = "archmorph-api-${local.name_suffix}"
-  cdn_frontdoor_profile_id = azurerm_cdn_frontdoor_profile.main.id
+  cdn_frontdoor_profile_id = azurerm_cdn_frontdoor_profile.main[0].id
   enabled                  = true
   tags                     = local.tags
 }
 
 # Origin group pointing to the Container App
 resource "azurerm_cdn_frontdoor_origin_group" "api" {
+  count = var.enable_front_door_waf ? 1 : 0
+
   name                     = "archmorph-api-origin-group"
-  cdn_frontdoor_profile_id = azurerm_cdn_frontdoor_profile.main.id
+  cdn_frontdoor_profile_id = azurerm_cdn_frontdoor_profile.main[0].id
   session_affinity_enabled = false
 
   load_balancing {
@@ -2247,7 +2548,7 @@ resource "azurerm_cdn_frontdoor_origin_group" "api" {
   }
 
   health_probe {
-    path                = "/healthz"
+    path                = var.health_probe_path
     protocol            = "Https"
     interval_in_seconds = 30
     request_type        = "GET"
@@ -2256,8 +2557,10 @@ resource "azurerm_cdn_frontdoor_origin_group" "api" {
 
 # Origin — the Container App backend
 resource "azurerm_cdn_frontdoor_origin" "api" {
+  count = var.enable_front_door_waf ? 1 : 0
+
   name                          = "archmorph-api-origin"
-  cdn_frontdoor_origin_group_id = azurerm_cdn_frontdoor_origin_group.api.id
+  cdn_frontdoor_origin_group_id = azurerm_cdn_frontdoor_origin_group.api[0].id
   enabled                       = true
 
   certificate_name_check_enabled = true
@@ -2271,10 +2574,12 @@ resource "azurerm_cdn_frontdoor_origin" "api" {
 
 # Route — send all traffic through WAF to the Container App
 resource "azurerm_cdn_frontdoor_route" "api" {
+  count = var.enable_front_door_waf ? 1 : 0
+
   name                          = "archmorph-api-route"
-  cdn_frontdoor_endpoint_id     = azurerm_cdn_frontdoor_endpoint.api.id
-  cdn_frontdoor_origin_group_id = azurerm_cdn_frontdoor_origin_group.api.id
-  cdn_frontdoor_origin_ids      = [azurerm_cdn_frontdoor_origin.api.id]
+  cdn_frontdoor_endpoint_id     = azurerm_cdn_frontdoor_endpoint.api[0].id
+  cdn_frontdoor_origin_group_id = azurerm_cdn_frontdoor_origin_group.api[0].id
+  cdn_frontdoor_origin_ids      = [azurerm_cdn_frontdoor_origin.api[0].id]
   enabled                       = true
 
   forwarding_protocol    = "HttpsOnly"
@@ -2287,16 +2592,18 @@ resource "azurerm_cdn_frontdoor_route" "api" {
 
 # Associate WAF policy with the Front Door security policy
 resource "azurerm_cdn_frontdoor_security_policy" "waf" {
+  count = var.enable_front_door_waf ? 1 : 0
+
   name                     = "archmorph-waf-security-policy"
-  cdn_frontdoor_profile_id = azurerm_cdn_frontdoor_profile.main.id
+  cdn_frontdoor_profile_id = azurerm_cdn_frontdoor_profile.main[0].id
 
   security_policies {
     firewall {
-      cdn_frontdoor_firewall_policy_id = azurerm_cdn_frontdoor_firewall_policy.waf.id
+      cdn_frontdoor_firewall_policy_id = azurerm_cdn_frontdoor_firewall_policy.waf[0].id
 
       association {
         domain {
-          cdn_frontdoor_domain_id = azurerm_cdn_frontdoor_endpoint.api.id
+          cdn_frontdoor_domain_id = azurerm_cdn_frontdoor_endpoint.api[0].id
         }
         patterns_to_match = ["/*"]
       }
@@ -2306,8 +2613,10 @@ resource "azurerm_cdn_frontdoor_security_policy" "waf" {
 
 # Front Door diagnostic settings — log WAF events
 resource "azurerm_monitor_diagnostic_setting" "front_door" {
+  count = var.enable_front_door_waf ? 1 : 0
+
   name                       = "frontdoor-diagnostics"
-  target_resource_id         = azurerm_cdn_frontdoor_profile.main.id
+  target_resource_id         = azurerm_cdn_frontdoor_profile.main[0].id
   log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
 
   enabled_log {
