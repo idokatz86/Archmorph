@@ -16,7 +16,7 @@ Covers the 9 requirements from the 2026-05-08 audit PR:
 import hashlib
 import os
 import sys
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -402,7 +402,6 @@ class TestMigrationChatAuth:
     def test_migration_chat_verify_api_key_dependency_present(self):
         """Confirm verify_api_key is wired by inspecting route dependencies."""
         from main import app as fastapi_app
-        from routers.shared import verify_api_key
 
         target_route = None
         for route in fastapi_app.routes:
@@ -411,8 +410,6 @@ class TestMigrationChatAuth:
                 break
 
         assert target_route is not None, "migration-chat route not found"
-        # Collect all dependency callables
-        dep_callables = {d.dependency for d in target_route.dependencies}
         # verify_api_key must appear either as a direct or inherited dependency
         # The endpoint uses _auth=Depends(verify_api_key) so it's in the
         # endpoint's dependant — not in route.dependencies but in the func signature.

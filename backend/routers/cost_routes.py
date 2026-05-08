@@ -18,10 +18,10 @@ import logging
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
-from routers.shared import limiter, verify_api_key
+from routers.shared import verify_api_key
 from cost_metering import (
     CostMeter,
     CostOverviewResponse,
