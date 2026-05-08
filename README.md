@@ -837,6 +837,7 @@ The CI/CD workflow (`.github/workflows/ci.yml`) runs the main quality gates:
 
 Additional workflows:
 - **security.yml** — SAST/DAST/SCA security pipeline (Semgrep, Bandit, CodeQL, Trivy, Gitleaks)
+- **terraform-prod.yml** — production Terraform plan artifact + environment-gated apply (manual approval)
 - **sbom.yml** — CycloneDX + Grype SBOM generation and vulnerability scanning
 - **rollback.yml** — Blue-green deployment rollback trigger
 - **monitoring.yml** — Scheduled and manual deployed health checks
@@ -846,8 +847,8 @@ Additional workflows:
 ```bash
 # Backend
 cd backend
-az acr build --registry <acr-name> --image archmorph-api:latest .
-az containerapp update --name archmorph-api --resource-group <rg> --image <acr>.azurecr.io/archmorph-api:latest
+az acr build --registry <acr-name> --image archmorph-api:<sha> .
+az containerapp update --name archmorph-api --resource-group <rg> --image <acr>.azurecr.io/archmorph-api@sha256:<digest>
 
 # Frontend
 cd frontend

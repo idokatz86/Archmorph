@@ -8,6 +8,11 @@ output "backend_url" {
   value       = "https://${azurerm_container_app.backend.ingress[0].fqdn}"
 }
 
+output "backend_image_reference" {
+  description = "Resolved backend container image reference (supports digest pinning)."
+  value       = local.backend_image
+}
+
 output "frontend_url" {
   description = "URL for the frontend Static Web App"
   value       = "https://${azurerm_static_web_app.frontend.default_host_name}"
@@ -62,6 +67,11 @@ output "openai_deployment_name" {
 output "openai_fallback_deployment_name" {
   description = "Fallback Azure OpenAI deployment name"
   value       = azurerm_cognitive_deployment.gpt4_vision.name
+}
+
+output "dr_planned_location" {
+  description = "Planned DR location derived from paired-region mapping or override."
+  value       = local.dr_planned_location
 }
 
 output "log_analytics_workspace_id" {
