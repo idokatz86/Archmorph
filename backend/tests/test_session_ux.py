@@ -800,3 +800,80 @@ class TestStoreTTLConfiguration:
         """IMAGE_STORE maxsize should be 50 (Issue #294 — reduced from 200)."""
         store = InMemoryStore(maxsize=50, ttl=3600)
         assert store.maxsize == 50
+
+
+class TestImageStoreBytebudget:
+    """Validate byte-budget enforcement and tracking for IMAGE_STORE (#830)."""
+
+    def test_byte_tracking_via_setitem(self):
+        """__setitem__ must update _total_bytes (not bypass tracking)."""
+        store = InMemoryStore(maxsize=10, ttl=3600)
+        store["img1"] = (b"x" * 500, "image/png")
+        assert store._total_bytes == 500
+
+    def test_byte_decrement_via_delitem(self):
+        """__delitem__ must decrement _total_bytes (not bypass tracking)."""
+        store = InMemoryStore(maxsize=10, ttl=3600)
+        store["img1"] = (b"x" * 500, "image/png")
+        del store["img1"]
+        assert store._total_bytes == 0
+
+    def test_clear_resets_total_bytes(self):
+        """clear() must reset _total_bytes to 0."""
+        store = InMemoryStore(maxsize=10, ttl=3600)
+        store["img1"] = (b"x" * 200, "image/png")
+        store["img2"] = (b"y" * 300, "image/png")
+        assert store._total_bytes == 500
+        store.clear()
+        assert store._total_bytes == 0
+
+    def test_base64_string_tuple_size_estimation(self):
+        """IMAGE_STORE stores (str_b64, str_content_type) — size must track len(str_b64)."""
+        import base64
+        raw = b"A" * 300
+        b64 = base64.b64encode(raw).decode("ascii")  # ~400 chars
+        store = InMemoryStore(maxsize=10, ttl=3600)
+        store["img1"] = (b64, "image/png")
+        # Size should be len(b64 string), not a tiny getsizeof(tuple)
+        assert store._total_bytes == len(b64)
+
+    def test_evict_oldest_when_budget_exceeded(self):
+        """When the byte budget is exceeded, the oldest entry should be evicted to make room."""
+        import os
+        original = os.environ.pop("SESSION_STORE_MAX_MEMORY_MB", None)
+        try:
+            # Very small budget: 1 byte (in MB units would round to 1MB; use monkeypatch via class attr)
+            store = InMemoryStore(maxsize=10, ttl=3600)
+            store.MAX_MEMORY_BYTES = 800  # tiny budget for this test
+
+            # First entry: 500 bytes — fits
+            store["img1"] = (b"A" * 500, "image/png")
+            assert "img1" in store
+            assert store._total_bytes == 500
+
+            # Second entry: 400 bytes — would exceed 800 total; oldest (img1) should be evicted
+            store["img2"] = (b"B" * 400, "image/png")
+            # After eviction of img1 (500), total is 0; now img2 fits (400 ≤ 800)
+            assert "img2" in store
+            assert store._total_bytes == 400
+
+        finally:
+            if original is not None:
+                os.environ["SESSION_STORE_MAX_MEMORY_MB"] = original
+
+    def test_burst_behavior_multiple_large_entries(self):
+        """Burst of large images: byte budget evicts oldest, last entries are retained."""
+        store = InMemoryStore(maxsize=20, ttl=3600)
+        store.MAX_MEMORY_BYTES = 1000  # allow ~2 entries of 500 bytes each
+
+        keys = [f"img{i}" for i in range(5)]
+        for k in keys:
+            store[k] = (b"Z" * 500, "image/png")
+
+        # Budget is 1000, each entry is 500 bytes. After first two entries fill the budget,
+        # subsequent writes must evict the oldest to make room.
+        # At most 2 entries can coexist; the last written should survive.
+        assert store._total_bytes <= 1000
+        # The last key written must be present (eviction is of oldest, not newest)
+        assert "img4" in store
+

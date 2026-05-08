@@ -120,17 +120,26 @@ class InMemoryStore(SessionStore):
         entry_size = sys.getsizeof(value) if value is not None else 0
         if isinstance(value, (bytes, bytearray)):
             entry_size = len(value)
-        elif isinstance(value, tuple) and len(value) == 2 and isinstance(value[0], bytes):
-            # IMAGE_STORE stores (bytes, content_type) tuples
+        elif isinstance(value, tuple) and len(value) == 2 and isinstance(value[0], (bytes, str)):
+            # IMAGE_STORE stores (bytes, content_type) or (str_base64, content_type) tuples
             entry_size = len(value[0])
 
-        # Evict oldest if adding this would exceed memory budget
+        # Evict oldest entry first if adding this would exceed memory budget
         if self._total_bytes + entry_size > self.MAX_MEMORY_BYTES:
-            logger.warning(
-                "InMemoryStore memory budget exceeded (%d + %d > %s bytes) — rejecting entry",
-                self._total_bytes, entry_size, self.MAX_MEMORY_BYTES,
-            )
-            return  # Silently drop — caller can retry
+            if self._cache:
+                oldest_key = next(iter(self._cache))
+                self.delete(oldest_key)
+                logger.warning(
+                    "InMemoryStore memory budget exceeded (%d + %d > %s bytes) — evicted oldest entry",
+                    self._total_bytes, entry_size, self.MAX_MEMORY_BYTES,
+                )
+            # If still exceeded after one eviction, reject
+            # (handles both: cache was already empty, or evicted entry wasn't large enough)
+            if self._total_bytes + entry_size > self.MAX_MEMORY_BYTES:
+                logger.warning(
+                    "InMemoryStore memory budget still exceeded after eviction — rejecting entry",
+                )
+                return
 
         # TTLCache doesn't support per-key TTL; use the store-wide TTL
         self._cache[key] = value
@@ -142,7 +151,7 @@ class InMemoryStore(SessionStore):
             import sys
             if isinstance(val, (bytes, bytearray)):
                 self._total_bytes -= len(val)
-            elif isinstance(val, tuple) and len(val) == 2 and isinstance(val[0], bytes):
+            elif isinstance(val, tuple) and len(val) == 2 and isinstance(val[0], (bytes, str)):
                 self._total_bytes -= len(val[0])
             else:
                 self._total_bytes -= sys.getsizeof(val)
@@ -156,6 +165,7 @@ class InMemoryStore(SessionStore):
 
     def clear(self) -> None:
         self._cache.clear()
+        self._total_bytes = 0
 
     # ── dict-like overrides ───────────────────────────────
 
@@ -163,10 +173,10 @@ class InMemoryStore(SessionStore):
         return self._cache[key]  # raises KeyError natively
 
     def __setitem__(self, key: str, value: Any) -> None:
-        self._cache[key] = value
+        self.set(key, value)
 
     def __delitem__(self, key: str) -> None:
-        del self._cache[key]
+        self.delete(key)
 
     def __contains__(self, key: str) -> bool:
         return key in self._cache

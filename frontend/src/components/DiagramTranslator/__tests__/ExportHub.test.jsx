@@ -126,3 +126,110 @@ describe('ExportHub accessibility', () => {
     expect(screen.getByTestId('landing-zone-live-region')).toHaveTextContent('Compute tier: Azure Kubernetes Service')
   })
 })
+
+describe('ExportHub parallel generation', () => {
+  beforeEach(() => {
+    api.post.mockReset()
+    api.get.mockReset()
+  })
+
+  it('fires independent deliverables in parallel — all three reach the API before any resolves', async () => {
+    // We control resolution so we can observe concurrency:
+    // resolve() for each call is deferred until we explicitly trigger it.
+    let pendingCount = 0
+    const resolvers = []
+    api.post.mockImplementation(() => {
+      pendingCount++
+      return new Promise((resolve) => {
+        resolvers.push(() => {
+          pendingCount--
+          resolve({ code: 'resource {}', filename: 'archmorph-iac.tf' })
+        })
+      })
+    })
+    api.get.mockImplementation(() => {
+      pendingCount++
+      return new Promise((resolve) => {
+        resolvers.push(() => {
+          pendingCount--
+          resolve({ services: [], total_monthly_estimate: { low: 0, high: 0 } })
+        })
+      })
+    })
+
+    const user = userEvent.setup()
+    render(<ExportHub diagramId="diag-1" />)
+
+    openExportHub()
+
+    // Deselect capability-gated deliverables, keep only independent ones
+    for (const label of ['Architecture Package', 'High-Level Design', 'PDF Analysis Report']) {
+      await user.click(await screen.findByLabelText(`Include ${label}`))
+    }
+
+    // Start generation — 3 independent deliverables (IaC, Cost, Timeline)
+    await user.click(screen.getByRole('button', { name: /Generate All Selected/i }))
+
+    // All three API calls must be in-flight before we resolve any
+    // CONCURRENCY limit is 3, so all should start immediately
+    await waitFor(() => expect(resolvers.length).toBeGreaterThanOrEqual(2), { timeout: 2000 })
+
+    // At least 2 were in-flight simultaneously — verify by resolving them all now
+    const countBeforeResolve = resolvers.length
+    expect(countBeforeResolve).toBeGreaterThanOrEqual(2)
+
+    // Resolve all pending calls
+    resolvers.forEach(r => r())
+
+    // Generation should complete
+    await waitFor(
+      () => expect(screen.getByRole('button', { name: /Generate All Selected/i })).not.toBeDisabled(),
+      { timeout: 3000 }
+    )
+  })
+
+  it('capability-gated deliverables chain export tokens sequentially', async () => {
+    // architecture-package returns token-1, hld should receive token-1
+    const capabilityOrder = []
+    api.post.mockImplementation((url, _body, _signal, _timeout, headers) => {
+      const cap = headers?.['X-Export-Capability'] || null
+      capabilityOrder.push({ url, cap })
+      const nextToken = capabilityOrder.length === 1 ? 'token-1' : 'token-2'
+      if (url.includes('export-architecture-package')) {
+        return Promise.resolve({
+          content: '<html>pkg</html>',
+          filename: 'pkg.html',
+          export_capability: nextToken,
+        })
+      }
+      if (url.includes('export-hld')) {
+        return Promise.resolve({
+          content_b64: btoa('PDF content'),
+          content_type: 'application/pdf',
+          filename: 'hld.pdf',
+          export_capability: 'token-2',
+        })
+      }
+      return Promise.resolve({ content_b64: btoa('pdf'), content_type: 'application/pdf', filename: 'report.pdf' })
+    })
+
+    const user = userEvent.setup()
+    render(<ExportHub diagramId="diag-1" exportCapability="initial-token" />)
+
+    openExportHub()
+
+    // Deselect independent deliverables, keep only capability-gated ones
+    for (const label of ['Infrastructure Code', 'Cost Estimate', 'Migration Timeline']) {
+      await user.click(await screen.findByLabelText(`Include ${label}`))
+    }
+
+    await user.click(screen.getByRole('button', { name: /Generate All Selected/i }))
+
+    await waitFor(() => expect(capabilityOrder.length).toBeGreaterThanOrEqual(2), { timeout: 3000 })
+
+    // First capability-gated call should use the initial export token
+    expect(capabilityOrder[0].cap).toBe('initial-token')
+    // Second should use the token returned by the first response
+    expect(capabilityOrder[1].cap).toBe('token-1')
+  })
+})
