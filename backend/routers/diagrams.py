@@ -334,7 +334,7 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
         logger.error("Vision analysis failed for %s: %s", str(diagram_id).replace('\n', '').replace('\r', ''), str(analysis_result_or_exc).replace('\n', '').replace('\r', ''), exc_info=True)  # codeql[py/log-injection] Handled by custom
         raise ArchmorphException(500, "Vision analysis failed. Please try again with a different image.")
 
-    result = _normalize_analysis(analysis_result_or_exc)
+    result = await asyncio.to_thread(_normalize_analysis, analysis_result_or_exc)
     result["diagram_id"] = diagram_id
     result["image_classification"] = classification
 
