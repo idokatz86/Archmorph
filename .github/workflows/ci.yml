@@ -711,13 +711,17 @@ jobs:
             HEALTH_PATH="/health"
           fi
 
-          API_KEY_HEADER=()
-          if [ -n "${ADMIN_KEY:-}" ]; then
-            API_KEY_HEADER=(-H "X-API-Key: $ADMIN_KEY")
-          fi
+          curl_health() {
+            local url="$1"
+            if [ -n "${ADMIN_KEY:-}" ]; then
+              curl -sS --max-time 30 -H "X-API-Key: $ADMIN_KEY" "$url"
+            else
+              curl -sS --max-time 30 "$url"
+            fi
+          }
 
           echo "Running smoke tests against: $TEST_URL$HEALTH_PATH"
-          BODY=$(curl -sS --max-time 30 "${API_KEY_HEADER[@]}" "$TEST_URL$HEALTH_PATH" || true)
+          BODY=$(curl_health "$TEST_URL$HEALTH_PATH" || true)
           CATALOG_STALE=$(echo "$BODY" | jq -r '.service_catalog_refresh.stale // false' 2>/dev/null || echo false)
           echo "Initial green revision service_catalog_refresh.stale=$CATALOG_STALE"
 
@@ -788,7 +792,7 @@ jobs:
           done
 
           HEALTH_RETRIES=3 HEALTH_RETRY_SECONDS=15 HEALTH_API_KEY="$ADMIN_KEY" ./scripts/health_gate.sh "$TEST_URL$HEALTH_PATH"
-          VERSION=$(curl -s --max-time 30 "${API_KEY_HEADER[@]}" "$TEST_URL$HEALTH_PATH" | jq -r '.version' 2>/dev/null || echo 'unknown')
+          VERSION=$(curl_health "$TEST_URL$HEALTH_PATH" | jq -r '.version' 2>/dev/null || echo 'unknown')
           echo "Green revision version: $VERSION — all smoke tests passed"
 
       - name: Shift traffic to green (100%)
@@ -822,8 +826,9 @@ jobs:
         run: |
           sleep 10
           HEALTH_RETRIES=3 HEALTH_RETRY_SECONDS=10 HEALTH_API_KEY="$ADMIN_KEY" ./scripts/health_gate.sh "${{ env.API_URL }}/health"
-          HEALTH=$(curl -s --max-time 30 -H "X-API-Key: $ADMIN_KEY" ${{ env.API_URL }}/health | jq -r '.status')
-          VERSION=$(curl -s --max-time 30 -H "X-API-Key: $ADMIN_KEY" ${{ env.API_URL }}/health | jq -r '.version')
+          HEALTH_BODY=$(curl -s --max-time 30 -H "X-API-Key: $ADMIN_KEY" "${{ env.API_URL }}/health")
+          HEALTH=$(printf '%s' "$HEALTH_BODY" | jq -r '.status')
+          VERSION=$(printf '%s' "$HEALTH_BODY" | jq -r '.version')
           echo "Deployed version: $VERSION — status: $HEALTH (blue-green complete)"
 
   # ============================================
