@@ -905,3 +905,81 @@ class TestGcpSource:
             _SUPPORTED_SOURCE_PROVIDERS,
         )
         assert _SUPPORTED_SOURCE_PROVIDERS == frozenset(_SOURCE_PROVIDER_LEGEND_LINE)
+
+
+# ---------------------------------------------------------------------------
+# Zero-mappings guard (F-BUG-5 / #858)
+# ---------------------------------------------------------------------------
+
+class TestZeroMappings:
+    """generate_landing_zone_svg must return a valid placeholder SVG for empty mappings."""
+
+    def test_zero_mappings_returns_dict_not_raises(self):
+        """Empty mappings must not raise; a placeholder dict must be returned."""
+        analysis = {
+            "title": "Empty Diagram",
+            "source_provider": "aws",
+            "target_provider": "azure",
+            "zones": [],
+            "mappings": [],
+        }
+        result = generate_landing_zone_svg(analysis, dr_variant="primary")
+        assert isinstance(result, dict), "Must return a dict, not raise"
+        assert "format" in result
+        assert "content" in result
+        assert "filename" in result
+
+    def test_zero_mappings_format_is_landing_zone_svg(self):
+        analysis = {
+            "source_provider": "aws",
+            "mappings": [],
+        }
+        result = generate_landing_zone_svg(analysis)
+        assert result["format"] == "landing-zone-svg"
+
+    def test_zero_mappings_content_is_valid_svg(self):
+        """The placeholder content must parse as valid XML with an <svg> root."""
+        analysis = {
+            "source_provider": "aws",
+            "mappings": [],
+        }
+        result = generate_landing_zone_svg(analysis)
+        root = ET.fromstring(result["content"])
+        assert root.tag == f"{SVG_NS}svg", (
+            f"Root element must be <svg>, got {root.tag}"
+        )
+
+    def test_zero_mappings_svg_has_title(self):
+        """Placeholder SVG must include a <title> for accessibility."""
+        analysis = {
+            "source_provider": "aws",
+            "mappings": [],
+        }
+        result = generate_landing_zone_svg(analysis)
+        root = ET.fromstring(result["content"])
+        titles = list(root.iter(f"{SVG_NS}title"))
+        assert len(titles) >= 1, "Placeholder SVG must have at least one <title> element"
+
+    def test_zero_mappings_filename_contains_variant(self):
+        """Placeholder filename must reflect the requested dr_variant."""
+        for variant in ("primary", "dr"):
+            analysis = {"source_provider": "aws", "mappings": []}
+            result = generate_landing_zone_svg(analysis, dr_variant=variant)
+            assert variant in result["filename"], (
+                f"Filename {result['filename']!r} should contain '{variant}'"
+            )
+
+    def test_none_mappings_returns_placeholder(self):
+        """analysis['mappings'] = None must also return a placeholder, not raise."""
+        analysis = {
+            "source_provider": "aws",
+            "mappings": None,
+        }
+        result = generate_landing_zone_svg(analysis)
+        assert result["format"] == "landing-zone-svg"
+
+    def test_missing_mappings_key_returns_placeholder(self):
+        """analysis dict without a 'mappings' key must return a placeholder."""
+        analysis = {"source_provider": "aws"}
+        result = generate_landing_zone_svg(analysis)
+        assert result["format"] == "landing-zone-svg"
