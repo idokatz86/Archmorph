@@ -6,7 +6,7 @@
 **Repo:** `idokatz86/Archmorph`
 **Default branch:** `main`
 **Current version:** `4.2.0` (per `frontend/src/constants.js`, target `4.3.0` per in-flight epic)
-**Workspace path:** `/Users/idokatz/VSCode/Archmorph`
+**Workspace path:** local developer checkout of `idokatz86/Archmorph`
 
 > This document is the **single source of truth** for this audit run. If the conversation is compacted, resume by reading this file end-to-end and continuing from the next unchecked item in the **Run Log** at the bottom.
 
@@ -95,7 +95,7 @@ The user requested a **full technical audit** of the Archmorph repository coveri
 
 > Each agent appends findings to its own subsection below. Schema:
 > ```
-> ### F-<agent-prefix>-<n>. <Short title>
+> #### F-<agent-prefix>-<n>. <Short title>
 > - **Severity:** P0 | P1 | P2 | P3
 > - **Area:** backend / frontend / perf / ux / …
 > - **File(s):** [path/file.ext](path/file.ext) (with line refs where possible)

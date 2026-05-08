@@ -19,7 +19,7 @@ import re
 import subprocess
 import sys
 import time
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -203,7 +203,7 @@ def main() -> int:
     already_filed: set[str] = set()
     if RESULTS_JSON.exists():
         try:
-            results = json.loads(RESULTS_JSON.read_text())
+            results = json.loads(RESULTS_JSON.read_text(encoding="utf-8"))
             already_filed = {r["fid"] for r in results if r.get("number")}
             print(f"[resume] loaded {len(results)} prior results "
                   f"({len(already_filed)} successfully filed)")
