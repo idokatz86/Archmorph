@@ -9,9 +9,11 @@ from fastapi import APIRouter, Request, Depends
 from pydantic import Field
 from strict_models import StrictBaseModel
 import asyncio
+import hashlib
 import logging
 import re
-from typing import Literal
+import secrets
+from typing import Literal, Optional
 
 from routers.shared import SESSION_STORE, limiter, verify_api_key
 from job_queue import job_manager
@@ -92,11 +94,29 @@ def _check_architecture_blockers(diagram_id: str, session: dict, force: bool) ->
     )
 
 
+def _iac_code_hash(code: str) -> str:
+    """Return a SHA-256 hex digest of the IaC code string (used for tamper detection)."""
+    return hashlib.sha256(code.encode()).hexdigest()
+
+
 class IaCChatMessage(StrictBaseModel):
-    """Request body for IaC chat messages."""
+    """Request body for IaC chat messages.
+
+    ``code_hash`` is the SHA-256 hex digest (lowercase) of the client's local copy
+    of the IaC code.  When the server has canonical state stored in the session the
+    client **must** supply this field and it must match the server-side hash.  A
+    mismatch returns HTTP 409 so the client knows to re-fetch the authoritative code
+    before retrying (#842).
+    """
     message: str = Field(..., min_length=1, max_length=5000)
     code: str = Field(default="", max_length=100000)
     format: Literal["terraform", "bicep"] = "terraform"
+    code_hash: Optional[str] = Field(
+        None,
+        min_length=64,
+        max_length=64,
+        description="SHA-256 hex digest of the client's current IaC code (required when server has canonical state)",
+    )
 
 
 # ─────────────────────────────────────────────────────────────
@@ -133,6 +153,14 @@ async def generate_iac(
 
     record_event(f"iac_generated_{format}", {"diagram_id": diagram_id})
     record_funnel_step(diagram_id, "iac_generate")
+
+    # Persist the canonical IaC code server-side so chat turns can validate
+    # the client is working against the same version (#842).
+    session["iac_code"] = code
+    session["iac_code_hash"] = _iac_code_hash(code)
+    session["iac_format"] = format
+    SESSION_STORE[diagram_id] = session
+
     return {"diagram_id": diagram_id, "format": format, "code": code}
 
 
@@ -142,20 +170,57 @@ async def generate_iac(
 @router.post("/api/diagrams/{diagram_id}/iac-chat")
 @limiter.limit("10/minute")
 async def iac_chat_endpoint(request: Request, diagram_id: str, msg: IaCChatMessage, _auth=Depends(verify_api_key)):
-    """Chat with AI to modify generated Terraform/Bicep code."""
+    """Chat with AI to modify generated Terraform/Bicep code.
+
+    The server always uses its own canonical IaC code (stored after ``/generate``)
+    rather than the client-supplied ``code`` field to prevent state overwrite from
+    tampered request bodies (#842).  When the server has canonical state, the client
+    **must** supply ``code_hash`` matching the server's SHA-256 digest; a mismatch
+    returns 409 so the client knows to refresh.
+    """
     record_event("iac_chat_messages", {"diagram_id": diagram_id})
 
     session = SESSION_STORE.get(diagram_id, {})
     analysis_context = session.get("analysis") if session else None
 
+    # ── Server-side canonical code validation (#842) ──────────────────────
+    server_code = session.get("iac_code") if session else None
+    if server_code is not None:
+        server_hash = session.get("iac_code_hash") or _iac_code_hash(server_code)
+        if msg.code_hash is not None:
+            # Constant-time comparison prevents timing-based oracle attacks
+            if not secrets.compare_digest(msg.code_hash.lower(), server_hash):
+                raise ArchmorphException(
+                    409,
+                    "IaC code version mismatch — your local copy is stale. "
+                    "Re-fetch the current IaC code before continuing.",
+                    details={"server_hash": server_hash},
+                )
+        # Always use server-side code; ignore client-supplied code
+        code_to_use = server_code
+    else:
+        # No server-side canonical state yet (pre-generate flow) — use client code
+        code_to_use = msg.code
+
     result = await asyncio.to_thread(
         process_iac_chat,
         diagram_id=diagram_id,
         message=msg.message,
-        current_code=msg.code,
+        current_code=code_to_use,
         iac_format=msg.format,
         analysis_context=analysis_context,
     )
+
+    # ── Persist updated code as new canonical state (#842) ───────────────
+    if not result.get("error"):
+        new_code = result.get("code")
+        if new_code:
+            session = SESSION_STORE.get(diagram_id) or session
+            session["iac_code"] = new_code
+            session["iac_code_hash"] = _iac_code_hash(new_code)
+            SESSION_STORE[diagram_id] = session
+            # Surface the new hash so clients can synchronise without re-fetching
+            result["code_hash"] = session["iac_code_hash"]
 
     if result.get("services_added"):
         record_event("iac_services_added", {

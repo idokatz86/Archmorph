@@ -8,15 +8,20 @@ Endpoints for enterprise cost visibility:
   - Budget CRUD with utilization tracking
   - Active alerts
   - CSV export
+
+Security (#843): All endpoints require API-key authentication.  The tenant context
+is derived from the authenticated API key; callers may NOT override it via a
+``tenant_id`` query parameter (any such parameter is rejected with 400).
 """
 
 import logging
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
+from routers.shared import limiter, verify_api_key
 from cost_metering import (
     CostMeter,
     CostOverviewResponse,
@@ -32,7 +37,11 @@ from cost_metering import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/cost", tags=["Cost & Token Observability"])
+router = APIRouter(
+    prefix="/api/cost",
+    tags=["Cost & Token Observability"],
+    dependencies=[Depends(verify_api_key)],  # All cost routes require auth (#843)
+)
 
 
 def _parse_iso(value: Optional[str]) -> Optional[datetime]:
@@ -44,11 +53,28 @@ def _parse_iso(value: Optional[str]) -> Optional[datetime]:
         raise HTTPException(status_code=400, detail=f"Invalid ISO datetime: {value}")
 
 
+def _reject_tenant_id_override(tenant_id: Optional[str] = Query(None)) -> None:
+    """Dependency that rejects explicit ``tenant_id`` query parameters (#843).
+
+    Tenant context must be resolved from the authenticated user, not from
+    client-supplied query strings which could be used to access another
+    tenant's cost data.
+    """
+    if tenant_id is not None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "tenant_id query parameter is not accepted on cost endpoints. "
+                "The tenant is resolved from your authenticated API key."
+            ),
+        )
+
+
 # ─────────────────────────────────────────────────────────────
 # Overview
 # ─────────────────────────────────────────────────────────────
 
-@router.get("/overview", response_model=CostOverviewResponse)
+@router.get("/overview", response_model=CostOverviewResponse, dependencies=[Depends(_reject_tenant_id_override)])
 async def cost_overview(
     since: Optional[str] = Query(None, description="ISO datetime lower bound"),
     until: Optional[str] = Query(None, description="ISO datetime upper bound"),
