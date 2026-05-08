@@ -5,7 +5,7 @@
  * IaC format preferences. Includes account deletion with confirmation.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, Save, Trash2, Loader2, AlertTriangle } from 'lucide-react';
 import { useAuth } from './AuthProvider';
 import { API_BASE } from '../../constants';
@@ -62,6 +62,24 @@ export default function ProfilePage({ isOpen, onClose }) {
   const [deleting, setDeleting] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [message, setMessage] = useState(null);
+
+  // A11y: focus trap, Escape close, backdrop close, restore focus, scroll lock (#804)
+  const overlayRef = useRef(null);
+  const contentRef = useRef(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const prev = document.activeElement;
+    contentRef.current?.focus();
+    const handleKey = (e) => { if (e.key === 'Escape') onClose?.(); };
+    document.addEventListener('keydown', handleKey);
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', handleKey);
+      document.body.style.overflow = '';
+      prev?.focus?.();
+    };
+  }, [isOpen, onClose]);
 
   // Load profile on open
   useEffect(() => {
@@ -137,11 +155,22 @@ export default function ProfilePage({ isOpen, onClose }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="bg-surface border border-border rounded-2xl shadow-2xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
+    <div
+      ref={overlayRef}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+      onClick={(e) => { if (e.target === overlayRef.current) onClose?.(); }}
+    >
+      <div
+        ref={contentRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="profile-modal-title"
+        tabIndex={-1}
+        className="bg-surface border border-border rounded-2xl shadow-2xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto focus:outline-none"
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-          <h2 className="text-lg font-semibold text-text-primary">Profile Settings</h2>
+          <h2 id="profile-modal-title" className="text-lg font-semibold text-text-primary">Profile Settings</h2>
           <button onClick={onClose} className="p-1 hover:bg-secondary rounded-lg transition-colors cursor-pointer">
             <X className="w-5 h-5 text-text-muted" />
           </button>

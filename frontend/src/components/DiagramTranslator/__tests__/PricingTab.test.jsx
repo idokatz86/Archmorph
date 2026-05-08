@@ -1,0 +1,85 @@
+import { describe, it, expect, vi } from 'vitest'
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import PricingTab from '../PricingTab'
+
+const baseCostBreakdown = {
+  summary: { total_monthly: { low: 100, mid: 150, high: 200 }, region: 'eastus', service_count: 2 },
+  services: [],
+  cost_drivers: [],
+  optimizations: [],
+  cost_by_category: {},
+}
+
+describe('PricingTab', () => {
+  it('renders cost summary cards', () => {
+    render(
+      <PricingTab
+        costBreakdown={baseCostBreakdown}
+        loading={false}
+        onSetStep={vi.fn()}
+      />
+    )
+    expect(screen.getByText('Low Estimate')).toBeInTheDocument()
+    expect(screen.getByText('Mid Estimate')).toBeInTheDocument()
+    expect(screen.getByText('High Estimate')).toBeInTheDocument()
+  })
+
+  it('shows loading spinner when loading', () => {
+    render(<PricingTab loading={true} onSetStep={vi.fn()} />)
+    expect(screen.getByText('Loading pricing data...')).toBeInTheDocument()
+  })
+
+  it('shows empty state when no costBreakdown', () => {
+    render(<PricingTab loading={false} onSetStep={vi.fn()} />)
+    expect(screen.getByText('Pricing data is loading...')).toBeInTheDocument()
+  })
+
+  // Regression: React #31 — backend GPT can emit action_steps as objects
+  // instead of strings. Rendering them directly crashes React; toRenderableString
+  // must coerce them to text before rendering.
+  it('renders object-shaped action_steps without crashing', async () => {
+    const user = userEvent.setup()
+    const breakdown = {
+      ...baseCostBreakdown,
+      optimizations: [
+        {
+          title: 'Use Reserved Instances',
+          description: 'Save by committing to 1-year reservations.',
+          savings: '30%',
+          effort: 'low',
+          action_steps: [
+            { type: 'step', message: 'Evaluate workload patterns' },
+            'plain string step',
+            { name: 'Purchase reserved instances in Azure portal' },
+          ],
+        },
+      ],
+    }
+    render(<PricingTab costBreakdown={breakdown} loading={false} onSetStep={vi.fn()} />)
+
+    // Expand the optimization card to show action steps
+    await user.click(screen.getByText('Show action steps'))
+
+    expect(screen.getByText('Evaluate workload patterns')).toBeInTheDocument()
+    expect(screen.getByText('plain string step')).toBeInTheDocument()
+    expect(screen.getByText('Purchase reserved instances in Azure portal')).toBeInTheDocument()
+  })
+
+  // Regression: React #31 — pricing_assumptions rendered as objects
+  it('renders object-shaped pricing_assumptions without crashing', () => {
+    const breakdown = {
+      ...baseCostBreakdown,
+      pricing_assumptions: [
+        { type: 'assumption', message: 'Pay-as-you-go pricing assumed' },
+        'plain string assumption',
+        { name: 'East US region pricing' },
+      ],
+    }
+    render(<PricingTab costBreakdown={breakdown} loading={false} onSetStep={vi.fn()} />)
+
+    expect(screen.getByText('Pay-as-you-go pricing assumed')).toBeInTheDocument()
+    expect(screen.getByText('plain string assumption')).toBeInTheDocument()
+    expect(screen.getByText('East US region pricing')).toBeInTheDocument()
+  })
+})

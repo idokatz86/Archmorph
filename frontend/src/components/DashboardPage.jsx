@@ -73,15 +73,18 @@ export default function DashboardPage() {
   const [filter, setFilter] = useState('all'); // 'all' | 'bookmarked'
 
   useEffect(() => {
-    loadAnalyses();
-  }, []);
+    const controller = new AbortController();
+    loadAnalyses(controller.signal);
+    return () => controller.abort();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const loadAnalyses = async () => {
+  const loadAnalyses = async (signal) => {
     setLoading(true);
     try {
-      const data = await api.get('/history/analyses');
+      const data = await api.get('/history/analyses', signal);
       setAnalyses(Array.isArray(data) ? data : data?.analyses || []);
-    } catch {
+    } catch (err) {
+      if (err?.name === 'AbortError') return;
       // History API may not be exposed yet — show empty state
       setAnalyses([]);
     }

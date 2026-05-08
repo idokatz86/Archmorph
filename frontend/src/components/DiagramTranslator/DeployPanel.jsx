@@ -2,9 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Rocket } from 'lucide-react';
 import api from '../../services/apiClient';
 
-const API_BASE_URL = '/api/v1/deployments'; // For standard execution
-const PREFLIGHT_URL = '/api/deploy/preflight-check';
-
 const DeployPanel = (props) => {
   // Feature is in development — show greyscale placeholder
   return (
@@ -41,6 +38,12 @@ const DeployPanelContent = ({ templateSource = 'main.bicep', parameters = {}, pr
   const [error, setError] = useState(null);
 
   const logsEndRef = useRef(null);
+  const abortRef = useRef(null);
+
+  // Abort any in-flight non-SSE request on unmount
+  useEffect(() => {
+    return () => { abortRef.current?.abort(); };
+  }, []);
 
   useEffect(() => {
     if (logsEndRef.current) {
@@ -56,10 +59,9 @@ const DeployPanelContent = ({ templateSource = 'main.bicep', parameters = {}, pr
   }, [step, canvasState]);
 
   useEffect(() => {
-    let eventSource = null;
-
     if (step === 3 && jobId && (status === 'running' || status === 'executing')) {
-      eventSource = new EventSource(`${API_BASE_URL}/${jobId}/stream`);
+      // SSE: stays as raw EventSource — apiClient doesn't wrap SSE streams
+      const eventSource = new EventSource(`/api/v1/deployments/${jobId}/stream`);
 
       eventSource.onmessage = (event) => {
         try {
@@ -75,66 +77,56 @@ const DeployPanelContent = ({ templateSource = 'main.bicep', parameters = {}, pr
         eventSource.close();
         setStatus('completed-or-failed');
       };
+
+      return () => { eventSource.close(); };
     }
 
-    return () => {
-      if (eventSource) {
-        eventSource.close();
-      }
-    };
+    return undefined;
   }, [step, jobId, status]);
 
   const runPreflight = async () => {
+    abortRef.current?.abort();
+    abortRef.current = new AbortController();
     try {
       setLoading(true);
-      const res = await fetch(PREFLIGHT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          project_id: "default",
-          canvas_state: canvasState
-        })
-      });
-      if (!res.ok) throw new Error(`Preflight failed: ${res.status}`);
-      const data = await res.json();
+      const data = await api.post('/v1/deploy/preflight-check', {
+        project_id: 'default',
+        canvas_state: canvasState,
+      }, abortRef.current.signal);
       setPreflightData(data);
     } catch (err) {
-      console.error("Preflight Error:", err);
+      if (err?.name !== 'AbortError') console.error('Preflight Error:', err);
     } finally {
       setLoading(false);
     }
   };
 
   const handlePreview = async () => {
+    abortRef.current?.abort();
+    abortRef.current = new AbortController();
     try {
       setLoading(true);
       setError(null);
-      
+
       const payload = {
         provider,
         template_source: templateSource,
         parameters
       };
 
-      const res = await fetch(`${API_BASE_URL}/preview`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
-      if (!res.ok) throw new Error(`Preview failed with status ${res.status}`);
-
-      const data = await res.json();
+      const data = await api.post('/v1/deployments/preview', payload, abortRef.current.signal);
       setPreviewData(data.preview_data || data);
       setStep(2);
     } catch (err) {
-      setError(err.message);
+      if (err?.name !== 'AbortError') setError(err.message);
     } finally {
       setLoading(false);
     }
   };
 
   const handleDeploy = async () => {
+    abortRef.current?.abort();
+    abortRef.current = new AbortController();
     try {
       setLoading(true);
       setError(null);
@@ -145,21 +137,13 @@ const DeployPanelContent = ({ templateSource = 'main.bicep', parameters = {}, pr
         parameters
       };
 
-      const res = await fetch(`${API_BASE_URL}/execute`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
-      if (!res.ok) throw new Error(`Execute failed with status ${res.status}`);
-
-      const data = await res.json();
+      const data = await api.post('/v1/deployments/execute', payload, abortRef.current.signal);
       setJobId(data.job_id);
       setStatus('running');
       setStep(3);
       setLogs(['--- Deployment Started ---']);
     } catch (err) {
-      setError(err.message);
+      if (err?.name !== 'AbortError') setError(err.message);
     } finally {
       setLoading(false);
     }
@@ -167,15 +151,15 @@ const DeployPanelContent = ({ templateSource = 'main.bicep', parameters = {}, pr
 
   const handleRollback = async () => {
     if (!jobId) return;
+    abortRef.current?.abort();
+    abortRef.current = new AbortController();
     try {
       setLoading(true);
-      const res = await fetch(`${API_BASE_URL}/${jobId}/rollback`, { method: 'POST' });
-      if (!res.ok) throw new Error('Rollback failed');
-      
+      await api.post(`/v1/deployments/${jobId}/rollback`, {}, abortRef.current.signal);
       setLogs((prev) => [...prev, '--- Rollback Initiated ---']);
       setStatus('rolling-back');
     } catch (err) {
-      setError('Could not rollback: ' + err.message);
+      if (err?.name !== 'AbortError') setError('Could not rollback: ' + err.message);
     } finally {
       setLoading(false);
     }

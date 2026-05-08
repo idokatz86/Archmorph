@@ -153,4 +153,36 @@ describe('IaCViewer', () => {
     expect(screen.getByText('Azure VNet')).toBeInTheDocument()
     expect(screen.getByText('NSG')).toBeInTheDocument()
   })
+
+  // Regression: double-submit guard (#910) — pendingRef prevents a second send
+  // from firing before the first request resolves (e.g., on rapid double-click).
+  it('ignores a second send click while the first request is still pending', async () => {
+    const user = userEvent.setup()
+    let resolveFirst
+    const onSendChat = vi.fn(() => new Promise(resolve => { resolveFirst = resolve }))
+
+    render(
+      <IaCViewer
+        {...defaultProps}
+        iacChatOpen={true}
+        iacChatInput="Add a VNet"
+        onSendChat={onSendChat}
+      />
+    )
+
+    const sendBtn = screen.getByLabelText('Send message')
+
+    // First click — starts the async request
+    await user.click(sendBtn)
+    expect(onSendChat).toHaveBeenCalledTimes(1)
+
+    // Second click before first resolves — must be ignored by the pendingRef guard
+    await user.click(sendBtn)
+    expect(onSendChat).toHaveBeenCalledTimes(1)
+
+    // Resolve the first request — subsequent clicks should work again
+    resolveFirst()
+    await user.click(sendBtn)
+    expect(onSendChat).toHaveBeenCalledTimes(2)
+  })
 })

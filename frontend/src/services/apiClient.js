@@ -24,6 +24,22 @@ const BACKOFF_BASE_MS = process.env.NODE_ENV === 'test' ? 10 : 1000;
 const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
 
 /**
+ * Optional callback invoked on 5xx errors after all retries are exhausted.
+ * Wire this from a component that has access to the toast context (#909).
+ */
+let _errorHandler = null;
+
+/**
+ * Set (or clear) the global 5xx error handler.
+ * Call from a React component/hook inside ToastProvider:
+ *   setErrorHandler((msg) => toast.error(msg));
+ * @param {((message: string) => void) | null} fn
+ */
+export function setErrorHandler(fn) {
+  _errorHandler = fn;
+}
+
+/**
  * Map raw API errors to user-friendly messages (#305).
  * Falls back to the raw message if no mapping exists.
  */
@@ -125,6 +141,8 @@ async function request(path, options = {}, signal) {
           await sleep(delay);
           continue;
         }
+        // Report 5xx errors to the optional handler before throwing
+        if (err.status >= 500 && _errorHandler) _errorHandler(err.message);
         throw err;
       }
       return body;
@@ -160,6 +178,8 @@ async function request(path, options = {}, signal) {
       throw err;
     }
   }
+  // Retryable error that exhausted all attempts — report to error handler
+  if (lastError?.status >= 500 && _errorHandler) _errorHandler(lastError.message);
   throw lastError;
 }
 
