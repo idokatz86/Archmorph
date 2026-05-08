@@ -460,6 +460,10 @@ jobs:
 
       - name: Capture immutable image reference
         run: |
+          if [ -z "${{ steps.build_backend.outputs.digest }}" ]; then
+            echo "::error::docker/build-push-action did not return an image digest"
+            exit 1
+          fi
           IMAGE_REF="${{ env.ACR_LOGIN_SERVER }}/archmorph-api@${{ steps.build_backend.outputs.digest }}"
           echo "IMAGE_REF=$IMAGE_REF" >> "$GITHUB_ENV"
           echo "Using immutable image reference: $IMAGE_REF"

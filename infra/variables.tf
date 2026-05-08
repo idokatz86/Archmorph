@@ -194,6 +194,11 @@ variable "storage_cmk_key_vault_key_id" {
   description = "Optional Key Vault key ID to enable customer-managed key encryption for Storage."
   type        = string
   default     = ""
+
+  validation {
+    condition     = var.storage_cmk_key_vault_key_id == "" || can(regex("^https://[a-zA-Z0-9-]+\\.vault\\.azure\\.net/keys/[^/]+/[^/]+$", var.storage_cmk_key_vault_key_id))
+    error_message = "storage_cmk_key_vault_key_id must be empty or a full Key Vault URL like https://<vault>.vault.azure.net/keys/<name>/<version>."
+  }
 }
 
 variable "health_probe_path" {

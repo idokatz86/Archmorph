@@ -67,7 +67,8 @@ locals {
     lower(var.location),
     var.dr_location
   ) : var.dr_location
-  backend_image = var.backend_container_image != "" ? var.backend_container_image : "${azurerm_container_registry.main.login_server}/archmorph-api:latest"
+  backend_image     = var.backend_container_image != "" ? var.backend_container_image : "${azurerm_container_registry.main.login_server}/archmorph-api:latest"
+  storage_cmk_parts = var.storage_cmk_key_vault_key_id != "" ? regex("^https://([a-zA-Z0-9-]+)\\.vault\\.azure\\.net/keys/([^/]+)/([^/]+)$", var.storage_cmk_key_vault_key_id) : []
   tags = {
     project     = "archmorph"
     environment = var.environment
@@ -316,8 +317,8 @@ resource "azurerm_storage_account_customer_managed_key" "main" {
   count              = var.storage_cmk_key_vault_key_id != "" ? 1 : 0
   storage_account_id = azurerm_storage_account.main.id
   key_vault_id       = azurerm_key_vault.main.id
-  key_name           = split("/", var.storage_cmk_key_vault_key_id)[4]
-  key_version        = split("/", var.storage_cmk_key_vault_key_id)[5]
+  key_name           = local.storage_cmk_parts[1]
+  key_version        = local.storage_cmk_parts[2]
 }
 
 resource "azurerm_storage_container" "diagrams" {
@@ -653,7 +654,7 @@ resource "azurerm_container_app" "backend" {
 
       env {
         name  = "AZURE_CLIENT_ID"
-        value = var.openai_auth_mode == "managed_identity" ? azurerm_user_assigned_identity.container_app.client_id : ""
+        value = azurerm_user_assigned_identity.container_app.client_id
       }
 
       env {
