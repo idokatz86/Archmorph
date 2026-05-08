@@ -51,12 +51,9 @@ export default function IaCViewer({
   const handleSendChat = useCallback(() => {
     if (pendingRef.current) return;
     pendingRef.current = true;
-    const result = onSendChat();
-    if (result instanceof Promise) {
-      result.finally(() => { pendingRef.current = false; });
-    } else {
-      pendingRef.current = false;
-    }
+    Promise.resolve()
+      .then(() => onSendChat())
+      .finally(() => { pendingRef.current = false; });
   }, [onSendChat]);
 
   // Compute which lines are new/changed compared to previous version

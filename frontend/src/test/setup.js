@@ -36,6 +36,8 @@ global.fetch = vi.fn().mockResolvedValue({
   clone: function() { return this },
 })
 
+const originalConsoleError = console.error.bind(console)
+
 // Fail tests that trigger React error #31 ("Objects are not valid as a React child")
 // or other critical React errors, while letting tests explicitly assert on errors
 // they intentionally exercise (#912). Per-test overrides use vi.mocked(console.error).
@@ -46,8 +48,7 @@ beforeEach(() => {
     if (msg.includes('Objects are not valid as a React child')) {
       throw new Error(`Unexpected React console error: ${msg}`)
     }
-    // Suppress (but don't throw for) other React warnings to keep CI clean
-    // without masking genuinely novel failures
+    originalConsoleError(...args)
   })
 })
 

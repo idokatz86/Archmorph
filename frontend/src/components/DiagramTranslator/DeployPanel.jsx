@@ -61,7 +61,7 @@ const DeployPanelContent = ({ templateSource = 'main.bicep', parameters = {}, pr
   useEffect(() => {
     if (step === 3 && jobId && (status === 'running' || status === 'executing')) {
       // SSE: stays as raw EventSource — apiClient doesn't wrap SSE streams
-      const eventSource = new EventSource(`/api/v1/deployments/${jobId}/stream`);
+      const eventSource = new EventSource(`/api/deployments/${jobId}/stream`);
 
       eventSource.onmessage = (event) => {
         try {
@@ -89,7 +89,7 @@ const DeployPanelContent = ({ templateSource = 'main.bicep', parameters = {}, pr
     abortRef.current = new AbortController();
     try {
       setLoading(true);
-      const data = await api.post('/v1/deploy/preflight-check', {
+      const data = await api.post('/deploy/preflight-check', {
         project_id: 'default',
         canvas_state: canvasState,
       }, abortRef.current.signal);
@@ -114,7 +114,7 @@ const DeployPanelContent = ({ templateSource = 'main.bicep', parameters = {}, pr
         parameters
       };
 
-      const data = await api.post('/v1/deployments/preview', payload, abortRef.current.signal);
+      const data = await api.post('/deployments/preview', payload, abortRef.current.signal);
       setPreviewData(data.preview_data || data);
       setStep(2);
     } catch (err) {
@@ -137,7 +137,7 @@ const DeployPanelContent = ({ templateSource = 'main.bicep', parameters = {}, pr
         parameters
       };
 
-      const data = await api.post('/v1/deployments/execute', payload, abortRef.current.signal);
+      const data = await api.post('/deployments/execute', payload, abortRef.current.signal);
       setJobId(data.job_id);
       setStatus('running');
       setStep(3);
@@ -155,7 +155,7 @@ const DeployPanelContent = ({ templateSource = 'main.bicep', parameters = {}, pr
     abortRef.current = new AbortController();
     try {
       setLoading(true);
-      await api.post(`/v1/deployments/${jobId}/rollback`, {}, abortRef.current.signal);
+      await api.post(`/deployments/${jobId}/rollback`, {}, abortRef.current.signal);
       setLogs((prev) => [...prev, '--- Rollback Initiated ---']);
       setStatus('rolling-back');
     } catch (err) {
