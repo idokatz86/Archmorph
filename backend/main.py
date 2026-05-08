@@ -21,8 +21,52 @@ import uuid  # noqa: E402
 import concurrent.futures  # noqa: E402
 import asyncio  # noqa: E402
 
-from slowapi import _rate_limit_exceeded_handler  # noqa: E402
 from slowapi.errors import RateLimitExceeded  # noqa: E402
+from starlette.responses import JSONResponse as _JSONResponse  # noqa: E402
+
+
+def _rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> _JSONResponse:
+    """Return a standardised 429 error envelope with a ``Retry-After`` header (#848).
+
+    Uses the same ``error`` envelope shape as all other 4xx/5xx responses so clients
+    have a uniform structure to parse.  ``Retry-After`` is injected by SlowAPI's
+    header middleware after this handler runs.
+    """
+    # SlowAPI may or may not attach retry_after — default to 60 seconds.
+    retry_after: int = 60
+    try:
+        view_rate_limit = getattr(request.state, "view_rate_limit", None)
+        if view_rate_limit:
+            # (limit, remaining, reset_time_epoch) — reset_time is what we want
+            retry_after = max(1, int(view_rate_limit[2] - __import__("time").time()))
+    except Exception:
+        pass
+
+    from logging_config import correlation_id_var
+    response = _JSONResponse(
+        status_code=429,
+        content={
+            "error": {
+                "code": "RATE_LIMITED",
+                "message": (
+                    f"Rate limit exceeded: {exc.detail}. "
+                    f"Retry after {retry_after} second(s)."
+                ),
+                "details": {"retry_after_seconds": retry_after},
+                "correlation_id": correlation_id_var.get(""),
+            }
+        },
+    )
+    response.headers["Retry-After"] = str(retry_after)
+    # Let SlowAPI also inject its X-RateLimit-* headers
+    if hasattr(request.app.state, "limiter"):
+        try:
+            response = request.app.state.limiter._inject_headers(
+                response, getattr(request.state, "view_rate_limit", None)
+            )
+        except Exception:
+            pass
+    return response
 
 # ── Azure Monitor / Application Insights ──
 APPLICATIONINSIGHTS_CONNECTION_STRING = os.getenv("APPLICATIONINSIGHTS_CONNECTION_STRING", "")
@@ -196,6 +240,27 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# ─────────────────────────────────────────────────────────────
+# CORS configuration — validated at startup (#846)
+# ─────────────────────────────────────────────────────────────
+_CORS_ALLOW_CREDENTIALS = False  # Never enable credentials with wildcard origins
+
+def _validate_cors_config(allow_origins: list, allow_credentials: bool) -> None:
+    """Raise at startup if wildcard origin is combined with allow_credentials=True.
+
+    Browsers enforce this restriction (CORS spec §3.2.2) but we also validate
+    server-side so misconfigurations are caught before traffic reaches the API (#846).
+    """
+    if allow_credentials and "*" in allow_origins:
+        raise RuntimeError(
+            "CORS security misconfiguration: wildcard origin ('*') cannot be combined "
+            "with allow_credentials=True.  Browsers reject such responses and this "
+            "configuration exposes credentials to any origin.  "
+            "Set ALLOWED_ORIGINS to explicit origins or disable credentials."
+        )
+
+_validate_cors_config(ALLOWED_ORIGINS, _CORS_ALLOW_CREDENTIALS)
+
 # Issue #174 — Standardized error envelope for all 4xx/5xx responses
 register_error_handlers(app)
 
@@ -207,10 +272,10 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=False,
+    allow_credentials=_CORS_ALLOW_CREDENTIALS,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
     allow_headers=["Content-Type", "Authorization", "X-API-Key", "X-Export-Capability"],
-    expose_headers=["X-Export-Capability-Next"],
+    expose_headers=["X-Export-Capability-Next", "ETag"],
     max_age=3600,  # Cache preflight for 1 hour
 )
 

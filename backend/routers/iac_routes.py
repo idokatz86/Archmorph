@@ -7,11 +7,14 @@ Split from diagrams.py for maintainability (#284).
 
 from fastapi import APIRouter, Request, Depends
 from pydantic import Field
+from starlette.responses import JSONResponse
 from strict_models import StrictBaseModel
 import asyncio
+import hashlib
 import logging
 import re
-from typing import Literal
+import secrets
+from typing import Literal, Optional
 
 from routers.shared import SESSION_STORE, limiter, verify_api_key
 from job_queue import job_manager
@@ -23,6 +26,30 @@ from iac_scaffold import generate_scaffold
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+# ─────────────────────────────────────────────────────────────
+# IaC version (ETag) helpers — optimistic concurrency (#858 / F-BUG-8)
+# ─────────────────────────────────────────────────────────────
+_IAC_ETAG_KEY = "_iac_etag"
+
+
+def _compute_iac_etag(code: str) -> str:
+    """Return a short, deterministic ETag for the given IaC code string."""
+    return hashlib.sha256(code.encode()).hexdigest()[:16]
+
+
+def _get_stored_etag(session: dict) -> str | None:
+    """Return the stored IaC ETag (None if no code has been generated yet)."""
+    return session.get(_IAC_ETAG_KEY)
+
+
+def _store_iac_etag(diagram_id: str, session: dict, code: str) -> str:
+    """Compute and persist the new ETag; return it."""
+    etag = _compute_iac_etag(code)
+    session[_IAC_ETAG_KEY] = etag
+    SESSION_STORE[diagram_id] = session
+    return etag
 
 
 # ─────────────────────────────────────────────────────────────
@@ -92,11 +119,29 @@ def _check_architecture_blockers(diagram_id: str, session: dict, force: bool) ->
     )
 
 
+def _iac_code_hash(code: str) -> str:
+    """Return a SHA-256 hex digest of the IaC code string (used for tamper detection)."""
+    return hashlib.sha256(code.encode()).hexdigest()
+
+
 class IaCChatMessage(StrictBaseModel):
-    """Request body for IaC chat messages."""
+    """Request body for IaC chat messages.
+
+    ``code_hash`` is the SHA-256 hex digest (lowercase) of the client's local copy
+    of the IaC code. When supplied, it must match the server-side hash. A mismatch
+    returns HTTP 409 so the client knows to re-fetch the authoritative code before
+    retrying (#842). Missing hashes remain accepted for older clients; the server
+    still ignores client-supplied code whenever canonical state exists.
+    """
     message: str = Field(..., min_length=1, max_length=5000)
     code: str = Field(default="", max_length=100000)
     format: Literal["terraform", "bicep"] = "terraform"
+    code_hash: Optional[str] = Field(
+        None,
+        min_length=64,
+        max_length=64,
+        description="Optional SHA-256 hex digest of the client's current IaC code for stale-copy detection",
+    )
 
 
 # ─────────────────────────────────────────────────────────────
@@ -114,9 +159,32 @@ async def generate_iac(
     """Generate Infrastructure as Code from the architecture analysis.
 
     ``force=true`` overrides the architecture-blocker gate (Issue #610).
+
+    Optimistic concurrency (#858 / F-BUG-8): if an ``If-Match`` request header
+    is supplied and a previous generation exists for this diagram, the stored
+    ETag must match.  A mismatch returns HTTP 409 so that concurrent clients
+    can detect and resolve conflicts instead of silently overwriting each other.
     """
     session = SESSION_STORE.get(diagram_id, {})
     iac_params = session.get("iac_parameters", {})
+
+    # Optimistic concurrency guard: honour If-Match when code was previously
+    # generated for this diagram.  Only enforced when the caller supplies the
+    # header — omitting it freely regenerates (first-time or intentional).
+    if_match = request.headers.get("If-Match")
+    stored_etag = _get_stored_etag(session)
+    if if_match is not None and stored_etag is not None and if_match != stored_etag:
+        raise ArchmorphException(
+            409,
+            detail={
+                "error": "iac_version_conflict",
+                "message": (
+                    "The IaC code has been updated since you last fetched it. "
+                    "Re-fetch the current version and retry."
+                ),
+                "current_etag": stored_etag,
+            },
+        )
 
     _check_architecture_blockers(diagram_id, session, force)
 
@@ -133,7 +201,24 @@ async def generate_iac(
 
     record_event(f"iac_generated_{format}", {"diagram_id": diagram_id})
     record_funnel_step(diagram_id, "iac_generate")
-    return {"diagram_id": diagram_id, "format": format, "code": code}
+
+    # Persist the canonical IaC code server-side so chat turns can validate
+    # the client is working against the same version (#842), and update the
+    # short ETag used by If-Match optimistic concurrency checks (#858).
+    session["iac_code"] = code
+    session["iac_code_hash"] = _iac_code_hash(code)
+    session["iac_format"] = format
+    new_etag = _store_iac_etag(diagram_id, session, code)
+    return JSONResponse(
+        content={
+            "diagram_id": diagram_id,
+            "format": format,
+            "code": code,
+            "code_hash": session["iac_code_hash"],
+            "etag": new_etag,
+        },
+        headers={"ETag": new_etag},
+    )
 
 
 # ─────────────────────────────────────────────────────────────
@@ -142,20 +227,57 @@ async def generate_iac(
 @router.post("/api/diagrams/{diagram_id}/iac-chat")
 @limiter.limit("10/minute")
 async def iac_chat_endpoint(request: Request, diagram_id: str, msg: IaCChatMessage, _auth=Depends(verify_api_key)):
-    """Chat with AI to modify generated Terraform/Bicep code."""
+    """Chat with AI to modify generated Terraform/Bicep code.
+
+    The server always uses its own canonical IaC code (stored after ``/generate``)
+    rather than the client-supplied ``code`` field to prevent state overwrite from
+    tampered request bodies (#842). When the client supplies ``code_hash`` it must
+    match the server's SHA-256 digest; a mismatch returns 409 so the client knows
+    to refresh.
+    """
     record_event("iac_chat_messages", {"diagram_id": diagram_id})
 
     session = SESSION_STORE.get(diagram_id, {})
     analysis_context = session.get("analysis") if session else None
 
+    # ── Server-side canonical code validation (#842) ──────────────────────
+    server_code = session.get("iac_code") if session else None
+    if server_code is not None:
+        server_hash = session.get("iac_code_hash") or _iac_code_hash(server_code)
+        if msg.code_hash is not None:
+            # Constant-time comparison prevents timing-based oracle attacks
+            if not secrets.compare_digest(msg.code_hash.lower(), server_hash):
+                raise ArchmorphException(
+                    409,
+                    "IaC code version mismatch — your local copy is stale. "
+                    "Re-fetch the current IaC code before continuing.",
+                )
+        # Always use server-side code; ignore client-supplied code
+        code_to_use = server_code
+    else:
+        # No server-side canonical state yet (pre-generate flow) — use client code
+        code_to_use = msg.code
+
     result = await asyncio.to_thread(
         process_iac_chat,
         diagram_id=diagram_id,
         message=msg.message,
-        current_code=msg.code,
+        current_code=code_to_use,
         iac_format=msg.format,
         analysis_context=analysis_context,
     )
+
+    # ── Persist updated code as new canonical state (#842) ───────────────
+    if not result.get("error"):
+        new_code = result.get("code")
+        if new_code:
+            session = SESSION_STORE.get(diagram_id) or session
+            session["iac_code"] = new_code
+            session["iac_code_hash"] = _iac_code_hash(new_code)
+            new_etag = _store_iac_etag(diagram_id, session, new_code)
+            # Surface the new hash so clients can synchronise without re-fetching
+            result["code_hash"] = session["iac_code_hash"]
+            result["etag"] = new_etag
 
     if result.get("services_added"):
         record_event("iac_services_added", {
@@ -200,10 +322,26 @@ async def generate_iac_async(
 
     ``force=true`` overrides the architecture-blocker gate (Issue #610).
     """
+    from auth import get_user_from_request_headers
+
+    user = get_user_from_request_headers(dict(request.headers))
     session = SESSION_STORE.get(diagram_id, {})
+    owner_user_id = session.get("_owner_user_id")
+    tenant_id = session.get("_tenant_id")
+    if (owner_user_id or tenant_id) and not user:
+        raise ArchmorphException(401, "Authentication required")
+    if user and owner_user_id and owner_user_id != user.id:
+        raise ArchmorphException(403, "Forbidden: diagram owner mismatch")
+    if user and tenant_id and tenant_id != user.tenant_id:
+        raise ArchmorphException(403, "Forbidden: tenant mismatch")
     _check_architecture_blockers(diagram_id, session, force)
 
-    job = job_manager.submit("generate_iac", diagram_id=diagram_id)
+    job = job_manager.submit(
+        "generate_iac",
+        diagram_id=diagram_id,
+        owner_user_id=user.id if user else None,
+        tenant_id=user.tenant_id if user else None,
+    )
     asyncio.create_task(_run_iac_job(job.job_id, diagram_id, format))
 
     from starlette.responses import JSONResponse

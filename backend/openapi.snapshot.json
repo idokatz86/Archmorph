@@ -1714,6 +1714,7 @@
       },
       "DeploymentRequest": {
         "additionalProperties": false,
+        "description": "Request body for deployment preflight and execution (#845).\n\nStrict validation:\n- ``project_id``  — alphanumeric/dash/underscore, 1-200 chars\n- ``environment`` — constrained to known deployment targets\n- ``iac_code``    — 500 KB cap to prevent oversized payloads\n- ``canvas_state`` — required dict (preflight validates its shape downstream)",
         "properties": {
           "canvas_state": {
             "anyOf": [
@@ -1727,9 +1728,21 @@
             ],
             "title": "Canvas State"
           },
+          "environment": {
+            "default": "dev",
+            "enum": [
+              "dev",
+              "staging",
+              "prod",
+              "production"
+            ],
+            "title": "Environment",
+            "type": "string"
+          },
           "iac_code": {
             "anyOf": [
               {
+                "maxLength": 500000,
                 "type": "string"
               },
               {
@@ -1739,6 +1752,9 @@
             "title": "Iac Code"
           },
           "project_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "^[a-zA-Z0-9_-]+$",
             "title": "Project Id",
             "type": "string"
           }
@@ -2375,13 +2391,27 @@
       },
       "IaCChatMessage": {
         "additionalProperties": false,
-        "description": "Request body for IaC chat messages.",
+        "description": "Request body for IaC chat messages.\n\n``code_hash`` is the SHA-256 hex digest (lowercase) of the client's local copy\nof the IaC code. When supplied, it must match the server-side hash. A mismatch\nreturns HTTP 409 so the client knows to re-fetch the authoritative code before\nretrying (#842). Missing hashes remain accepted for older clients; the server\nstill ignores client-supplied code whenever canonical state exists.",
         "properties": {
           "code": {
             "default": "",
             "maxLength": 100000,
             "title": "Code",
             "type": "string"
+          },
+          "code_hash": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional SHA-256 hex digest of the client's current IaC code for stale-copy detection",
+            "title": "Code Hash"
           },
           "format": {
             "default": "terraform",
@@ -5223,22 +5253,6 @@
               "title": "Agent Id",
               "type": "string"
             }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
           }
         ],
         "responses": {
@@ -5278,22 +5292,6 @@
             "schema": {
               "title": "Agent Id",
               "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           }
         ],
@@ -5350,22 +5348,6 @@
               "title": "Doc Id",
               "type": "string"
             }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
           }
         ],
         "responses": {
@@ -5405,22 +5387,6 @@
             "schema": {
               "title": "Agent Id",
               "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           }
         ],
@@ -5467,22 +5433,6 @@
             "schema": {
               "title": "Agent Id",
               "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           }
         ],
@@ -6191,6 +6141,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Agent Cost",
         "tags": [
           "Cost & Token Observability"
@@ -6241,6 +6196,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Get Alerts",
         "tags": [
           "Cost & Token Observability"
@@ -6267,6 +6227,11 @@
             "description": "Successful Response"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "List Budgets",
         "tags": [
           "Cost & Token Observability"
@@ -6307,6 +6272,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Create Budget",
         "tags": [
           "Cost & Token Observability"
@@ -6360,6 +6330,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Update Budget",
         "tags": [
           "Cost & Token Observability"
@@ -6465,6 +6440,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Export Csv",
         "tags": [
           "Cost & Token Observability"
@@ -6491,6 +6471,11 @@
             "description": "Successful Response"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Model Breakdown",
         "tags": [
           "Cost & Token Observability"
@@ -6537,6 +6522,22 @@
               "description": "ISO datetime upper bound",
               "title": "Until"
             }
+          },
+          {
+            "in": "query",
+            "name": "tenant_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tenant Id"
+            }
           }
         ],
         "responses": {
@@ -6561,6 +6562,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Cost Overview",
         "tags": [
           "Cost & Token Observability"
@@ -6663,6 +6669,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Timeseries",
         "tags": [
           "Cost & Token Observability"
@@ -6715,6 +6726,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Top Consumers",
         "tags": [
           "Cost & Token Observability"
@@ -6726,15 +6742,6 @@
         "description": "Immediately remove all credentials for the current session.",
         "operationId": "delete_credentials_api_credentials_delete",
         "parameters": [
-          {
-            "in": "query",
-            "name": "token",
-            "required": true,
-            "schema": {
-              "title": "Token",
-              "type": "string"
-            }
-          },
           {
             "in": "header",
             "name": "authorization",
@@ -6786,15 +6793,6 @@
         "description": "Store AWS credentials in the secure transient store.",
         "operationId": "store_aws_credentials_api_credentials_aws_post",
         "parameters": [
-          {
-            "in": "query",
-            "name": "token",
-            "required": true,
-            "schema": {
-              "title": "Token",
-              "type": "string"
-            }
-          },
           {
             "in": "header",
             "name": "authorization",
@@ -6852,15 +6850,6 @@
         "description": "Store Azure credentials in the secure transient store.",
         "operationId": "store_azure_credentials_api_credentials_azure_post",
         "parameters": [
-          {
-            "in": "query",
-            "name": "token",
-            "required": true,
-            "schema": {
-              "title": "Token",
-              "type": "string"
-            }
-          },
           {
             "in": "header",
             "name": "authorization",
@@ -6928,15 +6917,6 @@
             }
           },
           {
-            "in": "query",
-            "name": "token",
-            "required": true,
-            "schema": {
-              "title": "Token",
-              "type": "string"
-            }
-          },
-          {
             "in": "header",
             "name": "authorization",
             "required": false,
@@ -6982,7 +6962,7 @@
     },
     "/api/deploy/execute/{project_id}": {
       "post": {
-        "description": "Kicks off an async Terraform deployment and streams the logs back to the client.",
+        "description": "Kicks off an async Terraform deployment and streams the logs back to the client.\nClient disconnects are detected and upstream streaming is stopped promptly\nto avoid wasting Azure OpenAI / compute billing (#849).",
         "operationId": "execute_deployment_api_deploy_execute__project_id__post",
         "parameters": [
           {
@@ -6992,22 +6972,6 @@
             "schema": {
               "title": "Project Id",
               "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           }
         ],
@@ -7049,26 +7013,8 @@
     },
     "/api/deploy/preflight-check": {
       "post": {
-        "description": "Runs security and cost estimations before deployment.",
+        "description": "Runs security and cost estimations before deployment (#845).\nValidates the strict DeploymentRequest model (enums + size limits).",
         "operationId": "run_preflight_check_api_deploy_preflight_check_post",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -8179,7 +8125,7 @@
     },
     "/api/diagrams/{diagram_id}/generate": {
       "post": {
-        "description": "Generate Infrastructure as Code from the architecture analysis.\n\n``force=true`` overrides the architecture-blocker gate (Issue #610).",
+        "description": "Generate Infrastructure as Code from the architecture analysis.\n\n``force=true`` overrides the architecture-blocker gate (Issue #610).\n\nOptimistic concurrency (#858 / F-BUG-8): if an ``If-Match`` request header\nis supplied and a previous generation exists for this diagram, the stored\nETag must match.  A mismatch returns HTTP 409 so that concurrent clients\ncan detect and resolve conflicts instead of silently overwriting each other.",
         "operationId": "generate_iac_api_diagrams__diagram_id__generate_post",
         "parameters": [
           {
@@ -8473,7 +8419,7 @@
         "summary": "Iac Chat Clear"
       },
       "post": {
-        "description": "Chat with AI to modify generated Terraform/Bicep code.",
+        "description": "Chat with AI to modify generated Terraform/Bicep code.\n\nThe server always uses its own canonical IaC code (stored after ``/generate``)\nrather than the client-supplied ``code`` field to prevent state overwrite from\ntampered request bodies (#842). When the client supplies ``code_hash`` it must\nmatch the server's SHA-256 digest; a mismatch returns 409 so the client knows\nto refresh.",
         "operationId": "iac_chat_endpoint_api_diagrams__diagram_id__iac_chat_post",
         "parameters": [
           {
@@ -8650,6 +8596,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Migration Chat"
       }
     },
@@ -10093,24 +10044,6 @@
       "post": {
         "description": "Start a new execution for a specific agent.",
         "operationId": "start_execution_api_executions__post",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -10161,22 +10094,6 @@
               "title": "Execution Id",
               "type": "string"
             }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
           }
         ],
         "responses": {
@@ -10218,22 +10135,6 @@
             "schema": {
               "title": "Execution Id",
               "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           }
         ],
@@ -10493,6 +10394,11 @@
             "description": "Successful Response"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Health"
       }
     },
@@ -11770,24 +11676,6 @@
     "/api/models/": {
       "get": {
         "operationId": "list_models_api_models__get",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "content": {
@@ -11802,16 +11690,6 @@
               }
             },
             "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
           }
         },
         "summary": "List Models",
@@ -11991,24 +11869,6 @@
     "/api/policies/": {
       "get": {
         "operationId": "list_policies_api_policies__get",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "content": {
@@ -12023,16 +11883,6 @@
               }
             },
             "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
           }
         },
         "summary": "List Policies",
@@ -12042,24 +11892,6 @@
       },
       "post": {
         "operationId": "create_policy_api_policies__post",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -12119,22 +11951,6 @@
               "title": "Agent Id",
               "type": "string"
             }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
           }
         ],
         "responses": {
@@ -12183,22 +11999,6 @@
             "schema": {
               "title": "Agent Id",
               "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           }
         ],
@@ -12871,15 +12671,6 @@
             "required": true,
             "schema": {
               "title": "Provider",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "token",
-            "required": true,
-            "schema": {
-              "title": "Token",
               "type": "string"
             }
           },
@@ -14003,8 +13794,55 @@
           "Terraform State Backend"
         ]
       },
+      "unlock": {
+        "operationId": "unlock_tf_state_api_terraform_state",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "environment",
+            "required": true,
+            "schema": {
+              "title": "Environment",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Unlock Tf State",
+        "tags": [
+          "Terraform State Backend"
+        ]
+      },
       "unlocr": {
-        "operationId": "unlock_tf_state_api_terraform_state__project_id___environment__unlocr",
+        "operationId": "unlock_tf_state_legacy_unlocr_api_terraform_state",
         "parameters": [
           {
             "in": "path",
@@ -15173,22 +15011,6 @@
               "title": "Agent Id",
               "type": "string"
             }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
           }
         ],
         "responses": {
@@ -15229,22 +15051,6 @@
             "schema": {
               "title": "Agent Id",
               "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           }
         ],
@@ -15302,22 +15108,6 @@
               "title": "Doc Id",
               "type": "string"
             }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
           }
         ],
         "responses": {
@@ -15358,22 +15148,6 @@
             "schema": {
               "title": "Agent Id",
               "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           }
         ],
@@ -15421,22 +15195,6 @@
             "schema": {
               "title": "Agent Id",
               "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           }
         ],
@@ -16418,6 +16176,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Agent Cost V1",
         "tags": [
           "Cost & Token Observability",
@@ -16469,6 +16232,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Get Alerts V1",
         "tags": [
           "Cost & Token Observability",
@@ -16496,6 +16264,11 @@
             "description": "Successful Response"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "List Budgets V1",
         "tags": [
           "Cost & Token Observability",
@@ -16537,6 +16310,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Create Budget V1",
         "tags": [
           "Cost & Token Observability",
@@ -16591,6 +16369,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Update Budget V1",
         "tags": [
           "Cost & Token Observability",
@@ -16660,6 +16443,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Export Csv V1",
         "tags": [
           "Cost & Token Observability",
@@ -16687,6 +16475,11 @@
             "description": "Successful Response"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Model Breakdown V1",
         "tags": [
           "Cost & Token Observability",
@@ -16734,6 +16527,22 @@
               "description": "ISO datetime upper bound",
               "title": "Until"
             }
+          },
+          {
+            "in": "query",
+            "name": "tenant_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tenant Id"
+            }
           }
         ],
         "responses": {
@@ -16758,6 +16567,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Cost Overview V1",
         "tags": [
           "Cost & Token Observability",
@@ -16844,6 +16658,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Timeseries V1",
         "tags": [
           "Cost & Token Observability",
@@ -16897,6 +16716,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Top Consumers V1",
         "tags": [
           "Cost & Token Observability",
@@ -16909,15 +16733,6 @@
         "description": "Immediately remove all credentials for the current session.",
         "operationId": "delete_credentials_v1_api_v1_credentials_delete",
         "parameters": [
-          {
-            "in": "query",
-            "name": "token",
-            "required": true,
-            "schema": {
-              "title": "Token",
-              "type": "string"
-            }
-          },
           {
             "in": "header",
             "name": "authorization",
@@ -16972,15 +16787,6 @@
         "description": "Store AWS credentials in the secure transient store.",
         "operationId": "store_aws_credentials_v1_api_v1_credentials_aws_post",
         "parameters": [
-          {
-            "in": "query",
-            "name": "token",
-            "required": true,
-            "schema": {
-              "title": "Token",
-              "type": "string"
-            }
-          },
           {
             "in": "header",
             "name": "authorization",
@@ -17041,15 +16847,6 @@
         "description": "Store Azure credentials in the secure transient store.",
         "operationId": "store_azure_credentials_v1_api_v1_credentials_azure_post",
         "parameters": [
-          {
-            "in": "query",
-            "name": "token",
-            "required": true,
-            "schema": {
-              "title": "Token",
-              "type": "string"
-            }
-          },
           {
             "in": "header",
             "name": "authorization",
@@ -17120,15 +16917,6 @@
             }
           },
           {
-            "in": "query",
-            "name": "token",
-            "required": true,
-            "schema": {
-              "title": "Token",
-              "type": "string"
-            }
-          },
-          {
             "in": "header",
             "name": "authorization",
             "required": false,
@@ -17177,7 +16965,7 @@
     },
     "/api/v1/deploy/execute/{project_id}": {
       "post": {
-        "description": "Kicks off an async Terraform deployment and streams the logs back to the client.",
+        "description": "Kicks off an async Terraform deployment and streams the logs back to the client.\nClient disconnects are detected and upstream streaming is stopped promptly\nto avoid wasting Azure OpenAI / compute billing (#849).",
         "operationId": "execute_deployment_v1_api_v1_deploy_execute__project_id__post",
         "parameters": [
           {
@@ -17187,22 +16975,6 @@
             "schema": {
               "title": "Project Id",
               "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           }
         ],
@@ -17246,26 +17018,8 @@
     },
     "/api/v1/deploy/preflight-check": {
       "post": {
-        "description": "Runs security and cost estimations before deployment.",
+        "description": "Runs security and cost estimations before deployment (#845).\nValidates the strict DeploymentRequest model (enums + size limits).",
         "operationId": "run_preflight_check_v1_api_v1_deploy_preflight_check_post",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -18379,7 +18133,7 @@
     },
     "/api/v1/diagrams/{diagram_id}/generate": {
       "post": {
-        "description": "Generate Infrastructure as Code from the architecture analysis.\n\n``force=true`` overrides the architecture-blocker gate (Issue #610).",
+        "description": "Generate Infrastructure as Code from the architecture analysis.\n\n``force=true`` overrides the architecture-blocker gate (Issue #610).\n\nOptimistic concurrency (#858 / F-BUG-8): if an ``If-Match`` request header\nis supplied and a previous generation exists for this diagram, the stored\nETag must match.  A mismatch returns HTTP 409 so that concurrent clients\ncan detect and resolve conflicts instead of silently overwriting each other.",
         "operationId": "generate_iac_v1_api_v1_diagrams__diagram_id__generate_post",
         "parameters": [
           {
@@ -18691,7 +18445,7 @@
         ]
       },
       "post": {
-        "description": "Chat with AI to modify generated Terraform/Bicep code.",
+        "description": "Chat with AI to modify generated Terraform/Bicep code.\n\nThe server always uses its own canonical IaC code (stored after ``/generate``)\nrather than the client-supplied ``code`` field to prevent state overwrite from\ntampered request bodies (#842). When the client supplies ``code_hash`` it must\nmatch the server's SHA-256 digest; a mismatch returns 409 so the client knows\nto refresh.",
         "operationId": "iac_chat_endpoint_v1_api_v1_diagrams__diagram_id__iac_chat_post",
         "parameters": [
           {
@@ -18877,6 +18631,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Migration Chat V1",
         "tags": [
           "v1"
@@ -19904,24 +19663,6 @@
       "post": {
         "description": "Start a new execution for a specific agent.",
         "operationId": "start_execution_v1_api_v1_executions__post",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -19973,22 +19714,6 @@
               "title": "Execution Id",
               "type": "string"
             }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
           }
         ],
         "responses": {
@@ -20031,22 +19756,6 @@
             "schema": {
               "title": "Execution Id",
               "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           }
         ],
@@ -20325,6 +20034,11 @@
             "description": "Successful Response"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Health V1",
         "tags": [
           "v1"
@@ -21121,24 +20835,6 @@
     "/api/v1/models/": {
       "get": {
         "operationId": "list_models_v1_api_v1_models__get",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "content": {
@@ -21153,16 +20849,6 @@
               }
             },
             "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
           }
         },
         "summary": "List Models V1",
@@ -21276,24 +20962,6 @@
     "/api/v1/policies/": {
       "get": {
         "operationId": "list_policies_v1_api_v1_policies__get",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "content": {
@@ -21308,16 +20976,6 @@
               }
             },
             "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
           }
         },
         "summary": "List Policies V1",
@@ -21328,24 +20986,6 @@
       },
       "post": {
         "operationId": "create_policy_v1_api_v1_policies__post",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -21406,22 +21046,6 @@
               "title": "Agent Id",
               "type": "string"
             }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
-            }
           }
         ],
         "responses": {
@@ -21471,22 +21095,6 @@
             "schema": {
               "title": "Agent Id",
               "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "authorization",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Authorization"
             }
           }
         ],
@@ -21948,15 +21556,6 @@
             "required": true,
             "schema": {
               "title": "Provider",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "token",
-            "required": true,
-            "schema": {
-              "title": "Token",
               "type": "string"
             }
           },
@@ -23013,6 +22612,55 @@
           "v1"
         ]
       },
+      "unlock": {
+        "operationId": "unlock_tf_state_v1_api_v1_terraform_state__project_id___environment__unlock",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "environment",
+            "required": true,
+            "schema": {
+              "title": "Environment",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Unlock Tf State V1",
+        "tags": [
+          "infra",
+          "Terraform State Backend",
+          "v1"
+        ]
+      },
       "unlocr": {
         "operationId": "unlock_tf_state_v1_api_v1_terraform_state__project_id___environment__unlocr",
         "parameters": [
@@ -23718,6 +23366,23 @@
         "tags": [
           "Webhooks"
         ]
+      }
+    },
+    "/healthz": {
+      "get": {
+        "description": "Anonymous minimal liveness probe — returns alive/dead only.\n\nSafe to call without credentials; used by infrastructure probes (#844).\nContains no sensitive dependency details.",
+        "operationId": "healthz_healthz_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Healthz"
       }
     }
   }

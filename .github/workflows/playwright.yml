@@ -30,8 +30,8 @@ jobs:
         run: |
           docker compose up -d postgres redis backend
           echo "Waiting for backend..."
-          for i in {1..30}; do curl -s http://localhost:8000/api/health > /dev/null && break || sleep 2; done
-          if ! curl -s http://localhost:8000/api/health > /dev/null; then
+          for i in {1..30}; do curl -s http://localhost:8000/healthz > /dev/null && break || sleep 2; done
+          if ! curl -s http://localhost:8000/healthz > /dev/null; then
             docker compose logs backend
             exit 1
           fi

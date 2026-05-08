@@ -10,6 +10,7 @@ from version import __version__
 
 import json
 import logging
+import os
 from typing import Any, Dict, Optional
 
 from openai_client import cached_chat_completion, AZURE_OPENAI_DEPLOYMENT
@@ -17,6 +18,12 @@ from prompt_guard import PROMPT_ARMOR
 from traceability_map import build_traceability_map, traceability_summary
 
 logger = logging.getLogger(__name__)
+
+# ─────────────────────────────────────────────────────────────
+# Token cap — single source of truth for all HLD generation paths.
+# Override with HLD_MAX_TOKENS env var (default 24_576).
+# ─────────────────────────────────────────────────────────────
+HLD_MAX_TOKENS: int = int(os.getenv("HLD_MAX_TOKENS", "24576"))
 
 
 # ─────────────────────────────────────────────────────────────
@@ -327,7 +334,7 @@ def generate_hld(
                 {"role": "user", "content": f"Generate a comprehensive HLD document for this migration:\n\n{context}"},
             ],
             model=AZURE_OPENAI_DEPLOYMENT,
-            max_tokens=32768,
+            max_tokens=HLD_MAX_TOKENS,
             temperature=0.3,
             response_format={"type": "json_object"},
         )

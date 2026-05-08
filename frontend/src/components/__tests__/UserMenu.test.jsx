@@ -68,7 +68,8 @@ describe('UserMenu — Sign In button', () => {
   it('Sign In button has a 44px min-height touch target class', () => {
     render(<UserMenu />);
     const btn = screen.getByRole('button', { name: /sign in/i });
-    expect(btn.className).toContain('min-h-[44px]');
+    expect(btn.className).toContain('min-h-11');
+    expect(btn.className).toContain('min-w-11');
   });
 
   it('opens the LoginModal when Sign In is clicked', async () => {

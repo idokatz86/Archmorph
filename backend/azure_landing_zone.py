@@ -1336,6 +1336,63 @@ def generate_landing_zone_svg(
                 )
                 raise
 
+            # #F-BUG-5 — Guard: return a valid placeholder SVG when there are no
+            # service mappings.  This prevents IndexError / empty-iterator
+            # crashes deep in the tier-rendering helpers and gives callers a
+            # meaningful, well-formed SVG they can display or discard.
+            mappings = analysis.get("mappings")
+            if not mappings or not isinstance(mappings, list) or len(mappings) == 0:
+                placeholder_svg = (
+                    '<?xml version="1.0" encoding="UTF-8"?>\n'
+                    f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {CANVAS_W} 300" '
+                    f'width="{CANVAS_W}" height="300" role="img" '
+                    'aria-labelledby="lz-title" aria-describedby="lz-desc" focusable="false">'
+                    f'<rect width="{CANVAS_W}" height="300" fill="{COLOR_BG}"/>'
+                    '<title id="lz-title">Azure Landing Zone — No Mappings</title>'
+                    '<desc id="lz-desc">No service mappings were found in this analysis. '
+                    'Upload a diagram with identifiable cloud services to generate a full '
+                    'landing zone view.</desc>'
+                    f'<text x="{CANVAS_W // 2}" y="130" text-anchor="middle" '
+                    f'font-family="{FONT_STACK}" font-size="22" fill="{COLOR_INK}">'
+                    'No service mappings detected</text>'
+                    f'<text x="{CANVAS_W // 2}" y="165" text-anchor="middle" '
+                    f'font-family="{FONT_STACK}" font-size="14" fill="{COLOR_INK_2}">'
+                    'Upload a diagram with identifiable cloud services to generate a landing zone view.</text>'
+                    '</svg>'
+                )
+                try:
+                    ET.fromstring(placeholder_svg)
+                except ET.ParseError as exc:
+                    increment_counter(
+                        "archmorph.lz.errors_total",
+                        tags={"stage": "validate_xml", "error_type": "parse_error"},
+                    )
+                    raise ValueError(f"Generated SVG is not well-formed XML: {exc}") from exc
+
+                svg_bytes = len(placeholder_svg.encode("utf-8"))
+                if svg_bytes > MAX_SVG_BYTES:
+                    increment_counter(
+                        "archmorph.lz.errors_total",
+                        tags={"stage": "size_check", "error_type": "oversized"},
+                    )
+                    raise ValueError(
+                        f"Generated SVG exceeds the {MAX_SVG_BYTES}-byte limit "
+                        f"(got {svg_bytes} bytes)"
+                    )
+
+                duration_seconds = time.monotonic() - start
+                record_histogram("archmorph.lz.svg_size_bytes", float(svg_bytes))
+                record_histogram(
+                    "archmorph.lz.svg_generation_duration_seconds", duration_seconds
+                )
+                top_span.set_attribute("svg_size_bytes", svg_bytes)
+                top_span.set_attribute("duration_seconds", round(duration_seconds, 4))
+                return {
+                    "format": "landing-zone-svg",
+                    "filename": f"archmorph-empty-landing-zone-{dr_variant}.svg",
+                    "content": placeholder_svg,
+                }
+
             # #576: source_provider is implicit (read from the analysis payload) and
             # validated here. Default "aws" preserves backwards-compat with #571.
             try:

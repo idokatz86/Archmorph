@@ -45,6 +45,16 @@ repos:
   # ── Frontend linting ──
   - repo: local
     hooks:
+      - id: block-terraform-secrets
+        name: Block sensitive Terraform files (tfstate / tfvars)
+        language: system
+        # Matches terraform.tfvars (exact) and any *.tfstate / *.tfstate.* file.
+        # The .example / .prod / .staging variants are safe to commit;
+        # the unqualified terraform.tfvars and any real state file are not.
+        entry: bash -c 'echo "⛔ Blocked: Do not commit terraform.tfvars or *.tfstate files. Store secrets outside the repo." && exit 1'
+        files: '^(.*\/)?terraform\.tfvars$|\.tfstate(\..*)?$'
+        pass_filenames: false
+        stages: [commit]
       - id: eslint
         name: eslint
         entry: bash -c 'cd frontend && npx eslint --fix'

@@ -3,18 +3,15 @@
  *
  * Displays a form for editing display name, company, role, source cloud,
  * IaC format preferences. Includes account deletion with confirmation.
- *
- * Fixes #907 #908: token is now read from useAuthStore (not localStorage directly)
- * so SWA cookie-based auth and localStorage token auth stay in parity.
- * Portalled to document.body to avoid stacking context issues (#853 #854).
  */
 
-import React, { useState, useEffect, useRef, useId } from 'react';
-import ReactDOM from 'react-dom';
+import React, { useState, useEffect, useId } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Save, Trash2, Loader2, AlertTriangle } from 'lucide-react';
 import { useAuth } from './AuthProvider';
-import useAuthStore from '../../stores/useAuthStore';
 import { API_BASE } from '../../constants';
+import useFocusTrap from '../../hooks/useFocusTrap';
+import { TOKEN_KEY } from '../../stores/useAuthStore';
 
 const ROLES = [
   { value: 'cloud_architect', label: 'Cloud Architect' },
@@ -37,6 +34,19 @@ const IAC_FORMATS = [
 
 const normalizeIacFormat = (format) => (format === 'terraform' || format === 'bicep' ? format : null);
 
+function authHeaders(extra = {}) {
+  let token = null;
+  try {
+    token = localStorage.getItem(TOKEN_KEY);
+  } catch {
+    token = null;
+  }
+  return {
+    ...extra,
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
 function Select({ label, value, onChange, options, placeholder }) {
   return (
     <div>
@@ -57,9 +67,8 @@ function Select({ label, value, onChange, options, placeholder }) {
 
 export default function ProfilePage({ isOpen, onClose }) {
   const { user, isAuthenticated, logout } = useAuth();
-  const sessionToken = useAuthStore((s) => s.sessionToken);
-  const dialogRef = useRef(null);
-  const headingId = useId();
+  const titleId = useId();
+  const trapRef = useFocusTrap(isOpen);
   const [form, setForm] = useState({
     display_name: '',
     company: '',
@@ -77,7 +86,8 @@ export default function ProfilePage({ isOpen, onClose }) {
     if (!isOpen || !isAuthenticated) return;
 
     fetch(`${API_BASE}/me/profile`, {
-      headers: sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {},
+      headers: authHeaders(),
+      credentials: 'include',
     })
       .then((r) => r.ok ? r.json() : null)
       .then((data) => {
@@ -92,35 +102,24 @@ export default function ProfilePage({ isOpen, onClose }) {
         }
       })
       .catch(() => {});
-  }, [isOpen, isAuthenticated, sessionToken]);
+  }, [isOpen, isAuthenticated]);
 
-  // Body scroll lock + Escape close
   useEffect(() => {
     if (!isOpen) return;
+
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
 
-    function handleKeyDown(e) {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        onClose();
-      }
-    }
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') onClose?.();
+    };
     document.addEventListener('keydown', handleKeyDown);
+
     return () => {
       document.body.style.overflow = previousOverflow;
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, [isOpen, onClose]);
-
-  // Restore focus to trigger element on close.
-  // The early-return when !isOpen ensures the cleanup only runs for the
-  // "isOpen=true" phase (i.e., when transitioning from open to closed).
-  useEffect(() => {
-    if (!isOpen) return;
-    const previousFocus = document.activeElement;
-    return () => { previousFocus?.focus(); };
-  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -130,10 +129,8 @@ export default function ProfilePage({ isOpen, onClose }) {
     try {
       const res = await fetch(`${API_BASE}/me/profile`, {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
-        },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        credentials: 'include',
         body: JSON.stringify(form),
       });
       if (res.ok) {
@@ -154,7 +151,8 @@ export default function ProfilePage({ isOpen, onClose }) {
     try {
       const res = await fetch(`${API_BASE}/me/account`, {
         method: 'DELETE',
-        headers: sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {},
+        headers: authHeaders(),
+        credentials: 'include',
       });
       if (res.ok) {
         logout();
@@ -170,28 +168,20 @@ export default function ProfilePage({ isOpen, onClose }) {
     }
   };
 
-  return ReactDOM.createPortal(
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto p-4 sm:p-6 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]">
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" data-testid="profile-backdrop" onClick={onClose} />
       <div
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm animate-fade-in"
-        onClick={onClose}
-        aria-hidden="true"
-      />
-      <div
-        ref={dialogRef}
+        ref={trapRef}
         role="dialog"
         aria-modal="true"
-        aria-labelledby={headingId}
-        className="relative z-10 bg-surface border border-border rounded-2xl shadow-2xl w-full max-w-lg max-h-[min(90vh,calc(100dvh-2rem))] overflow-y-auto animate-modal-in"
+        aria-labelledby={titleId}
+        className="relative z-10 my-auto bg-surface border border-border rounded-2xl shadow-2xl w-full max-w-lg max-h-[calc(100dvh-2rem)] overflow-y-auto"
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-          <h2 id={headingId} className="text-lg font-semibold text-text-primary">Profile Settings</h2>
-          <button
-            onClick={onClose}
-            className="p-1 hover:bg-secondary rounded-lg transition-colors cursor-pointer"
-            aria-label="Close profile settings"
-          >
+          <h2 id={titleId} className="text-lg font-semibold text-text-primary">Profile Settings</h2>
+          <button onClick={onClose} className="p-1 hover:bg-secondary rounded-lg transition-colors cursor-pointer" aria-label="Close profile settings">
             <X className="w-5 h-5 text-text-muted" />
           </button>
         </div>

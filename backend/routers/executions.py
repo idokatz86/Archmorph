@@ -5,13 +5,20 @@ from pydantic import ConfigDict
 from strict_models import StrictBaseModel
 
 from database import get_db
-from routers.auth import get_current_user
+from routers.shared import require_authenticated_user_context
 from models.agent import Agent
 from models.execution import Execution
 from services.agent_runner import AgentRunner
 from fastapi import BackgroundTasks
 
 router = APIRouter(prefix="/api/executions", tags=["Executions"])
+
+
+def _org_id(user: dict) -> str:
+    org_id = user.get("org_id")
+    if not org_id:
+        raise HTTPException(status_code=401, detail="Authentication context missing organization")
+    return org_id
 
 class ExecutionInputSchema(StrictBaseModel):
     agent_id: str
@@ -34,12 +41,12 @@ async def start_execution(
     payload: ExecutionInputSchema, 
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db), 
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(require_authenticated_user_context)
 ):
     """
     Start a new execution for a specific agent.
     """
-    org_id = user.get("org_id", "default_org")
+    org_id = _org_id(user)
     
     # 1. Fetch Agent (validate ownership)
     agent = db.query(Agent).filter(
@@ -80,9 +87,9 @@ async def start_execution(
 async def get_execution(
     execution_id: str,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(require_authenticated_user_context)
 ):
-    org_id = user.get("org_id", "default_org")
+    org_id = _org_id(user)
     execution = db.query(Execution).filter(
         Execution.id == execution_id,
         Execution.organization_id == org_id
@@ -96,9 +103,9 @@ async def get_execution(
 async def cancel_execution(
     execution_id: str,
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user)
+    user: dict = Depends(require_authenticated_user_context)
 ):
-    org_id = user.get("org_id", "default_org")
+    org_id = _org_id(user)
     execution = db.query(Execution).filter(
         Execution.id == execution_id,
         Execution.organization_id == org_id

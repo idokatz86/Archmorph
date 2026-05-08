@@ -75,7 +75,7 @@ describe('LoginModal', () => {
   it('calls onClose when Close button is clicked', async () => {
     const onClose = vi.fn();
     render(<LoginModal isOpen={true} onClose={onClose} />);
-    await userEvent.click(screen.getByRole('button', { name: /close sign-in dialog/i }));
+    await userEvent.click(screen.getByRole('button', { name: /^close$/i }));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
