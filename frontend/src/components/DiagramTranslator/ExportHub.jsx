@@ -242,7 +242,10 @@ export default function ExportHub({ diagramId, hldIncludeDiagrams = true, export
   const handleGenerateAll = async () => {
     if (!diagramId || selectedItems.length === 0) return;
     setGenerating(true);
-    selectedItems.forEach(d => setItemStatus(prev => ({ ...prev, [d.id]: 'loading' })));
+    setItemStatus(prev => ({
+      ...prev,
+      ...Object.fromEntries(selectedItems.map(d => [d.id, 'loading'])),
+    }));
     setResults({});
 
     // Deliverables that consume/produce one-time export-capability tokens must run

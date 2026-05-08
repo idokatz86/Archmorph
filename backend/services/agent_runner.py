@@ -1,4 +1,5 @@
 import asyncio
+import json
 import time
 
 from models.agent import Agent
@@ -98,7 +99,7 @@ class AgentRunner:
                 llm_messages.append(message)
                 for tc, result_json in zip(message.tool_calls, tool_results):
                     if isinstance(result_json, Exception):
-                        result_json = f'{{"error": "{tc.function.name} failed: {str(result_json)}"}}'
+                        result_json = json.dumps({"error": f"{tc.function.name} failed: {result_json}"})
                     llm_messages.append({
                         "role": "tool",
                         "tool_call_id": tc.id,

@@ -127,12 +127,16 @@ class InMemoryStore(SessionStore):
             entry_size = len(value[0])
 
         # Evict oldest entries until there is room or the cache is empty
+        evicted_keys = []
         while self._total_bytes + entry_size > self.MAX_MEMORY_BYTES and self._cache:
             oldest_key = next(iter(self._cache))
             self.delete(oldest_key)
+            evicted_keys.append(oldest_key)
+
+        if evicted_keys:
             logger.warning(
-                "InMemoryStore memory budget exceeded (%d + %d > %s bytes) — evicted oldest entry '%s'",
-                self._total_bytes, entry_size, self.MAX_MEMORY_BYTES, oldest_key,
+                "InMemoryStore memory budget exceeded (%d + %d > %s bytes) — evicted %d oldest entries",
+                self._total_bytes, entry_size, self.MAX_MEMORY_BYTES, len(evicted_keys),
             )
 
         if self._total_bytes + entry_size > self.MAX_MEMORY_BYTES:
