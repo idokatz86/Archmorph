@@ -1,0 +1,1432 @@
+[
+  {
+    "fid": "F-BE-1",
+    "title": "[Audit 2026-05-08] F-BE-1: `restore-session` is unauthenticated \u2192 cache-poisoning + #613 bound-check drift",
+    "url": "https://github.com/idokatz86/Archmorph/issues/791",
+    "number": 791,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P0",
+      "agent:backend-master"
+    ]
+  },
+  {
+    "fid": "F-BE-2",
+    "title": "[Audit 2026-05-08] F-BE-2: Terraform state backend (`tf_backend.py`) has zero auth and a broken UNLOCK method",
+    "url": "https://github.com/idokatz86/Archmorph/issues/792",
+    "number": 792,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P0",
+      "agent:backend-master"
+    ]
+  },
+  {
+    "fid": "F-BE-3",
+    "title": "[Audit 2026-05-08] F-BE-3: `routers/auth.py::get_current_user` is a route handler used as `Depends` \u2014 anon callers silently land in `default_org`",
+    "url": "https://github.com/idokatz86/Archmorph/issues/793",
+    "number": 793,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P0",
+      "agent:backend-master"
+    ]
+  },
+  {
+    "fid": "F-BE-4",
+    "title": "[Audit 2026-05-08] F-BE-4: Jobs router fully unauthenticated \u2192 BOLA on async analysis/IaC/HLD results",
+    "url": "https://github.com/idokatz86/Archmorph/issues/794",
+    "number": 794,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P0",
+      "agent:backend-master"
+    ]
+  },
+  {
+    "fid": "F-BE-5",
+    "title": "[Audit 2026-05-08] F-BE-5: `auth.get_user_from_session(token: str)` used as `Depends` \u2014 token silently read from `?token=` query",
+    "url": "https://github.com/idokatz86/Archmorph/issues/795",
+    "number": 795,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:backend-master"
+    ]
+  },
+  {
+    "fid": "F-BE-6",
+    "title": "[Audit 2026-05-08] F-BE-6: `routers/drift.py` \u2014 module-level `_BASELINES` dict + no auth on any route",
+    "url": "https://github.com/idokatz86/Archmorph/issues/796",
+    "number": 796,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:backend-master"
+    ]
+  },
+  {
+    "fid": "F-BE-7",
+    "title": "[Audit 2026-05-08] F-BE-7: `share_routes.py` \u2014 DELETE share has no auth; stats endpoint leaks for anonymous shares",
+    "url": "https://github.com/idokatz86/Archmorph/issues/797",
+    "number": 797,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:backend-master"
+    ]
+  },
+  {
+    "fid": "F-BE-8",
+    "title": "[Audit 2026-05-08] F-BE-8: `IMAGE_STORE`/`SESSION_STORE` use `FileStore` on per-replica `/tmp` \u2014 multi-replica deploys silently lose data",
+    "url": "https://github.com/idokatz86/Archmorph/issues/798",
+    "number": 798,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:backend-master"
+    ]
+  },
+  {
+    "fid": "F-BE-9",
+    "title": "[Audit 2026-05-08] F-BE-9: `network_routes._topology_cache` unbounded module dict \u2014 leak + multi-replica unsafe",
+    "url": "https://github.com/idokatz86/Archmorph/issues/799",
+    "number": 799,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:backend-master"
+    ]
+  },
+  {
+    "fid": "F-BE-10",
+    "title": "[Audit 2026-05-08] F-BE-10: `/api/admin/suggestions/*` admin routes guard with user-tier `verify_api_key` instead of `verify_admin_key`",
+    "url": "https://github.com/idokatz86/Archmorph/issues/800",
+    "number": 800,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:backend-master"
+    ]
+  },
+  {
+    "fid": "F-BE-11",
+    "title": "[Audit 2026-05-08] F-BE-11: `/api/v1/api/...` double-prefix bug \u2014 `icon_router` mirrored under wrong path",
+    "url": "https://github.com/idokatz86/Archmorph/issues/801",
+    "number": 801,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:backend-master"
+    ]
+  },
+  {
+    "fid": "F-BE-12",
+    "title": "[Audit 2026-05-08] F-BE-12: `/api/import/{terraform,cloudformation,arm}` accept up to 30 MB anonymously",
+    "url": "https://github.com/idokatz86/Archmorph/issues/802",
+    "number": 802,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P2",
+      "agent:backend-master"
+    ]
+  },
+  {
+    "fid": "F-FE-1",
+    "title": "[Audit 2026-05-08] F-FE-1: `LoginModal` not an accessible dialog \u2014 no `role`, no `aria-modal`, no Esc, no focus trap",
+    "url": "https://github.com/idokatz86/Archmorph/issues/803",
+    "number": 803,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P0",
+      "agent:fe-master"
+    ]
+  },
+  {
+    "fid": "F-FE-2",
+    "title": "[Audit 2026-05-08] F-FE-2: `ProfilePage` modal repeats every `LoginModal` a11y gap (plus broken backdrop close)",
+    "url": "https://github.com/idokatz86/Archmorph/issues/804",
+    "number": 804,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:fe-master"
+    ]
+  },
+  {
+    "fid": "F-FE-3",
+    "title": "[Audit 2026-05-08] F-FE-3: Sign In trigger box mis-aligns with sibling Nav controls on mobile",
+    "url": "https://github.com/idokatz86/Archmorph/issues/805",
+    "number": 805,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:fe-master"
+    ]
+  },
+  {
+    "fid": "F-FE-4",
+    "title": "[Audit 2026-05-08] F-FE-4: `toRenderableString` not applied at multiple list-of-objects render sites \u2014 #636 leak still alive",
+    "url": "https://github.com/idokatz86/Archmorph/issues/806",
+    "number": 806,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P0",
+      "agent:fe-master"
+    ]
+  },
+  {
+    "fid": "F-FE-5",
+    "title": "[Audit 2026-05-08] F-FE-5: `apiClient` default methods strip the auth token \u2014 every workflow request goes anonymous",
+    "url": "https://github.com/idokatz86/Archmorph/issues/807",
+    "number": 807,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P0",
+      "agent:fe-master"
+    ]
+  },
+  {
+    "fid": "F-FE-6",
+    "title": "[Audit 2026-05-08] F-FE-6: `ProfilePage` and parts of `useAuthStore` only honor `localStorage` \u2014 SWA cookie users authenticate to nothing",
+    "url": "https://github.com/idokatz86/Archmorph/issues/808",
+    "number": 808,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P0",
+      "agent:fe-master"
+    ]
+  },
+  {
+    "fid": "F-FE-7",
+    "title": "[Audit 2026-05-08] F-FE-7: Tailwind `dark:` variants on auth/deploy panels decoupled from app's `data-theme` toggle",
+    "url": "https://github.com/idokatz86/Archmorph/issues/809",
+    "number": 809,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P2",
+      "agent:fe-master"
+    ]
+  },
+  {
+    "fid": "F-FE-8",
+    "title": "[Audit 2026-05-08] F-FE-8: `ErrorBoundary` doesn't reset on tab change \u2014 one bad tab kills navigation",
+    "url": "https://github.com/idokatz86/Archmorph/issues/810",
+    "number": 810,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P2",
+      "agent:fe-master"
+    ]
+  },
+  {
+    "fid": "F-FE-9",
+    "title": "[Audit 2026-05-08] F-FE-9: `DeployPanel` bypasses `apiClient` entirely \u2014 no auth, no retry, no timeout, no error mapping",
+    "url": "https://github.com/idokatz86/Archmorph/issues/811",
+    "number": 811,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:fe-master"
+    ]
+  },
+  {
+    "fid": "F-FE-10",
+    "title": "[Audit 2026-05-08] F-FE-10: `loginWithProvider` drops query/hash on round-trip \u2014 users land on different tab",
+    "url": "https://github.com/idokatz86/Archmorph/issues/812",
+    "number": 812,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P2",
+      "agent:fe-master"
+    ]
+  },
+  {
+    "fid": "F-FE-11",
+    "title": "[Audit 2026-05-08] F-FE-11: Sign In trigger lacks accessible name on mobile + missing `aria-haspopup=\"dialog\"`",
+    "url": "https://github.com/idokatz86/Archmorph/issues/813",
+    "number": 813,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P2",
+      "agent:fe-master"
+    ]
+  },
+  {
+    "fid": "F-FE-12",
+    "title": "[Audit 2026-05-08] F-FE-12: Vision-cache TTL collision with #636 \u2014 pre-coercion entries persist in `sessionStorage`",
+    "url": "https://github.com/idokatz86/Archmorph/issues/814",
+    "number": 814,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:fe-master"
+    ]
+  },
+  {
+    "fid": "F-UX-1",
+    "title": "[Audit 2026-05-08] F-UX-1: LoginModal lacks dialog semantics, focus trap, Esc, scroll-lock",
+    "url": "https://github.com/idokatz86/Archmorph/issues/815",
+    "number": 815,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P0",
+      "agent:ux-master"
+    ]
+  },
+  {
+    "fid": "F-UX-2",
+    "title": "[Audit 2026-05-08] F-UX-2: Sign In modal overflows on short viewports \u2014 content cut off, not scrollable (root cause of user report)",
+    "url": "https://github.com/idokatz86/Archmorph/issues/816",
+    "number": 816,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P0",
+      "agent:ux-master"
+    ]
+  },
+  {
+    "fid": "F-UX-3",
+    "title": "[Audit 2026-05-08] F-UX-3: Provider button `dark:` classes never fire \u2014 app uses `data-theme`, not Tailwind class/media dark mode",
+    "url": "https://github.com/idokatz86/Archmorph/issues/817",
+    "number": 817,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P0",
+      "agent:ux-master"
+    ]
+  },
+  {
+    "fid": "F-UX-4",
+    "title": "[Audit 2026-05-08] F-UX-4: Sign In trigger collapses to ~28\u00d728 tap target on mobile and loses accessible name",
+    "url": "https://github.com/idokatz86/Archmorph/issues/818",
+    "number": 818,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:ux-master"
+    ]
+  },
+  {
+    "fid": "F-UX-5",
+    "title": "[Audit 2026-05-08] F-UX-5: Auth flow doesn't restore focus after modal close \u2192 keyboard users lose place",
+    "url": "https://github.com/idokatz86/Archmorph/issues/819",
+    "number": 819,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:ux-master"
+    ]
+  },
+  {
+    "fid": "F-UX-6",
+    "title": "[Audit 2026-05-08] F-UX-6: Empty/loading/error states inconsistent across DiagramTranslator panels",
+    "url": "https://github.com/idokatz86/Archmorph/issues/820",
+    "number": 820,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:ux-master"
+    ]
+  },
+  {
+    "fid": "F-UX-7",
+    "title": "[Audit 2026-05-08] F-UX-7: Error microcopy leaks raw exception strings; no toast/snackbar contract",
+    "url": "https://github.com/idokatz86/Archmorph/issues/821",
+    "number": 821,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:ux-master"
+    ]
+  },
+  {
+    "fid": "F-UX-8",
+    "title": "[Audit 2026-05-08] F-UX-8: ExportHub error state is icon-only with no reason and no per-row retry",
+    "url": "https://github.com/idokatz86/Archmorph/issues/822",
+    "number": 822,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:ux-master"
+    ]
+  },
+  {
+    "fid": "F-UX-9",
+    "title": "[Audit 2026-05-08] F-UX-9: UserMenu dropdown lacks proper menu semantics, Esc, roving focus",
+    "url": "https://github.com/idokatz86/Archmorph/issues/823",
+    "number": 823,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P2",
+      "agent:ux-master"
+    ]
+  },
+  {
+    "fid": "F-UX-10",
+    "title": "[Audit 2026-05-08] F-UX-10: ProfilePage form labels not programmatically linked to controls",
+    "url": "https://github.com/idokatz86/Archmorph/issues/824",
+    "number": 824,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P2",
+      "agent:ux-master"
+    ]
+  },
+  {
+    "fid": "F-UX-11",
+    "title": "[Audit 2026-05-08] F-UX-11: HLDPanel uses hardcoded Tailwind palette instead of theme tokens \u2014 breaks dark/light parity",
+    "url": "https://github.com/idokatz86/Archmorph/issues/825",
+    "number": 825,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P2",
+      "agent:ux-master"
+    ]
+  },
+  {
+    "fid": "F-UX-12",
+    "title": "[Audit 2026-05-08] F-UX-12: GuidedQuestions Expert/Guided toggle uses same icon family with inverted meaning",
+    "url": "https://github.com/idokatz86/Archmorph/issues/826",
+    "number": 826,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P2",
+      "agent:ux-master"
+    ]
+  },
+  {
+    "fid": "F-UX-13",
+    "title": "[Audit 2026-05-08] F-UX-13: DeployPanel \"Coming Soon\" overlay has empty `pointer-events-auto` card with no focus order",
+    "url": "https://github.com/idokatz86/Archmorph/issues/827",
+    "number": 827,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P2",
+      "agent:ux-master"
+    ]
+  },
+  {
+    "fid": "F-PERF-1",
+    "title": "[Audit 2026-05-08] F-PERF-1: IaC self-reflection verification step doubles GPT-4o latency on `/generate`",
+    "url": "https://github.com/idokatz86/Archmorph/issues/828",
+    "number": 828,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P0",
+      "agent:performance-master"
+    ]
+  },
+  {
+    "fid": "F-PERF-2",
+    "title": "[Audit 2026-05-08] F-PERF-2: IMAGE_STORE byte-budget is dead code; eviction count-only and base64 inflates payload 33%",
+    "url": "https://github.com/idokatz86/Archmorph/issues/829",
+    "number": 829,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P0",
+      "agent:performance-master"
+    ]
+  },
+  {
+    "fid": "F-PERF-3",
+    "title": "[Audit 2026-05-08] F-PERF-3: Sync enrichment block runs on event loop inside async `/analyze`",
+    "url": "https://github.com/idokatz86/Archmorph/issues/830",
+    "number": 830,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P0",
+      "agent:performance-master"
+    ]
+  },
+  {
+    "fid": "F-PERF-4",
+    "title": "[Audit 2026-05-08] F-PERF-4: AgentRunner uses sync `SessionLocal()` inside async coroutine; tools execute serially",
+    "url": "https://github.com/idokatz86/Archmorph/issues/831",
+    "number": 831,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P0",
+      "agent:performance-master"
+    ]
+  },
+  {
+    "fid": "F-PERF-5",
+    "title": "[Audit 2026-05-08] F-PERF-5: Vision prompt-hash truncates to 200 chars \u2014 SYSTEM_PROMPT changes never invalidate cache",
+    "url": "https://github.com/idokatz86/Archmorph/issues/832",
+    "number": 832,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:performance-master"
+    ]
+  },
+  {
+    "fid": "F-PERF-6",
+    "title": "[Audit 2026-05-08] F-PERF-6: Vision images base64 round-tripped 3\u00d7 per analyze",
+    "url": "https://github.com/idokatz86/Archmorph/issues/833",
+    "number": 833,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:performance-master"
+    ]
+  },
+  {
+    "fid": "F-PERF-7",
+    "title": "[Audit 2026-05-08] F-PERF-7: Sync embedding call inside DB write path holds connections for 200\u2013800ms",
+    "url": "https://github.com/idokatz86/Archmorph/issues/834",
+    "number": 834,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:performance-master"
+    ]
+  },
+  {
+    "fid": "F-PERF-8",
+    "title": "[Audit 2026-05-08] F-PERF-8: pgvector context retrieval issues two sequential ORDER-BY queries",
+    "url": "https://github.com/idokatz86/Archmorph/issues/835",
+    "number": 835,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:performance-master"
+    ]
+  },
+  {
+    "fid": "F-PERF-9",
+    "title": "[Audit 2026-05-08] F-PERF-9: ExportHub generates all selected deliverables serially in `for...await` loop",
+    "url": "https://github.com/idokatz86/Archmorph/issues/836",
+    "number": 836,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:performance-master"
+    ]
+  },
+  {
+    "fid": "F-PERF-10",
+    "title": "[Audit 2026-05-08] F-PERF-10: LandingZoneViewer parses + sanitizes 300KB SVG twice on main thread",
+    "url": "https://github.com/idokatz86/Archmorph/issues/837",
+    "number": 837,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:performance-master"
+    ]
+  },
+  {
+    "fid": "F-PERF-11",
+    "title": "[Audit 2026-05-08] F-PERF-11: IaC chat history sends full code on every turn \u2014 quadratic token growth",
+    "url": "https://github.com/idokatz86/Archmorph/issues/838",
+    "number": 838,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P2",
+      "agent:performance-master"
+    ]
+  },
+  {
+    "fid": "F-PERF-12",
+    "title": "[Audit 2026-05-08] F-PERF-12: Vision response cache sized at 100 entries \u2014 thrashes on burst",
+    "url": "https://github.com/idokatz86/Archmorph/issues/839",
+    "number": 839,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P2",
+      "agent:performance-master"
+    ]
+  },
+  {
+    "fid": "F-API-1",
+    "title": "[Audit 2026-05-08] F-API-1: `apiClient.js` ignores `Authorization` for all non-`/auth` calls \u2014 server treats every authenticated user as anonymous",
+    "url": "https://github.com/idokatz86/Archmorph/issues/840",
+    "number": 840,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P0",
+      "agent:api-master"
+    ]
+  },
+  {
+    "fid": "F-API-2",
+    "title": "[Audit 2026-05-08] F-API-2: Token caps inconsistent across HLD generation paths \u2014 same logical request returns different completeness",
+    "url": "https://github.com/idokatz86/Archmorph/issues/841",
+    "number": 841,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P0",
+      "agent:api-master"
+    ]
+  },
+  {
+    "fid": "F-API-3",
+    "title": "[Audit 2026-05-08] F-API-3: `/api/diagrams/{id}/iac/chat` exposes `current_code` from request body \u2014 no server-side anchor \u2192 tampering / drift",
+    "url": "https://github.com/idokatz86/Archmorph/issues/842",
+    "number": 842,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P0",
+      "agent:api-master"
+    ]
+  },
+  {
+    "fid": "F-API-4",
+    "title": "[Audit 2026-05-08] F-API-4: SSE token endpoints stream secrets bypassing tenant isolation when `?tenant_id=` is supplied as query param",
+    "url": "https://github.com/idokatz86/Archmorph/issues/843",
+    "number": 843,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P0",
+      "agent:api-master"
+    ]
+  },
+  {
+    "fid": "F-API-5",
+    "title": "[Audit 2026-05-08] F-API-5: Health endpoints leak internal version, dependency status, and config feature flags",
+    "url": "https://github.com/idokatz86/Archmorph/issues/844",
+    "number": 844,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:api-master"
+    ]
+  },
+  {
+    "fid": "F-API-6",
+    "title": "[Audit 2026-05-08] F-API-6: `/api/v1/deployments/preflight` accepts arbitrary inputs \u2014 no `Pydantic` validation",
+    "url": "https://github.com/idokatz86/Archmorph/issues/845",
+    "number": 845,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:api-master"
+    ]
+  },
+  {
+    "fid": "F-API-7",
+    "title": "[Audit 2026-05-08] F-API-7: Migration-chat streams Azure OpenAI responses with no abort propagation \u2014 orphaned upstream calls cost money",
+    "url": "https://github.com/idokatz86/Archmorph/issues/846",
+    "number": 846,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:api-master"
+    ]
+  },
+  {
+    "fid": "F-API-8",
+    "title": "[Audit 2026-05-08] F-API-8: CORS allowlist mixes `*` and origin-specific values \u2014 credentials sent to wildcard subset",
+    "url": "https://github.com/idokatz86/Archmorph/issues/847",
+    "number": 847,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:api-master"
+    ]
+  },
+  {
+    "fid": "F-API-9",
+    "title": "[Audit 2026-05-08] F-API-9: `/api/diagrams/{id}/migration-chat` ignores `Authorization` for ownership; uses `diagram_id` only",
+    "url": "https://github.com/idokatz86/Archmorph/issues/848",
+    "number": 848,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:api-master"
+    ]
+  },
+  {
+    "fid": "F-API-10",
+    "title": "[Audit 2026-05-08] F-API-10: OpenAPI schema drift \u2014 frontend types and backend responses diverge for `/diagrams/{id}/analyze`",
+    "url": "https://github.com/idokatz86/Archmorph/issues/849",
+    "number": 849,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:api-master"
+    ]
+  },
+  {
+    "fid": "F-API-11",
+    "title": "[Audit 2026-05-08] F-API-11: `/api/governance/runs` accepts arbitrary nested JSON for rules; uses jsonschema only at write time",
+    "url": "https://github.com/idokatz86/Archmorph/issues/850",
+    "number": 850,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P2",
+      "agent:api-master"
+    ]
+  },
+  {
+    "fid": "F-API-12",
+    "title": "[Audit 2026-05-08] F-API-12: Inconsistent rate-limit responses \u2014 some routes return 429 with `Retry-After`, others 503",
+    "url": "https://github.com/idokatz86/Archmorph/issues/851",
+    "number": 851,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P2",
+      "agent:api-master"
+    ]
+  },
+  {
+    "fid": "F-API-13",
+    "title": "[Audit 2026-05-08] F-API-13: Activity stream WebSocket drops silently after 60s idle \u2014 no heartbeat",
+    "url": "https://github.com/idokatz86/Archmorph/issues/852",
+    "number": 852,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P2",
+      "agent:api-master"
+    ]
+  },
+  {
+    "fid": "F-QA-1",
+    "title": "[Audit 2026-05-08] F-QA-1: No automated regression test for the user-reported \"Sign In box not aligned with screen\"",
+    "url": "https://github.com/idokatz86/Archmorph/issues/853",
+    "number": 853,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P0",
+      "agent:qa-master"
+    ]
+  },
+  {
+    "fid": "F-QA-2",
+    "title": "[Audit 2026-05-08] F-QA-2: `apiClient` test suite has no coverage of auth header propagation; F-FE-5 invisible to CI",
+    "url": "https://github.com/idokatz86/Archmorph/issues/854",
+    "number": 854,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P0",
+      "agent:qa-master"
+    ]
+  },
+  {
+    "fid": "F-QA-3",
+    "title": "[Audit 2026-05-08] F-QA-3: Vision-cache hash regression (F-PERF-5) has no test",
+    "url": "https://github.com/idokatz86/Archmorph/issues/855",
+    "number": 855,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P0",
+      "agent:qa-master"
+    ]
+  },
+  {
+    "fid": "F-QA-4",
+    "title": "[Audit 2026-05-08] F-QA-4: E2E pipeline doesn't cover full upload\u2192analyze\u2192IaC\u2192export-all path",
+    "url": "https://github.com/idokatz86/Archmorph/issues/856",
+    "number": 856,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:qa-master"
+    ]
+  },
+  {
+    "fid": "F-QA-5",
+    "title": "[Audit 2026-05-08] F-QA-5: Backend test fixtures don't exercise multi-tenant boundaries",
+    "url": "https://github.com/idokatz86/Archmorph/issues/857",
+    "number": 857,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:qa-master"
+    ]
+  },
+  {
+    "fid": "F-QA-6",
+    "title": "[Audit 2026-05-08] F-QA-6: Token-streaming (SSE) tests don't simulate client disconnect",
+    "url": "https://github.com/idokatz86/Archmorph/issues/858",
+    "number": 858,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:qa-master"
+    ]
+  },
+  {
+    "fid": "F-QA-7",
+    "title": "[Audit 2026-05-08] F-QA-7: Vitest config doesn't fail on console errors \u2014 React #31 invisible to CI",
+    "url": "https://github.com/idokatz86/Archmorph/issues/859",
+    "number": 859,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:qa-master"
+    ]
+  },
+  {
+    "fid": "F-QA-8",
+    "title": "[Audit 2026-05-08] F-QA-8: Performance budget not enforced in CI \u2014 F-PERF-1 / F-PERF-9 ship undetected",
+    "url": "https://github.com/idokatz86/Archmorph/issues/860",
+    "number": 860,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:qa-master"
+    ]
+  },
+  {
+    "fid": "F-QA-9",
+    "title": "[Audit 2026-05-08] F-QA-9: A11y test coverage stops at axe-core static scan \u2014 focus order not asserted",
+    "url": "https://github.com/idokatz86/Archmorph/issues/861",
+    "number": 861,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P2",
+      "agent:qa-master"
+    ]
+  },
+  {
+    "fid": "F-QA-10",
+    "title": "[Audit 2026-05-08] F-QA-10: Mutation testing not enforced \u2014 coverage is misleading",
+    "url": "https://github.com/idokatz86/Archmorph/issues/862",
+    "number": 862,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P2",
+      "agent:qa-master"
+    ]
+  },
+  {
+    "fid": "F-QA-11",
+    "title": "[Audit 2026-05-08] F-QA-11: Flaky tests masked by retries \u2014 `pytest --reruns 3` hides race conditions",
+    "url": "https://github.com/idokatz86/Archmorph/issues/863",
+    "number": 863,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P2",
+      "agent:qa-master"
+    ]
+  },
+  {
+    "fid": "F-QA-12",
+    "title": "[Audit 2026-05-08] F-QA-12: Frontend \"all errors silently swallow\" pattern \u2014 `try { } catch { console.error }` everywhere",
+    "url": "https://github.com/idokatz86/Archmorph/issues/864",
+    "number": 864,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P2",
+      "agent:qa-master"
+    ]
+  },
+  {
+    "fid": "F-QA-13",
+    "title": "[Audit 2026-05-08] F-QA-13: CI doesn't smoke-test deploy plan \u2014 Terraform/Bicep generation regressions undetected",
+    "url": "https://github.com/idokatz86/Archmorph/issues/865",
+    "number": 865,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P2",
+      "agent:qa-master"
+    ]
+  },
+  {
+    "fid": "F-SEC-1",
+    "title": "[Audit 2026-05-08] F-SEC-1: Cross-tenant data exposure on observability SSE \u2014 `tenant_id` taken from query param",
+    "url": "https://github.com/idokatz86/Archmorph/issues/866",
+    "number": 866,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P0",
+      "agent:ciso-master"
+    ]
+  },
+  {
+    "fid": "F-SEC-2",
+    "title": "[Audit 2026-05-08] F-SEC-2: `apiClient.js` strips token on every workflow request \u2014 auth bypassed by design (F-FE-5)",
+    "url": "https://github.com/idokatz86/Archmorph/issues/867",
+    "number": 867,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P0",
+      "agent:ciso-master"
+    ]
+  },
+  {
+    "fid": "F-SEC-3",
+    "title": "[Audit 2026-05-08] F-SEC-3: IaC chat tampering via client-supplied `current_code` (F-API-3)",
+    "url": "https://github.com/idokatz86/Archmorph/issues/868",
+    "number": 868,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P0",
+      "agent:ciso-master"
+    ]
+  },
+  {
+    "fid": "F-SEC-4",
+    "title": "[Audit 2026-05-08] F-SEC-4: Vision input + raw error string concatenation enables prompt-injection persistence (F-PERF-5 root)",
+    "url": "https://github.com/idokatz86/Archmorph/issues/869",
+    "number": 869,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P0",
+      "agent:ciso-master"
+    ]
+  },
+  {
+    "fid": "F-SEC-5",
+    "title": "[Audit 2026-05-08] F-SEC-5: CORS may allow `*` with `credentials=true` (F-API-8)",
+    "url": "https://github.com/idokatz86/Archmorph/issues/870",
+    "number": 870,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P0",
+      "agent:ciso-master"
+    ]
+  },
+  {
+    "fid": "F-SEC-6",
+    "title": "[Audit 2026-05-08] F-SEC-6: Public health endpoint discloses model + region + flags (F-API-5)",
+    "url": "https://github.com/idokatz86/Archmorph/issues/871",
+    "number": 871,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:ciso-master"
+    ]
+  },
+  {
+    "fid": "F-SEC-7",
+    "title": "[Audit 2026-05-08] F-SEC-7: Container Apps secrets stored in env vars without Key Vault references for prod",
+    "url": "https://github.com/idokatz86/Archmorph/issues/872",
+    "number": 872,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:ciso-master"
+    ]
+  },
+  {
+    "fid": "F-SEC-8",
+    "title": "[Audit 2026-05-08] F-SEC-8: Rate-limit middleware uses in-memory token bucket per replica \u2014 bypassable via load balancing",
+    "url": "https://github.com/idokatz86/Archmorph/issues/873",
+    "number": 873,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:ciso-master"
+    ]
+  },
+  {
+    "fid": "F-SEC-9",
+    "title": "[Audit 2026-05-08] F-SEC-9: SSRF surface: `/api/diagrams/upload-url` accepts arbitrary URLs for fetching remote diagrams",
+    "url": "https://github.com/idokatz86/Archmorph/issues/874",
+    "number": 874,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:ciso-master"
+    ]
+  },
+  {
+    "fid": "F-SEC-10",
+    "title": "[Audit 2026-05-08] F-SEC-10: Logs may include OAuth tokens \u2014 no scrubber on token-streaming exception paths",
+    "url": "https://github.com/idokatz86/Archmorph/issues/875",
+    "number": 875,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:ciso-master"
+    ]
+  },
+  {
+    "fid": "F-SEC-11",
+    "title": "[Audit 2026-05-08] F-SEC-11: CSP missing on FastAPI responses \u2014 only frontend index.html sets it",
+    "url": "https://github.com/idokatz86/Archmorph/issues/876",
+    "number": 876,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P2",
+      "agent:ciso-master"
+    ]
+  },
+  {
+    "fid": "F-SEC-12",
+    "title": "[Audit 2026-05-08] F-SEC-12: CSRF protection absent for cookie-auth (SWA) routes",
+    "url": "https://github.com/idokatz86/Archmorph/issues/877",
+    "number": 877,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P2",
+      "agent:ciso-master"
+    ]
+  },
+  {
+    "fid": "F-SEC-13",
+    "title": "[Audit 2026-05-08] F-SEC-13: Audit log entries missing actor + IP for guest-mode actions",
+    "url": "https://github.com/idokatz86/Archmorph/issues/878",
+    "number": 878,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P2",
+      "agent:ciso-master"
+    ]
+  },
+  {
+    "fid": "F-DO-1",
+    "title": "[Audit 2026-05-08] F-DO-1: Branch protection paths-ignore deadlock \u2014 ignored-only PRs can never merge",
+    "url": "https://github.com/idokatz86/Archmorph/issues/879",
+    "number": 879,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P0",
+      "agent:devops-master"
+    ]
+  },
+  {
+    "fid": "F-DO-2",
+    "title": "[Audit 2026-05-08] F-DO-2: Deploy workflow doesn't gate on infra `terraform plan` review for prod",
+    "url": "https://github.com/idokatz86/Archmorph/issues/880",
+    "number": 880,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P0",
+      "agent:devops-master"
+    ]
+  },
+  {
+    "fid": "F-DO-3",
+    "title": "[Audit 2026-05-08] F-DO-3: Container image not pinned by digest in deploy step",
+    "url": "https://github.com/idokatz86/Archmorph/issues/881",
+    "number": 881,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P0",
+      "agent:devops-master"
+    ]
+  },
+  {
+    "fid": "F-DO-4",
+    "title": "[Audit 2026-05-08] F-DO-4: Backend Dockerfile runs as root \u2014 no `USER` directive",
+    "url": "https://github.com/idokatz86/Archmorph/issues/882",
+    "number": 882,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P0",
+      "agent:devops-master"
+    ]
+  },
+  {
+    "fid": "F-DO-5",
+    "title": "[Audit 2026-05-08] F-DO-5: CI doesn't run `pip-audit` / `npm audit` / Trivy on every PR",
+    "url": "https://github.com/idokatz86/Archmorph/issues/883",
+    "number": 883,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:devops-master"
+    ]
+  },
+  {
+    "fid": "F-DO-6",
+    "title": "[Audit 2026-05-08] F-DO-6: Health probe uses GET `/api/health` which exposes leaked info (F-API-5)",
+    "url": "https://github.com/idokatz86/Archmorph/issues/884",
+    "number": 884,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:devops-master"
+    ]
+  },
+  {
+    "fid": "F-DO-7",
+    "title": "[Audit 2026-05-08] F-DO-7: No `pre-commit` hooks for secret scanning",
+    "url": "https://github.com/idokatz86/Archmorph/issues/885",
+    "number": 885,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:devops-master"
+    ]
+  },
+  {
+    "fid": "F-DO-8",
+    "title": "[Audit 2026-05-08] F-DO-8: Test database uses real Postgres but no clean-state fixture \u2014 flaky parallel runs",
+    "url": "https://github.com/idokatz86/Archmorph/issues/886",
+    "number": 886,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:devops-master"
+    ]
+  },
+  {
+    "fid": "F-DO-9",
+    "title": "[Audit 2026-05-08] F-DO-9: Frontend build doesn't fail on TypeScript / typecheck errors",
+    "url": "https://github.com/idokatz86/Archmorph/issues/887",
+    "number": 887,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:devops-master"
+    ]
+  },
+  {
+    "fid": "F-DO-10",
+    "title": "[Audit 2026-05-08] F-DO-10: No alerts on Container Apps replica restart count",
+    "url": "https://github.com/idokatz86/Archmorph/issues/888",
+    "number": 888,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:devops-master"
+    ]
+  },
+  {
+    "fid": "F-DO-11",
+    "title": "[Audit 2026-05-08] F-DO-11: Rollback path undocumented \u2014 no `azd down`/`tf destroy` runbook",
+    "url": "https://github.com/idokatz86/Archmorph/issues/889",
+    "number": 889,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P2",
+      "agent:devops-master"
+    ]
+  },
+  {
+    "fid": "F-DO-12",
+    "title": "[Audit 2026-05-08] F-DO-12: Alembic migration testing not part of CI smoke",
+    "url": "https://github.com/idokatz86/Archmorph/issues/890",
+    "number": 890,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P2",
+      "agent:devops-master"
+    ]
+  },
+  {
+    "fid": "F-DO-13",
+    "title": "[Audit 2026-05-08] F-DO-13: CodeQL workflow disabled or absent",
+    "url": "https://github.com/idokatz86/Archmorph/issues/891",
+    "number": 891,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P2",
+      "agent:devops-master"
+    ]
+  },
+  {
+    "fid": "F-DO-14",
+    "title": "[Audit 2026-05-08] F-DO-14: Frontend env-var secrets risk \u2014 `VITE_` prefix may leak service-side keys",
+    "url": "https://github.com/idokatz86/Archmorph/issues/892",
+    "number": 892,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P2",
+      "agent:devops-master"
+    ]
+  },
+  {
+    "fid": "F-CL-1",
+    "title": "[Audit 2026-05-08] F-CL-1: Single Azure region \u2014 no DR plan for Azure OpenAI / Postgres / Container Apps outage",
+    "url": "https://github.com/idokatz86/Archmorph/issues/893",
+    "number": 893,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P0",
+      "agent:cloud-master"
+    ]
+  },
+  {
+    "fid": "F-CL-2",
+    "title": "[Audit 2026-05-08] F-CL-2: Postgres Flexible Server uses local SSD with no point-in-time recovery beyond 7 days",
+    "url": "https://github.com/idokatz86/Archmorph/issues/894",
+    "number": 894,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P0",
+      "agent:cloud-master"
+    ]
+  },
+  {
+    "fid": "F-CL-3",
+    "title": "[Audit 2026-05-08] F-CL-3: ACR set to `Basic` SKU \u2014 no geo-replication and image scanning unavailable",
+    "url": "https://github.com/idokatz86/Archmorph/issues/895",
+    "number": 895,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P0",
+      "agent:cloud-master"
+    ]
+  },
+  {
+    "fid": "F-CL-4",
+    "title": "[Audit 2026-05-08] F-CL-4: Postgres + Redis publicly reachable \u2014 `public_network_access_enabled=true`",
+    "url": "https://github.com/idokatz86/Archmorph/issues/896",
+    "number": 896,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P0",
+      "agent:cloud-master"
+    ]
+  },
+  {
+    "fid": "F-CL-5",
+    "title": "[Audit 2026-05-08] F-CL-5: No Azure Policy assignments for tagging / region restriction / SKU governance",
+    "url": "https://github.com/idokatz86/Archmorph/issues/897",
+    "number": 897,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P0",
+      "agent:cloud-master"
+    ]
+  },
+  {
+    "fid": "F-CL-6",
+    "title": "[Audit 2026-05-08] F-CL-6: Diagnostic settings missing on Postgres / Redis / Container Apps",
+    "url": "https://github.com/idokatz86/Archmorph/issues/898",
+    "number": 898,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P0",
+      "agent:cloud-master"
+    ]
+  },
+  {
+    "fid": "F-CL-7",
+    "title": "[Audit 2026-05-08] F-CL-7: Front Door / API Management not in front of Container Apps",
+    "url": "https://github.com/idokatz86/Archmorph/issues/899",
+    "number": 899,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P0",
+      "agent:cloud-master"
+    ]
+  },
+  {
+    "fid": "F-CL-8",
+    "title": "[Audit 2026-05-08] F-CL-8: Cost alerts not configured on AOAI deployment",
+    "url": "https://github.com/idokatz86/Archmorph/issues/900",
+    "number": 900,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:cloud-master"
+    ]
+  },
+  {
+    "fid": "F-CL-9",
+    "title": "[Audit 2026-05-08] F-CL-9: Managed Identity not used for AOAI access \u2014 API key in env var",
+    "url": "https://github.com/idokatz86/Archmorph/issues/901",
+    "number": 901,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:cloud-master"
+    ]
+  },
+  {
+    "fid": "F-CL-10",
+    "title": "[Audit 2026-05-08] F-CL-10: Container Apps autoscale rules use only HTTP concurrency, not custom metrics",
+    "url": "https://github.com/idokatz86/Archmorph/issues/902",
+    "number": 902,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:cloud-master"
+    ]
+  },
+  {
+    "fid": "F-CL-11",
+    "title": "[Audit 2026-05-08] F-CL-11: Storage Account for blobs missing customer-managed keys",
+    "url": "https://github.com/idokatz86/Archmorph/issues/903",
+    "number": 903,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:cloud-master"
+    ]
+  },
+  {
+    "fid": "F-CL-12",
+    "title": "[Audit 2026-05-08] F-CL-12: App Insights sampling at 100% \u2014 log storm cost risk",
+    "url": "https://github.com/idokatz86/Archmorph/issues/904",
+    "number": 904,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P2",
+      "agent:cloud-master"
+    ]
+  },
+  {
+    "fid": "F-CL-13",
+    "title": "[Audit 2026-05-08] F-CL-13: Network security groups absent on Container Apps subnet",
+    "url": "https://github.com/idokatz86/Archmorph/issues/905",
+    "number": 905,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P2",
+      "agent:cloud-master"
+    ]
+  },
+  {
+    "fid": "F-CL-14",
+    "title": "[Audit 2026-05-08] F-CL-14: No infrastructure tests \u2014 `terraform-compliance` / `checkov` not in CI",
+    "url": "https://github.com/idokatz86/Archmorph/issues/906",
+    "number": 906,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P2",
+      "agent:cloud-master"
+    ]
+  },
+  {
+    "fid": "F-BUG-1",
+    "title": "[Audit 2026-05-08] F-BUG-1: ROOT CAUSE: Sign-in modal not aligned to viewport \u2014 `backdrop-filter` on Nav header creates containing block for `position:fixed` descendants",
+    "url": "https://github.com/idokatz86/Archmorph/issues/907",
+    "number": 907,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P0",
+      "agent:bug-master"
+    ]
+  },
+  {
+    "fid": "F-BUG-2",
+    "title": "[Audit 2026-05-08] F-BUG-2: `useAuthStore.initialize()` race \u2014 first paint shows logged-out shell even when SWA cookie present",
+    "url": "https://github.com/idokatz86/Archmorph/issues/908",
+    "number": 908,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P0",
+      "agent:bug-master"
+    ]
+  },
+  {
+    "fid": "F-BUG-3",
+    "title": "[Audit 2026-05-08] F-BUG-3: `useEffect(() => fetch(...), [])` lacks AbortController in `MigrationDashboard`",
+    "url": "https://github.com/idokatz86/Archmorph/issues/909",
+    "number": 909,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:bug-master"
+    ]
+  },
+  {
+    "fid": "F-BUG-4",
+    "title": "[Audit 2026-05-08] F-BUG-4: Race: `IaCViewer` apply-changes button can fire twice on double-click",
+    "url": "https://github.com/idokatz86/Archmorph/issues/910",
+    "number": 910,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:bug-master"
+    ]
+  },
+  {
+    "fid": "F-BUG-5",
+    "title": "[Audit 2026-05-08] F-BUG-5: Backend `azure_landing_zone.py` raises on diagrams with 0 mappings \u2014 should return empty SVG",
+    "url": "https://github.com/idokatz86/Archmorph/issues/911",
+    "number": 911,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:bug-master"
+    ]
+  },
+  {
+    "fid": "F-BUG-6",
+    "title": "[Audit 2026-05-08] F-BUG-6: `useToast` hook not invoked from `apiClient` 5xx mapping \u2014 error UX absent",
+    "url": "https://github.com/idokatz86/Archmorph/issues/912",
+    "number": 912,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:bug-master"
+    ]
+  },
+  {
+    "fid": "F-BUG-7",
+    "title": "[Audit 2026-05-08] F-BUG-7: `dump_configs.py` writes `terraform.tfvars` containing secrets in plaintext to repo root",
+    "url": "https://github.com/idokatz86/Archmorph/issues/913",
+    "number": 913,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:bug-master"
+    ]
+  },
+  {
+    "fid": "F-BUG-8",
+    "title": "[Audit 2026-05-08] F-BUG-8: `Diagram.iac_terraform` updated without version bump \u2014 concurrent edits silently overwrite",
+    "url": "https://github.com/idokatz86/Archmorph/issues/914",
+    "number": 914,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:bug-master"
+    ]
+  },
+  {
+    "fid": "F-BUG-9",
+    "title": "[Audit 2026-05-08] F-BUG-9: SSE message split across event boundary corrupts JSON in agent runner stream",
+    "url": "https://github.com/idokatz86/Archmorph/issues/915",
+    "number": 915,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P1",
+      "agent:bug-master"
+    ]
+  },
+  {
+    "fid": "F-BUG-10",
+    "title": "[Audit 2026-05-08] F-BUG-10: `Roadmap.jsx` infinite re-render when `roadmapItems` updated by parent each render",
+    "url": "https://github.com/idokatz86/Archmorph/issues/916",
+    "number": 916,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P2",
+      "agent:bug-master"
+    ]
+  },
+  {
+    "fid": "F-BUG-11",
+    "title": "[Audit 2026-05-08] F-BUG-11: `analyze` endpoint returns 200 + `error` in body for vision API failure \u2014 frontend treats as success",
+    "url": "https://github.com/idokatz86/Archmorph/issues/917",
+    "number": 917,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P2",
+      "agent:bug-master"
+    ]
+  },
+  {
+    "fid": "F-BUG-12",
+    "title": "[Audit 2026-05-08] F-BUG-12: `vite.config.ts` uses dev-only `define: { 'process.env': ... }` \u2014 leaks server env names into bundle",
+    "url": "https://github.com/idokatz86/Archmorph/issues/918",
+    "number": 918,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P2",
+      "agent:bug-master"
+    ]
+  },
+  {
+    "fid": "F-BUG-13",
+    "title": "[Audit 2026-05-08] F-BUG-13: `Dockerfile.frontend` doesn't pin Node patch version \u2014 supply-chain drift",
+    "url": "https://github.com/idokatz86/Archmorph/issues/919",
+    "number": 919,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P2",
+      "agent:bug-master"
+    ]
+  },
+  {
+    "fid": "F-BUG-14",
+    "title": "[Audit 2026-05-08] F-BUG-14: `useFocusTrap` hook releases trap on `pointerdown` outside but doesn't restore on dialog close from Esc",
+    "url": "https://github.com/idokatz86/Archmorph/issues/920",
+    "number": 920,
+    "labels": [
+      "audit:2026-05-08",
+      "severity:P2",
+      "agent:bug-master"
+    ]
+  }
+]
