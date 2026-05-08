@@ -35,7 +35,7 @@ class DeploymentRequest(StrictBaseModel):
         ...,
         min_length=1,
         max_length=200,
-        pattern=r"^[a-zA-Z0-9_\-]+$",
+        pattern=r"^[a-zA-Z0-9_-]+$",
     )
     environment: Literal["dev", "staging", "prod", "production"] = "dev"
     iac_code: Optional[str] = Field(None, max_length=500_000)

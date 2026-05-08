@@ -239,7 +239,7 @@ class TestHealthEndpointSplit:
 
     def test_healthz_does_not_expose_dependency_details(self):
         """Liveness probe must not expose internal system state."""
-        data = resp = client.get("/healthz")
+        resp = client.get("/healthz")
         data = resp.json()
         assert "checks" not in data
         assert "service_catalog" not in data
