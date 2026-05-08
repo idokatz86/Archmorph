@@ -170,13 +170,13 @@ describe('ExportHub parallel generation', () => {
     // Start generation — 3 independent deliverables (IaC, Cost, Timeline)
     await user.click(screen.getByRole('button', { name: /Generate All Selected/i }))
 
-    // All three API calls must be in-flight before we resolve any
-    // CONCURRENCY limit is 3, so all should start immediately
-    await waitFor(() => expect(resolvers.length).toBeGreaterThanOrEqual(2), { timeout: 2000 })
+    // All three API calls must be in-flight before we resolve any.
+    // CONCURRENCY limit is 3, so all 3 should start immediately.
+    await waitFor(() => expect(resolvers.length).toBeGreaterThanOrEqual(3), { timeout: 2000 })
 
-    // At least 2 were in-flight simultaneously — verify by resolving them all now
+    // All three were in-flight simultaneously — verify by resolving them all now
     const countBeforeResolve = resolvers.length
-    expect(countBeforeResolve).toBeGreaterThanOrEqual(2)
+    expect(countBeforeResolve).toBeGreaterThanOrEqual(3)
 
     // Resolve all pending calls
     resolvers.forEach(r => r())

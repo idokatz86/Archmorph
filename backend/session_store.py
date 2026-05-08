@@ -121,25 +121,25 @@ class InMemoryStore(SessionStore):
         if isinstance(value, (bytes, bytearray)):
             entry_size = len(value)
         elif isinstance(value, tuple) and len(value) == 2 and isinstance(value[0], (bytes, str)):
-            # IMAGE_STORE stores (bytes, content_type) or (str_base64, content_type) tuples
+            # IMAGE_STORE stores (bytes, content_type) or (str_base64, content_type) tuples.
+            # For base64 strings len() counts characters (~33% larger than raw bytes),
+            # which is intentional — we budget the actual stored bytes, not the decoded size.
             entry_size = len(value[0])
 
-        # Evict oldest entry first if adding this would exceed memory budget
+        # Evict oldest entries until there is room or the cache is empty
+        while self._total_bytes + entry_size > self.MAX_MEMORY_BYTES and self._cache:
+            oldest_key = next(iter(self._cache))
+            self.delete(oldest_key)
+            logger.warning(
+                "InMemoryStore memory budget exceeded (%d + %d > %s bytes) — evicted oldest entry '%s'",
+                self._total_bytes, entry_size, self.MAX_MEMORY_BYTES, oldest_key,
+            )
+
         if self._total_bytes + entry_size > self.MAX_MEMORY_BYTES:
-            if self._cache:
-                oldest_key = next(iter(self._cache))
-                self.delete(oldest_key)
-                logger.warning(
-                    "InMemoryStore memory budget exceeded (%d + %d > %s bytes) — evicted oldest entry",
-                    self._total_bytes, entry_size, self.MAX_MEMORY_BYTES,
-                )
-            # If still exceeded after one eviction, reject
-            # (handles both: cache was already empty, or evicted entry wasn't large enough)
-            if self._total_bytes + entry_size > self.MAX_MEMORY_BYTES:
-                logger.warning(
-                    "InMemoryStore memory budget still exceeded after eviction — rejecting entry",
-                )
-                return
+            logger.warning(
+                "InMemoryStore memory budget still exceeded after eviction — rejecting entry",
+            )
+            return
 
         # TTLCache doesn't support per-key TTL; use the store-wide TTL
         self._cache[key] = value
