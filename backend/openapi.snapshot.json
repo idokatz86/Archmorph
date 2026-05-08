@@ -13689,7 +13689,7 @@
         ]
       },
       "unlock": {
-        "operationId": "unlock_tf_state_api_terraform_state__project_id___environment__unlocr",
+        "operationId": "unlock_tf_state_api_terraform_state",
         "parameters": [
           {
             "in": "path",
@@ -13736,7 +13736,7 @@
         ]
       },
       "unlocr": {
-        "operationId": "unlock_tf_state_api_terraform_state__project_id___environment__unlocr",
+        "operationId": "unlock_tf_state_legacy_unlocr_api_terraform_state",
         "parameters": [
           {
             "in": "path",
@@ -22431,7 +22431,7 @@
         ]
       },
       "unlock": {
-        "operationId": "unlock_tf_state_v1_api_v1_terraform_state__project_id___environment__unlocr",
+        "operationId": "unlock_tf_state_v1_api_v1_terraform_state__project_id___environment__unlock",
         "parameters": [
           {
             "in": "path",

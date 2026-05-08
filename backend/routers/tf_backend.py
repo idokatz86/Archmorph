@@ -130,7 +130,16 @@ async def lock_tf_state(
     
     return Response(status_code=200)
 
-@router.api_route("/{project_id}/{environment}", methods=["UNLOCK", "UNLOCR"])
+@router.api_route(
+    "/{project_id}/{environment}",
+    methods=["UNLOCR"],
+    operation_id="unlock_tf_state_legacy_unlocr_api_terraform_state",
+)
+@router.api_route(
+    "/{project_id}/{environment}",
+    methods=["UNLOCK"],
+    operation_id="unlock_tf_state_api_terraform_state",
+)
 async def unlock_tf_state(
     project_id: str,
     environment: str,
