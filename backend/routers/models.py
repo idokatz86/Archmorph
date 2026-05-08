@@ -5,7 +5,7 @@ from pydantic import ConfigDict
 from strict_models import StrictBaseModel
 
 from database import get_db
-from routers.auth import get_current_user
+from routers.shared import require_authenticated_user_context
 from rbac import RequireRole
 from models.model_registry import ModelEndpoint
 
@@ -32,7 +32,7 @@ class ModelEndpointResponseSchema(StrictBaseModel):
 
 @router.post("/", response_model=ModelEndpointResponseSchema, status_code=status.HTTP_201_CREATED)
 def register_model(payload: ModelEndpointCreateSchema, db: Session = Depends(get_db), user: dict = Depends(RequireRole(['admin', 'super_admin']))):
-    org_id = user.get("org_id", "default_org")
+    org_id = user.tenant_id
     
     endpoint = ModelEndpoint(
         organization_id=org_id,
@@ -49,13 +49,13 @@ def register_model(payload: ModelEndpointCreateSchema, db: Session = Depends(get
     return endpoint
 
 @router.get("/", response_model=List[ModelEndpointResponseSchema])
-def list_models(db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
-    org_id = user.get("org_id", "default_org")
+def list_models(db: Session = Depends(get_db), user: dict = Depends(require_authenticated_user_context)):
+    org_id = user["org_id"]
     return db.query(ModelEndpoint).filter(ModelEndpoint.organization_id == org_id).all()
 
 @router.delete("/{model_id}")
 def delete_model(model_id: str, db: Session = Depends(get_db), user: dict = Depends(RequireRole(['admin', 'super_admin']))):
-    org_id = user.get("org_id", "default_org")
+    org_id = user.tenant_id
     endpoint = db.query(ModelEndpoint).filter(
         ModelEndpoint.id == model_id,
         ModelEndpoint.organization_id == org_id

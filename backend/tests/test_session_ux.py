@@ -29,6 +29,7 @@ from session_store import (
     reset_stores,
 )
 from routers.shared import SESSION_STORE
+from auth import User, AuthProvider, UserTier, generate_session_token
 
 
 # ─────────────────────────────────────────────────────────────
@@ -75,6 +76,19 @@ def clean_stores():
     reset_stores()
     yield
     reset_stores()
+
+
+@pytest.fixture()
+def auth_headers():
+    user = User(
+        id="session-ux-user",
+        email="session-ux@example.com",
+        provider=AuthProvider.GITHUB,
+        tier=UserTier.TEAM,
+        tenant_id="tenant-session-ux",
+    )
+    token = generate_session_token(user)
+    return {"Authorization": f"Bearer {token}"}
 
 
 # ─────────────────────────────────────────────────────────────
@@ -171,37 +185,40 @@ class TestSessionExpiryMidWorkflow:
 class TestSessionRestore:
     """Test the /diagrams/{id}/restore-session endpoint."""
 
-    def test_restore_valid_session(self, test_client, analysis):
+    def test_restore_valid_session(self, test_client, analysis, auth_headers):
         """Frontend can push cached analysis to restore an expired session."""
         diagram_id = "test-restore-001"
 
         resp = test_client.post(
             f"/api/v1/diagrams/{diagram_id}/restore-session",
             json={"analysis": analysis},
+            headers=auth_headers,
         )
         assert resp.status_code == 200
         body = resp.json()
         assert body["status"] == "restored"
         assert body["diagram_id"] == diagram_id
 
-    def test_restore_empty_analysis_fails(self, test_client):
+    def test_restore_empty_analysis_fails(self, test_client, auth_headers):
         """Restoring with empty/null analysis should fail with 400."""
         resp = test_client.post(
             "/api/v1/diagrams/test-empty/restore-session",
             json={"analysis": {}},
+            headers=auth_headers,
         )
         # Empty dict is valid dict but falsy — should be rejected
         assert resp.status_code == 400
 
-    def test_restore_non_dict_analysis_fails(self, test_client):
+    def test_restore_non_dict_analysis_fails(self, test_client, auth_headers):
         """Restoring with non-dict analysis should fail with 422 or 400."""
         resp = test_client.post(
             "/api/v1/diagrams/test-bad/restore-session",
             json={"analysis": "not a dict"},
+            headers=auth_headers,
         )
         assert resp.status_code in (400, 422)
 
-    def test_restore_sets_correct_diagram_id(self, test_client, analysis):
+    def test_restore_sets_correct_diagram_id(self, test_client, analysis, auth_headers):
         """Restored session should have diagram_id set to the URL param."""
         diagram_id = "test-id-match-001"
         analysis["diagram_id"] = "wrong-id"
@@ -209,6 +226,7 @@ class TestSessionRestore:
         test_client.post(
             f"/api/v1/diagrams/{diagram_id}/restore-session",
             json={"analysis": analysis},
+            headers=auth_headers,
         )
 
         # The session should have the correct diagram_id
@@ -216,19 +234,20 @@ class TestSessionRestore:
         assert stored is not None
         assert stored["diagram_id"] == diagram_id
 
-    def test_restored_session_survives_subsequent_reads(self, test_client, analysis):
+    def test_restored_session_survives_subsequent_reads(self, test_client, analysis, auth_headers):
         """After restore, endpoints that read the session should work."""
         diagram_id = "test-restored-read-001"
         test_client.post(
             f"/api/v1/diagrams/{diagram_id}/restore-session",
             json={"analysis": analysis},
+            headers=auth_headers,
         )
 
         # Questions endpoint is POST (not GET) — should work with restored session
         resp = test_client.post(f"/api/v1/diagrams/{diagram_id}/questions")
         assert resp.status_code == 200
 
-    def test_restore_rate_limited(self, test_client, analysis):
+    def test_restore_rate_limited(self, test_client, analysis, auth_headers):
         """Restore endpoint should be rate-limited to prevent abuse."""
         # The endpoint has @limiter.limit("10/minute")
         # We verify the decorator exists (actual rate limiting disabled in tests)
@@ -236,8 +255,16 @@ class TestSessionRestore:
         resp = test_client.post(
             f"/api/v1/diagrams/{diagram_id}/restore-session",
             json={"analysis": analysis},
+            headers=auth_headers,
         )
         assert resp.status_code == 200
+
+    def test_restore_requires_authentication(self, test_client, analysis):
+        resp = test_client.post(
+            "/api/v1/diagrams/test-no-auth/restore-session",
+            json={"analysis": analysis},
+        )
+        assert resp.status_code == 401
 
 
 # ─────────────────────────────────────────────────────────────
@@ -733,7 +760,7 @@ class TestEndToEndSessionWorkflow:
         )
         assert resp.status_code == 200
 
-    def test_restore_then_continue_workflow(self, test_client, analysis):
+    def test_restore_then_continue_workflow(self, test_client, analysis, auth_headers):
         """After restore, subsequent workflow steps should succeed."""
         diagram_id = "restore-workflow-001"
 
@@ -741,6 +768,7 @@ class TestEndToEndSessionWorkflow:
         resp = test_client.post(
             f"/api/v1/diagrams/{diagram_id}/restore-session",
             json={"analysis": analysis},
+            headers=auth_headers,
         )
         assert resp.status_code == 200
 

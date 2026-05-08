@@ -5,7 +5,7 @@ from pydantic import ConfigDict
 from strict_models import StrictBaseModel
 
 from database import get_db
-from routers.auth import get_current_user
+from routers.shared import require_authenticated_user_context
 from models.policy import AgentPolicy, AgentPolicyBinding
 
 router = APIRouter(prefix="/api/policies", tags=["Policies"])
@@ -29,8 +29,8 @@ class PolicyResponseSchema(StrictBaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 @router.post("/", response_model=PolicyResponseSchema, status_code=status.HTTP_201_CREATED)
-def create_policy(payload: PolicyCreateSchema, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
-    org_id = user.get("org_id", "default_org")
+def create_policy(payload: PolicyCreateSchema, db: Session = Depends(get_db), user: dict = Depends(require_authenticated_user_context)):
+    org_id = user["org_id"]
     
     policy = AgentPolicy(
         organization_id=org_id,
@@ -46,13 +46,13 @@ def create_policy(payload: PolicyCreateSchema, db: Session = Depends(get_db), us
     return policy
 
 @router.get("/", response_model=List[PolicyResponseSchema])
-def list_policies(db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
-    org_id = user.get("org_id", "default_org")
+def list_policies(db: Session = Depends(get_db), user: dict = Depends(require_authenticated_user_context)):
+    org_id = user["org_id"]
     return db.query(AgentPolicy).filter(AgentPolicy.organization_id == org_id).all()
 
 @router.post("/{policy_id}/bind/{agent_id}")
-def bind_policy(policy_id: str, agent_id: str, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
-    org_id = user.get("org_id", "default_org")
+def bind_policy(policy_id: str, agent_id: str, db: Session = Depends(get_db), user: dict = Depends(require_authenticated_user_context)):
+    org_id = user["org_id"]
     # Verify policy
     policy = db.query(AgentPolicy).filter(AgentPolicy.id == policy_id, AgentPolicy.organization_id == org_id).first()
     if not policy:
@@ -64,8 +64,8 @@ def bind_policy(policy_id: str, agent_id: str, db: Session = Depends(get_db), us
     return {"status": "success"}
 
 @router.post("/{policy_id}/unbind/{agent_id}")
-def unbind_policy(policy_id: str, agent_id: str, db: Session = Depends(get_db), user: dict = Depends(get_current_user)):
-    org_id = user.get("org_id", "default_org")
+def unbind_policy(policy_id: str, agent_id: str, db: Session = Depends(get_db), user: dict = Depends(require_authenticated_user_context)):
+    org_id = user["org_id"]
     binding = db.query(AgentPolicyBinding).join(AgentPolicy).filter(
         AgentPolicyBinding.agent_id == agent_id,
         AgentPolicyBinding.policy_id == policy_id,

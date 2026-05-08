@@ -240,13 +240,31 @@ async def export_hld_endpoint(
 # ─────────────────────────────────────────────────────────────
 @router.post("/api/diagrams/{diagram_id}/generate-hld-async")
 @limiter.limit("10/minute")
-async def generate_hld_async(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
+async def generate_hld_async(
+    request: Request,
+    diagram_id: str,
+    _auth=Depends(verify_api_key),
+):
     """Start async HLD document generation. Returns 202 with job_id."""
+    from auth import get_user_from_request_headers
+
+    user = get_user_from_request_headers(dict(request.headers))
     session = get_or_recreate_session(diagram_id)
     if not session:
         raise ArchmorphException(404, "Your migration analysis session expired. Please re-analyze the diagram.")
+    owner_user_id = session.get("_owner_user_id")
+    tenant_id = session.get("_tenant_id")
+    if user and owner_user_id and owner_user_id != user.id:
+        raise ArchmorphException(403, "Forbidden: diagram owner mismatch")
+    if user and tenant_id and tenant_id != user.tenant_id:
+        raise ArchmorphException(403, "Forbidden: tenant mismatch")
 
-    job = job_manager.submit("generate_hld", diagram_id=diagram_id)
+    job = job_manager.submit(
+        "generate_hld",
+        diagram_id=diagram_id,
+        owner_user_id=user.id if user else None,
+        tenant_id=user.tenant_id if user else None,
+    )
     asyncio.create_task(_run_hld_job(job.job_id, diagram_id))
 
     from starlette.responses import JSONResponse

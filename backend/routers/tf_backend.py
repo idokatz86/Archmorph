@@ -7,9 +7,10 @@ from datetime import datetime, timezone
 from database import get_db
 from models.deployment_state import DeploymentState
 from error_envelope import ArchmorphException
-from routers.shared import get_store
+from routers.shared import get_store, require_authenticated_user
 
 LOCK_STORE = get_store("tf_locks", maxsize=500, ttl=3600)
+OWNER_STORE = get_store("tf_state_owners", maxsize=2000, ttl=86400 * 30)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/terraform/state", tags=["Terraform State Backend"])
@@ -30,15 +31,45 @@ def get_deployment_state(db: Session, project_id: str, environment: str):
         db.refresh(state)
     return state
 
+
+def _state_owner_key(project_id: str, environment: str) -> str:
+    return f"{project_id}_{environment}"
+
+
+def _enforce_state_owner(project_id: str, environment: str, user) -> None:
+    key = _state_owner_key(project_id, environment)
+    owner = OWNER_STORE.get(key)
+    if owner is None:
+        OWNER_STORE[key] = {
+            "owner_user_id": user.id,
+            "tenant_id": user.tenant_id,
+        }
+        return
+    if owner.get("owner_user_id") != user.id or owner.get("tenant_id") != user.tenant_id:
+        raise ArchmorphException(403, "Forbidden: state ownership mismatch")
+
 @router.get("/{project_id}/{environment}")
-async def get_tf_state(project_id: str, environment: str, db: Session = Depends(get_db)):
+async def get_tf_state(
+    project_id: str,
+    environment: str,
+    db: Session = Depends(get_db),
+    user=Depends(require_authenticated_user),
+):
+    _enforce_state_owner(project_id, environment, user)
     state = get_deployment_state(db, project_id, environment)
     if not state.state_json:
         return Response(content="{}", media_type="application/json")
     return Response(content=json.dumps(state.state_json), media_type="application/json")
 
 @router.post("/{project_id}/{environment}")
-async def update_tf_state(project_id: str, environment: str, request: Request, db: Session = Depends(get_db)):
+async def update_tf_state(
+    project_id: str,
+    environment: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    user=Depends(require_authenticated_user),
+):
+    _enforce_state_owner(project_id, environment, user)
     state = get_deployment_state(db, project_id, environment)
     
     lock_id = request.query_params.get("ID")
@@ -63,7 +94,14 @@ async def update_tf_state(project_id: str, environment: str, request: Request, d
     return Response(status_code=200)
 
 @router.api_route("/{project_id}/{environment}", methods=["LOCK"])
-async def lock_tf_state(project_id: str, environment: str, request: Request, db: Session = Depends(get_db)):
+async def lock_tf_state(
+    project_id: str,
+    environment: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    user=Depends(require_authenticated_user),
+):
+    _enforce_state_owner(project_id, environment, user)
     state = get_deployment_state(db, project_id, environment)
     
     body = await request.body()
@@ -92,8 +130,15 @@ async def lock_tf_state(project_id: str, environment: str, request: Request, db:
     
     return Response(status_code=200)
 
-@router.api_route("/{project_id}/{environment}", methods=["UNLOCR"])
-async def unlock_tf_state(project_id: str, environment: str, request: Request, db: Session = Depends(get_db)):
+@router.api_route("/{project_id}/{environment}", methods=["UNLOCK", "UNLOCR"])
+async def unlock_tf_state(
+    project_id: str,
+    environment: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    user=Depends(require_authenticated_user),
+):
+    _enforce_state_owner(project_id, environment, user)
     state = get_deployment_state(db, project_id, environment)
     
     body = await request.body()
@@ -120,7 +165,13 @@ async def unlock_tf_state(project_id: str, environment: str, request: Request, d
     return Response(status_code=200)
 
 @router.post("/{project_id}/{environment}/rollback")
-async def rollback_state(project_id: str, environment: str, db: Session = Depends(get_db)):
+async def rollback_state(
+    project_id: str,
+    environment: str,
+    db: Session = Depends(get_db),
+    user=Depends(require_authenticated_user),
+):
+    _enforce_state_owner(project_id, environment, user)
     state = get_deployment_state(db, project_id, environment)
     if not state.previous_state_json:
         raise ArchmorphException(
