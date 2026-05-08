@@ -32,6 +32,7 @@ if str(CLI_DIR) not in sys.path:
 
 import archmorph_cli  # noqa: E402
 import usage_metrics  # noqa: E402
+from auth import AuthProvider, User, UserTier, generate_session_token  # noqa: E402
 from main import IMAGE_STORE, SESSION_STORE, app  # noqa: E402
 
 try:
@@ -122,6 +123,17 @@ resource "terraform_data" "main" {
     return MagicMock(choices=[MagicMock(message=MagicMock(content=content))], _truncated=False)
 
 
+def _cli_smoke_token() -> str:
+    user = User(
+        id="cli-smoke-user",
+        email="cli-smoke@example.com",
+        provider=AuthProvider.GITHUB,
+        tier=UserTier.TEAM,
+        tenant_id="tenant-cli-smoke",
+    )
+    return generate_session_token(user)
+
+
 def test_archmorph_run_smokes_over_http(monkeypatch, tmp_path):
     import routers.diagrams as diagrams_router
     import iac_generator
@@ -149,6 +161,8 @@ def test_archmorph_run_smokes_over_http(monkeypatch, tmp_path):
             [
                 "--api-url",
                 f"http://127.0.0.1:{port}",
+                "--token",
+                _cli_smoke_token(),
                 "run",
                 "--diagram",
                 str(diagram),

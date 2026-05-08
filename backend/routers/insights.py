@@ -325,7 +325,7 @@ Return a JSON object:
 
 @router.post("/api/diagrams/{diagram_id}/migration-chat")
 @limiter.limit("20/minute")
-async def migration_chat(request: Request, diagram_id: str):
+async def migration_chat(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
     """Contextual Q&A about the migration analysis results (#258).
 
     Body: { "message": "user question" }

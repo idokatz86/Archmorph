@@ -1,5 +1,4 @@
 """Tests for SSE utilities (#281, #858)."""
-import asyncio
 import json
 
 import pytest

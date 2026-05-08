@@ -49,6 +49,7 @@ describe('useSSE', () => {
   beforeEach(() => {
     MockEventSource._instances = [];
     global.EventSource = MockEventSource;
+    localStorage.clear();
     vi.useFakeTimers();
   });
 
@@ -74,6 +75,17 @@ describe('useSSE', () => {
     // Simulate open
     await act(async () => { vi.advanceTimersByTime(10); });
     expect(result.current.connected).toBe(true);
+  });
+
+  it('adds stored session token for EventSource auth', () => {
+    localStorage.setItem('archmorph_session_token', 'stream-token');
+    renderHook(() =>
+      useSSE('job-token', { onProgress: vi.fn(), onComplete: vi.fn(), onError: vi.fn() })
+    );
+
+    const url = new URL(MockEventSource._instances[0].url);
+    expect(url.pathname).toContain('/jobs/job-token/stream');
+    expect(url.searchParams.get('token')).toBe('stream-token');
   });
 
   it('calls onProgress when progress event received', async () => {

@@ -1335,6 +1335,8 @@ export interface paths {
         /**
          * Execute Deployment
          * @description Kicks off an async Terraform deployment and streams the logs back to the client.
+         *     Client disconnects are detected and upstream streaming is stopped promptly
+         *     to avoid wasting Azure OpenAI / compute billing (#849).
          */
         post: operations["execute_deployment_api_deploy_execute__project_id__post"];
         delete?: never;
@@ -1354,7 +1356,8 @@ export interface paths {
         put?: never;
         /**
          * Run Preflight Check
-         * @description Runs security and cost estimations before deployment.
+         * @description Runs security and cost estimations before deployment (#845).
+         *     Validates the strict DeploymentRequest model (enums + size limits).
          */
         post: operations["run_preflight_check_api_deploy_preflight_check_post"];
         delete?: never;
@@ -1991,6 +1994,12 @@ export interface paths {
         /**
          * Iac Chat Endpoint
          * @description Chat with AI to modify generated Terraform/Bicep code.
+         *
+         *     The server always uses its own canonical IaC code (stored after ``/generate``)
+         *     rather than the client-supplied ``code`` field to prevent state overwrite from
+         *     tampered request bodies (#842). When the client supplies ``code_hash`` it must
+         *     match the server's SHA-256 digest; a mismatch returns 409 so the client knows
+         *     to refresh.
          */
         post: operations["iac_chat_endpoint_api_diagrams__diagram_id__iac_chat_post"];
         /**
@@ -5612,6 +5621,8 @@ export interface paths {
         /**
          * Execute Deployment V1
          * @description Kicks off an async Terraform deployment and streams the logs back to the client.
+         *     Client disconnects are detected and upstream streaming is stopped promptly
+         *     to avoid wasting Azure OpenAI / compute billing (#849).
          */
         post: operations["execute_deployment_v1_api_v1_deploy_execute__project_id__post"];
         delete?: never;
@@ -5631,7 +5642,8 @@ export interface paths {
         put?: never;
         /**
          * Run Preflight Check V1
-         * @description Runs security and cost estimations before deployment.
+         * @description Runs security and cost estimations before deployment (#845).
+         *     Validates the strict DeploymentRequest model (enums + size limits).
          */
         post: operations["run_preflight_check_v1_api_v1_deploy_preflight_check_post"];
         delete?: never;
@@ -6248,6 +6260,12 @@ export interface paths {
         /**
          * Iac Chat Endpoint V1
          * @description Chat with AI to modify generated Terraform/Bicep code.
+         *
+         *     The server always uses its own canonical IaC code (stored after ``/generate``)
+         *     rather than the client-supplied ``code`` field to prevent state overwrite from
+         *     tampered request bodies (#842). When the client supplies ``code_hash`` it must
+         *     match the server's SHA-256 digest; a mismatch returns 409 so the client knows
+         *     to refresh.
          */
         post: operations["iac_chat_endpoint_v1_api_v1_diagrams__diagram_id__iac_chat_post"];
         /**
@@ -8231,6 +8249,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/healthz": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Healthz
+         * @description Anonymous minimal liveness probe — returns alive/dead only.
+         *
+         *     Safe to call without credentials; used by infrastructure probes (#844).
+         *     Contains no sensitive dependency details.
+         */
+        get: operations["healthz_healthz_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -8873,12 +8914,27 @@ export interface components {
                 [key: string]: unknown;
             } | null;
         };
-        /** DeploymentRequest */
+        /**
+         * DeploymentRequest
+         * @description Request body for deployment preflight and execution (#845).
+         *
+         *     Strict validation:
+         *     - ``project_id``  — alphanumeric/dash/underscore, 1-200 chars
+         *     - ``environment`` — constrained to known deployment targets
+         *     - ``iac_code``    — 500 KB cap to prevent oversized payloads
+         *     - ``canvas_state`` — required dict (preflight validates its shape downstream)
+         */
         DeploymentRequest: {
             /** Canvas State */
             canvas_state?: {
                 [key: string]: unknown;
             } | null;
+            /**
+             * Environment
+             * @default dev
+             * @enum {string}
+             */
+            environment: "dev" | "staging" | "prod" | "production";
             /** Iac Code */
             iac_code?: string | null;
             /** Project Id */
@@ -9133,6 +9189,12 @@ export interface components {
         /**
          * IaCChatMessage
          * @description Request body for IaC chat messages.
+         *
+         *     ``code_hash`` is the SHA-256 hex digest (lowercase) of the client's local copy
+         *     of the IaC code. When supplied, it must match the server-side hash. A mismatch
+         *     returns HTTP 409 so the client knows to re-fetch the authoritative code before
+         *     retrying (#842). Missing hashes remain accepted for older clients; the server
+         *     still ignores client-supplied code whenever canonical state exists.
          */
         IaCChatMessage: {
             /**
@@ -9140,6 +9202,11 @@ export interface components {
              * @default
              */
             code: string;
+            /**
+             * Code Hash
+             * @description Optional SHA-256 hex digest of the client's current IaC code for stale-copy detection
+             */
+            code_hash?: string | null;
             /**
              * Format
              * @default terraform
@@ -10732,9 +10799,7 @@ export interface operations {
     clear_memory_api_agents__agent_id__memory__delete: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path: {
                 agent_id: string;
             };
@@ -10765,9 +10830,7 @@ export interface operations {
     list_documents_api_agents__agent_id__memory_documents_get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path: {
                 agent_id: string;
             };
@@ -10798,9 +10861,7 @@ export interface operations {
     delete_document_api_agents__agent_id__memory_documents__doc_id__delete: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path: {
                 agent_id: string;
                 doc_id: string;
@@ -10832,9 +10893,7 @@ export interface operations {
     list_entities_api_agents__agent_id__memory_entities_get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path: {
                 agent_id: string;
             };
@@ -10865,9 +10924,7 @@ export interface operations {
     list_episodes_api_agents__agent_id__memory_episodes_get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path: {
                 agent_id: string;
             };
@@ -11621,6 +11678,7 @@ export interface operations {
                 since?: string | null;
                 /** @description ISO datetime upper bound */
                 until?: string | null;
+                tenant_id?: string | null;
             };
             header?: never;
             path?: never;
@@ -11737,9 +11795,7 @@ export interface operations {
     };
     delete_credentials_api_credentials_delete: {
         parameters: {
-            query: {
-                token: string;
-            };
+            query?: never;
             header?: {
                 authorization?: string | null;
             };
@@ -11772,9 +11828,7 @@ export interface operations {
     };
     store_aws_credentials_api_credentials_aws_post: {
         parameters: {
-            query: {
-                token: string;
-            };
+            query?: never;
             header?: {
                 authorization?: string | null;
             };
@@ -11809,9 +11863,7 @@ export interface operations {
     };
     store_azure_credentials_api_credentials_azure_post: {
         parameters: {
-            query: {
-                token: string;
-            };
+            query?: never;
             header?: {
                 authorization?: string | null;
             };
@@ -11848,7 +11900,6 @@ export interface operations {
         parameters: {
             query: {
                 provider: string;
-                token: string;
             };
             header?: {
                 authorization?: string | null;
@@ -11883,9 +11934,7 @@ export interface operations {
     execute_deployment_api_deploy_execute__project_id__post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path: {
                 project_id: string;
             };
@@ -11920,9 +11969,7 @@ export interface operations {
     run_preflight_check_api_deploy_preflight_check_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -13975,9 +14022,7 @@ export interface operations {
     start_execution_api_executions__post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -14010,9 +14055,7 @@ export interface operations {
     get_execution_api_executions__execution_id__get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path: {
                 execution_id: string;
             };
@@ -14043,9 +14086,7 @@ export interface operations {
     cancel_execution_api_executions__execution_id__cancel_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path: {
                 execution_id: string;
             };
@@ -15142,9 +15183,7 @@ export interface operations {
     list_models_api_models__get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -15157,15 +15196,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ModelEndpointResponseSchema"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -15277,9 +15307,7 @@ export interface operations {
     list_policies_api_policies__get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -15294,23 +15322,12 @@ export interface operations {
                     "application/json": components["schemas"]["PolicyResponseSchema"][];
                 };
             };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
         };
     };
     create_policy_api_policies__post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -15343,9 +15360,7 @@ export interface operations {
     bind_policy_api_policies__policy_id__bind__agent_id__post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path: {
                 policy_id: string;
                 agent_id: string;
@@ -15377,9 +15392,7 @@ export interface operations {
     unbind_policy_api_policies__policy_id__unbind__agent_id__post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path: {
                 policy_id: string;
                 agent_id: string;
@@ -15869,9 +15882,7 @@ export interface operations {
     };
     run_cloud_scan_api_scanner_run__provider__post: {
         parameters: {
-            query: {
-                token: string;
-            };
+            query?: never;
             header?: {
                 authorization?: string | null;
             };
@@ -17367,9 +17378,7 @@ export interface operations {
     clear_memory_v1_api_v1_agents__agent_id__memory__delete: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path: {
                 agent_id: string;
             };
@@ -17400,9 +17409,7 @@ export interface operations {
     list_documents_v1_api_v1_agents__agent_id__memory_documents_get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path: {
                 agent_id: string;
             };
@@ -17433,9 +17440,7 @@ export interface operations {
     delete_document_v1_api_v1_agents__agent_id__memory_documents__doc_id__delete: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path: {
                 agent_id: string;
                 doc_id: string;
@@ -17467,9 +17472,7 @@ export interface operations {
     list_entities_v1_api_v1_agents__agent_id__memory_entities_get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path: {
                 agent_id: string;
             };
@@ -17500,9 +17503,7 @@ export interface operations {
     list_episodes_v1_api_v1_agents__agent_id__memory_episodes_get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path: {
                 agent_id: string;
             };
@@ -18328,6 +18329,7 @@ export interface operations {
                 since?: string | null;
                 /** @description ISO datetime upper bound */
                 until?: string | null;
+                tenant_id?: string | null;
             };
             header?: never;
             path?: never;
@@ -18424,9 +18426,7 @@ export interface operations {
     };
     delete_credentials_v1_api_v1_credentials_delete: {
         parameters: {
-            query: {
-                token: string;
-            };
+            query?: never;
             header?: {
                 authorization?: string | null;
             };
@@ -18459,9 +18459,7 @@ export interface operations {
     };
     store_aws_credentials_v1_api_v1_credentials_aws_post: {
         parameters: {
-            query: {
-                token: string;
-            };
+            query?: never;
             header?: {
                 authorization?: string | null;
             };
@@ -18496,9 +18494,7 @@ export interface operations {
     };
     store_azure_credentials_v1_api_v1_credentials_azure_post: {
         parameters: {
-            query: {
-                token: string;
-            };
+            query?: never;
             header?: {
                 authorization?: string | null;
             };
@@ -18535,7 +18531,6 @@ export interface operations {
         parameters: {
             query: {
                 provider: string;
-                token: string;
             };
             header?: {
                 authorization?: string | null;
@@ -18570,9 +18565,7 @@ export interface operations {
     execute_deployment_v1_api_v1_deploy_execute__project_id__post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path: {
                 project_id: string;
             };
@@ -18607,9 +18600,7 @@ export interface operations {
     run_preflight_check_v1_api_v1_deploy_preflight_check_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -20329,9 +20320,7 @@ export interface operations {
     start_execution_v1_api_v1_executions__post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -20364,9 +20353,7 @@ export interface operations {
     get_execution_v1_api_v1_executions__execution_id__get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path: {
                 execution_id: string;
             };
@@ -20397,9 +20384,7 @@ export interface operations {
     cancel_execution_v1_api_v1_executions__execution_id__cancel_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path: {
                 execution_id: string;
             };
@@ -21193,9 +21178,7 @@ export interface operations {
     list_models_v1_api_v1_models__get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -21208,15 +21191,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ModelEndpointResponseSchema"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -21292,9 +21266,7 @@ export interface operations {
     list_policies_v1_api_v1_policies__get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -21309,23 +21281,12 @@ export interface operations {
                     "application/json": components["schemas"]["PolicyResponseSchema"][];
                 };
             };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
         };
     };
     create_policy_v1_api_v1_policies__post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -21358,9 +21319,7 @@ export interface operations {
     bind_policy_v1_api_v1_policies__policy_id__bind__agent_id__post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path: {
                 policy_id: string;
                 agent_id: string;
@@ -21392,9 +21351,7 @@ export interface operations {
     unbind_policy_v1_api_v1_policies__policy_id__unbind__agent_id__post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path: {
                 policy_id: string;
                 agent_id: string;
@@ -21724,9 +21681,7 @@ export interface operations {
     };
     run_cloud_scan_v1_api_v1_scanner_run__provider__post: {
         parameters: {
-            query: {
-                token: string;
-            };
+            query?: never;
             header?: {
                 authorization?: string | null;
             };
@@ -22851,6 +22806,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    healthz_healthz_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
         };

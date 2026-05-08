@@ -8,7 +8,7 @@ server-side and return HTTP 409 instead of silently overwriting.
 import copy
 import os
 import sys
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 

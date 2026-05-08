@@ -13,9 +13,24 @@ Covers:
 import os
 import sys
 import json
+import pytest
 
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from auth import User, AuthProvider, UserTier, generate_session_token
+
+
+@pytest.fixture()
+def auth_headers():
+    user = User(
+        id="jobs-test-user",
+        email="jobs@example.com",
+        provider=AuthProvider.GITHUB,
+        tier=UserTier.TEAM,
+        tenant_id="tenant-jobs",
+    )
+    token = generate_session_token(user)
+    return {"Authorization": f"Bearer {token}"}
 
 
 # ─────────────────────────────────────────────────────────────
@@ -188,58 +203,64 @@ class TestSSEHelpers:
 class TestJobsRouter:
     """Integration tests for /api/jobs endpoints."""
 
-    def test_get_job_status(self, test_client):
+    def test_get_job_status(self, test_client, auth_headers):
         """Submit a job via the manager, then GET its status."""
         from job_queue import job_manager
-        job = job_manager.submit("test_type", diagram_id="test-d1")
-        res = test_client.get(f"/api/jobs/{job.job_id}")
+        job = job_manager.submit("test_type", diagram_id="test-d1", owner_user_id="jobs-test-user", tenant_id="tenant-jobs")
+        res = test_client.get(f"/api/jobs/{job.job_id}", headers=auth_headers)
         assert res.status_code == 200
         data = res.json()
         assert data["job_id"] == job.job_id
         assert data["status"] == "queued"
 
-    def test_get_job_not_found(self, test_client):
-        res = test_client.get("/api/jobs/nonexistent-id-12345")
+    def test_get_job_not_found(self, test_client, auth_headers):
+        res = test_client.get("/api/jobs/nonexistent-id-12345", headers=auth_headers)
         assert res.status_code == 404
 
-    def test_cancel_job(self, test_client):
+    def test_cancel_job(self, test_client, auth_headers):
         from job_queue import job_manager
-        job = job_manager.submit("test_type")
+        job = job_manager.submit("test_type", owner_user_id="jobs-test-user", tenant_id="tenant-jobs")
         job_manager.start(job.job_id)
-        res = test_client.post(f"/api/jobs/{job.job_id}/cancel")
+        res = test_client.post(f"/api/jobs/{job.job_id}/cancel", headers=auth_headers)
         assert res.status_code == 200
         assert res.json()["status"] == "cancelled"
 
-    def test_cancel_completed_job_fails(self, test_client):
+    def test_cancel_completed_job_fails(self, test_client, auth_headers):
         from job_queue import job_manager
-        job = job_manager.submit("test_type")
+        job = job_manager.submit("test_type", owner_user_id="jobs-test-user", tenant_id="tenant-jobs")
         job_manager.start(job.job_id)
         job_manager.complete(job.job_id, result={})
-        res = test_client.post(f"/api/jobs/{job.job_id}/cancel")
+        res = test_client.post(f"/api/jobs/{job.job_id}/cancel", headers=auth_headers)
         assert res.status_code == 409
 
-    def test_list_jobs(self, test_client):
-        res = test_client.get("/api/jobs")
+    def test_list_jobs(self, test_client, auth_headers):
+        res = test_client.get("/api/jobs", headers=auth_headers)
         assert res.status_code == 200
         data = res.json()
         assert "jobs" in data
         assert isinstance(data["jobs"], list)
 
-    def test_list_jobs_with_status_filter(self, test_client):
-        res = test_client.get("/api/jobs?status=completed")
+    def test_list_jobs_with_status_filter(self, test_client, auth_headers):
+        res = test_client.get("/api/jobs?status=completed", headers=auth_headers)
         assert res.status_code == 200
 
-    def test_stream_endpoint_returns_sse(self, test_client):
+    def test_stream_endpoint_returns_sse(self, test_client, auth_headers):
         """Verify the stream endpoint returns text/event-stream content type."""
         from job_queue import job_manager
-        job = job_manager.submit("test_stream")
+        job = job_manager.submit("test_stream", owner_user_id="jobs-test-user", tenant_id="tenant-jobs")
         job_manager.start(job.job_id)
         job_manager.complete(job.job_id, result={"done": True})
         # TestClient doesn't support real SSE streaming, but we can verify
         # the endpoint exists and returns the right content type
-        res = test_client.get(f"/api/jobs/{job.job_id}/stream")
+        res = test_client.get(f"/api/jobs/{job.job_id}/stream", headers=auth_headers)
         assert res.status_code == 200
         assert "text/event-stream" in res.headers.get("content-type", "")
+
+    def test_job_owner_mismatch_returns_not_found(self, test_client, auth_headers):
+        from job_queue import job_manager
+        job = job_manager.submit("test_stream", owner_user_id="other-user", tenant_id="tenant-jobs")
+        res = test_client.get(f"/api/jobs/{job.job_id}", headers=auth_headers)
+        assert res.status_code == 404
 
 
 # ─────────────────────────────────────────────────────────────
@@ -249,17 +270,17 @@ class TestJobsRouter:
 class TestAsyncAnalyzeEndpoint:
     """Test the async analyze endpoint returns 202."""
 
-    def test_analyze_async_no_upload_returns_404(self, test_client):
+    def test_analyze_async_no_upload_returns_404(self, test_client, auth_headers):
         """Without uploading first, should get 404."""
-        res = test_client.post("/api/diagrams/nonexistent/analyze-async")
+        res = test_client.post("/api/diagrams/nonexistent/analyze-async", headers=auth_headers)
         assert res.status_code == 404
 
-    def test_generate_async_invalid_format(self, test_client):
+    def test_generate_async_invalid_format(self, test_client, auth_headers):
         """Invalid IaC format should return 422 from schema validation."""
-        res = test_client.post("/api/diagrams/test/generate-async?format=invalid")
+        res = test_client.post("/api/diagrams/test/generate-async?format=invalid", headers=auth_headers)
         assert res.status_code == 422
 
-    def test_generate_hld_async_no_analysis(self, test_client):
+    def test_generate_hld_async_no_analysis(self, test_client, auth_headers):
         """Without prior analysis, should return 404."""
-        res = test_client.post("/api/diagrams/nonexistent/generate-hld-async")
+        res = test_client.post("/api/diagrams/nonexistent/generate-hld-async", headers=auth_headers)
         assert res.status_code == 404

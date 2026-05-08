@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from database import get_db
 from models.deployment_state import DeploymentState
 from error_envelope import ArchmorphException
-from routers.shared import get_store
+from routers.shared import get_store, require_authenticated_user
 
 LOCK_STORE = get_store("tf_locks", maxsize=500, ttl=3600)
 
@@ -30,20 +30,53 @@ def get_deployment_state(db: Session, project_id: str, environment: str):
         db.refresh(state)
     return state
 
+
+def _state_owner_key(project_id: str, environment: str) -> str:
+    return json.dumps([project_id, environment], separators=(",", ":"))
+
+
+def _state_has_material_data(state: DeploymentState) -> bool:
+    return bool(state.state_json or state.previous_state_json or state.lock_id or state.lock_info)
+
+
+def _enforce_state_owner(state: DeploymentState, user) -> None:
+    if not state.owner_user_id and not state.tenant_id:
+        if _state_has_material_data(state):
+            raise ArchmorphException(403, "Forbidden: state ownership missing")
+        state.owner_user_id = user.id
+        state.tenant_id = user.tenant_id
+        return
+    if state.owner_user_id != user.id or state.tenant_id != user.tenant_id:
+        raise ArchmorphException(403, "Forbidden: state ownership mismatch")
+
 @router.get("/{project_id}/{environment}")
-async def get_tf_state(project_id: str, environment: str, db: Session = Depends(get_db)):
+async def get_tf_state(
+    project_id: str,
+    environment: str,
+    db: Session = Depends(get_db),
+    user=Depends(require_authenticated_user),
+):
     state = get_deployment_state(db, project_id, environment)
+    _enforce_state_owner(state, user)
+    db.commit()
     if not state.state_json:
         return Response(content="{}", media_type="application/json")
     return Response(content=json.dumps(state.state_json), media_type="application/json")
 
 @router.post("/{project_id}/{environment}")
-async def update_tf_state(project_id: str, environment: str, request: Request, db: Session = Depends(get_db)):
+async def update_tf_state(
+    project_id: str,
+    environment: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    user=Depends(require_authenticated_user),
+):
     state = get_deployment_state(db, project_id, environment)
+    _enforce_state_owner(state, user)
     
     lock_id = request.query_params.get("ID")
     
-    lock_key = f"{project_id}_{environment}"
+    lock_key = _state_owner_key(project_id, environment)
     existing_lock = LOCK_STORE.get(lock_key)
     
     if existing_lock and existing_lock.get("ID") != lock_id:
@@ -63,14 +96,21 @@ async def update_tf_state(project_id: str, environment: str, request: Request, d
     return Response(status_code=200)
 
 @router.api_route("/{project_id}/{environment}", methods=["LOCK"])
-async def lock_tf_state(project_id: str, environment: str, request: Request, db: Session = Depends(get_db)):
+async def lock_tf_state(
+    project_id: str,
+    environment: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    user=Depends(require_authenticated_user),
+):
     state = get_deployment_state(db, project_id, environment)
+    _enforce_state_owner(state, user)
     
     body = await request.body()
     lock_info = json.loads(body) if body else {}
     req_lock_id = lock_info.get("ID")
     
-    lock_key = f"{project_id}_{environment}"
+    lock_key = _state_owner_key(project_id, environment)
     existing_lock = LOCK_STORE.get(lock_key)
     
     if existing_lock:
@@ -92,15 +132,31 @@ async def lock_tf_state(project_id: str, environment: str, request: Request, db:
     
     return Response(status_code=200)
 
-@router.api_route("/{project_id}/{environment}", methods=["UNLOCR"])
-async def unlock_tf_state(project_id: str, environment: str, request: Request, db: Session = Depends(get_db)):
+@router.api_route(
+    "/{project_id}/{environment}",
+    methods=["UNLOCR"],
+    operation_id="unlock_tf_state_legacy_unlocr_api_terraform_state",
+)
+@router.api_route(
+    "/{project_id}/{environment}",
+    methods=["UNLOCK"],
+    operation_id="unlock_tf_state_api_terraform_state",
+)
+async def unlock_tf_state(
+    project_id: str,
+    environment: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    user=Depends(require_authenticated_user),
+):
     state = get_deployment_state(db, project_id, environment)
+    _enforce_state_owner(state, user)
     
     body = await request.body()
     lock_info = json.loads(body) if body else {}
     req_lock_id = lock_info.get("ID")
     
-    lock_key = f"{project_id}_{environment}"
+    lock_key = _state_owner_key(project_id, environment)
     existing_lock = LOCK_STORE.get(lock_key)
     
     if existing_lock and existing_lock.get("ID") != req_lock_id:
@@ -120,8 +176,14 @@ async def unlock_tf_state(project_id: str, environment: str, request: Request, d
     return Response(status_code=200)
 
 @router.post("/{project_id}/{environment}/rollback")
-async def rollback_state(project_id: str, environment: str, db: Session = Depends(get_db)):
+async def rollback_state(
+    project_id: str,
+    environment: str,
+    db: Session = Depends(get_db),
+    user=Depends(require_authenticated_user),
+):
     state = get_deployment_state(db, project_id, environment)
+    _enforce_state_owner(state, user)
     if not state.previous_state_json:
         raise ArchmorphException(
             status_code=400,

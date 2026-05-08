@@ -13,9 +13,8 @@ from strict_models import StrictBaseModel
 
 from services.credential_manager import store_credentials, get_credentials, clear_credentials
 from error_envelope import ArchmorphException
-from auth import get_user_from_session
 from audit_logging import audit_logger
-from routers.shared import limiter
+from routers.shared import limiter, require_authenticated_user_context
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -58,9 +57,12 @@ def validate_session(authorization: Optional[str] = Header(None)) -> str:
 async def store_aws_credentials(request: Request, 
     payload: AWSCredentialsInput,
     session_token: str = Depends(validate_session),
-    user: dict = Depends(get_user_from_session)
+    user: dict = Depends(require_authenticated_user_context)
 ):
     """Store AWS credentials in the secure transient store."""
+    if user.get("session_token") != session_token:
+        raise ArchmorphException(403, "Session token mismatch")
+
     if payload.auth_method == "access_key" and not (payload.access_key_id and payload.secret_access_key):
         raise ArchmorphException(400, "Access Key ID and Secret Access Key are required for access_key auth.")
     
@@ -83,9 +85,12 @@ async def store_aws_credentials(request: Request,
 async def store_azure_credentials(request: Request, 
     payload: AzureCredentialsInput,
     session_token: str = Depends(validate_session),
-    user: dict = Depends(get_user_from_session)
+    user: dict = Depends(require_authenticated_user_context)
 ):
     """Store Azure credentials in the secure transient store."""
+    if user.get("session_token") != session_token:
+        raise ArchmorphException(403, "Session token mismatch")
+
     if payload.auth_method == "service_principal":
         if not all([payload.client_id, payload.client_secret, payload.tenant_id]):
             raise ArchmorphException(400, "Service principal requires client_id, client_secret, and tenant_id.")
@@ -106,9 +111,12 @@ async def store_azure_credentials(request: Request,
 @router.delete("/api/credentials", response_model=Dict[str, str])
 async def delete_credentials(
     session_token: str = Depends(validate_session),
-    user: dict = Depends(get_user_from_session)
+    user: dict = Depends(require_authenticated_user_context)
 ):
     """Immediately remove all credentials for the current session."""
+    if user.get("session_token") != session_token:
+        raise ArchmorphException(403, "Session token mismatch")
+
     clear_credentials(session_token)
     audit_logger.log_event(
         event_type="CREDENTIALS_DELETED",
@@ -124,12 +132,15 @@ async def delete_credentials(
 async def validate_active_credentials(request: Request, 
     provider: str,
     session_token: str = Depends(validate_session),
-    user: dict = Depends(get_user_from_session)
+    user: dict = Depends(require_authenticated_user_context)
 ):
     """
     Test the currently stored credentials to ensure they work.
     (Mock implementation in this phase).
     """
+    if user.get("session_token") != session_token:
+        raise ArchmorphException(403, "Session token mismatch")
+
     # Retrieve securely
     get_credentials(session_token, expected_provider=provider)
     

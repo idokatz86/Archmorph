@@ -222,3 +222,43 @@ class TestVisionCacheObservability:
         assert _metric_total("counters", vision_analyzer.VISION_CACHE_METRIC, {"result": "miss"}) == 2
         assert _metric_total("counters", vision_analyzer.VISION_CACHE_METRIC, {"result": "hit"}) == 0
 
+    def test_system_prompt_change_invalidates_hash(self, monkeypatch):
+        """Changing SYSTEM_PROMPT anywhere must produce a different prompt hash (#833).
+
+        The old implementation only hashed the first 200 characters of the prompt, so
+        changes in the middle or end of SYSTEM_PROMPT silently reused stale cache
+        entries.  The fix hashes the full prompt string.
+        """
+        original_hash = vision_analyzer._compute_vision_prompt_hash("gpt-4o")
+
+        # Modify SYSTEM_PROMPT to simulate a deployment with updated instructions
+        monkeypatch.setattr(vision_analyzer, "SYSTEM_PROMPT", vision_analyzer.SYSTEM_PROMPT + "\n# Modified instruction")
+        modified_hash = vision_analyzer._compute_vision_prompt_hash("gpt-4o")
+
+        assert original_hash != modified_hash, (
+            "Hash must change when SYSTEM_PROMPT changes — prevents stale cache hits "
+            "after a prompt update (#833)"
+        )
+
+    def test_system_prompt_tail_change_invalidates_hash(self, monkeypatch):
+        """A change appended beyond the first 200 chars must still invalidate the hash.
+
+        This specifically guards against the regression where only the first 200
+        characters of the prompt were hashed.
+        """
+        # Verify the current SYSTEM_PROMPT is long enough for this test to be meaningful
+        assert len(vision_analyzer.SYSTEM_PROMPT) > 200, (
+            "SYSTEM_PROMPT should be longer than 200 chars for this test to have coverage"
+        )
+        original_hash = vision_analyzer._compute_vision_prompt_hash("gpt-4o")
+
+        # Patch only the tail of SYSTEM_PROMPT — beyond the first 200 chars
+        original_prompt = vision_analyzer.SYSTEM_PROMPT
+        tail_change = original_prompt[:200] + "INJECTED_TAIL_CHANGE" + original_prompt[200:]
+        monkeypatch.setattr(vision_analyzer, "SYSTEM_PROMPT", tail_change)
+        tail_hash = vision_analyzer._compute_vision_prompt_hash("gpt-4o")
+
+        assert original_hash != tail_hash, (
+            "Hash must change when SYSTEM_PROMPT tail changes (#833 regression guard)"
+        )
+
