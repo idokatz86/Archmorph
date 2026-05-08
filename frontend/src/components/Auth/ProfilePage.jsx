@@ -11,6 +11,7 @@ import { X, Save, Trash2, Loader2, AlertTriangle } from 'lucide-react';
 import { useAuth } from './AuthProvider';
 import { API_BASE } from '../../constants';
 import useFocusTrap from '../../hooks/useFocusTrap';
+import { TOKEN_KEY } from '../../stores/useAuthStore';
 
 const ROLES = [
   { value: 'cloud_architect', label: 'Cloud Architect' },
@@ -36,7 +37,7 @@ const normalizeIacFormat = (format) => (format === 'terraform' || format === 'bi
 function authHeaders(extra = {}) {
   let token = null;
   try {
-    token = localStorage.getItem('archmorph_session_token');
+    token = localStorage.getItem(TOKEN_KEY);
   } catch {
     token = null;
   }
@@ -169,7 +170,7 @@ export default function ProfilePage({ isOpen, onClose }) {
 
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto p-4 sm:p-6 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]">
-      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" data-testid="profile-backdrop" onClick={onClose} />
       <div
         ref={trapRef}
         role="dialog"

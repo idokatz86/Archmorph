@@ -10,7 +10,7 @@
 import { create } from 'zustand';
 import { API_BASE } from '../constants';
 
-const TOKEN_KEY = 'archmorph_session_token';
+export const TOKEN_KEY = 'archmorph_session_token';
 const REFRESH_KEY = 'archmorph_refresh_token';
 
 /** Read stored token from localStorage */

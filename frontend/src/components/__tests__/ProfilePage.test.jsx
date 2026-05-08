@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import React from 'react'
 import ProfilePage from '../Auth/ProfilePage'
 
 const logout = vi.fn()
@@ -37,6 +38,31 @@ describe('ProfilePage', () => {
 
     await user.keyboard('{Escape}')
     expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('closes on backdrop click and restores focus after unmount', async () => {
+    const user = userEvent.setup()
+
+    function Harness() {
+      const [open, setOpen] = React.useState(false)
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>Open profile</button>
+          <ProfilePage isOpen={open} onClose={() => setOpen(false)} />
+        </>
+      )
+    }
+
+    render(<Harness />)
+    const trigger = screen.getByRole('button', { name: 'Open profile' })
+    trigger.focus()
+    await user.click(trigger)
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Close profile settings' })).toHaveFocus())
+    await user.click(screen.getByTestId('profile-backdrop'))
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Profile Settings' })).not.toBeInTheDocument())
+    expect(trigger).toHaveFocus()
   })
 
   it('sends SWA credentials and stored token when loading profile', async () => {
