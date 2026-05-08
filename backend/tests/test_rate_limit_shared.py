@@ -15,6 +15,8 @@ by reference between two strategy instances — the same mechanism that makes
 Redis-backed storage work across real replicas.
 """
 import os
+import json
+import subprocess
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -122,7 +124,7 @@ class TestSharedStorageRateLimit:
 
         # Replica B should see only 2 remaining
         stats = replica_b.get_window_stats(rate, key)
-        remaining = stats.remaining
+        remaining = stats.remaining if hasattr(stats, "remaining") else stats[1]
         assert remaining == 2, f"Expected 2 remaining, got {remaining}"
 
 
@@ -133,64 +135,85 @@ class TestSharedStorageRateLimit:
 class TestRateLimitStorageConfiguration:
     """shared.py selects storage backend based on environment variables."""
 
-    def test_uses_redis_when_redis_url_set(self, monkeypatch):
+    def _run_shared_probe(self, env: dict[str, str | None]) -> subprocess.CompletedProcess[str]:
+        probe = (
+            "import json, logging; "
+            "logging.basicConfig(level=logging.WARNING); "
+            "import routers.shared as shared; "
+            "print(json.dumps({'storage': shared._rate_limit_storage, "
+            "'limiter_storage': shared.limiter._storage_uri}))"
+        )
+        child_env = os.environ.copy()
+        for key, value in env.items():
+            if value is None:
+                child_env.pop(key, None)
+            else:
+                child_env[key] = value
+        return subprocess.run(
+            [sys.executable, "-c", probe],
+            cwd=os.path.join(os.path.dirname(__file__), ".."),
+            env=child_env,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+
+    def test_uses_redis_when_redis_url_set(self):
         """When REDIS_URL is set, _rate_limit_storage should equal that URL."""
-        monkeypatch.setenv("REDIS_URL", "redis://redis-prod:6379/0")
-        monkeypatch.delenv("RATE_LIMIT_STORAGE", raising=False)
+        result = self._run_shared_probe({"REDIS_URL": "redis://redis-prod:6379/0", "RATE_LIMIT_STORAGE": None})
+        data = json.loads(result.stdout.strip().splitlines()[-1])
+        assert data["storage"] == "redis://redis-prod:6379/0"
+        assert data["limiter_storage"] == "redis://redis-prod:6379/0"
 
-        # Re-evaluate the module-level expressions from shared.py
-        redis_url = os.getenv("REDIS_URL", "")
-        rate_limit_storage = os.getenv("RATE_LIMIT_STORAGE", redis_url or "memory://")
-        assert rate_limit_storage == "redis://redis-prod:6379/0"
-
-    def test_falls_back_to_memory_without_redis(self, monkeypatch):
+    def test_falls_back_to_memory_without_redis(self):
         """When no Redis URL is configured, storage falls back to memory://."""
-        monkeypatch.delenv("REDIS_URL", raising=False)
-        monkeypatch.delenv("RATE_LIMIT_STORAGE", raising=False)
+        result = self._run_shared_probe({"REDIS_URL": None, "RATE_LIMIT_STORAGE": None})
+        data = json.loads(result.stdout.strip().splitlines()[-1])
+        assert data["storage"] == "memory://"
+        assert data["limiter_storage"] == "memory://"
 
-        redis_url = os.getenv("REDIS_URL", "")
-        rate_limit_storage = os.getenv("RATE_LIMIT_STORAGE", redis_url or "memory://")
-        assert rate_limit_storage == "memory://"
-
-    def test_explicit_rate_limit_storage_overrides_redis_url(self, monkeypatch):
+    def test_explicit_rate_limit_storage_overrides_redis_url(self):
         """RATE_LIMIT_STORAGE env var takes precedence over REDIS_URL."""
-        monkeypatch.setenv("REDIS_URL", "redis://redis-prod:6379/0")
-        monkeypatch.setenv("RATE_LIMIT_STORAGE", "redis://rate-limiter:6379/1")
-
-        redis_url = os.getenv("REDIS_URL", "")
-        rate_limit_storage = os.getenv("RATE_LIMIT_STORAGE", redis_url or "memory://")
-        assert rate_limit_storage == "redis://rate-limiter:6379/1"
+        result = self._run_shared_probe({
+            "REDIS_URL": "redis://redis-prod:6379/0",
+            "RATE_LIMIT_STORAGE": "redis://rate-limiter:6379/1",
+        })
+        data = json.loads(result.stdout.strip().splitlines()[-1])
+        assert data["storage"] == "redis://rate-limiter:6379/1"
+        assert data["limiter_storage"] == "redis://rate-limiter:6379/1"
 
 
 class TestProductionRedisWarning:
     """Production environment logs a warning when REDIS_URL is absent."""
 
-    def test_production_warns_without_redis(self, monkeypatch):
-        """Running in production without REDIS_URL triggers a log warning.
-
-        The module-level guard in shared.py emits a WARNING when the process
-        environment is production/staging but no REDIS_URL is configured.
-        We verify the guard condition logic directly rather than reloading the
-        module (which has unpredictable side-effects in a shared test process).
-        """
-        monkeypatch.setenv("ENVIRONMENT", "production")
-        monkeypatch.delenv("REDIS_URL", raising=False)
-
-        env = os.getenv("ENVIRONMENT", "development").lower()
-        redis_url = os.getenv("REDIS_URL", "")
-        guard_fires = env in ("production", "prod", "staging") and not redis_url
-        assert guard_fires, (
-            "The production-without-Redis guard should fire when ENVIRONMENT=production "
-            "and REDIS_URL is absent — this is the condition that triggers the log warning."
+    def test_production_warns_without_redis(self):
+        """Running in production without REDIS_URL triggers a log warning."""
+        env = os.environ.copy()
+        env.pop("REDIS_URL", None)
+        env.pop("RATE_LIMIT_STORAGE", None)
+        env["ENVIRONMENT"] = "production"
+        result = subprocess.run(
+            [sys.executable, "-c", "import logging; logging.basicConfig(level=logging.WARNING); import routers.shared"],
+            cwd=os.path.join(os.path.dirname(__file__), ".."),
+            env=env,
+            text=True,
+            capture_output=True,
+            check=True,
         )
+        assert "PRODUCTION WITHOUT REDIS" in result.stderr
 
-    def test_no_warning_in_dev_without_redis(self, monkeypatch):
+    def test_no_warning_in_dev_without_redis(self):
         """Local/dev mode should not warn about missing Redis."""
-        monkeypatch.setenv("ENVIRONMENT", "development")
-        monkeypatch.delenv("REDIS_URL", raising=False)
-
-        env = os.getenv("ENVIRONMENT", "development").lower()
-        redis_url = os.getenv("REDIS_URL", "")
-        # The guard condition is: prod/staging AND no redis_url
-        guard_fires = env in ("production", "prod", "staging") and not redis_url
-        assert not guard_fires, "Dev environment should not trigger the production Redis warning"
+        env = os.environ.copy()
+        env.pop("REDIS_URL", None)
+        env.pop("RATE_LIMIT_STORAGE", None)
+        env["ENVIRONMENT"] = "development"
+        result = subprocess.run(
+            [sys.executable, "-c", "import logging; logging.basicConfig(level=logging.WARNING); import routers.shared"],
+            cwd=os.path.join(os.path.dirname(__file__), ".."),
+            env=env,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        assert "PRODUCTION WITHOUT REDIS" not in result.stderr

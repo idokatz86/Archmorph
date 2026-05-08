@@ -19,10 +19,10 @@ Fixes #913.
 
 import argparse
 import os
+import re
 import stat
 import sys
 import textwrap
-import warnings
 from pathlib import Path
 
 
@@ -47,15 +47,25 @@ def _safe_output_dir() -> Path:
 
 def _is_inside_git_repo(path: Path) -> bool:
     """Return True if *path* is under a git working tree."""
-    _MAX_GIT_SEARCH_DEPTH = 20  # Maximum parent directories to traverse
     check = path
-    for _ in range(_MAX_GIT_SEARCH_DEPTH):
+    while True:
         if (check / ".git").exists():
             return True
         parent = check.parent
         if parent == check:
             break
         check = parent
+
+
+def _safe_env_slug(env_name: str) -> str:
+    """Return a validated environment slug for the output filename."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", env_name):
+        print(
+            "\n⛔  ERROR: --env must contain only letters, numbers, underscores, or dashes.\n",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return env_name
     return False
 
 
@@ -67,6 +77,20 @@ def _ensure_safe_dir(output_dir: Path) -> None:
             f"\n⛔  ERROR: Refusing to write secrets inside a git working tree.\n"
             f"   Resolved path: {resolved}\n"
             f"   Use --output-dir to specify a directory outside any repository.\n",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
+def _ensure_safe_output_file(outfile: Path, output_dir: Path) -> None:
+    """Abort if the resolved output file can escape the safe output dir."""
+    resolved_dir = output_dir.resolve()
+    resolved_file = outfile.resolve()
+    if resolved_file.parent != resolved_dir or _is_inside_git_repo(resolved_file):
+        print(
+            f"\n⛔  ERROR: Refusing to write secrets to an unsafe path.\n"
+            f"   Resolved path: {resolved_file}\n"
+            f"   Use --output-dir outside any repository and a safe --env slug.\n",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -170,7 +194,9 @@ def main(argv: list[str] | None = None) -> int:
     _ensure_safe_dir(output_dir)
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    outfile = output_dir / f"terraform.{args.env}.tfvars"
+    env_slug = _safe_env_slug(args.env)
+    outfile = output_dir / f"terraform.{env_slug}.tfvars"
+    _ensure_safe_output_file(outfile, output_dir)
 
     values = _collect_vars()
     content = _render_tfvars(values)
