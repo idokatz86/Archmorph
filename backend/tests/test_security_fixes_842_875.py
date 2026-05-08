@@ -40,6 +40,19 @@ def _sha256(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
+def _auth_headers(user_id: str = "security-test-user", tenant_id: str = "tenant-security") -> dict:
+    from auth import AuthProvider, User, UserTier, generate_session_token
+
+    user = User(
+        id=user_id,
+        email=f"{user_id}@example.com",
+        provider=AuthProvider.GITHUB,
+        tier=UserTier.TEAM,
+        tenant_id=tenant_id,
+    )
+    return {"Authorization": f"Bearer {generate_session_token(user)}"}
+
+
 SAMPLE_TF = 'resource "azurerm_resource_group" "rg" { name = "rg-test" location = "westeurope" }'
 
 
@@ -279,6 +292,7 @@ class TestDeploymentPreflightModel:
         """StrictBaseModel must reject extra fields (extra='forbid')."""
         resp = client.post(
             "/api/deploy/preflight-check",
+            headers=_auth_headers(),
             json={
                 "project_id": "proj-1",
                 "canvas_state": {"elements": []},
@@ -291,6 +305,7 @@ class TestDeploymentPreflightModel:
         """project_id must match ^[a-zA-Z0-9_-]+$ pattern."""
         resp = client.post(
             "/api/deploy/preflight-check",
+            headers=_auth_headers(),
             json={
                 "project_id": "bad project id with spaces!",
                 "canvas_state": {"elements": []},
@@ -302,6 +317,7 @@ class TestDeploymentPreflightModel:
         """environment must be dev/staging/prod/production."""
         resp = client.post(
             "/api/deploy/preflight-check",
+            headers=_auth_headers(),
             json={
                 "project_id": "proj-1",
                 "environment": "qa",  # not allowed
@@ -314,6 +330,7 @@ class TestDeploymentPreflightModel:
         """iac_code must not exceed 500 KB."""
         resp = client.post(
             "/api/deploy/preflight-check",
+            headers=_auth_headers(),
             json={
                 "project_id": "proj-1",
                 "iac_code": "x" * 600_001,  # > 500 KB
@@ -326,6 +343,7 @@ class TestDeploymentPreflightModel:
         """Valid request body must pass model validation and reach handler."""
         resp = client.post(
             "/api/deploy/preflight-check",
+            headers=_auth_headers(),
             json={
                 "project_id": "proj-valid-123",
                 "environment": "staging",
@@ -340,6 +358,7 @@ class TestDeploymentPreflightModel:
         """Missing canvas_state triggers the handler's explicit 400."""
         resp = client.post(
             "/api/deploy/preflight-check",
+            headers=_auth_headers(),
             json={"project_id": "proj-1", "environment": "dev"},
         )
         # Handler raises 400; model allows canvas_state=None
