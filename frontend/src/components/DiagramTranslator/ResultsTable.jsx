@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { Badge, Card } from '../ui';
 import { ContextualHint } from '../ContextualHint';
+import { toRenderableString } from '../../utils/toRenderableString';
 
 /* ── Helpers ── */
 const effortValue = (e) => e === 'low' ? 1 : e === 'medium' ? 2 : e === 'high' ? 3 : 0;
@@ -634,7 +635,7 @@ export default function ResultsTable({ analysis, activeView, onViewChange }) {
                                       {m.confidence_explanation.map((reason, idx) => (
                                         <div key={idx} className="flex items-start gap-2 text-text-muted">
                                           <span className="text-cta/60 mt-0.5">•</span>
-                                          <span>{reason}</span>
+                                          <span>{toRenderableString(reason)}</span>
                                         </div>
                                       ))}
                                     </div>
@@ -666,10 +667,10 @@ export default function ResultsTable({ analysis, activeView, onViewChange }) {
                                           </p>
                                           <div className="flex flex-wrap gap-1">
                                             {(m.confidence_provenance.feature_parity.matched_features || []).map((f, i) => (
-                                              <span key={i} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-green-500/10 text-green-400">✓ {f}</span>
+                                              <span key={i} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-green-500/10 text-green-400">✓ {toRenderableString(f)}</span>
                                             ))}
                                             {(m.confidence_provenance.feature_parity.missing_features || []).map((f, i) => (
-                                              <span key={i} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-red-500/10 text-red-400">✗ {f}</span>
+                                              <span key={i} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-red-500/10 text-red-400">✗ {toRenderableString(f)}</span>
                                             ))}
                                           </div>
                                         </div>
@@ -691,7 +692,7 @@ export default function ResultsTable({ analysis, activeView, onViewChange }) {
                                             <div className="space-y-0.5">
                                               {m.confidence_provenance.migration_guidance.breaking_changes.map((bc, i) => (
                                                 <div key={i} className="flex items-start gap-1 text-[10px] text-red-400">
-                                                  <span>⚠</span><span>{bc}</span>
+                                                  <span>⚠</span><span>{toRenderableString(bc)}</span>
                                                 </div>
                                               ))}
                                             </div>
@@ -718,8 +719,8 @@ export default function ResultsTable({ analysis, activeView, onViewChange }) {
                                     <div className="pl-3 border-l-2 border-warning/30 space-y-1 mt-2">
                                       <p className="text-warning font-semibold">Feature gaps:</p>
                                       {m._gaps.map((g, idx) => {
-                                        const text = typeof g === 'string' ? g : g.factor || '';
-                                        const detail = typeof g === 'string' ? null : g.detail;
+                                        const text = typeof g === 'string' ? g : toRenderableString(g.factor || g);
+                                        const detail = typeof g === 'string' ? null : toRenderableString(g.detail);
                                         return (
                                           <div key={idx} className="flex items-start gap-2 text-text-muted">
                                             <AlertTriangle className="w-3 h-3 text-warning shrink-0 mt-0.5" />

@@ -153,4 +153,42 @@ describe('AnalysisResults', () => {
     expect(screen.getByText('plain string still works')).toBeInTheDocument()
     expect(screen.getByText('Falls back to description key')).toBeInTheDocument()
   })
+
+  it('renders object-shaped confidence provenance details without crashing', async () => {
+    const user = userEvent.setup()
+    const objectDetails = {
+      ...mockAnalysis,
+      mappings: [
+        {
+          source_service: 'Lambda',
+          azure_service: 'Azure Functions',
+          confidence: 0.91,
+          notes: 'Zone 1',
+          confidence_explanation: [
+            { message: 'Runtime capabilities match' },
+          ],
+          confidence_provenance: {
+            feature_parity: {
+              parity_score: 'strong',
+              matched_features: [{ name: 'Event triggers' }],
+              missing_features: [{ message: 'Runtime limit differs' }],
+            },
+            migration_guidance: {
+              estimated_effort: 'medium',
+              breaking_changes: [{ description: 'Rewrite deployment package' }],
+            },
+          },
+        },
+      ],
+    }
+
+    render(<AnalysisResults {...defaultProps} analysis={objectDetails} />)
+    await user.click(screen.getByText('Table'))
+    await user.click(screen.getByText('Lambda'))
+
+    expect(screen.getByText('Runtime capabilities match')).toBeInTheDocument()
+    expect(screen.getByText(/Event triggers/)).toBeInTheDocument()
+    expect(screen.getByText(/Runtime limit differs/)).toBeInTheDocument()
+    expect(screen.getByText('Rewrite deployment package')).toBeInTheDocument()
+  })
 })
