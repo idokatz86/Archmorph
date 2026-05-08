@@ -8125,7 +8125,7 @@
     },
     "/api/diagrams/{diagram_id}/generate": {
       "post": {
-        "description": "Generate Infrastructure as Code from the architecture analysis.\n\n``force=true`` overrides the architecture-blocker gate (Issue #610).",
+        "description": "Generate Infrastructure as Code from the architecture analysis.\n\n``force=true`` overrides the architecture-blocker gate (Issue #610).\n\nOptimistic concurrency (#858 / F-BUG-8): if an ``If-Match`` request header\nis supplied and a previous generation exists for this diagram, the stored\nETag must match.  A mismatch returns HTTP 409 so that concurrent clients\ncan detect and resolve conflicts instead of silently overwriting each other.",
         "operationId": "generate_iac_api_diagrams__diagram_id__generate_post",
         "parameters": [
           {
@@ -18133,7 +18133,7 @@
     },
     "/api/v1/diagrams/{diagram_id}/generate": {
       "post": {
-        "description": "Generate Infrastructure as Code from the architecture analysis.\n\n``force=true`` overrides the architecture-blocker gate (Issue #610).",
+        "description": "Generate Infrastructure as Code from the architecture analysis.\n\n``force=true`` overrides the architecture-blocker gate (Issue #610).\n\nOptimistic concurrency (#858 / F-BUG-8): if an ``If-Match`` request header\nis supplied and a previous generation exists for this diagram, the stored\nETag must match.  A mismatch returns HTTP 409 so that concurrent clients\ncan detect and resolve conflicts instead of silently overwriting each other.",
         "operationId": "generate_iac_v1_api_v1_diagrams__diagram_id__generate_post",
         "parameters": [
           {

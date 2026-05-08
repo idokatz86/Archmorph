@@ -21,6 +21,16 @@ from starlette.responses import StreamingResponse
 logger = logging.getLogger(__name__)
 
 
+class _ClosingStreamingResponse(StreamingResponse):
+    async def stream_response(self, send) -> None:
+        try:
+            await super().stream_response(send)
+        finally:
+            aclose = getattr(self.body_iterator, "aclose", None)
+            if aclose is not None:
+                await aclose()
+
+
 def sse_response(generator: AsyncGenerator[str, None]) -> StreamingResponse:
     """Create an SSE StreamingResponse from an async generator.
 
@@ -30,8 +40,17 @@ def sse_response(generator: AsyncGenerator[str, None]) -> StreamingResponse:
     - Connection: keep-alive
     - X-Accel-Buffering: no (nginx proxy compatibility)
     """
-    return StreamingResponse(
-        generator,
+    async def _closing_stream() -> AsyncGenerator[str, None]:
+        try:
+            async for event in generator:
+                yield event
+        finally:
+            aclose = getattr(generator, "aclose", None)
+            if aclose is not None:
+                await aclose()
+
+    return _ClosingStreamingResponse(
+        _closing_stream(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache, no-store, must-revalidate",
@@ -44,9 +63,15 @@ def sse_response(generator: AsyncGenerator[str, None]) -> StreamingResponse:
 def format_sse(event: str, data: Any, event_id: str = None) -> str:
     """Format a single SSE event string.
 
+    JSON dicts are serialized compactly (no pretty-printing) so the payload
+    never contains raw newlines.  Raw string payloads that do contain newlines
+    are emitted as multiple ``data:`` lines which the SSE client reassembles
+    with a LF between them — this keeps each SSE field on exactly one line and
+    prevents events from being split across boundaries (#858).
+
     Args:
         event: Event type name
-        data: Event data (will be JSON-serialized)
+        data: Event data (will be JSON-serialized if not already a string)
         event_id: Optional event ID for client reconnection
 
     Returns:
@@ -61,8 +86,12 @@ def format_sse(event: str, data: Any, event_id: str = None) -> str:
     if event_id:
         lines.append(f"id: {event_id}")
     lines.append(f"event: {event}")
+    # json.dumps escapes embedded newlines as \\n, so dict payloads are safe.
+    # String payloads may contain raw newlines — emit each line separately so
+    # no single data: field is ever split by an embedded newline character.
     payload = json.dumps(data, default=str) if not isinstance(data, str) else data
-    lines.append(f"data: {payload}")
+    for data_line in payload.split("\n"):
+        lines.append(f"data: {data_line}")
     lines.append("")  # blank line terminates event
     lines.append("")
     return "\n".join(lines)
