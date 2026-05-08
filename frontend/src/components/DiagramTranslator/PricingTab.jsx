@@ -4,6 +4,7 @@ import {
   ArrowLeft, Loader2, TrendingDown, MapPin, ExternalLink, Shield, Layers,
 } from 'lucide-react';
 import { Button, Card, Badge } from '../ui';
+import { toRenderableString } from '../../utils/toRenderableString';
 
 /* ── Per-Service Breakdown Row ─────────────────────────── */
 function ServiceRow({ svc }) {
@@ -51,7 +52,7 @@ function ServiceRow({ svc }) {
               <ul className="space-y-0.5">
                 {svc.assumptions.map((a, i) => (
                   <li key={i} className="text-xs text-text-muted flex items-start gap-1.5">
-                    <span className="text-cta/60 mt-0.5">•</span> {typeof a === 'string' ? a : JSON.stringify(a)}
+                    <span className="text-cta/60 mt-0.5">•</span> {toRenderableString(a)}
                   </li>
                 ))}
               </ul>
@@ -113,7 +114,7 @@ function OptimizationCard({ opt }) {
           {expanded && (
             <ol className="mt-2 space-y-1 list-decimal list-inside">
               {opt.action_steps.map((step, i) => (
-                <li key={i} className="text-xs text-text-muted">{step}</li>
+                <li key={i} className="text-xs text-text-muted">{toRenderableString(step)}</li>
               ))}
             </ol>
           )}
@@ -323,7 +324,7 @@ export default function PricingTab({ costBreakdown, loading, onSetStep, onExport
           <ul className="space-y-1">
             {pricing_assumptions.map((a, i) => (
               <li key={i} className="text-[11px] text-text-muted flex items-start gap-1.5">
-                <span className="text-cta/60 mt-0.5">•</span> {a}
+                <span className="text-cta/60 mt-0.5">•</span> {toRenderableString(a)}
               </li>
             ))}
           </ul>
