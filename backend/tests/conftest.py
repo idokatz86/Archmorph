@@ -174,3 +174,65 @@ def _global_openai_mock(request, monkeypatch):
     
     # Also patch cached_chat_completion because people do `from openai_client import cached_chat_completion`
     monkeypatch.setattr("openai_client.cached_chat_completion", MagicMock(return_value=mock_resp))
+
+
+# ─────────────────────────────────────────────────────────────
+# Multi-tenant test fixtures (F-QA-5 / #841)
+#
+# Provides two independent tenant/user identities so tests can
+# assert that cross-tenant access is denied without mutating
+# production state.
+# ─────────────────────────────────────────────────────────────
+
+@pytest.fixture()
+def tenant_a():
+    """Return a stable dict representing Tenant A's identity context."""
+    return {
+        "org_id": "org-tenant-a",
+        "org_name": "Tenant Alpha",
+        "api_key": "test-key-tenant-a",
+        "user_id": "user-a-001",
+        "role": "owner",
+    }
+
+
+@pytest.fixture()
+def tenant_b():
+    """Return a stable dict representing Tenant B's identity context."""
+    return {
+        "org_id": "org-tenant-b",
+        "org_name": "Tenant Beta",
+        "api_key": "test-key-tenant-b",
+        "user_id": "user-b-001",
+        "role": "member",
+    }
+
+
+@pytest.fixture()
+def user_a(tenant_a):
+    """Alias for Tenant A's primary user — same as tenant_a fixture."""
+    return tenant_a
+
+
+@pytest.fixture()
+def user_b(tenant_b):
+    """Alias for Tenant B's primary user — same as tenant_b fixture."""
+    return tenant_b
+
+
+def assert_cross_tenant_denied(response, *, allowed_codes=(403, 404)):
+    """Assert that a cross-tenant access attempt was correctly denied.
+
+    Accepts 403 Forbidden and 404 Not Found (to prevent information
+    disclosure about the existence of a resource owned by another tenant).
+
+    Usage::
+
+        resp = client.get(f"/api/diagrams/{tenant_a_diagram_id}",
+                          headers={"X-API-Key": tenant_b["api_key"]})
+        assert_cross_tenant_denied(resp)
+    """
+    assert response.status_code in allowed_codes, (
+        f"Expected cross-tenant request to be denied with {allowed_codes}, "
+        f"got {response.status_code}: {response.text[:200]}"
+    )

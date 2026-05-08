@@ -9,6 +9,7 @@ from fastapi import APIRouter, Request, Depends
 from pydantic import Field
 from strict_models import StrictBaseModel
 import asyncio
+import hashlib
 import logging
 import re
 from typing import Literal
@@ -23,6 +24,30 @@ from iac_scaffold import generate_scaffold
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+# ─────────────────────────────────────────────────────────────
+# IaC version (ETag) helpers — optimistic concurrency (#858 / F-BUG-8)
+# ─────────────────────────────────────────────────────────────
+_IAC_ETAG_KEY = "_iac_etag"
+
+
+def _compute_iac_etag(code: str) -> str:
+    """Return a short, deterministic ETag for the given IaC code string."""
+    return hashlib.sha256(code.encode()).hexdigest()[:16]
+
+
+def _get_stored_etag(session: dict) -> str | None:
+    """Return the stored IaC ETag (None if no code has been generated yet)."""
+    return session.get(_IAC_ETAG_KEY)
+
+
+def _store_iac_etag(diagram_id: str, session: dict, code: str) -> str:
+    """Compute and persist the new ETag; return it."""
+    etag = _compute_iac_etag(code)
+    session[_IAC_ETAG_KEY] = etag
+    SESSION_STORE[diagram_id] = session
+    return etag
 
 
 # ─────────────────────────────────────────────────────────────
@@ -114,9 +139,32 @@ async def generate_iac(
     """Generate Infrastructure as Code from the architecture analysis.
 
     ``force=true`` overrides the architecture-blocker gate (Issue #610).
+
+    Optimistic concurrency (#858 / F-BUG-8): if an ``If-Match`` request header
+    is supplied and a previous generation exists for this diagram, the stored
+    ETag must match.  A mismatch returns HTTP 409 so that concurrent clients
+    can detect and resolve conflicts instead of silently overwriting each other.
     """
     session = SESSION_STORE.get(diagram_id, {})
     iac_params = session.get("iac_parameters", {})
+
+    # Optimistic concurrency guard: honour If-Match when code was previously
+    # generated for this diagram.  Only enforced when the caller supplies the
+    # header — omitting it freely regenerates (first-time or intentional).
+    if_match = request.headers.get("If-Match")
+    stored_etag = _get_stored_etag(session)
+    if if_match is not None and stored_etag is not None and if_match != stored_etag:
+        raise ArchmorphException(
+            409,
+            detail={
+                "error": "iac_version_conflict",
+                "message": (
+                    "The IaC code has been updated since you last fetched it. "
+                    "Re-fetch the current version and retry."
+                ),
+                "current_etag": stored_etag,
+            },
+        )
 
     _check_architecture_blockers(diagram_id, session, force)
 
@@ -133,7 +181,15 @@ async def generate_iac(
 
     record_event(f"iac_generated_{format}", {"diagram_id": diagram_id})
     record_funnel_step(diagram_id, "iac_generate")
-    return {"diagram_id": diagram_id, "format": format, "code": code}
+
+    # Persist the generated code and update the ETag so subsequent requests
+    # can use optimistic concurrency (If-Match header).
+    new_etag = _store_iac_etag(diagram_id, session, code)
+    from starlette.responses import JSONResponse
+    return JSONResponse(
+        content={"diagram_id": diagram_id, "format": format, "code": code},
+        headers={"ETag": new_etag},
+    )
 
 
 # ─────────────────────────────────────────────────────────────

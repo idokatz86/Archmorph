@@ -1,0 +1,195 @@
+"""
+Tests for IaC optimistic concurrency / ETag protection (#858 / F-BUG-8).
+
+Verifies that concurrent edits to the same diagram's IaC code are detected
+server-side and return HTTP 409 instead of silently overwriting.
+"""
+
+import copy
+import os
+import sys
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
+
+from fastapi.testclient import TestClient
+from main import app, SESSION_STORE
+
+
+SAMPLE_ANALYSIS = {
+    "diagram_type": "AWS Architecture",
+    "source_provider": "aws",
+    "target_provider": "azure",
+    "architecture_patterns": ["multi-AZ"],
+    "services_detected": 2,
+    "zones": [],
+    "mappings": [
+        {"source_service": "Lambda", "azure_service": "Azure Functions", "confidence": 0.95},
+        {"source_service": "DynamoDB", "azure_service": "Azure Cosmos DB", "confidence": 0.85},
+    ],
+    "warnings": [],
+    "confidence_summary": {"high": 1, "medium": 1, "low": 0, "average": 0.90},
+}
+
+MOCK_TERRAFORM_CODE = """
+resource "azurerm_resource_group" "rg" {
+  name     = "rg-test"
+  location = "West Europe"
+}
+"""
+
+
+@pytest.fixture()
+def client():
+    with TestClient(app, raise_server_exceptions=False) as c:
+        yield c
+
+
+@pytest.fixture(autouse=True)
+def clean_session():
+    SESSION_STORE.clear()
+    yield
+    SESSION_STORE.clear()
+
+
+@pytest.fixture()
+def diagram_with_analysis(client):
+    """Seed a diagram session with a pre-populated analysis."""
+    diagram_id = "test-concurrency-diag-001"
+    SESSION_STORE[diagram_id] = copy.deepcopy(SAMPLE_ANALYSIS)
+    return diagram_id
+
+
+class TestIacEtagGeneration:
+    """ETag is generated and returned after IaC generation."""
+
+    @patch("iac_generator.generate_iac_code", return_value=MOCK_TERRAFORM_CODE)
+    def test_generate_iac_returns_etag_header(self, mock_gen, client, diagram_with_analysis):
+        resp = client.post(
+            f"/api/diagrams/{diagram_with_analysis}/generate",
+            params={"format": "terraform"},
+        )
+        assert resp.status_code == 200
+        assert "etag" in resp.headers, "ETag header must be present after IaC generation"
+        assert resp.headers["etag"], "ETag must not be empty"
+
+    @patch("iac_generator.generate_iac_code", return_value=MOCK_TERRAFORM_CODE)
+    def test_generate_iac_etag_is_deterministic_for_same_code(self, mock_gen, client, diagram_with_analysis):
+        """Same code must always produce the same ETag."""
+        resp1 = client.post(
+            f"/api/diagrams/{diagram_with_analysis}/generate",
+            params={"format": "terraform"},
+        )
+        resp2 = client.post(
+            f"/api/diagrams/{diagram_with_analysis}/generate",
+            params={"format": "terraform"},
+        )
+        assert resp1.headers["etag"] == resp2.headers["etag"]
+
+    @patch("iac_generator.generate_iac_code", return_value=MOCK_TERRAFORM_CODE)
+    def test_generate_iac_stores_code_and_etag_in_session(self, mock_gen, client, diagram_with_analysis):
+        """The session must carry the ETag after generation."""
+        from routers.iac_routes import _IAC_ETAG_KEY
+        client.post(
+            f"/api/diagrams/{diagram_with_analysis}/generate",
+            params={"format": "terraform"},
+        )
+        session = SESSION_STORE[diagram_with_analysis]
+        assert _IAC_ETAG_KEY in session, "Session must store the IaC ETag"
+
+
+class TestIacOptimisticConcurrency:
+    """Concurrent edit detection via If-Match."""
+
+    @patch("iac_generator.generate_iac_code", return_value=MOCK_TERRAFORM_CODE)
+    def test_matching_if_match_succeeds(self, mock_gen, client, diagram_with_analysis):
+        """If-Match matching the stored ETag must succeed (200)."""
+        # First generation — no If-Match required
+        r1 = client.post(
+            f"/api/diagrams/{diagram_with_analysis}/generate",
+            params={"format": "terraform"},
+        )
+        etag = r1.headers["etag"]
+
+        # Second generation — correct If-Match → should succeed
+        r2 = client.post(
+            f"/api/diagrams/{diagram_with_analysis}/generate",
+            params={"format": "terraform"},
+            headers={"If-Match": etag},
+        )
+        assert r2.status_code == 200
+
+    def test_stale_if_match_returns_409(self, client, diagram_with_analysis):
+        """If-Match with a stale ETag must return 409 (conflict).
+
+        We directly inject a known ETag into the session to simulate a prior
+        generation by Client A, then submit a request with a different (stale)
+        ETag from Client B.  No real IaC generation is needed.
+        """
+        from routers.iac_routes import _IAC_ETAG_KEY, _compute_iac_etag
+
+        # Simulate: Client A already generated code and stored its ETag
+        current_etag = _compute_iac_etag("resource 'azurerm_rg' 'rg' { name = 'current' }")
+        session = SESSION_STORE[diagram_with_analysis]
+        session[_IAC_ETAG_KEY] = current_etag
+        SESSION_STORE[diagram_with_analysis] = session
+
+        # Client B holds a stale ETag from a previously-seen version
+        stale_etag = _compute_iac_etag("resource 'azurerm_rg' 'rg' { name = 'stale' }")
+        assert stale_etag != current_etag  # sanity
+
+        r = client.post(
+            f"/api/diagrams/{diagram_with_analysis}/generate",
+            params={"format": "terraform"},
+            headers={"If-Match": stale_etag},
+        )
+        assert r.status_code == 409
+        body = r.json()
+        assert "iac_version_conflict" in str(body) or "conflict" in str(body).lower()
+
+    @patch("iac_generator.generate_iac_code", return_value=MOCK_TERRAFORM_CODE)
+    def test_missing_if_match_with_no_prior_etag_succeeds(self, mock_gen, client, diagram_with_analysis):
+        """First-time generation (no stored ETag) without If-Match must succeed."""
+        r = client.post(
+            f"/api/diagrams/{diagram_with_analysis}/generate",
+            params={"format": "terraform"},
+        )
+        assert r.status_code == 200
+
+    @patch("iac_generator.generate_iac_code", return_value=MOCK_TERRAFORM_CODE)
+    def test_missing_if_match_with_prior_etag_succeeds(self, mock_gen, client, diagram_with_analysis):
+        """Omitting If-Match even when a prior ETag exists must succeed (free regeneration)."""
+        # First generation — establishes an ETag
+        client.post(
+            f"/api/diagrams/{diagram_with_analysis}/generate",
+            params={"format": "terraform"},
+        )
+        # Regeneration without If-Match → still succeeds
+        r2 = client.post(
+            f"/api/diagrams/{diagram_with_analysis}/generate",
+            params={"format": "terraform"},
+        )
+        assert r2.status_code == 200
+
+    def test_409_body_includes_current_etag(self, client, diagram_with_analysis):
+        """409 response body must include the current ETag for client recovery."""
+        from routers.iac_routes import _IAC_ETAG_KEY, _compute_iac_etag
+
+        # Plant a known ETag
+        current_etag = _compute_iac_etag("resource 'azurerm_rg' 'rg' { name = 'latest' }")
+        session = SESSION_STORE[diagram_with_analysis]
+        session[_IAC_ETAG_KEY] = current_etag
+        SESSION_STORE[diagram_with_analysis] = session
+
+        r = client.post(
+            f"/api/diagrams/{diagram_with_analysis}/generate",
+            params={"format": "terraform"},
+            headers={"If-Match": "stale-etag-not-matching"},
+        )
+        assert r.status_code == 409
+        body = r.json()
+        assert current_etag in str(body)

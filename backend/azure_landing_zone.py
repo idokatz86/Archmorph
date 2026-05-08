@@ -1336,6 +1336,36 @@ def generate_landing_zone_svg(
                 )
                 raise
 
+            # #F-BUG-5 — Guard: return a valid placeholder SVG when there are no
+            # service mappings.  This prevents IndexError / empty-iterator
+            # crashes deep in the tier-rendering helpers and gives callers a
+            # meaningful, well-formed SVG they can display or discard.
+            mappings = analysis.get("mappings")
+            if not mappings or not isinstance(mappings, list) or len(mappings) == 0:
+                placeholder_svg = (
+                    '<?xml version="1.0" encoding="UTF-8"?>\n'
+                    f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {CANVAS_W} 300" '
+                    f'width="{CANVAS_W}" height="300" role="img" '
+                    'aria-labelledby="lz-title" aria-describedby="lz-desc" focusable="false">'
+                    f'<rect width="{CANVAS_W}" height="300" fill="{COLOR_BG}"/>'
+                    '<title id="lz-title">Azure Landing Zone — No Mappings</title>'
+                    '<desc id="lz-desc">No service mappings were found in this analysis. '
+                    'Upload a diagram with identifiable cloud services to generate a full '
+                    'landing zone view.</desc>'
+                    f'<text x="{CANVAS_W // 2}" y="130" text-anchor="middle" '
+                    f'font-family="{FONT_STACK}" font-size="22" fill="{COLOR_INK}">'
+                    'No service mappings detected</text>'
+                    f'<text x="{CANVAS_W // 2}" y="165" text-anchor="middle" '
+                    f'font-family="{FONT_STACK}" font-size="14" fill="{COLOR_INK_2}">'
+                    'Upload a diagram with identifiable cloud services to generate a landing zone view.</text>'
+                    '</svg>'
+                )
+                return {
+                    "format": "landing-zone-svg",
+                    "filename": f"archmorph-empty-landing-zone-{dr_variant}.svg",
+                    "content": placeholder_svg,
+                }
+
             # #576: source_provider is implicit (read from the analysis payload) and
             # validated here. Default "aws" preserves backwards-compat with #571.
             try:
