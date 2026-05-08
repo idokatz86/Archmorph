@@ -42,7 +42,10 @@ export default function UserMenu() {
       <>
         <button
           onClick={() => setLoginModalOpen(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-cta hover:bg-cta/10 rounded-lg transition-colors cursor-pointer"
+          className="flex items-center gap-1.5 min-h-[44px] min-w-[44px] px-3 py-1.5 text-sm font-medium text-cta hover:bg-cta/10 rounded-lg transition-colors cursor-pointer"
+          aria-label="Sign in"
+          aria-haspopup="dialog"
+          aria-expanded={loginModalOpen}
         >
           <User className="w-4 h-4" />
           <span className="hidden sm:inline">Sign In</span>

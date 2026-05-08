@@ -3,9 +3,16 @@
  *
  * Offers Microsoft, Google, GitHub sign-in buttons
  * plus "Continue as Guest" — all using Azure SWA auth redirects.
+ *
+ * Fixes #803 #805 #807 #808 #814 #815 #816 #817 #818 #819 #820 #821 #822:
+ * - Portalled to document.body so fixed positioning is never clipped by the
+ *   Nav header's backdrop-filter containing block.
+ * - role=dialog / aria-modal / aria-labelledby / focus-trap / Escape close /
+ *   body scroll lock / restore focus to trigger / safe-area max-height.
  */
 
-import React from 'react';
+import React, { useEffect, useRef, useId } from 'react';
+import ReactDOM from 'react-dom';
 import { X } from 'lucide-react';
 import { useAuth } from './AuthProvider';
 /* Simple inline SVG provider icons — avoids external dependency */
@@ -40,70 +47,119 @@ function GitHubIcon({ className }) {
 }
 
 const PROVIDERS = [
-  {
-    id: 'microsoft',
-    label: 'Continue with Microsoft',
-    Icon: MicrosoftIcon,
-    bg: 'bg-white hover:bg-gray-50 dark:bg-gray-800 dark:hover:bg-gray-700',
-    text: 'text-gray-800 dark:text-gray-100',
-    border: 'border-gray-300 dark:border-gray-600',
-  },
-  {
-    id: 'google',
-    label: 'Continue with Google',
-    Icon: GoogleIcon,
-    bg: 'bg-white hover:bg-gray-50 dark:bg-gray-800 dark:hover:bg-gray-700',
-    text: 'text-gray-800 dark:text-gray-100',
-    border: 'border-gray-300 dark:border-gray-600',
-  },
-  {
-    id: 'github',
-    label: 'Continue with GitHub',
-    Icon: GitHubIcon,
-    bg: 'bg-gray-900 hover:bg-gray-800 dark:bg-gray-700 dark:hover:bg-gray-600',
-    text: 'text-white',
-    border: 'border-gray-900 dark:border-gray-600',
-  },
+  { id: 'microsoft', label: 'Continue with Microsoft', Icon: MicrosoftIcon, btnClass: 'auth-provider-btn' },
+  { id: 'google', label: 'Continue with Google', Icon: GoogleIcon, btnClass: 'auth-provider-btn' },
+  { id: 'github', label: 'Continue with GitHub', Icon: GitHubIcon, btnClass: 'auth-provider-btn-github' },
 ];
+
+const FOCUSABLE_SELECTORS = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 export default function LoginModal({ isOpen, onClose }) {
   const { loginWithProvider } = useAuth();
+  const dialogRef = useRef(null);
+  const headingId = useId();
+
+  // Restore focus to the element that was focused before the modal opened.
+  // The early-return when !isOpen means the cleanup fn only exists for the
+  // "isOpen=true" phase, so focus is only restored when the modal closes.
+  useEffect(() => {
+    if (!isOpen) return;
+    const previousFocus = document.activeElement;
+    return () => {
+      previousFocus?.focus();
+    };
+  }, [isOpen]);
+
+  // Body scroll lock
+  useEffect(() => {
+    if (!isOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isOpen]);
+
+  // Focus trap + Escape close
+  useEffect(() => {
+    if (!isOpen) return;
+    const el = dialogRef.current;
+    if (!el) return;
+
+    // Move focus into the dialog
+    const focusables = Array.from(el.querySelectorAll(FOCUSABLE_SELECTORS));
+    focusables[0]?.focus();
+
+    function handleKeyDown(e) {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        onClose();
+        return;
+      }
+      if (e.key !== 'Tab') return;
+      const all = Array.from(el.querySelectorAll(FOCUSABLE_SELECTORS));
+      if (!all.length) return;
+      const first = all[0];
+      const last = all[all.length - 1];
+      if (e.shiftKey) {
+        if (document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    }
+
+    el.addEventListener('keydown', handleKeyDown);
+    return () => el.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center">
+  const modal = (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-fade-in"
         onClick={onClose}
+        aria-hidden="true"
       />
-      {/* Modal */}
-      <div className="relative z-10 w-full max-w-sm mx-4 bg-surface border border-border rounded-2xl shadow-2xl p-6 animate-modal-in">
+      {/* Dialog */}
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={headingId}
+        className="relative z-10 w-full max-w-sm bg-surface border border-border rounded-2xl shadow-2xl p-6 animate-modal-in max-h-[min(568px,calc(100dvh-2rem))] overflow-y-auto"
+      >
         {/* Close button */}
         <button
           onClick={onClose}
           className="absolute top-3 right-3 p-1.5 rounded-lg hover:bg-secondary transition-colors cursor-pointer"
-          aria-label="Close"
+          aria-label="Close sign-in dialog"
         >
           <X className="w-4 h-4 text-text-muted" />
         </button>
 
         {/* Header */}
         <div className="text-center mb-6">
-          <h2 className="text-xl font-bold text-text-primary">Sign in to Archmorph</h2>
+          <h2 id={headingId} className="text-xl font-bold text-text-primary">Sign in to Archmorph</h2>
           <p className="text-sm text-text-muted mt-1">Save your work across sessions</p>
         </div>
 
         {/* Provider buttons */}
         <div className="space-y-3">
-          {PROVIDERS.map(({ id, label, Icon, bg, text, border }) => (
+          {PROVIDERS.map(({ id, label, Icon, btnClass }) => (
             <button
               key={id}
               onClick={() => {
                 loginWithProvider(id);
               }}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg border ${border} ${bg} ${text} font-medium text-sm transition-all duration-200 cursor-pointer`}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg border font-medium text-sm transition-all duration-200 cursor-pointer ${btnClass}`}
             >
               <Icon className="w-5 h-5 flex-shrink-0" />
               {label}
@@ -112,7 +168,7 @@ export default function LoginModal({ isOpen, onClose }) {
         </div>
 
         {/* Divider */}
-        <div className="flex items-center gap-3 my-5">
+        <div className="flex items-center gap-3 my-5" aria-hidden="true">
           <div className="flex-1 h-px bg-border" />
           <span className="text-xs text-text-muted">or</span>
           <div className="flex-1 h-px bg-border" />
@@ -132,4 +188,6 @@ export default function LoginModal({ isOpen, onClose }) {
       </div>
     </div>
   );
+
+  return ReactDOM.createPortal(modal, document.body);
 }

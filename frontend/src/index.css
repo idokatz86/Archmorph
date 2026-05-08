@@ -227,3 +227,27 @@
 
 @keyframes slideDown { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes pulseOnce { 0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); } }
+
+/* ── Auth provider button theming (#803 #805 #814 #815 #819 #820) ── */
+/* Uses design tokens so buttons adapt correctly with data-theme (Tailwind v4 dark: uses media query, not data-theme) */
+.auth-provider-btn {
+  background-color: var(--color-secondary);
+  color: var(--color-text-primary);
+  border-color: var(--color-border);
+}
+.auth-provider-btn:hover {
+  background-color: var(--color-primary);
+}
+/* GitHub button always uses a dark brand background */
+.auth-provider-btn-github {
+  background-color: #1f2937;
+  color: #ffffff;
+  border-color: #374151;
+}
+.auth-provider-btn-github:hover {
+  background-color: #111827;
+}
+[data-theme="light"] .auth-provider-btn-github {
+  background-color: #1f2937;
+  border-color: #1f2937;
+}
