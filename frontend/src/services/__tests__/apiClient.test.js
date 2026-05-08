@@ -12,6 +12,7 @@ import api, { ApiError } from '../../services/apiClient'
 describe('apiClient', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    localStorage.clear()
   })
 
   // ── GET requests ──
@@ -261,6 +262,44 @@ describe('apiClient', () => {
 
     const callArgs = fetch.mock.calls[0]
     expect(callArgs[1].headers.Authorization).toBe('Bearer my-jwt-token')
+  })
+
+  it('default methods include stored session token and SWA credentials', async () => {
+    localStorage.setItem('archmorph_session_token', 'stored-jwt-token')
+
+    fetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: () => Promise.resolve({ ok: true }),
+    })
+
+    await api.get('/diagrams/d1')
+    await api.post('/diagrams/d1/analyze', { target: 'azure' })
+    await api.patch('/diagrams/d1', { title: 'New title' })
+    await api.delete('/diagrams/d1')
+
+    for (const [, options] of fetch.mock.calls) {
+      expect(options.credentials).toBe('include')
+      expect(options.headers.Authorization).toBe('Bearer stored-jwt-token')
+    }
+  })
+
+  it('does not overwrite caller-provided Authorization header', async () => {
+    localStorage.setItem('archmorph_session_token', 'stored-jwt-token')
+
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: () => Promise.resolve({ ok: true }),
+    })
+
+    await api.auth('GET', '/admin/metrics', { token: 'explicit-token' })
+
+    const callArgs = fetch.mock.calls[0]
+    expect(callArgs[1].credentials).toBe('include')
+    expect(callArgs[1].headers.Authorization).toBe('Bearer explicit-token')
   })
 
   // ── Session expiry detection ──

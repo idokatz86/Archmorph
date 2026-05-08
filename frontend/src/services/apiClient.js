@@ -22,6 +22,7 @@ const BACKOFF_BASE_MS = process.env.NODE_ENV === 'test' ? 10 : 1000;
 
 /** HTTP status codes that are safe to retry */
 const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
+const TOKEN_KEY = 'archmorph_session_token';
 
 /**
  * Map raw API errors to user-friendly messages (#305).
@@ -61,6 +62,24 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function getStoredToken() {
+  try {
+    return localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function buildHeaders(optionsHeaders = {}) {
+  const headers = { ...optionsHeaders };
+  const hasAuthorization = Object.keys(headers).some(key => key.toLowerCase() === 'authorization');
+  const token = getStoredToken();
+  if (token && !hasAuthorization) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  return headers;
+}
+
 /**
  * Internal fetch wrapper with timeout, retry, and backoff (#268).
  * @param {string} path - API path (appended to API_BASE)
@@ -71,7 +90,7 @@ function sleep(ms) {
 async function request(path, options = {}, signal) {
   const url = path.startsWith('http') ? path : `${API_BASE}${path}`;
 
-  const headers = { ...options.headers };
+  const headers = buildHeaders(options.headers);
   // Auto-set JSON content type for non-FormData bodies
   if (options.body && !(options.body instanceof FormData)) {
     headers['Content-Type'] = headers['Content-Type'] || 'application/json';
@@ -98,6 +117,7 @@ async function request(path, options = {}, signal) {
       const res = await fetch(url, {
         ...options,
         headers,
+        credentials: options.credentials || 'include',
         signal: timeoutController.signal,
       });
 
