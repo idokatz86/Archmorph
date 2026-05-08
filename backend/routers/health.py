@@ -10,7 +10,7 @@ blocking Redis/OpenAI connections on every request under high traffic.
 """
 
 import time
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
 from version import __version__
@@ -18,7 +18,7 @@ from services import AWS_SERVICES, AZURE_SERVICES, GCP_SERVICES, CROSS_CLOUD_MAP
 from service_updater import get_update_status, get_freshness
 from freshness_registry import get_all as get_scheduled_jobs
 from api_versioning import get_api_versions
-from routers.shared import ENVIRONMENT
+from routers.shared import ENVIRONMENT, verify_api_key
 
 router = APIRouter()
 
@@ -109,8 +109,18 @@ def _run_dependency_checks() -> tuple[dict[str, str], bool, bool]:
     return result
 
 
+@router.get("/healthz")
+async def healthz():
+    """Anonymous minimal liveness probe — returns alive/dead only.
+
+    Safe to call without credentials; used by infrastructure probes (#844).
+    Contains no sensitive dependency details.
+    """
+    return JSONResponse(content={"status": "alive"})
+
+
 @router.get("/api/health")
-async def health():
+async def health(_auth=Depends(verify_api_key)):
     update_status = get_update_status()
     freshness = get_freshness()
     scheduled_jobs = get_scheduled_jobs()
