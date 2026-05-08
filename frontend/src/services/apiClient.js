@@ -70,11 +70,25 @@ function getStoredToken() {
   }
 }
 
-function buildHeaders(optionsHeaders = {}) {
+function isApiRequest(path, url) {
+  if (!path.startsWith('http')) return true;
+
+  try {
+    const origin = typeof window !== 'undefined' && window.location?.origin ? window.location.origin : 'http://localhost';
+    const requestUrl = new URL(url, origin);
+    const apiUrl = new URL(API_BASE, origin);
+    const apiPath = apiUrl.pathname.replace(/\/$/, '');
+    return requestUrl.origin === apiUrl.origin && requestUrl.pathname.startsWith(apiPath || '/');
+  } catch {
+    return false;
+  }
+}
+
+function buildHeaders(optionsHeaders = {}, includeDefaultAuth = true) {
   const headers = { ...optionsHeaders };
   const hasAuthorization = Object.keys(headers).some(key => key.toLowerCase() === 'authorization');
   const token = getStoredToken();
-  if (token && !hasAuthorization) {
+  if (includeDefaultAuth && token && !hasAuthorization) {
     headers.Authorization = `Bearer ${token}`;
   }
   return headers;
@@ -89,8 +103,9 @@ function buildHeaders(optionsHeaders = {}) {
  */
 async function request(path, options = {}, signal) {
   const url = path.startsWith('http') ? path : `${API_BASE}${path}`;
+  const includeDefaultCredentials = isApiRequest(path, url);
 
-  const headers = buildHeaders(options.headers);
+  const headers = buildHeaders(options.headers, includeDefaultCredentials);
   // Auto-set JSON content type for non-FormData bodies
   if (options.body && !(options.body instanceof FormData)) {
     headers['Content-Type'] = headers['Content-Type'] || 'application/json';
@@ -114,12 +129,18 @@ async function request(path, options = {}, signal) {
     }
 
     try {
-      const res = await fetch(url, {
+      const requestOptions = {
         ...options,
         headers,
-        credentials: options.credentials || 'include',
         signal: timeoutController.signal,
-      });
+      };
+      if (options.credentials !== undefined) {
+        requestOptions.credentials = options.credentials;
+      } else if (includeDefaultCredentials) {
+        requestOptions.credentials = 'include';
+      }
+
+      const res = await fetch(url, requestOptions);
 
       clearTimeout(timeoutId);
       if (signal) signal.removeEventListener('abort', onCallerAbort);

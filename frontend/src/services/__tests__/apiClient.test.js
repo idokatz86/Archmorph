@@ -11,7 +11,7 @@ import api, { ApiError } from '../../services/apiClient'
 
 describe('apiClient', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
+    fetch.mockReset()
     localStorage.clear()
   })
 
@@ -267,12 +267,17 @@ describe('apiClient', () => {
   it('default methods include stored session token and SWA credentials', async () => {
     localStorage.setItem('archmorph_session_token', 'stored-jwt-token')
 
-    fetch.mockResolvedValue({
+    const response = {
       ok: true,
       status: 200,
       headers: new Headers({ 'content-type': 'application/json' }),
       json: () => Promise.resolve({ ok: true }),
-    })
+    }
+    fetch
+      .mockResolvedValueOnce(response)
+      .mockResolvedValueOnce(response)
+      .mockResolvedValueOnce(response)
+      .mockResolvedValueOnce(response)
 
     await api.get('/diagrams/d1')
     await api.post('/diagrams/d1/analyze', { target: 'azure' })
@@ -300,6 +305,23 @@ describe('apiClient', () => {
     const callArgs = fetch.mock.calls[0]
     expect(callArgs[1].credentials).toBe('include')
     expect(callArgs[1].headers.Authorization).toBe('Bearer explicit-token')
+  })
+
+  it('does not attach default auth or credentials to third-party absolute URLs', async () => {
+    localStorage.setItem('archmorph_session_token', 'stored-jwt-token')
+
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: () => Promise.resolve({ ok: true }),
+    })
+
+    await api.get('https://example.com/external.json')
+
+    const callArgs = fetch.mock.calls[0]
+    expect(callArgs[1].credentials).toBeUndefined()
+    expect(callArgs[1].headers.Authorization).toBeUndefined()
   })
 
   // ── Session expiry detection ──
