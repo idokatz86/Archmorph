@@ -5,10 +5,11 @@ import ErrorBoundary from './components/ErrorBoundary';
 import Nav from './components/Nav';
 import Footer from './components/Footer';
 import DisclaimerBanner from './components/DisclaimerBanner';
-import { ToastProvider } from './components/Toast';
+import { ToastProvider, useToast } from './components/Toast';
 import { AuthProvider } from './components/Auth';
 import { APP_VERSION } from './constants';
 import useAppStore from './stores/useAppStore';
+import { setErrorHandler } from './services/apiClient';
 
 import { isFeatureEnabled } from './featureFlags';
 
@@ -35,6 +36,19 @@ function TabFallback() {
       <span className="ml-2 text-sm text-text-muted">Loading…</span>
     </div>
   );
+}
+
+/**
+ * Wire apiClient 5xx errors into the toast surface (#909).
+ * Must be rendered inside ToastProvider to access useToast().
+ */
+function ApiClientErrorReporter() {
+  const toast = useToast();
+  useEffect(() => {
+    setErrorHandler((message) => toast.error(message));
+    return () => setErrorHandler(null);
+  }, [toast]);
+  return null;
 }
 
 export default function App() {
@@ -73,6 +87,7 @@ export default function App() {
   return (
     <AuthProvider>
     <ToastProvider>
+    <ApiClientErrorReporter />
     <div className="min-h-screen bg-surface text-text-primary font-sans">
       {/* Skip to main content link for keyboard/screen-reader users (#220) */}
       <a
