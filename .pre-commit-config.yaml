@@ -52,7 +52,7 @@ repos:
         # The .example / .prod / .staging variants are safe to commit;
         # the unqualified terraform.tfvars and any real state file are not.
         entry: bash -c 'echo "⛔ Blocked: Do not commit terraform.tfvars or *.tfstate files. Store secrets outside the repo." && exit 1'
-        files: '^(.*\/)?terraform\.tfvars$|\.tfstate(\..+)?$'
+        files: '^(.*\/)?terraform\.tfvars$|\.tfstate(\..*)?$'
         pass_filenames: false
         stages: [commit]
       - id: eslint

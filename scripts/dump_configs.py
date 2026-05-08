@@ -47,8 +47,9 @@ def _safe_output_dir() -> Path:
 
 def _is_inside_git_repo(path: Path) -> bool:
     """Return True if *path* is under a git working tree."""
+    _MAX_GIT_SEARCH_DEPTH = 20  # Maximum parent directories to traverse
     check = path
-    for _ in range(20):  # max 20 levels up
+    for _ in range(_MAX_GIT_SEARCH_DEPTH):
         if (check / ".git").exists():
             return True
         parent = check.parent
