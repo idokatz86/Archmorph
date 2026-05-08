@@ -36,6 +36,26 @@ global.fetch = vi.fn().mockResolvedValue({
   clone: function() { return this },
 })
 
+const originalConsoleError = console.error.bind(console)
+
+// Fail tests that trigger React error #31 ("Objects are not valid as a React child")
+// or other critical React errors, while letting tests explicitly assert on errors
+// they intentionally exercise (#912). Per-test overrides use vi.mocked(console.error).
+beforeEach(() => {
+  vi.spyOn(console, 'error').mockImplementation((...args) => {
+    const msg = typeof args[0] === 'string' ? args[0] : String(args[0] ?? '')
+    // Throw for the specific React rendering crash we guard against (#31)
+    if (msg.includes('Objects are not valid as a React child')) {
+      throw new Error(`Unexpected React console error: ${msg}`)
+    }
+    originalConsoleError(...args)
+  })
+})
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
+
 // Mock IntersectionObserver
 global.IntersectionObserver = vi.fn().mockImplementation(() => ({
   observe: vi.fn(),
