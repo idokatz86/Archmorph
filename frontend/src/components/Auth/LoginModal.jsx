@@ -5,9 +5,11 @@
  * plus "Continue as Guest" — all using Azure SWA auth redirects.
  */
 
-import React from 'react';
+import React, { useEffect, useId } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { useAuth } from './AuthProvider';
+import useFocusTrap from '../../hooks/useFocusTrap';
 /* Simple inline SVG provider icons — avoids external dependency */
 function MicrosoftIcon({ className }) {
   return (
@@ -44,42 +46,67 @@ const PROVIDERS = [
     id: 'microsoft',
     label: 'Continue with Microsoft',
     Icon: MicrosoftIcon,
-    bg: 'bg-white hover:bg-gray-50 dark:bg-gray-800 dark:hover:bg-gray-700',
-    text: 'text-gray-800 dark:text-gray-100',
-    border: 'border-gray-300 dark:border-gray-600',
+    bg: 'bg-secondary hover:bg-border',
+    text: 'text-text-primary',
+    border: 'border-border',
   },
   {
     id: 'google',
     label: 'Continue with Google',
     Icon: GoogleIcon,
-    bg: 'bg-white hover:bg-gray-50 dark:bg-gray-800 dark:hover:bg-gray-700',
-    text: 'text-gray-800 dark:text-gray-100',
-    border: 'border-gray-300 dark:border-gray-600',
+    bg: 'bg-secondary hover:bg-border',
+    text: 'text-text-primary',
+    border: 'border-border',
   },
   {
     id: 'github',
     label: 'Continue with GitHub',
     Icon: GitHubIcon,
-    bg: 'bg-gray-900 hover:bg-gray-800 dark:bg-gray-700 dark:hover:bg-gray-600',
-    text: 'text-white',
-    border: 'border-gray-900 dark:border-gray-600',
+    bg: 'bg-text-primary hover:bg-text-secondary',
+    text: 'text-surface',
+    border: 'border-text-primary',
   },
 ];
 
 export default function LoginModal({ isOpen, onClose }) {
   const { loginWithProvider } = useAuth();
+  const titleId = useId();
+  const trapRef = useFocusTrap(isOpen);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') onClose?.();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center">
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto p-4 sm:p-6 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]">
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-fade-in"
         onClick={onClose}
       />
       {/* Modal */}
-      <div className="relative z-10 w-full max-w-sm mx-4 bg-surface border border-border rounded-2xl shadow-2xl p-6 animate-modal-in">
+      <div
+        ref={trapRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="relative z-10 my-auto w-full max-w-sm max-h-[calc(100dvh-2rem)] overflow-y-auto bg-surface border border-border rounded-2xl shadow-2xl p-6 animate-modal-in"
+      >
         {/* Close button */}
         <button
           onClick={onClose}
@@ -91,7 +118,7 @@ export default function LoginModal({ isOpen, onClose }) {
 
         {/* Header */}
         <div className="text-center mb-6">
-          <h2 className="text-xl font-bold text-text-primary">Sign in to Archmorph</h2>
+          <h2 id={titleId} className="text-xl font-bold text-text-primary">Sign in to Archmorph</h2>
           <p className="text-sm text-text-muted mt-1">Save your work across sessions</p>
         </div>
 
@@ -130,6 +157,7 @@ export default function LoginModal({ isOpen, onClose }) {
           No account needed to use the translator. Sign in to save your work.
         </p>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
