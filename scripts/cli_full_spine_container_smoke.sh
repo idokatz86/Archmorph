@@ -11,6 +11,7 @@ DIAGRAM_PATH="$WORK_DIR/aws.png"
 API_URL="http://127.0.0.1:$PORT"
 BOOTSTRAP_PYTHON="${PYTHON:-}"
 VENV_DIR="$WORK_DIR/.venv"
+TOKEN_PATH="$WORK_DIR/session.token"
 
 if [[ -z "$BOOTSTRAP_PYTHON" ]]; then
   if command -v python3 >/dev/null 2>&1; then
@@ -73,7 +74,20 @@ from pathlib import Path
 Path("$DIAGRAM_PATH").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\0" * 100)
 PY
 
-"$PYTHON_BIN" -m archmorph_cli --api-url "$API_URL" run \
+PYTHONPATH="$ROOT_DIR/backend" "$PYTHON_BIN" - <<PY > "$TOKEN_PATH"
+from auth import AuthProvider, User, UserTier, generate_session_token
+
+user = User(
+    id="cli-container-smoke-user",
+    email="cli-container-smoke@example.com",
+    provider=AuthProvider.GITHUB,
+    tier=UserTier.TEAM,
+    tenant_id="tenant-cli-container-smoke",
+)
+print(generate_session_token(user))
+PY
+
+"$PYTHON_BIN" -m archmorph_cli --api-url "$API_URL" --token "$(cat "$TOKEN_PATH")" run \
   --diagram "$DIAGRAM_PATH" \
   --target-rg rg-cli-smoke-dev \
   --emit terraform,bicep,alz-svg,cost \
