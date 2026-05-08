@@ -242,28 +242,57 @@ export default function ExportHub({ diagramId, hldIncludeDiagrams = true, export
   const handleGenerateAll = async () => {
     if (!diagramId || selectedItems.length === 0) return;
     setGenerating(true);
-    const newStatus = {};
-    const newResults = {};
-    selectedItems.forEach(d => { newStatus[d.id] = 'loading'; });
-    setItemStatus(newStatus);
+    setItemStatus(prev => ({
+      ...prev,
+      ...Object.fromEntries(selectedItems.map(d => [d.id, 'loading'])),
+    }));
     setResults({});
 
-    let currentExportCapability = exportCapability;
-    for (const d of selectedItems) {
-      setItemStatus(prev => ({ ...prev, [d.id]: 'loading' }));
-      try {
-        const result = await generateDeliverable(diagramId, d, formats[d.id], hldIncludeDiagrams, currentExportCapability);
-        if (result.exportCapability) {
-          currentExportCapability = result.exportCapability;
-          if (onExportCapability) onExportCapability(result.exportCapability);
-        }
-        newResults[d.id] = result;
-        setResults(prev => ({ ...prev, [d.id]: result }));
-        setItemStatus(prev => ({ ...prev, [d.id]: 'done' }));
-      } catch {
-        setItemStatus(prev => ({ ...prev, [d.id]: 'error' }));
+    // Deliverables that consume/produce one-time export-capability tokens must run
+    // sequentially so each call receives the latest token from the previous response.
+    // All other deliverables are independent and can run in parallel.
+    const CAPABILITY_IDS = new Set(['architecture-package', 'hld', 'pdf-report']);
+    const freeItems = selectedItems.filter(d => !CAPABILITY_IDS.has(d.id));
+    const capItems  = selectedItems.filter(d =>  CAPABILITY_IDS.has(d.id));
+
+    // Run up to CONCURRENCY independent deliverables at the same time.
+    const CONCURRENCY = 3;
+    const runFree = async () => {
+      for (let i = 0; i < freeItems.length; i += CONCURRENCY) {
+        const batch = freeItems.slice(i, i + CONCURRENCY);
+        await Promise.allSettled(
+          batch.map(async (d) => {
+            try {
+              const result = await generateDeliverable(diagramId, d, formats[d.id], hldIncludeDiagrams, null);
+              setResults(prev => ({ ...prev, [d.id]: result }));
+              setItemStatus(prev => ({ ...prev, [d.id]: 'done' }));
+            } catch {
+              setItemStatus(prev => ({ ...prev, [d.id]: 'error' }));
+            }
+          })
+        );
       }
-    }
+    };
+
+    // Capability-gated deliverables run sequentially, chaining the token.
+    let currentExportCapability = exportCapability;
+    const runCap = async () => {
+      for (const d of capItems) {
+        try {
+          const result = await generateDeliverable(diagramId, d, formats[d.id], hldIncludeDiagrams, currentExportCapability);
+          if (result.exportCapability) {
+            currentExportCapability = result.exportCapability;
+            if (onExportCapability) onExportCapability(result.exportCapability);
+          }
+          setResults(prev => ({ ...prev, [d.id]: result }));
+          setItemStatus(prev => ({ ...prev, [d.id]: 'done' }));
+        } catch {
+          setItemStatus(prev => ({ ...prev, [d.id]: 'error' }));
+        }
+      }
+    };
+
+    await Promise.all([runFree(), runCap()]);
     setGenerating(false);
   };
 

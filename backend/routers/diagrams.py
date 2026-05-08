@@ -21,6 +21,7 @@ import logging
 from routers.shared import (
     SESSION_STORE, IMAGE_STORE,
     limiter, verify_api_key, MAX_UPLOAD_SIZE, generate_session_id,
+    require_authenticated_user,
 )
 import ci_smoke
 from job_queue import job_manager
@@ -38,6 +39,10 @@ from architecture_rules import evaluate as evaluate_architecture_rules
 from architecture_review import build_audit_pipeline_issue, classify_regulated_workload
 from source_provider import normalize_source_provider
 from project_store import mark_diagram_analyzed, register_diagram
+from analysis_payload_bounds import (
+    AnalysisPayloadTooLarge,
+    validate_analysis_payload_bounds,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -231,7 +236,12 @@ async def upload_diagram(request: Request, project_id: str, file: UploadFile = F
 # ─────────────────────────────────────────────────────────────
 @router.post("/api/diagrams/{diagram_id}/restore-session")
 @limiter.limit("10/minute")
-async def restore_session(request: Request, diagram_id: str, body: RestoreSessionRequest):
+async def restore_session(
+    request: Request,
+    diagram_id: str,
+    body: RestoreSessionRequest,
+    user=Depends(require_authenticated_user),
+):
     """Re-inject a cached analysis result into the session store.
 
     The frontend caches analysis data in sessionStorage.  When the backend
@@ -241,8 +251,30 @@ async def restore_session(request: Request, diagram_id: str, body: RestoreSessio
     analysis = body.analysis
     if not analysis or not isinstance(analysis, dict):
         raise ArchmorphException(400, "Invalid analysis payload")
+    try:
+        validate_analysis_payload_bounds(analysis)
+    except AnalysisPayloadTooLarge as exc:
+        raise ArchmorphException(
+            413,
+            detail={
+                "error": "analysis_payload_too_large",
+                "message": str(exc),
+                **exc.details,
+            },
+        )
+
+    existing = SESSION_STORE.get(diagram_id)
+    if isinstance(existing, dict):
+        existing_owner = existing.get("_owner_user_id")
+        existing_tenant = existing.get("_tenant_id")
+        if existing_owner and existing_owner != user.id:
+            raise ArchmorphException(403, "Forbidden: session owner mismatch")
+        if existing_tenant and existing_tenant != user.tenant_id:
+            raise ArchmorphException(403, "Forbidden: tenant mismatch")
 
     analysis["diagram_id"] = diagram_id
+    analysis["_owner_user_id"] = user.id
+    analysis["_tenant_id"] = user.tenant_id
 
     if body.hld:
         analysis["hld"] = body.hld
@@ -260,7 +292,19 @@ async def restore_session(request: Request, diagram_id: str, body: RestoreSessio
     if body.iac_code:
         restored_parts.append("iac")
     if body.image_base64:
-        IMAGE_STORE[diagram_id] = (body.image_base64, body.image_content_type or "image/png")
+        try:
+            decoded = base64.b64decode(body.image_base64, validate=True)
+        except Exception as exc:
+            raise ArchmorphException(400, f"Invalid image_base64 payload: {str(exc)}")
+        if len(decoded) > MAX_UPLOAD_SIZE:
+            raise ArchmorphException(
+                413,
+                f"image_base64 too large. Maximum allowed: {MAX_UPLOAD_SIZE // (1024*1024)} MB.",
+            )
+        IMAGE_STORE[diagram_id] = (
+            body.image_base64,
+            body.image_content_type or "image/png",
+        )
         restored_parts.append("image")
     logger.info("Session restored for %s via client cache (%s)", str(diagram_id).replace('\n', '').replace('\r', ''), str(", ".join(restored_parts)).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
     record_event("sessions_restored", {"diagram_id": diagram_id, "parts": restored_parts})
@@ -334,7 +378,7 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
         logger.error("Vision analysis failed for %s: %s", str(diagram_id).replace('\n', '').replace('\r', ''), str(analysis_result_or_exc).replace('\n', '').replace('\r', ''), exc_info=True)  # codeql[py/log-injection] Handled by custom
         raise ArchmorphException(500, "Vision analysis failed. Please try again with a different image.")
 
-    result = _normalize_analysis(analysis_result_or_exc)
+    result = await asyncio.to_thread(_normalize_analysis, analysis_result_or_exc)
     result["diagram_id"] = diagram_id
     result["image_classification"] = classification
 
@@ -349,6 +393,8 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
     # Save to user history if authenticated (#245)
     user = get_user_from_request_headers(dict(request.headers))
     if user:
+        result["_owner_user_id"] = user.id
+        result["_tenant_id"] = user.tenant_id
         maybe_save_from_session(user.id, result, diagram_id)
 
     return attach_export_capability(result, diagram_id)
@@ -359,7 +405,11 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
 # ─────────────────────────────────────────────────────────────
 @router.post("/api/diagrams/{diagram_id}/analyze-async")
 @limiter.limit("5/minute")
-async def analyze_diagram_async(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
+async def analyze_diagram_async(
+    request: Request,
+    diagram_id: str,
+    _auth=Depends(verify_api_key),
+):
     """Start an async analysis of an uploaded diagram.
 
     Returns ``202 Accepted`` with a ``job_id``. Use the SSE stream
@@ -369,7 +419,13 @@ async def analyze_diagram_async(request: Request, diagram_id: str, _auth=Depends
     if diagram_id not in IMAGE_STORE:
         raise ArchmorphException(404, f"No uploaded image found for diagram {diagram_id}. Upload first.")
 
-    job = job_manager.submit("analyze", diagram_id=diagram_id)
+    user = get_user_from_request_headers(dict(request.headers))
+    job = job_manager.submit(
+        "analyze",
+        diagram_id=diagram_id,
+        owner_user_id=user.id if user else None,
+        tenant_id=user.tenant_id if user else None,
+    )
     asyncio.create_task(_run_analysis_job(job.job_id, diagram_id))
 
     from starlette.responses import JSONResponse

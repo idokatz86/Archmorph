@@ -487,6 +487,12 @@ resource "azurerm_key_vault_secret" "redis_connection" {
   key_vault_id = azurerm_key_vault.main.id
 }
 
+resource "azurerm_key_vault_secret" "appinsights_connection" {
+  name         = "appinsights-connection-string"
+  value        = azurerm_application_insights.main.connection_string
+  key_vault_id = azurerm_key_vault.main.id
+}
+
 # ─────────────────────────────────────────────────────────────
 # Azure OpenAI Service
 # ─────────────────────────────────────────────────────────────
@@ -564,6 +570,13 @@ resource "azurerm_container_app" "backend" {
   revision_mode                = "Multiple" # Blue-green deployments (#38)
   tags                         = local.tags
 
+  # Ensure KV access grants are in place before creating/updating the app
+  # so Key Vault secret references resolve successfully on first apply.
+  depends_on = [
+    azurerm_key_vault_access_policy.container_app,
+    azurerm_role_assignment.container_app_kv_secrets_user,
+  ]
+
   # Managed identity for secure access to Azure resources
   identity {
     type         = "SystemAssigned, UserAssigned"
@@ -576,20 +589,23 @@ resource "azurerm_container_app" "backend" {
   }
 
   secret {
-    name  = "db-connection"
-    value = "postgresql://${var.db_admin_username}:${var.db_admin_password}@${azurerm_postgresql_flexible_server.main.fqdn}:5432/archmorph?sslmode=require"
+    name                = "db-connection"
+    key_vault_secret_id = azurerm_key_vault_secret.db_connection.versionless_id
+    identity            = azurerm_user_assigned_identity.container_app.id
   }
 
   # Storage uses RBAC (shared_access_key_enabled = false) — no connection string needed
 
   secret {
-    name  = "appinsights-connection"
-    value = azurerm_application_insights.main.connection_string
+    name                = "appinsights-connection"
+    key_vault_secret_id = azurerm_key_vault_secret.appinsights_connection.versionless_id
+    identity            = azurerm_user_assigned_identity.container_app.id
   }
 
   secret {
-    name  = "redis-url"
-    value = "rediss://default:${azurerm_redis_cache.main.primary_access_key}@${azurerm_redis_cache.main.hostname}:${azurerm_redis_cache.main.ssl_port}/0"
+    name                = "redis-url"
+    key_vault_secret_id = azurerm_key_vault_secret.redis_connection.versionless_id
+    identity            = azurerm_user_assigned_identity.container_app.id
   }
 
   ingress {
@@ -759,6 +775,14 @@ resource "azurerm_key_vault_access_policy" "container_app" {
   object_id    = azurerm_user_assigned_identity.container_app.principal_id
 
   secret_permissions = ["Get", "List"]
+}
+
+# Key Vault Secrets User RBAC role — required when rbac_authorization_enabled=true (prod).
+# In non-RBAC mode (dev), access policy above governs; this role is a no-op but harmless.
+resource "azurerm_role_assignment" "container_app_kv_secrets_user" {
+  scope                = azurerm_key_vault.main.id
+  role_definition_name = "Key Vault Secrets User"
+  principal_id         = azurerm_user_assigned_identity.container_app.principal_id
 }
 
 # Grant Container App identity access to Storage (Blob Data Contributor)

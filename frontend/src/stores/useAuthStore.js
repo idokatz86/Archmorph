@@ -10,7 +10,7 @@
 import { create } from 'zustand';
 import { API_BASE } from '../constants';
 
-const TOKEN_KEY = 'archmorph_session_token';
+export const TOKEN_KEY = 'archmorph_session_token';
 const REFRESH_KEY = 'archmorph_refresh_token';
 
 /** Read stored token from localStorage */
@@ -46,7 +46,7 @@ const useAuthStore = create((set, get) => ({
 
     // 1. Try Azure SWA built-in auth (production on Static Web Apps)
     try {
-      const res = await fetch('/.auth/me');
+      const res = await fetch('/.auth/me', { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
         const principal = data?.clientPrincipal;
@@ -54,6 +54,7 @@ const useAuthStore = create((set, get) => ({
           // SWA authenticated — get full user from our API
           const apiRes = await fetch(`${API_BASE}/auth/me`, {
             headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
           });
           if (apiRes.ok) {
             const user = await apiRes.json();
@@ -99,10 +100,13 @@ const useAuthStore = create((set, get) => ({
 
   // ── Login via provider (Azure SWA redirect) ──
   loginWithProvider: (provider) => {
+    const redirectUri = encodeURIComponent(
+      `${window.location.pathname}${window.location.search}${window.location.hash}`
+    );
     const urls = {
-      microsoft: '/.auth/login/aad?post_login_redirect_uri=' + encodeURIComponent(window.location.pathname),
-      google: '/.auth/login/google?post_login_redirect_uri=' + encodeURIComponent(window.location.pathname),
-      github: '/.auth/login/github?post_login_redirect_uri=' + encodeURIComponent(window.location.pathname),
+      microsoft: `/.auth/login/aad?post_login_redirect_uri=${redirectUri}`,
+      google: `/.auth/login/google?post_login_redirect_uri=${redirectUri}`,
+      github: `/.auth/login/github?post_login_redirect_uri=${redirectUri}`,
     };
     const url = urls[provider];
     if (url) {

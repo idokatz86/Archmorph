@@ -38,7 +38,7 @@ jobs:
 
           echo "Waiting for backend health..."
           for i in {1..90}; do
-            if curl -fsS http://127.0.0.1:18082/api/health >/dev/null; then
+            if curl -fsS http://127.0.0.1:18082/healthz >/dev/null; then
               exit 0
             fi
             sleep 1

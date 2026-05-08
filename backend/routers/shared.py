@@ -9,7 +9,7 @@ import secrets
 from collections import OrderedDict
 from typing import Optional, List
 
-from fastapi import Security
+from fastapi import Security, Request
 from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
 from strict_models import StrictBaseModel
 
@@ -80,6 +80,36 @@ async def verify_admin_key(
     if payload is None:
         raise ArchmorphException(401, "Invalid or expired session token")
     return payload
+
+
+def get_bearer_token_from_headers(headers: dict) -> Optional[str]:
+    """Extract Bearer token from request headers."""
+    auth_header = headers.get("authorization", "")
+    if auth_header.startswith("Bearer "):
+        return auth_header[7:]
+    return None
+
+
+def require_authenticated_user(request: Request):
+    """Fail-closed auth dependency for routes that require a signed-in user."""
+    from auth import get_user_from_request_headers
+
+    user = get_user_from_request_headers(dict(request.headers))
+    if not user:
+        raise ArchmorphException(401, "Authentication required")
+    return user
+
+
+def require_authenticated_user_context(request: Request) -> dict:
+    """Return legacy dict context for authenticated user-only routes."""
+    user = require_authenticated_user(request)
+    context = user.to_dict()
+    context["org_id"] = user.tenant_id
+
+    token = get_bearer_token_from_headers(dict(request.headers))
+    if token:
+        context["session_token"] = token
+    return context
 
 
 # ─────────────────────────────────────────────────────────────

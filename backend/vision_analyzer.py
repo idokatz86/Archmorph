@@ -247,7 +247,7 @@ def _vision_prompt() -> str:
 
 
 def _compute_vision_prompt_hash(model_name: str) -> str:
-    source = _vision_prompt()[:200] + model_name
+    source = _vision_prompt() + model_name
     return hashlib.sha256(source.encode("utf-8")).hexdigest()[:12]
 
 

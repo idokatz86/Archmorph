@@ -202,7 +202,7 @@ variable "storage_cmk_key_vault_key_id" {
 }
 
 variable "health_probe_path" {
-  description = "Health probe path for infra checks (set to /healthz once endpoint is live in deployed API)."
+  description = "Health probe path for infra checks. Defaults to the anonymous health endpoint."
   type        = string
-  default     = "/api/health"
+  default     = "/healthz"
 }

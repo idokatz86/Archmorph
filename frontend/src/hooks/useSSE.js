@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
-import { API_BASE } from '../constants';
+import { buildJobStreamUrl } from '../utils/jobStreamUrl';
 
 /**
  * React hook for consuming Server-Sent Events (SSE) from the jobs API.
@@ -53,7 +53,7 @@ export default function useSSE(jobId, {
     const connect = () => {
       if (closedRef.current) return;
 
-      const url = `${API_BASE}/jobs/${jobId}/stream`;
+      const url = buildJobStreamUrl(jobId);
       const es = new EventSource(url);
       esRef.current = es;
 
