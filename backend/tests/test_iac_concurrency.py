@@ -67,7 +67,7 @@ def diagram_with_analysis(client):
 class TestIacEtagGeneration:
     """ETag is generated and returned after IaC generation."""
 
-    @patch("iac_generator.generate_iac_code", return_value=MOCK_TERRAFORM_CODE)
+    @patch("routers.iac_routes.generate_iac_code", return_value=MOCK_TERRAFORM_CODE)
     def test_generate_iac_returns_etag_header(self, mock_gen, client, diagram_with_analysis):
         resp = client.post(
             f"/api/diagrams/{diagram_with_analysis}/generate",
@@ -76,8 +76,9 @@ class TestIacEtagGeneration:
         assert resp.status_code == 200
         assert "etag" in resp.headers, "ETag header must be present after IaC generation"
         assert resp.headers["etag"], "ETag must not be empty"
+        assert resp.json()["etag"] == resp.headers["etag"]
 
-    @patch("iac_generator.generate_iac_code", return_value=MOCK_TERRAFORM_CODE)
+    @patch("routers.iac_routes.generate_iac_code", return_value=MOCK_TERRAFORM_CODE)
     def test_generate_iac_etag_is_deterministic_for_same_code(self, mock_gen, client, diagram_with_analysis):
         """Same code must always produce the same ETag."""
         resp1 = client.post(
@@ -90,7 +91,7 @@ class TestIacEtagGeneration:
         )
         assert resp1.headers["etag"] == resp2.headers["etag"]
 
-    @patch("iac_generator.generate_iac_code", return_value=MOCK_TERRAFORM_CODE)
+    @patch("routers.iac_routes.generate_iac_code", return_value=MOCK_TERRAFORM_CODE)
     def test_generate_iac_stores_code_and_etag_in_session(self, mock_gen, client, diagram_with_analysis):
         """The session must carry the ETag after generation."""
         from routers.iac_routes import _IAC_ETAG_KEY
@@ -105,7 +106,7 @@ class TestIacEtagGeneration:
 class TestIacOptimisticConcurrency:
     """Concurrent edit detection via If-Match."""
 
-    @patch("iac_generator.generate_iac_code", return_value=MOCK_TERRAFORM_CODE)
+    @patch("routers.iac_routes.generate_iac_code", return_value=MOCK_TERRAFORM_CODE)
     def test_matching_if_match_succeeds(self, mock_gen, client, diagram_with_analysis):
         """If-Match matching the stored ETag must succeed (200)."""
         # First generation — no If-Match required
@@ -151,7 +152,7 @@ class TestIacOptimisticConcurrency:
         body = r.json()
         assert "iac_version_conflict" in str(body) or "conflict" in str(body).lower()
 
-    @patch("iac_generator.generate_iac_code", return_value=MOCK_TERRAFORM_CODE)
+    @patch("routers.iac_routes.generate_iac_code", return_value=MOCK_TERRAFORM_CODE)
     def test_missing_if_match_with_no_prior_etag_succeeds(self, mock_gen, client, diagram_with_analysis):
         """First-time generation (no stored ETag) without If-Match must succeed."""
         r = client.post(
@@ -160,7 +161,7 @@ class TestIacOptimisticConcurrency:
         )
         assert r.status_code == 200
 
-    @patch("iac_generator.generate_iac_code", return_value=MOCK_TERRAFORM_CODE)
+    @patch("routers.iac_routes.generate_iac_code", return_value=MOCK_TERRAFORM_CODE)
     def test_missing_if_match_with_prior_etag_succeeds(self, mock_gen, client, diagram_with_analysis):
         """Omitting If-Match even when a prior ETag exists must succeed (free regeneration)."""
         # First generation — establishes an ETag
@@ -193,3 +194,30 @@ class TestIacOptimisticConcurrency:
         assert r.status_code == 409
         body = r.json()
         assert current_etag in str(body)
+
+    def test_iac_chat_updates_stored_etag(self, client, diagram_with_analysis):
+        """Successful chat mutations must refresh the canonical ETag."""
+        from routers.iac_routes import _IAC_ETAG_KEY, _compute_iac_etag, _iac_code_hash
+
+        initial_code = 'resource "azurerm_resource_group" "old" {}'
+        updated_code = 'resource "azurerm_resource_group" "new" {}'
+        session = SESSION_STORE[diagram_with_analysis]
+        session["iac_code"] = initial_code
+        session["iac_code_hash"] = _iac_code_hash(initial_code)
+        session[_IAC_ETAG_KEY] = _compute_iac_etag(initial_code)
+        SESSION_STORE[diagram_with_analysis] = session
+
+        with patch("routers.iac_routes.process_iac_chat", return_value={"code": updated_code}):
+            resp = client.post(
+                f"/api/diagrams/{diagram_with_analysis}/iac-chat",
+                json={
+                    "message": "rename resource",
+                    "code": initial_code,
+                    "format": "terraform",
+                    "code_hash": _iac_code_hash(initial_code),
+                },
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["etag"] == _compute_iac_etag(updated_code)
+        assert SESSION_STORE[diagram_with_analysis][_IAC_ETAG_KEY] == _compute_iac_etag(updated_code)

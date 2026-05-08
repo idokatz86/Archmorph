@@ -189,6 +189,7 @@ def tenant_a():
     """Return a stable dict representing Tenant A's identity context."""
     return {
         "org_id": "org-tenant-a",
+        "tenant_id": "tenant-a",
         "org_name": "Tenant Alpha",
         "api_key": "test-key-tenant-a",
         "user_id": "user-a-001",
@@ -201,6 +202,7 @@ def tenant_b():
     """Return a stable dict representing Tenant B's identity context."""
     return {
         "org_id": "org-tenant-b",
+        "tenant_id": "tenant-b",
         "org_name": "Tenant Beta",
         "api_key": "test-key-tenant-b",
         "user_id": "user-b-001",
@@ -220,6 +222,30 @@ def user_b(tenant_b):
     return tenant_b
 
 
+def _session_auth_headers(*, user_id: str, tenant_id: str) -> dict[str, str]:
+    from auth import AuthProvider, User, UserTier, generate_session_token
+
+    user = User(
+        id=user_id,
+        email=f"{user_id}@example.test",
+        name=user_id,
+        provider=AuthProvider.GITHUB,
+        tier=UserTier.FREE,
+        tenant_id=tenant_id,
+    )
+    return {"Authorization": f"Bearer {generate_session_token(user)}"}
+
+
+@pytest.fixture()
+def tenant_a_auth_headers(tenant_a):
+    return _session_auth_headers(user_id=tenant_a["user_id"], tenant_id=tenant_a["tenant_id"])
+
+
+@pytest.fixture()
+def tenant_b_auth_headers(tenant_b):
+    return _session_auth_headers(user_id=tenant_b["user_id"], tenant_id=tenant_b["tenant_id"])
+
+
 def assert_cross_tenant_denied(response, *, allowed_codes=(403, 404)):
     """Assert that a cross-tenant access attempt was correctly denied.
 
@@ -229,7 +255,7 @@ def assert_cross_tenant_denied(response, *, allowed_codes=(403, 404)):
     Usage::
 
         resp = client.get(f"/api/diagrams/{tenant_a_diagram_id}",
-                          headers={"X-API-Key": tenant_b["api_key"]})
+                  headers=tenant_b_auth_headers)
         assert_cross_tenant_denied(resp)
     """
     assert response.status_code in allowed_codes, (

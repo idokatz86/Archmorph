@@ -21,6 +21,16 @@ from starlette.responses import StreamingResponse
 logger = logging.getLogger(__name__)
 
 
+class _ClosingStreamingResponse(StreamingResponse):
+    async def stream_response(self, send) -> None:
+        try:
+            await super().stream_response(send)
+        finally:
+            aclose = getattr(self.body_iterator, "aclose", None)
+            if aclose is not None:
+                await aclose()
+
+
 def sse_response(generator: AsyncGenerator[str, None]) -> StreamingResponse:
     """Create an SSE StreamingResponse from an async generator.
 
@@ -30,8 +40,17 @@ def sse_response(generator: AsyncGenerator[str, None]) -> StreamingResponse:
     - Connection: keep-alive
     - X-Accel-Buffering: no (nginx proxy compatibility)
     """
-    return StreamingResponse(
-        generator,
+    async def _closing_stream() -> AsyncGenerator[str, None]:
+        try:
+            async for event in generator:
+                yield event
+        finally:
+            aclose = getattr(generator, "aclose", None)
+            if aclose is not None:
+                await aclose()
+
+    return _ClosingStreamingResponse(
+        _closing_stream(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache, no-store, must-revalidate",

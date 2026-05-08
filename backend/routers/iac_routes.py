@@ -215,6 +215,7 @@ async def generate_iac(
             "format": format,
             "code": code,
             "code_hash": session["iac_code_hash"],
+            "etag": new_etag,
         },
         headers={"ETag": new_etag},
     )
@@ -273,9 +274,10 @@ async def iac_chat_endpoint(request: Request, diagram_id: str, msg: IaCChatMessa
             session = SESSION_STORE.get(diagram_id) or session
             session["iac_code"] = new_code
             session["iac_code_hash"] = _iac_code_hash(new_code)
-            SESSION_STORE[diagram_id] = session
+            new_etag = _store_iac_etag(diagram_id, session, new_code)
             # Surface the new hash so clients can synchronise without re-fetching
             result["code_hash"] = session["iac_code_hash"]
+            result["etag"] = new_etag
 
     if result.get("services_added"):
         record_event("iac_services_added", {

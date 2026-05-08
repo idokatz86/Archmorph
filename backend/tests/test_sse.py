@@ -1,6 +1,7 @@
 """Tests for SSE utilities (#281, #858)."""
 import json
 
+import anyio
 import pytest
 
 from sse import format_sse, sse_response
@@ -195,3 +196,49 @@ class TestSseDisconnect:
             "sse_response must not eagerly consume the generator at construction time"
         )
         assert resp.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_streaming_response_disconnect_stops_asgi_producer(self):
+        """An ASGI http.disconnect must stop the upstream SSE producer."""
+        produced = []
+        finalized = []
+
+        async def _producer():
+            try:
+                for i in range(100):
+                    produced.append(i)
+                    yield format_sse("progress", {"step": i})
+                    await anyio.lowlevel.checkpoint()
+            finally:
+                finalized.append(True)
+
+        async def receive():
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        sent_bodies = 0
+
+        async def send(message):
+            nonlocal sent_bodies
+            if message["type"] == "http.response.body" and message.get("body"):
+                sent_bodies += 1
+                if sent_bodies > 1:
+                    raise OSError("client disconnected")
+
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0", "spec_version": "2.4"},
+            "method": "GET",
+            "path": "/events",
+            "raw_path": b"/events",
+            "query_string": b"",
+            "headers": [],
+            "client": ("testclient", 50000),
+            "server": ("testserver", 80),
+            "scheme": "http",
+        }
+
+        with pytest.raises(Exception):
+            await sse_response(_producer())(scope, receive, send)
+
+        assert finalized == [True]
+        assert len(produced) < 100

@@ -1360,6 +1360,33 @@ def generate_landing_zone_svg(
                     'Upload a diagram with identifiable cloud services to generate a landing zone view.</text>'
                     '</svg>'
                 )
+                try:
+                    ET.fromstring(placeholder_svg)
+                except ET.ParseError as exc:
+                    increment_counter(
+                        "archmorph.lz.errors_total",
+                        tags={"stage": "validate_xml", "error_type": "parse_error"},
+                    )
+                    raise ValueError(f"Generated SVG is not well-formed XML: {exc}") from exc
+
+                svg_bytes = len(placeholder_svg.encode("utf-8"))
+                if svg_bytes > MAX_SVG_BYTES:
+                    increment_counter(
+                        "archmorph.lz.errors_total",
+                        tags={"stage": "size_check", "error_type": "oversized"},
+                    )
+                    raise ValueError(
+                        f"Generated SVG exceeds the {MAX_SVG_BYTES}-byte limit "
+                        f"(got {svg_bytes} bytes)"
+                    )
+
+                duration_seconds = time.monotonic() - start
+                record_histogram("archmorph.lz.svg_size_bytes", float(svg_bytes))
+                record_histogram(
+                    "archmorph.lz.svg_generation_duration_seconds", duration_seconds
+                )
+                top_span.set_attribute("svg_size_bytes", svg_bytes)
+                top_span.set_attribute("duration_seconds", round(duration_seconds, 4))
                 return {
                     "format": "landing-zone-svg",
                     "filename": f"archmorph-empty-landing-zone-{dr_variant}.svg",

@@ -58,7 +58,10 @@ def clean_sessions():
 def tenant_a_diagram_id():
     """Create a diagram session owned by Tenant A."""
     diagram_id = "tenant-a-diag-001"
-    SESSION_STORE[diagram_id] = copy.deepcopy(SAMPLE_ANALYSIS)
+    session = copy.deepcopy(SAMPLE_ANALYSIS)
+    session["_owner_user_id"] = "user-a-001"
+    session["_tenant_id"] = "tenant-a"
+    SESSION_STORE[diagram_id] = session
     return diagram_id
 
 
@@ -66,18 +69,35 @@ def tenant_a_diagram_id():
 def tenant_b_diagram_id():
     """Create a diagram session owned by Tenant B."""
     diagram_id = "tenant-b-diag-001"
-    SESSION_STORE[diagram_id] = copy.deepcopy(SAMPLE_ANALYSIS)
+    session = copy.deepcopy(SAMPLE_ANALYSIS)
+    session["_owner_user_id"] = "user-b-001"
+    session["_tenant_id"] = "tenant-b"
+    SESSION_STORE[diagram_id] = session
     return diagram_id
 
 
 class TestCrossTenantSessionIsolation:
     """Verify that Tenant B cannot access Tenant A's diagram sessions and vice versa."""
 
-    def test_tenant_a_can_access_own_diagram(self, client, tenant_a_diagram_id, tenant_a):
+    def test_tenant_a_can_access_own_iac_session(self, client, tenant_a_diagram_id, tenant_a_auth_headers):
         """Tenant A's own diagram must be accessible (sanity check)."""
-        resp = client.get(f"/api/diagrams/{tenant_a_diagram_id}/hld")
-        # 200 or generation-triggered response; definitely not 404 for own diagram
-        assert resp.status_code != 403, "Tenant A must not be locked out of their own diagram"
+        resp = client.post(
+            f"/api/diagrams/{tenant_a_diagram_id}/generate-async",
+            params={"format": "terraform"},
+            headers=tenant_a_auth_headers,
+        )
+        assert resp.status_code == 202, resp.text
+
+    def test_tenant_b_cannot_access_tenant_a_iac_session(
+        self, client, tenant_a_diagram_id, tenant_b_auth_headers
+    ):
+        """Tenant B must be denied access to Tenant A's owned async IaC session."""
+        resp = client.post(
+            f"/api/diagrams/{tenant_a_diagram_id}/generate-async",
+            params={"format": "terraform"},
+            headers=tenant_b_auth_headers,
+        )
+        assert_cross_tenant_denied(resp)
 
     def test_unknown_diagram_id_returns_404(self, client):
         """A completely unknown diagram ID must return 404."""
