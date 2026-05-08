@@ -25,6 +25,8 @@ from prompt_guard import (
 
 logger = logging.getLogger(__name__)
 
+_IAC_VERIFY_ENABLED = os.getenv("IAC_VERIFY_ENABLED", "true").lower() not in ("false", "0", "no")
+
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 _TRUSTED_TERRAFORM_PROVIDER_SOURCES = {
     "azure/azapi",
@@ -745,6 +747,9 @@ def _verify_iac_completeness(
     code: str, cloud_label: str, iac_format: str, analysis: Optional[dict]
 ) -> str:
     """Self-reflection verification: check if generated IaC covers all mapped services."""
+    if not _IAC_VERIFY_ENABLED:
+        logger.info("IaC self-reflection verification disabled via IAC_VERIFY_ENABLED=false")
+        return code
     logger.info("Executing self-reflection verification step for generated %s code", iac_format)
     verify_prompt = (
         f"Please strictly review the following {iac_format} code generated for the user's infrastructure:\\n"
