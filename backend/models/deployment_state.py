@@ -8,6 +8,8 @@ class DeploymentState(Base):
     id = Column(Integer, primary_key=True, index=True)
     project_id = Column(String, index=True, nullable=False)
     environment = Column(String, index=True, nullable=False)  # e.g., 'dev', 'prod'
+    owner_user_id = Column(String, index=True, nullable=True)
+    tenant_id = Column(String, index=True, nullable=True)
     state_json = Column(JSON, nullable=True)  # The actual raw terraform.tfstate
     
     # Locking

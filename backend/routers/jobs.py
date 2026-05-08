@@ -27,9 +27,22 @@ def _ensure_job_access(job, user) -> None:
     if not job.owner_user_id or not job.tenant_id:
         raise ArchmorphException(403, "Forbidden: job ownership missing")
     if job.owner_user_id != user.id:
-        raise ArchmorphException(403, "Forbidden: job owner mismatch")
+        raise ArchmorphException(404, "Job not found")
     if job.tenant_id != user.tenant_id:
-        raise ArchmorphException(403, "Forbidden: tenant mismatch")
+        raise ArchmorphException(404, "Job not found")
+
+
+def _stream_user_from_request(request: Request):
+    from auth import get_user_from_request_headers
+
+    headers = dict(request.headers)
+    stream_token = request.query_params.get("token")
+    if stream_token and "authorization" not in headers:
+        headers["authorization"] = f"Bearer {stream_token}"
+    user = get_user_from_request_headers(headers)
+    if not user:
+        raise ArchmorphException(401, "Authentication required")
+    return user
 
 
 @router.get("/api/jobs/{job_id}")
@@ -44,7 +57,7 @@ async def get_job_status(request: Request, job_id: str, user=Depends(require_aut
 
 
 @router.get("/api/jobs/{job_id}/stream")
-async def stream_job(request: Request, job_id: str, user=Depends(require_authenticated_user)):
+async def stream_job(request: Request, job_id: str):
     """Stream real-time progress events via Server-Sent Events.
 
     Event types:
@@ -59,6 +72,7 @@ async def stream_job(request: Request, job_id: str, user=Depends(require_authent
     job = job_manager.get(job_id)
     if not job:
         raise ArchmorphException(404, f"Job {job_id} not found")
+    user = _stream_user_from_request(request)
     _ensure_job_access(job, user)
     return sse_response(job_manager.stream(job_id))
 

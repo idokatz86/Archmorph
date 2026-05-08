@@ -254,6 +254,8 @@ async def generate_hld_async(
         raise ArchmorphException(404, "Your migration analysis session expired. Please re-analyze the diagram.")
     owner_user_id = session.get("_owner_user_id")
     tenant_id = session.get("_tenant_id")
+    if (owner_user_id or tenant_id) and not user:
+        raise ArchmorphException(401, "Authentication required")
     if user and owner_user_id and owner_user_id != user.id:
         raise ArchmorphException(403, "Forbidden: diagram owner mismatch")
     if user and tenant_id and tenant_id != user.tenant_id:
