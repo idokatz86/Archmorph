@@ -97,6 +97,7 @@ export default function LoginModal({ isOpen, onClose }) {
       {/* Backdrop */}
       <div
         className="fixed inset-0 bg-black/60 backdrop-blur-sm animate-fade-in"
+        aria-hidden="true"
         onClick={onClose}
       />
       {/* Modal */}
