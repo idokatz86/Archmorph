@@ -107,7 +107,7 @@ externalSecrets:
 # Health check configuration (#378)
 livenessProbe:
   httpGet:
-    path: /api/health
+    path: /healthz
     port: 8000
   initialDelaySeconds: 10
   periodSeconds: 30
@@ -116,7 +116,7 @@ livenessProbe:
 
 readinessProbe:
   httpGet:
-    path: /api/health
+    path: /healthz
     port: 8000
   initialDelaySeconds: 5
   periodSeconds: 10
@@ -126,7 +126,7 @@ readinessProbe:
 
 startupProbe:
   httpGet:
-    path: /api/health
+    path: /healthz
     port: 8000
   initialDelaySeconds: 5
   periodSeconds: 5
