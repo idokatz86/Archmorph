@@ -49,7 +49,7 @@ variable "frontend_url" {
 variable "health_probe_path" {
   description = "Health probe path used by DR traffic manager checks."
   type        = string
-  default     = "/api/health"
+  default     = "/healthz"
 }
 
 # ─────────────────────────────────────────────────────────────

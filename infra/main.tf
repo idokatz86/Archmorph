@@ -95,7 +95,7 @@ resource "azurerm_consumption_budget_resource_group" "aoai" {
   time_grain = "Monthly"
 
   time_period {
-    start_date = formatdate("YYYY-MM-01'T'00:00:00Z", timestamp())
+    start_date = var.aoai_budget_start_date
   }
 
   filter {
@@ -282,6 +282,10 @@ resource "azurerm_storage_account" "main" {
   https_traffic_only_enabled        = true
   infrastructure_encryption_enabled = true # Double encryption at rest
 
+  identity {
+    type = "SystemAssigned"
+  }
+
   blob_properties {
     cors_rule {
       allowed_headers    = ["Content-Type", "Authorization"]
@@ -319,6 +323,11 @@ resource "azurerm_storage_account_customer_managed_key" "main" {
   key_vault_id       = azurerm_key_vault.main.id
   key_name           = local.storage_cmk_parts[1]
   key_version        = local.storage_cmk_parts[2]
+
+  depends_on = [
+    azurerm_key_vault_access_policy.storage_cmk,
+    azurerm_role_assignment.storage_cmk_crypto_user,
+  ]
 }
 
 resource "azurerm_storage_container" "diagrams" {
@@ -744,6 +753,12 @@ resource "azurerm_container_app" "backend" {
       }
     }
   }
+
+  lifecycle {
+    ignore_changes = [
+      template[0].container[0].image,
+    ]
+  }
 }
 
 # ─────────────────────────────────────────────────────────────
@@ -775,6 +790,22 @@ resource "azurerm_key_vault_access_policy" "container_app" {
   object_id    = azurerm_user_assigned_identity.container_app.principal_id
 
   secret_permissions = ["Get", "List"]
+}
+
+resource "azurerm_key_vault_access_policy" "storage_cmk" {
+  count        = var.storage_cmk_key_vault_key_id != "" ? 1 : 0
+  key_vault_id = azurerm_key_vault.main.id
+  tenant_id    = data.azurerm_client_config.current.tenant_id
+  object_id    = azurerm_storage_account.main.identity[0].principal_id
+
+  key_permissions = ["Get", "WrapKey", "UnwrapKey"]
+}
+
+resource "azurerm_role_assignment" "storage_cmk_crypto_user" {
+  count                = var.storage_cmk_key_vault_key_id != "" ? 1 : 0
+  scope                = azurerm_key_vault.main.id
+  role_definition_name = "Key Vault Crypto Service Encryption User"
+  principal_id         = azurerm_storage_account.main.identity[0].principal_id
 }
 
 # Key Vault Secrets User RBAC role — required when rbac_authorization_enabled=true (prod).

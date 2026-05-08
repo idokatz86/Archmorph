@@ -125,12 +125,6 @@ variable "acr_prod_sku" {
   }
 }
 
-variable "acr_geo_replica_locations" {
-  description = "Optional list of extra regions for ACR geo-replication (Premium only)."
-  type        = list(string)
-  default     = []
-}
-
 variable "enable_redis_private_endpoint" {
   description = "Enable Redis private endpoint + private DNS in production."
   type        = bool
@@ -188,6 +182,12 @@ variable "aoai_monthly_budget_amount" {
   description = "Monthly AOAI budget amount for resource-group budget alerts. Set to 0 to disable."
   type        = number
   default     = 0
+}
+
+variable "aoai_budget_start_date" {
+  description = "Stable UTC start date for AOAI budget alerts in RFC3339 format."
+  type        = string
+  default     = "2026-01-01T00:00:00Z"
 }
 
 variable "storage_cmk_key_vault_key_id" {

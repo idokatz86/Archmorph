@@ -61,13 +61,11 @@ jobs:
       - name: Show plan
         run: terraform show -no-color tfplan | tee tfplan.txt
 
-      - name: Upload plan artifact
+      - name: Upload redacted plan artifact
         uses: actions/upload-artifact@v7
         with:
           name: prod-tfplan
-          path: |
-            infra/tfplan
-            infra/tfplan.txt
+          path: infra/tfplan.txt
           retention-days: 14
 
   prod-apply:
@@ -94,14 +92,11 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Download reviewed plan artifact
-        uses: actions/download-artifact@v8
-        with:
-          name: prod-tfplan
-          path: infra
-
       - name: Terraform Init
         run: terraform init -input=false
 
-      - name: Terraform Apply (reviewed plan)
+      - name: Terraform Plan (post-approval)
+        run: terraform plan -input=false -out=tfplan
+
+      - name: Terraform Apply (post-approval plan)
         run: terraform apply -input=false tfplan
