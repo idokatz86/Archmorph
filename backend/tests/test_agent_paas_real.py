@@ -1,10 +1,12 @@
 from fastapi.testclient import TestClient
+import pytest
 from main import app
 from database import get_db, Base
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from routers.auth import get_current_user
+from routers.shared import require_authenticated_user_context
 from models.tenant import Organization
 from rbac import get_current_user_required
 
@@ -51,13 +53,29 @@ def override_get_current_user():
         "user_id": "test_user",
         "org_id": "default_org",
         "organization_id": "default_org",
+        "tenant_id": "default_org",
         "roles": ["admin"],
     })
 
-app.dependency_overrides[get_db] = override_get_db
-app.dependency_overrides[get_current_user] = override_get_current_user
-app.dependency_overrides[get_current_user_required] = override_get_current_user
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def auth_overrides():
+    overrides = {
+        get_db: override_get_db,
+        get_current_user: override_get_current_user,
+        get_current_user_required: override_get_current_user,
+        require_authenticated_user_context: override_get_current_user,
+    }
+    previous = {dep: app.dependency_overrides.get(dep) for dep in overrides}
+    app.dependency_overrides.update(overrides)
+    yield
+    for dep, value in previous.items():
+        if value is None:
+            app.dependency_overrides.pop(dep, None)
+        else:
+            app.dependency_overrides[dep] = value
 
 def test_models_registry_get():
     response = client.get("/api/v1/models/")

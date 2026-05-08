@@ -51,13 +51,22 @@ class Job:
         "job_id", "job_type", "diagram_id", "status",
         "progress", "progress_message", "result", "error",
         "created_at", "started_at", "completed_at",
+        "owner_user_id", "tenant_id",
         "_events", "_waiters",
     )
 
-    def __init__(self, job_type: str, diagram_id: Optional[str] = None):
+    def __init__(
+        self,
+        job_type: str,
+        diagram_id: Optional[str] = None,
+        owner_user_id: Optional[str] = None,
+        tenant_id: Optional[str] = None,
+    ):
         self.job_id: str = f"job-{uuid.uuid4().hex[:12]}"
         self.job_type: str = job_type
         self.diagram_id: Optional[str] = diagram_id
+        self.owner_user_id: Optional[str] = owner_user_id
+        self.tenant_id: Optional[str] = tenant_id
         self.status: JobStatus = JobStatus.QUEUED
         self.progress: int = 0
         self.progress_message: str = "Queued"
@@ -74,6 +83,8 @@ class Job:
             "job_id": self.job_id,
             "job_type": self.job_type,
             "diagram_id": self.diagram_id,
+            "owner_user_id": self.owner_user_id,
+            "tenant_id": self.tenant_id,
             "status": self.status.value,
             "progress": self.progress,
             "progress_message": self.progress_message,
@@ -97,9 +108,20 @@ class JobManager:
         self._max_jobs = max_jobs
         self._lock = asyncio.Lock()
 
-    def submit(self, job_type: str, diagram_id: Optional[str] = None) -> Job:
+    def submit(
+        self,
+        job_type: str,
+        diagram_id: Optional[str] = None,
+        owner_user_id: Optional[str] = None,
+        tenant_id: Optional[str] = None,
+    ) -> Job:
         """Create and register a new job. Returns immediately."""
-        job = Job(job_type=job_type, diagram_id=diagram_id)
+        job = Job(
+            job_type=job_type,
+            diagram_id=diagram_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+        )
 
         # Evict oldest completed jobs if at capacity
         if len(self._jobs) >= self._max_jobs:

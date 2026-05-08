@@ -11,6 +11,7 @@ DIAGRAM_PATH="$WORK_DIR/aws.png"
 API_URL="http://127.0.0.1:$PORT"
 BOOTSTRAP_PYTHON="${PYTHON:-}"
 VENV_DIR="$WORK_DIR/.venv"
+TOKEN_PATH="$WORK_DIR/session.token"
 
 if [[ -z "$BOOTSTRAP_PYTHON" ]]; then
   if command -v python3 >/dev/null 2>&1; then
@@ -73,7 +74,43 @@ from pathlib import Path
 Path("$DIAGRAM_PATH").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\0" * 100)
 PY
 
-"$PYTHON_BIN" -m archmorph_cli --api-url "$API_URL" run \
+"$PYTHON_BIN" - <<PY > "$TOKEN_PATH"
+import base64
+import hashlib
+import hmac
+import json
+import os
+import time
+
+
+def _b64url(data: bytes) -> str:
+  return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+secret = os.getenv("JWT_SECRET") or "archmorph-dev-secret-change-in-production"
+header = {"alg": "HS256", "typ": "JWT"}
+payload = {
+  "sub": "cli-container-smoke-user",
+  "email": "cli-container-smoke@example.com",
+  "name": "CLI Container Smoke",
+  "avatar_url": None,
+  "provider": "github",
+  "tier": "team",
+  "tenant_id": "tenant-cli-container-smoke",
+  "roles": ["user"],
+  "iat": int(time.time()),
+  "exp": int(time.time()) + 3600,
+  "type": "access",
+}
+signing_input = ".".join(
+  _b64url(json.dumps(part, separators=(",", ":")).encode("utf-8"))
+  for part in (header, payload)
+)
+signature = hmac.new(secret.encode("utf-8"), signing_input.encode("ascii"), hashlib.sha256).digest()
+print(f"{signing_input}.{_b64url(signature)}")
+PY
+
+"$PYTHON_BIN" -m archmorph_cli --api-url "$API_URL" --token "$(cat "$TOKEN_PATH")" run \
   --diagram "$DIAGRAM_PATH" \
   --target-rg rg-cli-smoke-dev \
   --emit terraform,bicep,alz-svg,cost \

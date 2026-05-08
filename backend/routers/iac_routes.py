@@ -264,10 +264,26 @@ async def generate_iac_async(
 
     ``force=true`` overrides the architecture-blocker gate (Issue #610).
     """
+    from auth import get_user_from_request_headers
+
+    user = get_user_from_request_headers(dict(request.headers))
     session = SESSION_STORE.get(diagram_id, {})
+    owner_user_id = session.get("_owner_user_id")
+    tenant_id = session.get("_tenant_id")
+    if (owner_user_id or tenant_id) and not user:
+        raise ArchmorphException(401, "Authentication required")
+    if user and owner_user_id and owner_user_id != user.id:
+        raise ArchmorphException(403, "Forbidden: diagram owner mismatch")
+    if user and tenant_id and tenant_id != user.tenant_id:
+        raise ArchmorphException(403, "Forbidden: tenant mismatch")
     _check_architecture_blockers(diagram_id, session, force)
 
-    job = job_manager.submit("generate_iac", diagram_id=diagram_id)
+    job = job_manager.submit(
+        "generate_iac",
+        diagram_id=diagram_id,
+        owner_user_id=user.id if user else None,
+        tenant_id=user.tenant_id if user else None,
+    )
     asyncio.create_task(_run_iac_job(job.job_id, diagram_id, format))
 
     from starlette.responses import JSONResponse

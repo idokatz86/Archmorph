@@ -10,9 +10,9 @@ from typing import Dict, Any
 
 from fastapi import APIRouter, Depends
 from error_envelope import ArchmorphException
-from auth import get_user_from_session
 from services.credential_manager import get_credentials
 from routers.credentials import validate_session
+from routers.shared import require_authenticated_user_context
 from scanners.aws_scanner import AWSScanner
 from scanners.azure_scanner import AzureScanner
 from scanners.gcp_scanner import GCPScanner
@@ -30,11 +30,14 @@ logger = logging.getLogger(__name__)
 async def run_cloud_scan(
     provider: str,
     session_token: str = Depends(validate_session),
-    user: dict = Depends(get_user_from_session)
+    user: dict = Depends(require_authenticated_user_context)
 ):
     """
     Initiate a live scan of cloud architecture using stored credentials.
     """
+    if user.get("session_token") != session_token:
+        raise ArchmorphException(403, "Session token mismatch")
+
     try:
         creds = get_credentials(session_token, expected_provider=provider)
     except ArchmorphException as e:

@@ -5,7 +5,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import Field
 from strict_models import StrictBaseModel
 
-from routers.auth import get_current_user
+from routers.shared import require_authenticated_user_context
 from services.terraform_runner import TerraformRunner
 from services.security_compliance import analyze_security_compliance
 from services.finops_analyzer import calculate_costs
@@ -44,7 +44,7 @@ class DeploymentRequest(StrictBaseModel):
 @router.post("/preflight-check")
 async def run_preflight_check(
     request: DeploymentRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_authenticated_user_context)
 ):
     """
     Runs security and cost estimations before deployment (#845).
@@ -66,7 +66,7 @@ async def execute_deployment(
     project_id: str,
     request: Request,
     request_body: DeploymentRequest,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_authenticated_user_context)
 ):
     """
     Kicks off an async Terraform deployment and streams the logs back to the client.

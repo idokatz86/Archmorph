@@ -4,7 +4,7 @@ import {
   Loader2, Eye, Clock, FileCode, FileText, DollarSign, Rocket, Layers3, GitMerge,
 } from 'lucide-react';
 import { Button, Card, ErrorCard, Tabs } from '../ui';
-import { API_BASE } from '../../constants';
+import { buildJobStreamUrl } from '../../utils/jobStreamUrl';
 import api from '../../services/apiClient';
 import { saveSession, loadSession, clearSession, updateSessionCache, cacheImage, loadCachedImage } from '../../services/sessionCache';
 import useWorkflow from './useWorkflow';
@@ -535,7 +535,7 @@ export default function DiagramTranslator() {
 
         // Wait for SSE completion via a promise (with ref-tracked cleanup)
         const result = await new Promise((resolve, reject) => {
-          const url = `${API_BASE}/jobs/${job_id}/stream`;
+          const url = buildJobStreamUrl(job_id);
           const es = new EventSource(url);
           activeEsRef.current = es;
 

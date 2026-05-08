@@ -10799,9 +10799,7 @@ export interface operations {
     clear_memory_api_agents__agent_id__memory__delete: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path: {
                 agent_id: string;
             };
@@ -10832,9 +10830,7 @@ export interface operations {
     list_documents_api_agents__agent_id__memory_documents_get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path: {
                 agent_id: string;
             };
@@ -10865,9 +10861,7 @@ export interface operations {
     delete_document_api_agents__agent_id__memory_documents__doc_id__delete: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path: {
                 agent_id: string;
                 doc_id: string;
@@ -10899,9 +10893,7 @@ export interface operations {
     list_entities_api_agents__agent_id__memory_entities_get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path: {
                 agent_id: string;
             };
@@ -10932,9 +10924,7 @@ export interface operations {
     list_episodes_api_agents__agent_id__memory_episodes_get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path: {
                 agent_id: string;
             };
@@ -11805,9 +11795,7 @@ export interface operations {
     };
     delete_credentials_api_credentials_delete: {
         parameters: {
-            query: {
-                token: string;
-            };
+            query?: never;
             header?: {
                 authorization?: string | null;
             };
@@ -11840,9 +11828,7 @@ export interface operations {
     };
     store_aws_credentials_api_credentials_aws_post: {
         parameters: {
-            query: {
-                token: string;
-            };
+            query?: never;
             header?: {
                 authorization?: string | null;
             };
@@ -11877,9 +11863,7 @@ export interface operations {
     };
     store_azure_credentials_api_credentials_azure_post: {
         parameters: {
-            query: {
-                token: string;
-            };
+            query?: never;
             header?: {
                 authorization?: string | null;
             };
@@ -11916,7 +11900,6 @@ export interface operations {
         parameters: {
             query: {
                 provider: string;
-                token: string;
             };
             header?: {
                 authorization?: string | null;
@@ -11951,9 +11934,7 @@ export interface operations {
     execute_deployment_api_deploy_execute__project_id__post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path: {
                 project_id: string;
             };
@@ -11988,9 +11969,7 @@ export interface operations {
     run_preflight_check_api_deploy_preflight_check_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -14043,9 +14022,7 @@ export interface operations {
     start_execution_api_executions__post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -14078,9 +14055,7 @@ export interface operations {
     get_execution_api_executions__execution_id__get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path: {
                 execution_id: string;
             };
@@ -14111,9 +14086,7 @@ export interface operations {
     cancel_execution_api_executions__execution_id__cancel_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path: {
                 execution_id: string;
             };
@@ -15210,9 +15183,7 @@ export interface operations {
     list_models_api_models__get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -15225,15 +15196,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ModelEndpointResponseSchema"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -15345,9 +15307,7 @@ export interface operations {
     list_policies_api_policies__get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -15362,23 +15322,12 @@ export interface operations {
                     "application/json": components["schemas"]["PolicyResponseSchema"][];
                 };
             };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
         };
     };
     create_policy_api_policies__post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -15411,9 +15360,7 @@ export interface operations {
     bind_policy_api_policies__policy_id__bind__agent_id__post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path: {
                 policy_id: string;
                 agent_id: string;
@@ -15445,9 +15392,7 @@ export interface operations {
     unbind_policy_api_policies__policy_id__unbind__agent_id__post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path: {
                 policy_id: string;
                 agent_id: string;
@@ -15937,9 +15882,7 @@ export interface operations {
     };
     run_cloud_scan_api_scanner_run__provider__post: {
         parameters: {
-            query: {
-                token: string;
-            };
+            query?: never;
             header?: {
                 authorization?: string | null;
             };
@@ -17435,9 +17378,7 @@ export interface operations {
     clear_memory_v1_api_v1_agents__agent_id__memory__delete: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path: {
                 agent_id: string;
             };
@@ -17468,9 +17409,7 @@ export interface operations {
     list_documents_v1_api_v1_agents__agent_id__memory_documents_get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path: {
                 agent_id: string;
             };
@@ -17501,9 +17440,7 @@ export interface operations {
     delete_document_v1_api_v1_agents__agent_id__memory_documents__doc_id__delete: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path: {
                 agent_id: string;
                 doc_id: string;
@@ -17535,9 +17472,7 @@ export interface operations {
     list_entities_v1_api_v1_agents__agent_id__memory_entities_get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path: {
                 agent_id: string;
             };
@@ -17568,9 +17503,7 @@ export interface operations {
     list_episodes_v1_api_v1_agents__agent_id__memory_episodes_get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path: {
                 agent_id: string;
             };
@@ -18493,9 +18426,7 @@ export interface operations {
     };
     delete_credentials_v1_api_v1_credentials_delete: {
         parameters: {
-            query: {
-                token: string;
-            };
+            query?: never;
             header?: {
                 authorization?: string | null;
             };
@@ -18528,9 +18459,7 @@ export interface operations {
     };
     store_aws_credentials_v1_api_v1_credentials_aws_post: {
         parameters: {
-            query: {
-                token: string;
-            };
+            query?: never;
             header?: {
                 authorization?: string | null;
             };
@@ -18565,9 +18494,7 @@ export interface operations {
     };
     store_azure_credentials_v1_api_v1_credentials_azure_post: {
         parameters: {
-            query: {
-                token: string;
-            };
+            query?: never;
             header?: {
                 authorization?: string | null;
             };
@@ -18604,7 +18531,6 @@ export interface operations {
         parameters: {
             query: {
                 provider: string;
-                token: string;
             };
             header?: {
                 authorization?: string | null;
@@ -18639,9 +18565,7 @@ export interface operations {
     execute_deployment_v1_api_v1_deploy_execute__project_id__post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path: {
                 project_id: string;
             };
@@ -18676,9 +18600,7 @@ export interface operations {
     run_preflight_check_v1_api_v1_deploy_preflight_check_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -20398,9 +20320,7 @@ export interface operations {
     start_execution_v1_api_v1_executions__post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -20433,9 +20353,7 @@ export interface operations {
     get_execution_v1_api_v1_executions__execution_id__get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path: {
                 execution_id: string;
             };
@@ -20466,9 +20384,7 @@ export interface operations {
     cancel_execution_v1_api_v1_executions__execution_id__cancel_post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path: {
                 execution_id: string;
             };
@@ -21262,9 +21178,7 @@ export interface operations {
     list_models_v1_api_v1_models__get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -21277,15 +21191,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ModelEndpointResponseSchema"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -21361,9 +21266,7 @@ export interface operations {
     list_policies_v1_api_v1_policies__get: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -21378,23 +21281,12 @@ export interface operations {
                     "application/json": components["schemas"]["PolicyResponseSchema"][];
                 };
             };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
         };
     };
     create_policy_v1_api_v1_policies__post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -21427,9 +21319,7 @@ export interface operations {
     bind_policy_v1_api_v1_policies__policy_id__bind__agent_id__post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path: {
                 policy_id: string;
                 agent_id: string;
@@ -21461,9 +21351,7 @@ export interface operations {
     unbind_policy_v1_api_v1_policies__policy_id__unbind__agent_id__post: {
         parameters: {
             query?: never;
-            header?: {
-                authorization?: string | null;
-            };
+            header?: never;
             path: {
                 policy_id: string;
                 agent_id: string;
@@ -21793,9 +21681,7 @@ export interface operations {
     };
     run_cloud_scan_v1_api_v1_scanner_run__provider__post: {
         parameters: {
-            query: {
-                token: string;
-            };
+            query?: never;
             header?: {
                 authorization?: string | null;
             };
