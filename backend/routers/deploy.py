@@ -75,6 +75,8 @@ async def execute_deployment(
     """
     if not request_body.iac_code:
         raise HTTPException(status_code=400, detail="No IaC code provided for deployment.")
+    if request_body.project_id != project_id:
+        raise HTTPException(status_code=400, detail="Path project_id must match request body project_id.")
 
     # Instantiate runner (Note: User auth is attached to assure session safety)
     runner = TerraformRunner(project_id=project_id, environment="production")

@@ -402,6 +402,7 @@ class TestMigrationChatAuth:
     def test_migration_chat_verify_api_key_dependency_present(self):
         """Confirm verify_api_key is wired by inspecting route dependencies."""
         from main import app as fastapi_app
+        from routers.shared import verify_api_key
 
         target_route = None
         for route in fastapi_app.routes:
@@ -410,16 +411,8 @@ class TestMigrationChatAuth:
                 break
 
         assert target_route is not None, "migration-chat route not found"
-        # verify_api_key must appear either as a direct or inherited dependency
-        # The endpoint uses _auth=Depends(verify_api_key) so it's in the
-        # endpoint's dependant — not in route.dependencies but in the func signature.
-        # We verify it by checking the endpoint still exists and accepts X-API-Key.
-        # (The functional test above confirms 404 not 403 in test env.)
-
-
-# ======================================================================
-# 8. Rate Limit — 429 + Retry-After (#848)
-# ======================================================================
+        dependency_callables = {dep.call for dep in target_route.dependant.dependencies}
+        assert verify_api_key in dependency_callables
 
 # ======================================================================
 # 8. Rate Limit — 429 + Retry-After (#848)

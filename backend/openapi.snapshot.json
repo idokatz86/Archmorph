@@ -2391,7 +2391,7 @@
       },
       "IaCChatMessage": {
         "additionalProperties": false,
-        "description": "Request body for IaC chat messages.\n\n``code_hash`` is the SHA-256 hex digest (lowercase) of the client's local copy\nof the IaC code.  When the server has canonical state stored in the session the\nclient **must** supply this field and it must match the server-side hash.  A\nmismatch returns HTTP 409 so the client knows to re-fetch the authoritative code\nbefore retrying (#842).",
+        "description": "Request body for IaC chat messages.\n\n``code_hash`` is the SHA-256 hex digest (lowercase) of the client's local copy\nof the IaC code. When supplied, it must match the server-side hash. A mismatch\nreturns HTTP 409 so the client knows to re-fetch the authoritative code before\nretrying (#842). Missing hashes remain accepted for older clients; the server\nstill ignores client-supplied code whenever canonical state exists.",
         "properties": {
           "code": {
             "default": "",
@@ -2410,7 +2410,7 @@
                 "type": "null"
               }
             ],
-            "description": "SHA-256 hex digest of the client's current IaC code (required when server has canonical state)",
+            "description": "Optional SHA-256 hex digest of the client's current IaC code for stale-copy detection",
             "title": "Code Hash"
           },
           "format": {
@@ -8569,7 +8569,7 @@
         "summary": "Iac Chat Clear"
       },
       "post": {
-        "description": "Chat with AI to modify generated Terraform/Bicep code.\n\nThe server always uses its own canonical IaC code (stored after ``/generate``)\nrather than the client-supplied ``code`` field to prevent state overwrite from\ntampered request bodies (#842).  When the server has canonical state, the client\n**must** supply ``code_hash`` matching the server's SHA-256 digest; a mismatch\nreturns 409 so the client knows to refresh.",
+        "description": "Chat with AI to modify generated Terraform/Bicep code.\n\nThe server always uses its own canonical IaC code (stored after ``/generate``)\nrather than the client-supplied ``code`` field to prevent state overwrite from\ntampered request bodies (#842). When the client supplies ``code_hash`` it must\nmatch the server's SHA-256 digest; a mismatch returns 409 so the client knows\nto refresh.",
         "operationId": "iac_chat_endpoint_api_diagrams__diagram_id__iac_chat_post",
         "parameters": [
           {
@@ -18863,7 +18863,7 @@
         ]
       },
       "post": {
-        "description": "Chat with AI to modify generated Terraform/Bicep code.\n\nThe server always uses its own canonical IaC code (stored after ``/generate``)\nrather than the client-supplied ``code`` field to prevent state overwrite from\ntampered request bodies (#842).  When the server has canonical state, the client\n**must** supply ``code_hash`` matching the server's SHA-256 digest; a mismatch\nreturns 409 so the client knows to refresh.",
+        "description": "Chat with AI to modify generated Terraform/Bicep code.\n\nThe server always uses its own canonical IaC code (stored after ``/generate``)\nrather than the client-supplied ``code`` field to prevent state overwrite from\ntampered request bodies (#842). When the client supplies ``code_hash`` it must\nmatch the server's SHA-256 digest; a mismatch returns 409 so the client knows\nto refresh.",
         "operationId": "iac_chat_endpoint_v1_api_v1_diagrams__diagram_id__iac_chat_post",
         "parameters": [
           {

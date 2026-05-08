@@ -103,10 +103,10 @@ class IaCChatMessage(StrictBaseModel):
     """Request body for IaC chat messages.
 
     ``code_hash`` is the SHA-256 hex digest (lowercase) of the client's local copy
-    of the IaC code.  When the server has canonical state stored in the session the
-    client **must** supply this field and it must match the server-side hash.  A
-    mismatch returns HTTP 409 so the client knows to re-fetch the authoritative code
-    before retrying (#842).
+    of the IaC code. When supplied, it must match the server-side hash. A mismatch
+    returns HTTP 409 so the client knows to re-fetch the authoritative code before
+    retrying (#842). Missing hashes remain accepted for older clients; the server
+    still ignores client-supplied code whenever canonical state exists.
     """
     message: str = Field(..., min_length=1, max_length=5000)
     code: str = Field(default="", max_length=100000)
@@ -115,7 +115,7 @@ class IaCChatMessage(StrictBaseModel):
         None,
         min_length=64,
         max_length=64,
-        description="SHA-256 hex digest of the client's current IaC code (required when server has canonical state)",
+        description="Optional SHA-256 hex digest of the client's current IaC code for stale-copy detection",
     )
 
 
@@ -161,7 +161,7 @@ async def generate_iac(
     session["iac_format"] = format
     SESSION_STORE[diagram_id] = session
 
-    return {"diagram_id": diagram_id, "format": format, "code": code}
+    return {"diagram_id": diagram_id, "format": format, "code": code, "code_hash": session["iac_code_hash"]}
 
 
 # ─────────────────────────────────────────────────────────────
@@ -174,9 +174,9 @@ async def iac_chat_endpoint(request: Request, diagram_id: str, msg: IaCChatMessa
 
     The server always uses its own canonical IaC code (stored after ``/generate``)
     rather than the client-supplied ``code`` field to prevent state overwrite from
-    tampered request bodies (#842).  When the server has canonical state, the client
-    **must** supply ``code_hash`` matching the server's SHA-256 digest; a mismatch
-    returns 409 so the client knows to refresh.
+    tampered request bodies (#842). When the client supplies ``code_hash`` it must
+    match the server's SHA-256 digest; a mismatch returns 409 so the client knows
+    to refresh.
     """
     record_event("iac_chat_messages", {"diagram_id": diagram_id})
 
@@ -194,7 +194,6 @@ async def iac_chat_endpoint(request: Request, diagram_id: str, msg: IaCChatMessa
                     409,
                     "IaC code version mismatch — your local copy is stale. "
                     "Re-fetch the current IaC code before continuing.",
-                    details={"server_hash": server_hash},
                 )
         # Always use server-side code; ignore client-supplied code
         code_to_use = server_code
