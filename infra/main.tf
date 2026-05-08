@@ -525,7 +525,7 @@ resource "azurerm_container_app" "backend" {
       }
 
       liveness_probe {
-        path                    = "/api/health"
+        path                    = "/healthz"
         port                    = 8000
         transport               = "HTTP"
         initial_delay           = 10
@@ -534,7 +534,7 @@ resource "azurerm_container_app" "backend" {
       }
 
       readiness_probe {
-        path                    = "/api/health"
+        path                    = "/healthz"
         port                    = 8000
         transport               = "HTTP"
         interval_seconds        = 10
@@ -542,7 +542,7 @@ resource "azurerm_container_app" "backend" {
       }
 
       startup_probe {
-        path                    = "/api/health"
+        path                    = "/healthz"
         port                    = 8000
         transport               = "HTTP"
         interval_seconds        = 5
@@ -992,7 +992,7 @@ resource "azurerm_application_insights_standard_web_test" "health_check" {
   enabled                 = true
 
   request {
-    url = "https://${azurerm_container_app.backend.ingress[0].fqdn}/api/health"
+    url = "https://${azurerm_container_app.backend.ingress[0].fqdn}/healthz"
   }
 
   validation_rules {
@@ -2247,7 +2247,7 @@ resource "azurerm_cdn_frontdoor_origin_group" "api" {
   }
 
   health_probe {
-    path                = "/api/health"
+    path                = "/healthz"
     protocol            = "Https"
     interval_in_seconds = 30
     request_type        = "GET"

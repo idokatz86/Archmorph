@@ -23,6 +23,7 @@ permissions:
 
 env:
   API_URL: ${{ secrets.API_URL }}
+  ARCHMORPH_API_KEY: ${{ secrets.ARCHMORPH_API_KEY }}
 
 concurrency:
   group: freshness-watchdog
@@ -52,7 +53,12 @@ jobs:
           BASE="${API_URL%/}"
           BASE="${BASE%/api}"
 
-          BODY=$(curl -sS --max-time 30 "${BASE}/api/health")
+          # Pass API key when available — /api/health requires auth in production (#844).
+          _CURL_ARGS=(-sS --max-time 30)
+          if [ -n "${ARCHMORPH_API_KEY:-}" ]; then
+            _CURL_ARGS+=(-H "X-API-Key: ${ARCHMORPH_API_KEY}")
+          fi
+          BODY=$(curl "${_CURL_ARGS[@]}" "${BASE}/api/health")
           if [ -z "$BODY" ]; then
             echo "::error::Empty response from /api/health"
             exit 1

@@ -27,16 +27,26 @@ class TerraformRunner:
             yield "Failed to start Terraform process."
             return
 
-        while True:
-            line = await process.stdout.readline()
-            if not line:
-                break
-            # Stream the decoded line
-            yield line.decode("utf-8").strip()
+        try:
+            while True:
+                line = await process.stdout.readline()
+                if not line:
+                    break
+                # Stream the decoded line
+                yield line.decode("utf-8").strip()
 
-        await process.wait()
-        if process.returncode != 0:
-            yield f"ERROR: Terraform process exited with code {process.returncode}"
+            await process.wait()
+            if process.returncode != 0:
+                yield f"ERROR: Terraform process exited with code {process.returncode}"
+        except (asyncio.CancelledError, GeneratorExit):
+            if process.returncode is None:
+                process.terminate()
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=5)
+                except asyncio.TimeoutError:
+                    process.kill()
+                    await process.wait()
+            raise
 
     async def stream_plan(self, terraform_code: str) -> AsyncGenerator[str, None]:
         """Provides a dry-run implementation by streaming 'terraform plan'."""

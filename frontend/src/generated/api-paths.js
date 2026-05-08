@@ -402,6 +402,7 @@ export const API_PATH_TEMPLATES = Object.freeze({
   API_WEBHOOKS_TEST: "/api/webhooks/test",
   API_WEBHOOKS_WEBHOOK_ID: "/api/webhooks/{webhook_id}",
   API_WEBHOOKS_WEBHOOK_ID_LOGS: "/api/webhooks/{webhook_id}/logs",
+  HEALTHZ: "/healthz",
 });
 
 export const OPENAPI_PATHS = Object.freeze(Object.values(API_PATH_TEMPLATES));
