@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useRef, useCallback } from 'react';
 import Prism from '../../lib/prism';
 import DOMPurify from 'dompurify';
 import {
@@ -45,6 +45,16 @@ export default function IaCViewer({
   const [pushLoading, setPushLoading] = useState(false);
   const [pushError, setPushError] = useState('');
   const [pushResult, setPushResult] = useState(null);
+
+  // Guard against double-click / double-submit on the IaC chat send button (#910)
+  const pendingRef = useRef(false);
+  const handleSendChat = useCallback(() => {
+    if (pendingRef.current) return;
+    pendingRef.current = true;
+    Promise.resolve()
+      .then(() => onSendChat())
+      .finally(() => { pendingRef.current = false; });
+  }, [onSendChat]);
 
   // Compute which lines are new/changed compared to previous version
   const changedLineSet = useMemo(() => {
@@ -295,12 +305,12 @@ export default function IaCViewer({
               <div className="flex items-center gap-2">
                 <input ref={iacChatInputRef} type="text" value={iacChatInput}
                   onChange={e => onSetChatInput(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSendChat(); } }}
+                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendChat(); } }}
                   placeholder="Ask to add VNet, storage, IPs, naming conventions..."
                   aria-label="IaC chat message"
                   className="flex-1 px-3 py-2 bg-surface border border-border rounded-lg text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-cta/50 transition-colors"
                 />
-                <button onClick={onSendChat} disabled={!iacChatInput.trim() || iacChatLoading}
+                <button onClick={handleSendChat} disabled={!iacChatInput.trim() || iacChatLoading}
                   aria-label="Send message"
                   className="p-2 rounded-lg bg-cta hover:bg-cta-hover text-surface disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors">
                   <Send className="w-4 h-4" />
