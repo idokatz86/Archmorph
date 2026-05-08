@@ -45,7 +45,27 @@ jobs:
         with:
           terraform_version: "1.9.x"
 
+      - name: Terraform Format Check
+        if: github.event_name == 'push'
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Init (backendless validation)
+        if: github.event_name == 'push'
+        run: terraform init -backend=false -input=false
+
+      - name: Terraform Validate
+        if: github.event_name == 'push'
+        run: terraform validate -no-color
+
+      - name: "Preflight: production remote state RBAC requirements"
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          echo "::notice::Production plan/apply uses Azure Storage remote state."
+          echo "::notice::Grant this workflow identity Blob data-plane access (for example: Storage Blob Data Contributor) on the tfstate storage account/container."
+          echo "::notice::Ensure any required management-plane access is also granted."
+
       - name: Azure Login (OIDC)
+        if: github.event_name == 'workflow_dispatch'
         uses: azure/login@v3
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -53,15 +73,19 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Terraform Init
+        if: github.event_name == 'workflow_dispatch'
         run: terraform init -input=false
 
       - name: Terraform Plan (production)
+        if: github.event_name == 'workflow_dispatch'
         run: terraform plan -input=false -out=tfplan
 
       - name: Show plan
+        if: github.event_name == 'workflow_dispatch'
         run: terraform show -no-color tfplan | tee tfplan.txt
 
       - name: Upload redacted plan artifact
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v7
         with:
           name: prod-tfplan
