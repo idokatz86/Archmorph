@@ -52,7 +52,7 @@ function ServiceRow({ svc }) {
               <ul className="space-y-0.5">
                 {svc.assumptions.map((a, i) => (
                   <li key={i} className="text-xs text-text-muted flex items-start gap-1.5">
-                    <span className="text-cta/60 mt-0.5">•</span> {typeof a === 'string' ? a : JSON.stringify(a)}
+                    <span className="text-cta/60 mt-0.5">•</span> {toRenderableString(a)}
                   </li>
                 ))}
               </ul>

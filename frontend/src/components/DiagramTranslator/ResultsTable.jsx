@@ -719,8 +719,8 @@ export default function ResultsTable({ analysis, activeView, onViewChange }) {
                                     <div className="pl-3 border-l-2 border-warning/30 space-y-1 mt-2">
                                       <p className="text-warning font-semibold">Feature gaps:</p>
                                       {m._gaps.map((g, idx) => {
-                                        const text = typeof g === 'string' ? g : g.factor || '';
-                                        const detail = typeof g === 'string' ? null : g.detail;
+                                        const text = typeof g === 'string' ? g : toRenderableString(g.factor || g);
+                                        const detail = typeof g === 'string' ? null : toRenderableString(g.detail);
                                         return (
                                           <div key={idx} className="flex items-start gap-2 text-text-muted">
                                             <AlertTriangle className="w-3 h-3 text-warning shrink-0 mt-0.5" />

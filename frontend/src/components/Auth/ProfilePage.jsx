@@ -5,10 +5,13 @@
  * IaC format preferences. Includes account deletion with confirmation.
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useId } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Save, Trash2, Loader2, AlertTriangle } from 'lucide-react';
 import { useAuth } from './AuthProvider';
 import { API_BASE } from '../../constants';
+import useFocusTrap from '../../hooks/useFocusTrap';
+import { TOKEN_KEY } from '../../stores/useAuthStore';
 
 const ROLES = [
   { value: 'cloud_architect', label: 'Cloud Architect' },
@@ -31,6 +34,19 @@ const IAC_FORMATS = [
 
 const normalizeIacFormat = (format) => (format === 'terraform' || format === 'bicep' ? format : null);
 
+function authHeaders(extra = {}) {
+  let token = null;
+  try {
+    token = localStorage.getItem(TOKEN_KEY);
+  } catch {
+    token = null;
+  }
+  return {
+    ...extra,
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
 function Select({ label, value, onChange, options, placeholder }) {
   return (
     <div>
@@ -51,6 +67,8 @@ function Select({ label, value, onChange, options, placeholder }) {
 
 export default function ProfilePage({ isOpen, onClose }) {
   const { user, isAuthenticated, logout } = useAuth();
+  const titleId = useId();
+  const trapRef = useFocusTrap(isOpen);
   const [form, setForm] = useState({
     display_name: '',
     company: '',
@@ -63,31 +81,13 @@ export default function ProfilePage({ isOpen, onClose }) {
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [message, setMessage] = useState(null);
 
-  // A11y: focus trap, Escape close, backdrop close, restore focus, scroll lock (#804)
-  const overlayRef = useRef(null);
-  const contentRef = useRef(null);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    const prev = document.activeElement;
-    contentRef.current?.focus();
-    const handleKey = (e) => { if (e.key === 'Escape') onClose?.(); };
-    document.addEventListener('keydown', handleKey);
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.removeEventListener('keydown', handleKey);
-      document.body.style.overflow = '';
-      prev?.focus?.();
-    };
-  }, [isOpen, onClose]);
-
   // Load profile on open
   useEffect(() => {
     if (!isOpen || !isAuthenticated) return;
 
-    const token = localStorage.getItem('archmorph_session_token');
     fetch(`${API_BASE}/me/profile`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      headers: authHeaders(),
+      credentials: 'include',
     })
       .then((r) => r.ok ? r.json() : null)
       .then((data) => {
@@ -104,19 +104,33 @@ export default function ProfilePage({ isOpen, onClose }) {
       .catch(() => {});
   }, [isOpen, isAuthenticated]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') onClose?.();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   const handleSave = async () => {
     setSaving(true);
     setMessage(null);
     try {
-      const token = localStorage.getItem('archmorph_session_token');
       const res = await fetch(`${API_BASE}/me/profile`, {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        credentials: 'include',
         body: JSON.stringify(form),
       });
       if (res.ok) {
@@ -135,10 +149,10 @@ export default function ProfilePage({ isOpen, onClose }) {
   const handleDelete = async () => {
     setDeleting(true);
     try {
-      const token = localStorage.getItem('archmorph_session_token');
       const res = await fetch(`${API_BASE}/me/account`, {
         method: 'DELETE',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        headers: authHeaders(),
+        credentials: 'include',
       });
       if (res.ok) {
         logout();
@@ -154,24 +168,20 @@ export default function ProfilePage({ isOpen, onClose }) {
     }
   };
 
-  return (
-    <div
-      ref={overlayRef}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
-      onClick={(e) => { if (e.target === overlayRef.current) onClose?.(); }}
-    >
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto p-4 sm:p-6 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]">
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" data-testid="profile-backdrop" onClick={onClose} />
       <div
-        ref={contentRef}
+        ref={trapRef}
         role="dialog"
         aria-modal="true"
-        aria-labelledby="profile-modal-title"
-        tabIndex={-1}
-        className="bg-surface border border-border rounded-2xl shadow-2xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto focus:outline-none"
+        aria-labelledby={titleId}
+        className="relative z-10 my-auto bg-surface border border-border rounded-2xl shadow-2xl w-full max-w-lg max-h-[calc(100dvh-2rem)] overflow-y-auto"
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-          <h2 id="profile-modal-title" className="text-lg font-semibold text-text-primary">Profile Settings</h2>
-          <button onClick={onClose} className="p-1 hover:bg-secondary rounded-lg transition-colors cursor-pointer">
+          <h2 id={titleId} className="text-lg font-semibold text-text-primary">Profile Settings</h2>
+          <button onClick={onClose} className="p-1 hover:bg-secondary rounded-lg transition-colors cursor-pointer" aria-label="Close profile settings">
             <X className="w-5 h-5 text-text-muted" />
           </button>
         </div>
@@ -278,6 +288,7 @@ export default function ProfilePage({ isOpen, onClose }) {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
