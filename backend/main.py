@@ -275,7 +275,7 @@ app.add_middleware(
     allow_credentials=_CORS_ALLOW_CREDENTIALS,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
     allow_headers=["Content-Type", "Authorization", "X-API-Key", "X-Export-Capability"],
-    expose_headers=["X-Export-Capability-Next"],
+    expose_headers=["X-Export-Capability-Next", "ETag"],
     max_age=3600,  # Cache preflight for 1 hour
 )
 

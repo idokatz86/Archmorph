@@ -355,6 +355,41 @@ class TestHldGeneration:
         assert call_kwargs["response_format"] == {"type": "json_object"}
 
     @patch("hld_generator.cached_chat_completion")
+    def test_generate_hld_uses_hld_max_tokens_env_default(self, mock_cached):
+        """HLD_MAX_TOKENS env default (24576) must be used — never a different hardcoded value (#841)."""
+        import hld_generator
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = json.dumps(MOCK_HLD_RESPONSE)
+        mock_cached.return_value = mock_response
+
+        generate_hld(MOCK_ANALYSIS)
+
+        call_kwargs = mock_cached.call_args.kwargs
+        # The token cap must equal HLD_MAX_TOKENS; if it diverges the test will catch it.
+        assert call_kwargs["max_tokens"] == hld_generator.HLD_MAX_TOKENS
+
+    @patch("hld_generator.cached_chat_completion")
+    def test_generate_hld_respects_hld_max_tokens_override(self, mock_cached, monkeypatch):
+        """HLD_MAX_TOKENS env override must propagate through module reload (#841)."""
+        import importlib
+        import hld_generator as hld_mod
+
+        monkeypatch.setenv("HLD_MAX_TOKENS", "8192")
+        importlib.reload(hld_mod)
+
+        try:
+            # After reload, the module-level constant must reflect the override.
+            assert hld_mod.HLD_MAX_TOKENS == 8192, (
+                f"HLD_MAX_TOKENS should be 8192 after env override, got {hld_mod.HLD_MAX_TOKENS}"
+            )
+        finally:
+            # Restore module with default env so later tests are unaffected.
+            monkeypatch.delenv("HLD_MAX_TOKENS", raising=False)
+            importlib.reload(hld_mod)
+
+    @patch("hld_generator.cached_chat_completion")
     def test_generate_hld_returns_dict(self, mock_cached):
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]

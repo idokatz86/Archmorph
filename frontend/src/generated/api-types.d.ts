@@ -1892,6 +1892,11 @@ export interface paths {
          * @description Generate Infrastructure as Code from the architecture analysis.
          *
          *     ``force=true`` overrides the architecture-blocker gate (Issue #610).
+         *
+         *     Optimistic concurrency (#858 / F-BUG-8): if an ``If-Match`` request header
+         *     is supplied and a previous generation exists for this diagram, the stored
+         *     ETag must match.  A mismatch returns HTTP 409 so that concurrent clients
+         *     can detect and resolve conflicts instead of silently overwriting each other.
          */
         post: operations["generate_iac_api_diagrams__diagram_id__generate_post"];
         delete?: never;
@@ -6158,6 +6163,11 @@ export interface paths {
          * @description Generate Infrastructure as Code from the architecture analysis.
          *
          *     ``force=true`` overrides the architecture-blocker gate (Issue #610).
+         *
+         *     Optimistic concurrency (#858 / F-BUG-8): if an ``If-Match`` request header
+         *     is supplied and a previous generation exists for this diagram, the stored
+         *     ETag must match.  A mismatch returns HTTP 409 so that concurrent clients
+         *     can detect and resolve conflicts instead of silently overwriting each other.
          */
         post: operations["generate_iac_v1_api_v1_diagrams__diagram_id__generate_post"];
         delete?: never;
