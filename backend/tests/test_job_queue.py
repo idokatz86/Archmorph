@@ -256,11 +256,11 @@ class TestJobsRouter:
         assert res.status_code == 200
         assert "text/event-stream" in res.headers.get("content-type", "")
 
-    def test_job_owner_mismatch_forbidden(self, test_client, auth_headers):
+    def test_job_owner_mismatch_returns_not_found(self, test_client, auth_headers):
         from job_queue import job_manager
         job = job_manager.submit("test_stream", owner_user_id="other-user", tenant_id="tenant-jobs")
         res = test_client.get(f"/api/jobs/{job.job_id}", headers=auth_headers)
-        assert res.status_code == 403
+        assert res.status_code == 404
 
 
 # ─────────────────────────────────────────────────────────────
