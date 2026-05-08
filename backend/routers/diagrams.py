@@ -302,7 +302,7 @@ async def restore_session(
                 f"image_base64 too large. Maximum allowed: {MAX_UPLOAD_SIZE // (1024*1024)} MB.",
             )
         IMAGE_STORE[diagram_id] = (
-            base64.b64encode(decoded).decode("ascii"),
+            body.image_base64,
             body.image_content_type or "image/png",
         )
         restored_parts.append("image")

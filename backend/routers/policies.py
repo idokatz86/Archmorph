@@ -10,6 +10,13 @@ from models.policy import AgentPolicy, AgentPolicyBinding
 
 router = APIRouter(prefix="/api/policies", tags=["Policies"])
 
+
+def _org_id(user: dict) -> str:
+    org_id = user.get("org_id")
+    if not org_id:
+        raise HTTPException(status_code=401, detail="Authentication context missing organization")
+    return org_id
+
 class PolicyCreateSchema(StrictBaseModel):
     name: str
     description: Optional[str] = None
@@ -30,7 +37,7 @@ class PolicyResponseSchema(StrictBaseModel):
 
 @router.post("/", response_model=PolicyResponseSchema, status_code=status.HTTP_201_CREATED)
 def create_policy(payload: PolicyCreateSchema, db: Session = Depends(get_db), user: dict = Depends(require_authenticated_user_context)):
-    org_id = user["org_id"]
+    org_id = _org_id(user)
     
     policy = AgentPolicy(
         organization_id=org_id,
@@ -47,12 +54,12 @@ def create_policy(payload: PolicyCreateSchema, db: Session = Depends(get_db), us
 
 @router.get("/", response_model=List[PolicyResponseSchema])
 def list_policies(db: Session = Depends(get_db), user: dict = Depends(require_authenticated_user_context)):
-    org_id = user["org_id"]
+    org_id = _org_id(user)
     return db.query(AgentPolicy).filter(AgentPolicy.organization_id == org_id).all()
 
 @router.post("/{policy_id}/bind/{agent_id}")
 def bind_policy(policy_id: str, agent_id: str, db: Session = Depends(get_db), user: dict = Depends(require_authenticated_user_context)):
-    org_id = user["org_id"]
+    org_id = _org_id(user)
     # Verify policy
     policy = db.query(AgentPolicy).filter(AgentPolicy.id == policy_id, AgentPolicy.organization_id == org_id).first()
     if not policy:
@@ -65,7 +72,7 @@ def bind_policy(policy_id: str, agent_id: str, db: Session = Depends(get_db), us
 
 @router.post("/{policy_id}/unbind/{agent_id}")
 def unbind_policy(policy_id: str, agent_id: str, db: Session = Depends(get_db), user: dict = Depends(require_authenticated_user_context)):
-    org_id = user["org_id"]
+    org_id = _org_id(user)
     binding = db.query(AgentPolicyBinding).join(AgentPolicy).filter(
         AgentPolicyBinding.agent_id == agent_id,
         AgentPolicyBinding.policy_id == policy_id,

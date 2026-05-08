@@ -11,6 +11,13 @@ from models.memory import AgentMemoryDocument, AgentEpisodicMemory, AgentEntityM
 
 router = APIRouter(prefix="/api/agents/{agent_id}/memory", tags=["Agent Memory"])
 
+
+def _org_id(user: dict) -> str:
+    org_id = user.get("org_id")
+    if not org_id:
+        raise HTTPException(status_code=401, detail="Authentication context missing organization")
+    return org_id
+
 class DocumentResponseSchema(StrictBaseModel):
     id: str
     filename: str
@@ -37,7 +44,7 @@ class EntityResponseSchema(StrictBaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 def _get_agent_verified(agent_id: str, db: Session, user: dict):
-    org_id = user["org_id"]
+    org_id = _org_id(user)
     agent = db.query(Agent).filter(Agent.id == agent_id, Agent.organization_id == org_id).first()
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
