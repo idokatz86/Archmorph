@@ -24,6 +24,7 @@ from usage_metrics import record_event, record_funnel_step, get_metrics_summary,
 from guided_questions import generate_questions, apply_answers
 from diagram_export import generate_diagram, get_azure_stencil_id
 from services import AWS_SERVICES, AZURE_SERVICES, GCP_SERVICES, CROSS_CLOUD_MAPPINGS
+from openai_client import OpenAIServiceError
 
 
 # ====================================================================
@@ -229,6 +230,24 @@ class TestAnalyze:
         """Analyze without prior upload should return 404."""
         resp = client.post("/api/diagrams/nonexistent-diag/analyze")
         assert resp.status_code == 404
+
+    def test_analyze_rate_limit_returns_retryable_503(self, client, clean_session):
+        did = self._upload(client)
+        analysis_error = OpenAIServiceError(
+            "Vision analysis is temporarily rate-limited. Please retry shortly.",
+            retryable=True,
+            status_code=429,
+        )
+
+        with patch("routers.diagrams.analyze_image", side_effect=analysis_error), \
+             patch("routers.diagrams.classify_image", return_value={"is_architecture_diagram": True, "confidence": 0.95, "image_type": "architecture_diagram", "reason": "Mock"}):
+            resp = client.post(f"/api/diagrams/{did}/analyze")
+
+        assert resp.status_code == 503
+        assert resp.headers["retry-after"] == "30"
+        body = resp.json()
+        assert body["error"]["details"]["error"] == "analysis_retryable"
+        assert body["error"]["details"]["retry_after_seconds"] == 30
 
 
 # ====================================================================

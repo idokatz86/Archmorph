@@ -24,7 +24,7 @@ Archmorph is an AI-assisted cloud migration workbench. The live path analyzes up
 
 | Status | Meaning | Capabilities |
 |--------|---------|--------------|
-| Live | Usable in the current product path | Diagram upload, sample playground, AI service mapping, guided questions, IaC/HLD/report export, **Architecture Package HTML/SVG export**, cost estimates, service catalog freshness health, admin health/release evidence, auth shell, CI/security scanning, generated IaC validation, Vite env exposure guard |
+| Live | Usable in the current product path | Diagram upload, sample playground, AI service mapping, guided questions, IaC/HLD/report export, **Architecture Package HTML/SVG export**, cost estimates, service catalog freshness health, admin health/release evidence, auth shell, CI/security scanning, generated IaC validation, Vite env exposure guard, P2 bug regressions for analysis retry handling and dialog focus restoration |
 | Beta | Implemented but needs hardening, deeper tests, or production validation | Cost/token observability, collaboration, gallery, replay, Terraform state import, multi-cloud cost comparison, **Azure Landing Zone target diagram** (visual scaffold; production-ready push targeted for v4.3.0 under epic #586 — see [Production-Ready Roadmap](#production-ready-roadmap-azure-landing-zone-v430-target) below) |
 | Scaffold | UI/routes/models exist, but execution needs integration or operator review | Live cloud scanner, deploy engine, credential vault |
 | Planned | Not production-ready yet | VS Code extension, PR-based IaC workflow, multi-diagram projects |

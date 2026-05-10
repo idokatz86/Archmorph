@@ -78,16 +78,18 @@ class ArchmorphException(Exception):
     Standardized exception for expected business logic errors.
     Automatically caught and formatted as an error envelope.
     """
-    def __init__(self, status_code: int, detail: str, details: Any = None):
+    def __init__(self, status_code: int, detail: str, details: Any = None, headers: Optional[Dict[str, str]] = None):
         self.status_code = status_code
         self.detail = detail
         self.details = details
+        self.headers = headers
 
 async def _archmorph_exception_handler(_request: Request, exc: ArchmorphException) -> JSONResponse:
     logger.info("ArchmorphException raised: %d %s", exc.status_code, exc.detail)
     return JSONResponse(
         status_code=exc.status_code,
         content=_build_envelope(exc.status_code, exc.detail, details=exc.details),
+        headers=exc.headers,
     )
 
 # ── Exception handlers ─────────────────────────────────────
@@ -96,6 +98,7 @@ async def _http_exception_handler(_request: Request, exc: HTTPException) -> JSON
     return JSONResponse(
         status_code=exc.status_code,
         content=_build_envelope(exc.status_code, detail),
+        headers=exc.headers,
     )
 
 

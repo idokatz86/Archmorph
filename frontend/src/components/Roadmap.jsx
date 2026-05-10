@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import DOMPurify from 'dompurify';
 import {
   Calendar, Rocket, Clock, Lightbulb, CheckCircle2, Loader2, ChevronDown, ChevronRight,
@@ -419,6 +419,12 @@ export default function Roadmap() {
     });
   };
 
+  const openFeatureModal = useCallback(() => setFeatureModalOpen(true), []);
+  const closeFeatureModal = useCallback(() => setFeatureModalOpen(false), []);
+  const openBugModal = useCallback(() => setBugModalOpen(true), []);
+  const closeBugModal = useCallback(() => setBugModalOpen(false), []);
+  const closeToast = useCallback(() => setToast(null), []);
+
   const filteredReleases = useMemo(() => {
     if (!roadmap) return { sections: [] };
     const { released = [], in_progress = [], planned = [], ideas = [] } = roadmap.timeline || {};
@@ -537,14 +543,14 @@ export default function Roadmap() {
         
         <div className="flex items-center gap-3">
           <button
-            onClick={() => setFeatureModalOpen(true)}
+            onClick={openFeatureModal}
             className="flex items-center gap-2 px-4 py-2.5 bg-cta hover:bg-cta-hover text-surface text-sm font-semibold rounded-lg transition-colors cursor-pointer"
           >
             <Sparkles className="w-4 h-4" />
             Request Feature
           </button>
           <button
-            onClick={() => setBugModalOpen(true)}
+            onClick={openBugModal}
             className="flex items-center gap-2 px-4 py-2.5 bg-error/10 hover:bg-error/20 text-error text-sm font-semibold rounded-lg border border-error/30 transition-colors cursor-pointer"
           >
             <Bug className="w-4 h-4" />
@@ -675,7 +681,7 @@ export default function Roadmap() {
       {/* Modals */}
       {featureModalOpen && (
         <FeatureRequestModal
-          onClose={() => setFeatureModalOpen(false)}
+          onClose={closeFeatureModal}
           onSubmit={handleFeatureSubmit}
           loading={submitting}
         />
@@ -683,7 +689,7 @@ export default function Roadmap() {
       
       {bugModalOpen && (
         <BugReportModal
-          onClose={() => setBugModalOpen(false)}
+          onClose={closeBugModal}
           onSubmit={handleBugSubmit}
           loading={submitting}
         />
@@ -694,7 +700,7 @@ export default function Roadmap() {
         <SuccessToast
           message={toast.message}
           issueUrl={toast.issueUrl}
-          onClose={() => setToast(null)}
+          onClose={closeToast}
         />
       )}
     </div>
