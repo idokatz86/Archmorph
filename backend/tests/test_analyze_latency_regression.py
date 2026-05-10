@@ -1,30 +1,20 @@
-import importlib.util
-import sys
+from math import ceil
 import time
 from pathlib import Path
 
+from tests.perf_budget_test_utils import load_perf_budget_module
+
 
 PNG_BYTES = b"\x89PNG\r\n\x1a\n" + (b"\0" * 100)
-PERF_BUDGET_SCRIPT = Path(__file__).parents[2] / "scripts" / "perf_budget.py"
 ANALYZE_BUDGET = Path(__file__).parent / "performance" / "analyze_latency_budget.json"
 
 
-def _load_perf_budget_module():
-    spec = importlib.util.spec_from_file_location("perf_budget", PERF_BUDGET_SCRIPT)
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-perf_budget = _load_perf_budget_module()
+perf_budget = load_perf_budget_module()
 
 
 def _p95(values: list[float]) -> float:
     ordered = sorted(values)
-    index = int(len(ordered) * 95 / 100)
-    index = min(index, len(ordered) - 1)
+    index = max(ceil(len(ordered) * 0.95) - 1, 0)
     return ordered[index]
 
 

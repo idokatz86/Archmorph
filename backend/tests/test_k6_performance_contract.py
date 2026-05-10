@@ -78,6 +78,8 @@ def test_ci_workflow_enforces_frontend_perf_budgets():
     assert "python3 ../scripts/perf_budget.py bundle --dist dist --budget perf/bundle-budget.json" in workflow
     assert '@lhci/cli@0.15.1 autorun --config=./lighthouserc.json --collect.url="http://127.0.0.1:${LHCI_PORT}/"' in workflow
     assert 'python3 -m http.server "$LHCI_PORT" -d dist' in workflow
+    assert 'kill "$SERVER_PID" 2>/dev/null || true' in workflow
+    assert "SERVER_READY=0" in workflow
     assert "frontend-lighthouse-report" in workflow
 
 

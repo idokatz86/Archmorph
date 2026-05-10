@@ -1,28 +1,17 @@
 from __future__ import annotations
 
-import importlib.util
-import sys
 from pathlib import Path
 
+from tests.perf_budget_test_utils import load_perf_budget_module
 
 REPO_ROOT = Path(__file__).parents[2]
-PERF_BUDGET_SCRIPT = REPO_ROOT / "scripts" / "perf_budget.py"
 BUNDLE_BUDGET = REPO_ROOT / "frontend" / "perf" / "bundle-budget.json"
 LIGHTHOUSE_BUDGET = REPO_ROOT / "frontend" / "lighthouse-budget.json"
 LIGHTHOUSE_CONFIG = REPO_ROOT / "frontend" / "lighthouserc.json"
 ANALYZE_BUDGET = Path(__file__).parent / "performance" / "analyze_latency_budget.json"
 
 
-def _load_perf_budget_module():
-    spec = importlib.util.spec_from_file_location("perf_budget", PERF_BUDGET_SCRIPT)
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-perf_budget = _load_perf_budget_module()
+perf_budget = load_perf_budget_module()
 
 
 def test_bundle_budget_rejects_100kb_regression():
