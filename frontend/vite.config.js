@@ -2,6 +2,8 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
+const proxyApiKey = process.env.ARCHMORPH_PROXY_API_KEY
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
@@ -9,7 +11,8 @@ export default defineConfig({
     proxy: {
       '/api': {
         target: 'http://localhost:8000',
-        changeOrigin: true
+        changeOrigin: true,
+        headers: proxyApiKey ? { 'X-API-Key': proxyApiKey } : undefined
       }
     }
   },

@@ -1,5 +1,6 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
+import path from 'node:path';
 
 /**
  * Core Funnel E2E Tests (#500)
@@ -93,8 +94,90 @@ const ACCESSIBLE_LANDING_ZONE_SVG = `
   </g>
 </svg>`;
 
-function injectMockSession(page: any) {
-  return page.addInitScript((data: any) => {
+const SAMPLE_UPLOAD_PATH = path.resolve(process.cwd(), 'frontend/public/favicon.svg');
+const MOCK_COST_ESTIMATE = {
+  services: [
+    { service: 'Azure Virtual Machines', monthly_low: 120, monthly_high: 180 },
+    { service: 'Azure Blob Storage', monthly_low: 35, monthly_high: 55 },
+    { service: 'Azure Monitor', monthly_low: 18, monthly_high: 26 },
+  ],
+  total_monthly_estimate: { low: 173, high: 261 },
+};
+const MOCK_HLD = {
+  title: 'Archmorph Sample HLD',
+  executive_summary: 'Deterministic HLD payload for E2E coverage.',
+  architecture_overview: {
+    summary: 'Sample upload translated to Azure.',
+    target_architecture: 'Azure landing zone',
+  },
+  services: [
+    {
+      source_service: 'EC2',
+      azure_service: 'Azure Virtual Machines',
+      justification: 'Deterministic CI smoke mapping.',
+    },
+  ],
+  networking_design: { topology: 'Hub and spoke' },
+  security_design: { identity: 'Microsoft Entra ID' },
+  data_architecture: { storage: 'Azure Blob Storage' },
+  azure_caf_alignment: { ready: true },
+  finops: { summary: 'Use reserved capacity where appropriate.' },
+  region_strategy: { primary: 'westeurope' },
+  waf_assessment: { score: 'good' },
+  migration_approach: { waves: ['Pilot', 'Migration', 'Validation'] },
+  considerations: ['Validate networking controls'],
+  risks_and_mitigations: ['Monitor export token sequencing'],
+  next_steps: ['Review generated deliverables'],
+};
+
+async function stubDeterministicDeliverables(page: Page) {
+  await page.route('**/api/diagrams/*/analyze-async', async route => {
+    await route.fulfill({
+      status: 404,
+      contentType: 'application/json',
+      body: JSON.stringify({ detail: 'Use sync analyze for deterministic E2E flow' }),
+    });
+  });
+
+  await page.route('**/api/diagrams/*/generate-hld', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        diagram_id: 'deterministic-hld',
+        hld: MOCK_HLD,
+        markdown: '# Archmorph Sample HLD\n\nDeterministic HLD payload for E2E coverage.\n',
+      }),
+    });
+  });
+
+  await page.route('**/api/diagrams/*/cost-estimate', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(MOCK_COST_ESTIMATE),
+    });
+  });
+
+  await page.route('**/api/diagrams/*/export-hld**', async route => {
+    const requestUrl = new URL(route.request().url());
+    const format = requestUrl.searchParams.get('format') || 'docx';
+    const isPdf = format === 'pdf';
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        content_b64: Buffer.from(isPdf ? '%PDF-1.4\nmock archmorph report\n' : 'mock archmorph hld').toString('base64'),
+        content_type: isPdf ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        filename: isPdf ? 'archmorph-report.pdf' : `archmorph-hld.${format}`,
+        export_capability: `stub-capability-${format}`,
+      }),
+    });
+  });
+}
+
+function injectMockSession(page: Page) {
+  return page.addInitScript((data: { diagramId: string }) => {
     sessionStorage.setItem('archmorph_active_diagram', data.diagramId);
     sessionStorage.setItem(
       `archmorph_session_${data.diagramId}`,
@@ -224,6 +307,77 @@ test.describe('Core Funnel: IaC Generation', () => {
       // Code block should appear
       const codeBlock = page.locator('pre, code, [class*="code"], [class*="prism"]').first();
       await expect(codeBlock).toBeVisible({ timeout: 8000 });
+    }
+  });
+});
+
+test.describe('Core Funnel: Upload → Analyze → IaC → Export All', () => {
+  test('completes the deterministic happy path and makes all six deliverables ready within 60 seconds', async ({ page }) => {
+    test.setTimeout(90_000);
+    await page.addInitScript(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
+    await stubDeterministicDeliverables(page);
+
+    await page.goto('/#translator');
+    await expect(page.locator('#root')).toBeVisible({ timeout: 15000 });
+
+    await page.locator('input[type="file"]').setInputFiles(SAMPLE_UPLOAD_PATH);
+    await expect(page.getByText('favicon.svg')).toBeVisible();
+
+    const uploadRequest = page.waitForResponse(response =>
+      response.request().method() === 'POST' &&
+      response.url().includes('/api/projects/demo-project/diagrams') &&
+      response.status() === 200
+    );
+    const analyzeRequest = page.waitForResponse(response => {
+      const requestUrl = new URL(response.url());
+      return response.request().method() === 'POST' &&
+        /\/api\/diagrams\/[^/]+\/analyze$/.test(requestUrl.pathname) &&
+        response.status() === 200;
+    });
+
+    await page.getByRole('button', { name: 'Analyze This Diagram' }).click();
+    await uploadRequest;
+    await analyzeRequest;
+
+    await expect(page.getByRole('button', { name: 'Export All' })).toBeVisible({ timeout: 15000 });
+
+    const iacRequest = page.waitForResponse(response => {
+      const requestUrl = new URL(response.url());
+      return response.request().method() === 'POST' &&
+        /\/api\/diagrams\/[^/]+\/generate$/.test(requestUrl.pathname) &&
+        requestUrl.searchParams.get('format') === 'terraform' &&
+        response.status() === 200;
+    });
+
+    await page.getByRole('button', { name: 'Terraform' }).click();
+    await iacRequest;
+
+    await expect(page.getByRole('heading', { name: 'Terraform Code' })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText(/terraform\s*\{/)).toBeVisible();
+
+    await page.getByRole('button', { name: 'Back to Analysis' }).click();
+    await expect(page.getByRole('button', { name: 'Export All' })).toBeVisible({ timeout: 10000 });
+
+    await page.getByRole('button', { name: 'Export All' }).click();
+    const exportDialog = page.getByRole('dialog', { name: 'Generate Deliverables' });
+    await expect(exportDialog).toBeVisible();
+    await expect(exportDialog.getByRole('status')).toContainText('6 of 6 selected');
+
+    await page.getByRole('button', { name: /Generate All Selected/i }).click();
+    await expect(page.getByRole('button', { name: 'Download All (6)' })).toBeVisible({ timeout: 60_000 });
+
+    for (const label of [
+      'Infrastructure Code',
+      'Architecture Package',
+      'High-Level Design',
+      'Cost Estimate',
+      'Migration Timeline',
+      'PDF Analysis Report',
+    ]) {
+      await expect(page.getByRole('button', { name: `Download ${label}` })).toBeVisible();
     }
   });
 });
