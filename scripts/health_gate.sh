@@ -5,6 +5,7 @@ HEALTH_URL="${1:-${HEALTH_URL:-}}"
 HEALTH_BODY="${HEALTH_BODY:-}"
 HEALTH_RETRIES="${HEALTH_RETRIES:-3}"
 HEALTH_RETRY_SECONDS="${HEALTH_RETRY_SECONDS:-10}"
+HEALTH_API_KEY="${HEALTH_API_KEY:-${ARCHMORPH_API_KEY:-${ADMIN_KEY:-}}}"
 
 if [[ -z "$HEALTH_URL" && -z "$HEALTH_BODY" ]]; then
   echo "::error::health gate requires a URL argument, HEALTH_URL, or HEALTH_BODY"
@@ -17,7 +18,11 @@ fetch_health() {
     return 0
   fi
 
-  curl -sS --max-time 30 "$HEALTH_URL"
+  if [[ -n "$HEALTH_API_KEY" ]]; then
+    curl -sS --max-time 30 -H "X-API-Key: $HEALTH_API_KEY" "$HEALTH_URL"
+  else
+    curl -sS --max-time 30 "$HEALTH_URL"
+  fi
 }
 
 health_json=""

@@ -17,6 +17,7 @@ fi
 API_URL="${API_URL%/}"
 FRONTEND_URL="${FRONTEND_URL%/}"
 API_ROOT="${API_URL%/api}"
+HEALTH_API_KEY="${HEALTH_API_KEY:-${ARCHMORPH_API_KEY:-${ADMIN_KEY:-}}}"
 
 check_status() {
   local label="$1"
@@ -37,7 +38,7 @@ check_status() {
 check_status "Frontend root" "$FRONTEND_URL"
 check_status "Frontend translator route" "$FRONTEND_URL/#translator"
 
-HEALTH_RETRIES=3 HEALTH_RETRY_SECONDS=10 "$(dirname "$0")/health_gate.sh" "$API_URL/health"
+HEALTH_RETRIES=3 HEALTH_RETRY_SECONDS=10 HEALTH_API_KEY="$HEALTH_API_KEY" "$(dirname "$0")/health_gate.sh" "$API_URL/health"
 
 OPENAPI_STATUS=$(curl -sS -o /tmp/archmorph-openapi -w "%{http_code}" --max-time 30 "$API_ROOT/openapi.json")
 if [[ "$OPENAPI_STATUS" != "200" ]]; then

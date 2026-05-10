@@ -26,6 +26,56 @@ def run_gate(payload: dict) -> subprocess.CompletedProcess[str]:
     )
 
 
+def run_gate_via_mock_curl(
+    tmp_path: Path,
+    *,
+    health_api_key: str | None = None,
+    archmorph_api_key: str | None = None,
+    mode: str = "healthy",
+) -> tuple[subprocess.CompletedProcess[str], str]:
+    curl_stub = tmp_path / "curl"
+    curl_stub.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\\n' "$*" > "${MOCK_CURL_ARGS_FILE}"
+if [[ "${MOCK_CURL_MODE:-healthy}" == "unauthorized" ]]; then
+  printf '%s' '{"error":{"code":"UNAUTHORIZED","message":"Invalid or missing API key","details":null}}'
+else
+  printf '%s' '{"status":"healthy","version":"4.0.0","checks":{"redis":"disabled_optional","redis_readiness":{"scale_blocked":false}},"service_catalog_refresh":{"stale":false},"scheduled_jobs":[]}'
+fi
+""",
+        encoding="utf-8",
+    )
+    curl_stub.chmod(0o755)
+
+    curl_args_file = tmp_path / "curl-args.txt"
+    env = os.environ.copy()
+    env["PATH"] = f"{tmp_path}:{env.get('PATH', '')}"
+    env["HEALTH_URL"] = "https://example.test/api/health"
+    env["HEALTH_RETRIES"] = "1"
+    env["MOCK_CURL_MODE"] = mode
+    env["MOCK_CURL_ARGS_FILE"] = str(curl_args_file)
+    env.pop("HEALTH_BODY", None)
+    env.pop("HEALTH_API_KEY", None)
+    env.pop("ARCHMORPH_API_KEY", None)
+    env.pop("ADMIN_KEY", None)
+    if health_api_key is not None:
+        env["HEALTH_API_KEY"] = health_api_key
+    if archmorph_api_key is not None:
+        env["ARCHMORPH_API_KEY"] = archmorph_api_key
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT)],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    curl_args = curl_args_file.read_text(encoding="utf-8")
+    return result, curl_args
+
+
 def healthy_payload() -> dict:
     return {
         "status": "healthy",
@@ -152,3 +202,25 @@ def test_health_gate_fails_invalid_json_with_clear_error():
 
     assert result.returncode == 1
     assert "could not parse a valid health JSON status" in result.stdout
+
+
+def test_health_gate_adds_x_api_key_header_when_health_api_key_set(tmp_path: Path):
+    result, curl_args = run_gate_via_mock_curl(tmp_path, health_api_key="super-secret")
+
+    assert result.returncode == 0
+    assert "X-API-Key: super-secret" in curl_args
+
+
+def test_health_gate_uses_archmorph_api_key_fallback_for_curl_header(tmp_path: Path):
+    result, curl_args = run_gate_via_mock_curl(tmp_path, archmorph_api_key="fallback-secret")
+
+    assert result.returncode == 0
+    assert "X-API-Key: fallback-secret" in curl_args
+
+
+def test_health_gate_reports_unauthorized_payload_without_api_key(tmp_path: Path):
+    result, curl_args = run_gate_via_mock_curl(tmp_path, mode="unauthorized")
+
+    assert result.returncode == 1
+    assert "X-API-Key:" not in curl_args
+    assert "Invalid or missing API key" in result.stdout
