@@ -247,6 +247,8 @@ jobs:
   frontend-build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      LHCI_PORT: "4173"
     defaults:
       run:
         working-directory: frontend
@@ -273,6 +275,36 @@ jobs:
         run: npm run build
         env:
           VITE_API_BASE: ${{ env.API_URL }}
+
+      - name: Bundle size budget
+        run: python3 ../scripts/perf_budget.py bundle --dist dist --budget perf/bundle-budget.json
+
+      - name: Lighthouse CI budget
+        run: |
+          python3 -m http.server "$LHCI_PORT" -d dist >/tmp/archmorph-lighthouse.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          SERVER_READY=0
+          for i in {1..30}; do
+            if curl -fsS "http://127.0.0.1:${LHCI_PORT}/" >/dev/null; then
+              SERVER_READY=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$SERVER_READY" -ne 1 ]; then
+            cat /tmp/archmorph-lighthouse.log
+            exit 1
+          fi
+          npx --yes @lhci/cli@0.15.1 autorun --config=./lighthouserc.json --collect.url="http://127.0.0.1:${LHCI_PORT}/"
+
+      - name: Upload Lighthouse report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-lighthouse-report
+          path: frontend/.lighthouseci
+          if-no-files-found: ignore
 
       - name: Generate npm SBOM
         run: |
