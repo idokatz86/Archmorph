@@ -900,3 +900,4 @@ jobs:
         env:
           API_URL: ${{ env.API_URL }}
           FRONTEND_URL: ${{ env.FRONTEND_URL }}
+          HEALTH_API_KEY: ${{ secrets.ADMIN_KEY }}
