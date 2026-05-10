@@ -17,7 +17,14 @@ jobs:
           node-version: lts/*
         
       - name: Use fallback environment variables
-        run: cp backend/.env.example backend/.env
+        run: |
+          cp backend/.env.example backend/.env
+          {
+            echo "ARCHMORPH_API_KEY="
+            echo "ARCHMORPH_ADMIN_KEY=test-admin-key"
+            echo "ARCHMORPH_CI_SMOKE_MODE=1"
+            echo "ARCHMORPH_DISABLE_IAC_CLI_VALIDATION=1"
+          } >> backend/.env
 
       - name: Install dependencies
         run: npm ci --no-fund --no-audit || npm ci --no-fund --no-audit
