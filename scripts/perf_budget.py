@@ -37,6 +37,8 @@ def load_budget(path: str | Path) -> dict[str, Any]:
 def summarize_bundle(dist_dir: str | Path) -> BundleSummary:
     dist_path = Path(dist_dir)
     assets = [path for path in dist_path.rglob("*") if path.is_file() and path.suffix in {".js", ".css"}]
+    if not assets:
+        raise ValueError(f"no .js or .css assets found under {dist_path}")
     largest_asset = max(assets, key=lambda path: path.stat().st_size)
     return BundleSummary(
         total_bytes=sum(path.stat().st_size for path in assets),

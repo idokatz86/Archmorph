@@ -63,3 +63,12 @@ def test_latency_budget_rejects_30_percent_regression():
 def test_frontend_perf_budget_files_are_checked_in():
     for path in (BUNDLE_BUDGET, LIGHTHOUSE_BUDGET, LIGHTHOUSE_CONFIG):
         assert path.exists(), f"missing {path}"
+
+
+def test_bundle_summary_requires_built_assets(tmp_path):
+    try:
+        perf_budget.summarize_bundle(tmp_path)
+    except ValueError as exc:
+        assert "no .js or .css assets found" in str(exc)
+    else:
+        raise AssertionError("expected summarize_bundle() to fail when dist assets are missing")
