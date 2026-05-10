@@ -99,4 +99,21 @@ describe('Roadmap', () => {
     await user.click(screen.getByText('Request Feature'))
     expect(screen.getByText('Request a Feature')).toBeInTheDocument()
   })
+
+  it('keeps modal Escape listener stable across parent rerenders', async () => {
+    const user = userEvent.setup()
+    const addSpy = vi.spyOn(document, 'addEventListener')
+    const removeSpy = vi.spyOn(document, 'removeEventListener')
+    const { rerender } = render(<Roadmap />)
+
+    await screen.findByText('Request Feature')
+    await user.click(screen.getByText('Request Feature'))
+    const keydownAdds = addSpy.mock.calls.filter(([eventName]) => eventName === 'keydown').length
+    const keydownRemoves = removeSpy.mock.calls.filter(([eventName]) => eventName === 'keydown').length
+
+    rerender(<Roadmap />)
+
+    expect(addSpy.mock.calls.filter(([eventName]) => eventName === 'keydown')).toHaveLength(keydownAdds)
+    expect(removeSpy.mock.calls.filter(([eventName]) => eventName === 'keydown')).toHaveLength(keydownRemoves)
+  })
 })

@@ -683,6 +683,12 @@ export default function DiagramTranslator() {
         });
         return;
       }
+      if ((err.status === 429 || err.status === 503) && err.body?.error?.details?.error === 'analysis_retryable') {
+        const retryAfter = err.body.error.details.retry_after_seconds;
+        const retryCopy = retryAfter ? ` Please retry in about ${retryAfter} seconds.` : ' Please retry shortly.';
+        set({ error: `${err.body.error.message}${retryCopy}`, step: 'upload' });
+        return;
+      }
       if (err.name === 'AbortError') return; // Component unmounted
       set({ error: err.message, step: 'upload' });
     }

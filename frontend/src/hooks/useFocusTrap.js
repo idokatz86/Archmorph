@@ -20,11 +20,23 @@ export default function useFocusTrap(active = true) {
   useEffect(() => {
     if (!active) return;
 
+    const restoreFocus = () => {
+      const element = previousFocus.current;
+      previousFocus.current = null;
+      if (
+        element
+        && element.isConnected
+        && typeof element.focus === 'function'
+      ) {
+        element.focus({ preventScroll: true });
+      }
+    };
+
     // Remember the element that had focus before the modal opened
     previousFocus.current = document.activeElement;
 
     const container = containerRef.current;
-    if (!container) return;
+    if (!container) return restoreFocus;
 
     // Move focus into the modal
     const focusFirst = () => {
@@ -61,10 +73,7 @@ export default function useFocusTrap(active = true) {
     return () => {
       cancelAnimationFrame(raf);
       container.removeEventListener('keydown', handleKeyDown);
-      // Restore focus
-      if (previousFocus.current && typeof previousFocus.current.focus === 'function') {
-        previousFocus.current.focus();
-      }
+      restoreFocus();
     };
   }, [active]);
 

@@ -29,6 +29,7 @@ from usage_metrics import record_event, record_funnel_step
 from export_capabilities import attach_export_capability
 from image_classifier import classify_image
 from vision_analyzer import analyze_image
+from openai_client import OpenAIServiceError, handle_openai_error
 from hld_generator import generate_hld, generate_hld_markdown  # noqa: F401 — re-exported for test monkeypatching
 from auth import get_user_from_request_headers
 from analysis_history import maybe_save_from_session
@@ -317,6 +318,38 @@ async def restore_session(
 # ─────────────────────────────────────────────────────────────
 # Diagrams — Analyze (sync)
 # ─────────────────────────────────────────────────────────────
+
+def _retry_after_seconds(exc: Exception, default: int = 30) -> int:
+    response = getattr(exc, "response", None)
+    headers = getattr(response, "headers", {}) or {}
+    value = headers.get("Retry-After") or headers.get("retry-after")
+    try:
+        retry_after = int(value) if value is not None else default
+    except (TypeError, ValueError):
+        retry_after = default
+    return max(1, min(retry_after, 300))
+
+
+def _raise_analysis_service_failure(exc: Exception) -> None:
+    service_error = exc if isinstance(exc, OpenAIServiceError) else handle_openai_error(exc, "Vision analysis")
+    if service_error.status_code == 429:
+        retry_after = _retry_after_seconds(exc)
+        raise ArchmorphException(
+            503,
+            "Analysis service is busy. Please wait a moment and try again.",
+            details={"error": "analysis_retryable", "retry_after_seconds": retry_after},
+            headers={"Retry-After": str(retry_after)},
+        )
+    if service_error.retryable:
+        raise ArchmorphException(
+            503,
+            service_error.args[0] if service_error.args else "Analysis service is temporarily unavailable.",
+            details={"error": "analysis_retryable", "retry_after_seconds": 30},
+            headers={"Retry-After": "30"},
+        )
+    raise ArchmorphException(service_error.status_code, service_error.args[0] if service_error.args else "Vision analysis failed.")
+
+
 @router.post("/api/diagrams/{diagram_id}/analyze")
 @limiter.limit("5/minute")
 async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
@@ -376,7 +409,7 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
 
     if isinstance(analysis_result_or_exc, Exception):
         logger.error("Vision analysis failed for %s: %s", str(diagram_id).replace('\n', '').replace('\r', ''), str(analysis_result_or_exc).replace('\n', '').replace('\r', ''), exc_info=True)  # codeql[py/log-injection] Handled by custom
-        raise ArchmorphException(500, "Vision analysis failed. Please try again with a different image.")
+        _raise_analysis_service_failure(analysis_result_or_exc)
 
     result = await asyncio.to_thread(_normalize_analysis, analysis_result_or_exc)
     result["diagram_id"] = diagram_id
