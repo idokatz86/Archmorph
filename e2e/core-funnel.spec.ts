@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import path from 'node:path';
 
@@ -130,7 +130,7 @@ const MOCK_HLD = {
   next_steps: ['Review generated deliverables'],
 };
 
-async function stubDeterministicDeliverables(page: any) {
+async function stubDeterministicDeliverables(page: Page) {
   await page.route('**/api/diagrams/*/analyze-async', async route => {
     await route.fulfill({
       status: 404,
@@ -176,8 +176,8 @@ async function stubDeterministicDeliverables(page: any) {
   });
 }
 
-function injectMockSession(page: any) {
-  return page.addInitScript((data: any) => {
+function injectMockSession(page: Page) {
+  return page.addInitScript((data: { diagramId: string }) => {
     sessionStorage.setItem('archmorph_active_diagram', data.diagramId);
     sessionStorage.setItem(
       `archmorph_session_${data.diagramId}`,
