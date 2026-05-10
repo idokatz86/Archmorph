@@ -6,6 +6,7 @@ SLA_SPINE_SCRIPT = Path(__file__).parent / "performance" / "sla_spine_locust.py"
 LANDING_ZONE_LOCUST = Path(__file__).parents[2] / "tests" / "perf" / "locustfile_landing_zone.py"
 SLA_WORKFLOW = Path(__file__).parents[2] / ".github" / "workflows" / "sla-spine.yml"
 PERF_SOAK_WORKFLOW = Path(__file__).parents[2] / ".github" / "workflows" / "perf-soak.yml"
+CI_WORKFLOW = Path(__file__).parents[2] / ".github" / "workflows" / "ci.yml"
 ALERTS_TF = Path(__file__).parents[2] / "infra" / "observability" / "alerts.tf"
 SLO_DOC = Path(__file__).parents[2] / "docs" / "SLO.md"
 LANDING_ZONE_SLO_DOC = Path(__file__).parents[2] / "docs" / "runbooks" / "landing_zone_slo.md"
@@ -67,6 +68,19 @@ def test_sla_spine_workflow_posts_pr_summary_and_runs_locust():
     assert "ENVIRONMENT=test" in workflow
     assert "Full-Spine SLO Gate" in workflow
     assert "issues: write" in workflow
+
+
+def test_ci_workflow_enforces_frontend_perf_budgets():
+    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+
+    assert "Bundle size budget" in workflow
+    assert 'LHCI_PORT: "4173"' in workflow
+    assert "python3 ../scripts/perf_budget.py bundle --dist dist --budget perf/bundle-budget.json" in workflow
+    assert '@lhci/cli@0.15.1 autorun --config=./lighthouserc.json --collect.url="http://127.0.0.1:${LHCI_PORT}/"' in workflow
+    assert 'python3 -m http.server "$LHCI_PORT" -d dist' in workflow
+    assert 'kill "$SERVER_PID" 2>/dev/null || true' in workflow
+    assert "SERVER_READY=0" in workflow
+    assert "frontend-lighthouse-report" in workflow
 
 
 def test_landing_zone_locust_enforces_primary_and_dr_slos():
@@ -191,5 +205,5 @@ def test_landing_zone_slo_runbook_publishes_soak_contract():
         "tests/perf/locustfile_landing_zone.py",
         "1-hour window",
         "24-hour window",
-    ):
+        ):
         assert text in doc
