@@ -54,6 +54,20 @@ jobs:
       - name: Lint mapping freshness
         run: python scripts/lint_mappings_freshness.py
 
+  container-image-pins:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Guard Docker base image pins
+        run: python3 scripts/lint_docker_base_images.py
+
   # ============================================
   # BACKEND TESTS (3.12 only — production version)
   # ============================================
