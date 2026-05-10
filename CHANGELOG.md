@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **GitHub Actions Node.js 24 readiness** — audited workflow action runtimes, moved deprecated Node.js 20 action pins to Node.js 24-compatible majors, pinned Trivy to a release tag, and documented the workflow runtime inventory for release maintenance.
 - **Dependabot PR #785** — upgraded `hashicorp/setup-terraform` from v3 to v4 in CI after a clean rebase and green checks, keeping Terraform validation on the action's Node.js 24-compatible runtime.
+- **Audit P2 CI/security hygiene (#865 #891 #892 #918)** — kept generated Terraform/Bicep validation and CodeQL SAST in the merge gate, added a Vite environment exposure guard that fails CI on secret-like `VITE_*` names, and rejects blanket `define: { 'process.env': ... }` Vite config patterns.
 
 #### QA guardrails
 

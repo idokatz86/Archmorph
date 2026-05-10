@@ -268,6 +268,9 @@ jobs:
       - name: Run frontend linter
         run: npm run lint
 
+      - name: Guard Vite environment exposure
+        run: python3 ../scripts/lint_vite_env_guard.py
+
       - name: Run frontend tests
         run: npx vitest run
 
