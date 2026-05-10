@@ -40,7 +40,7 @@ def test_ci_smoke_analyze_p95_stays_within_regression_budget(test_client, monkey
     assert upload_response.status_code == 200
     diagram_id = upload_response.json()["diagram_id"]
 
-    for _ in range(int(budget.get("warmup_samples", 0))):
+    for _ in range(int(budget["warmup_samples"])):
         response = test_client.post(f"/api/diagrams/{diagram_id}/analyze")
         assert response.status_code == 200
 

@@ -247,6 +247,8 @@ jobs:
   frontend-build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      LHCI_PORT: "4173"
     defaults:
       run:
         working-directory: frontend
@@ -279,16 +281,16 @@ jobs:
 
       - name: Lighthouse CI budget
         run: |
-          python3 -m http.server 4173 -d dist >/tmp/archmorph-lighthouse.log 2>&1 &
+          python3 -m http.server "$LHCI_PORT" -d dist >/tmp/archmorph-lighthouse.log 2>&1 &
           SERVER_PID=$!
           trap 'kill "$SERVER_PID"' EXIT
           for i in {1..30}; do
-            if curl -fsS http://127.0.0.1:4173/ >/dev/null; then
+            if curl -fsS "http://127.0.0.1:${LHCI_PORT}/" >/dev/null; then
               break
             fi
             sleep 1
           done
-          npx --yes @lhci/cli@0.15.1 autorun --config=./lighthouserc.json
+          npx --yes @lhci/cli@0.15.1 autorun --config=./lighthouserc.json --collect.url="http://127.0.0.1:${LHCI_PORT}/"
 
       - name: Upload Lighthouse report
         if: always()

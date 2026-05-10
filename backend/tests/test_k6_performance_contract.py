@@ -74,9 +74,10 @@ def test_ci_workflow_enforces_frontend_perf_budgets():
     workflow = CI_WORKFLOW.read_text(encoding="utf-8")
 
     assert "Bundle size budget" in workflow
+    assert 'LHCI_PORT: "4173"' in workflow
     assert "python3 ../scripts/perf_budget.py bundle --dist dist --budget perf/bundle-budget.json" in workflow
-    assert "@lhci/cli@0.15.1 autorun --config=./lighthouserc.json" in workflow
-    assert "python3 -m http.server 4173 -d dist" in workflow
+    assert '@lhci/cli@0.15.1 autorun --config=./lighthouserc.json --collect.url="http://127.0.0.1:${LHCI_PORT}/"' in workflow
+    assert 'python3 -m http.server "$LHCI_PORT" -d dist' in workflow
     assert "frontend-lighthouse-report" in workflow
 
 
