@@ -44,7 +44,7 @@ jobs:
           fi
 
           echo "Waiting for frontend..."
-          (cd frontend && nohup env VITE_PROXY_API_KEY=test-api-key npm run dev -- --host 0.0.0.0 > ../frontend-vite.log 2>&1 &)
+          (cd frontend && nohup env ARCHMORPH_PROXY_API_KEY=test-api-key npm run dev -- --host 0.0.0.0 > ../frontend-vite.log 2>&1 &)
           npx wait-on http://localhost:5173 -t 120000 || { cat frontend-vite.log; exit 1; }
           docker compose ps
       

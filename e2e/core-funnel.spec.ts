@@ -366,10 +366,8 @@ test.describe('Core Funnel: Upload → Analyze → IaC → Export All', () => {
     await expect(exportDialog).toBeVisible();
     await expect(exportDialog.getByRole('status')).toContainText('6 of 6 selected');
 
-    const generateStartedAt = Date.now();
     await page.getByRole('button', { name: /Generate All Selected/i }).click();
     await expect(page.getByRole('button', { name: 'Download All (6)' })).toBeVisible({ timeout: 60_000 });
-    expect(Date.now() - generateStartedAt).toBeLessThan(60_000);
 
     for (const label of [
       'Infrastructure Code',

@@ -2,7 +2,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
-const proxyApiKey = process.env.VITE_PROXY_API_KEY
+const proxyApiKey = process.env.ARCHMORPH_PROXY_API_KEY
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
