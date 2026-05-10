@@ -1,0 +1,28 @@
+{
+  "ci": {
+    "collect": {
+      "url": [
+        "http://127.0.0.1:4173/"
+      ],
+      "numberOfRuns": 1,
+      "settings": {
+        "budgetsPath": "./lighthouse-budget.json",
+        "chromeFlags": "--headless=new --no-sandbox",
+        "preset": "desktop"
+      }
+    },
+    "assert": {
+      "assertions": {
+        "categories:performance": "off",
+        "categories:accessibility": "off",
+        "categories:best-practices": "off",
+        "categories:seo": "off",
+        "categories:pwa": "off"
+      }
+    },
+    "upload": {
+      "target": "filesystem",
+      "outputDir": ".lighthouseci"
+    }
+  }
+}

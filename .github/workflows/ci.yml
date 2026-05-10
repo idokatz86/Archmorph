@@ -274,6 +274,30 @@ jobs:
         env:
           VITE_API_BASE: ${{ env.API_URL }}
 
+      - name: Bundle size budget
+        run: python3 ../scripts/perf_budget.py bundle --dist dist --budget perf/bundle-budget.json
+
+      - name: Lighthouse CI budget
+        run: |
+          python3 -m http.server 4173 -d dist >/tmp/archmorph-lighthouse.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID"' EXIT
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:4173/ >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          npx --yes @lhci/cli@0.15.1 autorun --config=./lighthouserc.json
+
+      - name: Upload Lighthouse report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-lighthouse-report
+          path: frontend/.lighthouseci
+          if-no-files-found: ignore
+
       - name: Generate npm SBOM
         run: |
           npx @cyclonedx/cyclonedx-npm --output-file ${{ github.workspace }}/frontend-sbom.json --output-format JSON --spec-version 1.5

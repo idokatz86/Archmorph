@@ -1,0 +1,6 @@
+{
+  "max_total_bytes": 1120000,
+  "max_javascript_bytes": 980000,
+  "max_stylesheet_bytes": 140000,
+  "max_asset_bytes": 280000
+}

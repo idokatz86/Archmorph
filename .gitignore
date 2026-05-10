@@ -64,6 +64,7 @@ yarn-error.log
 backend/openapi.json
 test-results/
 playwright-report/
+frontend/.lighthouseci/
 backend/data/
 
 # Backup files

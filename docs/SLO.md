@@ -41,3 +41,11 @@ Burn-rate alerts treat requests as bad when the request exceeds the operation la
 When an SLO fails in CI, inspect the PR comment first to identify the endpoint with the highest p95 or failures. Reproduce locally with the Locust script and the same smoke-mode environment. If the regression is isolated to IaC generation or diagram export, prefer focused profiling around those route handlers before broad backend tuning.
 
 When an Azure Monitor alert fires, compare the p95 alert with the burn-rate alert. A p95-only page usually means a latency regression with enough traffic to be meaningful. A burn-rate page means the endpoint is consuming its latency/error budget across both short and long windows and should be treated as customer-impacting until ruled out.
+
+## PR Performance Budgets
+
+Pull requests now enforce two deterministic performance budgets before merge:
+
+- `frontend/perf/bundle-budget.json` caps the built Vite bundle at 1.12 MB total (`980 KB` JavaScript, `140 KB` CSS, `280 KB` for the largest emitted asset). This is wired into `.github/workflows/ci.yml` through `scripts/perf_budget.py`, so an extra `100 KB` of built bundle weight fails CI.
+- `frontend/lighthouse-budget.json` is enforced by Lighthouse CI against the built `dist/` output and caps transfer size at `520 KB` total, `380 KB` script, and `130 KB` stylesheet.
+- `backend/tests/performance/analyze_latency_budget.json` keeps the deterministic `/analyze` smoke test at a `3.0 ms` p95 baseline with a maximum `1.3x` regression ratio after warmup, so backend latency regressions are caught in the main pytest gate instead of waiting for production telemetry.
