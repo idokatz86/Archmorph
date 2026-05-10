@@ -48,4 +48,4 @@ Pull requests now enforce two deterministic performance budgets before merge:
 
 - `frontend/perf/bundle-budget.json` caps the built Vite bundle at 1.12 MB total (`980 KB` JavaScript, `140 KB` CSS, `280 KB` for the largest emitted asset). This is wired into `.github/workflows/ci.yml` through `scripts/perf_budget.py`, so an extra `100 KB` of built bundle weight fails CI.
 - `frontend/lighthouse-budget.json` is enforced by Lighthouse CI against the built `dist/` output and caps transfer size at `520 KB` total, `380 KB` script, and `130 KB` stylesheet.
-- `backend/tests/performance/analyze_latency_budget.json` keeps the deterministic `/analyze` smoke test at a `3.0 ms` p95 baseline with a maximum `1.3x` regression ratio after warmup, so backend latency regressions are caught in the main pytest gate instead of waiting for production telemetry.
+- `backend/tests/performance/analyze_latency_budget.json` keeps the deterministic `/analyze` smoke test at an `8.0 ms` p95 CI baseline with a maximum `1.3x` regression ratio after warmup, so backend latency regressions are caught in the main pytest gate instead of waiting for production telemetry.

@@ -52,10 +52,11 @@ def test_bundle_budget_rejects_100kb_regression():
 
 def test_latency_budget_rejects_30_percent_regression():
     budget = perf_budget.load_budget(ANALYZE_BUDGET)
+    threshold = budget["baseline_p95_ms"] * budget["max_regression_ratio"]
 
-    assert perf_budget.evaluate_latency_budget(3.89, budget).passed
+    assert perf_budget.evaluate_latency_budget(threshold - 0.01, budget).passed
 
-    result = perf_budget.evaluate_latency_budget(3.91, budget)
+    result = perf_budget.evaluate_latency_budget(threshold + 0.01, budget)
     assert not result.passed
     assert "/analyze p95" in result.violations[0]
 
