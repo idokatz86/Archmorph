@@ -5,7 +5,7 @@
  * Shows "Sign In" button when not logged in.
  */
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { User, LogOut, Settings, ChevronDown } from 'lucide-react';
 import { useAuth } from './AuthProvider';
 import LoginModal from './LoginModal';
@@ -14,15 +14,19 @@ import ProfilePage from './ProfilePage';
 export default function UserMenu() {
   const { user, isAuthenticated, isLoading, logout } = useAuth();
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [focusIdx, setFocusIdx] = useState(-1);
   const [loginModalOpen, setLoginModalOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const menuRef = useRef(null);
+  const triggerRef = useRef(null);
+  const itemRefs = useRef([]);
 
   // Close dropdown on outside click
   useEffect(() => {
     function handleClick(e) {
       if (menuRef.current && !menuRef.current.contains(e.target)) {
         setDropdownOpen(false);
+        setFocusIdx(-1);
       }
     }
     if (dropdownOpen) {
@@ -30,6 +34,57 @@ export default function UserMenu() {
       return () => document.removeEventListener('mousedown', handleClick);
     }
   }, [dropdownOpen]);
+
+  const handleMenuKeyDown = useCallback((e) => {
+    if (!dropdownOpen) {
+      if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        setDropdownOpen(true);
+        setFocusIdx(0);
+      }
+      return;
+    }
+
+    const itemCount = itemRefs.current.filter(Boolean).length;
+    if (!itemCount) return;
+
+    switch (e.key) {
+      case 'Escape':
+        e.preventDefault();
+        setDropdownOpen(false);
+        setFocusIdx(-1);
+        triggerRef.current?.focus();
+        break;
+      case 'ArrowDown':
+        e.preventDefault();
+        setFocusIdx(i => (i < 0 ? 0 : (i + 1) % itemCount));
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        setFocusIdx(i => (i < 0 ? itemCount - 1 : (i - 1 + itemCount) % itemCount));
+        break;
+      case 'Home':
+        e.preventDefault();
+        setFocusIdx(0);
+        break;
+      case 'End':
+        e.preventDefault();
+        setFocusIdx(itemCount - 1);
+        break;
+      case 'Tab':
+        setDropdownOpen(false);
+        setFocusIdx(-1);
+        break;
+      default:
+        break;
+    }
+  }, [dropdownOpen]);
+
+  useEffect(() => {
+    if (dropdownOpen && focusIdx >= 0) {
+      itemRefs.current[focusIdx]?.focus();
+    }
+  }, [dropdownOpen, focusIdx]);
 
   if (isLoading) {
     return (
@@ -65,9 +120,12 @@ export default function UserMenu() {
   return (
     <div className="relative" ref={menuRef}>
       <button
-        onClick={() => setDropdownOpen(!dropdownOpen)}
+        ref={triggerRef}
+        onClick={() => { setDropdownOpen(!dropdownOpen); setFocusIdx(-1); }}
+        onKeyDown={handleMenuKeyDown}
         className="flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-secondary transition-colors cursor-pointer"
         aria-label="User menu"
+        aria-haspopup="menu"
         aria-expanded={dropdownOpen}
       >
         {user.avatar_url ? (
@@ -88,7 +146,12 @@ export default function UserMenu() {
       </button>
 
       {dropdownOpen && (
-        <div className="absolute right-0 top-full mt-1 w-56 bg-surface border border-border rounded-xl shadow-xl py-1 z-50">
+        <div
+          role="menu"
+          aria-label="User menu"
+          onKeyDown={handleMenuKeyDown}
+          className="absolute right-0 top-full mt-1 w-56 bg-surface border border-border rounded-xl shadow-xl py-1 z-50"
+        >
           {/* User info header */}
           <div className="px-4 py-3 border-b border-border">
             <p className="text-sm font-medium text-text-primary truncate">{user.name || 'User'}</p>
@@ -103,14 +166,20 @@ export default function UserMenu() {
           {/* Menu items */}
           <div className="py-1">
             <button
-              onClick={() => { setDropdownOpen(false); setProfileOpen(true); }}
+              ref={el => { itemRefs.current[0] = el; }}
+              role="menuitem"
+              tabIndex={focusIdx === 0 ? 0 : -1}
+              onClick={() => { setDropdownOpen(false); setFocusIdx(-1); setProfileOpen(true); }}
               className="flex items-center gap-2 w-full px-4 py-2 text-sm text-text-secondary hover:text-text-primary hover:bg-secondary transition-colors cursor-pointer"
             >
               <User className="w-4 h-4" />
               Profile
             </button>
             <button
-              onClick={() => setDropdownOpen(false)}
+              ref={el => { itemRefs.current[1] = el; }}
+              role="menuitem"
+              tabIndex={focusIdx === 1 ? 0 : -1}
+              onClick={() => { setDropdownOpen(false); setFocusIdx(-1); }}
               className="flex items-center gap-2 w-full px-4 py-2 text-sm text-text-secondary hover:text-text-primary hover:bg-secondary transition-colors cursor-pointer"
             >
               <Settings className="w-4 h-4" />
@@ -120,7 +189,10 @@ export default function UserMenu() {
 
           <div className="border-t border-border py-1">
             <button
-              onClick={() => { setDropdownOpen(false); logout(); }}
+              ref={el => { itemRefs.current[2] = el; }}
+              role="menuitem"
+              tabIndex={focusIdx === 2 ? 0 : -1}
+              onClick={() => { setDropdownOpen(false); setFocusIdx(-1); logout(); }}
               className="flex items-center gap-2 w-full px-4 py-2 text-sm text-danger hover:bg-danger/10 transition-colors cursor-pointer"
             >
               <LogOut className="w-4 h-4" />
