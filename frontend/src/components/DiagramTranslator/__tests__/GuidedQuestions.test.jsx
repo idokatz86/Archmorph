@@ -1,10 +1,14 @@
-import { describe, it, expect, vi, beforeAll } from 'vitest'
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import GuidedQuestions from '../../DiagramTranslator/GuidedQuestions'
 
 beforeAll(() => {
   Element.prototype.scrollTo = vi.fn()
+})
+
+beforeEach(() => {
+  localStorage.clear()
 })
 
 describe('GuidedQuestions', () => {
@@ -137,8 +141,61 @@ describe('GuidedQuestions', () => {
       />
     )
 
+    const allQuestionsSwitch = screen.getByRole('switch', { name: /all questions/i })
+    expect(allQuestionsSwitch).toHaveAttribute('aria-checked', 'false')
     expect(screen.queryByText('Select features')).not.toBeInTheDocument()
-    await user.click(screen.getByText('All Questions'))
+
+    await user.click(allQuestionsSwitch)
+
+    expect(allQuestionsSwitch).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByText('Select features')).toBeInTheDocument()
+  })
+
+  it('exposes distinct switch semantics for question scope and expert view', async () => {
+    const user = userEvent.setup()
+    render(
+      <GuidedQuestions
+        {...defaultProps}
+        questions={[mockQuestions[0]]}
+        allQuestions={mockQuestions}
+        assumptions={[{ id: 'q2', question: 'Enable monitoring?', assumed_answer: 'yes' }]}
+      />
+    )
+
+    const allQuestionsSwitch = screen.getByRole('switch', { name: /all questions/i })
+    const expertViewSwitch = screen.getByRole('switch', { name: /expert view/i })
+
+    expect(allQuestionsSwitch).toHaveAttribute('aria-checked', 'false')
+    expect(allQuestionsSwitch).toHaveTextContent('Focused Questions')
+    expect(expertViewSwitch).toHaveAttribute('aria-checked', 'false')
+    expect(expertViewSwitch).toHaveTextContent('Guided View')
+
+    await user.click(allQuestionsSwitch)
+    await user.click(expertViewSwitch)
+
+    expect(allQuestionsSwitch).toHaveAttribute('aria-checked', 'true')
+    expect(allQuestionsSwitch).toHaveTextContent('All Questions')
+    expect(expertViewSwitch).toHaveAttribute('aria-checked', 'true')
+    expect(expertViewSwitch).toHaveTextContent('Expert View')
+  })
+
+  it('keeps the expert view heading aligned with the question scope', async () => {
+    const user = userEvent.setup()
+    render(
+      <GuidedQuestions
+        {...defaultProps}
+        questions={[mockQuestions[0]]}
+        allQuestions={mockQuestions}
+        assumptions={[{ id: 'q2', question: 'Enable monitoring?', assumed_answer: 'yes' }]}
+      />
+    )
+
+    await user.click(screen.getByRole('switch', { name: /expert view/i }))
+    expect(screen.getByRole('heading', { name: /focused questions/i })).toBeInTheDocument()
+    expect(screen.queryByText('Select features')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('switch', { name: /all questions/i }))
+    expect(screen.getByRole('heading', { name: /all questions/i })).toBeInTheDocument()
     expect(screen.getByText('Select features')).toBeInTheDocument()
   })
 
