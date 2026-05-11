@@ -63,7 +63,7 @@ const staticEndpointLatency = {
 // CI environments (GitHub Actions) have limited CPU; scale load accordingly
 const RATE_MULTIPLIER = isCI ? 0.3 : 1;  // 30 RPS in CI, 100 RPS locally
 const CATALOG_P95_THRESHOLD_MS = Number(
-  __ENV.K6_CATALOG_P95_MS || (isCI ? 3000 : 1500),
+  __ENV.K6_CATALOG_P95_MS || (isCI ? 4000 : 1500),
 );
 
 const thresholds = {

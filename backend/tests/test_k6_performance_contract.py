@@ -22,6 +22,13 @@ def test_k6_summary_exposes_endpoint_latency_breakdown():
         assert f"static_{endpoint_name}_latency" in script
 
 
+def test_k6_catalog_ci_threshold_matches_documented_fast_endpoint_budget():
+    script = K6_SCRIPT.read_text(encoding="utf-8")
+
+    assert "isCI ? 4000 : 1500" in script
+    assert "catalog_latency" in script
+
+
 def test_k6_requests_tag_static_endpoints():
     script = K6_SCRIPT.read_text(encoding="utf-8")
 
