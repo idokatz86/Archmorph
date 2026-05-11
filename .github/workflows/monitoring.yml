@@ -18,6 +18,7 @@ permissions:
 env:
   API_URL: ${{ secrets.API_URL }}
   FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+  ARCHMORPH_API_KEY: ${{ secrets.ARCHMORPH_API_KEY }}
 
 concurrency:
   group: ${{ github.workflow }}
@@ -38,8 +39,16 @@ jobs:
     steps:
       - name: Check API Health
         id: health
+        env:
+          ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
         run: |
-          RESPONSE=$(curl -s -w "\n%{http_code}" --max-time 30 "${{ env.API_URL }}/health" || echo "FAILED")
+          CURL_ARGS=(-s -w "\n%{http_code}" --max-time 30)
+          HEALTH_API_KEY="${ARCHMORPH_API_KEY:-${ADMIN_KEY:-}}"
+          if [ -n "$HEALTH_API_KEY" ]; then
+            CURL_ARGS+=(-H "X-API-Key: ${HEALTH_API_KEY}")
+          fi
+
+          RESPONSE=$(curl "${CURL_ARGS[@]}" "${{ env.API_URL }}/health" || echo "FAILED")
           HTTP_CODE=$(echo "$RESPONSE" | tail -1)
           BODY=$(echo "$RESPONSE" | head -n -1)
 
