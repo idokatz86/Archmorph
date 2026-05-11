@@ -31,6 +31,7 @@ def run_gate_via_mock_curl(
     *,
     health_api_key: str | None = None,
     archmorph_api_key: str | None = None,
+    admin_key: str | None = None,
     mode: str = "healthy",
 ) -> tuple[subprocess.CompletedProcess[str], str]:
     curl_stub = tmp_path / "curl"
@@ -63,6 +64,8 @@ fi
         env["HEALTH_API_KEY"] = health_api_key
     if archmorph_api_key is not None:
         env["ARCHMORPH_API_KEY"] = archmorph_api_key
+    if admin_key is not None:
+        env["ADMIN_KEY"] = admin_key
 
     result = subprocess.run(
         ["bash", str(SCRIPT)],
@@ -216,6 +219,13 @@ def test_health_gate_uses_archmorph_api_key_fallback_for_curl_header(tmp_path: P
 
     assert result.returncode == 0
     assert "X-API-Key: fallback-secret" in curl_args
+
+
+def test_health_gate_uses_admin_key_fallback_for_curl_header(tmp_path: Path):
+    result, curl_args = run_gate_via_mock_curl(tmp_path, admin_key="admin-secret")
+
+    assert result.returncode == 0
+    assert "X-API-Key: admin-secret" in curl_args
 
 
 def test_health_gate_reports_unauthorized_payload_without_api_key(tmp_path: Path):
