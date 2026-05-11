@@ -30,7 +30,11 @@ vi.mock('../components/AdminDashboard', () => ({
   default: ({ onClose }) => <div data-testid="admin-dashboard"><button onClick={onClose}>Close</button></div>,
 }))
 vi.mock('../components/ErrorBoundary', () => ({
-  default: ({ children }) => <div data-testid="error-boundary">{children}</div>,
+  default: ({ children, resetKey }) => (
+    <div data-testid={resetKey ? 'tab-error-boundary' : 'error-boundary'} data-reset-key={resetKey || ''}>
+      {children}
+    </div>
+  ),
 }))
 vi.mock('../components/Auth', () => ({
   AuthProvider: ({ children }) => <>{children}</>,
@@ -94,6 +98,17 @@ describe('App', () => {
     await user.click(getByText('Services'))
     expect(await screen.findByTestId('services')).toBeInTheDocument()
     expect(screen.queryByTestId('translator')).not.toBeInTheDocument()
+  })
+
+  it('passes active tab as ErrorBoundary reset key', async () => {
+    const user = userEvent.setup()
+    const { getByText } = await renderSettledApp()
+    expect(screen.getByTestId('tab-error-boundary')).toHaveAttribute('data-reset-key', 'translator')
+
+    await user.click(getByText('Services'))
+
+    expect(await screen.findByTestId('services')).toBeInTheDocument()
+    expect(screen.getByTestId('tab-error-boundary')).toHaveAttribute('data-reset-key', 'services')
   })
 
   it('switches to roadmap tab', async () => {

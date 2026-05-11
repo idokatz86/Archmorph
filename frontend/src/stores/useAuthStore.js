@@ -75,6 +75,10 @@ function userFromSwaPrincipal(principal) {
   };
 }
 
+export function buildPostLoginRedirectUri(location = window.location) {
+  return encodeURIComponent(`${location.pathname}${location.search}${location.hash}`);
+}
+
 const useAuthStore = create((set, get) => ({
   // ── State ──
   user: null,
@@ -147,9 +151,7 @@ const useAuthStore = create((set, get) => ({
 
   // ── Login via provider (Azure SWA redirect) ──
   loginWithProvider: (provider) => {
-    const redirectUri = encodeURIComponent(
-      `${window.location.pathname}${window.location.search}${window.location.hash}`
-    );
+    const redirectUri = buildPostLoginRedirectUri();
     const urls = {
       microsoft: `/.auth/login/aad?post_login_redirect_uri=${redirectUri}`,
       google: `/.auth/login/google?post_login_redirect_uri=${redirectUri}`,
