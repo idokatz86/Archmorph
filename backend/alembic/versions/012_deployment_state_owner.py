@@ -14,6 +14,8 @@ down_revision = '011_hnsw_indexes'
 branch_labels = None
 depends_on = None
 
+_CREATED_TABLE_COMMENT = 'archmorph-created-by-012-deployment-state-owner'
+
 
 def _has_table(table_name: str) -> bool:
     if context.is_offline_mode():
@@ -30,6 +32,14 @@ def _columns(table_name: str) -> set[str]:
 def _indexes(table_name: str) -> set[str]:
     bind = op.get_bind()
     return {index["name"] for index in sa.inspect(bind).get_indexes(table_name)}
+
+
+def _table_comment(table_name: str) -> str | None:
+    bind = op.get_bind()
+    return bind.execute(
+        sa.text("SELECT obj_description(to_regclass(:table_name)::oid)"),
+        {"table_name": table_name},
+    ).scalar()
 
 
 def _create_index_if_missing(index_name: str, table_name: str, columns: list[str]) -> None:
@@ -53,6 +63,7 @@ def upgrade():
             sa.Column('previous_state_json', sa.JSON(), nullable=True),
             sa.Column('updated_at', sa.DateTime(), nullable=True),
         )
+        op.execute(sa.text(f"COMMENT ON TABLE deployment_state IS '{_CREATED_TABLE_COMMENT}'"))
     else:
         existing_columns = _columns('deployment_state')
         if 'owner_user_id' not in existing_columns:
@@ -68,6 +79,10 @@ def upgrade():
 
 def downgrade():
     if not _has_table('deployment_state'):
+        return
+
+    if _table_comment('deployment_state') == _CREATED_TABLE_COMMENT:
+        op.drop_table('deployment_state')
         return
 
     existing_indexes = _indexes('deployment_state')

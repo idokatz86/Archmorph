@@ -12,7 +12,7 @@ Do not use `terraform destroy` or `azd down` for normal rollback. Those commands
 
 - GitHub Actions access to run the manual rollback workflow.
 - Azure RBAC for the production subscription and resource group.
-- GitHub secrets present: `AZURE_SUBSCRIPTION_ID`, `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_RESOURCE_GROUP`, `CONTAINER_APP_NAME`, `API_URL`, plus `ARCHMORPH_API_KEY` or `ADMIN_KEY` for authenticated health verification.
+- GitHub secrets present: `AZURE_SUBSCRIPTION_ID`, `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_RESOURCE_GROUP`, `CONTAINER_APP_NAME`, `API_URL`, `ACR_NAME`, and `ACR_LOGIN_SERVER`, plus `ARCHMORPH_API_KEY` or `ADMIN_KEY` for authenticated health verification.
 - Azure CLI authenticated if using the manual fallback.
 - Release evidence for the last known good backend revision, frontend artifact, Git SHA, and container image tag or digest.
 
@@ -116,7 +116,7 @@ Resolve or inspect ACR digests when needed:
 ```bash
 az acr repository show-manifests \
   --name "$ACR_NAME" \
-  --repository archmorph-backend \
+  --repository archmorph-api \
   --orderby time_desc \
   --output table
 ```
