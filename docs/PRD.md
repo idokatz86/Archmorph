@@ -4,7 +4,7 @@
 **Date:** May 7, 2026
 **Author:** Ido Katz
 
-**Release Note:** Azure OpenAI production traffic is consolidated into West Europe with `gpt-4.1` primary and `gpt-4o` fallback; the Foundry benchmark plan keeps production routing unchanged until live gates pass, the Sweden Central one-region plan requires a parallel build with isolated Terraform state before any traffic shift, CI now enforces generated IaC validation, CodeQL SAST, Vite client-env exposure guardrails, and Docker Node base-image pinning, and P2 bug hygiene now covers Roadmap modal stability, retryable analysis failures, and dialog focus restoration.
+**Release Note:** Azure OpenAI production traffic is consolidated into West Europe with `gpt-4.1` primary and `gpt-4o` fallback; the Foundry benchmark plan keeps production routing unchanged until live gates pass, the Sweden Central one-region plan requires a parallel build with isolated Terraform state before any traffic shift, CI now enforces generated IaC validation, CodeQL SAST, Vite client-env exposure guardrails, and Docker Node base-image pinning, service catalog refresh verifies authenticated `/api/health` freshness after each run, and P2 bug hygiene now covers Roadmap modal stability, retryable analysis failures, and dialog focus restoration.
 
 ---
 
@@ -24,7 +24,7 @@ Current infrastructure posture: West Europe remains the active production region
 
 | Maturity | Capabilities |
 |----------|--------------|
-| Live | Diagram upload, sample playground, service mapping, guided questions, IaC/HLD/report export, Architecture Package HTML/SVG export, cost estimates, service catalog freshness health, admin health/release evidence, auth shell, API versioning, CI/security gates including CodeQL, generated IaC validation, performance budgets, Vite env exposure lint, Docker Node base-image pinning, and P2 bug regressions for analysis retry handling, Roadmap modal stability, and focus restoration |
+| Live | Diagram upload, sample playground, service mapping, guided questions, IaC/HLD/report export, Architecture Package HTML/SVG export, cost estimates, service catalog freshness health with authenticated refresh verification, admin health/release evidence, auth shell, API versioning, CI/security gates including CodeQL, generated IaC validation, performance budgets, Vite env exposure lint, Docker Node base-image pinning, and P2 bug regressions for analysis retry handling, Roadmap modal stability, and focus restoration |
 | Beta | Cost/token observability, collaboration, migration gallery, migration replay, Terraform state import, multi-cloud cost comparison, **Azure Landing Zone target diagram** (multi-source: AWS + GCP; T3 fidelity in progress under epic #586) |
 | Scaffold | Live cloud scanner, credential vault, deploy engine production validation |
 | Beta/Hardening | Living architecture/drift baselines, admin release gates, release evidence, dependency/security remediation workflow |

@@ -112,23 +112,36 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Verify freshness via /api/health
+        env:
+          ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
         run: |
           set -euo pipefail
           BASE="${API_URL%/}"
           BASE="${BASE%/api}"
           # Pass API key when configured — /api/health requires auth in production (#844).
+          HEALTH_API_KEY="${ARCHMORPH_API_KEY:-${ADMIN_KEY:-}}"
           _CURL_ARGS=(-sS --max-time 30)
-          if [ -n "${ARCHMORPH_API_KEY:-}" ]; then
-            _CURL_ARGS+=(-H "X-API-Key: ${ARCHMORPH_API_KEY}")
+          if [ -n "${HEALTH_API_KEY}" ]; then
+            _CURL_ARGS+=(-H "X-API-Key: ${HEALTH_API_KEY}")
           fi
-          BODY=$(curl "${_CURL_ARGS[@]}" "${BASE}/api/health")
-          HAS_REFRESH=$(echo "$BODY" | jq -r 'has("service_catalog_refresh")')
+          HTTP_CODE=$(curl "${_CURL_ARGS[@]}" -o health.json -w "%{http_code}" "${BASE}/api/health" || echo "000")
+          if [ "$HTTP_CODE" != "200" ]; then
+            ERROR_CODE=$(jq -r '.error.code // empty' health.json 2>/dev/null || true)
+            if [ -n "$ERROR_CODE" ]; then
+              echo "::error::/api/health returned HTTP ${HTTP_CODE} (${ERROR_CODE}); check ARCHMORPH_API_KEY/ADMIN_KEY secrets"
+            else
+              echo "::error::/api/health returned HTTP ${HTTP_CODE}; cannot verify refresh freshness"
+            fi
+            cat health.json || true
+            exit 1
+          fi
+          HAS_REFRESH=$(jq -r 'has("service_catalog_refresh")' health.json)
           if [ "$HAS_REFRESH" != "true" ]; then
             echo "::error::/api/health does not expose service_catalog_refresh; cannot verify refresh freshness"
             exit 1
           fi
-          AGE=$(echo "$BODY" | jq -r '.service_catalog_refresh.age_hours // "null"')
-          STALE=$(echo "$BODY" | jq -r '.service_catalog_refresh.stale | tostring')
+          AGE=$(jq -r '.service_catalog_refresh.age_hours // "null"' health.json)
+          STALE=$(jq -r '.service_catalog_refresh.stale | tostring' health.json)
           echo "post-refresh age=${AGE}h stale=${STALE}"
           if [ "$STALE" != "false" ]; then
             echo "::error::Refresh succeeded but /api/health still reports stale catalog"

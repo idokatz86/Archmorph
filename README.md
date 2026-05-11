@@ -24,7 +24,7 @@ Archmorph is an AI-assisted cloud migration workbench. The live path analyzes up
 
 | Status | Meaning | Capabilities |
 |--------|---------|--------------|
-| Live | Usable in the current product path | Diagram upload, sample playground, AI service mapping, guided questions, IaC/HLD/report export, **Architecture Package HTML/SVG export**, cost estimates, service catalog freshness health, admin health/release evidence, auth shell, CI/security scanning, generated IaC validation, Vite env exposure guard, Docker Node base-image pin guard, P2 bug regressions for analysis retry handling and dialog focus restoration |
+| Live | Usable in the current product path | Diagram upload, sample playground, AI service mapping, guided questions, IaC/HLD/report export, **Architecture Package HTML/SVG export**, cost estimates, service catalog freshness health with authenticated refresh verification, admin health/release evidence, auth shell, CI/security scanning, generated IaC validation, Vite env exposure guard, Docker Node base-image pin guard, P2 bug regressions for analysis retry handling and dialog focus restoration |
 | Beta | Implemented but needs hardening, deeper tests, or production validation | Cost/token observability, collaboration, gallery, replay, Terraform state import, multi-cloud cost comparison, **Azure Landing Zone target diagram** (visual scaffold; production-ready push targeted for v4.3.0 under epic #586 — see [Production-Ready Roadmap](#production-ready-roadmap-azure-landing-zone-v430-target) below) |
 | Scaffold | UI/routes/models exist, but execution needs integration or operator review | Live cloud scanner, deploy engine, credential vault |
 | Planned | Not production-ready yet | VS Code extension, PR-based IaC workflow, multi-diagram projects |
@@ -63,7 +63,7 @@ The post-merge CTO end-to-end review of `landing-zone-svg` (May 1, 2026) flagged
 - **Cost & Token Observability** — per-execution token metering, budget management with alerts, timeseries analytics, CSV export
 - **Cost comparison** — side-by-side AWS/GCP vs Azure cost analysis with optimization recommendations
 - **Migration Timeline Generator** — 7-phase migration plan with dependency ordering (topological sort), parallel workstreams, export as JSON/Markdown/CSV
-- **Self-updating service catalog** — daily auto-discovery and auto-integration of new cloud services with fuzzy matching and category classification
+- **Self-updating service catalog** — daily auto-discovery and auto-integration of new cloud services with fuzzy matching, category classification, and authenticated post-refresh freshness verification
 - **AI cross-cloud mapping suggestions** — GPT-powered mapping with few-shot learning, auto-approve at 0.9 confidence, admin review queue
 - **Icon Registry** — 405 normalized cloud service icons with Draw.io, Excalidraw, and Visio library builders; custom pack upload/delete requires an admin bearer session from `/api/admin/login`, is SVG-sanitized, generation-aware, and bounded without evicting built-in provider icons
 - **AI-powered HLD generation** — 13-section High-Level Design documents with WAF assessment
