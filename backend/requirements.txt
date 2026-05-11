@@ -48,7 +48,7 @@ pyasn1>=0.6.3
 pygments>=2.20.0
 pypdf>=6.10.2
 pypdfium2>=5.7.1  # PDF rasterization for vision analyzer (PDF uploads → PNG)
-requests>=2.33.1
+requests>=2.34.0
 
 # Test dependencies
 pytest>=9.0.3
