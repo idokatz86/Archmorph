@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
-import { HelpCircle, ChevronRight, ChevronLeft, Check, Sparkles, ToggleLeft, ToggleRight, AlertTriangle, LayoutGrid, List } from 'lucide-react';
+import { HelpCircle, ChevronRight, ChevronLeft, Check, Sparkles, ToggleLeft, ToggleRight, AlertTriangle, Code2, Layers, ListChecks } from 'lucide-react';
 import { Badge, Button, Card } from '../ui';
 
 /* ── Toggle Switch ── */
@@ -203,17 +203,23 @@ export default function GuidedQuestions({
                 type="button"
                 onClick={() => setShowAllQuestions(prev => !prev)}
                 className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border/50 hover:border-cta/30 bg-secondary/10 hover:bg-secondary/20 transition-all cursor-pointer text-sm font-medium text-text-secondary"
+                role="switch"
+                aria-checked={showAllQuestions}
+                aria-label="All questions"
               >
-                {showAllQuestions ? <List className="w-4 h-4 text-cta" /> : <LayoutGrid className="w-4 h-4 text-text-muted" />}
-                <span>{showAllQuestions ? 'Focused Questions' : 'All Questions'}</span>
+                {showAllQuestions ? <ListChecks className="w-4 h-4 text-cta" /> : <Layers className="w-4 h-4 text-text-muted" />}
+                <span>{showAllQuestions ? 'All Questions' : 'Focused Questions'}</span>
               </button>
             )}
             <button
               type="button"
               onClick={toggleExpertMode}
               className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border/50 hover:border-cta/30 bg-secondary/10 hover:bg-secondary/20 transition-all cursor-pointer text-sm font-medium"
+              role="switch"
+              aria-checked={expertMode}
+              aria-label="Expert view"
             >
-              {expertMode ? <LayoutGrid className="w-4 h-4 text-cta" /> : <List className="w-4 h-4 text-text-muted" />}
+              {expertMode ? <Code2 className="w-4 h-4 text-cta" /> : <Sparkles className="w-4 h-4 text-text-muted" />}
               <span className={expertMode ? 'text-cta' : 'text-text-secondary'}>
                 {expertMode ? 'Expert View' : 'Guided View'}
               </span>
@@ -287,8 +293,8 @@ export default function GuidedQuestions({
           <Card className="overflow-hidden">
             <div className="px-6 py-3 border-b border-border/50 bg-secondary/10 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <LayoutGrid className="w-4 h-4 text-cta" />
-                <h3 className="text-sm font-semibold text-text-primary">All Questions</h3>
+                <Code2 className="w-4 h-4 text-cta" />
+                <h3 className="text-sm font-semibold text-text-primary">{showAllQuestions ? 'All Questions' : 'Focused Questions'}</h3>
               </div>
               <span className="text-xs text-text-muted">Press <kbd className="px-1.5 py-0.5 rounded bg-secondary text-text-secondary text-[10px] font-mono">Tab</kbd> to navigate, <kbd className="px-1.5 py-0.5 rounded bg-secondary text-text-secondary text-[10px] font-mono">Enter</kbd> to confirm</span>
             </div>
