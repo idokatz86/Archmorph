@@ -1,5 +1,6 @@
 import React from 'react';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
+import { reportError } from '../services/errorReporter';
 
 /**
  * React Error Boundary — catches rendering errors in child components
@@ -16,7 +17,7 @@ export default class ErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error, errorInfo) {
-    console.error('[ErrorBoundary]', error, errorInfo);
+    reportError(error, 'ErrorBoundary', { componentStack: errorInfo?.componentStack });
   }
 
   handleReset = () => {

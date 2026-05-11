@@ -231,7 +231,7 @@ class TestAnalyze:
         resp = client.post("/api/diagrams/nonexistent-diag/analyze")
         assert resp.status_code == 404
 
-    def test_analyze_rate_limit_returns_retryable_503(self, client, clean_session):
+    def test_analyze_rate_limit_returns_retryable_429(self, client, clean_session):
         did = self._upload(client)
         analysis_error = OpenAIServiceError(
             "Vision analysis is temporarily rate-limited. Please retry shortly.",
@@ -243,7 +243,7 @@ class TestAnalyze:
              patch("routers.diagrams.classify_image", return_value={"is_architecture_diagram": True, "confidence": 0.95, "image_type": "architecture_diagram", "reason": "Mock"}):
             resp = client.post(f"/api/diagrams/{did}/analyze")
 
-        assert resp.status_code == 503
+        assert resp.status_code == 429
         assert resp.headers["retry-after"] == "30"
         body = resp.json()
         assert body["error"]["details"]["error"] == "analysis_retryable"

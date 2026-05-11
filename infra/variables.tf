@@ -206,3 +206,14 @@ variable "health_probe_path" {
   type        = string
   default     = "/healthz"
 }
+
+variable "app_insights_sampling_percentage_prod" {
+  description = "Production Application Insights sampling percentage for cost control. Non-production remains 100%."
+  type        = number
+  default     = 10
+
+  validation {
+    condition     = var.app_insights_sampling_percentage_prod >= 1 && var.app_insights_sampling_percentage_prod <= 100
+    error_message = "app_insights_sampling_percentage_prod must be between 1 and 100."
+  }
+}

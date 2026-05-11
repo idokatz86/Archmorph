@@ -5,6 +5,7 @@ import anyio
 import pytest
 
 from sse import format_sse, sse_response
+from job_queue import job_manager
 
 
 def test_format_sse_basic():
@@ -33,6 +34,22 @@ def test_sse_response_returns_streaming():
     resp = sse_response(gen())
     assert resp.status_code == 200
     assert "text/event-stream" in resp.media_type
+
+
+@pytest.mark.asyncio
+async def test_job_stream_sends_idle_heartbeat():
+    job = job_manager.submit("heartbeat_test", owner_user_id="sse-test-user", tenant_id="sse-test")
+    job_manager.start(job.job_id)
+    stream = job_manager.stream(job.job_id)
+
+    try:
+        first = await stream.__anext__()
+        assert "event: status" in first
+        heartbeat = await stream.__anext__()
+        assert heartbeat == ": heartbeat\n\n"
+    finally:
+        job_manager.cancel(job.job_id)
+        await stream.aclose()
 
 
 # ──────────────────────────────────────────────────────────────────────────────

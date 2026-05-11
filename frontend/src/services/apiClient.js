@@ -10,6 +10,7 @@
  */
 
 import { API_BASE } from '../constants';
+import { reportError } from './errorReporter';
 
 /** Default request timeout in ms */
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -227,7 +228,10 @@ async function request(path, options = {}, signal) {
           continue;
         }
         // Report 5xx errors to the optional handler before throwing
-        if (err.status >= 500 && _errorHandler) _errorHandler(err.message);
+        if (err.status >= 500) {
+          reportError(err, 'apiClient', { path, status: err.status, correlationId: err.correlationId });
+          if (_errorHandler) _errorHandler(err.message);
+        }
         throw err;
       }
       return body;
@@ -264,7 +268,10 @@ async function request(path, options = {}, signal) {
     }
   }
   // Retryable error that exhausted all attempts — report to error handler
-  if (lastError?.status >= 500 && _errorHandler) _errorHandler(lastError.message);
+  if (lastError?.status >= 500) {
+    reportError(lastError, 'apiClient', { path, status: lastError.status, correlationId: lastError.correlationId });
+    if (_errorHandler) _errorHandler(lastError.message);
+  }
   throw lastError;
 }
 

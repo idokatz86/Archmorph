@@ -24,7 +24,7 @@ Archmorph is an AI-assisted cloud migration workbench. The live path analyzes up
 
 | Status | Meaning | Capabilities |
 |--------|---------|--------------|
-| Live | Usable in the current product path | Diagram upload, sample playground, AI service mapping, guided questions, IaC/HLD/report export, **Architecture Package HTML/SVG export**, cost estimates, authenticated/import-limited infrastructure import, service catalog freshness health with authenticated refresh verification, admin health/release evidence, rollback runbook and authenticated rollback health verification, auth shell with SWA CSRF protection, CI/security scanning, generated IaC validation, checked-in Terraform Checkov policy gate, Alembic migration smoke on PostgreSQL plus pgvector, Vite env exposure guard, Docker Node base-image pin guard, P2 bug regressions for analysis retry handling and dialog focus restoration |
+| Live | Usable in the current product path | Diagram upload, sample playground, AI service mapping, guided questions, IaC/HLD/report export, **Architecture Package HTML/SVG export**, cost estimates, authenticated/import-limited infrastructure import, service catalog freshness health with authenticated refresh verification, admin health/release evidence, rollback runbook and authenticated rollback health verification, auth shell with SWA CSRF protection, CI/security scanning, generated IaC validation, checked-in Terraform Checkov policy gate, Alembic migration smoke on PostgreSQL plus pgvector, Vite env exposure guard, Docker Node base-image pin guard, operational trust baseline for 429 throttling, SSE heartbeats, frontend error reporting, App Insights sampling, and P2 bug regressions for analysis retry handling and dialog focus restoration |
 | Beta | Implemented but needs hardening, deeper tests, or production validation | Cost/token observability, collaboration, gallery, replay, Terraform state import, multi-cloud cost comparison, **Azure Landing Zone target diagram** (visual scaffold; production-ready push targeted for v4.3.0 under epic #586 — see [Production-Ready Roadmap](#production-ready-roadmap-azure-landing-zone-v430-target) below) |
 | Scaffold | UI/routes/models exist, but execution needs integration or operator review | Live cloud scanner, deploy engine, credential vault |
 | Planned | Not production-ready yet | VS Code extension, PR-based IaC workflow, multi-diagram projects |
@@ -60,7 +60,7 @@ The post-merge CTO end-to-end review of `landing-zone-svg` (May 1, 2026) flagged
 - **Email notifications** — Azure Communication Services integration for migration report delivery
 - Generate Terraform HCL or Bicep code with secure credential handling and **8-rule IaC security scanning**
 - **Dynamic cost estimates** — region-aware pricing via Azure Retail Prices API with 46 service mappings and monthly cache
-- **Cost & Token Observability** — per-execution token metering, budget management with alerts, timeseries analytics, CSV export
+- **Cost & Token Observability** — per-execution token metering, budget management with alerts, timeseries analytics, CSV export, and production App Insights sampling controls
 - **Cost comparison** — side-by-side AWS/GCP vs Azure cost analysis with optimization recommendations
 - **Migration Timeline Generator** — 7-phase migration plan with dependency ordering (topological sort), parallel workstreams, export as JSON/Markdown/CSV
 - **Self-updating service catalog** — daily auto-discovery and auto-integration of new cloud services with fuzzy matching, category classification, and authenticated post-refresh freshness verification
@@ -75,7 +75,7 @@ The post-merge CTO end-to-end review of `landing-zone-svg` (May 1, 2026) flagged
 - **Infrastructure import** — import existing Terraform/ARM/CloudFormation configurations through authenticated, rate-limited, 10 MB-capped mutation routes
 - **Terraform State Import** — reverse-engineer existing infrastructure from tfstate/CloudFormation/ARM into architecture diagrams
 - **Multi-Cloud Cost Comparison** — side-by-side Azure vs AWS vs GCP TCO analysis with savings recommendations
-- **Auth shell** — simple login/logout/provider routes remain; SWA cookie-auth state changes require a Strict SameSite double-submit CSRF token, while API-key and Bearer automation paths remain available
+- **Auth shell** — simple login/logout/provider routes remain; SWA consent state is recognized from `/.auth/me`, SWA cookie-auth state changes require a Strict SameSite double-submit CSRF token, and API-key/Bearer automation paths remain available
 - **Real-time Collaboration** — multi-stakeholder migration workspace with share codes and role-based participants
 - **Migration Replay** — animated analysis timeline for presentations with playback controls
 - **Migration Gallery** — public anonymized success stories, filterable by cloud and complexity
@@ -90,7 +90,7 @@ The post-merge CTO end-to-end review of `landing-zone-svg` (May 1, 2026) flagged
 - **Session expiry warning** — countdown banner with session extension capability
 - **Browser close protection** — `beforeunload` guard prevents accidental data loss during analysis
 - **Accessibility** — focus traps for modals, keyboard navigation, ARIA attributes
-- **Error envelope middleware** — standardized JSON error responses with correlation IDs
+- **Error envelope middleware** — standardized JSON error responses with correlation IDs, including consistent 429 + `Retry-After` throttling responses
 - **Security hardening** — timing-safe auth, security headers, XSS protection, Dependabot
 - **CI/CD security** — Semgrep SAST, Gitleaks secret detection, Trivy container scanning, CycloneDX SBOM, and Checkov policy-as-code for checked-in Azure Terraform
 - **Multi-stage Docker** — optimized build with ~50% image size reduction, uv for fast installs
