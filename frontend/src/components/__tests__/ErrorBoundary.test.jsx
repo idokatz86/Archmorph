@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import ErrorBoundary from '../ErrorBoundary'
 import { clearErrorReporter, setErrorReporter } from '../../services/errorReporter'
@@ -87,5 +87,24 @@ describe('ErrorBoundary', () => {
     // After reset, ErrorBoundary tries to re-render children
     // Since shouldThrow is now false, it should show recovered content
     expect(screen.getByText('Recovered')).toBeInTheDocument()
+  })
+
+  it('resets error state when resetKey changes', async () => {
+    const { rerender } = render(
+      <ErrorBoundary resetKey="translator">
+        <ProblemChild />
+      </ErrorBoundary>
+    )
+    expect(screen.getByText('Something went wrong')).toBeInTheDocument()
+
+    rerender(
+      <ErrorBoundary resetKey="services">
+        <GoodChild />
+      </ErrorBoundary>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('All good')).toBeInTheDocument()
+    })
   })
 })

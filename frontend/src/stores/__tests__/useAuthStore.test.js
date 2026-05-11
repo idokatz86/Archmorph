@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import useAuthStore from '../useAuthStore';
+import useAuthStore, { buildPostLoginRedirectUri } from '../useAuthStore';
 
 const principal = {
   identityProvider: 'aad',
@@ -67,5 +67,13 @@ describe('useAuthStore', () => {
     const state = useAuthStore.getState();
     expect(state.isAuthenticated).toBe(true);
     expect(state.user).toMatchObject({ id: 'backend-user', name: 'Backend User' });
+  });
+
+  it('preserves path, query string, and hash in SWA login redirects', () => {
+    expect(buildPostLoginRedirectUri({
+      pathname: '/workspace',
+      search: '?project=alpha&view=recent',
+      hash: '#dashboard',
+    })).toBe('%2Fworkspace%3Fproject%3Dalpha%26view%3Drecent%23dashboard');
   });
 });
