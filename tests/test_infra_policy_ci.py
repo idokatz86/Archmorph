@@ -22,6 +22,14 @@ def test_public_postgres_policy_fails_missing_or_enabled_public_access():
     assert "public_network_access_enabled" in policy
 
 
+def test_required_tags_policy_does_not_pass_arbitrary_tag_expressions():
+    policy = (ROOT / "infra/policies/checkov/azure_required_tags.py").read_text(encoding="utf-8")
+
+    assert "APPROVED_TAG_REFERENCES" in policy
+    assert "${local.tags}" in policy
+    assert "var.tags" not in policy
+
+
 def test_checked_in_postgres_explicitly_disables_public_network_access():
     infra = (ROOT / "infra/main.tf").read_text(encoding="utf-8")
 

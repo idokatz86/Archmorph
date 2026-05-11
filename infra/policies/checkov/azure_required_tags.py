@@ -2,6 +2,9 @@ from checkov.common.models.enums import CheckCategories, CheckResult
 from checkov.terraform.checks.resource.base_resource_check import BaseResourceCheck
 
 
+APPROVED_TAG_REFERENCES = {"${local.tags}", "local.tags"}
+
+
 class AzureRequiredTags(BaseResourceCheck):
     def __init__(self):
         name = "Ensure taggable Azure resources carry the Archmorph baseline tags"
@@ -30,7 +33,7 @@ class AzureRequiredTags(BaseResourceCheck):
             return CheckResult.FAILED
         tag_block = tags[0] if isinstance(tags, list) else tags
         if isinstance(tag_block, str):
-            return CheckResult.PASSED
+            return CheckResult.PASSED if tag_block in APPROVED_TAG_REFERENCES else CheckResult.FAILED
         required = {"project", "environment", "managed_by"}
         return CheckResult.PASSED if required.issubset(set(tag_block.keys())) else CheckResult.FAILED
 

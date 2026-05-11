@@ -5,7 +5,7 @@ from fastapi import Request, Response
 
 
 CSRF_COOKIE_NAME = "archmorph_csrf"
-CSRF_HEADER_NAME = "x-csrf-token"
+CSRF_HEADER_NAME = "X-CSRF-Token"
 UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
 
