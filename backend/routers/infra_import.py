@@ -19,16 +19,18 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+_MAX_IMPORT_CONTENT_CHARS = 10 * 1024 * 1024
+
 
 class InfraImportRequest(StrictBaseModel):
     """Request body for infrastructure file import."""
-    content: str = Field(..., min_length=10, max_length=52_428_800)
+    content: str = Field(..., min_length=10, max_length=_MAX_IMPORT_CONTENT_CHARS)
     format: str = Field(default="auto", pattern="^(auto|terraform_state|terraform_hcl|cloudformation)$")
     filename: str = Field(default="unknown")
 
 
 @router.post("/api/import/infrastructure")
-@limiter.limit("10/minute")
+@limiter.limit("5/minute")
 async def import_infrastructure(request: Request, body: InfraImportRequest, _auth=Depends(verify_api_key)):
     """Import infrastructure-as-code files to create an architecture analysis.
 

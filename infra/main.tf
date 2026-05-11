@@ -144,7 +144,7 @@ resource "azurerm_policy_definition" "allowed_locations" {
   })
 
   policy_rule = jsonencode({
-    if = {
+    "if" = {
       allOf = [
         {
           field = "location"
@@ -156,7 +156,7 @@ resource "azurerm_policy_definition" "allowed_locations" {
         }
       ]
     }
-    then = {
+    "then" = {
       effect = "deny"
     }
   })
@@ -175,14 +175,14 @@ resource "azurerm_policy_definition" "required_tags" {
   })
 
   policy_rule = jsonencode({
-    if = {
+    "if" = {
       anyOf = [
         { field = "tags['project']", exists = "false" },
         { field = "tags['environment']", exists = "false" },
         { field = "tags['managed_by']", exists = "false" }
       ]
     }
-    then = {
+    "then" = {
       effect = "deny"
     }
   })
@@ -197,7 +197,7 @@ resource "azurerm_policy_definition" "approved_skus" {
   description  = "Restrict critical services to approved SKUs."
 
   policy_rule = jsonencode({
-    if = {
+    "if" = {
       anyOf = [
         {
           allOf = [
@@ -221,7 +221,7 @@ resource "azurerm_policy_definition" "approved_skus" {
         }
       ]
     }
-    then = {
+    "then" = {
       effect = "deny"
     }
   })
@@ -366,17 +366,18 @@ resource "azurerm_container_registry" "main" {
 # Azure Database for PostgreSQL Flexible Server
 # ─────────────────────────────────────────────────────────────
 resource "azurerm_postgresql_flexible_server" "main" {
-  name                         = "archmorph-db-${local.name_suffix}"
-  resource_group_name          = azurerm_resource_group.main.name
-  location                     = azurerm_resource_group.main.location
-  version                      = "15"
-  administrator_login          = var.db_admin_username
-  administrator_password       = var.db_admin_password
-  storage_mb                   = 32768
-  sku_name                     = var.environment == "prod" ? "GP_Standard_D2s_v3" : "B_Standard_B1ms"
-  zone                         = "1"
-  backup_retention_days        = var.environment == "prod" ? 35 : 7
-  geo_redundant_backup_enabled = var.environment == "prod"
+  name                          = "archmorph-db-${local.name_suffix}"
+  resource_group_name           = azurerm_resource_group.main.name
+  location                      = azurerm_resource_group.main.location
+  version                       = "15"
+  administrator_login           = var.db_admin_username
+  administrator_password        = var.db_admin_password
+  storage_mb                    = 32768
+  sku_name                      = var.environment == "prod" ? "GP_Standard_D2s_v3" : "B_Standard_B1ms"
+  zone                          = "1"
+  backup_retention_days         = var.environment == "prod" ? 35 : 7
+  geo_redundant_backup_enabled  = var.environment == "prod"
+  public_network_access_enabled = false
 
   authentication {
     password_auth_enabled         = true
@@ -401,7 +402,7 @@ resource "azurerm_postgresql_flexible_server_database" "main" {
 }
 
 resource "azurerm_postgresql_flexible_server_firewall_rule" "allow_azure" {
-  count            = var.environment == "prod" ? 0 : 1 # Disable in prod — use VNet/Private Endpoint instead (#289)
+  count            = 0 # Public PostgreSQL network access is disabled by policy-as-code (#906)
   name             = "AllowAzureServices"
   server_id        = azurerm_postgresql_flexible_server.main.id
   start_ip_address = "0.0.0.0"
@@ -633,7 +634,7 @@ resource "azurerm_container_app" "backend" {
     cors {
       allowed_origins    = [var.frontend_url, "https://www.archmorphai.com"]
       allowed_methods    = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"]
-      allowed_headers    = ["Content-Type", "Authorization", "X-API-Key", "X-Correlation-ID"]
+      allowed_headers    = ["Content-Type", "Authorization", "X-API-Key", "X-CSRF-Token", "X-Correlation-ID"]
       exposed_headers    = ["X-Correlation-ID", "X-Response-Time"]
       max_age_in_seconds = 3600
     }

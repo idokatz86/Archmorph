@@ -23,6 +23,7 @@ import asyncio  # noqa: E402
 
 from slowapi.errors import RateLimitExceeded  # noqa: E402
 from starlette.responses import JSONResponse as _JSONResponse  # noqa: E402
+from csrf import requires_csrf_check, csrf_token_valid  # noqa: E402
 
 
 def _rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> _JSONResponse:
@@ -274,7 +275,7 @@ app.add_middleware(
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=_CORS_ALLOW_CREDENTIALS,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
-    allow_headers=["Content-Type", "Authorization", "X-API-Key", "X-Export-Capability"],
+    allow_headers=["Content-Type", "Authorization", "X-API-Key", "X-CSRF-Token", "X-Export-Capability"],
     expose_headers=["X-Export-Capability-Next", "ETag"],
     max_age=3600,  # Cache preflight for 1 hour
 )
@@ -304,7 +305,20 @@ class ArchmorphMiddleware(BaseHTTPMiddleware):
 
         start_time = time.perf_counter()
         try:
-            response = await call_next(request)
+            if requires_csrf_check(request) and not csrf_token_valid(request):
+                response = _JSONResponse(
+                    status_code=403,
+                    content={
+                        "error": {
+                            "code": "CSRF_TOKEN_MISSING_OR_INVALID",
+                            "message": "Missing or invalid CSRF token",
+                            "details": {},
+                            "correlation_id": cid,
+                        }
+                    },
+                )
+            else:
+                response = await call_next(request)
         finally:
             correlation_id_var.reset(token)
 

@@ -4,12 +4,13 @@ Authentication & User Management routes (v2.9.0).
 Social Authentication — Microsoft, Google, GitHub (Issue #246).
 """
 
-from fastapi import APIRouter, Request, Header, Query
+from fastapi import APIRouter, Request, Response, Header, Query
 from pydantic import Field, EmailStr
 from strict_models import StrictBaseModel
 from typing import Optional
 
 from routers.shared import limiter
+from csrf import generate_csrf_token, set_csrf_cookie
 from auth import (
     get_auth_config as _get_auth_config,
     validate_azure_ad_b2c_token,
@@ -104,6 +105,14 @@ async def get_current_user(request: Request, authorization: Optional[str] = Head
 
     # Return anonymous user info
     return {"authenticated": False, "tier": "free", "roles": [], "tenant_id": "default_tenant"}
+
+
+@router.get("/api/auth/csrf")
+async def get_csrf_token(response: Response):
+    """Issue a double-submit CSRF token for SWA cookie-auth mutations."""
+    token = generate_csrf_token()
+    set_csrf_cookie(response, token)
+    return {"csrf_token": token}
 
 
 @router.get("/api/auth/providers")

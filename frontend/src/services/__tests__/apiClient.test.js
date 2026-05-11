@@ -79,8 +79,25 @@ describe('apiClient', () => {
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({ analysis: {} }),
+        headers: expect.objectContaining({ 'X-CSRF-Token': expect.any(String) }),
       }),
     )
+  })
+
+  it('unsafe internal requests include a matching CSRF header and Strict SameSite cookie', async () => {
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: () => Promise.resolve({ ok: true }),
+    })
+
+    await api.post('/diagrams/d1/analyze', { target: 'azure' })
+
+    const callArgs = fetch.mock.calls[0]
+    const token = callArgs[1].headers['X-CSRF-Token']
+    expect(token).toEqual(expect.any(String))
+    expect(document.cookie).toContain(`archmorph_csrf=${token}`)
   })
 
   it('POST with FormData does not set Content-Type header', async () => {
@@ -322,6 +339,7 @@ describe('apiClient', () => {
     const callArgs = fetch.mock.calls[0]
     expect(callArgs[1].credentials).toBeUndefined()
     expect(callArgs[1].headers.Authorization).toBeUndefined()
+    expect(callArgs[1].headers['X-CSRF-Token']).toBeUndefined()
   })
 
   // ── Session expiry detection ──

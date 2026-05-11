@@ -279,6 +279,34 @@ jobs:
           done
 
   # ============================================
+  # TERRAFORM POLICY-AS-CODE
+  # ============================================
+  terraform-policy-as-code:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install Checkov
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install checkov
+
+      - name: Run Archmorph Terraform policy checks
+        run: |
+          checkov \
+            --quiet \
+            --framework terraform \
+            --directory infra \
+            --external-checks-dir infra/policies/checkov \
+            --check CKV_ARCHMORPH_1,CKV_ARCHMORPH_2,CKV_ARCHMORPH_3
+
+  # ============================================
   # CLI FULL-SPINE ARTIFACT CONTRACT
   # ============================================
   cli-full-spine-smoke:

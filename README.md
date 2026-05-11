@@ -24,7 +24,7 @@ Archmorph is an AI-assisted cloud migration workbench. The live path analyzes up
 
 | Status | Meaning | Capabilities |
 |--------|---------|--------------|
-| Live | Usable in the current product path | Diagram upload, sample playground, AI service mapping, guided questions, IaC/HLD/report export, **Architecture Package HTML/SVG export**, cost estimates, service catalog freshness health with authenticated refresh verification, admin health/release evidence, rollback runbook and authenticated rollback health verification, auth shell, CI/security scanning, generated IaC validation, Alembic migration smoke on PostgreSQL plus pgvector, Vite env exposure guard, Docker Node base-image pin guard, P2 bug regressions for analysis retry handling and dialog focus restoration |
+| Live | Usable in the current product path | Diagram upload, sample playground, AI service mapping, guided questions, IaC/HLD/report export, **Architecture Package HTML/SVG export**, cost estimates, authenticated/import-limited infrastructure import, service catalog freshness health with authenticated refresh verification, admin health/release evidence, rollback runbook and authenticated rollback health verification, auth shell with SWA CSRF protection, CI/security scanning, generated IaC validation, checked-in Terraform Checkov policy gate, Alembic migration smoke on PostgreSQL plus pgvector, Vite env exposure guard, Docker Node base-image pin guard, P2 bug regressions for analysis retry handling and dialog focus restoration |
 | Beta | Implemented but needs hardening, deeper tests, or production validation | Cost/token observability, collaboration, gallery, replay, Terraform state import, multi-cloud cost comparison, **Azure Landing Zone target diagram** (visual scaffold; production-ready push targeted for v4.3.0 under epic #586 — see [Production-Ready Roadmap](#production-ready-roadmap-azure-landing-zone-v430-target) below) |
 | Scaffold | UI/routes/models exist, but execution needs integration or operator review | Live cloud scanner, deploy engine, credential vault |
 | Planned | Not production-ready yet | VS Code extension, PR-based IaC workflow, multi-diagram projects |
@@ -72,10 +72,10 @@ The post-merge CTO end-to-end review of `landing-zone-svg` (May 1, 2026) flagged
 - **IaC Chat assistant** — interactive GPT-4o assistant for code modifications
 - **Chatbot assistant** — FAQ support and GitHub issue creation with intent detection
 - **Migration intelligence** — ML-powered analysis with historical pattern matching
-- **Infrastructure import** — import existing Terraform/ARM/CloudFormation configurations
+- **Infrastructure import** — import existing Terraform/ARM/CloudFormation configurations through authenticated, rate-limited, 10 MB-capped mutation routes
 - **Terraform State Import** — reverse-engineer existing infrastructure from tfstate/CloudFormation/ARM into architecture diagrams
 - **Multi-Cloud Cost Comparison** — side-by-side Azure vs AWS vs GCP TCO analysis with savings recommendations
-- **Auth shell** — simple login/logout/provider routes remain; SSO/SAML/SCIM, org, and profile routers were removed from the active API surface during main-branch convergence
+- **Auth shell** — simple login/logout/provider routes remain; SWA cookie-auth state changes require a Strict SameSite double-submit CSRF token, while API-key and Bearer automation paths remain available
 - **Real-time Collaboration** — multi-stakeholder migration workspace with share codes and role-based participants
 - **Migration Replay** — animated analysis timeline for presentations with playback controls
 - **Migration Gallery** — public anonymized success stories, filterable by cloud and complexity
@@ -92,7 +92,7 @@ The post-merge CTO end-to-end review of `landing-zone-svg` (May 1, 2026) flagged
 - **Accessibility** — focus traps for modals, keyboard navigation, ARIA attributes
 - **Error envelope middleware** — standardized JSON error responses with correlation IDs
 - **Security hardening** — timing-safe auth, security headers, XSS protection, Dependabot
-- **CI/CD security** — Semgrep SAST, Gitleaks secret detection, Trivy container scanning, CycloneDX SBOM
+- **CI/CD security** — Semgrep SAST, Gitleaks secret detection, Trivy container scanning, CycloneDX SBOM, and Checkov policy-as-code for checked-in Azure Terraform
 - **Multi-stage Docker** — optimized build with ~50% image size reduction, uv for fast installs
 - **API versioning** — all `/api/*` routes mirrored at `/api/v1/*` for stable integrations
 - **Feature flags system** — percentage rollout + user targeting with audited admin API and runtime dashboard toggles
@@ -197,6 +197,14 @@ python3 scripts/lint_docker_base_images.py
 ```
 
 The guard rejects Node Docker base images unless they use a full patch tag and immutable `sha256` digest, for example `node:22.13.1-alpine@sha256:...`.
+
+**Check checked-in Terraform policy-as-code before infrastructure changes:**
+```bash
+python -m pip install checkov
+checkov --quiet --framework terraform --directory infra --external-checks-dir infra/policies/checkov --check CKV_ARCHMORPH_1,CKV_ARCHMORPH_2,CKV_ARCHMORPH_3
+```
+
+The Archmorph policy gate blocks taggable Azure resources missing baseline tags, PostgreSQL Flexible Servers with missing/enabled public network access, and Storage accounts without infrastructure encryption.
 
 ---
 

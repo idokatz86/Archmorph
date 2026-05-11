@@ -7,10 +7,10 @@ analysis schema ready for visualization and cost estimation.
 
 import logging
 
-from fastapi import APIRouter, Request, UploadFile, File
+from fastapi import APIRouter, Request, UploadFile, File, Depends
 
 from error_envelope import ArchmorphException
-from routers.shared import limiter
+from routers.shared import limiter, verify_api_key
 from services.terraform_import import (
     parse_terraform_state,
     parse_cloudformation,
@@ -40,7 +40,7 @@ async def _read_upload(file: UploadFile) -> str:
 
 @router.post("/api/import/terraform")
 @limiter.limit("5/minute")
-async def import_terraform(request: Request, file: UploadFile = File(...)):
+async def import_terraform(request: Request, file: UploadFile = File(...), _auth=Depends(verify_api_key)):
     """Upload a Terraform tfstate file and receive an Archmorph analysis schema."""
     text = await _read_upload(file)
     try:
@@ -57,7 +57,7 @@ async def import_terraform(request: Request, file: UploadFile = File(...)):
 
 @router.post("/api/import/cloudformation")
 @limiter.limit("5/minute")
-async def import_cloudformation(request: Request, file: UploadFile = File(...)):
+async def import_cloudformation(request: Request, file: UploadFile = File(...), _auth=Depends(verify_api_key)):
     """Upload a CloudFormation template and receive an Archmorph analysis schema."""
     text = await _read_upload(file)
     try:
@@ -74,7 +74,7 @@ async def import_cloudformation(request: Request, file: UploadFile = File(...)):
 
 @router.post("/api/import/arm")
 @limiter.limit("5/minute")
-async def import_arm(request: Request, file: UploadFile = File(...)):
+async def import_arm(request: Request, file: UploadFile = File(...), _auth=Depends(verify_api_key)):
     """Upload an ARM deployment template and receive an Archmorph analysis schema."""
     text = await _read_upload(file)
     try:
