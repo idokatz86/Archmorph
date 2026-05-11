@@ -151,7 +151,7 @@ resource "azurerm_container_app" "staging_backend" {
     cors {
       allowed_origins    = [var.staging_frontend_url]
       allowed_methods    = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"]
-      allowed_headers    = ["Content-Type", "Authorization", "X-API-Key", "X-Correlation-ID"]
+      allowed_headers    = ["Content-Type", "Authorization", "X-API-Key", "X-CSRF-Token", "X-Correlation-ID"]
       exposed_headers    = ["X-Correlation-ID", "X-Response-Time"]
       max_age_in_seconds = 3600
     }

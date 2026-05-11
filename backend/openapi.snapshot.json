@@ -2440,7 +2440,7 @@
         "description": "Request body for infrastructure file import.",
         "properties": {
           "content": {
-            "maxLength": 52428800,
+            "maxLength": 10485760,
             "minLength": 10,
             "title": "Content",
             "type": "string"
@@ -5483,6 +5483,23 @@
           }
         },
         "summary": "Get Auth Config"
+      }
+    },
+    "/api/auth/csrf": {
+      "get": {
+        "description": "Issue a double-submit CSRF token for SWA cookie-auth mutations.",
+        "operationId": "get_csrf_token_api_auth_csrf_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Csrf Token"
       }
     },
     "/api/auth/login": {
@@ -10724,6 +10741,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Import Arm"
       }
     },
@@ -10761,6 +10783,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Import Cloudformation"
       }
     },
@@ -10860,6 +10887,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Import Terraform"
       }
     },
@@ -15739,6 +15771,26 @@
         ]
       }
     },
+    "/api/v1/auth/csrf": {
+      "get": {
+        "description": "Issue a double-submit CSRF token for SWA cookie-auth mutations.",
+        "operationId": "get_csrf_token_v1_api_v1_auth_csrf_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Csrf Token V1",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
     "/api/v1/auth/login": {
       "post": {
         "description": "Login with Azure AD B2C, GitHub OAuth, or SWA provider.",
@@ -20079,6 +20131,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Import Arm V1",
         "tags": [
           "infra",
@@ -20120,6 +20177,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Import Cloudformation V1",
         "tags": [
           "infra",
@@ -20228,6 +20290,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Import Terraform V1",
         "tags": [
           "infra",

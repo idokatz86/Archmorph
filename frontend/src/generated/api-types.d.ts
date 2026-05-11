@@ -730,6 +730,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/csrf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Csrf Token
+         * @description Issue a double-submit CSRF token for SWA cookie-auth mutations.
+         */
+        get: operations["get_csrf_token_api_auth_csrf_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/login": {
         parameters: {
             query?: never;
@@ -5141,6 +5161,26 @@ export interface paths {
          * @description Get public authentication configuration.
          */
         get: operations["get_auth_config_v1_api_v1_auth_config_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/csrf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Csrf Token V1
+         * @description Issue a double-submit CSRF token for SWA cookie-auth mutations.
+         */
+        get: operations["get_csrf_token_v1_api_v1_auth_csrf_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -10963,6 +11003,26 @@ export interface operations {
         };
     };
     get_auth_config_api_auth_config_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    get_csrf_token_api_auth_csrf_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -17812,6 +17872,26 @@ export interface operations {
         };
     };
     get_auth_config_v1_api_v1_auth_config_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    get_csrf_token_v1_api_v1_auth_csrf_get: {
         parameters: {
             query?: never;
             header?: never;

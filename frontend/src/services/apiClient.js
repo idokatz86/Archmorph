@@ -23,6 +23,8 @@ const BACKOFF_BASE_MS = process.env.NODE_ENV === 'test' ? 10 : 1000;
 /** HTTP status codes that are safe to retry */
 const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
 const TOKEN_KEY = 'archmorph_session_token';
+const CSRF_COOKIE_NAME = 'archmorph_csrf';
+const CSRF_HEADER_NAME = 'X-CSRF-Token';
 
 /**
  * Optional callback invoked on 5xx errors after all retries are exhausted.
@@ -86,6 +88,45 @@ function getStoredToken() {
   }
 }
 
+function getCookie(name) {
+  if (typeof document === 'undefined' || !document.cookie) return null;
+  const prefix = `${name}=`;
+  return document.cookie
+    .split(';')
+    .map(part => part.trim())
+    .find(part => part.startsWith(prefix))
+    ?.slice(prefix.length) || null;
+}
+
+function createCsrfToken() {
+  const bytes = new Uint8Array(32);
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+  }
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
+}
+
+function ensureCsrfToken() {
+  const existing = getCookie(CSRF_COOKIE_NAME);
+  if (existing) return decodeURIComponent(existing);
+
+  const token = createCsrfToken();
+  if (typeof document !== 'undefined') {
+    const secure = typeof window !== 'undefined' && window.location?.protocol === 'https:' ? '; Secure' : '';
+    document.cookie = `${CSRF_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; SameSite=Strict${secure}`;
+  }
+  return token;
+}
+
+function isUnsafeMethod(method = 'GET') {
+  return ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method.toUpperCase());
+}
+
+function hasHeader(headers, headerName) {
+  return Object.keys(headers).some(key => key.toLowerCase() === headerName.toLowerCase());
+}
+
 function isApiRequest(path, url) {
   if (!path.startsWith('http')) return true;
 
@@ -125,6 +166,9 @@ async function request(path, options = {}, signal) {
   // Auto-set JSON content type for non-FormData bodies
   if (options.body && !(options.body instanceof FormData)) {
     headers['Content-Type'] = headers['Content-Type'] || 'application/json';
+  }
+  if (includeDefaultCredentials && isUnsafeMethod(options.method) && !hasHeader(headers, CSRF_HEADER_NAME)) {
+    headers[CSRF_HEADER_NAME] = ensureCsrfToken();
   }
 
   let lastError;

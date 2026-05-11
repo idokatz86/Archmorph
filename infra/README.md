@@ -1,6 +1,6 @@
 # Archmorph Infrastructure
 
-This directory contains the checked-in Terraform configuration for the Azure-hosted Archmorph stack. It is validated in CI with `terraform init -backend=false`, `terraform fmt -check`, and `terraform validate`; live plans and state operations remain operator-run tasks.
+This directory contains the checked-in Terraform configuration for the Azure-hosted Archmorph stack. It is validated in CI with `terraform init -backend=false`, `terraform fmt -check`, `terraform validate`, and Archmorph-owned Checkov policy checks; live plans and state operations remain operator-run tasks.
 
 ## Current Topology
 
@@ -60,3 +60,12 @@ done
 ```
 
 These commands do not connect to the configured remote backend and do not mutate Azure resources.
+
+Run the project-owned policy-as-code gate from the repository root before changing Azure Terraform resources:
+
+```bash
+python -m pip install checkov
+checkov --quiet --framework terraform --directory infra --external-checks-dir infra/policies/checkov --check CKV_ARCHMORPH_1,CKV_ARCHMORPH_2,CKV_ARCHMORPH_3
+```
+
+The policy gate enforces baseline tags on taggable Azure resources, blocks PostgreSQL Flexible Server public network access, and requires Storage infrastructure encryption. It intentionally runs only `CKV_ARCHMORPH_*` checks so CI catches project-defined guardrails without mixing unrelated upstream Checkov advisories into this gate.
