@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Audit P2 bug hygiene (#916 #917 #920)** — stabilized Roadmap modal close callbacks to avoid repeated Escape listener churn on parent rerenders, mapped retryable vision-analysis failures to 503 responses with `Retry-After`, and hardened focus-trap cleanup so Esc, close buttons, backdrop clicks, and submit-driven closes restore focus to the opener.
 - **Audit P2 supply-chain hygiene (#919)** — added a Docker base-image guard that rejects future Node frontend images unless they pin a full patch tag and `sha256` digest.
 - **Service catalog refresh health verification (#941)** — daily refresh now verifies `/api/health` with the production API key or admin-key fallback, preventing false critical alerts when the refresh succeeds but the public health endpoint requires authentication.
+- **Audit P2 release safety (#889 #890)** — added a rollback runbook for Container Apps revision recovery, ACR image pinning, Static Web Apps rollback, Alembic downgrade caveats, and teardown-command guardrails; CI now smoke-tests the full PostgreSQL plus pgvector Alembic migration cycle.
 
 #### QA guardrails
 

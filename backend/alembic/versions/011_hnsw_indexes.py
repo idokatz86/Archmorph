@@ -40,12 +40,18 @@ def upgrade():
         WITH (m = 16, ef_construction = 64);
     """)
 
-    # RAG document chunks — document ingestion pipeline
+    # RAG document chunks — optional retired RAG surface. Older deployments may
+    # still have this table; fresh databases after RAG retirement do not.
     op.execute("""
-        CREATE INDEX IF NOT EXISTS ix_document_chunks_embedding_hnsw
-        ON rag_document_chunks
-        USING hnsw (embedding vector_cosine_ops)
-        WITH (m = 16, ef_construction = 64);
+        DO $$
+        BEGIN
+            IF to_regclass('rag_document_chunks') IS NOT NULL THEN
+                EXECUTE 'CREATE INDEX IF NOT EXISTS ix_document_chunks_embedding_hnsw '
+                    || 'ON rag_document_chunks '
+                    || 'USING hnsw (embedding vector_cosine_ops) '
+                    || 'WITH (m = 16, ef_construction = 64)';
+            END IF;
+        END $$;
     """)
 
 

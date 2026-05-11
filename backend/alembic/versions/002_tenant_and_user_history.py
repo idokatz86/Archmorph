@@ -27,7 +27,7 @@ def upgrade() -> None:
         sa.Column("max_analyses_per_month", sa.Integer(), nullable=False, server_default="5"),
         sa.Column("storage_prefix", sa.String(100), nullable=True),
         sa.Column("settings", sa.Text(), nullable=True),
-        sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("1")),
+        sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.true()),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )
@@ -42,7 +42,7 @@ def upgrade() -> None:
         sa.Column("email", sa.String(255), nullable=False),
         sa.Column("display_name", sa.String(200), nullable=True),
         sa.Column("role", sa.String(20), nullable=False, server_default="viewer"),
-        sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("1")),
+        sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.true()),
         sa.Column("joined_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
         sa.Column("last_active_at", sa.DateTime(timezone=True), nullable=True),
     )
@@ -80,9 +80,9 @@ def upgrade() -> None:
         sa.Column("status", sa.String(20), nullable=False, server_default="completed"),
         sa.Column("thumbnail_url", sa.String(500), nullable=True),
         sa.Column("analysis_snapshot", sa.Text(), nullable=True),  # JSON snapshot
-        sa.Column("iac_generated", sa.Boolean(), server_default=sa.text("0")),
-        sa.Column("hld_generated", sa.Boolean(), server_default=sa.text("0")),
-        sa.Column("cost_estimated", sa.Boolean(), server_default=sa.text("0")),
+        sa.Column("iac_generated", sa.Boolean(), server_default=sa.false()),
+        sa.Column("hld_generated", sa.Boolean(), server_default=sa.false()),
+        sa.Column("cost_estimated", sa.Boolean(), server_default=sa.false()),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), index=True),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )
@@ -96,7 +96,7 @@ def upgrade() -> None:
         sa.Column("analysis_id", sa.String(50), sa.ForeignKey("user_analyses.analysis_id", ondelete="CASCADE"),
                   nullable=False, index=True),
         sa.Column("label", sa.String(200), nullable=True),
-        sa.Column("pinned", sa.Boolean(), server_default=sa.text("0")),
+        sa.Column("pinned", sa.Boolean(), server_default=sa.false()),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )
     op.create_index("ix_saved_diagrams_user_analysis", "saved_diagrams", ["user_id", "analysis_id"], unique=True)
