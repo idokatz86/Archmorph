@@ -6,6 +6,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 ROLLBACK_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "rollback.yml"
+MONITORING_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "monitoring.yml"
 
 
 def _load(path: Path) -> dict:
@@ -46,3 +47,17 @@ def test_rollback_health_verification_uses_authenticated_api_health():
     assert 'X-API-Key: ${HEALTH_API_KEY}' in run_script
     assert '"${BASE}/api/health"' in run_script
     assert 'if ! HTTP_CODE=$(curl "${_CURL_ARGS[@]}" -o health.json -w "%{http_code}"' in run_script
+
+
+def test_monitoring_health_check_uses_authenticated_health_endpoint():
+    workflow = _load(MONITORING_WORKFLOW)
+    assert workflow["env"]["ARCHMORPH_API_KEY"] == "${{ secrets.ARCHMORPH_API_KEY }}"
+
+    steps = workflow["jobs"]["api-health-check"]["steps"]
+    health_step = _step_by_name(steps, "Check API Health")
+    assert health_step["env"]["ADMIN_KEY"] == "${{ secrets.ADMIN_KEY }}"
+
+    run_script = health_step["run"]
+    assert 'HEALTH_API_KEY="${ARCHMORPH_API_KEY:-${ADMIN_KEY:-}}"' in run_script
+    assert 'X-API-Key: ${HEALTH_API_KEY}' in run_script
+    assert '"${{ env.API_URL }}/health"' in run_script
