@@ -33,6 +33,48 @@ function clearTokens() {
   } catch { /* private mode */ }
 }
 
+const SWA_PROVIDER_MAP = {
+  aad: 'microsoft',
+  microsoft: 'microsoft',
+  google: 'google',
+  github: 'github',
+};
+
+function claimValue(principal, names) {
+  const claims = Array.isArray(principal?.claims) ? principal.claims : [];
+  return claims.find((claim) => names.includes(claim.typ))?.val || null;
+}
+
+function userFromSwaPrincipal(principal) {
+  if (!principal?.userId) return null;
+  const roles = Array.isArray(principal.userRoles) ? principal.userRoles : [];
+  if (!roles.includes('authenticated')) return null;
+
+  const identityProvider = (principal.identityProvider || 'swa').toLowerCase();
+  const provider = SWA_PROVIDER_MAP[identityProvider] || identityProvider;
+  const email = claimValue(principal, [
+    'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress',
+    'emails',
+    'email',
+  ]) || principal.userDetails || null;
+  const name = claimValue(principal, [
+    'name',
+    'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name',
+  ]) || principal.userDetails || 'User';
+
+  return {
+    id: `${identityProvider}_${principal.userId}`,
+    email,
+    name,
+    avatar_url: claimValue(principal, ['picture']),
+    provider,
+    tier: 'free',
+    tenant_id: 'default_tenant',
+    roles: roles.filter((role) => role !== 'anonymous'),
+    authenticated: true,
+  };
+}
+
 const useAuthStore = create((set, get) => ({
   // ── State ──
   user: null,
@@ -51,6 +93,7 @@ const useAuthStore = create((set, get) => ({
         const data = await res.json();
         const principal = data?.clientPrincipal;
         if (principal?.userId) {
+          const swaUser = userFromSwaPrincipal(principal);
           // SWA authenticated — get full user from our API
           const apiRes = await fetch(`${API_BASE}/auth/me`, {
             headers: { 'Content-Type': 'application/json' },
@@ -62,6 +105,10 @@ const useAuthStore = create((set, get) => ({
               set({ user, isAuthenticated: true, isLoading: false });
               return;
             }
+          }
+          if (swaUser) {
+            set({ user: swaUser, isAuthenticated: true, isLoading: false, sessionToken: null });
+            return;
           }
         }
       }

@@ -335,7 +335,7 @@ def _raise_analysis_service_failure(exc: Exception) -> None:
     if service_error.status_code == 429:
         retry_after = _retry_after_seconds(exc)
         raise ArchmorphException(
-            503,
+            429,
             "Analysis service is busy. Please wait a moment and try again.",
             details={"error": "analysis_retryable", "retry_after_seconds": retry_after},
             headers={"Retry-After": str(retry_after)},

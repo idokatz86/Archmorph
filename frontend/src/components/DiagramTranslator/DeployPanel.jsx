@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Rocket } from 'lucide-react';
 import api from '../../services/apiClient';
+import { reportError } from '../../services/errorReporter';
 
 const DeployPanel = (props) => {
   // Feature is in development — show greyscale placeholder
@@ -73,7 +74,7 @@ const DeployPanelContent = ({ templateSource = 'main.bicep', parameters = {}, pr
       };
 
       eventSource.onerror = (err) => {
-        console.error('SSE Error:', err);
+        reportError(err, 'DeployPanel.SSE', { jobId });
         eventSource.close();
         setStatus('completed-or-failed');
       };
@@ -95,7 +96,7 @@ const DeployPanelContent = ({ templateSource = 'main.bicep', parameters = {}, pr
       }, abortRef.current.signal);
       setPreflightData(data);
     } catch (err) {
-      if (err?.name !== 'AbortError') console.error('Preflight Error:', err);
+      if (err?.name !== 'AbortError') reportError(err, 'DeployPanel.preflight');
     } finally {
       setLoading(false);
     }

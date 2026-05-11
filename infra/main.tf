@@ -728,6 +728,16 @@ resource "azurerm_container_app" "backend" {
         secret_name = "appinsights-connection"
       }
 
+      env {
+        name  = "OTEL_TRACES_SAMPLER"
+        value = var.environment == "prod" ? "traceidratio" : "always_on"
+      }
+
+      env {
+        name  = "OTEL_TRACES_SAMPLER_ARG"
+        value = var.environment == "prod" ? tostring(var.app_insights_sampling_percentage_prod / 100) : "1.0"
+      }
+
       liveness_probe {
         path                    = var.health_probe_path
         port                    = 8000
@@ -933,8 +943,8 @@ resource "azurerm_application_insights" "main" {
   location            = azurerm_resource_group.main.location
   workspace_id        = azurerm_log_analytics_workspace.main.id
   application_type    = "web"
-  retention_in_days   = var.environment == "prod" ? 90 : 30  # 90 days in prod for compliance (#105 — I-011)
-  sampling_percentage = var.environment == "prod" ? 50 : 100 # Sample 50% in prod to reduce costs
+  retention_in_days   = var.environment == "prod" ? 90 : 30 # 90 days in prod for compliance (#105 — I-011)
+  sampling_percentage = var.environment == "prod" ? var.app_insights_sampling_percentage_prod : 100
 
   # Enable distributed tracing
   disable_ip_masking = false # GDPR compliance

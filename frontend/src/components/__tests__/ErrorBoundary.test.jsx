@@ -1,7 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import ErrorBoundary from '../ErrorBoundary'
+import { clearErrorReporter, setErrorReporter } from '../../services/errorReporter'
 
 function ProblemChild() {
   throw new Error('Test error')
@@ -14,8 +15,13 @@ function GoodChild() {
 describe('ErrorBoundary', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    clearErrorReporter()
     // Suppress React error boundary console.error noise
     vi.spyOn(console, 'error').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    clearErrorReporter()
   })
 
   it('renders children when no error occurs', () => {
@@ -28,12 +34,18 @@ describe('ErrorBoundary', () => {
   })
 
   it('renders fallback UI when child throws', () => {
+    const reporter = vi.fn()
+    setErrorReporter(reporter)
     render(
       <ErrorBoundary>
         <ProblemChild />
       </ErrorBoundary>
     )
     expect(screen.getByText('Something went wrong')).toBeInTheDocument()
+    expect(reporter).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({ context: 'ErrorBoundary' }),
+    )
   })
 
   it('shows Try Again button on error', () => {
