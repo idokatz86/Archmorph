@@ -24,6 +24,8 @@ env:
   AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
   CONTAINER_APP_NAME: ${{ secrets.CONTAINER_APP_NAME }}
   API_URL: ${{ secrets.API_URL }}
+  ARCHMORPH_API_KEY: ${{ secrets.ARCHMORPH_API_KEY }}
+  ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
 
 jobs:
   rollback:
@@ -89,10 +91,28 @@ jobs:
         run: |
           echo "Waiting 30s for revision to stabilize..."
           sleep 30
-          HEALTH=$(curl -s --max-time 30 "${{ env.API_URL }}/health" | jq -r '.status')
-          VERSION=$(curl -s --max-time 30 "${{ env.API_URL }}/health" | jq -r '.version')
+          BASE="${API_URL%/}"
+          BASE="${BASE%/api}"
+          HEALTH_API_KEY="${ARCHMORPH_API_KEY:-${ADMIN_KEY:-}}"
+          _CURL_ARGS=(-sS --max-time 30)
+          if [ -n "$HEALTH_API_KEY" ]; then
+            _CURL_ARGS+=(-H "X-API-Key: ${HEALTH_API_KEY}")
+          fi
+          if ! HTTP_CODE=$(curl "${_CURL_ARGS[@]}" -o health.json -w "%{http_code}" "${BASE}/api/health"); then
+            echo "::error::Health check curl failed after rollback"
+            cat health.json || true
+            exit 1
+          fi
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::Health check returned HTTP ${HTTP_CODE} after rollback"
+            cat health.json || true
+            exit 1
+          fi
+          HEALTH=$(jq -r '.status' health.json)
+          VERSION=$(jq -r '.version' health.json)
           if [ "$HEALTH" != "healthy" ]; then
             echo "::error::Health check failed after rollback: $HEALTH"
+            cat health.json || true
             exit 1
           fi
           echo "Rollback successful — version: $VERSION, status: $HEALTH"

@@ -149,6 +149,57 @@ jobs:
             ${{ steps.grype-python.outputs.sarif }}
 
   # ============================================
+  # ALEMBIC MIGRATION SMOKE
+  # ============================================
+  alembic-migration-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: archmorph
+          POSTGRES_PASSWORD: archmorph_dev
+          POSTGRES_DB: archmorph
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U archmorph -d archmorph"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      DATABASE_URL: postgresql://archmorph:archmorph_dev@127.0.0.1:5432/archmorph
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/requirements.txt
+
+      - name: Install backend dependencies
+        run: uv pip install --system -r requirements.txt
+
+      - name: Run Alembic migration cycle
+        run: |
+          python -m alembic heads
+          python -m alembic upgrade head --sql > /tmp/archmorph-alembic-upgrade.sql
+          test -s /tmp/archmorph-alembic-upgrade.sql
+          python -m alembic upgrade head
+          python -m alembic downgrade base
+          python -m alembic upgrade head
+
+  # ============================================
   # GENERATED IAC VALIDATION
   # ============================================
   iac-validate:

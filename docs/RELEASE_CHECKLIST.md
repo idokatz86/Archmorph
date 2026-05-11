@@ -57,6 +57,7 @@ The backend must start with PostgreSQL, Redis, `ENFORCE_POSTGRES=true`, and `REQ
 The `CI/CD` workflow must pass before release:
 
 - `backend-tests`: Ruff, pytest, coverage threshold, OpenAPI export, committed OpenAPI contract snapshot check, backend SBOM, Grype.
+- `alembic-migration-smoke`: PostgreSQL plus pgvector migration cycle covering heads, offline upgrade SQL generation, upgrade to head, downgrade to base, and re-upgrade.
 - `frontend-build`: ESLint, Vitest, Vite build, frontend SBOM, Grype.
 - `upload-sarif`: SARIF upload attempted for available scans.
 - `deploy-backend`: ACR build, Trivy container gate, deployment secret validation, metrics storage managed-identity/RBAC preflight, Container Apps blue-green deploy, green revision refresh smoke, production health verify.
@@ -112,9 +113,12 @@ Before enabling any scaffolded feature, confirm:
 
 ## 6. Rollback
 
-- Prefer the `rollback.yml` workflow for backend rollback.
+- Follow the [rollback runbook](runbooks/rollback.md) during production incidents; target a verified rollback in under 10 minutes.
+- Prefer the `rollback.yml` workflow for backend rollback. It activates a known-good Container Apps revision, shifts traffic, and verifies authenticated `/api/health`.
 - Container Apps keeps the prior blue revision for fast traffic shift.
+- Use direct `az containerapp` traffic commands only as the fallback path documented in the runbook.
 - If frontend release is bad, redeploy the previous Static Web Apps artifact or revert and let CI/CD redeploy.
+- Do not use `terraform destroy` or `azd down` as normal rollback; they are disaster teardown commands.
 - After rollback, run `post-deploy-smoke` or `E2E Health Monitoring` manually.
 
 ## 7. Evidence To Keep

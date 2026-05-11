@@ -24,7 +24,7 @@ Archmorph is an AI-assisted cloud migration workbench. The live path analyzes up
 
 | Status | Meaning | Capabilities |
 |--------|---------|--------------|
-| Live | Usable in the current product path | Diagram upload, sample playground, AI service mapping, guided questions, IaC/HLD/report export, **Architecture Package HTML/SVG export**, cost estimates, service catalog freshness health with authenticated refresh verification, admin health/release evidence, auth shell, CI/security scanning, generated IaC validation, Vite env exposure guard, Docker Node base-image pin guard, P2 bug regressions for analysis retry handling and dialog focus restoration |
+| Live | Usable in the current product path | Diagram upload, sample playground, AI service mapping, guided questions, IaC/HLD/report export, **Architecture Package HTML/SVG export**, cost estimates, service catalog freshness health with authenticated refresh verification, admin health/release evidence, rollback runbook and authenticated rollback health verification, auth shell, CI/security scanning, generated IaC validation, Alembic migration smoke on PostgreSQL plus pgvector, Vite env exposure guard, Docker Node base-image pin guard, P2 bug regressions for analysis retry handling and dialog focus restoration |
 | Beta | Implemented but needs hardening, deeper tests, or production validation | Cost/token observability, collaboration, gallery, replay, Terraform state import, multi-cloud cost comparison, **Azure Landing Zone target diagram** (visual scaffold; production-ready push targeted for v4.3.0 under epic #586 — see [Production-Ready Roadmap](#production-ready-roadmap-azure-landing-zone-v430-target) below) |
 | Scaffold | UI/routes/models exist, but execution needs integration or operator review | Live cloud scanner, deploy engine, credential vault |
 | Planned | Not production-ready yet | VS Code extension, PR-based IaC workflow, multi-diagram projects |
@@ -173,6 +173,9 @@ This overlay keeps everything local, but starts the backend with production-like
 
 **Production Architecture Package smoke:**
 Run the manual `Production Architecture Package Smoke` GitHub Action, or run [docs/PRODUCTION_SMOKE_ARCHITECTURE_PACKAGE.md](docs/PRODUCTION_SMOKE_ARCHITECTURE_PACKAGE.md) locally, before release sign-off on changes to the live value spine. The smoke captures health freshness, sample analysis, guided answers, IaC, HLD, cost, Architecture Package HTML/SVG exports, and one classic diagram export as release evidence.
+
+**Release rollback and migration smoke:**
+Use [docs/runbooks/rollback.md](docs/runbooks/rollback.md) for backend Container Apps rollback, ACR image pinning, frontend Static Web Apps recovery, health verification, and Alembic downgrade caveats. CI also runs an `alembic-migration-smoke` job against PostgreSQL plus pgvector so broken migration chains fail before release.
 
 **Refresh the API contract snapshot after intentional backend route/schema changes:**
 ```bash
