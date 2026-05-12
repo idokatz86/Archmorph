@@ -96,6 +96,7 @@ jobs:
           uv pip install --system ruff
           uv pip install --system -r requirements.txt
           ruff check .
+          python ../scripts/lint_pytest_no_reruns.py
           python scripts/lint_fastapi_query_body_tests.py
 
       - name: Run tests with coverage
