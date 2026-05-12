@@ -20,7 +20,8 @@ def test_prod_plan_uploads_binary_plan_and_integrity_metadata():
 
     collect_step = _step_by_name(plan_steps, "Collect plan integrity metadata")
     collect_script = collect_step["run"]
-    assert "sha256sum tfplan" in collect_script
+    assert "hashlib.sha256" in collect_script
+    assert 'Path("tfplan.sha256").write_text' in collect_script
     assert "terraform state pull > tfstate.snapshot.json" in collect_script
     assert "provider_lock_sha256" in collect_script
 

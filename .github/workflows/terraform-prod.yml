@@ -88,27 +88,34 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         run: |
           set -euo pipefail
-          sha256sum tfplan | awk '{print $1}' > tfplan.sha256
 
           if [ ! -f .terraform.lock.hcl ]; then
             echo "::error::.terraform.lock.hcl missing after terraform init."
             exit 1
           fi
-          sha256sum .terraform.lock.hcl | awk '{print $1}' > provider_lock.sha256
 
           terraform state pull > tfstate.snapshot.json
           PLAN_CREATED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
           PLAN_CREATED_AT="$PLAN_CREATED_AT" python - <<'PY'
+          import hashlib
           import json
           import os
           from pathlib import Path
+
+          def sha256_file(path: Path) -> str:
+              return hashlib.sha256(path.read_bytes()).hexdigest()
+
+          plan_sha = sha256_file(Path("tfplan"))
+          provider_lock_sha = sha256_file(Path(".terraform.lock.hcl"))
+          Path("tfplan.sha256").write_text(plan_sha + "\n", encoding="utf-8")
+          Path("provider_lock.sha256").write_text(provider_lock_sha + "\n", encoding="utf-8")
 
           state = json.loads(Path("tfstate.snapshot.json").read_text(encoding="utf-8"))
           metadata = {
               "artifact_schema_version": 1,
               "plan_commit_sha": os.environ["GITHUB_SHA"],
-              "plan_sha256": Path("tfplan.sha256").read_text(encoding="utf-8").strip(),
-              "provider_lock_sha256": Path("provider_lock.sha256").read_text(encoding="utf-8").strip(),
+              "plan_sha256": plan_sha,
+              "provider_lock_sha256": provider_lock_sha,
               "state_lineage": state.get("lineage"),
               "state_serial": state.get("serial"),
               "planned_by": os.environ["GITHUB_ACTOR"],
@@ -175,7 +182,7 @@ jobs:
           import os
           import sys
           from pathlib import Path
-          from subprocess import run
+          from subprocess import CalledProcessError, run
 
           def fail(message: str) -> None:
               print(f"::error::{message}")
@@ -213,12 +220,19 @@ jobs:
           if declared_plan_hash != current_plan_hash:
               fail("Downloaded plan hash file does not match binary plan.")
 
-          state_pull = run(
-              ["terraform", "state", "pull"],
-              check=True,
-              capture_output=True,
-              text=True,
-          )
+          try:
+              state_pull = run(
+                  ["terraform", "state", "pull"],
+                  check=True,
+                  capture_output=True,
+                  text=True,
+              )
+          except CalledProcessError as exc:
+              fail(
+                  "Unable to pull remote state for reviewed-plan verification. "
+                  f"terraform state pull exited with code {exc.returncode}."
+              )
+
           state = json.loads(state_pull.stdout)
           if state.get("lineage") != metadata.get("state_lineage"):
               fail("Remote state lineage changed since plan approval. Re-run plan and approval.")
