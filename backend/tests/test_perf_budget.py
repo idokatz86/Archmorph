@@ -39,7 +39,7 @@ def test_bundle_budget_rejects_100kb_regression():
     assert any("bundle" in violation or "asset" in violation for violation in result.violations)
 
 
-def test_latency_budget_rejects_30_percent_regression():
+def test_latency_budget_rejects_configured_regression():
     budget = perf_budget.load_budget(ANALYZE_BUDGET)
     threshold = budget["baseline_p95_ms"] * budget["max_regression_ratio"]
 

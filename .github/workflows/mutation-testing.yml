@@ -1,0 +1,66 @@
+name: Mutation Testing Baseline
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 1 1,4,7,10 *"
+
+permissions:
+  contents: read
+
+jobs:
+  mutation-baseline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/requirements.txt
+
+      - name: Install mutation test dependencies
+        run: |
+          uv pip install --system -r requirements.txt
+          uv pip install --system mutmut
+
+      - name: Run mutmut on critical modules
+        run: |
+          mkdir -p ../mutation-results
+          declare -A TEST_TARGETS=(
+            [session_store]="tests/test_session_store.py"
+            [vision_analyzer]="tests/test_vision_analyzer.py"
+            [iac_generator]="tests/test_iac_generator.py"
+          )
+          for module in "${!TEST_TARGETS[@]}"; do
+            rm -rf .mutmut-cache
+            python -m mutmut run \
+              --paths-to-mutate "${module}.py" \
+              --runner "python -m pytest -q ${TEST_TARGETS[$module]}" || true
+            python -m mutmut results --all > "../mutation-results/${module}.txt" || true
+          done
+
+      - name: Enforce mutation score baseline
+        run: |
+          python ../scripts/mutation_score_gate.py \
+            --baseline ../docs/testing/mutation-baseline.json \
+            --report-dir ../mutation-results \
+            --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload mutation results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: mutation-results
+          path: mutation-results/
+          if-no-files-found: error
