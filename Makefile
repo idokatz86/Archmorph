@@ -12,7 +12,7 @@ PIP          := pip
 NPM          := npm
 
 # ── Phony targets ──
-.PHONY: help install dev test lint build clean docker-build docker-up docker-down
+.PHONY: help install dev test mutation-baseline lint build clean docker-build docker-up docker-down
 
 # ── Help ──
 help: ## Show available targets
@@ -55,6 +55,20 @@ test-frontend: ## Run frontend tests (Vitest)
 
 test-e2e: ## Run Playwright E2E tests
 	npx playwright test
+
+mutation-baseline: ## Run backend mutation baseline gate for critical modules
+	cd $(BACKEND_DIR) && mkdir -p ../mutation-results && \
+	for module in session_store vision_analyzer iac_generator; do \
+		rm -rf .mutmut-cache; \
+		case "$$module" in \
+			session_store) tests="tests/test_session_store.py" ;; \
+			vision_analyzer) tests="tests/test_vision_analyzer.py" ;; \
+			iac_generator) tests="tests/test_iac_generator.py" ;; \
+		esac; \
+		python -m mutmut run --paths-to-mutate "$$module.py" --runner "python -m pytest -q $$tests" || true; \
+		python -m mutmut results --all > "../mutation-results/$$module.txt" || true; \
+	done
+	$(PYTHON) scripts/mutation_score_gate.py --baseline docs/testing/mutation-baseline.json --report-dir mutation-results
 
 # ── Linting ──
 lint: lint-backend ## Run all linters

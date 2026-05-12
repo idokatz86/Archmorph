@@ -1,0 +1,23 @@
+{
+  "minimum_score": 60,
+  "modules": [
+    {
+      "name": "session_store",
+      "path": "backend/session_store.py",
+      "report": "session_store.txt",
+      "minimum_score": 60
+    },
+    {
+      "name": "vision_analyzer",
+      "path": "backend/vision_analyzer.py",
+      "report": "vision_analyzer.txt",
+      "minimum_score": 60
+    },
+    {
+      "name": "iac_generator",
+      "path": "backend/iac_generator.py",
+      "report": "iac_generator.txt",
+      "minimum_score": 60
+    }
+  ]
+}
