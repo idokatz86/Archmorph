@@ -100,4 +100,15 @@ describe('LoginModal', () => {
     expect(screen.getByRole('button', { name: /continue with google/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /continue with github/i })).toBeInTheDocument();
   });
+
+  it('uses app theme tokens instead of Tailwind dark variants', () => {
+    render(<LoginModal isOpen={true} onClose={vi.fn()} />);
+    const dialog = screen.getByRole('dialog');
+
+    expect(dialog.className).toContain('bg-surface');
+    expect(dialog.className).toContain('border-border');
+    expect(document.body.innerHTML).not.toContain('dark:');
+    expect(document.body.innerHTML).not.toContain('bg-gray-');
+    expect(document.body.innerHTML).not.toContain('text-gray-');
+  });
 });

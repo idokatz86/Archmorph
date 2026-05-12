@@ -18,4 +18,15 @@ describe('DeployPanel coming-soon state', () => {
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
     expect(container.querySelector('[aria-hidden="true"] button')).not.toBeInTheDocument();
   });
+
+  it('uses app theme tokens instead of Tailwind dark variants', () => {
+    const { container } = render(<DeployPanel />);
+    const status = screen.getByRole('status');
+
+    expect(status.className).toContain('bg-surface');
+    expect(status.className).toContain('border-border');
+    expect(container.innerHTML).not.toContain('dark:');
+    expect(container.innerHTML).not.toContain('bg-gray-');
+    expect(container.innerHTML).not.toContain('text-gray-');
+  });
 });

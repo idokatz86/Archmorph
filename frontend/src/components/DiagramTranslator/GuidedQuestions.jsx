@@ -414,7 +414,7 @@ export default function GuidedQuestions({
                       {q.constraintReasons?.length > 0 && (
                         <div className="flex flex-wrap gap-1.5 mt-2">
                           {q.constraintReasons.map((reason, ri) => (
-                            <span key={ri} className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                            <span key={ri} className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-warning/10 text-warning border border-warning/20">
                               <AlertTriangle className="w-3 h-3 shrink-0" />
                               {reason}
                             </span>

@@ -199,6 +199,25 @@ describe('GuidedQuestions', () => {
     expect(screen.getByText('Select features')).toBeInTheDocument()
   })
 
+  it('renders constraint reasons with theme tokens instead of dark variants', () => {
+    const constrainedQuestion = {
+      ...mockQuestions[0],
+      constraintReasons: ['Filtered by compliance requirements'],
+    }
+    const { container } = render(
+      <GuidedQuestions
+        {...defaultProps}
+        questions={[constrainedQuestion]}
+        allQuestions={[constrainedQuestion]}
+      />
+    )
+
+    expect(screen.getByText('Filtered by compliance requirements')).toBeInTheDocument()
+    expect(container.innerHTML).toContain('bg-warning/10')
+    expect(container.innerHTML).not.toContain('dark:')
+    expect(container.innerHTML).not.toContain('amber-500')
+  })
+
   it('calls onApplyAnswers when apply button clicked on last tab', async () => {
     const user = userEvent.setup()
     render(<GuidedQuestions {...defaultProps} />)
