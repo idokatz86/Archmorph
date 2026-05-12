@@ -45,6 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **IaC chat history trimming (#838)** — compacted legacy chat history before model calls so prior turns keep conversational context and change summaries without replaying complete IaC code blobs.
 - **Vision response cache sizing (#839)** — moved the vision analyzer cache onto the shared store with deploy-configurable size/TTL defaults sized for the 200-repeat upload profile.
 - **Audit actor/IP coverage (#878)** — state-changing guest requests now stamp a daily rotating guest actor/session ID plus client IP in audit rows, closing the forensic gap for unauthenticated activity.
+- **Container Apps subnet NSG regression (#905)** — added CI coverage that keeps the delegated Container Apps subnet associated with its NSG and verifies lateral inbound probes such as port 8000 remain denied.
 - **Analyze latency budget stability** — widened the CI smoke latency regression ratio from 30% to 50% so runner jitter does not fail near-baseline `/analyze` samples while still catching material regressions.
 - **Audit P2 supply-chain hygiene (#919)** — added a Docker base-image guard that rejects future Node frontend images unless they pin a full patch tag and `sha256` digest.
 - **Service catalog refresh health verification (#941)** — daily refresh now verifies `/api/health` with the production API key or admin-key fallback, preventing false critical alerts when the refresh succeeds but the public health endpoint requires authentication.
