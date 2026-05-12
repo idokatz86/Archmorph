@@ -2,7 +2,7 @@ import React from 'react';
 import {
   Sparkles, Download, Check, FileText, Eye, Layers,
   Network, Shield, ArrowRight, Wrench, DollarSign, AlertTriangle,
-  Target, BookOpen, ClipboardList,
+  AlertCircle, CheckCircle, Target, BookOpen, ClipboardList,
 } from 'lucide-react';
 import { Button, Card } from '../ui';
 
@@ -22,6 +22,25 @@ const DOC_EXPORT_FORMATS = [
   { id: 'pdf', label: 'PDF' },
   { id: 'pptx', label: 'PowerPoint' },
 ];
+
+const RISK_IMPACT_STYLES = {
+  High: { icon: AlertTriangle, label: 'High impact', className: 'bg-danger/15 text-danger border-danger/30' },
+  Medium: { icon: AlertCircle, label: 'Medium impact', className: 'bg-warning/15 text-warning border-warning/30' },
+  Low: { icon: CheckCircle, label: 'Low impact', className: 'bg-cta/15 text-cta border-cta/30' },
+};
+
+const WAF_SCORE_STYLES = {
+  High: { icon: CheckCircle, className: 'bg-cta/15 text-cta border border-cta/30' },
+  Medium: { icon: AlertCircle, className: 'bg-warning/15 text-warning border border-warning/30' },
+  Low: { icon: AlertTriangle, className: 'bg-danger/15 text-danger border border-danger/30' },
+};
+
+function canonicalAssessmentLevel(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'high') return 'High';
+  if (normalized === 'low') return 'Low';
+  return 'Medium';
+}
 
 export default function HLDPanel({
   hldData, hldTab, hldExportLoading, hldIncludeDiagrams, copyFeedback,
@@ -209,15 +228,23 @@ export default function HLDPanel({
 
         {hldTab === 'risks' && hldData.hld?.risks_and_mitigations && (
           <div className="space-y-3">
-            {hldData.hld.risks_and_mitigations.map((r, i) => (
-              <div key={i} className="p-3 bg-surface rounded-xl border border-border">
-                <p className="text-xs font-semibold text-text-primary mb-1">
-                  <span className={`inline-block w-2 h-2 rounded-full mr-2 ${r.impact === 'High' ? 'bg-red-500' : r.impact === 'Medium' ? 'bg-yellow-500' : 'bg-green-500'}`}></span>
-                  {r.risk}
-                </p>
-                <p className="text-[10px] text-text-muted"><strong>Mitigation:</strong> {r.mitigation}</p>
+            {hldData.hld.risks_and_mitigations.map((risk, index) => {
+              const impact = canonicalAssessmentLevel(risk.impact);
+              const impactStyle = RISK_IMPACT_STYLES[impact];
+              const ImpactIcon = impactStyle.icon;
+              return (
+              <div key={index} className="p-3 bg-surface rounded-xl border border-border">
+                <div className="flex items-start gap-2 mb-1">
+                  <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${impactStyle.className}`} aria-label={impactStyle.label}>
+                    <ImpactIcon className="w-3 h-3" />
+                    {impact}
+                  </span>
+                  <p className="text-xs font-semibold text-text-primary">{risk.risk}</p>
+                </div>
+                <p className="text-[10px] text-text-muted"><strong>Mitigation:</strong> {risk.mitigation}</p>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
@@ -227,9 +254,17 @@ export default function HLDPanel({
               <div key={pillar} className="flex items-center justify-between py-1 border-b border-border/50 last:border-0">
                 <span className="text-xs font-medium text-text-primary capitalize">{pillar.replace(/_/g, ' ')}</span>
                 <div className="flex items-center gap-2">
-                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
-                    info.score === 'High' ? 'bg-cta/15 text-cta' : info.score === 'Medium' ? 'bg-warning/15 text-warning' : 'bg-red-500/15 text-red-400'
-                  }`}>{info.score}</span>
+                  {(() => {
+                    const score = canonicalAssessmentLevel(info.score);
+                    const scoreStyle = WAF_SCORE_STYLES[score];
+                    const ScoreIcon = scoreStyle.icon;
+                    return (
+                      <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium ${scoreStyle.className}`}>
+                        <ScoreIcon className="w-3 h-3" />
+                        {score}
+                      </span>
+                    );
+                  })()}
                   <span className="text-[10px] text-text-muted max-w-xs truncate">{info.notes}</span>
                 </div>
               </div>

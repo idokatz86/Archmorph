@@ -73,4 +73,46 @@ describe('HLDPanel', () => {
     render(<HLDPanel {...defaultProps} hldData={hldData} />)
     expect(screen.getByText('Include diagrams')).toBeInTheDocument()
   })
+
+  it('shows risk impact with tokenized badges and text labels', () => {
+    const hldData = {
+      hld: {
+        title: 'HLD',
+        risks_and_mitigations: [
+          { impact: 'High', risk: 'Cutover outage', mitigation: 'Use staged rollout' },
+          { impact: 'medium', risk: 'Cost drift', mitigation: 'Set budgets' },
+          { impact: 'Low', risk: 'Training gap', mitigation: 'Run enablement' },
+        ],
+      },
+      markdown: '',
+    }
+    const { container } = render(<HLDPanel {...defaultProps} hldData={hldData} hldTab="risks" />)
+
+    expect(screen.getByLabelText('High impact')).toHaveTextContent('High')
+    expect(screen.getByLabelText('Medium impact')).toHaveTextContent('Medium')
+    expect(screen.getByLabelText('Low impact')).toHaveTextContent('Low')
+    expect(container.innerHTML).not.toContain('bg-red-500')
+    expect(container.innerHTML).not.toContain('bg-yellow-500')
+    expect(container.innerHTML).not.toContain('bg-green-500')
+  })
+
+  it('uses tokenized WAF score badges with icons', () => {
+    const hldData = {
+      hld: {
+        title: 'HLD',
+        waf_assessment: {
+          reliability: { score: 'low', notes: 'Needs failover' },
+          security: { score: 'unknown', notes: 'Needs review' },
+        },
+      },
+      markdown: '',
+    }
+    const { container } = render(<HLDPanel {...defaultProps} hldData={hldData} hldTab="waf" />)
+
+    expect(screen.getByText('Low')).toBeInTheDocument()
+    expect(screen.getByText('Medium')).toBeInTheDocument()
+    expect(container.innerHTML).toContain('bg-danger/15')
+    expect(container.innerHTML).not.toContain('bg-red-500')
+    expect(container.innerHTML).not.toContain('text-red-400')
+  })
 })

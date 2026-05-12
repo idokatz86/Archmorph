@@ -7,7 +7,7 @@
 
 import React, { useState, useEffect, useId } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Save, Trash2, Loader2, AlertTriangle } from 'lucide-react';
+import { X, Save, Trash2, Loader2, AlertTriangle, CheckCircle } from 'lucide-react';
 import { useAuth } from './AuthProvider';
 import { API_BASE } from '../../constants';
 import useFocusTrap from '../../hooks/useFocusTrap';
@@ -240,7 +240,11 @@ export default function ProfilePage({ isOpen, onClose }) {
 
           {/* Status message */}
           {message && (
-            <div className={`text-sm px-3 py-2 rounded-lg ${message.type === 'success' ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
+            <div
+              role={message.type === 'success' ? 'status' : 'alert'}
+              className={`flex items-center gap-2 text-sm px-3 py-2 rounded-lg ${message.type === 'success' ? 'bg-cta/10 text-cta' : 'bg-danger/10 text-danger'}`}
+            >
+              {message.type === 'success' ? <CheckCircle className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
               {message.text}
             </div>
           )}
