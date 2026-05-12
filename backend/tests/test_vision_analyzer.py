@@ -162,6 +162,16 @@ class TestWarningsCoercion:
 
 
 class TestVisionCacheObservability:
+    def test_cache_defaults_cover_repeat_upload_burst_profile(self):
+        assert vision_analyzer.VISION_CACHE_MAXSIZE >= 200
+        assert vision_analyzer.VISION_CACHE_TTL_SECONDS >= 3600
+
+    def test_cache_settings_are_deploy_configurable(self, monkeypatch):
+        monkeypatch.setenv("VISION_CACHE_MAXSIZE", "750")
+        monkeypatch.setenv("VISION_CACHE_TTL_SECONDS", "1800")
+
+        assert vision_analyzer._vision_cache_settings() == (750, 1800)
+
     @patch("vision_analyzer.get_openai_client")
     def test_same_image_uses_cache_and_emits_hit_rate_metrics(self, mock_client_fn):
         mock_client = MagicMock()
@@ -179,6 +189,32 @@ class TestVisionCacheObservability:
         assert _metric_total("counters", vision_analyzer.VISION_CACHE_METRIC, {"result": "miss"}) == 1
         assert _metric_total("counters", vision_analyzer.VISION_CACHE_METRIC, {"result": "hit"}) == 1
         assert _metric_total("histograms", vision_analyzer.VISION_LATENCY_METRIC) == 2
+
+    @patch("vision_analyzer.get_openai_client")
+    def test_repeat_upload_burst_profile_keeps_cache_hit_rate_above_half(self, mock_client_fn, monkeypatch):
+        mock_client = MagicMock()
+        mock_client_fn.return_value = mock_client
+        mock_client.chat.completions.create.return_value = _vision_response({
+            "diagram_type": "AWS Architecture",
+            "services_detected": 1,
+        })
+
+        monkeypatch.setattr(
+            vision_analyzer,
+            "compress_image",
+            lambda image_bytes, _content_type="image/png": (image_bytes, "image/jpeg", 1, 1),
+        )
+        uploads = [f"repeat-upload-{index}".encode() for index in range(200)]
+
+        for upload in uploads:
+            analyze_image(upload)
+        for upload in uploads:
+            analyze_image(upload)
+
+        misses = _metric_total("counters", vision_analyzer.VISION_CACHE_METRIC, {"result": "miss"})
+        hits = _metric_total("counters", vision_analyzer.VISION_CACHE_METRIC, {"result": "hit"})
+        assert mock_client.chat.completions.create.call_count == 200
+        assert hits / (hits + misses) >= 0.5
 
     @patch("vision_analyzer.get_openai_client")
     def test_model_change_changes_prompt_hash_and_cache_key(self, mock_client_fn, monkeypatch):

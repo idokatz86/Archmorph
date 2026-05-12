@@ -7,11 +7,11 @@ import hashlib
 import io
 import json
 import logging
+import os
 import time
 from typing import Any, Dict, Tuple
 
 from PIL import Image
-from cachetools import TTLCache
 import threading
 
 from utils.chat_coercion import coerce_to_str_list
@@ -19,6 +19,7 @@ from utils.chat_coercion import coerce_to_str_list
 from openai_client import get_openai_client, AZURE_OPENAI_DEPLOYMENT, openai_retry
 from observability import increment_counter, record_histogram, set_gauge
 from prompt_guard import PROMPT_ARMOR
+from session_store import get_store
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +35,26 @@ MAX_PDF_PAGES = 10
 PDF_RENDER_DPI = 150
 _PDF_PAGE_SEPARATOR_PX = 8
 
-# Thread-safe in-memory cache for vision results
-_vision_cache = TTLCache(maxsize=100, ttl=3600)
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except ValueError:
+        logger.warning("Invalid %s=%r; using default %d", name, os.getenv(name), default)
+        return default
+
+
+def _vision_cache_settings() -> tuple[int, int]:
+    return (
+        max(1, _env_int("VISION_CACHE_MAXSIZE", 500)),
+        max(1, _env_int("VISION_CACHE_TTL_SECONDS", 3600)),
+    )
+
+
+VISION_CACHE_MAXSIZE, VISION_CACHE_TTL_SECONDS = _vision_cache_settings()
+
+# Thread-safe cache for vision results. Uses the shared store abstraction so
+# Redis-configured deployments can share hits across workers/replicas.
+_vision_cache = get_store("vision_cache", maxsize=VISION_CACHE_MAXSIZE, ttl=VISION_CACHE_TTL_SECONDS)
 _vision_cache_lock = threading.Lock()
 
 VISION_CACHE_METRIC = "archmorph.vision.cache"
