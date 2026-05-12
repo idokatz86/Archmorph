@@ -99,4 +99,16 @@ describe('ProfilePage', () => {
     expect(options.credentials).toBe('include')
     expect(options.headers.Authorization).toBeUndefined()
   })
+
+  it('announces save status with themed status styling', async () => {
+    const user = userEvent.setup()
+    render(<ProfilePage isOpen onClose={vi.fn()} />)
+
+    await user.click(screen.getByRole('button', { name: /Save/ }))
+
+    const status = await screen.findByRole('status')
+    expect(status).toHaveTextContent('Profile saved successfully')
+    expect(status.className).toContain('bg-cta/10')
+    expect(status.className).not.toContain('bg-green-500')
+  })
 })
