@@ -14,10 +14,12 @@ from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from starlette.middleware.base import BaseHTTPMiddleware  # noqa: E402
 from starlette.middleware.gzip import GZipMiddleware  # noqa: E402
 from contextlib import asynccontextmanager  # noqa: E402
+from datetime import datetime, timezone  # noqa: E402
 import os  # noqa: E402
 import logging  # noqa: E402
 import time  # noqa: E402
 import uuid  # noqa: E402
+import hashlib  # noqa: E402
 import concurrent.futures  # noqa: E402
 import asyncio  # noqa: E402
 
@@ -151,6 +153,7 @@ from routers.collaboration_routes import router as collaboration_router  # noqa:
 from routers.replay_routes import router as replay_router  # noqa: E402
 from routers.v1 import build_v1_router  # noqa: E402
 from api_versioning import VersionMiddleware  # noqa: E402
+from auth import get_user_from_request_headers  # noqa: E402
 from audit_logging import audit_logger, AuditEventType  # noqa: E402, F401
 from error_envelope import register_error_handlers  # noqa: E402
 
@@ -298,6 +301,27 @@ class ArchmorphMiddleware(BaseHTTPMiddleware):
         "/openapi.json", "/docs", "/redoc",
     })
 
+    @staticmethod
+    def _client_ip(request: Request) -> str:
+        return request.client.host if request.client and request.client.host else "unknown"
+
+    @staticmethod
+    def _daily_guest_session_id(request: Request, ip_address: str) -> str:
+        day = datetime.now(timezone.utc).strftime("%Y%m%d")
+        user_agent = request.headers.get("user-agent", "")
+        digest = hashlib.sha256(f"{day}|{ip_address}|{user_agent}".encode("utf-8")).hexdigest()[:16]
+        return f"guest-{day}-{digest}"
+
+    @classmethod
+    def _audit_actor_context(cls, request: Request) -> tuple[str, str, str]:
+        ip_address = cls._client_ip(request)
+        user = get_user_from_request_headers(request.headers)
+        if user:
+            return user.id, "authenticated", ip_address
+
+        session_id = cls._daily_guest_session_id(request, ip_address)
+        return session_id, "guest", ip_address
+
     async def dispatch(self, request: Request, call_next):
         # ── Correlation ID ──
         cid = request.headers.get("X-Correlation-ID") or str(uuid.uuid4())
@@ -386,13 +410,17 @@ class ArchmorphMiddleware(BaseHTTPMiddleware):
         # ── Audit Logging ──
         if endpoint not in self._AUDIT_SKIP:
             try:
-                ip = request.client.host if request.client else None
+                actor_id, actor_kind, ip = self._audit_actor_context(request)
                 audit_logger.log_api_access(
                     endpoint=endpoint,
                     method=method,
                     status_code=status,
                     latency_ms=duration_ms,
+                    user_id=actor_id,
+                    session_id=actor_id if actor_kind == "guest" else None,
                     ip_address=ip,
+                    correlation_id=cid,
+                    details={"actor_kind": actor_kind},
                 )
             except Exception as exc:  # nosec B110 - audit must never break request handling
                 logger.debug("audit error: %s", exc)

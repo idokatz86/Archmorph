@@ -29,6 +29,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
 
+from audit_logging import clear_audit_logs, get_audit_logs
 from main import app, SESSION_STORE, IMAGE_STORE
 
 
@@ -204,6 +205,34 @@ class TestLatencyTrackingMiddleware:
         """POST requests also get timing header."""
         resp = client.post("/api/chat", json={"message": "hello"})
         assert resp.headers.get("x-response-time") is not None
+
+
+# ====================================================================
+# 3b. AuditMiddleware
+# ====================================================================
+
+class TestAuditMiddleware:
+    """Verify request audit context is forensically useful."""
+
+    def test_guest_state_changing_request_records_actor_and_ip(self, client):
+        clear_audit_logs()
+
+        client.post(
+            "/api/chat",
+            json={"message": "hello"},
+            headers={
+                "User-Agent": "archmorph-audit-test",
+                "X-Correlation-ID": "audit-cid-878",
+            },
+        )
+
+        logs = get_audit_logs(limit=10)
+        entry = next(log for log in logs if log.get("endpoint") == "/api/chat")
+        assert entry["user_id"].startswith("guest-")
+        assert entry["session_id"] == entry["user_id"]
+        assert entry["ip_address"]
+        assert entry["correlation_id"] == "audit-cid-878"
+        assert entry["details"]["actor_kind"] == "guest"
 
 
 # ====================================================================

@@ -281,6 +281,7 @@ class AuditLogger:
         ip_address: Optional[str] = None,
         session_id: Optional[str] = None,
         details: Optional[Dict[str, Any]] = None,
+        correlation_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Log an API access event with latency tracking."""
         if status_code >= 500:
@@ -310,7 +311,7 @@ class AuditLogger:
             method=method,
             status_code=status_code,
             latency_ms=round(latency_ms, 2),
-            correlation_id=correlation_id_var.get(""),
+            correlation_id=correlation_id or correlation_id_var.get(""),
             details=details or {},
             risk_level=risk.value,
             severity=sev.value,
