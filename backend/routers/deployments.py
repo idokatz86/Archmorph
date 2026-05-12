@@ -5,12 +5,14 @@ from strict_models import StrictBaseModel
 
 from services.azure_deploy_service import AzureDeployService
 from feature_flags import feature_flag_dependency
+from routers.shared import verify_admin_key
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/deployments",
     tags=["deployments"],
+    dependencies=[Depends(verify_admin_key)],
 )
 
 # Shared dependencies can be added here

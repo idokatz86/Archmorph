@@ -40,7 +40,8 @@ GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 
 # JWT session secret — MUST be set in production
 _jwt_secret_env = os.getenv("JWT_SECRET", "")
-if not _jwt_secret_env and os.getenv("ENV", "development").lower() in ("production", "prod", "staging"):
+_runtime_environment = (os.getenv("ENVIRONMENT") or os.getenv("ENV") or "development").lower()
+if not _jwt_secret_env and _runtime_environment in ("production", "prod", "staging"):
     raise RuntimeError("JWT_SECRET environment variable must be set in production/staging")
 JWT_SECRET = _jwt_secret_env or "archmorph-dev-secret-change-in-production"  # nosec B105 — dev-only default
 JWT_ALGORITHM = "HS256"
