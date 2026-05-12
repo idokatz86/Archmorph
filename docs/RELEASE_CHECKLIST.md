@@ -37,6 +37,8 @@ Application secrets:
 - `LOG_ANALYTICS_WORKSPACE_ID`
 - `DATABASE_URL` — PostgreSQL connection string for production
 - `REDIS_HOST` or `REDIS_URL` — Redis-backed session/cache store for scaled deployments
+- `VISION_CACHE_MAXSIZE` — maximum vision analysis cache entries; default `500`
+- `VISION_CACHE_TTL_SECONDS` — vision analysis cache TTL; default `3600`
 - `CONTAINER_APP_REPLICA_COUNT` or `CONTAINER_APP_MIN_REPLICAS` — declare intentional multi-replica runtime to the health gate
 
 Production guard env vars:

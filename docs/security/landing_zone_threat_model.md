@@ -277,7 +277,7 @@ Retention pipeline is its own subsystem (#580 Sprint 0 anonymized retention) and
 - `analysis` array bounds: missing — see **F-4**.
 - Vision compress: `MAX_IMAGE_DIMENSION = 2048` — OK.
 - TTL on session store: `ttl=7200` — OK.
-- Vision cache: `TTLCache(maxsize=100, ttl=3600)` — OK.
+- Vision cache: shared store via `get_store("vision_cache")`, default `VISION_CACHE_MAXSIZE=500` and `VISION_CACHE_TTL_SECONDS=3600`; Redis-backed when `REDIS_HOST`/`REDIS_URL` is configured — OK.
 
 ### 4.3 SQL / NoSQL injection
 
