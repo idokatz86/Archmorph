@@ -501,7 +501,7 @@ app.include_router(replay_router)
 # API v1 Versioned Routes (/api/v1/* mirrors the stable public API subset)
 # ─────────────────────────────────────────────────────────────
 _all_routers = [
-    (icon_router, "/api"),       # icon_router has prefix="/api"
+    (icon_router, ""),
     (health_router, ""),         # routes define /api/... in decorators
     (diagrams_router, ""),
     (projects_router, ""),
@@ -530,13 +530,27 @@ _all_routers = [
     (feature_flags_router, ""),
     (jobs_router, ""),
     (credentials_router, ""),
+    (tf_backend_router, ""),
+    (drift_router, ""),
+    (scanner_router, ""),
+    (deploy_router, ""),
+    (deployments_router, ""),
     (cost_router, ""),
+    (timeline_router, ""),
     (report_router, ""),
     (api_keys_router, ""),
     (webhook_routes_router, ""),
     (integrations_router, ""),
+    (github_integration_router, ""),
     (sku_router, ""),
     (provenance_router, ""),
+    (network_router, ""),
+    (share_routes_router, ""),
+    (diff_routes_router, ""),
+    (terraform_import_router, ""),
+    (cost_comparison_router, ""),
+    (collaboration_router, ""),
+    (replay_router, ""),
 ]
 v1_router = build_v1_router(_all_routers)
 app.include_router(v1_router)
