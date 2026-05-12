@@ -1,4 +1,3 @@
-from utils.logger_utils import sanitize_log
 import json
 import logging
 import os
@@ -7,6 +6,12 @@ from pydantic import BaseModel
 from typing import Any, Dict
 import urllib.request
 import urllib.parse
+
+try:
+    from utils.logger_utils import sanitize_log
+except Exception:
+    def sanitize_log(value):
+        return str(value).replace("\n", " ").replace("\r", " ")
 
 app = FastAPI(title="MCP Gateway Proxy")
 logger = logging.getLogger(__name__)

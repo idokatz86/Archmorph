@@ -6,7 +6,8 @@
 # ══════════════════════════════════════════════════════════════
 
 # ── Stage 1: Builder ─────────────────────────────────────────
-FROM python:3.14-slim-bookworm AS builder
+ARG PYTHON_BASE_IMAGE=python:3.12.9-slim-bookworm@sha256:48a11b7ba705fd53bf15248d1f94d36c39549903c5d59edcfa2f3f84126e7b44
+FROM ${PYTHON_BASE_IMAGE} AS builder
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -24,7 +25,7 @@ RUN pip install --no-cache-dir --upgrade "pip>=26.0" setuptools wheel && \
     pip install --no-cache-dir -r requirements.txt
 
 # ── Stage 2: Runtime ─────────────────────────────────────────
-FROM python:3.14-slim-bookworm
+FROM ${PYTHON_BASE_IMAGE}
 
 # Upgrade system pip to fix CVE-2026-1703 and CVE-2025-8869
 RUN pip install --no-cache-dir --upgrade "pip>=26.0"
@@ -58,7 +59,7 @@ USER appuser
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD curl -sf http://localhost:8000/api/health || exit 1
+    CMD curl -sf http://localhost:8000/healthz || exit 1
 
 # Run with gunicorn config file (#369)
 CMD ["gunicorn", "-c", "gunicorn.conf.py", "main:app"]

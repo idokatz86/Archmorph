@@ -192,12 +192,12 @@ python3 scripts/lint_vite_env_guard.py
 
 The guard fails CI when a secret-like client variable such as `VITE_*_KEY`, `VITE_*_TOKEN`, `VITE_*_SECRET`, or `VITE_*_PASSWORD` is introduced, and it rejects blanket Vite `process.env` defines. Server-only proxy or credential values must use non-`VITE_` names.
 
-**Check Docker base-image pinning before adding frontend container images:**
+**Check Docker base-image pinning before adding production container images:**
 ```bash
 python3 scripts/lint_docker_base_images.py
 ```
 
-The guard rejects Node Docker base images unless they use a full patch tag and immutable `sha256` digest, for example `node:22.13.1-alpine@sha256:...`.
+The guard rejects Node and Python Docker base images unless they use a full patch tag and immutable `sha256` digest, for example `node:22.13.1-alpine@sha256:...` or `python:3.12.9-slim-bookworm@sha256:...`.
 
 **Check checked-in Terraform policy-as-code before infrastructure changes:**
 ```bash
@@ -862,7 +862,7 @@ The CI/CD workflow (`.github/workflows/ci.yml`) runs the main quality gates:
 6. **post-deploy-smoke** — deployed frontend/API smoke checks for root, sample routes, health, and OpenAPI schema
 
 Additional workflows:
-- **security.yml** — SAST/DAST/SCA security pipeline (Semgrep, Bandit, CodeQL, Trivy, Gitleaks)
+- **security.yml** — SAST/DAST/SCA security pipeline (Semgrep, Bandit, CodeQL, Trivy, Gitleaks), including backend and MCP gateway runtime image build/health smoke/Trivy coverage
 - **terraform-prod.yml** — production Terraform plan artifact + environment-gated apply (manual approval)
 - **sbom.yml** — CycloneDX + Grype SBOM generation and vulnerability scanning
 - **rollback.yml** — Blue-green deployment rollback trigger

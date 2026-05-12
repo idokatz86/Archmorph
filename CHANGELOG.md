@@ -48,6 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Container Apps subnet NSG regression (#905)** — added CI coverage that keeps the delegated Container Apps subnet associated with its NSG and verifies lateral inbound probes such as port 8000 remain denied.
 - **Analyze latency budget stability** — widened the CI smoke latency regression ratio from 30% to 50% so runner jitter does not fail near-baseline `/analyze` samples while still catching material regressions.
 - **Audit P2 supply-chain hygiene (#919)** — added a Docker base-image guard that rejects future Node frontend images unless they pin a full patch tag and `sha256` digest.
+- **Production runtime container hardening** — aligned backend/runtime Python images to 3.12 patch tags pinned by immutable digest, hardened MCP gateway runtime image with non-root + healthcheck, and expanded `security.yml` Trivy coverage to build/health-smoke/scan both backend and MCP gateway production images.
 - **Service catalog refresh health verification (#941)** — daily refresh now verifies `/api/health` with the production API key or admin-key fallback, preventing false critical alerts when the refresh succeeds but the public health endpoint requires authentication.
 - **Audit P2 release safety (#889 #890)** — added a rollback runbook for Container Apps revision recovery, ACR image pinning, Static Web Apps rollback, Alembic downgrade caveats, and teardown-command guardrails; CI now smoke-tests the full PostgreSQL plus pgvector Alembic migration cycle.
 
