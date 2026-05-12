@@ -1,5 +1,9 @@
 """Tests for cost_metering.py — token cost tracking and budget management."""
 
+from datetime import datetime, timezone
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
 from cost_metering import (
     CostMeter,
     calculate_cost,
@@ -112,3 +116,27 @@ class TestCostMeter:
     def test_get_alerts_empty(self):
         alerts = self.meter.get_alerts()
         assert isinstance(alerts, list)
+
+    def test_bootstrap_hydrates_records_from_persistent_store(self):
+        CostMeter.reset()
+        row = SimpleNamespace(
+            id="rec-1",
+            execution_id="exec-1",
+            agent_id="agent-1",
+            model="gpt-4.1",
+            prompt_tokens=10,
+            completion_tokens=5,
+            total_tokens=15,
+            cost_usd=0.0001,
+            caller="vision",
+            created_at=datetime.now(timezone.utc),
+        )
+        db = MagicMock()
+        db.execute.return_value.fetchall.return_value = [row]
+
+        with patch("database.SessionLocal", return_value=db):
+            meter = CostMeter.instance()
+
+        overview = meter.get_overview()
+        assert overview.total_records == 1
+        assert overview.total_tokens == 15

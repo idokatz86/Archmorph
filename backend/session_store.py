@@ -103,33 +103,61 @@ class InMemoryStore(SessionStore):
         self._maxsize = maxsize
         self._ttl = ttl
         self._total_bytes = 0  # approximate memory tracking (Issue #294)
+        self._entry_sizes: dict[str, int] = {}
+
+    def _estimate_entry_size(self, value: Any) -> int:
+        import sys
+        if value is None:
+            return 0
+        if isinstance(value, (bytes, bytearray)):
+            return len(value)
+        if isinstance(value, tuple) and len(value) == 2 and isinstance(value[0], (bytes, str)):
+            # IMAGE_STORE stores (bytes, content_type) or (str_base64, content_type) tuples.
+            # For base64 strings len() counts characters (~33% larger than raw bytes),
+            # which is intentional — we budget the actual stored bytes, not the decoded size.
+            return len(value[0])
+        return sys.getsizeof(value)
+
+    def _reconcile_total_bytes(self) -> None:
+        # TTLCache expires lazily, so refresh accounting from live keys to avoid drift.
+        live_sizes: dict[str, int] = {}
+        total = 0
+        for key in list(self._cache.keys()):
+            value = self._cache.get(key)
+            if value is None:
+                continue
+            size = self._entry_sizes.get(key)
+            if size is None:
+                size = self._estimate_entry_size(value)
+            live_sizes[key] = size
+            total += size
+        self._entry_sizes = live_sizes
+        self._total_bytes = total
 
     # ── public API ────────────────────────────────────────
 
     def get(self, key: str, default: Any = None) -> Any:
+        self._reconcile_total_bytes()
         val = self._cache.get(key)
         if val is None:
             return default
         # Refresh TTL by re-inserting the value (Issue #260)
         self._cache[key] = val
+        self._reconcile_total_bytes()
         return val
 
     def set(self, key: str, value: Any, ttl: Optional[int] = None) -> None:
         # Estimate entry size and enforce memory budget (Issue #294)
-        import sys
-        entry_size = sys.getsizeof(value) if value is not None else 0
-        if isinstance(value, (bytes, bytearray)):
-            entry_size = len(value)
-        elif isinstance(value, tuple) and len(value) == 2 and isinstance(value[0], (bytes, str)):
-            # IMAGE_STORE stores (bytes, content_type) or (str_base64, content_type) tuples.
-            # For base64 strings len() counts characters (~33% larger than raw bytes),
-            # which is intentional — we budget the actual stored bytes, not the decoded size.
-            entry_size = len(value[0])
+        self._reconcile_total_bytes()
+        entry_size = self._estimate_entry_size(value)
+        existing_size = self._entry_sizes.get(key, 0)
 
         # Evict oldest entries until there is room or the cache is empty
         evicted_keys = []
-        while self._total_bytes + entry_size > self.MAX_MEMORY_BYTES and self._cache:
+        while self._total_bytes - existing_size + entry_size > self.MAX_MEMORY_BYTES and self._cache:
             oldest_key = next(iter(self._cache))
+            if oldest_key == key and len(self._cache) == 1:
+                break
             self.delete(oldest_key)
             evicted_keys.append(oldest_key)
 
@@ -139,7 +167,7 @@ class InMemoryStore(SessionStore):
                 self._total_bytes, entry_size, self.MAX_MEMORY_BYTES, len(evicted_keys),
             )
 
-        if self._total_bytes + entry_size > self.MAX_MEMORY_BYTES:
+        if self._total_bytes - existing_size + entry_size > self.MAX_MEMORY_BYTES:
             logger.warning(
                 "InMemoryStore memory budget still exceeded after eviction — rejecting entry",
             )
@@ -147,18 +175,17 @@ class InMemoryStore(SessionStore):
 
         # TTLCache doesn't support per-key TTL; use the store-wide TTL
         self._cache[key] = value
-        self._total_bytes += entry_size
+        self._entry_sizes[key] = entry_size
+        self._total_bytes = max(0, self._total_bytes - existing_size + entry_size)
+        self._reconcile_total_bytes()
 
     def delete(self, key: str) -> None:
         val = self._cache.pop(key, None)
         if val is not None:
-            import sys
-            if isinstance(val, (bytes, bytearray)):
-                self._total_bytes -= len(val)
-            elif isinstance(val, tuple) and len(val) == 2 and isinstance(val[0], (bytes, str)):
-                self._total_bytes -= len(val[0])
-            else:
-                self._total_bytes -= sys.getsizeof(val)
+            size = self._entry_sizes.pop(key, None)
+            if size is None:
+                size = self._estimate_entry_size(val)
+            self._total_bytes = max(0, self._total_bytes - size)
 
     def keys(self, pattern: str = "*") -> List[str]:
         if pattern == "*":
@@ -170,6 +197,7 @@ class InMemoryStore(SessionStore):
     def clear(self) -> None:
         self._cache.clear()
         self._total_bytes = 0
+        self._entry_sizes.clear()
 
     # ── dict-like overrides ───────────────────────────────
 

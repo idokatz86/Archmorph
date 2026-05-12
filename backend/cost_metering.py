@@ -14,6 +14,7 @@ Singleton CostMeter — same in-memory pattern as SESSION_STORE.
 import csv
 import io
 import logging
+import os
 import threading
 import uuid
 from collections import defaultdict
@@ -24,6 +25,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
+_BOOTSTRAP_RECORD_LIMIT = max(0, int(os.getenv("COST_METER_BOOTSTRAP_LIMIT", "5000")))
 
 
 # ─────────────────────────────────────────────────────────────
@@ -199,6 +201,7 @@ class CostMeter:
         # Track which alert thresholds have already fired per budget
         # to avoid duplicate alerts: {budget_id: set of threshold_pct values}
         self._fired_thresholds: Dict[str, set] = defaultdict(set)
+        self._hydrate_records_from_db()
 
     @classmethod
     def instance(cls) -> "CostMeter":
@@ -271,6 +274,52 @@ class CostMeter:
                 db.close()
         except Exception:
             pass  # DB not available — in-memory still works
+
+    def _hydrate_records_from_db(self) -> None:
+        """Bootstrap in-memory records from durable storage after process restarts."""
+        if _BOOTSTRAP_RECORD_LIMIT <= 0:
+            return
+        try:
+            from database import SessionLocal
+            from sqlalchemy import text
+            db = SessionLocal()
+            try:
+                rows = db.execute(
+                    text(
+                        "SELECT id, execution_id, agent_id, model, prompt_tokens, completion_tokens, "
+                        "total_tokens, cost_usd, caller, created_at "
+                        "FROM cost_records ORDER BY created_at DESC LIMIT :limit"
+                    ),
+                    {"limit": _BOOTSTRAP_RECORD_LIMIT},
+                ).fetchall()
+            finally:
+                db.close()
+        except Exception:
+            return
+
+        hydrated: List[CostRecord] = []
+        for row in reversed(rows):
+            created_at = row.created_at
+            if hasattr(created_at, "isoformat"):
+                timestamp = created_at.isoformat()
+            else:
+                timestamp = datetime.now(timezone.utc).isoformat()
+            hydrated.append(
+                CostRecord(
+                    id=row.id,
+                    execution_id=row.execution_id,
+                    agent_id=row.agent_id,
+                    model=row.model,
+                    prompt_tokens=int(row.prompt_tokens or 0),
+                    completion_tokens=int(row.completion_tokens or 0),
+                    total_tokens=int(row.total_tokens or 0),
+                    cost_usd=float(row.cost_usd or 0.0),
+                    timestamp=timestamp,
+                    caller=row.caller,
+                )
+            )
+        with self._lock:
+            self._records = hydrated
 
     # ── Aggregation helpers ──────────────────────────────────
     def _filter_records(
