@@ -194,6 +194,62 @@ class TestIacChatProcessing:
         assert "Terraform" in user_msg
 
     @patch("iac_chat.cached_chat_completion")
+    def test_process_iac_chat_strips_legacy_code_from_history_prompt(self, mock_completion):
+        legacy_code = "LEGACY_CODE_BLOB\n" * 200
+        IAC_CHAT_SESSIONS["test-legacy:iac"] = [
+            {"role": "user", "content": "Add a virtual network", "ts": "2026-01-01T00:00:00Z"},
+            {
+                "role": "assistant",
+                "content": json.dumps({
+                    "message": "Added a virtual network.",
+                    "code": legacy_code,
+                    "changes_summary": ["Added VNet"],
+                    "services_added": ["Azure Virtual Network"],
+                }),
+                "ts": "2026-01-01T00:00:01Z",
+            },
+        ]
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = json.dumps(MOCK_CHAT_RESPONSE)
+        mock_response.choices[0].finish_reason = "stop"
+        mock_completion.return_value = mock_response
+
+        process_iac_chat("test-legacy", "Add NSG", SAMPLE_TF_CODE)
+
+        messages = mock_completion.call_args.kwargs["messages"]
+        history_prompt = "\n".join(message["content"] for message in messages[1:-1])
+        assert "LEGACY_CODE_BLOB" not in history_prompt
+        assert "Added a virtual network." in history_prompt
+        assert "Changes: Added VNet" in history_prompt
+
+    @patch("iac_chat.cached_chat_completion")
+    def test_process_iac_chat_turn_ten_payload_stays_near_turn_one(self, mock_completion):
+        large_code = SAMPLE_TF_CODE + "\n" + ("# stable terraform state\n" * 400)
+        payload_sizes = []
+
+        def fake_completion(**kwargs):
+            payload_sizes.append(sum(len(message["content"]) for message in kwargs["messages"]))
+            mock_response = MagicMock()
+            mock_response.choices = [MagicMock()]
+            mock_response.choices[0].message.content = json.dumps({
+                "message": "Code updated.",
+                "code": large_code,
+                "changes_summary": ["Kept infrastructure current"],
+                "services_added": [],
+            })
+            mock_response.choices[0].finish_reason = "stop"
+            return mock_response
+
+        mock_completion.side_effect = fake_completion
+
+        for turn in range(10):
+            process_iac_chat("test-token-growth", f"Turn {turn}", large_code)
+
+        assert len(payload_sizes) == 10
+        assert payload_sizes[-1] <= payload_sizes[0] * 1.5
+
+    @patch("iac_chat.cached_chat_completion")
     def test_process_iac_chat_with_analysis_context(self, mock_completion):
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]

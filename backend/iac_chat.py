@@ -91,6 +91,34 @@ IAC_CHAT_SESSIONS: TTLCache = TTLCache(maxsize=200, ttl=7200)
 from utils.chat_coercion import coerce_to_str_list as _coerce_to_str_list  # noqa: E402,F401
 
 
+def _compact_history_content(content: str) -> str:
+    """Return conversational history without replaying bulky IaC code blobs."""
+    if not isinstance(content, str):
+        return ""
+
+    stripped = content.strip()
+    if not stripped:
+        return ""
+
+    try:
+        payload = json.loads(stripped)
+    except json.JSONDecodeError:
+        return stripped
+
+    if not isinstance(payload, dict) or "code" not in payload:
+        return stripped
+
+    message = str(payload.get("message") or "").strip()
+    changes = _coerce_to_str_list(payload.get("changes_summary", []))
+
+    parts = []
+    if message:
+        parts.append(message)
+    if changes:
+        parts.append("Changes: " + "; ".join(changes))
+    return "\n".join(parts) or "Code updated."
+
+
 def process_iac_chat(
     diagram_id: str,
     message: str,
@@ -173,7 +201,7 @@ def process_iac_chat(
     # Add conversation history (keep last 10 turns to manage tokens)
     recent_history = history[-10:]
     for entry in recent_history:
-        messages.append({"role": entry["role"], "content": entry["content"]})
+        messages.append({"role": entry["role"], "content": _compact_history_content(entry.get("content", ""))})
 
     # Current user turn — include current code + user request
     user_content = (
