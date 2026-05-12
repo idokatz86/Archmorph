@@ -8,7 +8,7 @@ This directory contains the checked-in Terraform configuration for the Azure-hos
 | --- | --- | --- |
 | Resource group, Container Apps, Container Registry, PostgreSQL, Redis, Application Insights, Log Analytics, and primary Blob Storage | `infra/main.tf` | `var.location`, default `westeurope` |
 | Azure OpenAI account and model deployments | `infra/main.tf` | Live traffic uses West Europe account `archmorph-openai-we-acm7pd` with `gpt-4.1` primary and `gpt-4o` fallback; Terraform now targets `var.openai_location = westeurope`, but #608 import/state sync must run before apply |
-| Metrics storage account `archmorphmetrics` | `.github/workflows/ci.yml` | Workflow-owned for current deployment smoke/runtime metrics path; do not alter inline region or SKU without a Terraform import or replacement plan |
+| Metrics storage container `metrics` | `infra/main.tf` (`azurerm_storage_container.metrics`) | Uses the same Terraform-managed primary Blob storage account as the app runtime |
 | Terraform remote state storage | Bootstrap command comments in `infra/main.tf` | `archmorph-tfstate-rg` / `archmorphtfstate`, `westeurope` |
 
 ## No-Break State Sync Guardrails
@@ -74,12 +74,16 @@ Run these commands when editing files under `infra/`:
 cd infra
 find . -path './.terraform' -prune -o -name '*.tf' -print0 | xargs -0 terraform fmt -check
 for dir in . staging dr observability; do
-	terraform -chdir="$dir" init -backend=false -input=false
+ 	terraform -chdir="$dir" init -backend=false -input=false -lockfile=readonly
 	terraform -chdir="$dir" validate -no-color
 done
 ```
 
 These commands do not connect to the configured remote backend and do not mutate Azure resources.
+
+### Terraform provider lock policy
+
+Commit `.terraform.lock.hcl` for every checked-in Terraform root (`infra/`, `infra/staging`, `infra/dr`, `infra/observability`) and run init in CI with `-lockfile=readonly`. This keeps provider selections reviewable in PRs and fails validation if a workflow would mutate lockfiles unexpectedly.
 
 Run the project-owned policy-as-code gate from the repository root before changing Azure Terraform resources:
 
