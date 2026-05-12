@@ -97,7 +97,7 @@ The post-merge CTO end-to-end review of `landing-zone-svg` (May 1, 2026) flagged
 - **Multi-stage Docker** — optimized build with ~50% image size reduction, uv for fast installs
 - **API versioning** — all `/api/*` routes mirrored at `/api/v1/*` for stable integrations
 - **Feature flags system** — percentage rollout + user targeting with audited admin API and runtime dashboard toggles
-- **Comprehensive audit logging** — structured JSON with risk levels, alerting rules, compliance queries
+- **Comprehensive audit logging** — structured JSON with actor/IP context, risk levels, alerting rules, compliance queries
 - **Session persistence** — pluggable SessionStore with InMemory and Redis backends
 - **GPT response caching** — content-hash TTLCache for GPT-4o responses with configurable timeout and fallback model
 - **Vision analysis cache** — TTLCache for repeated diagram analysis avoiding redundant API calls
