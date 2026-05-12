@@ -30,6 +30,19 @@ def test_rejects_default_rerun_flags(tmp_path):
     assert "remove default pytest rerun configuration" in violations[0]
 
 
+def test_rejects_rerun_flags_after_config_delimiters(tmp_path):
+    config = tmp_path / "pytest.ini"
+    workflow = tmp_path / "ci.yml"
+    config.write_text('addopts="--reruns 3"\n', encoding="utf-8")
+    workflow.write_text("run:pytest --reruns-delay 1\n", encoding="utf-8")
+
+    violations = lint_pytest_no_reruns.find_violations([config, workflow])
+
+    assert len(violations) == 2
+    assert "addopts" in violations[0]
+    assert "run:pytest" in violations[1]
+
+
 def test_rejects_rerun_plugin_dependency(tmp_path):
     requirements = tmp_path / "requirements.txt"
     requirements.write_text("pytest-rerunfailures==14.0\n", encoding="utf-8")

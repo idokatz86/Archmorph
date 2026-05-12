@@ -9,8 +9,8 @@ from pathlib import Path
 
 
 BLOCKED_PATTERNS = (
-    re.compile(r"(?<!\S)--reruns(?:=|\s|$)"),
-    re.compile(r"(?<!\S)--reruns-delay(?:=|\s|$)"),
+    re.compile(r"(?:^|[\s\"'=:`])--reruns(?:=|\s|$)"),
+    re.compile(r"(?:^|[\s\"'=:`])--reruns-delay(?:=|\s|$)"),
     re.compile(r"\bpytest-rerunfailures\b"),
 )
 
