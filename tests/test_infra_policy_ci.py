@@ -69,3 +69,30 @@ def test_container_apps_subnet_nsg_blocks_lateral_inbound_probe():
     assert 'destination_port_range     = "*"' in nsg_block
     assert 'source_address_prefix      = "VirtualNetwork"' not in nsg_block
     assert 'destination_port_range     = "8000"' not in nsg_block
+
+
+def test_metrics_container_is_terraform_managed_in_primary_storage():
+    infra = (ROOT / "infra/main.tf").read_text(encoding="utf-8")
+
+    metrics_block = _terraform_resource_block(infra, "azurerm_storage_container", "metrics")
+    assert 'name                  = "metrics"' in metrics_block
+    assert "storage_account_id    = azurerm_storage_account.main.id" in metrics_block
+
+
+def test_ci_does_not_create_persistent_metrics_storage_or_use_storage_connection_string():
+    ci_workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+
+    assert "Validate Terraform-managed metrics storage" in ci_workflow
+    assert "az storage account create" not in ci_workflow
+    assert "AZURE_STORAGE_CONNECTION_STRING=secretref:storage-connection" not in ci_workflow
+    assert "storage-connection=" not in ci_workflow
+    assert 'select(.name == "AZURE_STORAGE_ACCOUNT_URL")' in ci_workflow
+
+
+def test_ci_and_prod_workflows_enforce_readonly_terraform_lockfiles():
+    ci_workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    prod_workflow = (ROOT / ".github/workflows/terraform-prod.yml").read_text(encoding="utf-8")
+
+    assert "terraform -chdir=\"$dir\" init -backend=false -input=false -lockfile=readonly" in ci_workflow
+    assert "terraform init -backend=false -input=false -lockfile=readonly" in prod_workflow
+    assert "terraform init -input=false -lockfile=readonly" in prod_workflow

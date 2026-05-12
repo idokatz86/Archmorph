@@ -274,7 +274,7 @@ jobs:
         run: |
           for dir in . staging dr observability; do
             echo "::group::terraform validate infra/$dir"
-            terraform -chdir="$dir" init -backend=false -input=false
+            terraform -chdir="$dir" init -backend=false -input=false -lockfile=readonly
             terraform -chdir="$dir" validate -no-color
             echo "::endgroup::"
           done
@@ -608,29 +608,29 @@ jobs:
           vuln-type: library
           scanners: vuln  # Skip secret/misconfig scanning, focus on dependency CVEs
 
-      - name: Provision metrics storage
+      - name: Validate Terraform-managed metrics storage
         run: |
-          # #608: This workflow-owned storage account is intentionally kept here until
-          # it is imported into Terraform state or replaced by azurerm_storage_account.main
-          # through a separate no-break state plan. Do not change region/SKU inline.
-          STORAGE_NAME="archmorphmetrics"
-          STORAGE_ACCOUNT_URL="https://${STORAGE_NAME}.blob.core.windows.net"
+          ENV_JSON=$(az containerapp show \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --query "properties.template.containers[0].env" -o json)
+
+          STORAGE_ACCOUNT_URL=$(echo "$ENV_JSON" | jq -r '.[] | select(.name == "AZURE_STORAGE_ACCOUNT_URL") | .value // ""')
+          if [ -z "$STORAGE_ACCOUNT_URL" ]; then
+            echo "::error::Container App is missing AZURE_STORAGE_ACCOUNT_URL. Configure it via Terraform-managed env vars before CI deploy."
+            exit 1
+          fi
+          STORAGE_NAME=$(echo "$STORAGE_ACCOUNT_URL" | sed -E 's#^https://([^.]+)\.blob\.core\.windows\.net/?$#\1#')
+          if [ -z "$STORAGE_NAME" ] || [ "$STORAGE_NAME" = "$STORAGE_ACCOUNT_URL" ]; then
+            echo "::error::Unable to parse storage account name from AZURE_STORAGE_ACCOUNT_URL=$STORAGE_ACCOUNT_URL"
+            exit 1
+          fi
           echo "STORAGE_NAME=$STORAGE_NAME" >> "$GITHUB_ENV"
           echo "STORAGE_ACCOUNT_URL=$STORAGE_ACCOUNT_URL" >> "$GITHUB_ENV"
+
           if ! az storage account show --name "$STORAGE_NAME" --resource-group ${{ env.AZURE_RESOURCE_GROUP }} &>/dev/null; then
-            echo "Creating storage account..."
-            az storage account create \
-              --name "$STORAGE_NAME" \
-              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-              --location westeurope \
-              --sku Standard_LRS \
-              --min-tls-version TLS1_2 \
-              --https-only true \
-              --allow-blob-public-access false \
-              --allow-shared-key-access false \
-              --only-show-errors
-          else
-            echo "Storage account $STORAGE_NAME already exists, skipping creation."
+            echo "::error::Storage account $STORAGE_NAME was not found in resource group ${{ env.AZURE_RESOURCE_GROUP }}"
+            exit 1
           fi
 
           ALLOW_SHARED_KEY=$(az storage account show \
@@ -646,34 +646,20 @@ jobs:
             --name "$STORAGE_NAME" \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --query publicNetworkAccess -o tsv)
-          if [ "$PUBLIC_NETWORK_ACCESS" = "Disabled" ]; then
-            echo "Storage account $STORAGE_NAME has public network access disabled; enabling it for Container App managed-identity blob access."
-            az storage account update \
-              --name "$STORAGE_NAME" \
-              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-              --public-network-access Enabled \
-              --only-show-errors >/dev/null
-          fi
-
-          PUBLIC_NETWORK_ACCESS=$(az storage account show \
-            --name "$STORAGE_NAME" \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --query publicNetworkAccess -o tsv)
           if [ "$PUBLIC_NETWORK_ACCESS" != "Enabled" ]; then
             echo "::error::Storage account $STORAGE_NAME must allow public network access unless a private endpoint/VNet path is configured for the Container App"
             exit 1
           fi
 
-          STORAGE_CONN=$(az storage account show-connection-string \
-            --name "$STORAGE_NAME" \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --query connectionString -o tsv)
-          echo "STORAGE_CONN=$STORAGE_CONN" >> "$GITHUB_ENV"
-          az storage container create \
+          METRICS_CONTAINER_EXISTS=$(az storage container exists \
             --name metrics \
             --account-name "$STORAGE_NAME" \
             --auth-mode login \
-            --only-show-errors || true
+            --query exists -o tsv)
+          if [ "$METRICS_CONTAINER_EXISTS" != "true" ]; then
+            echo "::error::Expected Terraform-managed metrics container to exist in storage account $STORAGE_NAME"
+            exit 1
+          fi
 
           STORAGE_ID=$(az storage account show \
             --name "$STORAGE_NAME" \
@@ -685,11 +671,6 @@ jobs:
           fi
           echo "STORAGE_ID=$STORAGE_ID" >> "$GITHUB_ENV"
 
-          az containerapp identity assign \
-            --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --system-assigned \
-            --only-show-errors
           CONTAINER_APP_PRINCIPAL_ID=$(az containerapp show \
             --name ${{ env.CONTAINER_APP_NAME }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
@@ -706,31 +687,11 @@ jobs:
             --scope "$STORAGE_ID" \
             --query "[0].id" -o tsv)
           if [ -z "$EXISTING_ASSIGNMENT" ]; then
-            az role assignment create \
-              --assignee-object-id "$CONTAINER_APP_PRINCIPAL_ID" \
-              --assignee-principal-type ServicePrincipal \
-              --role "Storage Blob Data Contributor" \
-              --scope "$STORAGE_ID" \
-              --only-show-errors
+            echo "::error::Container App identity is missing Storage Blob Data Contributor on $STORAGE_NAME"
+            exit 1
           fi
-
-          for attempt in 1 2 3 4 5 6; do
-            ASSIGNMENT_ID=$(az role assignment list \
-              --assignee "$CONTAINER_APP_PRINCIPAL_ID" \
-              --role "Storage Blob Data Contributor" \
-              --scope "$STORAGE_ID" \
-              --query "[0].id" -o tsv)
-            if [ -n "$ASSIGNMENT_ID" ]; then
-              echo "Container App identity has Storage Blob Data Contributor on $STORAGE_NAME"
-              echo "STORAGE_ROLE_ASSIGNMENT_ID=$ASSIGNMENT_ID" >> "$GITHUB_ENV"
-              break
-            fi
-            if [ "$attempt" -eq 6 ]; then
-              echo "::error::Storage Blob Data Contributor assignment did not become visible"
-              exit 1
-            fi
-            sleep 10
-          done
+          echo "Container App identity has Storage Blob Data Contributor on $STORAGE_NAME"
+          echo "STORAGE_ROLE_ASSIGNMENT_ID=$EXISTING_ASSIGNMENT" >> "$GITHUB_ENV"
 
       - name: Enable multiple revisions
         run: |
@@ -747,7 +708,6 @@ jobs:
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --secrets \
               admin-key="${{ env.ADMIN_KEY }}" \
-              storage-connection="${{ env.STORAGE_CONN }}" \
             2>/dev/null || true
 
           SHORT_SHA="${{ github.sha }}"
@@ -761,7 +721,6 @@ jobs:
               ARCHMORPH_ADMIN_KEY=secretref:admin-key \
               ARCHMORPH_API_KEY=secretref:admin-key \
               AZURE_STORAGE_ACCOUNT_URL="$STORAGE_ACCOUNT_URL" \
-              AZURE_STORAGE_CONNECTION_STRING=secretref:storage-connection \
               AZURE_OPENAI_ENDPOINT="${{ secrets.AZURE_OPENAI_ENDPOINT }}" \
               AZURE_OPENAI_DEPLOYMENT="gpt-4.1" \
               AZURE_OPENAI_FALLBACK_DEPLOYMENT="gpt-4o" \
