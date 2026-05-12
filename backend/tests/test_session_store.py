@@ -75,6 +75,33 @@ class TestInMemoryStore:
         store["k"] = 2
         assert store["k"] == 2
 
+    def test_repeated_overwrite_updates_byte_accounting(self):
+        store = InMemoryStore()
+        store.set("k", b"123456")
+        assert store._total_bytes == 6
+        store.set("k", b"12")
+        assert store._total_bytes == 2
+        store.set("k", b"1234")
+        assert store._total_bytes == 4
+
+    def test_overwrite_under_budget_is_not_rejected_by_double_counting(self, monkeypatch):
+        monkeypatch.setattr(InMemoryStore, "MAX_MEMORY_BYTES", 10)
+        store = InMemoryStore()
+        store.set("k", b"123456")
+        store.set("k", b"12345678")
+        assert store.get("k") == b"12345678"
+        assert store._total_bytes == 8
+
+    def test_overwrite_can_evict_other_entries_when_budget_is_tight(self, monkeypatch):
+        monkeypatch.setattr(InMemoryStore, "MAX_MEMORY_BYTES", 10)
+        store = InMemoryStore()
+        store.set("k1", b"1234")
+        store.set("k2", b"5678")
+        store.set("k1", b"abcdefgh")
+        assert store.get("k1") == b"abcdefgh"
+        assert store.get("k2") is None
+        assert store._total_bytes == 8
+
 
 class TestGetStore:
     def test_returns_inmemory_by_default(self):

@@ -8,6 +8,7 @@ server-side and return HTTP 409 instead of silently overwriting.
 import copy
 import os
 import sys
+import time
 from unittest.mock import patch
 
 import pytest
@@ -17,6 +18,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
 
 from fastapi.testclient import TestClient
+from auth import AuthProvider, User, UserTier, generate_session_token
 from main import app, SESSION_STORE
 
 
@@ -41,6 +43,18 @@ resource "azurerm_resource_group" "rg" {
   location = "West Europe"
 }
 """
+
+
+def _auth_headers(user_id: str = "iac-async-user", tenant_id: str = "tenant-iac-async") -> dict:
+    user = User(
+        id=user_id,
+        email=f"{user_id}@example.com",
+        provider=AuthProvider.GITHUB,
+        tier=UserTier.TEAM,
+        tenant_id=tenant_id,
+    )
+    token = generate_session_token(user)
+    return {"Authorization": f"Bearer {token}"}
 
 
 @pytest.fixture()
@@ -221,3 +235,97 @@ class TestIacOptimisticConcurrency:
         assert resp.status_code == 200
         assert resp.json()["etag"] == _compute_iac_etag(updated_code)
         assert SESSION_STORE[diagram_with_analysis][_IAC_ETAG_KEY] == _compute_iac_etag(updated_code)
+
+
+class TestAsyncIacCanonicalState:
+    """Async generation must persist canonical state for chat + concurrency checks."""
+
+    @patch("routers.iac_routes.generate_iac_code", return_value=MOCK_TERRAFORM_CODE)
+    def test_async_generate_persists_canonical_code_hash_and_etag(
+        self,
+        mock_gen,
+        client,
+        diagram_with_analysis,
+    ):
+        from routers.iac_routes import _IAC_ETAG_KEY, _compute_iac_etag, _iac_code_hash
+
+        headers = _auth_headers()
+        queued = client.post(
+            f"/api/diagrams/{diagram_with_analysis}/generate-async",
+            params={"format": "terraform"},
+            headers=headers,
+        )
+        assert queued.status_code == 202
+        job_id = queued.json()["job_id"]
+
+        job_status = None
+        for _ in range(40):
+            status_resp = client.get(f"/api/jobs/{job_id}", headers=headers)
+            assert status_resp.status_code == 200
+            job_status = status_resp.json()
+            if job_status["status"] == "completed":
+                break
+            time.sleep(0.05)
+        else:
+            pytest.fail(f"Async IaC job {job_id} did not complete in time")
+
+        result = job_status["result"]
+        expected_hash = _iac_code_hash(MOCK_TERRAFORM_CODE)
+        expected_etag = _compute_iac_etag(MOCK_TERRAFORM_CODE)
+
+        assert result["code"] == MOCK_TERRAFORM_CODE
+        assert result["code_hash"] == expected_hash
+        assert result["etag"] == expected_etag
+
+        session = SESSION_STORE[diagram_with_analysis]
+        assert session["iac_code"] == MOCK_TERRAFORM_CODE
+        assert session["iac_code_hash"] == expected_hash
+        assert session["iac_format"] == "terraform"
+        assert session[_IAC_ETAG_KEY] == expected_etag
+
+    @patch("routers.iac_routes.generate_iac_code", return_value=MOCK_TERRAFORM_CODE)
+    def test_async_result_drives_chat_hash_checks_and_if_match_conflicts(
+        self,
+        mock_gen,
+        client,
+        diagram_with_analysis,
+    ):
+        from routers.iac_routes import _compute_iac_etag, _iac_code_hash
+
+        headers = _auth_headers()
+        queued = client.post(
+            f"/api/diagrams/{diagram_with_analysis}/generate-async",
+            params={"format": "terraform"},
+            headers=headers,
+        )
+        assert queued.status_code == 202
+        job_id = queued.json()["job_id"]
+
+        for _ in range(40):
+            status_resp = client.get(f"/api/jobs/{job_id}", headers=headers)
+            assert status_resp.status_code == 200
+            if status_resp.json()["status"] == "completed":
+                break
+            time.sleep(0.05)
+        else:
+            pytest.fail(f"Async IaC job {job_id} did not complete in time")
+
+        stale_hash = _iac_code_hash('resource "azurerm_resource_group" "stale" {}')
+        chat_resp = client.post(
+            f"/api/diagrams/{diagram_with_analysis}/iac-chat",
+            json={
+                "message": "add tags",
+                "code": "client copy",
+                "format": "terraform",
+                "code_hash": stale_hash,
+            },
+        )
+        assert chat_resp.status_code == 409
+
+        stale_etag = _compute_iac_etag('resource "azurerm_resource_group" "stale" {}')
+        generate_resp = client.post(
+            f"/api/diagrams/{diagram_with_analysis}/generate",
+            params={"format": "terraform"},
+            headers={"If-Match": stale_etag},
+        )
+        assert generate_resp.status_code == 409

@@ -386,7 +386,24 @@ async def _run_iac_job(job_id: str, diagram_id: str, iac_format: str) -> None:
         record_event(f"iac_generated_{iac_format}", {"diagram_id": diagram_id})
         record_funnel_step(diagram_id, "iac_generate")
 
-        job_manager.complete(job_id, result={"diagram_id": diagram_id, "format": iac_format, "code": code})
+        # Keep async generation canonical state aligned with sync /generate:
+        # persist code/hash/format + ETag for chat handoff and If-Match checks.
+        session = SESSION_STORE.get(diagram_id) or session
+        session["iac_code"] = code
+        session["iac_code_hash"] = _iac_code_hash(code)
+        session["iac_format"] = iac_format
+        new_etag = _store_iac_etag(diagram_id, session, code)
+
+        job_manager.complete(
+            job_id,
+            result={
+                "diagram_id": diagram_id,
+                "format": iac_format,
+                "code": code,
+                "code_hash": session["iac_code_hash"],
+                "etag": new_etag,
+            },
+        )
 
     except Exception as exc:
         logger.error("Async IaC generation failed: %s", str(exc).replace('\n', '').replace('\r', ''), exc_info=True)  # codeql[py/log-injection] Handled by custom
