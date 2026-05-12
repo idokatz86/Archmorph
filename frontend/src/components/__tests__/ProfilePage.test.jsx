@@ -76,6 +76,17 @@ describe('ProfilePage', () => {
     expect(options.headers.Authorization).toBe('Bearer stored-token')
   })
 
+  it('programmatically labels every editable profile field', async () => {
+    render(<ProfilePage isOpen onClose={vi.fn()} />)
+
+    expect(screen.getByLabelText('Display Name')).toBeInTheDocument()
+    expect(screen.getByLabelText('Company')).toBeInTheDocument()
+    expect(screen.getByLabelText('Role')).toBeInTheDocument()
+    expect(screen.getByLabelText('Source Cloud')).toBeInTheDocument()
+    expect(screen.getByLabelText('IaC Format')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByLabelText('Display Name')).toHaveValue('Ada'))
+  })
+
   it('sends SWA credentials when saving profile without localStorage token', async () => {
     const user = userEvent.setup()
     render(<ProfilePage isOpen onClose={vi.fn()} />)

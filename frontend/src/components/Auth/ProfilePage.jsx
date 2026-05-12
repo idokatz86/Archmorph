@@ -12,6 +12,7 @@ import { useAuth } from './AuthProvider';
 import { API_BASE } from '../../constants';
 import useFocusTrap from '../../hooks/useFocusTrap';
 import { TOKEN_KEY } from '../../stores/useAuthStore';
+import { Input, Select } from '../ui';
 
 const ROLES = [
   { value: 'cloud_architect', label: 'Cloud Architect' },
@@ -45,24 +46,6 @@ function authHeaders(extra = {}) {
     ...extra,
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
-}
-
-function Select({ label, value, onChange, options, placeholder }) {
-  return (
-    <div>
-      <label className="block text-xs font-medium text-text-muted mb-1">{label}</label>
-      <select
-        value={value || ''}
-        onChange={(e) => onChange(e.target.value || null)}
-        className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-text-primary focus:outline-none focus:ring-1 focus:ring-cta"
-      >
-        <option value="">{placeholder || 'Select...'}</option>
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>{o.label}</option>
-        ))}
-      </select>
-    </div>
-  );
 }
 
 export default function ProfilePage({ isOpen, onClose }) {
@@ -209,34 +192,51 @@ export default function ProfilePage({ isOpen, onClose }) {
           )}
 
           {/* Display name */}
-          <div>
-            <label className="block text-xs font-medium text-text-muted mb-1">Display Name</label>
-            <input
-              type="text"
-              value={form.display_name}
-              onChange={(e) => setForm({ ...form, display_name: e.target.value })}
-              className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-text-primary focus:outline-none focus:ring-1 focus:ring-cta"
-              maxLength={200}
-            />
-          </div>
+          <Input
+            id="profile-display-name"
+            label="Display Name"
+            type="text"
+            value={form.display_name}
+            onChange={(e) => setForm({ ...form, display_name: e.target.value })}
+            maxLength={200}
+          />
 
           {/* Company */}
-          <div>
-            <label className="block text-xs font-medium text-text-muted mb-1">Company</label>
-            <input
-              type="text"
-              value={form.company}
-              onChange={(e) => setForm({ ...form, company: e.target.value })}
-              className="w-full px-3 py-2 text-sm bg-secondary border border-border rounded-lg text-text-primary focus:outline-none focus:ring-1 focus:ring-cta"
-              maxLength={200}
-              placeholder="Your organization"
-            />
-          </div>
+          <Input
+            id="profile-company"
+            label="Company"
+            type="text"
+            value={form.company}
+            onChange={(e) => setForm({ ...form, company: e.target.value })}
+            maxLength={200}
+            placeholder="Your organization"
+          />
 
           {/* Dropdowns */}
-          <Select label="Role" value={form.role} onChange={(v) => setForm({ ...form, role: v })} options={ROLES} placeholder="Select your role" />
-          <Select label="Source Cloud" value={form.preferred_source_cloud} onChange={(v) => setForm({ ...form, preferred_source_cloud: v })} options={SOURCE_CLOUDS} placeholder="Primary cloud you're migrating from" />
-          <Select label="IaC Format" value={form.preferred_iac_format} onChange={(v) => setForm({ ...form, preferred_iac_format: v })} options={IAC_FORMATS} placeholder="Preferred Infrastructure as Code format" />
+          <Select
+            id="profile-role"
+            label="Role"
+            value={form.role || ''}
+            onChange={(e) => setForm({ ...form, role: e.target.value || null })}
+            options={ROLES}
+            placeholder="Select your role"
+          />
+          <Select
+            id="profile-source-cloud"
+            label="Source Cloud"
+            value={form.preferred_source_cloud || ''}
+            onChange={(e) => setForm({ ...form, preferred_source_cloud: e.target.value || null })}
+            options={SOURCE_CLOUDS}
+            placeholder="Primary cloud you're migrating from"
+          />
+          <Select
+            id="profile-iac-format"
+            label="IaC Format"
+            value={form.preferred_iac_format || ''}
+            onChange={(e) => setForm({ ...form, preferred_iac_format: e.target.value || null })}
+            options={IAC_FORMATS}
+            placeholder="Preferred Infrastructure as Code format"
+          />
 
           {/* Status message */}
           {message && (
