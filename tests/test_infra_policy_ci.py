@@ -4,6 +4,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def _terraform_resource_block(terraform: str, resource_type: str, name: str) -> str:
+    marker = f'resource "{resource_type}" "{name}"'
+    assert marker in terraform, f"Missing Terraform resource: {marker}"
+    start = terraform.index(marker)
+    next_resource = terraform.find('\nresource "', start + len(marker))
+    if next_resource == -1:
+        return terraform[start:]
+    return terraform[start:next_resource]
+
+
 def test_ci_runs_archmorph_checkov_policy_gate():
     ci_workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
 
@@ -36,3 +46,26 @@ def test_checked_in_postgres_explicitly_disables_public_network_access():
     assert 'resource "azurerm_postgresql_flexible_server" "main"' in infra
     postgres_block = infra.split('resource "azurerm_postgresql_flexible_server" "main"', 1)[1].split('resource "azurerm_postgresql_flexible_server_database"', 1)[0]
     assert "public_network_access_enabled = false" in postgres_block
+
+
+def test_container_apps_subnet_nsg_blocks_lateral_inbound_probe():
+    infra = (ROOT / "infra/main.tf").read_text(encoding="utf-8")
+
+    association_block = _terraform_resource_block(
+        infra,
+        "azurerm_subnet_network_security_group_association",
+        "container_apps",
+    )
+    assert "subnet_id                 = azurerm_subnet.container_apps.id" in association_block
+    assert "network_security_group_id = azurerm_network_security_group.container_apps.id" in association_block
+
+    nsg_block = _terraform_resource_block(infra, "azurerm_network_security_group", "container_apps")
+    assert 'name                       = "DenyAllInbound"' in nsg_block
+    assert 'priority                   = 4000' in nsg_block
+    assert 'direction                  = "Inbound"' in nsg_block
+    assert 'access                     = "Deny"' in nsg_block
+    assert 'source_address_prefix      = "*"' in nsg_block
+    assert 'destination_address_prefix = "*"' in nsg_block
+    assert 'destination_port_range     = "*"' in nsg_block
+    assert 'source_address_prefix      = "VirtualNetwork"' not in nsg_block
+    assert 'destination_port_range     = "8000"' not in nsg_block
