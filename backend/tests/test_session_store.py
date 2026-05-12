@@ -2,6 +2,7 @@
 
 import os
 import sys
+import time
 from unittest.mock import patch
 
 import pytest
@@ -74,6 +75,30 @@ class TestInMemoryStore:
         store["k"] = 1
         store["k"] = 2
         assert store["k"] == 2
+
+    def test_overwrite_updates_tracked_bytes(self):
+        store = InMemoryStore()
+        store["img"] = (b"a" * 400, "image/png")
+        store["img"] = (b"b" * 100, "image/png")
+        assert store._total_bytes == 100
+
+    def test_expired_entries_are_reconciled_from_tracked_bytes(self):
+        store = InMemoryStore(maxsize=10, ttl=1)
+        store["img"] = (b"x" * 200, "image/png")
+        assert store._total_bytes == 200
+        time.sleep(1.1)
+        assert store.get("img") is None
+        assert store._total_bytes == 0
+
+    def test_large_upload_residency_evicts_oldest_when_budget_exceeded(self):
+        store = InMemoryStore(maxsize=10, ttl=300)
+        store.MAX_MEMORY_BYTES = 3_000_000
+
+        store["upload-1"] = ("A" * 2_000_000, "image/png")
+        store["upload-2"] = ("B" * 2_000_000, "image/png")
+
+        assert "upload-2" in store
+        assert store._total_bytes <= store.MAX_MEMORY_BYTES
 
 
 class TestGetStore:

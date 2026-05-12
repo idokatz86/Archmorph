@@ -61,7 +61,7 @@ const USER_FRIENDLY_ERRORS = {
 };
 
 class ApiError extends Error {
-  constructor(status, body, { hadToken = false } = {}) {
+  constructor(status, body, { hadToken = false, retryAfterMs = null } = {}) {
     const rawMsg = body?.error?.message || body?.detail || `HTTP ${status}`;
     let friendlyMsg;
     if (status === 401) {
@@ -83,6 +83,7 @@ class ApiError extends Error {
      * False when a token was sent but rejected (session expired / revoked).
      */
     this.isAuthRequired = status === 401 && !hadToken;
+    this.retryAfterMs = retryAfterMs;
   }
 }
 
@@ -91,6 +92,26 @@ class ApiError extends Error {
  */
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function parseRetryAfterMs(headers) {
+  if (!headers?.get) return null;
+  const raw = headers.get('retry-after');
+  if (!raw) return null;
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.round(seconds * 1000);
+  const retryAt = Date.parse(raw);
+  if (Number.isFinite(retryAt)) return Math.max(0, retryAt - Date.now());
+  return null;
+}
+
+function retryDelayMs(attempt, err) {
+  const backoffMs = BACKOFF_BASE_MS * Math.pow(2, attempt) + Math.random() * 500;
+  const canHonorRetryAfter = err?.status === 429 || (err?.status >= 500 && err?.status <= 599);
+  if (canHonorRetryAfter && Number.isFinite(err?.retryAfterMs)) {
+    return Math.max(backoffMs, err.retryAfterMs);
+  }
+  return backoffMs;
 }
 
 function getStoredToken() {
@@ -228,18 +249,19 @@ async function request(path, options = {}, signal) {
 
       // Non-JSON responses (binary exports)
       if (!contentType.includes('application/json')) {
-        if (!res.ok) throw new ApiError(res.status, { detail: res.statusText }, { hadToken });
+        if (!res.ok) {
+          throw new ApiError(res.status, { detail: res.statusText }, { hadToken, retryAfterMs: parseRetryAfterMs(res.headers) });
+        }
         return res;
       }
 
       const body = await res.json();
       if (!res.ok) {
-        const err = new ApiError(res.status, body, { hadToken });
+        const err = new ApiError(res.status, body, { hadToken, retryAfterMs: parseRetryAfterMs(res.headers) });
         // Only retry on retryable status codes and if we have attempts left
         if (err.retryable && attempt < MAX_RETRIES) {
           lastError = err;
-          const delay = BACKOFF_BASE_MS * Math.pow(2, attempt) + Math.random() * 500;
-          await sleep(delay);
+          await sleep(retryDelayMs(attempt, err));
           continue;
         }
         // Report 5xx errors to the optional handler before throwing
@@ -261,8 +283,7 @@ async function request(path, options = {}, signal) {
         const timeoutErr = new ApiError(408, { detail: 'Request timed out' });
         if (attempt < MAX_RETRIES) {
           lastError = timeoutErr;
-          const delay = BACKOFF_BASE_MS * Math.pow(2, attempt) + Math.random() * 500;
-          await sleep(delay);
+          await sleep(retryDelayMs(attempt, timeoutErr));
           continue;
         }
         throw timeoutErr;
@@ -272,8 +293,7 @@ async function request(path, options = {}, signal) {
       if (err instanceof TypeError) {
         lastError = new ApiError(0, { detail: 'Network error \u2014 check your connection.' });
         if (attempt < MAX_RETRIES) {
-          const delay = BACKOFF_BASE_MS * Math.pow(2, attempt) + Math.random() * 500;
-          await sleep(delay);
+          await sleep(retryDelayMs(attempt, lastError));
           continue;
         }
         throw lastError;
