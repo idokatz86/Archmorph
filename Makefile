@@ -65,8 +65,8 @@ mutation-baseline: ## Run backend mutation baseline gate for critical modules
 			vision_analyzer) tests="tests/test_vision_analyzer.py" ;; \
 			iac_generator) tests="tests/test_iac_generator.py" ;; \
 		esac; \
-		python -m mutmut run --paths-to-mutate "$$module.py" --runner "python -m pytest -q $$tests" || true; \
-		python -m mutmut results --all > "../mutation-results/$$module.txt" || true; \
+		$(PYTHON) -m mutmut run --paths-to-mutate "$$module.py" --runner "$(PYTHON) -m pytest -q $$tests" || true; \
+		$(PYTHON) -m mutmut results --all > "../mutation-results/$$module.txt" || true; \
 	done
 	$(PYTHON) scripts/mutation_score_gate.py --baseline docs/testing/mutation-baseline.json --report-dir mutation-results
 
