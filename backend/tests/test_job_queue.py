@@ -13,6 +13,7 @@ Covers:
 import os
 import sys
 import json
+import asyncio
 import pytest
 
 
@@ -33,6 +34,21 @@ def auth_headers():
     return {"Authorization": f"Bearer {token}"}
 
 
+@pytest.fixture()
+def api_key_headers(monkeypatch):
+    from routers import shared as shared_router
+
+    key = "jobs-api-key"
+    monkeypatch.setattr(shared_router, "API_KEY", key)
+    return {"X-API-Key": key}
+
+
+def _api_key_principal(headers: dict) -> str:
+    from routers.shared import get_api_key_service_principal
+
+    return get_api_key_service_principal({k.lower(): v for k, v in headers.items()})
+
+
 # ─────────────────────────────────────────────────────────────
 # JobManager unit tests
 # ─────────────────────────────────────────────────────────────
@@ -42,6 +58,9 @@ class TestJobManager:
 
     def _make_manager(self):
         from job_queue import JobManager
+        from session_store import reset_stores
+
+        reset_stores()
         return JobManager(max_jobs=50)
 
     def test_submit_creates_queued_job(self):
@@ -143,6 +162,45 @@ class TestJobManager:
         mgr = self._make_manager()
         job = mgr._jobs.get("nonexistent")
         assert job is None
+
+    def test_event_ring_buffer_limits_and_drops(self):
+        mgr = self._make_manager()
+        mgr._max_events_per_job = 3
+        job = mgr.submit("analyze")
+        mgr.start(job.job_id)
+        for i in range(6):
+            mgr.update_progress(job.job_id, i * 10, f"step-{i}")
+        state = mgr._events_store.get(job.job_id)
+        assert len(state["events"]) == 3
+        assert state["dropped_events"] >= 1
+        metrics = mgr.metrics()
+        assert metrics["events_dropped_total"] >= 1
+
+    @pytest.mark.asyncio
+    async def test_cross_worker_stream_continuity_with_shared_store(self, monkeypatch):
+        from session_store import reset_stores
+        from job_queue import JobManager
+
+        monkeypatch.setenv("WEB_CONCURRENCY", "2")
+        monkeypatch.delenv("REDIS_URL", raising=False)
+        monkeypatch.delenv("REDIS_HOST", raising=False)
+        reset_stores()
+        try:
+            writer = JobManager(max_jobs=50, max_events_per_job=10, ttl_seconds=120)
+            reader = JobManager(max_jobs=50, max_events_per_job=10, ttl_seconds=120)
+            job = writer.submit("cross-worker", owner_api_key_id="api-key:test")
+            writer.start(job.job_id)
+            writer.update_progress(job.job_id, 42, "cross-worker progress")
+            writer.complete(job.job_id, result={"ok": True})
+
+            events = []
+            async for payload in reader.stream(job.job_id, timeout=1.0):
+                events.append(payload)
+
+            assert any("event: progress" in payload for payload in events)
+            assert any("event: complete" in payload for payload in events)
+        finally:
+            reset_stores()
 
 
 # ─────────────────────────────────────────────────────────────
@@ -256,6 +314,32 @@ class TestJobsRouter:
         assert res.status_code == 200
         assert "text/event-stream" in res.headers.get("content-type", "")
 
+    def test_api_key_owned_job_status_stream_cancel(self, test_client, api_key_headers):
+        from job_queue import job_manager
+
+        principal_id = _api_key_principal(api_key_headers)
+        stream_job = job_manager.submit("test_stream", owner_api_key_id=principal_id)
+        job_manager.start(stream_job.job_id)
+        job_manager.complete(stream_job.job_id, result={"done": True})
+
+        status_res = test_client.get(f"/api/jobs/{stream_job.job_id}", headers=api_key_headers)
+        assert status_res.status_code == 200
+        stream_res = test_client.get(f"/api/jobs/{stream_job.job_id}/stream", headers=api_key_headers)
+        assert stream_res.status_code == 200
+        cancel_job = job_manager.submit("test_cancel", owner_api_key_id=principal_id)
+        job_manager.start(cancel_job.job_id)
+        cancel_res = test_client.post(f"/api/jobs/{cancel_job.job_id}/cancel", headers=api_key_headers)
+        assert cancel_res.status_code == 200
+        assert cancel_res.json()["status"] == "cancelled"
+
+    def test_metrics_endpoint_exposes_queue_observability(self, test_client, api_key_headers):
+        res = test_client.get("/api/jobs/metrics/summary", headers=api_key_headers)
+        assert res.status_code == 200
+        payload = res.json()
+        assert "backend" in payload
+        assert "events_dropped_total" in payload
+        assert "max_events_per_job" in payload
+
     def test_job_owner_mismatch_returns_not_found(self, test_client, auth_headers):
         from job_queue import job_manager
         job = job_manager.submit("test_stream", owner_user_id="other-user", tenant_id="tenant-jobs")
@@ -284,3 +368,32 @@ class TestAsyncAnalyzeEndpoint:
         """Without prior analysis, should return 404."""
         res = test_client.post("/api/diagrams/nonexistent/generate-hld-async", headers=auth_headers)
         assert res.status_code == 404
+
+    def test_api_key_async_iac_create_status_stream_cancel(self, test_client, api_key_headers, monkeypatch):
+        from job_queue import job_manager
+        from routers.shared import SESSION_STORE
+
+        async def _fake_run_iac_job(job_id: str, diagram_id: str, iac_format: str) -> None:
+            await asyncio.sleep(0)
+
+        monkeypatch.setattr("routers.iac_routes._run_iac_job", _fake_run_iac_job)
+        diagram_id = "api-key-iac-diagram"
+        SESSION_STORE[diagram_id] = {"services_detected": 0, "mappings": []}
+        try:
+            create = test_client.post(f"/api/diagrams/{diagram_id}/generate-async", headers=api_key_headers)
+            assert create.status_code == 202, create.text
+            job_id = create.json()["job_id"]
+            principal_id = _api_key_principal(api_key_headers)
+            created = job_manager.get(job_id)
+            assert created is not None
+            assert created.owner_user_id is None
+            assert created.owner_api_key_id == principal_id
+
+            status_res = test_client.get(f"/api/jobs/{job_id}", headers=api_key_headers)
+            assert status_res.status_code == 200
+            cancel_res = test_client.post(f"/api/jobs/{job_id}/cancel", headers=api_key_headers)
+            assert cancel_res.status_code == 200
+            stream_res = test_client.get(f"/api/jobs/{job_id}/stream", headers=api_key_headers)
+            assert stream_res.status_code == 200
+        finally:
+            SESSION_STORE.delete(diagram_id)

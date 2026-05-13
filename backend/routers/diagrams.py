@@ -21,7 +21,7 @@ import logging
 from routers.shared import (
     SESSION_STORE, IMAGE_STORE,
     limiter, verify_api_key, MAX_UPLOAD_SIZE, generate_session_id,
-    require_authenticated_user,
+    require_authenticated_user, get_api_key_service_principal,
 )
 import ci_smoke
 from job_queue import job_manager
@@ -452,12 +452,15 @@ async def analyze_diagram_async(
     if diagram_id not in IMAGE_STORE:
         raise ArchmorphException(404, f"No uploaded image found for diagram {diagram_id}. Upload first.")
 
-    user = get_user_from_request_headers(dict(request.headers))
+    headers = dict(request.headers)
+    user = get_user_from_request_headers(headers)
+    api_key_principal_id = get_api_key_service_principal(headers)
     job = job_manager.submit(
         "analyze",
         diagram_id=diagram_id,
         owner_user_id=user.id if user else None,
         tenant_id=user.tenant_id if user else None,
+        owner_api_key_id=api_key_principal_id if not user else None,
     )
     asyncio.create_task(_run_analysis_job(job.job_id, diagram_id))
 

@@ -6,6 +6,7 @@ import asyncio
 import os
 import logging
 import secrets
+import hashlib
 from collections import OrderedDict
 from typing import Optional, List
 
@@ -60,6 +61,22 @@ async def verify_api_key(api_key: Optional[str] = Security(API_KEY_HEADER)):
         return  # Auth disabled — dev mode only
     if not secrets.compare_digest(api_key or "", API_KEY):
         raise ArchmorphException(status_code=401, detail="Invalid or missing API key")
+
+
+def get_api_key_service_principal(headers: dict) -> Optional[str]:
+    """Return a stable API-key service principal ID for a verified key."""
+    api_key = headers.get("x-api-key")
+    if API_KEY:
+        if not secrets.compare_digest(api_key or "", API_KEY):
+            return None
+        key_material = api_key or API_KEY
+    else:
+        # Dev mode (API key auth disabled): only derive principal when a key is supplied.
+        key_material = api_key
+        if not key_material:
+            return None
+    digest = hashlib.sha256(key_material.encode("utf-8")).hexdigest()[:24]
+    return f"api-key:{digest}"
 
 
 # ─────────────────────────────────────────────────────────────
