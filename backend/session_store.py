@@ -132,7 +132,8 @@ class InMemoryStore(SessionStore):
     def set(self, key: str, value: Any, ttl: Optional[int] = None) -> None:
         # Estimate entry size and enforce memory budget (Issue #294)
         entry_size = self._estimate_entry_size(value)
-        replaced_size = self._estimate_entry_size(self._cache[key]) if key in self._cache else 0
+        key_exists = key in self._cache
+        replaced_size = self._estimate_entry_size(self._cache[key]) if key_exists else 0
 
         # Evict oldest entries until there is room or the cache is empty
         evicted_keys = []
@@ -158,7 +159,7 @@ class InMemoryStore(SessionStore):
             return
 
         # TTLCache doesn't support per-key TTL; use the store-wide TTL
-        if key in self._cache:
+        if key_exists:
             self.delete(key)
         self._cache[key] = value
         self._total_bytes += entry_size

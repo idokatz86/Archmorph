@@ -388,7 +388,10 @@ async def _run_iac_job(job_id: str, diagram_id: str, iac_format: str) -> None:
 
         # Keep async generation canonical state aligned with sync /generate:
         # persist code/hash/format + ETag for chat handoff and If-Match checks.
-        session = SESSION_STORE.get(diagram_id) or session
+        latest_session = SESSION_STORE.get(diagram_id)
+        if latest_session is None:
+            latest_session = session
+        session = latest_session
         session["iac_code"] = code
         session["iac_code_hash"] = _iac_code_hash(code)
         session["iac_format"] = iac_format

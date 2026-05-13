@@ -18,7 +18,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
 
 from fastapi.testclient import TestClient
-from auth import AuthProvider, User, UserTier, generate_session_token
 from main import app, SESSION_STORE
 
 
@@ -43,9 +42,12 @@ resource "azurerm_resource_group" "rg" {
   location = "West Europe"
 }
 """
+STALE_TERRAFORM_CODE = 'resource "azurerm_resource_group" "stale" {}'
 
 
 def _auth_headers(user_id: str = "iac-async-user", tenant_id: str = "tenant-iac-async") -> dict:
+    from auth import AuthProvider, User, UserTier, generate_session_token
+
     user = User(
         id=user_id,
         email=f"{user_id}@example.com",
@@ -240,6 +242,17 @@ class TestIacOptimisticConcurrency:
 class TestAsyncIacCanonicalState:
     """Async generation must persist canonical state for chat + concurrency checks."""
 
+    @staticmethod
+    def _wait_for_completion(client, job_id: str, headers: dict) -> dict:
+        for _ in range(40):
+            status_resp = client.get(f"/api/jobs/{job_id}", headers=headers)
+            assert status_resp.status_code == 200
+            job_status = status_resp.json()
+            if job_status["status"] == "completed":
+                return job_status
+            time.sleep(0.05)
+        pytest.fail(f"Async IaC job {job_id} did not complete in time")
+
     @patch("routers.iac_routes.generate_iac_code", return_value=MOCK_TERRAFORM_CODE)
     def test_async_generate_persists_canonical_code_hash_and_etag(
         self,
@@ -258,16 +271,7 @@ class TestAsyncIacCanonicalState:
         assert queued.status_code == 202
         job_id = queued.json()["job_id"]
 
-        job_status = None
-        for _ in range(40):
-            status_resp = client.get(f"/api/jobs/{job_id}", headers=headers)
-            assert status_resp.status_code == 200
-            job_status = status_resp.json()
-            if job_status["status"] == "completed":
-                break
-            time.sleep(0.05)
-        else:
-            pytest.fail(f"Async IaC job {job_id} did not complete in time")
+        job_status = self._wait_for_completion(client, job_id, headers)
 
         result = job_status["result"]
         expected_hash = _iac_code_hash(MOCK_TERRAFORM_CODE)
@@ -301,16 +305,9 @@ class TestAsyncIacCanonicalState:
         assert queued.status_code == 202
         job_id = queued.json()["job_id"]
 
-        for _ in range(40):
-            status_resp = client.get(f"/api/jobs/{job_id}", headers=headers)
-            assert status_resp.status_code == 200
-            if status_resp.json()["status"] == "completed":
-                break
-            time.sleep(0.05)
-        else:
-            pytest.fail(f"Async IaC job {job_id} did not complete in time")
+        self._wait_for_completion(client, job_id, headers)
 
-        stale_hash = _iac_code_hash('resource "azurerm_resource_group" "stale" {}')
+        stale_hash = _iac_code_hash(STALE_TERRAFORM_CODE)
         chat_resp = client.post(
             f"/api/diagrams/{diagram_with_analysis}/iac-chat",
             json={
@@ -322,7 +319,7 @@ class TestAsyncIacCanonicalState:
         )
         assert chat_resp.status_code == 409
 
-        stale_etag = _compute_iac_etag('resource "azurerm_resource_group" "stale" {}')
+        stale_etag = _compute_iac_etag(STALE_TERRAFORM_CODE)
         generate_resp = client.post(
             f"/api/diagrams/{diagram_with_analysis}/generate",
             params={"format": "terraform"},
