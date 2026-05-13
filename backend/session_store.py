@@ -156,6 +156,8 @@ class InMemoryStore(SessionStore):
         evicted_keys = []
         while self._total_bytes - existing_size + entry_size > self.MAX_MEMORY_BYTES and self._cache:
             oldest_key = next(iter(self._cache))
+            # If this key is the only resident entry, avoid evicting it here; the
+            # post-loop budget check below will reject oversize replacements.
             if oldest_key == key and len(self._cache) == 1:
                 break
             self.delete(oldest_key)
