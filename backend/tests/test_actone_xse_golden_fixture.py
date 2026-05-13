@@ -23,7 +23,7 @@ BACKEND_ROOT = Path(__file__).resolve().parent.parent
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from traceability_map import build_traceability_map  # noqa: E402
+from traceability_map import TRACEABILITY_SCHEMA_VERSION, build_traceability_map  # noqa: E402
 
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
@@ -244,13 +244,8 @@ class TestP0FlowRegressionGate:
 class TestSourceToTargetTraceability:
     def test_traceability_map_builds_from_golden_fixture(self):
         trace_map = build_traceability_map(GOLDEN)
-        assert trace_map["schema_version"] == "source-to-azure-iac-traceability/v1"
-        # Minimum of 5 reflects the fixture's resolvable non-custom mappings at confidence > 0;
-        # the actual count is higher — this is a floor guard, not a strict count.
-        min_resolvable = sum(1 for m in GOLDEN["mappings"] if m["confidence"] > 0)
-        assert len(trace_map["entries"]) >= min(5, min_resolvable), (
-            "Traceability map should have at least as many entries as resolvable mappings"
-        )
+        assert trace_map["schema_version"] == TRACEABILITY_SCHEMA_VERSION
+        assert trace_map["entries"], "Traceability map should contain fixture-derived entries"
 
     def test_known_azure_mappings_appear_in_traceability_entries(self):
         trace_map = build_traceability_map(GOLDEN)
@@ -293,11 +288,17 @@ class TestSourceToTargetTraceability:
                 )
 
     def test_traceability_entries_count_matches_resolvable_mappings(self):
-        """Traceability map entries should cover all non-zero-confidence mappings."""
+        """Traceability map entries should cover every non-zero-confidence mapping."""
         resolvable = [m for m in GOLDEN["mappings"] if m["confidence"] > 0]
         trace_map = build_traceability_map(GOLDEN)
-        # Allow for platform guardrail entries added by the map builder
-        assert len(trace_map["entries"]) >= len(resolvable), (
-            f"Traceability map has fewer entries ({len(trace_map['entries'])}) "
-            f"than resolvable mappings ({len(resolvable)})"
-        )
+        trace_keys = {
+            (entry["source_service"], entry["azure_service"], entry["category"])
+            for entry in trace_map["entries"]
+        }
+        missing = [
+            (mapping["source_service"], mapping["azure_service"], mapping["category"])
+            for mapping in resolvable
+            if (mapping["source_service"], mapping["azure_service"], mapping["category"])
+            not in trace_keys
+        ]
+        assert not missing, f"Resolvable mappings missing from traceability map: {missing}"
