@@ -5,6 +5,8 @@ import { Button, Modal } from '../ui';
 const MIN_ZOOM = 75;
 const MAX_ZOOM = 250;
 const ZOOM_STEP = 25;
+const SMALL_FILE_THRESHOLD_BYTES = 220 * 1024;
+const SMALL_PAGE_THRESHOLD_BYTES = 180 * 1024;
 
 function formatKb(size) {
   return `${Math.max(1, Math.round(size / 1024))} KB`;
@@ -19,7 +21,7 @@ function extractPdfDetails(buffer, fileSize) {
   const pageCount = pagesByCount || pagesByType;
 
   let legibilityWarning = null;
-  if (fileSize <= 220 * 1024 || (pageCount && (fileSize / pageCount) <= 180 * 1024)) {
+  if (fileSize <= SMALL_FILE_THRESHOLD_BYTES || (pageCount && (fileSize / pageCount) <= SMALL_PAGE_THRESHOLD_BYTES)) {
     legibilityWarning = 'Potential legibility risk: this PDF is compact and may contain tiny labels or rasterized text. Zoom and inspect before analysis.';
   }
 
@@ -88,7 +90,9 @@ export default function PdfPreviewPanel({ file }) {
         <div className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-xs text-warning" role="alert">
           {encrypted
             ? 'Preview unavailable: this PDF appears encrypted/password protected.'
-            : previewError || 'Inline PDF preview is not supported in this browser.'}
+            : previewError
+              ? previewError
+              : 'Inline PDF preview is not supported in this browser.'}
         </div>
       ) : (
         <>
