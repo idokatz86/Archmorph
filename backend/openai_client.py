@@ -122,7 +122,7 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
-def _worker_count() -> int:
+def _configured_worker_count() -> int:
     return max(
         1,
         _env_int("WEB_CONCURRENCY", _env_int("GUNICORN_WORKERS", _env_int("UVICORN_WORKERS", 1))),
@@ -134,7 +134,7 @@ def _openai_per_worker_limit() -> int:
     if explicit:
         return max(1, _env_int("OPENAI_MAX_INFLIGHT_PER_WORKER", 4))
     deployment_total = max(1, _env_int("OPENAI_MAX_INFLIGHT_DEPLOYMENT", 16))
-    return max(1, math.ceil(deployment_total / _worker_count()))
+    return max(1, math.ceil(deployment_total / _configured_worker_count()))
 
 
 OPENAI_MAX_INFLIGHT_PER_WORKER = _openai_per_worker_limit()
@@ -182,7 +182,8 @@ def _parse_retry_after_seconds(exc: Exception) -> Optional[float]:
 def _retry_wait_seconds(retry_state) -> float:
     # Exponential backoff (2, 4, 8...) with jitter, capped at 30s.
     attempt = max(1, retry_state.attempt_number)
-    base = min(30.0, float(2 ** attempt))
+    safe_attempt = min(attempt, 10)
+    base = min(30.0, float(2 ** safe_attempt))
     delay = base + random.uniform(0, 0.5)
     exc = retry_state.outcome.exception() if retry_state.outcome else None
     if exc is not None and _retryable_status(exc):
