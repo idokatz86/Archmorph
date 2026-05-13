@@ -1,16 +1,20 @@
 # Mutation Testing Baseline
 
-Archmorph tracks mutation score for the backend modules where line coverage can most easily overstate safety:
+Archmorph tracks mutation score for backend Live-risk modules where aggregate line coverage can overstate safety:
 
 - `backend/session_store.py`
-- `backend/vision_analyzer.py`
+- `backend/job_queue.py`
+- `backend/diagram_export.py`
+- `backend/export_capabilities.py`
 - `backend/iac_generator.py`
+- `backend/services/azure_pricing.py`
+- `backend/vision_analyzer.py`
 
 ## Policy
 
 - The committed baseline in `docs/testing/mutation-baseline.json` requires each critical module to stay at or above 60% mutation score.
 - `.github/workflows/mutation-testing.yml` runs quarterly and can be started manually from GitHub Actions.
-- The workflow runs `mutmut` against each critical module, uploads the raw result artifact, and then runs `scripts/mutation_score_gate.py`.
+- The workflow runs `mutmut` against each critical module (export, IaC, auth/capability, pricing, and workflow-state paths), uploads the raw result artifact, and then runs `scripts/mutation_score_gate.py`.
 - A score drop below baseline fails the workflow, creating a GitHub Actions alert that should be triaged like a quality regression.
 
 ## Local Usage

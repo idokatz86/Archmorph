@@ -83,11 +83,27 @@ def test_ci_workflow_enforces_frontend_perf_budgets():
     assert "Bundle size budget" in workflow
     assert 'LHCI_PORT: "4173"' in workflow
     assert "python3 ../scripts/perf_budget.py bundle --dist dist --budget perf/bundle-budget.json" in workflow
-    assert '@lhci/cli@0.15.1 autorun --config=./lighthouserc.json --collect.url="http://127.0.0.1:${LHCI_PORT}/"' in workflow
+    assert "Run frontend tests with Live coverage gate" in workflow
+    assert "npx vitest run --coverage" in workflow
+    assert '@lhci/cli@0.15.1 autorun --config=./lighthouserc.json' in workflow
     assert 'python3 -m http.server "$LHCI_PORT" -d dist' in workflow
     assert 'kill "$SERVER_PID" 2>/dev/null || true' in workflow
     assert "SERVER_READY=0" in workflow
     assert "frontend-lighthouse-report" in workflow
+
+
+def test_ci_workflow_enforces_risk_based_backend_coverage_floors():
+    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+
+    assert "Risk-based module coverage floors" in workflow
+    assert "diagram_export|tests/test_diagram_export.py|70" in workflow
+    assert "export_capabilities|tests/test_export_capabilities.py|70" in workflow
+    assert "iac_generator|tests/test_iac_generator.py|70" in workflow
+    assert "session_store|tests/test_session_store.py|75" in workflow
+    assert "job_queue|tests/test_job_queue.py|70" in workflow
+    assert "services.azure_pricing|tests/test_pricing_blob.py|65" in workflow
+    assert "--cov-fail-under=\"$floor\"" in workflow
+    assert "coverage-risk-report" in workflow
 
 
 def test_landing_zone_locust_enforces_primary_and_dr_slos():
