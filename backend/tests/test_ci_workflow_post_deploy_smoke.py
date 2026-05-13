@@ -29,3 +29,18 @@ def test_backend_deploy_wires_jwt_secret_to_container_app_revision():
     assert 'jwt-secret="${{ env.JWT_SECRET }}"' in deploy_script
     assert "JWT_SECRET=secretref:jwt-secret" in deploy_script
     assert "2>/dev/null || true" not in deploy_script
+
+
+def test_backend_readiness_accepts_azure_provisioned_state():
+    workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
+
+    readiness_step = next(
+        step
+        for step in workflow["jobs"]["deploy-backend"]["steps"]
+        if step.get("name") == "Wait for green revision readiness"
+    )
+    readiness_script = readiness_step["run"]
+
+    assert '[ "$PROVISIONING_STATE" = "Provisioned" ]' in readiness_script
+    assert '[ "$PROVISIONING_STATE" = "Succeeded" ]' in readiness_script
+    assert '[ "$RUNNING_STATE" = "Running" ]' in readiness_script
