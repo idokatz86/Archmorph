@@ -51,6 +51,10 @@ logger = logging.getLogger(__name__)
 _api_key_warning_logged = False
 
 
+def _safe_log_value(value: object) -> str:
+    return str(value).replace("\n", "").replace("\r", "")
+
+
 async def verify_api_key(api_key: Optional[str] = Security(API_KEY_HEADER)):
     """Verify API key if authentication is enabled."""
     global _api_key_warning_logged
@@ -141,6 +145,89 @@ def require_authenticated_user_context(request: Request) -> dict:
     if token:
         context["session_token"] = token
     return context
+
+
+def _load_diagram_session_for_access(diagram_id: str) -> Optional[dict]:
+    session = SESSION_STORE.get(diagram_id)
+    if session is not None:
+        return session
+    if not diagram_id.startswith("sample-"):
+        return None
+
+    from routers.samples import get_or_recreate_session
+
+    return get_or_recreate_session(diagram_id)
+
+
+def _is_public_diagram_session(diagram_id: str, session: Optional[dict]) -> bool:
+    if diagram_id.startswith("sample-"):
+        return True
+    if not isinstance(session, dict):
+        return False
+    return bool(
+        session.get("is_sample")
+        or session.get("is_template")
+        or session.get("is_starter")
+    )
+
+
+def authorize_diagram_access(
+    request: Request,
+    diagram_id: str,
+    purpose: str = "access",
+) -> dict:
+    """Authorize access to a session-backed diagram resource.
+
+    Public sample/template sessions are explicitly exempt. All other sessions
+    require either the owning authenticated user within the same tenant, or the
+    owning API-key principal that created the private session.
+    """
+    from auth import get_user_from_request_headers
+
+    session = _load_diagram_session_for_access(diagram_id)
+    if _is_public_diagram_session(diagram_id, session):
+        if session is None:
+            raise ArchmorphException(404, "Diagram not found")
+        return session
+
+    if session is None:
+        raise ArchmorphException(404, "Diagram not found")
+
+    headers = dict(request.headers)
+    user = get_user_from_request_headers(headers)
+    if user:
+        owner_user_id = session.get("_owner_user_id")
+        tenant_id = session.get("_tenant_id")
+        if not owner_user_id or not tenant_id:
+            logger.debug(
+                "deny_diagram_access_missing_user_metadata diagram_id=%s owner=%s tenant=%s",
+                _safe_log_value(diagram_id),
+                bool(owner_user_id),
+                bool(tenant_id),
+            )
+            raise ArchmorphException(404, "Diagram not found")
+        if owner_user_id != user.id or tenant_id != user.tenant_id:
+            raise ArchmorphException(404, "Diagram not found")
+        return session
+
+    api_key_principal_id = get_api_key_service_principal(headers)
+    if not api_key_principal_id:
+        raise ArchmorphException(401, f"Authentication required to {purpose}")
+
+    owner_api_key_id = session.get("_owner_api_key_id")
+    if not owner_api_key_id or owner_api_key_id != api_key_principal_id:
+        logger.debug(
+            "deny_diagram_access_missing_api_principal diagram_id=%s owner_api_key=%s",
+            _safe_log_value(diagram_id),
+            bool(owner_api_key_id),
+        )
+        raise ArchmorphException(404, "Diagram not found")
+    return session
+
+
+def require_diagram_access(request: Request, diagram_id: str) -> dict:
+    """FastAPI dependency wrapper for diagram access checks."""
+    return authorize_diagram_access(request, diagram_id)
 
 
 # ─────────────────────────────────────────────────────────────

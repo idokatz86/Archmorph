@@ -8057,6 +8057,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Export Architecture Package"
       }
     },
@@ -8141,6 +8146,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Export Architecture Diagram"
       }
     },
@@ -18217,6 +18227,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Export Architecture Package V1",
         "tags": [
           "v1"
@@ -18304,6 +18319,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Export Architecture Diagram V1",
         "tags": [
           "v1"

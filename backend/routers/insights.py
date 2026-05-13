@@ -14,8 +14,7 @@ import csv
 import io
 import logging
 
-from routers.shared import limiter, verify_api_key, SESSION_STORE
-from routers.samples import get_or_recreate_session
+from routers.shared import authorize_diagram_access, limiter, require_diagram_access, verify_api_key, SESSION_STORE
 from usage_metrics import record_event
 from cost_optimizer import analyze_cost_optimizations
 from cost_assumptions import build_cost_assumptions_artifact
@@ -33,15 +32,13 @@ router = APIRouter()
 # ─────────────────────────────────────────────────────────────
 # Cost Estimation
 # ─────────────────────────────────────────────────────────────
-@router.get("/api/diagrams/{diagram_id}/cost-estimate")
+@router.get("/api/diagrams/{diagram_id}/cost-estimate", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("15/minute")
 async def estimate_cost(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
     """Estimate monthly Azure costs for the analysed architecture."""
     record_event("cost_estimates", {"diagram_id": diagram_id})
 
-    session = get_or_recreate_session(diagram_id)
-    if not session:
-        raise ArchmorphException(404, "No analysis found. Analyze a diagram first.")
+    session = authorize_diagram_access(request, diagram_id, purpose="view cost estimates")
 
     mappings = session.get("mappings", [])
     iac_params = session.get("iac_parameters", {})
@@ -71,7 +68,7 @@ async def estimate_cost(request: Request, diagram_id: str, _auth=Depends(verify_
 # ─────────────────────────────────────────────────────────────
 # Enriched Cost Breakdown (#403)
 # ─────────────────────────────────────────────────────────────
-@router.get("/api/diagrams/{diagram_id}/cost-breakdown")
+@router.get("/api/diagrams/{diagram_id}/cost-breakdown", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("15/minute")
 async def cost_breakdown(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
     """Return enriched cost data for the Pricing tab.
@@ -82,9 +79,7 @@ async def cost_breakdown(request: Request, diagram_id: str, _auth=Depends(verify
     """
     record_event("cost_breakdown", {"diagram_id": diagram_id})
 
-    session = get_or_recreate_session(diagram_id)
-    if not session:
-        raise ArchmorphException(404, "No analysis found. Analyze a diagram first.")
+    session = authorize_diagram_access(request, diagram_id, purpose="view cost breakdowns")
 
     mappings = session.get("mappings", [])
     iac_params = session.get("iac_parameters", {})
@@ -252,13 +247,11 @@ async def cost_breakdown(request: Request, diagram_id: str, _auth=Depends(verify
 # ─────────────────────────────────────────────────────────────
 # Cost Optimization
 # ─────────────────────────────────────────────────────────────
-@router.get("/api/diagrams/{diagram_id}/cost-optimization")
+@router.get("/api/diagrams/{diagram_id}/cost-optimization", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("15/minute")
 async def get_cost_optimization(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
     """Get cost optimization recommendations for the architecture."""
-    analysis = get_or_recreate_session(diagram_id)
-    if not analysis:
-        raise ArchmorphException(404, "Analysis not found")
+    analysis = authorize_diagram_access(request, diagram_id, purpose="view cost optimizations")
 
     answers = analysis.get("applied_answers", {})
     cost_estimate = analysis.get("cost_estimate")
@@ -269,7 +262,7 @@ async def get_cost_optimization(request: Request, diagram_id: str, _auth=Depends
 # ─────────────────────────────────────────────────────────────
 # Terraform Plan Preview (Issue #122 / #123)
 # ─────────────────────────────────────────────────────────────
-@router.post("/api/diagrams/{diagram_id}/terraform-preview")
+@router.post("/api/diagrams/{diagram_id}/terraform-preview", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("10/minute")
 async def preview_terraform_plan_endpoint(
     request: Request,
@@ -281,9 +274,7 @@ async def preview_terraform_plan_endpoint(
     Uses simulation mode only — never executes real Terraform CLI
     to prevent Remote Code Execution via user-supplied HCL.
     """
-    analysis = get_or_recreate_session(diagram_id)
-    if not analysis:
-        raise ArchmorphException(404, "Analysis not found")
+    analysis = authorize_diagram_access(request, diagram_id, purpose="preview Terraform")
 
     iac_code = analysis.get("generated_iac")
     if not iac_code:
@@ -324,7 +315,7 @@ Return a JSON object:
 """
 
 
-@router.post("/api/diagrams/{diagram_id}/migration-chat")
+@router.post("/api/diagrams/{diagram_id}/migration-chat", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("20/minute")
 async def migration_chat(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
     """Contextual Q&A about the migration analysis results (#258).
@@ -332,9 +323,7 @@ async def migration_chat(request: Request, diagram_id: str, _auth=Depends(verify
     Body: { "message": "user question" }
     Returns: { "reply": "...", "related_services": [...] }
     """
-    analysis = get_or_recreate_session(diagram_id)
-    if not analysis:
-        raise ArchmorphException(404, "No analysis found. Analyze a diagram first.")
+    analysis = authorize_diagram_access(request, diagram_id, purpose="chat about migration insights")
 
     try:
         body = await request.json()
@@ -461,7 +450,7 @@ class CostAssumptionsResponse(StrictBaseModel):
 
 def _get_cost_overrides(diagram_id: str) -> dict:
     """Get user cost overrides from the session."""
-    session = get_or_recreate_session(diagram_id)
+    session = SESSION_STORE.get(diagram_id)
     if not session:
         return {}
     return session.get("_cost_overrides", {})
@@ -512,7 +501,7 @@ def _apply_overrides(services: list, overrides: dict) -> list:
     return result
 
 
-@router.post("/api/diagrams/{diagram_id}/cost-estimate/configure")
+@router.post("/api/diagrams/{diagram_id}/cost-estimate/configure", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("30/minute")
 async def configure_cost_estimate(
     request: Request,
@@ -521,9 +510,7 @@ async def configure_cost_estimate(
     _auth=Depends(verify_api_key),
 ):
     """Update per-service cost configuration (instance count, SKU, reserved capacity)."""
-    session = get_or_recreate_session(diagram_id)
-    if not session:
-        raise ArchmorphException(404, "No analysis found. Analyze a diagram first.")
+    session = authorize_diagram_access(request, diagram_id, purpose="configure cost estimates")
 
     overrides = session.get("_cost_overrides", {})
     for item in body.overrides:
@@ -539,13 +526,11 @@ async def configure_cost_estimate(
     return {"status": "ok", "overrides_count": len(overrides)}
 
 
-@router.get("/api/diagrams/{diagram_id}/cost-estimate/configured")
+@router.get("/api/diagrams/{diagram_id}/cost-estimate/configured", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("30/minute")
 async def get_configured_cost(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
     """Get cost estimate with user-configured overrides applied."""
-    session = get_or_recreate_session(diagram_id)
-    if not session:
-        raise ArchmorphException(404, "No analysis found. Analyze a diagram first.")
+    session = authorize_diagram_access(request, diagram_id, purpose="view configured cost estimates")
 
     mappings = session.get("mappings", [])
     iac_params = session.get("iac_parameters", {})
@@ -580,26 +565,22 @@ async def get_configured_cost(request: Request, diagram_id: str, _auth=Depends(v
     }
 
 
-@router.get("/api/diagrams/{diagram_id}/cost-assumptions", response_model=CostAssumptionsResponse)
+@router.get("/api/diagrams/{diagram_id}/cost-assumptions", response_model=CostAssumptionsResponse, dependencies=[Depends(require_diagram_access)])
 @limiter.limit("15/minute")
 async def get_cost_assumptions(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
     """Return a reviewable JSON artifact with cost-estimate assumptions."""
-    session = get_or_recreate_session(diagram_id)
-    if not session:
-        raise ArchmorphException(404, "No analysis found. Analyze a diagram first.")
+    session = authorize_diagram_access(request, diagram_id, purpose="view cost assumptions")
 
     artifact = build_cost_assumptions_artifact(session, analysis_id=diagram_id)
     SESSION_STORE[diagram_id] = session
     return artifact
 
 
-@router.get("/api/diagrams/{diagram_id}/cost-estimate/savings")
+@router.get("/api/diagrams/{diagram_id}/cost-estimate/savings", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("15/minute")
 async def get_ri_savings(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
     """Show Reserved Instance savings vs pay-as-you-go pricing."""
-    session = get_or_recreate_session(diagram_id)
-    if not session:
-        raise ArchmorphException(404, "No analysis found. Analyze a diagram first.")
+    session = authorize_diagram_access(request, diagram_id, purpose="view reserved instance savings")
 
     mappings = session.get("mappings", [])
     iac_params = session.get("iac_parameters", {})
@@ -655,7 +636,7 @@ async def get_ri_savings(request: Request, diagram_id: str, _auth=Depends(verify
     }
 
 
-@router.get("/api/diagrams/{diagram_id}/cost-estimate/export")
+@router.get("/api/diagrams/{diagram_id}/cost-estimate/export", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("10/minute")
 async def export_cost_csv(
     request: Request,
@@ -666,9 +647,7 @@ async def export_cost_csv(
     """Export cost breakdown as CSV with overrides applied."""
     from starlette.responses import Response
 
-    session = get_or_recreate_session(diagram_id)
-    if not session:
-        raise ArchmorphException(404, "No analysis found. Analyze a diagram first.")
+    session = authorize_diagram_access(request, diagram_id, purpose="export cost estimates")
 
     mappings = session.get("mappings", [])
     iac_params = session.get("iac_parameters", {})

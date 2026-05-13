@@ -10,8 +10,13 @@ from fastapi import APIRouter, Depends, Request, Query
 from typing import Optional, Literal
 import logging
 
-from routers.shared import limiter, verify_api_key
-from routers.samples import get_or_recreate_session
+from routers.shared import (
+    authorize_diagram_access,
+    get_api_key_service_principal,
+    limiter,
+    require_diagram_access,
+    verify_api_key,
+)
 from auth import get_user_from_request_headers
 import shareable_reports
 
@@ -20,11 +25,37 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def require_share_access(request: Request, share_id: str) -> dict:
+    record = shareable_reports.get_share_stats(share_id)
+    if not record:
+        raise ArchmorphException(404, "Share link not found")
+
+    headers = dict(request.headers)
+    user = get_user_from_request_headers(headers)
+    if user:
+        creator_id = record.get("creator_id")
+        creator_tenant_id = record.get("creator_tenant_id")
+        if creator_id and creator_id == user.id and (
+            creator_tenant_id is None or creator_tenant_id == user.tenant_id
+        ):
+            return record
+        if not creator_id:
+            raise ArchmorphException(404, "Share link not found")
+        raise ArchmorphException(403, "Only the creator can access this share")
+
+    api_key_principal_id = get_api_key_service_principal(headers)
+    if not api_key_principal_id:
+        raise ArchmorphException(401, "Authentication required")
+    if record.get("creator_api_principal_id") != api_key_principal_id:
+        raise ArchmorphException(404, "Share link not found")
+    return record
+
+
 # ─────────────────────────────────────────────────────────────
 # Shareable Stakeholder Reports
 # ─────────────────────────────────────────────────────────────
 
-@router.post("/api/diagrams/{diagram_id}/share")
+@router.post("/api/diagrams/{diagram_id}/share", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("10/minute")
 async def create_stakeholder_share(
     request: Request,
@@ -33,22 +64,27 @@ async def create_stakeholder_share(
     _auth=Depends(verify_api_key),
 ):
     """Generate a shareable stakeholder link with role-based views."""
-    analysis = get_or_recreate_session(diagram_id)
-    if not analysis:
-        raise ArchmorphException(404, "Analysis not found")
+    analysis = authorize_diagram_access(request, diagram_id, purpose="create a share link")
 
     # Extract creator identity when the request also carries an end-user session.
     creator_id = None
+    creator_tenant_id = None
+    creator_api_principal_id = None
     try:
         user = get_user_from_request_headers(dict(request.headers))
         if user and user.id:
             creator_id = user.id
+            creator_tenant_id = user.tenant_id
+        elif not user:
+            creator_api_principal_id = get_api_key_service_principal(dict(request.headers))
     except Exception:
         pass
 
     result = shareable_reports.create_share(
         analysis_snapshot=analysis,
         creator_id=creator_id,
+        creator_tenant_id=creator_tenant_id,
+        creator_api_principal_id=creator_api_principal_id,
         expiry_days=expiry_days,
     )
     return result
@@ -80,31 +116,27 @@ async def get_shared_report(
 
 @router.get("/api/shared/{share_id}/stats")
 @limiter.limit("30/minute")
-async def get_share_stats(request: Request, share_id: str, _auth=Depends(verify_api_key)):
+async def get_share_stats(
+    request: Request,
+    share_id: str,
+    _auth=Depends(verify_api_key),
+    _record=Depends(require_share_access),
+):
     """View count and metadata (creator only)."""
     stats = shareable_reports.get_share_stats(share_id)
     if not stats:
         raise ArchmorphException(404, "Share link not found")
-
-    creator_id = stats.get("creator_id")
-    if not creator_id:
-        return stats
-
-    try:
-        user = get_user_from_request_headers(dict(request.headers))
-        if not user or not user.id or user.id != creator_id:
-            raise ArchmorphException(403, "Only the creator can view share stats")
-    except ArchmorphException:
-        raise
-    except Exception:
-        raise ArchmorphException(403, "Only the creator can view share stats")
-
     return stats
 
 
 @router.delete("/api/shared/{share_id}")
 @limiter.limit("10/minute")
-async def revoke_share(request: Request, share_id: str, _auth=Depends(verify_api_key)):
+async def revoke_share(
+    request: Request,
+    share_id: str,
+    _auth=Depends(verify_api_key),
+    _record=Depends(require_share_access),
+):
     """Revoke a share link."""
     deleted = shareable_reports.delete_share(share_id)
     if not deleted:

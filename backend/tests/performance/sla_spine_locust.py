@@ -16,6 +16,7 @@ SUMMARY_PATH = Path(os.getenv("SLO_SPINE_SUMMARY_PATH", "sla-spine-summary.json"
 FAILURE_RATE_THRESHOLD = float(os.getenv("SLO_SPINE_FAILURE_RATE", "0.01"))
 TARGET_RPS = int(os.getenv("SLO_SPINE_TARGET_RPS", "30"))
 MIN_RPS_RATIO = float(os.getenv("SLO_SPINE_MIN_RPS_RATIO", "0.85"))
+API_HEADERS = {"X-API-Key": os.getenv("SLO_SPINE_API_KEY", "sla-spine-api-key")}
 _RUN_STARTED_AT: float | None = None
 
 SPINE_ENDPOINTS = {
@@ -72,7 +73,7 @@ def _post_json(user: HttpUser, path: str, payload: dict[str, Any], name: str):
     return user.client.post(
         path,
         data=json.dumps(payload),
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", **API_HEADERS},
         name=name,
         catch_response=True,
     )
@@ -99,6 +100,7 @@ class FullSpineUser(HttpUser):
         with self.client.post(
             "/api/projects/sla-spine/diagrams",
             files={"file": ("aws.png", PNG_BYTES, "image/png")},
+            headers=API_HEADERS,
             name="setup_upload_diagram",
             catch_response=True,
         ) as response:
@@ -112,6 +114,7 @@ class FullSpineUser(HttpUser):
     def _prime_session(self) -> None:
         with self.client.post(
             f"/api/diagrams/{self.diagram_id}/analyze",
+            headers=API_HEADERS,
             name="setup_prime_analyze",
             catch_response=True,
         ) as response:
@@ -139,6 +142,7 @@ class FullSpineUser(HttpUser):
     def analyze(self) -> None:
         with self.client.post(
             f"/api/diagrams/{self.diagram_id}/analyze",
+            headers=API_HEADERS,
             name="analyze",
             catch_response=True,
         ) as response:
@@ -148,6 +152,7 @@ class FullSpineUser(HttpUser):
     def generate_iac_terraform(self) -> None:
         with self.client.post(
             f"/api/diagrams/{self.diagram_id}/generate?format=terraform&force=true",
+            headers=API_HEADERS,
             name="generate_iac_terraform",
             catch_response=True,
         ) as response:
@@ -157,6 +162,7 @@ class FullSpineUser(HttpUser):
     def generate_iac_bicep(self) -> None:
         with self.client.post(
             f"/api/diagrams/{self.diagram_id}/generate?format=bicep&force=true",
+            headers=API_HEADERS,
             name="generate_iac_bicep",
             catch_response=True,
         ) as response:
@@ -166,6 +172,7 @@ class FullSpineUser(HttpUser):
     def generate_landing_zone(self) -> None:
         with self.client.post(
             f"/api/diagrams/{self.diagram_id}/export-diagram?format=landing-zone-svg",
+            headers=API_HEADERS,
             name="generate_landing_zone",
             catch_response=True,
         ) as response:
