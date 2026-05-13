@@ -10,8 +10,14 @@ import asyncio
 import base64
 import logging
 
-from routers.shared import SESSION_STORE, get_api_key_service_principal, limiter, verify_api_key
-from routers.samples import get_or_recreate_session
+from routers.shared import (
+    SESSION_STORE,
+    authorize_diagram_access,
+    get_api_key_service_principal,
+    limiter,
+    require_diagram_access,
+    verify_api_key,
+)
 from job_queue import job_manager
 from usage_metrics import record_event
 import routers.diagrams as diagrams_compat
@@ -29,15 +35,13 @@ router = APIRouter()
 # ─────────────────────────────────────────────────────────────
 # HLD Generation — AI-powered High-Level Design document
 # ─────────────────────────────────────────────────────────────
-@router.post("/api/diagrams/{diagram_id}/generate-hld")
+@router.post("/api/diagrams/{diagram_id}/generate-hld", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("10/minute")
 async def generate_hld_endpoint(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
     """Generate a comprehensive High-Level Design document."""
     record_event("hld_generated", {"diagram_id": diagram_id})
 
-    session = get_or_recreate_session(diagram_id)
-    if not session:
-        raise ArchmorphException(404, "Your migration analysis session expired. Please re-analyze the diagram.")
+    session = authorize_diagram_access(request, diagram_id, purpose="generate an HLD")
 
     analysis = session
 
@@ -120,13 +124,11 @@ async def _ensure_hld(session: dict, diagram_id: str) -> dict:
     return session
 
 
-@router.get("/api/diagrams/{diagram_id}/hld")
+@router.get("/api/diagrams/{diagram_id}/hld", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("30/minute")
 async def get_hld(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
     """Get previously generated HLD document."""
-    session = get_or_recreate_session(diagram_id)
-    if not session:
-        raise ArchmorphException(404, "No HLD found. Generate one first.")
+    session = authorize_diagram_access(request, diagram_id, purpose="view an HLD")
     session = await _ensure_hld(session, diagram_id)
     if "hld" not in session:
         raise ArchmorphException(404, "No HLD found. Generate one first.")
@@ -137,7 +139,7 @@ async def get_hld(request: Request, diagram_id: str, _auth=Depends(verify_api_ke
     }
 
 
-@router.post("/api/diagrams/{diagram_id}/export-hld")
+@router.post("/api/diagrams/{diagram_id}/export-hld", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("10/minute")
 async def export_hld_endpoint(
     request: Request,
@@ -166,9 +168,7 @@ async def export_hld_endpoint(
     include_diagrams = request.query_params.get("include_diagrams", "true").lower() == "true"
     export_mode = request.query_params.get("export_mode", "internal").lower()
 
-    session = get_or_recreate_session(diagram_id)
-    if not session:
-        raise ArchmorphException(404, "No HLD found. Generate one first.")
+    session = authorize_diagram_access(request, diagram_id, purpose="export an HLD")
     session = await _ensure_hld(session, diagram_id)
     if "hld" not in session:
         raise ArchmorphException(404, "No HLD found. Generate one first.")
@@ -239,7 +239,7 @@ async def export_hld_endpoint(
 # ─────────────────────────────────────────────────────────────
 # Async HLD Generation (Issue #172)
 # ─────────────────────────────────────────────────────────────
-@router.post("/api/diagrams/{diagram_id}/generate-hld-async")
+@router.post("/api/diagrams/{diagram_id}/generate-hld-async", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("10/minute")
 async def generate_hld_async(
     request: Request,
@@ -252,17 +252,7 @@ async def generate_hld_async(
     headers = dict(request.headers)
     user = get_user_from_request_headers(headers)
     api_key_principal_id = get_api_key_service_principal(headers)
-    session = get_or_recreate_session(diagram_id)
-    if not session:
-        raise ArchmorphException(404, "Your migration analysis session expired. Please re-analyze the diagram.")
-    owner_user_id = session.get("_owner_user_id")
-    tenant_id = session.get("_tenant_id")
-    if (owner_user_id or tenant_id) and not user:
-        raise ArchmorphException(401, "Authentication required")
-    if user and owner_user_id and owner_user_id != user.id:
-        raise ArchmorphException(403, "Forbidden: diagram owner mismatch")
-    if user and tenant_id and tenant_id != user.tenant_id:
-        raise ArchmorphException(403, "Forbidden: tenant mismatch")
+    authorize_diagram_access(request, diagram_id, purpose="queue HLD generation")
 
     job = job_manager.submit(
         "generate_hld",
@@ -291,10 +281,25 @@ async def _run_hld_job(job_id: str, diagram_id: str) -> None:
         job_manager.start(job_id)
         job_manager.update_progress(job_id, 10, "Preparing HLD generation...")
 
-        session = get_or_recreate_session(diagram_id)
+        job_record = job_manager.get(job_id)
+        session = SESSION_STORE.get(diagram_id)
         if not session:
             job_manager.fail(job_id, "Analysis not found")
             return
+        if job_record:
+            job_user_id = getattr(job_record, "owner_user_id", None)
+            job_tenant_id = getattr(job_record, "tenant_id", None)
+            job_api_key_id = getattr(job_record, "owner_api_key_id", None)
+            if job_user_id or job_tenant_id:
+                if (
+                    session.get("_owner_user_id") != job_user_id
+                    or session.get("_tenant_id") != job_tenant_id
+                ):
+                    job_manager.fail(job_id, "Analysis access revoked")
+                    return
+            elif job_api_key_id and session.get("_owner_api_key_id") != job_api_key_id:
+                job_manager.fail(job_id, "Analysis access revoked")
+                return
 
         if job_manager.is_cancelled(job_id):
             return
@@ -342,7 +347,7 @@ async def _run_hld_job(job_id: str, diagram_id: str) -> None:
 # ─────────────────────────────────────────────────────────────
 # Migration Package Export (#252)
 # ─────────────────────────────────────────────────────────────
-@router.post("/api/diagrams/{diagram_id}/export-package")
+@router.post("/api/diagrams/{diagram_id}/export-package", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("5/minute")
 async def export_migration_package(
     request: Request,
@@ -361,9 +366,7 @@ async def export_migration_package(
     import json
     import zipfile
 
-    session = get_or_recreate_session(diagram_id)
-    if not session:
-        raise ArchmorphException(404, "Your migration analysis session expired. Please re-analyze the diagram.")
+    session = authorize_diagram_access(request, diagram_id, purpose="export a migration package")
 
     # Parse options
     iac_format = "terraform"

@@ -9420,6 +9420,8 @@ export interface components {
             analysis_id: string;
             /** Owner */
             owner: string;
+            /** Participant Token */
+            participant_token: string;
             /** Session Id */
             session_id: string;
             /** Share Code */
@@ -10288,6 +10290,8 @@ export interface components {
              * @enum {string}
              */
             change_type: "answer_update" | "annotation" | "comment" | "approval";
+            /** Participant Token */
+            participant_token?: string | null;
             /** Payload */
             payload?: {
                 [key: string]: unknown;
@@ -11884,7 +11888,9 @@ export interface operations {
     };
     get_session_api_collab_sessions__session_id__get: {
         parameters: {
-            query?: never;
+            query?: {
+                participant_token?: string | null;
+            };
             header?: never;
             path: {
                 session_id: string;
@@ -11915,7 +11921,9 @@ export interface operations {
     };
     get_changes_api_collab_sessions__session_id__changes_get: {
         parameters: {
-            query?: never;
+            query?: {
+                participant_token?: string | null;
+            };
             header?: never;
             path: {
                 session_id: string;
@@ -18507,7 +18515,9 @@ export interface operations {
     };
     get_session_v1_api_v1_collab_sessions__session_id__get: {
         parameters: {
-            query?: never;
+            query?: {
+                participant_token?: string | null;
+            };
             header?: never;
             path: {
                 session_id: string;
@@ -18538,7 +18548,9 @@ export interface operations {
     };
     get_changes_v1_api_v1_collab_sessions__session_id__changes_get: {
         parameters: {
-            query?: never;
+            query?: {
+                participant_token?: string | null;
+            };
             header?: never;
             path: {
                 session_id: string;

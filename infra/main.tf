@@ -2504,7 +2504,7 @@ resource "azurerm_cdn_frontdoor_firewall_policy" "waf" {
     match_condition {
       match_variable = "RemoteAddr"
       operator       = "IPMatch"
-      match_values   = ["0.0.0.0/0"] # Match all (rate-limit everyone equally)
+      match_values   = ["0.0.0.0/0", "::/0"] # Match all IPv4 and IPv6 clients equally
     }
   }
 

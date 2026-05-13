@@ -1545,6 +1545,10 @@
             "title": "Owner",
             "type": "string"
           },
+          "participant_token": {
+            "title": "Participant Token",
+            "type": "string"
+          },
           "session_id": {
             "title": "Session Id",
             "type": "string"
@@ -1558,7 +1562,8 @@
           "session_id",
           "share_code",
           "analysis_id",
-          "owner"
+          "owner",
+          "participant_token"
         ],
         "title": "CreateSessionResponse",
         "type": "object"
@@ -3538,6 +3543,19 @@
             "title": "Change Type",
             "type": "string"
           },
+          "participant_token": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Participant Token"
+          },
           "payload": {
             "additionalProperties": true,
             "title": "Payload",
@@ -4965,7 +4983,7 @@
         },
         "security": [
           {
-            "APIKeyHeader": []
+            "HTTPBearer": []
           }
         ],
         "summary": "Api Generate Suggestion",
@@ -5010,7 +5028,7 @@
         },
         "security": [
           {
-            "APIKeyHeader": []
+            "HTTPBearer": []
           }
         ],
         "summary": "Api Generate Batch",
@@ -5073,7 +5091,7 @@
         },
         "security": [
           {
-            "APIKeyHeader": []
+            "HTTPBearer": []
           }
         ],
         "summary": "Api Suggestion History",
@@ -5098,7 +5116,7 @@
         },
         "security": [
           {
-            "APIKeyHeader": []
+            "HTTPBearer": []
           }
         ],
         "summary": "Api Pending Suggestions",
@@ -5151,7 +5169,7 @@
         },
         "security": [
           {
-            "APIKeyHeader": []
+            "HTTPBearer": []
           }
         ],
         "summary": "Api Review Queue",
@@ -5176,7 +5194,7 @@
         },
         "security": [
           {
-            "APIKeyHeader": []
+            "HTTPBearer": []
           }
         ],
         "summary": "Api Suggestion Stats",
@@ -5232,7 +5250,7 @@
         },
         "security": [
           {
-            "APIKeyHeader": []
+            "HTTPBearer": []
           }
         ],
         "summary": "Api Review Suggestion",
@@ -5814,6 +5832,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Chat History"
       }
     },
@@ -5852,6 +5875,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Chat Clear"
       }
     },
@@ -5915,6 +5943,22 @@
               "title": "Session Id",
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "participant_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Participant Token"
+            }
           }
         ],
         "responses": {
@@ -5960,6 +6004,22 @@
             "schema": {
               "title": "Session Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "participant_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Participant Token"
             }
           }
         ],
@@ -7022,6 +7082,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Execute Deployment",
         "tags": [
           "deploy"
@@ -7570,6 +7635,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Cost Breakdown"
       }
     },
@@ -7608,6 +7678,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Estimate Cost"
       }
     },
@@ -7844,6 +7919,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Get Cost Optimization"
       }
     },
@@ -7948,6 +8028,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Diff Versions"
       }
     },
@@ -8022,6 +8107,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Export Architecture Package"
       }
     },
@@ -8106,6 +8196,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Export Architecture Diagram"
       }
     },
@@ -8525,6 +8620,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Iac Chat Clear"
       },
       "post": {
@@ -8614,6 +8714,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Iac Chat History"
       }
     },
@@ -9323,6 +9428,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Create Stakeholder Share"
       }
     },
@@ -9404,6 +9514,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "List Versions"
       },
       "post": {
@@ -9456,6 +9571,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Create Version Endpoint"
       }
     },
@@ -9516,6 +9636,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Compare Versions Endpoint"
       }
     },
@@ -9571,6 +9696,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Save Version"
       }
     },
@@ -9618,6 +9748,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Get Version Endpoint"
       }
     },
@@ -9665,6 +9800,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Restore Version Endpoint"
       }
     },
@@ -9712,6 +9852,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Get Version"
       }
     },
@@ -9776,6 +9921,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Branch Version"
       }
     },
@@ -13303,6 +13453,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Revoke Share"
       },
       "get": {
@@ -13398,6 +13553,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Get Share Stats"
       }
     },
@@ -14897,7 +15057,7 @@
         },
         "security": [
           {
-            "APIKeyHeader": []
+            "HTTPBearer": []
           }
         ],
         "summary": "Api Generate Suggestion V1",
@@ -14943,7 +15103,7 @@
         },
         "security": [
           {
-            "APIKeyHeader": []
+            "HTTPBearer": []
           }
         ],
         "summary": "Api Generate Batch V1",
@@ -15007,7 +15167,7 @@
         },
         "security": [
           {
-            "APIKeyHeader": []
+            "HTTPBearer": []
           }
         ],
         "summary": "Api Suggestion History V1",
@@ -15033,7 +15193,7 @@
         },
         "security": [
           {
-            "APIKeyHeader": []
+            "HTTPBearer": []
           }
         ],
         "summary": "Api Pending Suggestions V1",
@@ -15087,7 +15247,7 @@
         },
         "security": [
           {
-            "APIKeyHeader": []
+            "HTTPBearer": []
           }
         ],
         "summary": "Api Review Queue V1",
@@ -15113,7 +15273,7 @@
         },
         "security": [
           {
-            "APIKeyHeader": []
+            "HTTPBearer": []
           }
         ],
         "summary": "Api Suggestion Stats V1",
@@ -15170,7 +15330,7 @@
         },
         "security": [
           {
-            "APIKeyHeader": []
+            "HTTPBearer": []
           }
         ],
         "summary": "Api Review Suggestion V1",
@@ -15785,6 +15945,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Chat History V1",
         "tags": [
           "v1"
@@ -15826,6 +15991,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Chat Clear V1",
         "tags": [
           "v1"
@@ -15893,6 +16063,22 @@
               "title": "Session Id",
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "participant_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Participant Token"
+            }
           }
         ],
         "responses": {
@@ -15939,6 +16125,22 @@
             "schema": {
               "title": "Session Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "participant_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Participant Token"
             }
           }
         ],
@@ -17035,6 +17237,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Execute Deployment V1",
         "tags": [
           "deploy",
@@ -17605,6 +17812,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Cost Breakdown V1",
         "tags": [
           "v1"
@@ -17646,6 +17858,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Estimate Cost V1",
         "tags": [
           "v1"
@@ -17897,6 +18114,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Get Cost Optimization V1",
         "tags": [
           "v1"
@@ -18005,6 +18227,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Diff Versions V1",
         "tags": [
           "v1"
@@ -18082,6 +18309,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Export Architecture Package V1",
         "tags": [
           "v1"
@@ -18169,6 +18401,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Export Architecture Diagram V1",
         "tags": [
           "v1"
@@ -18612,6 +18849,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Iac Chat Clear V1",
         "tags": [
           "v1"
@@ -18707,6 +18949,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Iac Chat History V1",
         "tags": [
           "v1"
@@ -19458,6 +19705,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Create Stakeholder Share V1",
         "tags": [
           "v1"
@@ -19545,6 +19797,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "List Versions V1",
         "tags": [
           "v1"
@@ -19600,6 +19857,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Create Version Endpoint V1",
         "tags": [
           "v1"
@@ -19663,6 +19925,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Compare Versions Endpoint V1",
         "tags": [
           "v1"
@@ -19721,6 +19988,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Save Version V1",
         "tags": [
           "v1"
@@ -19771,6 +20043,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Get Version Endpoint V1",
         "tags": [
           "v1"
@@ -19821,6 +20098,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Restore Version Endpoint V1",
         "tags": [
           "v1"
@@ -19871,6 +20153,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Get Version V1",
         "tags": [
           "v1"
@@ -19938,6 +20225,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Branch Version V1",
         "tags": [
           "v1"
@@ -23627,6 +23919,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Revoke Share V1",
         "tags": [
           "v1"
@@ -23728,6 +24025,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Get Share Stats V1",
         "tags": [
           "v1"
