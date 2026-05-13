@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { saveSession, loadSession, clearSession, cacheImage } from '../../services/sessionCache'
+import { saveSession, loadSession, clearSession, cacheImage, loadCachedImage } from '../../services/sessionCache'
 
 function saveSessionWithOptIn(diagramId, analysis, questions = [], answers = {}, extra = {}) {
   return saveSession(diagramId, analysis, questions, answers, { ...extra, persistSensitive: true })
@@ -204,5 +204,61 @@ describe('sessionCache', () => {
   it('does not persist uploaded image bytes by default (confidential mode)', () => {
     cacheImage('diagram-1', 'ZmFrZS1pbWFnZQ==', 'image/png')
     expect(sessionStorage.getItem('archmorph_img_diagram-1')).toBeNull()
+  })
+
+  it('clears legacy sensitive cache payloads instead of restoring them by default', () => {
+    sessionStorage.setItem('archmorph_active_diagram', 'legacy-diagram')
+    sessionStorage.setItem('archmorph_session_legacy-diagram', JSON.stringify({
+      diagramId: 'legacy-diagram',
+      analysis: { zones: ['private'], export_capability: 'nested-token' },
+      exportCapability: 'top-level-token',
+      questions: [],
+      answers: {},
+      ts: Date.now(),
+    }))
+
+    expect(loadSession()).toBeNull()
+    expect(sessionStorage.getItem('archmorph_session_legacy-diagram')).toBeNull()
+    expect(sessionStorage.getItem('archmorph_session')).toBeNull()
+  })
+
+  it('rewrites allowed legacy cache payloads after removing export capabilities', () => {
+    sessionStorage.setItem('archmorph_sensitive_cache_opt_in', 'true')
+    sessionStorage.setItem('archmorph_active_diagram', 'legacy-diagram')
+    sessionStorage.setItem('archmorph_session_legacy-diagram', JSON.stringify({
+      diagramId: 'legacy-diagram',
+      analysis: { zones: ['private'], export_capability: 'nested-token' },
+      exportCapability: 'top-level-token',
+      questions: [],
+      answers: {},
+      ts: Date.now(),
+    }))
+
+    const restored = loadSession()
+    expect(restored.analysis.export_capability).toBeUndefined()
+    expect(restored.exportCapability).toBeUndefined()
+    const rewritten = JSON.parse(sessionStorage.getItem('archmorph_session_legacy-diagram'))
+    expect(rewritten.analysis.export_capability).toBeUndefined()
+    expect(rewritten.exportCapability).toBeUndefined()
+  })
+
+  it('persists session and image data when storage opt-in is enabled', () => {
+    sessionStorage.setItem('archmorph_sensitive_cache_opt_in', 'true')
+
+    saveSession('opted-in-diagram', { zones: ['demo'] }, [], {})
+    cacheImage('opted-in-diagram', 'ZmFrZS1pbWFnZQ==', 'image/png')
+
+    expect(loadSession('opted-in-diagram').analysis.zones).toEqual(['demo'])
+    expect(loadCachedImage('opted-in-diagram').contentType).toBe('image/png')
+  })
+
+  it('honors explicit false override even when storage opt-in is enabled', () => {
+    sessionStorage.setItem('archmorph_sensitive_cache_opt_in', 'true')
+
+    saveSession('blocked-diagram', { zones: ['private'] }, [], {}, { persistSensitive: false })
+    cacheImage('blocked-diagram', 'ZmFrZS1pbWFnZQ==', 'image/png', { persistSensitive: false })
+
+    expect(sessionStorage.getItem('archmorph_session_blocked-diagram')).toBeNull()
+    expect(sessionStorage.getItem('archmorph_img_blocked-diagram')).toBeNull()
   })
 })

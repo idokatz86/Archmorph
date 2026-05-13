@@ -41,6 +41,19 @@ function _sanitizeAnalysis(analysis) {
   return sanitized;
 }
 
+function _removeCachedPayload(key, diagramId) {
+  sessionStorage.removeItem(key);
+  if (diagramId) sessionStorage.removeItem(_cacheKey(diagramId));
+  sessionStorage.removeItem(LEGACY_CACHE_KEY);
+}
+
+function _sanitizeCachedPayload(data) {
+  const sanitized = { ...data };
+  delete sanitized.exportCapability;
+  sanitized.analysis = _sanitizeAnalysis(sanitized.analysis);
+  return sanitized;
+}
+
 /** Build a per-diagram cache key (#265 — multi-tab data loss fix). */
 function _cacheKey(diagramId) {
   return diagramId ? `${CACHE_PREFIX}${diagramId}` : LEGACY_CACHE_KEY;
@@ -75,6 +88,7 @@ export function saveSession(diagramId, analysis, questions = [], answers = {}, e
       iacCode: extra.iacCode || null,
       iacFormat: extra.iacFormat || null,
       hldData: extra.hldData || null,
+      sensitiveCacheOptIn: true,
       ts: Date.now(),
     });
     sessionStorage.setItem(_cacheKey(diagramId), payload);
@@ -114,25 +128,33 @@ export function updateSessionCache(updates) {
  * Returns null if nothing is cached or if the cache is stale (> 2 hours).
  * @param {string} [diagramId] - Optional specific diagram to load.
  */
-export function loadSession(diagramId) {
+export function loadSession(diagramId, options = {}) {
   try {
     const id = diagramId || _getActiveDiagram();
     const key = id ? _cacheKey(id) : LEGACY_CACHE_KEY;
     let raw = sessionStorage.getItem(key);
+    let storageKey = key;
     // Fall back to legacy key for migration (#265)
     if (!raw && key !== LEGACY_CACHE_KEY) {
       raw = sessionStorage.getItem(LEGACY_CACHE_KEY);
+      storageKey = LEGACY_CACHE_KEY;
     }
     if (!raw) return null;
     const data = JSON.parse(raw);
-    // Discard caches older than 2 hours (matches backend TTL)
-    if (Date.now() - data.ts > 2 * 60 * 60 * 1000) {
-      sessionStorage.removeItem(key);
+    if (!data.sensitiveCacheOptIn && !shouldPersistSensitiveSessionCache(options)) {
+      _removeCachedPayload(storageKey, data.diagramId || id);
       return null;
     }
-    delete data.exportCapability;
-    data.analysis = _sanitizeAnalysis(data.analysis);
-    return data;
+    // Discard caches older than 2 hours (matches backend TTL)
+    if (Date.now() - data.ts > 2 * 60 * 60 * 1000) {
+      _removeCachedPayload(storageKey, data.diagramId || id);
+      return null;
+    }
+    const sanitized = _sanitizeCachedPayload(data);
+    if (JSON.stringify(sanitized) !== raw) {
+      sessionStorage.setItem(storageKey, JSON.stringify(sanitized));
+    }
+    return sanitized;
   } catch {
     return null;
   }
