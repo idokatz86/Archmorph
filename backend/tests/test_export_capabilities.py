@@ -113,3 +113,27 @@ def test_rotated_capability_allows_next_valid_export(test_client, diagram_id):
     assert first.status_code == 200, first.text
     assert second.status_code == 200, second.text
     assert second.json()["export_capability"] != next_token
+
+
+def test_valid_capability_survives_route_failure_before_export_success(test_client, diagram_id):
+    token = issue_export_capability(diagram_id)
+    SESSION_STORE.delete(diagram_id)
+
+    failed = _export_package(test_client, diagram_id, token)
+    SESSION_STORE[diagram_id] = dict(SAMPLE_ANALYSIS)
+    retried = _export_package(test_client, diagram_id, token)
+
+    assert failed.status_code == 404
+    assert retried.status_code == 200, retried.text
+
+
+def test_query_export_token_rejected_outside_local(test_client, diagram_id, monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    token = issue_export_capability(diagram_id)
+
+    response = test_client.post(
+        f"/api/diagrams/{diagram_id}/export-architecture-package?format=html&export_token={token}",
+    )
+
+    assert response.status_code == 400
+    assert "Query-string export capabilities are disabled" in response.text

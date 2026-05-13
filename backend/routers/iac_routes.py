@@ -16,7 +16,7 @@ import re
 import secrets
 from typing import Literal, Optional
 
-from routers.shared import SESSION_STORE, limiter, verify_api_key
+from routers.shared import SESSION_STORE, get_api_key_service_principal, limiter, verify_api_key
 from job_queue import job_manager
 from usage_metrics import record_event, record_funnel_step
 from iac_chat import process_iac_chat, get_iac_chat_history, clear_iac_chat
@@ -324,7 +324,9 @@ async def generate_iac_async(
     """
     from auth import get_user_from_request_headers
 
-    user = get_user_from_request_headers(dict(request.headers))
+    headers = dict(request.headers)
+    user = get_user_from_request_headers(headers)
+    api_key_principal_id = get_api_key_service_principal(headers)
     session = SESSION_STORE.get(diagram_id, {})
     owner_user_id = session.get("_owner_user_id")
     tenant_id = session.get("_tenant_id")
@@ -341,6 +343,7 @@ async def generate_iac_async(
         diagram_id=diagram_id,
         owner_user_id=user.id if user else None,
         tenant_id=user.tenant_id if user else None,
+        owner_api_key_id=api_key_principal_id if not user else None,
     )
     asyncio.create_task(_run_iac_job(job.job_id, diagram_id, format))
 

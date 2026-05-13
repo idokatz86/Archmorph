@@ -21,7 +21,7 @@ import logging
 from routers.shared import (
     SESSION_STORE, IMAGE_STORE,
     limiter, verify_api_key, MAX_UPLOAD_SIZE, generate_session_id,
-    require_authenticated_user,
+    require_authenticated_user, get_api_key_service_principal,
 )
 import ci_smoke
 from job_queue import job_manager
@@ -367,10 +367,16 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
 
     if ci_smoke.enabled():
         result = ci_smoke.clone_analysis(diagram_id)
+        user = get_user_from_request_headers(dict(request.headers))
+        if user:
+            result["_owner_user_id"] = user.id
+            result["_tenant_id"] = user.tenant_id
         SESSION_STORE[diagram_id] = result
         mark_diagram_analyzed(diagram_id, result)
         record_event("analyses_run", {"diagram_id": diagram_id, "services": result["services_detected"]})
         record_funnel_step(diagram_id, "analyze")
+        if user:
+            maybe_save_from_session(user.id, result, diagram_id)
         return attach_export_capability(result, diagram_id)
 
     # No need to pre-compress, vision analyzer and classifier handle it internally
@@ -415,6 +421,12 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
     result["diagram_id"] = diagram_id
     result["image_classification"] = classification
 
+    # Save to user history if authenticated (#245)
+    user = get_user_from_request_headers(dict(request.headers))
+    if user:
+        result["_owner_user_id"] = user.id
+        result["_tenant_id"] = user.tenant_id
+
     if len(SESSION_STORE) >= SESSION_STORE.maxsize:
         logger.warning("Session store at capacity (%d/%d) — oldest sessions will be evicted",
                        str(len(SESSION_STORE)).replace('\n', '').replace('\r', ''), str(SESSION_STORE.maxsize).replace('\n', '').replace('\r', ''))
@@ -423,11 +435,7 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
     record_event("analyses_run", {"diagram_id": diagram_id, "services": result["services_detected"]})
     record_funnel_step(diagram_id, "analyze")
 
-    # Save to user history if authenticated (#245)
-    user = get_user_from_request_headers(dict(request.headers))
     if user:
-        result["_owner_user_id"] = user.id
-        result["_tenant_id"] = user.tenant_id
         maybe_save_from_session(user.id, result, diagram_id)
 
     return attach_export_capability(result, diagram_id)
@@ -452,12 +460,15 @@ async def analyze_diagram_async(
     if diagram_id not in IMAGE_STORE:
         raise ArchmorphException(404, f"No uploaded image found for diagram {diagram_id}. Upload first.")
 
-    user = get_user_from_request_headers(dict(request.headers))
+    headers = dict(request.headers)
+    user = get_user_from_request_headers(headers)
+    api_key_principal_id = get_api_key_service_principal(headers)
     job = job_manager.submit(
         "analyze",
         diagram_id=diagram_id,
         owner_user_id=user.id if user else None,
         tenant_id=user.tenant_id if user else None,
+        owner_api_key_id=api_key_principal_id if not user else None,
     )
     asyncio.create_task(_run_analysis_job(job.job_id, diagram_id))
 
@@ -534,8 +545,9 @@ async def _run_analysis_job(job_id: str, diagram_id: str) -> None:
         record_event("analyses_run", {"diagram_id": diagram_id, "services": result.get("services_detected", 0)})
         record_funnel_step(diagram_id, "analyze")
 
-        # Save to user history if job carries user_id (#245)
-        job_user_id = getattr(job_manager.get_job(job_id), "user_id", None) if hasattr(job_manager, "get_job") else None
+        # Save to user history if job carries an authenticated owner.
+        job_owner = job_manager.get(job_id)
+        job_user_id = getattr(job_owner, "owner_user_id", None)
         if job_user_id:
             maybe_save_from_session(job_user_id, result, diagram_id)
 

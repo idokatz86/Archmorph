@@ -18,7 +18,7 @@ from mcp_diagram_generator import mcp_client
 from service_builder import deduplicate_questions, get_smart_defaults_from_analysis, add_services_from_text
 from architecture_package import generate_architecture_package
 from error_envelope import ArchmorphException
-from export_capabilities import attach_export_capability, verify_export_capability
+from export_capabilities import attach_export_capability, consume_export_capability, verify_export_capability
 from analysis_payload_bounds import AnalysisPayloadTooLarge, validate_analysis_payload_bounds
 
 logger = logging.getLogger(__name__)
@@ -142,7 +142,12 @@ async def add_services_natural_language(
 # ─────────────────────────────────────────────────────────────
 @router.post("/api/diagrams/{diagram_id}/apply-answers")
 @limiter.limit("15/minute")
-async def apply_guided_answers(request: Request, diagram_id: str, answers: Dict[str, Any]):
+async def apply_guided_answers(
+    request: Request,
+    diagram_id: str,
+    answers: Dict[str, Any],
+    _auth=Depends(verify_api_key),
+):
     """Apply user answers to refine the Azure architecture analysis."""
     analysis = get_or_recreate_session(diagram_id)
     if not analysis:
@@ -166,7 +171,7 @@ async def export_architecture_diagram(
     format: str = "excalidraw",
     multi_page: bool = False,
     dr_variant: str = "primary",
-    _capability=Depends(verify_export_capability),
+    capability=Depends(verify_export_capability),
 ):
     """Generate an architecture diagram in Excalidraw, Draw.io, Visio, or
     Landing-Zone-SVG format.
@@ -224,6 +229,7 @@ async def export_architecture_diagram(
             "dr_variant": dr_variant,
         })
         record_funnel_step(diagram_id, "export")
+        consume_export_capability(capability)
         return attach_export_capability(result, diagram_id)
 
     try:
@@ -250,6 +256,7 @@ async def export_architecture_diagram(
 
     record_event(f"exports_{format}", {"diagram_id": diagram_id})
     record_funnel_step(diagram_id, "export")
+    consume_export_capability(capability)
     return attach_export_capability(result, diagram_id)
 
 
@@ -263,7 +270,7 @@ async def export_architecture_package(
     diagram_id: str,
     format: str = "html",
     diagram: str = "primary",
-    _capability=Depends(verify_export_capability),
+    capability=Depends(verify_export_capability),
 ):
     """Generate the customer-facing Architecture Package.
 
@@ -303,4 +310,5 @@ async def export_architecture_package(
         "diagram": diagram,
     })
     record_funnel_step(diagram_id, "export")
+    consume_export_capability(capability)
     return attach_export_capability(result, diagram_id)

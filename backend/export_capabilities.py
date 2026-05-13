@@ -53,7 +53,8 @@ def export_capability_required() -> bool:
     raw = os.getenv("ARCHMORPH_EXPORT_CAPABILITY_REQUIRED")
     if raw is not None:
         return raw.strip().lower() not in {"0", "false", "no", "off"}
-    return os.getenv("ENVIRONMENT", "production").lower() not in {
+    environment = (os.getenv("ENVIRONMENT") or os.getenv("ENV") or "production").lower()
+    return environment not in {
         "dev",
         "development",
         "local",
@@ -109,21 +110,34 @@ def attach_export_capability(payload, diagram_id: str):
     return payload
 
 
+def consume_export_capability(capability: Optional[ExportCapability]) -> None:
+    """Consume a previously validated export capability after success."""
+    if capability is None:
+        return
+    EXPORT_CAPABILITY_STORE.delete(capability.token_digest)
+    _audit("consumed", capability.diagram_id, capability.token_digest)
+
+
 async def verify_export_capability(
     request: Request,
     diagram_id: str,
     x_export_capability: Optional[str] = Header(None, alias=EXPORT_CAPABILITY_HEADER),
     export_token: Optional[str] = Query(None, include_in_schema=False),
 ) -> Optional[ExportCapability]:
-    """Validate and consume a one-time export capability.
+    """Validate a one-time export capability without consuming it.
 
     ``X-Export-Capability`` is the preferred transport because it avoids token
     leakage through URLs. ``export_token`` remains as a hidden query fallback
-    for curl/manual local testing.
+    for curl/manual local testing only.
     """
     if not export_capability_required():
         _audit("bypass_disabled", diagram_id)
         return None
+
+    environment = (os.getenv("ENVIRONMENT") or os.getenv("ENV") or "production").lower()
+    if export_token and environment not in {"dev", "development", "local", "test"}:
+        _audit("query_token_rejected", diagram_id)
+        raise ArchmorphException(400, "Query-string export capabilities are disabled outside local development")
 
     token = x_export_capability or export_token
     if not token:
@@ -151,7 +165,6 @@ async def verify_export_capability(
         _audit("expired", diagram_id, token_digest)
         raise ArchmorphException(401, "Expired export capability")
 
-    EXPORT_CAPABILITY_STORE.delete(token_digest)
     _audit("validated", diagram_id, token_digest)
     return ExportCapability(
         token_digest=token_digest,

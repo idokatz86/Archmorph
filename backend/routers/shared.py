@@ -6,7 +6,9 @@ import asyncio
 import os
 import logging
 import secrets
+import hashlib
 from collections import OrderedDict
+from functools import lru_cache
 from typing import Optional, List
 
 from fastapi import Security, Request
@@ -41,6 +43,8 @@ limiter = Limiter(
 API_KEY = os.getenv("ARCHMORPH_API_KEY", "")  # Empty = auth disabled (dev mode)
 API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=False)
 ADMIN_BEARER = HTTPBearer(auto_error=False)
+_API_PRINCIPAL_SALT = b"archmorph-api-principal-v1"
+_API_PRINCIPAL_KDF_ITERATIONS = 120_000
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +64,33 @@ async def verify_api_key(api_key: Optional[str] = Security(API_KEY_HEADER)):
         return  # Auth disabled — dev mode only
     if not secrets.compare_digest(api_key or "", API_KEY):
         raise ArchmorphException(status_code=401, detail="Invalid or missing API key")
+
+
+def get_api_key_service_principal(headers: dict) -> Optional[str]:
+    """Return a stable API-key service principal ID for a verified key."""
+    api_key = headers.get("x-api-key")
+    if API_KEY:
+        if not secrets.compare_digest(api_key or "", API_KEY):
+            return None
+        key_material = api_key
+    else:
+        # Dev mode (API key auth disabled): only derive principal when a key is supplied.
+        key_material = api_key
+        if not key_material:
+            return None
+    digest = _derive_api_key_principal_digest(key_material)
+    return f"api-key:{digest}"
+
+
+@lru_cache(maxsize=32)
+def _derive_api_key_principal_digest(key_material: str) -> str:
+    """Derive a stable opaque principal ID from API-key material."""
+    return hashlib.pbkdf2_hmac(
+        "sha256",
+        key_material.encode("utf-8"),
+        _API_PRINCIPAL_SALT,
+        _API_PRINCIPAL_KDF_ITERATIONS,
+    ).hex()[:24]
 
 
 # ─────────────────────────────────────────────────────────────

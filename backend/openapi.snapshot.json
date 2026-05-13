@@ -7102,6 +7102,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Execute Deployment",
         "tags": [
           "deployments"
@@ -7142,6 +7147,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Preview Deployment",
         "tags": [
           "deployments"
@@ -7183,6 +7193,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Rollback Deployment",
         "tags": [
           "deployments"
@@ -7224,6 +7239,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Get Deployment Status",
         "tags": [
           "deployments"
@@ -7265,6 +7285,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Stream Deployment Logs",
         "tags": [
           "deployments"
@@ -7457,6 +7482,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Apply Guided Answers"
       }
     },
@@ -7497,6 +7527,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Get Cost Assumptions"
       }
     },
@@ -7621,6 +7656,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Configure Cost Estimate"
       }
     },
@@ -7659,6 +7699,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Get Configured Cost"
       }
     },
@@ -7674,6 +7719,22 @@
             "schema": {
               "title": "Diagram Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Export-Capability",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Export-Capability"
             }
           }
         ],
@@ -7697,6 +7758,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Export Cost Csv"
       }
     },
@@ -7735,6 +7801,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Get Ri Savings"
       }
     },
@@ -8110,6 +8181,22 @@
               "title": "Diagram Id",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "X-Export-Capability",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Export-Capability"
+            }
           }
         ],
         "responses": {
@@ -8395,6 +8482,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Get Hld"
       }
     },
@@ -9701,6 +9793,11 @@
             "description": "Successful Response"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "List Baselines",
         "tags": [
           "Drift Detection"
@@ -9739,6 +9836,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Create Baseline",
         "tags": [
           "Drift Detection"
@@ -9780,6 +9882,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Get Baseline",
         "tags": [
           "Drift Detection"
@@ -9845,6 +9952,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Compare Baseline",
         "tags": [
           "Drift Detection"
@@ -9905,6 +10017,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Decide Finding",
         "tags": [
           "Drift Detection"
@@ -9970,6 +10087,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Build Baseline Patch",
         "tags": [
           "Drift Detection"
@@ -10011,6 +10133,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Get Baseline Report",
         "tags": [
           "Drift Detection"
@@ -10051,6 +10178,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Detect Drift",
         "tags": [
           "Drift Detection"
@@ -11191,6 +11323,23 @@
           }
         },
         "summary": "List Jobs"
+      }
+    },
+    "/api/jobs/metrics/summary": {
+      "get": {
+        "description": "Return async queue and event-buffer metrics for observability.",
+        "operationId": "get_queue_metrics_api_jobs_metrics_summary_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Queue Metrics"
       }
     },
     "/api/jobs/{job_id}": {
@@ -16968,6 +17117,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Execute Deployment V1",
         "tags": [
           "deployments",
@@ -17009,6 +17163,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Preview Deployment V1",
         "tags": [
           "deployments",
@@ -17051,6 +17210,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Rollback Deployment V1",
         "tags": [
           "deployments",
@@ -17093,6 +17257,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Get Deployment Status V1",
         "tags": [
           "deployments",
@@ -17135,6 +17304,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Stream Deployment Logs V1",
         "tags": [
           "deployments",
@@ -17337,6 +17511,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Apply Guided Answers V1",
         "tags": [
           "v1"
@@ -17380,6 +17559,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Get Cost Assumptions V1",
         "tags": [
           "v1"
@@ -17513,6 +17697,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Configure Cost Estimate V1",
         "tags": [
           "v1"
@@ -17554,6 +17743,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Get Configured Cost V1",
         "tags": [
           "v1"
@@ -17572,6 +17766,22 @@
             "schema": {
               "title": "Diagram Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Export-Capability",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Export-Capability"
             }
           }
         ],
@@ -17595,6 +17805,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Export Cost Csv V1",
         "tags": [
           "v1"
@@ -17636,6 +17851,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Get Ri Savings V1",
         "tags": [
           "v1"
@@ -18030,6 +18250,22 @@
               "title": "Diagram Id",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "X-Export-Capability",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Export-Capability"
+            }
           }
         ],
         "responses": {
@@ -18330,6 +18566,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Get Hld V1",
         "tags": [
           "v1"
@@ -19717,6 +19958,11 @@
             "description": "Successful Response"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "List Baselines V1",
         "tags": [
           "Drift Detection",
@@ -19756,6 +20002,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Create Baseline V1",
         "tags": [
           "Drift Detection",
@@ -19798,6 +20049,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Get Baseline V1",
         "tags": [
           "Drift Detection",
@@ -19864,6 +20120,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Compare Baseline V1",
         "tags": [
           "Drift Detection",
@@ -19925,6 +20186,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Decide Finding V1",
         "tags": [
           "Drift Detection",
@@ -19991,6 +20257,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Build Baseline Patch V1",
         "tags": [
           "Drift Detection",
@@ -20033,6 +20304,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Get Baseline Report V1",
         "tags": [
           "Drift Detection",
@@ -20074,6 +20350,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Detect Drift V1",
         "tags": [
           "Drift Detection",
@@ -21263,6 +21544,26 @@
           }
         },
         "summary": "List Jobs V1",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/jobs/metrics/summary": {
+      "get": {
+        "description": "Return async queue and event-buffer metrics for observability.",
+        "operationId": "get_queue_metrics_v1_api_v1_jobs_metrics_summary_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Queue Metrics V1",
         "tags": [
           "v1"
         ]
