@@ -35,9 +35,6 @@ vi.mock('../../../services/sessionCache', () => ({
   saveSession: (...args) => mockSaveSession(...args),
   loadSession: (...args) => mockLoadSession(...args),
   clearSession: (...args) => mockClearSession(...args),
-  updateSessionCache: vi.fn(),
-  cacheImage: vi.fn(),
-  loadCachedImage: vi.fn(),
 }))
 
 // Mock apiClient

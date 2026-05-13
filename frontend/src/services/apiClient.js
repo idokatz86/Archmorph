@@ -176,8 +176,9 @@ async function request(path, options = {}, signal) {
   const includeDefaultCredentials = isApiRequest(path, url);
 
   const headers = buildHeaders(options.headers, includeDefaultCredentials);
-  // Track whether an Authorization header was included (for context-aware 401 messages)
-  const hadToken = Object.keys(headers).some(k => k.toLowerCase() === 'authorization');
+  // Track whether an Authorization header was included (for context-aware 401 messages).
+  // Reuse the existing hasHeader helper to avoid an extra intermediate array allocation.
+  const hadToken = hasHeader(headers, 'authorization');
   // Auto-set JSON content type for non-FormData bodies
   if (options.body && !(options.body instanceof FormData)) {
     headers['Content-Type'] = headers['Content-Type'] || 'application/json';

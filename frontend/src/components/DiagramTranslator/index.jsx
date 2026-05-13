@@ -77,6 +77,18 @@ function StatusPill({ status, label }) {
   );
 }
 
+/**
+ * Determine the workbench Input stage status and label based on current state.
+ * Extracted as a module-level helper for clarity and potential reuse.
+ */
+function getInputStatusLabel({ inputAuthRequired, inputFailed, analysis, selectedFile }) {
+  if (inputAuthRequired) return { status: 'needsReview', label: 'Authentication required' };
+  if (inputFailed) return { status: 'failed', label: 'Failed' };
+  if (analysis) return { status: 'ready', label: 'Ready' };
+  if (selectedFile) return { status: 'ready', label: 'File selected' };
+  return { status: 'notGenerated', label: 'Awaiting input' };
+}
+
 function getWorkbenchSpine(state) {
   const hasQuestions = (state.questions || []).length > 0 || (state.questionAssumptions || []).length > 0;
   const inputAuthRequired = state.step === 'upload' && !!state.authError;
@@ -85,15 +97,12 @@ function getWorkbenchSpine(state) {
   const deliverablesGenerating = state.generatingIac || state.hldLoading || state.costBreakdownLoading;
   const deliverablesFailed = ['iac', 'hld', 'pricing', 'deploy'].includes(state.step) && !!state.error;
 
-  function inputStatusLabel() {
-    if (inputAuthRequired) return { status: 'needsReview', label: 'Authentication required' };
-    if (inputFailed) return { status: 'failed', label: 'Failed' };
-    if (state.analysis) return { status: 'ready', label: 'Ready' };
-    if (state.selectedFile) return { status: 'ready', label: 'File selected' };
-    return { status: 'notGenerated', label: 'Awaiting input' };
-  }
-
-  const { status: inputStatus, label: inputLabel } = inputStatusLabel();
+  const { status: inputStatus, label: inputLabel } = getInputStatusLabel({
+    inputAuthRequired,
+    inputFailed,
+    analysis: state.analysis,
+    selectedFile: state.selectedFile,
+  });
 
   return [
     { id: 'input', status: inputStatus, label: inputLabel },
@@ -1214,7 +1223,7 @@ export default function DiagramTranslator() {
           onUpload={handleUpload}
           onRemoveFile={() => {
             if (state.filePreviewUrl) URL.revokeObjectURL(state.filePreviewUrl);
-            set({ selectedFile: null, filePreviewUrl: null, authError: null });
+            set({ selectedFile: null, filePreviewUrl: null, error: null, authError: null });
           }}
           onLoadSample={handleLoadSample}
           isAuthenticated={isAuthenticated}
