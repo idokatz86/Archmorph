@@ -759,8 +759,7 @@ jobs:
             --secrets \
               admin-key="${{ env.ADMIN_KEY }}" \
               jwt-secret="${{ env.JWT_SECRET }}" \
-              storage-connection="${{ env.STORAGE_CONN }}" \
-            2>/dev/null || true
+              storage-connection="${{ env.STORAGE_CONN }}"
 
           SHORT_SHA="${{ github.sha }}"
           SHORT_SHA="${SHORT_SHA:0:8}"

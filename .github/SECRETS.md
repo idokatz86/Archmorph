@@ -17,7 +17,7 @@ These secrets are required in `.github/workflows/ci.yml`:
 | `CONTAINER_APP_NAME` | Azure Container Apps name | `archmorph-api` |
 | `CONTAINER_APP_ENV` | Container Apps Environment name | `archmorph-cae-dev` |
 | `ADMIN_KEY` | Backend admin/API key used by deploy smoke to authenticate service catalog refresh | (strong random secret) |
-| `JWT_SECRET` | Backend JWT signing secret for production user/session tokens. If omitted, deploy falls back to `ADMIN_KEY`; a distinct strong random value is recommended. | (strong random secret) |
+| `JWT_SECRET` | Recommended dedicated backend JWT signing secret for production user/session tokens. If omitted, deploy falls back to `ADMIN_KEY`; a distinct strong random value is strongly recommended. | (strong random secret) |
 | `SWA_NAME` | Static Web App name | `archmorph-frontend` |
 | `API_URL` | Backend API URL (with `/api` suffix) | `https://your-app.azurecontainerapps.io/api` |
 | `SWA_DEPLOYMENT_TOKEN` | Static Web App deployment token | (from Azure Portal) |
