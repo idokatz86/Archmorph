@@ -1,5 +1,6 @@
 import os
 import sys
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -16,10 +17,10 @@ def _resolve_schema(schema: dict, openapi_schema: dict) -> dict:
         ref = schema["$ref"]
         if not ref.startswith("#/"):
             return schema
-        node: object = openapi_schema
+        current_node: Any = openapi_schema
         for key in ref[2:].split("/"):
-            node = node[key]
-        return _resolve_schema(node, openapi_schema)
+            current_node = current_node[key]
+        return _resolve_schema(current_node, openapi_schema)
     if isinstance(schema, dict):
         return {k: _resolve_schema(v, openapi_schema) for k, v in schema.items()}
     if isinstance(schema, list):

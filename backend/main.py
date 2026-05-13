@@ -501,7 +501,7 @@ app.include_router(replay_router)
 # API v1 Versioned Routes (/api/v1/* mirrors the stable public API subset)
 # ─────────────────────────────────────────────────────────────
 _all_routers = [
-    (icon_router, ""),
+    (icon_router, ""),           # Use router-declared prefix (/api)
     (health_router, ""),         # routes define /api/... in decorators
     (diagrams_router, ""),
     (projects_router, ""),

@@ -38,7 +38,7 @@ def test_breaking_change_metadata_accepts_required_fields(tmp_path: Path):
         json.dumps(
             {
                 "approved_by": "api-team",
-                "review_url": "https://github.com/idokatz86/Archmorph/pull/999",
+                "review_url": "https://github.com/example-org/example-repo/pull/1234",
                 "reason": "Intentional versioned removal with migration plan",
             }
         ),

@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Fail CI on OpenAPI drift and unapproved breaking changes."""
+"""Fail CI on OpenAPI drift and unapproved breaking changes.
+
+Checks:
+- Generated schema must match the committed snapshot.
+- Snapshot must remain compatible with base-branch snapshot for PRs.
+- Breaking changes against base require explicit approval metadata.
+"""
 
 import argparse
 import difflib
@@ -32,6 +38,8 @@ def main() -> int:
     current = _normalized_lines(current_schema_raw)
 
     expected_schema = json.loads("".join(expected))
+    # CI sets ARCHMORPH_OPENAPI_BASE_SNAPSHOT on pull_request runs to enforce
+    # compatibility between the base branch snapshot and this branch snapshot.
     base_snapshot_path = args.base_snapshot_path or os.getenv("ARCHMORPH_OPENAPI_BASE_SNAPSHOT")
     if base_snapshot_path:
         base_path = Path(base_snapshot_path)
@@ -123,8 +131,8 @@ def detect_breaking_changes(base_schema: dict, target_schema: dict) -> list[str]
                 breaks.append(f"Removed operation: {method.upper()} {path}")
                 continue
 
-            base_success = {c for c in base_op.get("responses", {}) if str(c).startswith("2")}
-            target_success = {c for c in target_op.get("responses", {}) if str(c).startswith("2")}
+            base_success = _extract_success_codes(base_op)
+            target_success = _extract_success_codes(target_op)
             removed_success = sorted(base_success - target_success)
             if removed_success:
                 breaks.append(
@@ -135,6 +143,9 @@ def detect_breaking_changes(base_schema: dict, target_schema: dict) -> list[str]
     target_components = target_schema.get("components", {}).get("schemas", {})
     for schema_name, base_def in base_components.items():
         target_def = target_components.get(schema_name)
+        if target_def is None:
+            breaks.append(f"Removed component schema: {schema_name}")
+            continue
         if not isinstance(base_def, dict) or not isinstance(target_def, dict):
             continue
         if base_def.get("type") != "object" or target_def.get("type") != "object":
@@ -174,6 +185,10 @@ def validate_breaking_change_metadata(metadata_path: Path) -> list[str]:
         if not isinstance(value, str) or not value.strip():
             errors.append(f"Missing required metadata field: {field}")
     return errors
+
+
+def _extract_success_codes(operation: dict) -> set[str]:
+    return {str(code) for code in operation.get("responses", {}) if str(code).startswith("2")}
 
 
 def _write_breaking_change_failure(

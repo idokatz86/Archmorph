@@ -15,7 +15,7 @@ from main import app  # noqa: E402
 MANIFEST_PATH = Path(__file__).resolve().parent.parent / "api_v1_mirror_exemptions.json"
 
 
-def _route_index() -> set[tuple[str, str]]:
+def _build_route_index() -> set[tuple[str, str]]:
     indexed: set[tuple[str, str]] = set()
     for route in app.routes:
         if not isinstance(route, APIRoute):
@@ -40,7 +40,7 @@ def _load_exemptions() -> set[tuple[str, str]]:
 
 @pytest.mark.contract
 def test_live_api_routes_have_v1_mirrors_or_documented_exemption():
-    routes = _route_index()
+    routes = _build_route_index()
     exemptions = _load_exemptions()
     missing: list[str] = []
 
