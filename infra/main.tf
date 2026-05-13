@@ -738,6 +738,11 @@ resource "azurerm_container_app" "backend" {
         value = var.environment == "prod" ? tostring(var.app_insights_sampling_percentage_prod / 100) : "1.0"
       }
 
+      env {
+        name  = "TRUST_SWA_PRINCIPAL_HEADER"
+        value = "false"
+      }
+
       liveness_probe {
         path                    = var.health_probe_path
         port                    = 8000
@@ -2518,6 +2523,23 @@ resource "azurerm_cdn_frontdoor_firewall_policy" "waf" {
       negation_condition = false
       match_values       = ["sqlmap", "nikto", "nmap", "dirbuster", "havij"]
       transforms         = ["Lowercase"]
+    }
+  }
+
+  # Current production topology does not proxy backend requests through SWA,
+  # so any client-supplied x-ms-client-principal is forged and should be blocked.
+  custom_rule {
+    name     = "BlockForgedSWAPrincipal"
+    enabled  = true
+    priority = 50
+    type     = "MatchRule"
+    action   = "Block"
+
+    match_condition {
+      match_variable = "RequestHeader"
+      selector       = "x-ms-client-principal"
+      operator       = "Regex"
+      match_values   = [".+"]
     }
   }
 

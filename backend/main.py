@@ -153,7 +153,7 @@ from routers.collaboration_routes import router as collaboration_router  # noqa:
 from routers.replay_routes import router as replay_router  # noqa: E402
 from routers.v1 import build_v1_router  # noqa: E402
 from api_versioning import VersionMiddleware  # noqa: E402
-from auth import get_user_from_request_headers  # noqa: E402
+from auth import get_user_from_request_headers, request_has_untrusted_swa_principal  # noqa: E402
 from audit_logging import audit_logger, AuditEventType  # noqa: E402, F401
 from error_envelope import register_error_handlers  # noqa: E402
 
@@ -329,7 +329,19 @@ class ArchmorphMiddleware(BaseHTTPMiddleware):
 
         start_time = time.perf_counter()
         try:
-            if requires_csrf_check(request) and not csrf_token_valid(request):
+            if request_has_untrusted_swa_principal(request.headers):
+                response = _JSONResponse(
+                    status_code=401,
+                    content={
+                        "error": {
+                            "code": "UNTRUSTED_SWA_PRINCIPAL",
+                            "message": "x-ms-client-principal is rejected on this deployment until trusted ingress is validated.",
+                            "details": {},
+                            "correlation_id": cid,
+                        }
+                    },
+                )
+            elif requires_csrf_check(request) and not csrf_token_valid(request):
                 response = _JSONResponse(
                     status_code=403,
                     content={

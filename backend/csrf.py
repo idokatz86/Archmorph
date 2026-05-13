@@ -31,6 +31,10 @@ def set_csrf_cookie(response: Response, token: str) -> None:
 
 
 def request_uses_swa_cookie_auth(request: Request) -> bool:
+    from auth import swa_principal_header_trust_enabled
+
+    if not swa_principal_header_trust_enabled():
+        return False
     if not request.headers.get("x-ms-client-principal"):
         return False
     if request.headers.get("authorization", "").startswith("Bearer "):
