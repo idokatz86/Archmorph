@@ -278,7 +278,7 @@ resource "azurerm_storage_account" "main" {
   min_tls_version                   = "TLS1_2"
   shared_access_key_enabled         = false # Use RBAC instead of shared keys
   allow_nested_items_to_be_public   = false
-  public_network_access_enabled     = true # Disable in prod with VNet integration
+  public_network_access_enabled     = var.environment == "prod" ? false : true # Private endpoint / VNet service endpoint in prod
   https_traffic_only_enabled        = true
   infrastructure_encryption_enabled = true # Double encryption at rest
 
@@ -303,15 +303,21 @@ resource "azurerm_storage_account" "main" {
   }
 
   # Network rules - restrict in production
+  # In prod: deny-by-default with VNet service endpoint path from Container Apps subnet.
+  # A private endpoint is also required (enable_storage_private_endpoint must be true).
   network_rules {
     default_action             = var.environment == "prod" ? "Deny" : "Allow"
     bypass                     = ["AzureServices"]
-    ip_rules                   = [] # Add trusted IPs in production
-    virtual_network_subnet_ids = []
+    ip_rules                   = []
+    virtual_network_subnet_ids = var.environment == "prod" ? [azurerm_subnet.container_apps.id] : []
   }
 
   lifecycle {
     prevent_destroy = true
+    precondition {
+      condition     = !(var.environment == "prod" && !var.enable_storage_private_endpoint)
+      error_message = "Production Storage uses a deny-by-default firewall but enable_storage_private_endpoint is false. Set enable_storage_private_endpoint = true to guarantee private endpoint connectivity from the Container Apps runtime."
+    }
   }
 
   tags = local.tags
@@ -435,6 +441,13 @@ resource "azurerm_redis_cache" "main" {
   }
 
   tags = local.tags
+
+  lifecycle {
+    precondition {
+      condition     = !(var.environment == "prod" && !var.enable_redis_private_endpoint)
+      error_message = "Production Redis disables public network access but enable_redis_private_endpoint is false. Set enable_redis_private_endpoint = true to guarantee private endpoint connectivity from the Container Apps runtime."
+    }
+  }
 }
 
 # ─────────────────────────────────────────────────────────────
@@ -2372,6 +2385,47 @@ resource "azurerm_private_endpoint" "redis" {
 }
 
 # ─────────────────────────────────────────────────────────────
+# Blob Storage Private Endpoint — deterministic private connectivity
+# ─────────────────────────────────────────────────────────────
+resource "azurerm_private_dns_zone" "storage" {
+  count               = var.environment == "prod" && var.enable_storage_private_endpoint ? 1 : 0
+  name                = "privatelink.blob.core.windows.net"
+  resource_group_name = azurerm_resource_group.main.name
+  tags                = local.tags
+}
+
+resource "azurerm_private_dns_zone_virtual_network_link" "storage" {
+  count                 = var.environment == "prod" && var.enable_storage_private_endpoint ? 1 : 0
+  name                  = "archmorph-storage-dns-link"
+  resource_group_name   = azurerm_resource_group.main.name
+  private_dns_zone_name = azurerm_private_dns_zone.storage[0].name
+  virtual_network_id    = azurerm_virtual_network.main.id
+  registration_enabled  = false
+  tags                  = local.tags
+}
+
+resource "azurerm_private_endpoint" "storage" {
+  count               = var.environment == "prod" && var.enable_storage_private_endpoint ? 1 : 0
+  name                = "archmorph-storage-pe-${local.name_suffix}"
+  resource_group_name = azurerm_resource_group.main.name
+  location            = azurerm_resource_group.main.location
+  subnet_id           = azurerm_subnet.private_endpoints.id
+  tags                = local.tags
+
+  private_service_connection {
+    name                           = "archmorph-storage-psc"
+    private_connection_resource_id = azurerm_storage_account.main.id
+    is_manual_connection           = false
+    subresource_names              = ["blob"]
+  }
+
+  private_dns_zone_group {
+    name                 = "archmorph-storage-dns"
+    private_dns_zone_ids = [azurerm_private_dns_zone.storage[0].id]
+  }
+}
+
+# ─────────────────────────────────────────────────────────────
 # Key Vault Private Endpoint (Issue #110 — CISO-004)
 # ─────────────────────────────────────────────────────────────
 resource "azurerm_subnet" "private_endpoints" {
@@ -2686,6 +2740,7 @@ resource "azurerm_subnet" "container_apps" {
   resource_group_name  = azurerm_resource_group.main.name
   virtual_network_name = azurerm_virtual_network.main.name
   address_prefixes     = ["10.0.1.0/24"]
+  service_endpoints    = ["Microsoft.Storage"] # Required for prod storage VNet service endpoint path
 
   delegation {
     name = "container-apps-delegation"

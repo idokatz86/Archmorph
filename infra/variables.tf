@@ -126,9 +126,15 @@ variable "acr_prod_sku" {
 }
 
 variable "enable_redis_private_endpoint" {
-  description = "Enable Redis private endpoint + private DNS in production."
+  description = "Enable Redis private endpoint + private DNS in production. Must be true when environment=prod (Redis disables public access in production)."
   type        = bool
-  default     = false
+  default     = true
+}
+
+variable "enable_storage_private_endpoint" {
+  description = "Enable Blob Storage private endpoint + private DNS in production. Must be true when environment=prod (Storage uses deny-by-default firewall in production)."
+  type        = bool
+  default     = true
 }
 
 variable "enable_front_door_waf" {

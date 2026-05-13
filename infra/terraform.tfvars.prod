@@ -14,4 +14,7 @@ frontend_url = "https://app.archmorph.dev"
 
 redis_capacity = 1  # Standard C1 for production (1GB)
 
+enable_redis_private_endpoint   = true  # Required: prod Redis disables public access
+enable_storage_private_endpoint = true  # Required: prod storage uses deny-by-default firewall
+
 enable_dr = true  # Enable disaster recovery

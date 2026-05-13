@@ -58,10 +58,21 @@ def _run_dependency_checks() -> tuple[dict[str, str], bool, bool]:
     # ── Blob storage ──────────────────────────────────────
     try:
         from usage_metrics import AZURE_STORAGE_ACCOUNT_URL, AZURE_STORAGE_CONNECTION_STRING
-        if AZURE_STORAGE_ACCOUNT_URL:
-            checks["storage"] = "ok"
-        elif AZURE_STORAGE_CONNECTION_STRING:
-            checks["storage"] = "ok"
+        if AZURE_STORAGE_ACCOUNT_URL or AZURE_STORAGE_CONNECTION_STRING:
+            # Probe actual reachability — catch private-network misconfiguration early.
+            try:
+                from azure.storage.blob import BlobServiceClient
+                if AZURE_STORAGE_ACCOUNT_URL:
+                    from azure.identity import DefaultAzureCredential
+                    _cred = DefaultAzureCredential()
+                    _bsc = BlobServiceClient(AZURE_STORAGE_ACCOUNT_URL, credential=_cred)
+                else:
+                    _bsc = BlobServiceClient.from_connection_string(AZURE_STORAGE_CONNECTION_STRING)
+                _bsc.get_service_properties(timeout=4)
+                checks["storage"] = "ok"
+            except Exception:
+                checks["storage"] = "unreachable"
+                degraded = True
         else:
             checks["storage"] = "local_only"
     except Exception:
@@ -77,8 +88,13 @@ def _run_dependency_checks() -> tuple[dict[str, str], bool, bool]:
             session_store_readiness,
         )
         if redis_configured():
-            _create_redis_client(socket_connect_timeout=2)
-            checks["redis"] = "ok"
+            try:
+                _create_redis_client(socket_connect_timeout=2)
+                checks["redis"] = "ok"
+            except Exception:
+                # Connection failed — private endpoint not reachable or misconfigured
+                checks["redis"] = "unreachable"
+                degraded = True
         else:
             checks["redis"] = "missing_required" if REQUIRE_REDIS else "disabled_optional"
             if REQUIRE_REDIS:
