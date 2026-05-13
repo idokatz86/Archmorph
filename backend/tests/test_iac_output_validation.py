@@ -147,7 +147,7 @@ def _run(command: list[str], cwd: Path) -> None:
 def _control_patterns(iac_format: str) -> dict[str, str]:
     if iac_format == "terraform":
         return {
-            "managed_identity": r'(identity\s*\{[^}]*type\s*=\s*"(?:SystemAssigned|UserAssigned|SystemAssigned,\s*UserAssigned)")|(azurerm_user_assigned_identity)',
+            "managed_identity": r'(identity\s*\{[^}]*?type\s*=\s*"(?:SystemAssigned|UserAssigned|SystemAssigned,\s*UserAssigned)")|(azurerm_user_assigned_identity)',
             "tls": r'(?:min_tls_version|minimum_tls_version)\s*=\s*"TLS1_2"',
             "diagnostics": r"azurerm_monitor_diagnostic_setting|Microsoft\.Insights/diagnosticSettings",
             "private_connectivity": r"azurerm_private_endpoint|public_network_access_enabled\s*=\s*false",
@@ -157,7 +157,7 @@ def _control_patterns(iac_format: str) -> dict[str, str]:
             "no_hardcoded_secrets": r"(?:password|secret|api_key|access_key|administrator_password)\s*=\s*['\"][^'\"]+['\"]",
         }
     return {
-        "managed_identity": r"identity:\s*\{[^}]*type:\s*'(?:SystemAssigned|UserAssigned|SystemAssigned,\s*UserAssigned)'|Microsoft\.ManagedIdentity/userAssignedIdentities",
+        "managed_identity": r"identity:\s*\{[^}]*?type:\s*'(?:SystemAssigned|UserAssigned|SystemAssigned,\s*UserAssigned)'|Microsoft\.ManagedIdentity/userAssignedIdentities",
         "tls": r"(?:minTlsVersion|minimumTlsVersion)\s*:\s*'(?:1\.2|TLS1_2)'",
         "diagnostics": r"Microsoft\.Insights/diagnosticSettings",
         "private_connectivity": r"Microsoft\.Network/privateEndpoints|publicNetworkAccess:\s*'Disabled'",
@@ -172,6 +172,16 @@ def _assert_conformance(*, code: str, iac_format: str, controls: list[str]) -> l
     patterns = _control_patterns(iac_format)
     missing: list[str] = []
     for control in controls:
+        if control == "required_tags":
+            required_tag_keys = ("project", "environment", "managed_by") if iac_format == "terraform" else ("project", "environment", "managedBy")
+            matcher = (
+                lambda key: re.search(rf"\b{re.escape(key)}\s*=\s*\"", code, re.IGNORECASE)
+                if iac_format == "terraform"
+                else re.search(rf"\b{re.escape(key)}\s*:\s*['\"]", code, re.IGNORECASE)
+            )
+            if not all(matcher(key) for key in required_tag_keys):
+                missing.append(control)
+            continue
         if control == "no_hardcoded_secrets":
             # This control is intentionally inverse: any match is a violation.
             if re.search(patterns[control], code, re.IGNORECASE):
