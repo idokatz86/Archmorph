@@ -111,6 +111,24 @@ def _make_zip_bomb_vsdx() -> bytes:
     return buf.getvalue()
 
 
+def _make_minimal_vsdx() -> bytes:
+    """Build a minimal VSDX-like OOXML package with required Visio parts."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("[Content_Types].xml", b"<Types/>")
+        zf.writestr("_rels/.rels", b"<Relationships/>")
+        zf.writestr("visio/document.xml", b"<VisioDocument/>")
+        zf.writestr("visio/pages/page1.xml", b"<Page/>")
+    return buf.getvalue()
+
+
+def _make_non_vsdx_zip() -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("word/document.xml", b"<document/>")
+    return buf.getvalue()
+
+
 def _make_path_traversal_vsdx() -> bytes:
     """Build a VSDX (ZIP) with a path-traversal entry."""
     buf = io.BytesIO()
@@ -194,6 +212,11 @@ class TestValidateUploadUnit:
         with pytest.raises(UploadValidationError, match="JavaScript"):
             validate_upload(pdf, "application/pdf", "arch.pdf")
 
+    def test_pdf_with_escaped_javascript_name_raises(self):
+        pdf = _make_pdf_with_js().replace(b"/JavaScript", b"/Java#53cript")
+        with pytest.raises(UploadValidationError, match="JavaScript"):
+            validate_upload(pdf, "application/pdf", "arch.pdf")
+
     def test_pdf_with_launch_action_raises(self):
         pdf = _make_pdf_with_launch()
         with pytest.raises(UploadValidationError, match="launch action"):
@@ -229,6 +252,11 @@ class TestValidateUploadUnit:
         with pytest.raises(UploadValidationError, match="javascript"):
             validate_upload(svg, "image/svg+xml", "arch.svg")
 
+    def test_svg_with_whitespace_javascript_href_raises(self):
+        svg = b'<svg xmlns="http://www.w3.org/2000/svg"><a href="\n JaVaScRiPt:alert(1)"><text>x</text></a></svg>'
+        with pytest.raises(UploadValidationError, match="javascript"):
+            validate_upload(svg, "image/svg+xml", "arch.svg")
+
     def test_svg_with_javascript_src_raises(self):
         svg = b'<svg xmlns="http://www.w3.org/2000/svg"><image src="javascript:alert(1)"/></svg>'
         with pytest.raises(UploadValidationError, match="javascript"):
@@ -248,10 +276,24 @@ class TestValidateUploadUnit:
         with pytest.raises(UploadValidationError, match="external entities|DTD"):
             validate_upload(xxe, "image/svg+xml", "arch.svg")
 
+    def test_svg_dtd_without_entity_raises(self):
+        svg = b'<?xml version="1.0"?><!DOCTYPE svg><svg xmlns="http://www.w3.org/2000/svg"/>'
+        with pytest.raises(UploadValidationError, match="DTD"):
+            validate_upload(svg, "image/svg+xml", "arch.svg")
+
     def test_svg_external_use_href_raises(self):
         svg = (
             b'<svg xmlns="http://www.w3.org/2000/svg">'
             b'<use href="https://evil.example.com/icon.svg#icon"/>'
+            b"</svg>"
+        )
+        with pytest.raises(UploadValidationError, match="external resource"):
+            validate_upload(svg, "image/svg+xml", "arch.svg")
+
+    def test_svg_external_use_href_with_whitespace_and_mixed_case_raises(self):
+        svg = (
+            b'<svg xmlns="http://www.w3.org/2000/svg">'
+            b'<use href="  HtTpS://evil.example.com/icon.svg#icon"/>'
             b"</svg>"
         )
         with pytest.raises(UploadValidationError, match="external resource"):
@@ -263,14 +305,19 @@ class TestValidateUploadUnit:
 
     # ── VSDX / ZIP ────────────────────────────────────────────
     def test_valid_vsdx_passes(self):
-        buf = io.BytesIO()
-        with zipfile.ZipFile(buf, "w") as zf:
-            zf.writestr("visio/pages/page1.xml", b"<xml/>")
         validate_upload(
-            buf.getvalue(),
+            _make_minimal_vsdx(),
             "application/vnd.ms-visio.drawing.main+xml",
             "arch.vsdx",
         )
+
+    def test_non_vsdx_zip_renamed_to_vsdx_raises(self):
+        with pytest.raises(UploadValidationError, match="VSDX package"):
+            validate_upload(
+                _make_non_vsdx_zip(),
+                "application/vnd.ms-visio.drawing.main+xml",
+                "arch.vsdx",
+            )
 
     def test_vsdx_wrong_magic_raises(self):
         data = b"\x89PNG\r\n\x1a\n" + b"\x00" * 50
@@ -323,10 +370,19 @@ class TestValidateUploadUnit:
         xml = b'<mxGraphModel><root><mxCell id="0"/></root></mxGraphModel>'
         validate_upload(xml, "application/octet-stream", "arch.drawio")
 
+    def test_octet_stream_svg_script_unknown_extension_raises(self):
+        svg = b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'
+        with pytest.raises(UploadValidationError, match="script"):
+            validate_upload(svg, "application/octet-stream", "mystery.bin")
+
     def test_octet_stream_vsdx_dispatches_to_zip(self):
         vsdx = _make_path_traversal_vsdx()
         with pytest.raises(UploadValidationError, match="path"):
             validate_upload(vsdx, "application/octet-stream", "arch.vsdx")
+
+    def test_octet_stream_zip_bomb_unknown_extension_raises(self):
+        with pytest.raises(UploadValidationError, match="compress"):
+            validate_upload(_make_zip_bomb_vsdx(), "application/octet-stream", "mystery.bin")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -381,6 +437,13 @@ class TestUploadValidationHTTP:
     def test_octet_stream_garbage_rejected_via_api(self, client):
         data = b"\x00\x01\x02\x03\xfe\xff" + b"\xaa" * 100
         assert _upload(client, "mystery.bin", data, "application/octet-stream") == 400
+
+    def test_octet_stream_svg_script_unknown_extension_rejected_via_api(self, client):
+        svg = b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'
+        assert _upload(client, "mystery.bin", svg, "application/octet-stream") == 400
+
+    def test_octet_stream_zip_bomb_unknown_extension_rejected_via_api(self, client):
+        assert _upload(client, "mystery.bin", _make_zip_bomb_vsdx(), "application/octet-stream") == 400
 
     def test_error_response_is_envelope(self, client):
         """Error responses must follow the ArchmorphException envelope shape."""

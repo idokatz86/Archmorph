@@ -309,9 +309,14 @@ async def restore_session(
                 413,
                 f"image_base64 too large. Maximum allowed: {MAX_UPLOAD_SIZE // (1024*1024)} MB.",
             )
+        restored_content_type = body.image_content_type or "image/png"
+        try:
+            validate_upload(decoded, restored_content_type, None)
+        except UploadValidationError as exc:
+            raise ArchmorphException(exc.status_code, exc.message)
         IMAGE_STORE[diagram_id] = (
             body.image_base64,
-            body.image_content_type or "image/png",
+            restored_content_type,
         )
         restored_parts.append("image")
     logger.info("Session restored for %s via client cache (%s)", str(diagram_id).replace('\n', '').replace('\r', ''), str(", ".join(restored_parts)).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom

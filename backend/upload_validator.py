@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import io
 import logging
+import re
 import zipfile
 from typing import Optional
 
@@ -36,6 +37,7 @@ _MAX_ZIP_COMPRESSION_RATIO = 100                   # bomb guard: ratio > 100 ⇒
 _MAX_PDF_PAGES             = 100
 _MAX_PDF_OBJECTS           = 10_000
 _XML_DETECT_HEAD_BYTES     = 512  # bytes to inspect for XML/SVG sniffing
+_VSDX_REQUIRED_ENTRIES     = ("[Content_Types].xml", "_rels/.rels", "visio/document.xml")
 
 
 # ── Public exception ──────────────────────────────────────────────────────────
@@ -64,6 +66,15 @@ def _extension(filename: Optional[str]) -> str:
     if not filename or "." not in filename:
         return ""
     return filename.rsplit(".", 1)[-1].lower()
+
+
+def _xml_like(data: bytes) -> bool:
+    head = data[: _XML_DETECT_HEAD_BYTES].lstrip(b"\xef\xbb\xbf \t\r\n")
+    return head.startswith(b"<")
+
+
+def _normalized_uri(value: object) -> str:
+    return str(value or "").strip().lower()
 
 
 # ── 1. Magic-byte / content-type mismatch ─────────────────────────────────────
@@ -97,9 +108,7 @@ def _check_magic_mismatch(data: bytes, content_type: str, ext: str) -> None:
         # content must look like XML/SVG (starts with '<' after optional BOM).
         known_magics = [_MAGIC_PNG, _MAGIC_JPEG, _MAGIC_PDF, _MAGIC_ZIP]
         has_known_magic = any(_starts_with(data, m) for m in known_magics)
-        head = data[: _XML_DETECT_HEAD_BYTES].lstrip(b"\xef\xbb\xbf \t\r\n")  # strip UTF-8 BOM + whitespace
-        is_xml_like = head.startswith(b"<")
-        if not has_known_magic and not is_xml_like:
+        if not has_known_magic and not _xml_like(data):
             raise UploadValidationError(
                 "Unsupported file content. Accepted formats: PNG, JPEG, SVG, PDF, Draw.io, Visio."
             )
@@ -120,6 +129,61 @@ _PDF_BANNED_PATTERNS: list[tuple[bytes, str]] = [
     (b"/ImportData",   "ImportData action"),
 ]
 
+_PDF_BANNED_NAMES = {
+    "/JavaScript": "JavaScript",
+    "/JS": "JavaScript",
+    "/Launch": "launch action",
+    "/EmbeddedFile": "embedded file",
+    "/RichMedia": "rich media",
+    "/ImportData": "ImportData action",
+}
+
+
+def _decode_pdf_name_escapes(data: bytes) -> bytes:
+    return re.sub(
+        rb"#([0-9A-Fa-f]{2})",
+        lambda match: bytes([int(match.group(1), 16)]),
+        data,
+    )
+
+
+def _scan_pdf_banned_names(value, seen: set[int]) -> Optional[str]:
+    try:
+        from pypdf.generic import ArrayObject, DictionaryObject, IndirectObject, NameObject
+    except ImportError:  # pragma: no cover
+        return None
+
+    obj_id = id(value)
+    if obj_id in seen:
+        return None
+    seen.add(obj_id)
+
+    if isinstance(value, IndirectObject):
+        try:
+            return _scan_pdf_banned_names(value.get_object(), seen)
+        except Exception:  # noqa: BLE001
+            return None
+
+    if isinstance(value, NameObject):
+        return _PDF_BANNED_NAMES.get(str(value))
+
+    if isinstance(value, DictionaryObject):
+        for key, nested in value.items():
+            label = _PDF_BANNED_NAMES.get(str(key))
+            if label:
+                return label
+            label = _scan_pdf_banned_names(nested, seen)
+            if label:
+                return label
+        return None
+
+    if isinstance(value, ArrayObject):
+        for item in value:
+            label = _scan_pdf_banned_names(item, seen)
+            if label:
+                return label
+    return None
+
 
 def _validate_pdf(data: bytes) -> None:
     """Validate PDF content.
@@ -130,8 +194,9 @@ def _validate_pdf(data: bytes) -> None:
     - Excessive page or object counts (basic resource guard)
     """
     # ── Raw-byte scan (fast, catches most obfuscated patterns) ────────────────
+    normalized_data = _decode_pdf_name_escapes(data)
     for pattern, label in _PDF_BANNED_PATTERNS:
-        if pattern in data:
+        if pattern in data or pattern in normalized_data:
             raise UploadValidationError(
                 f"PDF contains active content ({label}) that is not permitted."
             )
@@ -154,6 +219,12 @@ def _validate_pdf(data: bytes) -> None:
     if reader.is_encrypted:
         raise UploadValidationError("Encrypted PDF files are not supported.")
 
+    label = _scan_pdf_banned_names(reader.trailer, set())
+    if label:
+        raise UploadValidationError(
+            f"PDF contains active content ({label}) that is not permitted."
+        )
+
     n_pages = len(reader.pages)
     if n_pages > _MAX_PDF_PAGES:
         raise UploadValidationError(
@@ -162,7 +233,7 @@ def _validate_pdf(data: bytes) -> None:
 
     # Object count — use xref if available; fall back to a raw-byte heuristic.
     try:
-        n_objects = len(reader.xref)
+        n_objects = sum(len(section) for section in reader.xref.values())
         if n_objects > _MAX_PDF_OBJECTS:
             raise UploadValidationError(
                 f"PDF has too many objects ({n_objects}). The file may be malformed or oversized."
@@ -209,6 +280,8 @@ def _validate_svg_xml(data: bytes) -> None:
         return
 
     try:
+        if re.search(rb"<!\s*DOCTYPE\b", data, flags=re.IGNORECASE):
+            raise DTDForbidden("DOCTYPE", None, None)
         root = det.fromstring(data)
     except (DTDForbidden, EntitiesForbidden, ExternalReferenceForbidden) as exc:
         raise UploadValidationError(
@@ -230,7 +303,7 @@ def _validate_svg_xml(data: bytes) -> None:
         if tag_name == "use":
             for attr_name, attr_val in element.attrib.items():
                 if "href" in _local(attr_name):
-                    if attr_val.startswith(_SVG_EXTERNAL_HREF_PREFIXES):
+                    if _normalized_uri(attr_val).startswith(_SVG_EXTERNAL_HREF_PREFIXES):
                         raise UploadValidationError(
                             "SVG file contains prohibited external resource references."
                         )
@@ -243,7 +316,7 @@ def _validate_svg_xml(data: bytes) -> None:
                 )
             # Reject javascript:/vbscript:/data: URIs in href/src.
             if _local(attr_name) in ("href", "src", "action"):
-                if attr_val.lower().startswith(_SVG_DANGEROUS_URI_SCHEMES):
+                if _normalized_uri(attr_val).startswith(_SVG_DANGEROUS_URI_SCHEMES):
                     raise UploadValidationError(
                         "SVG/XML file contains a prohibited URI (javascript:, vbscript:, or data:)."
                     )
@@ -267,6 +340,7 @@ def _validate_vsdx(data: bytes) -> None:
         ) from exc
 
     entries = zf.infolist()
+    entry_names = {entry.filename.replace("\\", "/") for entry in entries}
 
     if len(entries) > _MAX_ZIP_ENTRIES:
         zf.close()
@@ -301,6 +375,12 @@ def _validate_vsdx(data: bytes) -> None:
                     raise UploadValidationError(
                         "Visio file has a suspicious compression ratio and cannot be processed."
                     )
+
+        missing_required = [name for name in _VSDX_REQUIRED_ENTRIES if name not in entry_names]
+        if missing_required:
+            raise UploadValidationError(
+                "Visio file is missing required VSDX package parts and cannot be processed."
+            )
     finally:
         zf.close()
 
@@ -339,15 +419,12 @@ def validate_upload(
             "application/vnd.ms-visio.drawing.main+xml",
             "application/vnd.visio",
         )
-        or (content_type == "application/octet-stream" and ext == "vsdx")
+        or (content_type == "application/octet-stream" and _starts_with(data, _MAGIC_ZIP))
     )
     is_xml_like = (
         content_type in ("image/svg+xml", "application/xml", "text/xml")
         or ext in ("svg", "xml", "drawio")
-        or (
-            content_type == "application/octet-stream"
-            and ext in ("svg", "xml", "drawio")
-        )
+        or (content_type == "application/octet-stream" and _xml_like(data))
     )
 
     if is_pdf:
