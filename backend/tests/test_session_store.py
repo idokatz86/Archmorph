@@ -169,3 +169,42 @@ class TestSessionStoreInterface:
     def test_keys_raises(self):
         with pytest.raises(NotImplementedError):
             SessionStore().keys()
+
+
+def test_redisstore_warning_logs_are_sanitized(monkeypatch, caplog):
+    import session_store
+
+    class _FakeRedis:
+        def ping(self):
+            return True
+
+        def get(self, *_args, **_kwargs):
+            return None
+
+        def setex(self, *_args, **_kwargs):
+            return None
+
+        def delete(self, *_args, **_kwargs):
+            return 1
+
+    class _FailingBreaker:
+        def call(self, *_args, **_kwargs):
+            raise RuntimeError("breaker\nfailure\rpayload")
+
+    monkeypatch.setattr(session_store, "_create_redis_client", lambda: _FakeRedis())
+    monkeypatch.setattr("circuit_breakers.redis_breaker", _FailingBreaker())
+
+    store = session_store.RedisStore(prefix="test")
+
+    with caplog.at_level("WARNING", logger="session_store"):
+        assert store.get("bad\nkey", default="fallback") == "fallback"
+        store.set("bad\rkey", {"v": 1})
+        store.delete("bad\r\nkey")
+
+    warning_records = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warning_records) == 3
+    for record in warning_records:
+        message = record.getMessage()
+        assert "\n" not in message
+        assert "\r" not in message
+        assert "breakerfailurepayload" in message

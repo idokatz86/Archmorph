@@ -34,3 +34,8 @@ class TestSafe:
     def test_injection_attempt(self):
         result = safe("user input\nINFO: fake log entry")
         assert "\n" not in result
+
+    def test_exception_input_with_newlines(self):
+        result = safe(RuntimeError("line1\nline2\rline3"))
+        assert "\n" not in result
+        assert "\r" not in result
