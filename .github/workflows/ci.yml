@@ -534,6 +534,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     if: github.ref == 'refs/heads/main'
+    environment: production
     env:
       AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
@@ -1070,6 +1071,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     if: github.ref == 'refs/heads/main'
+    environment: production
     steps:
       - uses: actions/checkout@v6
 
@@ -1097,6 +1099,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     if: github.ref == 'refs/heads/main'
+    environment: production
     steps:
       - uses: actions/checkout@v6
 

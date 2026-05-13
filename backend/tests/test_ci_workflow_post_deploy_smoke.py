@@ -16,6 +16,14 @@ def test_post_deploy_smoke_passes_health_api_key_from_admin_secret():
     assert smoke_step["env"]["HEALTH_API_KEY"] == "${{ secrets.ADMIN_KEY }}"
 
 
+def test_production_traffic_movement_jobs_are_environment_gated():
+    workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
+
+    assert workflow["jobs"]["deploy-backend"]["environment"] == "production"
+    assert workflow["jobs"]["deploy-frontend"]["environment"] == "production"
+    assert workflow["jobs"]["post-deploy-smoke"]["environment"] == "production"
+
+
 def test_backend_deploy_wires_jwt_secret_to_container_app_revision():
     workflow_text = CI_WORKFLOW.read_text(encoding="utf-8")
     workflow = yaml.safe_load(workflow_text)

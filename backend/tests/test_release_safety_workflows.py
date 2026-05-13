@@ -38,6 +38,7 @@ def test_rollback_health_verification_uses_authenticated_api_health():
     workflow = _load(ROLLBACK_WORKFLOW)
     assert workflow["env"]["ARCHMORPH_API_KEY"] == "${{ secrets.ARCHMORPH_API_KEY }}"
     assert workflow["env"]["ADMIN_KEY"] == "${{ secrets.ADMIN_KEY }}"
+    assert workflow["jobs"]["rollback"]["environment"] == "production"
 
     steps = workflow["jobs"]["rollback"]["steps"]
     verify_step = _step_by_name(steps, "Verify rollback health")

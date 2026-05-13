@@ -41,11 +41,12 @@ Prefer the `Manual Rollback` workflow in `.github/workflows/rollback.yml`.
 1. Open GitHub Actions and choose `Manual Rollback`.
 2. Enter the target `revision_name` when known. Leave it empty to select the previous active revision automatically.
 3. Keep `traffic_percentage` at `100` for a full rollback unless doing a controlled partial shift.
-4. Run the workflow.
-5. Confirm the workflow activates the target revision, shifts traffic, and verifies authenticated `${API_URL}/api/health`.
-6. Capture the workflow URL, target revision, version, and health output in release evidence.
+4. Run the workflow. The `rollback` job is bound to the GitHub `production` Environment, so GitHub will pause before Azure login and traffic movement until required reviewers approve the deployment (or an authorized emergency bypass is used under repository policy).
+5. For emergency rollback, page the designated production environment approver immediately. If GitHub Actions or environment approval is unavailable, use the Azure CLI fallback below and record why the protected workflow could not be used.
+6. Confirm the workflow activates the target revision, shifts traffic, and verifies authenticated `${API_URL}/api/health`.
+7. Capture the workflow URL, target revision, version, approval/bypass evidence, and health output in release evidence.
 
-The workflow normalizes `API_URL`, calls `/api/health`, and sends `X-API-Key` from `ARCHMORPH_API_KEY` with `ADMIN_KEY` fallback when present.
+The workflow normalizes `API_URL`, calls `/api/health`, sends `X-API-Key` from `ARCHMORPH_API_KEY` with `ADMIN_KEY` fallback when present, and uses the production Environment OIDC subject so Azure trust is scoped to approved production runs instead of branch name alone.
 
 ## Backend Rollback: Azure CLI Fallback
 
