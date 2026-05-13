@@ -730,6 +730,22 @@ class TestActOneEngineProtocolRulePack:
         issues = evaluate(actone_engine_protocol_analysis)
         assert has_blocker(issues) is True
 
+    def test_active_active_ambiguity_warning_captures_100_0_signal(
+        self, actone_engine_protocol_analysis
+    ):
+        issues = evaluate(actone_engine_protocol_analysis)
+        ambiguity = next(
+            (
+                issue
+                for issue in issues
+                if issue.rule_id == "active-active-traffic-split-ambiguity-warning"
+            ),
+            None,
+        )
+        assert ambiguity is not None
+        assert ambiguity.evidence is not None
+        assert ambiguity.evidence.get("traffic_percentages") == [100.0, 0.0]
+
 
 # ---------------------------------------------------------------------------
 # YAML override path

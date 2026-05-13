@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import re
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional
 
 
 # ---------------------------------------------------------------------------
@@ -493,10 +493,10 @@ def active_active_with_failover_traffic_split(
             if isinstance(pct, (int, float)):
                 percentages.append(float(pct))
             elif isinstance(pct, str):
-                numeric = re.sub(r"[^0-9.]", "", pct)
-                if numeric:
+                numeric_match = re.search(r"\d+(?:\.\d+)?", pct)
+                if numeric_match:
                     try:
-                        percentages.append(float(numeric))
+                        percentages.append(float(numeric_match.group(0)))
                     except ValueError:
                         pass
 
@@ -554,8 +554,7 @@ def rds_engine_unresolved(analysis: Dict[str, Any]) -> Optional[PredicateMatch]:
             affected.extend([s for s in (src, tgt) if s])
 
     if affected:
-        seen: Set[str] = set()
-        deduped = [s for s in affected if not (s in seen or seen.add(s))]
+        deduped = list(dict.fromkeys(affected))
         return PredicateMatch(
             affected_services=deduped,
             evidence={"reason": "rds_engine_unresolved"},
