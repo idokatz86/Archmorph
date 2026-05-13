@@ -513,7 +513,7 @@ export default function DiagramTranslator() {
 
   // ── Upload & Analyze ──
   const handleUpload = async (file) => {
-    set({ error: null, step: 'analyzing', analyzeProgress: [] });
+    set({ error: null, authError: null, step: 'analyzing', analyzeProgress: [] });
     // Create a new AbortController for this upload flow
     if (abortRef.current) abortRef.current.abort();
     const controller = new AbortController();

@@ -422,14 +422,16 @@ describe('apiClient', () => {
       json: () => Promise.resolve({ detail: 'Not authenticated' }),
     })
 
-    try {
-      await api.post('/projects/demo-project/diagrams', new FormData())
-    } catch (err) {
-      expect(err.status).toBe(401)
-      expect(err.isAuthRequired).toBe(true)
-      expect(err.message).toMatch(/Authentication required/i)
-      expect(err.message).not.toMatch(/session has expired/i)
-    }
+    const err = await api.post('/projects/demo-project/diagrams', new FormData()).then(
+      () => null,
+      error => error,
+    )
+
+    expect(err).toBeTruthy()
+    expect(err.status).toBe(401)
+    expect(err.isAuthRequired).toBe(true)
+    expect(err.message).toMatch(/Authentication required/i)
+    expect(err.message).not.toMatch(/session has expired/i)
   })
 
   it('401 with a stored token sets isAuthRequired=false and uses "session has expired" copy', async () => {
@@ -443,13 +445,15 @@ describe('apiClient', () => {
       json: () => Promise.resolve({ detail: 'Token expired' }),
     })
 
-    try {
-      await api.post('/projects/demo-project/diagrams', new FormData())
-    } catch (err) {
-      expect(err.status).toBe(401)
-      expect(err.isAuthRequired).toBe(false)
-      expect(err.message).toMatch(/session has expired/i)
-      expect(err.message).not.toMatch(/Authentication required/i)
-    }
+    const err = await api.post('/projects/demo-project/diagrams', new FormData()).then(
+      () => null,
+      error => error,
+    )
+
+    expect(err).toBeTruthy()
+    expect(err.status).toBe(401)
+    expect(err.isAuthRequired).toBe(false)
+    expect(err.message).toMatch(/session has expired/i)
+    expect(err.message).not.toMatch(/Authentication required/i)
   })
 })
