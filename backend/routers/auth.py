@@ -20,6 +20,7 @@ from auth import (
     get_user_from_session,
     get_user_from_request_headers,
     parse_swa_client_principal,
+    request_has_untrusted_swa_principal,
     refresh_session,
     invalidate_session,
     capture_lead,
@@ -72,6 +73,11 @@ async def login(request: Request, body: LoginRequest):
             swa_header = request.headers.get("x-ms-client-principal")
             if not swa_header:
                 raise ArchmorphException(400, "Missing x-ms-client-principal header for SWA login")
+            if request_has_untrusted_swa_principal(request.headers):
+                raise ArchmorphException(
+                    401,
+                    "SWA principal auth is disabled on this deployment. Use the standard sign-in flow through the trusted frontend.",
+                )
             user = parse_swa_client_principal(swa_header)
             if not user:
                 raise ArchmorphException(401, "Invalid SWA client principal")

@@ -75,7 +75,7 @@ The post-merge CTO end-to-end review of `landing-zone-svg` (May 1, 2026) flagged
 - **Infrastructure import** — import existing Terraform/ARM/CloudFormation configurations through authenticated, rate-limited, 10 MB-capped mutation routes
 - **Terraform State Import** — reverse-engineer existing infrastructure from tfstate/CloudFormation/ARM into architecture diagrams
 - **Multi-Cloud Cost Comparison** — side-by-side Azure vs AWS vs GCP TCO analysis with savings recommendations
-- **Auth shell** — simple login/logout/provider routes remain; SWA consent state is recognized from `/.auth/me`, provider redirects preserve the current path/query/hash, the mobile Sign In trigger has a dialog-accessible name, SWA cookie-auth state changes require a Strict SameSite double-submit CSRF token, and API-key/Bearer automation paths remain available
+- **Auth shell** — simple login/logout/provider routes remain; SWA consent state is recognized from `/.auth/me`, provider redirects preserve the current path/query/hash, the mobile Sign In trigger has a dialog-accessible name, SWA cookie-auth state changes require a Strict SameSite double-submit CSRF token, untrusted `x-ms-client-principal` headers are rejected unless the backend trust boundary is explicitly enabled, and API-key/Bearer automation paths remain available
 - **Real-time Collaboration** — multi-stakeholder migration workspace with share codes and role-based participants
 - **Migration Replay** — animated analysis timeline for presentations with playback controls
 - **Migration Gallery** — public anonymized success stories, filterable by cloud and complexity
