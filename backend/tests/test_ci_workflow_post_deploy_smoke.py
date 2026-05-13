@@ -36,6 +36,9 @@ def test_backend_deploy_can_read_terraform_front_door_outputs():
     workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
 
     deploy_job = workflow["jobs"]["deploy-backend"]
+    assert deploy_job["env"]["TRUSTED_FRONT_DOOR_FDID"] == "${{ secrets.TRUSTED_FRONT_DOOR_FDID }}"
+    assert deploy_job["env"]["TRUSTED_FRONT_DOOR_HOSTS"] == "${{ secrets.TRUSTED_FRONT_DOOR_HOSTS }}"
+    assert deploy_job["env"]["REQUIRE_FRONT_DOOR_ORIGIN_LOCK"] == "${{ vars.REQUIRE_FRONT_DOOR_ORIGIN_LOCK || 'false' }}"
     assert deploy_job["env"]["ARM_USE_OIDC"] is True
     assert deploy_job["env"]["ARM_CLIENT_ID"] == "${{ secrets.AZURE_CLIENT_ID }}"
     assert deploy_job["env"]["ARM_TENANT_ID"] == "${{ secrets.AZURE_TENANT_ID }}"
@@ -138,10 +141,15 @@ def test_backend_green_revision_smoke_checks_origin_lock_and_reuses_front_door_c
 
     assert "TRUSTED_FRONT_DOOR_FDID=$(az containerapp show" in smoke_script
     assert "TRUSTED_FRONT_DOOR_HOST=$(az containerapp show" in smoke_script
+    assert 'REQUIRE_FRONT_DOOR_ORIGIN_LOCK=$(echo "${REQUIRE_FRONT_DOOR_ORIGIN_LOCK:-false}" | tr' in smoke_script
+    assert 'if [ "$REQUIRE_FRONT_DOOR_ORIGIN_LOCK" = "true" ]; then' in smoke_script
     assert 'TRUSTED_ORIGIN_CURL_ARGS=(-H "X-Azure-FDID: $TRUSTED_FRONT_DOOR_FDID" -H "Host: $TRUSTED_FRONT_DOOR_HOST")' in smoke_script
+    assert 'echo "::warning::Front Door origin-lock settings are missing; direct-origin rejection check will be skipped"' in smoke_script
+    assert 'if [ -n "$GREEN_FQDN" ] && [ ${#TRUSTED_ORIGIN_CURL_ARGS[@]} -gt 0 ]; then' in smoke_script
     assert 'DIRECT_ORIGIN_CODE=$(curl -sS -o direct-origin-response.json -w "%{http_code}"' in smoke_script
     assert 'echo "::error::Direct green revision origin-lock check returned HTTP ${DIRECT_ORIGIN_CODE}"' in smoke_script
     assert 'echo "Direct green revision access correctly blocked (${DIRECT_ORIGIN_CODE})"' in smoke_script
+    assert 'echo "::warning::Skipping direct green revision origin-lock rejection check because no trusted Front Door contract is configured"' in smoke_script
     assert 'HEALTH_BODY=$(curl_health "$TEST_URL$HEALTH_PATH" || true)' in smoke_script
     assert 'HEALTH_BODY="$HEALTH_BODY" HEALTH_RETRIES=1 HEALTH_RETRY_SECONDS=0 ./scripts/health_gate.sh' in smoke_script
 
@@ -156,12 +164,23 @@ def test_backend_green_revision_deploy_wires_front_door_origin_lock_contract():
     )
     deploy_script = deploy_step["run"]
 
+    assert 'TRUSTED_FRONT_DOOR_FDID="${TRUSTED_FRONT_DOOR_FDID:-}"' in deploy_script
+    assert 'TRUSTED_FRONT_DOOR_HOSTS="${TRUSTED_FRONT_DOOR_HOSTS:-}"' in deploy_script
+    assert 'REQUIRE_FRONT_DOOR_ORIGIN_LOCK=$(echo "${REQUIRE_FRONT_DOOR_ORIGIN_LOCK:-false}" | tr' in deploy_script
     assert 'terraform -chdir=infra init -input=false' in deploy_script
-    assert 'terraform -chdir=infra output -raw front_door_profile_resource_guid' in deploy_script
-    assert 'terraform -chdir=infra output -raw front_door_api_hostname' in deploy_script
+    assert 'TERRAFORM_FRONT_DOOR_FDID=$(terraform -chdir=infra output -raw front_door_profile_resource_guid' in deploy_script
+    assert 'TERRAFORM_FRONT_DOOR_HOSTS=$(terraform -chdir=infra output -raw front_door_api_hostname' in deploy_script
+    assert 'TRUSTED_FRONT_DOOR_FDID=$(terraform -chdir=infra output' not in deploy_script
+    assert 'TRUSTED_FRONT_DOOR_HOSTS=$(terraform -chdir=infra output' not in deploy_script
+    assert 'if [ -n "$TERRAFORM_FRONT_DOOR_FDID" ]; then' in deploy_script
+    assert 'if [ -n "$TERRAFORM_FRONT_DOOR_HOSTS" ]; then' in deploy_script
     assert 'EXISTING_ENV_JSON=$(az containerapp show' in deploy_script
     assert 'select(.name == "TRUSTED_FRONT_DOOR_FDID")' in deploy_script
     assert 'select(.name == "TRUSTED_FRONT_DOOR_HOSTS")' in deploy_script
+    assert 'EXISTING_FRONT_DOOR_FDID=$(echo "$EXISTING_ENV_JSON"' in deploy_script
+    assert 'EXISTING_FRONT_DOOR_HOSTS=$(echo "$EXISTING_ENV_JSON"' in deploy_script
+    assert 'if [ -z "$TRUSTED_FRONT_DOOR_FDID" ] && [ -n "$EXISTING_FRONT_DOOR_FDID" ]; then' in deploy_script
+    assert 'if [ -z "$TRUSTED_FRONT_DOOR_HOSTS" ] && [ -n "$EXISTING_FRONT_DOOR_HOSTS" ]; then' in deploy_script
     assert 'CONTAINER_APP_FQDN=$(az containerapp show' in deploy_script
     assert 'az extension show --name front-door' in deploy_script
     assert 'az extension add --name front-door --upgrade --only-show-errors' in deploy_script
@@ -190,6 +209,8 @@ def test_backend_green_revision_deploy_wires_front_door_origin_lock_contract():
     assert 'candidate_host=$(echo "$FRONT_DOOR_ENDPOINTS_JSON" | jq' in deploy_script
     assert 'contains("api")' in deploy_script
     assert 'if [ -z "$TRUSTED_FRONT_DOOR_FDID" ] || [ -z "$TRUSTED_FRONT_DOOR_HOSTS" ]; then' in deploy_script
+    assert 'Unable to resolve Front Door FDID/hostname for required origin-lock contract' in deploy_script
+    assert 'deploying without origin-lock because REQUIRE_FRONT_DOOR_ORIGIN_LOCK is not true' in deploy_script
     assert deploy_script.index('contains("api")') < deploy_script.index('[.[] | select((.id // "") | startswith($profile_id + "/")) | .properties.hostName][0] // ""')
     assert 'TRUSTED_FRONT_DOOR_FDID="$candidate_fdid"' in deploy_script
     assert 'TRUSTED_FRONT_DOOR_HOSTS="$candidate_host"' in deploy_script
