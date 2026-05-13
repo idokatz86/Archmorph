@@ -755,10 +755,46 @@ jobs:
       - name: Deploy green revision
         id: green
         run: |
-          FRONT_DOOR_PROFILE_NAME=$(az afd profile list \
+          FRONT_DOOR_PROFILE_NAME=""
+          TRUSTED_FRONT_DOOR_HOSTS=""
+          FRONT_DOOR_PROFILE_NAMES=$(az afd profile list \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --query "[?starts_with(name, 'archmorph-fd')].name | [0]" \
+            --query "[].name" \
             -o tsv 2>/dev/null || echo "")
+
+          while IFS= read -r candidate_profile; do
+            if [ -z "$candidate_profile" ]; then
+              continue
+            fi
+            candidate_host=$(az afd endpoint list \
+              --profile-name "$candidate_profile" \
+              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --query "[?contains(name, 'api') || contains(hostName, 'api')].hostName | [0]" \
+              -o tsv 2>/dev/null || echo "")
+            if [ -n "$candidate_host" ]; then
+              FRONT_DOOR_PROFILE_NAME="$candidate_profile"
+              TRUSTED_FRONT_DOOR_HOSTS="$candidate_host"
+              break
+            fi
+          done <<< "$FRONT_DOOR_PROFILE_NAMES"
+
+          if [ -z "$FRONT_DOOR_PROFILE_NAME" ]; then
+            while IFS= read -r candidate_profile; do
+              if [ -z "$candidate_profile" ]; then
+                continue
+              fi
+              candidate_host=$(az afd endpoint list \
+                --profile-name "$candidate_profile" \
+                --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+                --query "[0].hostName" \
+                -o tsv 2>/dev/null || echo "")
+              if [ -n "$candidate_host" ]; then
+                FRONT_DOOR_PROFILE_NAME="$candidate_profile"
+                TRUSTED_FRONT_DOOR_HOSTS="$candidate_host"
+                break
+              fi
+            done <<< "$FRONT_DOOR_PROFILE_NAMES"
+          fi
           if [ -z "$FRONT_DOOR_PROFILE_NAME" ]; then
             echo "::error::Unable to resolve owned Azure Front Door profile for origin-lock contract"
             exit 1
@@ -768,11 +804,6 @@ jobs:
             --profile-name "$FRONT_DOOR_PROFILE_NAME" \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --query resourceGuid -o tsv 2>/dev/null || echo "")
-          TRUSTED_FRONT_DOOR_HOSTS=$(az afd endpoint list \
-            --profile-name "$FRONT_DOOR_PROFILE_NAME" \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --query "[?starts_with(name, 'archmorph-api')].hostName | [0]" \
-            -o tsv 2>/dev/null || echo "")
           if [ -z "$TRUSTED_FRONT_DOOR_FDID" ] || [ -z "$TRUSTED_FRONT_DOOR_HOSTS" ]; then
             echo "::error::Unable to resolve Front Door FDID/hostname for origin-lock contract"
             exit 1
