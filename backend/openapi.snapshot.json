@@ -1545,6 +1545,10 @@
             "title": "Owner",
             "type": "string"
           },
+          "participant_token": {
+            "title": "Participant Token",
+            "type": "string"
+          },
           "session_id": {
             "title": "Session Id",
             "type": "string"
@@ -1558,7 +1562,8 @@
           "session_id",
           "share_code",
           "analysis_id",
-          "owner"
+          "owner",
+          "participant_token"
         ],
         "title": "CreateSessionResponse",
         "type": "object"
@@ -3537,6 +3542,19 @@
             ],
             "title": "Change Type",
             "type": "string"
+          },
+          "participant_token": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Participant Token"
           },
           "payload": {
             "additionalProperties": true,
@@ -5925,6 +5943,22 @@
               "title": "Session Id",
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "participant_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Participant Token"
+            }
           }
         ],
         "responses": {
@@ -5970,6 +6004,22 @@
             "schema": {
               "title": "Session Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "participant_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Participant Token"
             }
           }
         ],
@@ -16013,6 +16063,22 @@
               "title": "Session Id",
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "participant_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Participant Token"
+            }
           }
         ],
         "responses": {
@@ -16059,6 +16125,22 @@
             "schema": {
               "title": "Session Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "participant_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Participant Token"
             }
           }
         ],
