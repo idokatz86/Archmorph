@@ -1,6 +1,6 @@
 import React, { useRef, useCallback, useEffect, Suspense, lazy } from 'react';
 import {
-  Upload, ChevronRight, CheckCircle, XCircle, X,
+  Upload, ChevronRight, CheckCircle, XCircle, X, Trash2,
   Loader2, Eye, Clock, FileCode, FileText, DollarSign, Rocket, Layers3, GitMerge,
 } from 'lucide-react';
 import { Button, Card, ErrorCard, Tabs } from '../ui';
@@ -389,6 +389,29 @@ export default function DiagramTranslator() {
 
   const handleAddProjectDiagram = () => {
     set({ step: 'upload', selectedFile: null, filePreviewUrl: null, iacCode: null, error: null, analysis: null });
+  };
+
+  const handlePurgeCurrentAnalysis = async () => {
+    if (!state.diagramId) return;
+    const confirmed = window.confirm(
+      'Purge this analysis now? This deletes uploaded bytes and generated server-side artifacts for the current diagram.',
+    );
+    if (!confirmed) return;
+
+    set({ loading: true, error: null });
+    try {
+      await api.delete(`/diagrams/${state.diagramId}/purge`);
+      clearSession(state.diagramId);
+      reset();
+      if (state.projectId) await refreshProjectStatus(state.projectId);
+    } catch (err) {
+      set({
+        loading: false,
+        error: err.message || 'Purge failed. Please try again.',
+      });
+      return;
+    }
+    set({ loading: false });
   };
 
   // ── Session auto-recovery: push cached analysis back to backend on 404 ──
@@ -1129,6 +1152,24 @@ export default function DiagramTranslator() {
             <Clock className="w-5 h-5 text-warning shrink-0" aria-hidden="true" />
             <p className="text-sm text-warning">{expiryWarning}</p>
             <button onClick={dismissWarning} className="ml-auto cursor-pointer hover:bg-secondary rounded-lg p-1 transition-colors" aria-label="Dismiss warning" title="Dismiss"><X className="w-4 h-4 text-text-muted" /></button>
+          </div>
+        </Card>
+      )}
+
+      {state.diagramId && (
+        <Card className="p-3 border-danger/25 bg-danger/5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-text-secondary">
+              Need to remove sensitive data now? Purge the current analysis to clear uploaded bytes, session analysis, project indexes, export capabilities, and queued jobs.
+            </p>
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={Trash2}
+              onClick={handlePurgeCurrentAnalysis}
+            >
+              Purge Current Analysis
+            </Button>
           </div>
         </Card>
       )}

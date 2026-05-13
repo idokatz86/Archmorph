@@ -118,3 +118,16 @@ def test_project_analysis_requires_analyzed_diagrams(test_client):
     response = test_client.get("/api/projects/project-241/analysis")
 
     assert response.status_code == 404
+
+
+def test_purge_removes_diagram_from_project_indexes(test_client):
+    uploaded = _upload(test_client, project_id="project-241")
+    diagram_id = uploaded["diagram_id"]
+    _analyze(test_client, diagram_id)
+
+    purge = test_client.delete(f"/api/diagrams/{diagram_id}/purge")
+    assert purge.status_code == 200
+
+    project_response = test_client.get("/api/projects/project-241")
+    assert project_response.status_code == 404
+    assert DIAGRAM_PROJECT_STORE.get(diagram_id) is None

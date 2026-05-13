@@ -19,7 +19,7 @@ import base64
 import logging
 
 from routers.shared import (
-    SESSION_STORE, IMAGE_STORE,
+    SESSION_STORE, IMAGE_STORE, SHARE_STORE, EXPORT_CAPABILITY_STORE,
     limiter, verify_api_key, MAX_UPLOAD_SIZE, generate_session_id,
     require_authenticated_user, get_api_key_service_principal,
 )
@@ -39,7 +39,13 @@ from confidence_provenance import build_provenance
 from architecture_rules import evaluate as evaluate_architecture_rules
 from architecture_review import build_audit_pipeline_issue, classify_regulated_workload
 from source_provider import normalize_source_provider
-from project_store import mark_diagram_analyzed, register_diagram
+from project_store import (
+    mark_diagram_analyzed,
+    register_diagram,
+    remove_diagram,
+    get_project_id_for_diagram,
+)
+import shareable_reports
 from analysis_payload_bounds import (
     AnalysisPayloadTooLarge,
     validate_analysis_payload_bounds,
@@ -164,6 +170,16 @@ class RestoreSessionRequest(StrictBaseModel):
     iac_format: Optional[str] = None
     image_base64: Optional[str] = None
     image_content_type: Optional[str] = None
+
+
+def _purge_store_records_for_diagram(store, diagram_id: str) -> int:
+    purged = 0
+    for key in list(store.keys("*")):
+        value = store.get(key)
+        if isinstance(value, dict) and value.get("diagram_id") == diagram_id:
+            store.delete(key)
+            purged += 1
+    return purged
 
 
 # ─────────────────────────────────────────────────────────────
@@ -313,6 +329,67 @@ async def restore_session(
         {"status": "restored", "diagram_id": diagram_id, "restored": restored_parts},
         diagram_id,
     )
+
+
+@router.delete("/api/diagrams/{diagram_id}/purge")
+@limiter.limit("20/minute")
+async def purge_diagram_session(
+    request: Request,
+    diagram_id: str,
+    _auth=Depends(verify_api_key),
+):
+    """Purge uploaded content and derived artifacts for a diagram.
+
+    Retention baseline: upload/session/project/export capability stores use a
+    2-hour TTL by default. Browser sessionStorage cache may also hold analysis
+    state until tab/session close unless the client clears it.
+
+    This endpoint provides immediate deletion of server-side data for API/UI
+    callers, including uploaded bytes, analysis session payloads, project
+    indexes, share links, export capabilities, and queued async jobs/events.
+    Uploaded data is processed by model services for analysis and is not used
+    by Archmorph for model training.
+    """
+    image_record = IMAGE_STORE.get(diagram_id)
+    session_record = SESSION_STORE.get(diagram_id)
+    image_deleted = image_record is not None
+    session_deleted = session_record is not None
+    if image_record is not None:
+        IMAGE_STORE.delete(diagram_id)
+    if session_record is not None:
+        SESSION_STORE.delete(diagram_id)
+
+    project_id = get_project_id_for_diagram(diagram_id)
+    remove_diagram(diagram_id)
+
+    export_capabilities_deleted = _purge_store_records_for_diagram(EXPORT_CAPABILITY_STORE, diagram_id)
+    share_store_deleted = _purge_store_records_for_diagram(SHARE_STORE, diagram_id)
+    share_links_deleted = shareable_reports.purge_diagram_shares(diagram_id)
+    jobs_deleted = job_manager.purge_diagram(diagram_id)
+
+    record_event("diagram_data_purged", {
+        "diagram_id": diagram_id,
+        "project_id": project_id,
+        "image_deleted": image_deleted,
+        "session_deleted": session_deleted,
+        "export_capabilities_deleted": export_capabilities_deleted,
+        "share_store_deleted": share_store_deleted,
+        "share_links_deleted": share_links_deleted,
+        "jobs_deleted": jobs_deleted,
+    })
+    return {
+        "status": "purged",
+        "diagram_id": diagram_id,
+        "project_id": project_id,
+        "purged": {
+            "image": image_deleted,
+            "session": session_deleted,
+            "export_capabilities": export_capabilities_deleted,
+            "share_store": share_store_deleted,
+            "share_links": share_links_deleted,
+            "jobs": jobs_deleted,
+        },
+    }
 
 
 # ─────────────────────────────────────────────────────────────

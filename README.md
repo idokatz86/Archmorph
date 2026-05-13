@@ -556,12 +556,20 @@ Dynamic pricing powered by the [Azure Retail Prices API](https://prices.azure.co
 |----------|--------|-------------|
 | `/api/projects/{id}/diagrams` | POST | Upload diagram file |
 | `/api/diagrams/{id}/analyze` | POST | Analyze diagram |
+| `/api/diagrams/{id}/purge` | DELETE | Purge uploaded bytes and derived artifacts for current analysis |
 | `/api/diagrams/{id}/questions` | POST | Generate guided migration questions |
 | `/api/diagrams/{id}/apply-answers` | POST | Apply answers to refine mappings |
 | `/api/diagrams/{id}/export-diagram` | POST | Export as Excalidraw, Draw.io, or Visio |
 | `/api/diagrams/{id}/export-hld` | POST | Export HLD as DOCX, PDF, or PPTX |
 | `/api/diagrams/{id}/generate` | POST | Generate Terraform or Bicep code |
 | `/api/diagrams/{id}/cost-estimate` | GET | Dynamic cost estimate |
+
+### Upload Retention and Purge Semantics
+
+- Upload/session/project/export-capability caches are TTL-backed (2-hour default for analysis flow stores).
+- Browser session cache may temporarily hold analysis/session-recovery state until tab/session close.
+- Uploaded artifacts are processed by model services for analysis; Archmorph does not use uploaded content to train models.
+- Call `DELETE /api/diagrams/{id}/purge` to immediately clear uploaded bytes, session analysis, project indexes, share/export artifacts, and diagram-linked async jobs/events.
 
 ### Chatbot & Admin
 

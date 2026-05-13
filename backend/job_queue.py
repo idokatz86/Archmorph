@@ -433,6 +433,20 @@ class JobManager:
             "events_dropped_total": total_events_dropped,
         }
 
+    def purge_diagram(self, diagram_id: str) -> int:
+        """Delete all jobs and buffered events linked to a diagram."""
+        deleted = 0
+        for job_id in list(self._jobs_store.keys("*")):
+            payload = self._jobs_store.get(job_id) or {}
+            if payload.get("diagram_id") != diagram_id:
+                continue
+            self._jobs.pop(job_id, None)
+            self._jobs_store.delete(job_id)
+            self._events_store.delete(job_id)
+            self._waiters.pop(job_id, None)
+            deleted += 1
+        return deleted
+
 
 def _sse_format(event: str, data: Any) -> str:
     """Format a Server-Sent Event."""

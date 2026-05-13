@@ -34,6 +34,14 @@ describe('UploadStep', () => {
     expect(screen.getByText(/Supports PNG, JPG, JPEG, SVG, PDF, Draw\.io, Visio/)).toBeInTheDocument()
   })
 
+  it('shows confidentiality disclosure before upload', () => {
+    render(<UploadStep {...defaultProps} />)
+    expect(screen.getByText('Confidential Upload Disclosure')).toBeInTheDocument()
+    expect(screen.getByText(/not used by Archmorph for model training/i)).toBeInTheDocument()
+    expect(screen.getByText(/2-hour retention window/i)).toBeInTheDocument()
+    expect(screen.getByText(/Purge Current Analysis/i)).toBeInTheDocument()
+  })
+
   it('renders sample diagram buttons', () => {
     render(<UploadStep {...defaultProps} />)
     expect(screen.getByText('Hub & Spoke')).toBeInTheDocument()
