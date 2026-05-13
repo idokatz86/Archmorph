@@ -12,8 +12,7 @@ from typing import Optional
 import asyncio
 import logging
 
-from routers.shared import limiter, verify_api_key
-from routers.samples import get_or_recreate_session
+from routers.shared import authorize_diagram_access, limiter, require_diagram_access, verify_api_key
 from usage_metrics import record_event
 from migration_timeline import (
     generate_timeline,
@@ -26,7 +25,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-@router.post("/api/diagrams/{diagram_id}/migration-timeline")
+@router.post("/api/diagrams/{diagram_id}/migration-timeline", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("5/minute")
 async def create_migration_timeline(
     request: Request,
@@ -39,9 +38,7 @@ async def create_migration_timeline(
     The timeline includes 7 phases, dependency-ordered services,
     parallel workstreams, and estimated durations per service.
     """
-    session = get_or_recreate_session(diagram_id)
-    if not session:
-        raise ArchmorphException(404, "Analysis not found — analyze a diagram first")
+    session = authorize_diagram_access(request, diagram_id, purpose="create a migration timeline")
 
     timeline = await asyncio.to_thread(generate_timeline, session, project_name)
 
@@ -59,7 +56,7 @@ async def create_migration_timeline(
     return timeline
 
 
-@router.get("/api/diagrams/{diagram_id}/migration-timeline")
+@router.get("/api/diagrams/{diagram_id}/migration-timeline", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("30/minute")
 async def get_migration_timeline(
     request: Request,
@@ -67,14 +64,14 @@ async def get_migration_timeline(
     _auth=Depends(verify_api_key),
 ):
     """Retrieve the previously generated migration timeline."""
-    session = get_or_recreate_session(diagram_id)
+    session = authorize_diagram_access(request, diagram_id, purpose="view a migration timeline")
     if not session or "migration_timeline" not in session:
         raise ArchmorphException(404, "Timeline not found. Generate one first via POST.")
 
     return session["migration_timeline"]
 
 
-@router.get("/api/diagrams/{diagram_id}/migration-timeline/export")
+@router.get("/api/diagrams/{diagram_id}/migration-timeline/export", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("15/minute")
 async def export_migration_timeline(
     request: Request,
@@ -83,7 +80,7 @@ async def export_migration_timeline(
     _auth=Depends(verify_api_key),
 ):
     """Export the migration timeline in JSON, Markdown, or CSV format."""
-    session = get_or_recreate_session(diagram_id)
+    session = authorize_diagram_access(request, diagram_id, purpose="export a migration timeline")
     if not session or "migration_timeline" not in session:
         raise ArchmorphException(404, "Timeline not found. Generate one first via POST.")
 

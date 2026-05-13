@@ -36,6 +36,8 @@ def _generate_share_id() -> str:
 def create_share(
     analysis_snapshot: Dict[str, Any],
     creator_id: Optional[str] = None,
+    creator_tenant_id: Optional[str] = None,
+    creator_api_principal_id: Optional[str] = None,
     expiry_days: int = DEFAULT_EXPIRY_DAYS,
 ) -> Dict[str, Any]:
     """Create a shareable report from an analysis snapshot.
@@ -49,6 +51,8 @@ def create_share(
         "share_id": share_id,
         "analysis_snapshot": analysis_snapshot,
         "creator_id": creator_id,
+        "creator_tenant_id": creator_tenant_id,
+        "creator_api_principal_id": creator_api_principal_id,
         "created_at": now.isoformat(),
         "expires_at": (now + timedelta(days=expiry_days)).isoformat(),
         "view_count": 0,
@@ -96,6 +100,8 @@ def get_share_stats(share_id: str) -> Optional[Dict[str, Any]]:
             "created_at": record["created_at"],
             "expires_at": record["expires_at"],
             "creator_id": record["creator_id"],
+            "creator_tenant_id": record.get("creator_tenant_id"),
+            "creator_api_principal_id": record.get("creator_api_principal_id"),
         }
 
 
