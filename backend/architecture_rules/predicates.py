@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import re
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Set
 
 
 # ---------------------------------------------------------------------------
@@ -554,7 +554,7 @@ def rds_engine_unresolved(analysis: Dict[str, Any]) -> Optional[PredicateMatch]:
             affected.extend([s for s in (src, tgt) if s])
 
     if affected:
-        seen: set[str] = set()
+        seen: Set[str] = set()
         deduped = [s for s in affected if not (s in seen or seen.add(s))]
         return PredicateMatch(
             affected_services=deduped,

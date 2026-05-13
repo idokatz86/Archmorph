@@ -1,6 +1,6 @@
 {
   "title": "ActOne Production AWS Architecture",
-  "description": "Production ActOne/AVA workload with SFTP incoming bucket ingestion, AppStream user access, ALB HTTP ingress, RDS hot standby, EFS-backed pods, Kafka topics, Elasticsearch logs and business metrics. The active-active label with 100/0 region split is intentional test data for HA/DR ambiguity detection.",
+  "description": "Production ActOne/AVA workload with SFTP ingestion, AppStream access, ALB ingress, RDS hot standby, EFS-backed pods, Kafka topics, and Elasticsearch logs/metrics. Active-active with 100/0 regional traffic is intentional ambiguity test data.",
   "source_provider": "aws",
   "dr_mode": "active-active",
   "architecture_patterns": ["production", "active-active", "multi-region"],
