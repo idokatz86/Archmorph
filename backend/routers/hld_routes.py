@@ -280,10 +280,25 @@ async def _run_hld_job(job_id: str, diagram_id: str) -> None:
         job_manager.start(job_id)
         job_manager.update_progress(job_id, 10, "Preparing HLD generation...")
 
+        job_record = job_manager.get(job_id)
         session = SESSION_STORE.get(diagram_id)
         if not session:
             job_manager.fail(job_id, "Analysis not found")
             return
+        if job_record:
+            job_user_id = getattr(job_record, "owner_user_id", None)
+            job_tenant_id = getattr(job_record, "tenant_id", None)
+            job_api_key_id = getattr(job_record, "owner_api_key_id", None)
+            if job_user_id or job_tenant_id:
+                if (
+                    session.get("_owner_user_id") != job_user_id
+                    or session.get("_tenant_id") != job_tenant_id
+                ):
+                    job_manager.fail(job_id, "Analysis access revoked")
+                    return
+            elif job_api_key_id and session.get("_owner_api_key_id") != job_api_key_id:
+                job_manager.fail(job_id, "Analysis access revoked")
+                return
 
         if job_manager.is_cancelled(job_id):
             return

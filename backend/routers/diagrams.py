@@ -564,6 +564,11 @@ async def _run_analysis_job(job_id: str, diagram_id: str) -> None:
         # Save to user history if job carries an authenticated owner.
         if job_user_id:
             maybe_save_from_session(job_user_id, result, diagram_id)
+        elif job_api_principal_id:
+            logger.debug(
+                "Skipping user history persistence for API principal-owned async analysis %s",
+                str(diagram_id).replace('\n', '').replace('\r', ''),
+            )
 
         job_manager.update_progress(job_id, 95, "Finalizing...")
         job_manager.complete(job_id, result=attach_export_capability(result, diagram_id))
