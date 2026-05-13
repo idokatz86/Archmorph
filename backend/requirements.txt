@@ -56,6 +56,7 @@ pytest-asyncio
 pytest-cov
 pytest-xdist
 hypothesis
+jsonschema>=4.25.1
 polyfactory
 azure-mgmt-resourcegraph
 azure-mgmt-subscription
