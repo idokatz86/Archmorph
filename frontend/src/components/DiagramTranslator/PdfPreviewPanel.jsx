@@ -7,6 +7,7 @@ const MAX_ZOOM = 250;
 const ZOOM_STEP = 25;
 const SMALL_FILE_THRESHOLD_BYTES = 220 * 1024;
 const SMALL_PAGE_THRESHOLD_BYTES = 180 * 1024;
+const LOW_LEGIBILITY_WARNING = 'Potential legibility risk: this PDF is compact and may contain tiny labels or rasterized text. Zoom and inspect before analysis.';
 
 function formatKb(size) {
   return `${Math.max(1, Math.round(size / 1024))} KB`;
@@ -19,10 +20,11 @@ function extractPdfDetails(buffer, fileSize) {
   const pagesByType = (text.match(/\/Type\s*\/Page\b/g) || []).length || null;
   const pagesByCount = Number(text.match(/\/Count\s+(\d+)/)?.[1] || 0) || null;
   const pageCount = pagesByCount || pagesByType;
+  const bytesPerPage = pageCount ? (fileSize / pageCount) : null;
 
   let legibilityWarning = null;
-  if (fileSize <= SMALL_FILE_THRESHOLD_BYTES || (pageCount && (fileSize / pageCount) <= SMALL_PAGE_THRESHOLD_BYTES)) {
-    legibilityWarning = 'Potential legibility risk: this PDF is compact and may contain tiny labels or rasterized text. Zoom and inspect before analysis.';
+  if (fileSize <= SMALL_FILE_THRESHOLD_BYTES || (bytesPerPage && bytesPerPage <= SMALL_PAGE_THRESHOLD_BYTES)) {
+    legibilityWarning = LOW_LEGIBILITY_WARNING;
   }
 
   return { encrypted, pageCount, legibilityWarning };
