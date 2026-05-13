@@ -758,32 +758,30 @@ jobs:
           FRONT_DOOR_PROFILE_NAME=""
           TRUSTED_FRONT_DOOR_FDID=""
           TRUSTED_FRONT_DOOR_HOSTS=""
-          FRONT_DOOR_PROFILES_JSON=$(az resource list \
+          EXISTING_ENV_JSON=$(az containerapp show \
+            --name ${{ env.CONTAINER_APP_NAME }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --query "properties.template.containers[0].env" -o json 2>/dev/null || echo "[]")
+          TRUSTED_FRONT_DOOR_FDID=$(echo "$EXISTING_ENV_JSON" | jq -r '.[] | select(.name == "TRUSTED_FRONT_DOOR_FDID") | .value // ""' | head -1)
+          TRUSTED_FRONT_DOOR_HOSTS=$(echo "$EXISTING_ENV_JSON" | jq -r '.[] | select(.name == "TRUSTED_FRONT_DOOR_HOSTS") | .value // ""' | head -1)
+          CONTAINER_APP_FQDN=$(az containerapp show \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --query "properties.configuration.ingress.fqdn" -o tsv 2>/dev/null || echo "")
+
+          FRONT_DOOR_PROFILES_JSON=$(az resource list \
             --resource-type Microsoft.Cdn/profiles \
             -o json 2>/dev/null || echo "[]")
           FRONT_DOOR_ENDPOINTS_JSON=$(az resource list \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --resource-type Microsoft.Cdn/profiles/afdEndpoints \
             -o json 2>/dev/null || echo "[]")
+          FRONT_DOOR_ORIGINS_JSON=$(az resource list \
+            --resource-type Microsoft.Cdn/profiles/originGroups/origins \
+            -o json 2>/dev/null || echo "[]")
 
-          while IFS= read -r candidate_profile_json; do
-            if [ -z "$candidate_profile_json" ]; then
-              continue
-            fi
-            candidate_profile_id=$(echo "$candidate_profile_json" | jq -r '.id // ""')
-            candidate_profile_name=$(echo "$candidate_profile_json" | jq -r '.name // ""')
-            candidate_fdid=$(echo "$candidate_profile_json" | jq -r '.properties.frontDoorId // .properties.resourceGuid // ""')
-            candidate_host=$(echo "$FRONT_DOOR_ENDPOINTS_JSON" | jq -r --arg profile_id "$candidate_profile_id" '[.[] | select((.id // "") | startswith($profile_id + "/")) | select(((.name // "") | ascii_downcase | contains("api")) or (((.properties.hostName // "") | ascii_downcase) | contains("api"))) | .properties.hostName][0] // ""')
-            if [ -n "$candidate_host" ] && [ -n "$candidate_fdid" ]; then
-              FRONT_DOOR_PROFILE_NAME="$candidate_profile_name"
-              TRUSTED_FRONT_DOOR_FDID="$candidate_fdid"
-              TRUSTED_FRONT_DOOR_HOSTS="$candidate_host"
-              break
-            fi
-          done < <(echo "$FRONT_DOOR_PROFILES_JSON" | jq -c '.[]')
-
-          if [ -z "$FRONT_DOOR_PROFILE_NAME" ]; then
+          if [ -z "$TRUSTED_FRONT_DOOR_FDID" ] || [ -z "$TRUSTED_FRONT_DOOR_HOSTS" ]; then
+            TRUSTED_FRONT_DOOR_FDID=""
+            TRUSTED_FRONT_DOOR_HOSTS=""
             while IFS= read -r candidate_profile_json; do
               if [ -z "$candidate_profile_json" ]; then
                 continue
@@ -791,7 +789,11 @@ jobs:
               candidate_profile_id=$(echo "$candidate_profile_json" | jq -r '.id // ""')
               candidate_profile_name=$(echo "$candidate_profile_json" | jq -r '.name // ""')
               candidate_fdid=$(echo "$candidate_profile_json" | jq -r '.properties.frontDoorId // .properties.resourceGuid // ""')
-              candidate_host=$(echo "$FRONT_DOOR_ENDPOINTS_JSON" | jq -r --arg profile_id "$candidate_profile_id" '[.[] | select((.id // "") | startswith($profile_id + "/")) | .properties.hostName][0] // ""')
+              origin_matches_container=$(echo "$FRONT_DOOR_ORIGINS_JSON" | jq -r --arg profile_id "$candidate_profile_id" --arg container_host "$CONTAINER_APP_FQDN" 'any(.[]; ((.id // "") | startswith($profile_id + "/")) and ((.properties.hostName // "") == $container_host))')
+              if [ "$origin_matches_container" != "true" ]; then
+                continue
+              fi
+              candidate_host=$(echo "$FRONT_DOOR_ENDPOINTS_JSON" | jq -r --arg profile_id "$candidate_profile_id" '[.[] | select((.id // "") | startswith($profile_id + "/")) | select(((.name // "") | ascii_downcase | contains("api")) or (((.properties.hostName // "") | ascii_downcase) | contains("api"))) | .properties.hostName][0] // ""')
               if [ -n "$candidate_host" ] && [ -n "$candidate_fdid" ]; then
                 FRONT_DOOR_PROFILE_NAME="$candidate_profile_name"
                 TRUSTED_FRONT_DOOR_FDID="$candidate_fdid"
@@ -800,9 +802,27 @@ jobs:
               fi
             done < <(echo "$FRONT_DOOR_PROFILES_JSON" | jq -c '.[]')
           fi
-          if [ -z "$FRONT_DOOR_PROFILE_NAME" ]; then
-            echo "::error::Unable to resolve owned Azure Front Door profile for origin-lock contract"
-            exit 1
+
+          if [ -z "$TRUSTED_FRONT_DOOR_FDID" ] || [ -z "$TRUSTED_FRONT_DOOR_HOSTS" ]; then
+            while IFS= read -r candidate_profile_json; do
+              if [ -z "$candidate_profile_json" ]; then
+                continue
+              fi
+              candidate_profile_id=$(echo "$candidate_profile_json" | jq -r '.id // ""')
+              candidate_profile_name=$(echo "$candidate_profile_json" | jq -r '.name // ""')
+              candidate_fdid=$(echo "$candidate_profile_json" | jq -r '.properties.frontDoorId // .properties.resourceGuid // ""')
+              origin_matches_container=$(echo "$FRONT_DOOR_ORIGINS_JSON" | jq -r --arg profile_id "$candidate_profile_id" --arg container_host "$CONTAINER_APP_FQDN" 'any(.[]; ((.id // "") | startswith($profile_id + "/")) and ((.properties.hostName // "") == $container_host))')
+              if [ "$origin_matches_container" != "true" ]; then
+                continue
+              fi
+              candidate_host=$(echo "$FRONT_DOOR_ENDPOINTS_JSON" | jq -r --arg profile_id "$candidate_profile_id" '[.[] | select((.id // "") | startswith($profile_id + "/")) | .properties.hostName][0] // ""')
+              if [ -n "$candidate_host" ] && [ -n "$candidate_fdid" ]; then
+                FRONT_DOOR_PROFILE_NAME="$candidate_profile_name"
+                TRUSTED_FRONT_DOOR_FDID="$candidate_fdid"
+                TRUSTED_FRONT_DOOR_HOSTS="$candidate_host"
+                break
+              fi
+            done < <(echo "$FRONT_DOOR_PROFILES_JSON" | jq -c '.[]')
           fi
 
           if [ -z "$TRUSTED_FRONT_DOOR_FDID" ] || [ -z "$TRUSTED_FRONT_DOOR_HOSTS" ]; then
