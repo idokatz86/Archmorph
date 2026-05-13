@@ -31,6 +31,19 @@ def test_backend_deploy_wires_jwt_secret_to_container_app_revision():
     assert "2>/dev/null || true" not in deploy_script
 
 
+def test_backend_deploy_limits_workers_for_fast_container_app_activation():
+    workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
+
+    deploy_step = next(
+        step
+        for step in workflow["jobs"]["deploy-backend"]["steps"]
+        if step.get("name") == "Deploy green revision"
+    )
+    deploy_script = deploy_step["run"]
+
+    assert 'WEB_CONCURRENCY="1"' in deploy_script
+
+
 def test_backend_readiness_accepts_azure_provisioned_state():
     workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
 

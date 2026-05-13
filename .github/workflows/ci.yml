@@ -780,6 +780,7 @@ jobs:
               AZURE_OPENAI_API_VERSION="2025-04-01-preview" \
               ACS_CONNECTION_STRING="${{ secrets.ACS_CONNECTION_STRING }}" \
               ACS_SENDER_EMAIL="${{ secrets.ACS_SENDER_EMAIL }}" \
+              WEB_CONCURRENCY="1" \
             --revision-suffix "$REVISION_SUFFIX" \
             --no-wait
 
