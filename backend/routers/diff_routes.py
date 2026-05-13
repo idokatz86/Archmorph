@@ -5,13 +5,13 @@ Architecture Diff & Version Comparison routes.
 Version snapshots and diffing for analysis results.
 """
 
-from fastapi import APIRouter, Request, Query
+from fastapi import APIRouter, Depends, Request, Query
 from pydantic import Field
 from strict_models import StrictBaseModel
 from typing import Optional
 import logging
 
-from routers.shared import limiter
+from routers.shared import limiter, verify_api_key
 from routers.samples import get_or_recreate_session
 import architecture_diff
 
@@ -34,7 +34,7 @@ class BranchRequest(StrictBaseModel):
 
 @router.get("/api/diagrams/{diagram_id}/versions")
 @limiter.limit("30/minute")
-async def list_versions(request: Request, diagram_id: str):
+async def list_versions(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
     """List all saved versions for a diagram."""
     versions = architecture_diff.list_versions(diagram_id)
     return {"diagram_id": diagram_id, "versions": versions, "total": len(versions)}
@@ -42,7 +42,7 @@ async def list_versions(request: Request, diagram_id: str):
 
 @router.get("/api/diagrams/{diagram_id}/versions/{version}")
 @limiter.limit("30/minute")
-async def get_version(request: Request, diagram_id: str, version: int):
+async def get_version(request: Request, diagram_id: str, version: int, _auth=Depends(verify_api_key)):
     """Get a specific version snapshot."""
     record = architecture_diff.get_version(diagram_id, version)
     if record is None:
@@ -56,6 +56,7 @@ async def save_version(
     request: Request,
     diagram_id: str,
     body: Optional[SaveVersionRequest] = None,
+    _auth=Depends(verify_api_key),
 ):
     """Save current analysis state as a new version snapshot."""
     analysis = get_or_recreate_session(diagram_id)
@@ -78,6 +79,7 @@ async def diff_versions(
     diagram_id: str,
     v1: int = Query(..., ge=1),
     v2: int = Query(..., ge=1),
+    _auth=Depends(verify_api_key),
 ):
     """Compare two version snapshots and return a structured diff."""
     if v1 == v2:
@@ -100,6 +102,7 @@ async def branch_version(
     diagram_id: str,
     version: int,
     body: Optional[BranchRequest] = None,
+    _auth=Depends(verify_api_key),
 ):
     """Fork a version for what-if analysis."""
     label = body.label if body else None

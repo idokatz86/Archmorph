@@ -12,7 +12,7 @@ from typing import Optional
 import asyncio
 import logging
 
-from routers.shared import limiter, verify_api_key
+from routers.shared import limiter, verify_admin_key, verify_api_key
 from routers.samples import get_or_recreate_session
 from source_provider import normalize_source_provider
 from usage_metrics import record_event
@@ -121,7 +121,7 @@ async def api_dependency_graph(
 @router.get("/api/admin/suggestions/queue", tags=["ai-suggestion"])
 @limiter.limit("30/minute")
 async def api_review_queue(
-    request: Request, status: Optional[str] = None, _=Depends(verify_api_key)
+    request: Request, status: Optional[str] = None, _=Depends(verify_admin_key)
 ):
     """Get the admin review queue for AI mapping suggestions."""
     items = get_review_queue(status=status)
@@ -135,7 +135,7 @@ async def api_review_suggestion(
     request: Request,
     suggestion_id: str,
     body: ReviewRequest,
-    _=Depends(verify_api_key),
+    _=Depends(verify_admin_key),
 ):
     """Approve or reject an AI mapping suggestion."""
     result = review_suggestion(
@@ -159,7 +159,7 @@ async def api_review_suggestion(
 @router.post("/api/admin/suggestions/generate", tags=["ai-suggestion"])
 @limiter.limit("10/minute")
 async def api_generate_suggestion(
-    request: Request, body: GenerateRequest, _=Depends(verify_api_key)
+    request: Request, body: GenerateRequest, _=Depends(verify_admin_key)
 ):
     """Trigger AI suggestion generation for a single service or with context."""
     result = await asyncio.to_thread(
@@ -180,7 +180,7 @@ async def api_generate_suggestion(
 @router.post("/api/admin/suggestions/generate/batch", tags=["ai-suggestion"])
 @limiter.limit("3/minute")
 async def api_generate_batch(
-    request: Request, body: GenerateBatchRequest, _=Depends(verify_api_key)
+    request: Request, body: GenerateBatchRequest, _=Depends(verify_admin_key)
 ):
     """Trigger AI suggestion generation for multiple services."""
     results = await asyncio.to_thread(
@@ -193,7 +193,7 @@ async def api_generate_batch(
 @router.get("/api/admin/suggestions/pending", tags=["ai-suggestion"])
 @limiter.limit("30/minute")
 async def api_pending_suggestions(
-    request: Request, _=Depends(verify_api_key)
+    request: Request, _=Depends(verify_admin_key)
 ):
     """List pending suggestions awaiting admin review."""
     items = get_review_queue(status="pending")
@@ -206,7 +206,7 @@ async def api_suggestion_history(
     request: Request,
     decision: Optional[str] = None,
     limit: int = 100,
-    _=Depends(verify_api_key),
+    _=Depends(verify_admin_key),
 ):
     """History of all suggestions with their review decisions."""
     items = get_suggestion_history(limit=limit, decision_filter=decision)
@@ -216,7 +216,7 @@ async def api_suggestion_history(
 @router.get("/api/admin/suggestions/stats", tags=["ai-suggestion"])
 @limiter.limit("30/minute")
 async def api_suggestion_stats(
-    request: Request, _=Depends(verify_api_key)
+    request: Request, _=Depends(verify_admin_key)
 ):
     """Accuracy statistics: approved vs rejected ratio, avg confidence."""
     stats = get_review_stats()

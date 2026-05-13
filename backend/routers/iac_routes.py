@@ -290,7 +290,7 @@ async def iac_chat_endpoint(request: Request, diagram_id: str, msg: IaCChatMessa
 
 @router.get("/api/diagrams/{diagram_id}/iac-chat/history")
 @limiter.limit("30/minute")
-async def iac_chat_history(request: Request, diagram_id: str):
+async def iac_chat_history(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
     """Get IaC chat history for a diagram."""
     return {
         "diagram_id": diagram_id,
@@ -300,7 +300,7 @@ async def iac_chat_history(request: Request, diagram_id: str):
 
 @router.delete("/api/diagrams/{diagram_id}/iac-chat")
 @limiter.limit("10/minute")
-async def iac_chat_clear(request: Request, diagram_id: str):
+async def iac_chat_clear(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
     """Clear IaC chat session for a diagram."""
     cleared = clear_iac_chat(diagram_id)
     return {"cleared": cleared}
