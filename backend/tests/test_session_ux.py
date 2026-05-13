@@ -12,6 +12,7 @@ Covers:
 """
 
 import copy
+import base64
 import os
 import sys
 import time
@@ -28,7 +29,7 @@ from session_store import (
     get_store,
     reset_stores,
 )
-from routers.shared import SESSION_STORE
+from routers.shared import IMAGE_STORE, SESSION_STORE
 from auth import User, AuthProvider, UserTier, generate_session_token
 
 
@@ -265,6 +266,23 @@ class TestSessionRestore:
             json={"analysis": analysis},
         )
         assert resp.status_code == 401
+
+    def test_restore_rejects_malicious_image_payload(self, test_client, analysis, auth_headers):
+        svg = b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'
+        diagram_id = "test-restore-malicious-image"
+
+        resp = test_client.post(
+            f"/api/v1/diagrams/{diagram_id}/restore-session",
+            json={
+                "analysis": analysis,
+                "image_base64": base64.b64encode(svg).decode("ascii"),
+                "image_content_type": "image/svg+xml",
+            },
+            headers=auth_headers,
+        )
+
+        assert resp.status_code == 400
+        assert IMAGE_STORE.get(diagram_id) is None
 
 
 # ─────────────────────────────────────────────────────────────
