@@ -56,8 +56,13 @@ def test_backend_green_revision_healthz_is_retried_before_failure():
     )
     smoke_script = smoke_step["run"]
 
-    assert "for attempt in 1 2 3 4 5 6; do" in smoke_script
+    assert "HEALTHZ_MAX_ATTEMPTS=12" in smoke_script
+    assert 'HEALTHZ_URL="${TEST_URL%/api}/healthz"' in smoke_script
+    assert 'echo "Checking green revision liveness: $HEALTHZ_URL"' in smoke_script
+    assert 'for attempt in $(seq 1 "$HEALTHZ_MAX_ATTEMPTS"); do' in smoke_script
     assert ": > healthz-response.json" in smoke_script
+    assert '--max-time 20 "$HEALTHZ_URL"' in smoke_script
     assert 'Green revision /healthz attempt ${attempt} returned HTTP ${HEALTHZ_CODE}' in smoke_script
-    assert 'if [ "$attempt" -lt 6 ]; then' in smoke_script
+    assert 'if [ "$attempt" -lt "$HEALTHZ_MAX_ATTEMPTS" ]; then' in smoke_script
+    assert "sleep 15" in smoke_script
     assert 'dump_green_revision_diagnostics "healthz-${HEALTHZ_CODE}"' in smoke_script
