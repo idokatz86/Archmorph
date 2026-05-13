@@ -32,6 +32,9 @@ GOLDEN = json.loads((FIXTURES / "actone_xse_golden.json").read_text(encoding="ut
 SOURCE_TOPOLOGY = GOLDEN["source_topology"]
 EXPECTED = GOLDEN["expected_detections"]
 
+# Mappings with confidence above this threshold should not also have unresolved blockers.
+_MAX_CONFIDENCE_WITH_BLOCKERS = 0.9
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -199,13 +202,15 @@ class TestHaDrSemantics:
         assert "rto_hours" in ha_dr, "RTO not specified in ha_dr"
 
     def test_rds_multi_az_annotated_as_active_standby(self):
-        rds = next((c for c in SOURCE_TOPOLOGY["components"] if "RDS" in c.get("service_type", "")), None)
-        assert rds is not None, "RDS component not found"
+        rds_service_type = "Amazon RDS (PostgreSQL Multi-AZ)"
+        rds = next((c for c in SOURCE_TOPOLOGY["components"] if c.get("service_type") == rds_service_type), None)
+        assert rds is not None, f"RDS component with service_type '{rds_service_type}' not found"
         assert rds.get("ha_mode") == "active-standby", "RDS Multi-AZ must be annotated as active-standby"
 
     def test_kafka_annotated_as_active_active(self):
-        kafka = next((c for c in SOURCE_TOPOLOGY["components"] if "Kafka" in c.get("service_type", "") or "MSK" in c.get("service_type", "")), None)
-        assert kafka is not None, "Kafka/MSK component not found"
+        kafka_service_type = "Amazon MSK (Kafka)"
+        kafka = next((c for c in SOURCE_TOPOLOGY["components"] if c.get("service_type") == kafka_service_type), None)
+        assert kafka is not None, f"Kafka component with service_type '{kafka_service_type}' not found"
         assert kafka.get("ha_mode") == "active-active", "Kafka multi-AZ must be annotated as active-active"
 
 
@@ -272,8 +277,8 @@ class TestSourceToTargetTraceability:
         for mapping in GOLDEN["mappings"]:
             blockers = mapping.get("unresolved_blockers", [])
             if blockers:
-                # If blockers are present, confidence should be low or the source is custom
-                assert mapping["confidence"] <= 0.9, (
+                # If blockers are present, confidence should be at or below the threshold
+                assert mapping["confidence"] <= _MAX_CONFIDENCE_WITH_BLOCKERS, (
                     f"Mapping for '{mapping['source_service']}' has both high confidence ({mapping['confidence']}) "
                     f"and unresolved blockers — review required"
                 )
