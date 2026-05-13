@@ -542,13 +542,15 @@ def rds_engine_unresolved(analysis: Dict[str, Any]) -> Optional[PredicateMatch]:
     for m in analysis.get("mappings") or []:
         if not isinstance(m, dict):
             continue
-        src = str(m.get("source_service", ""))
-        tgt = str(m.get("azure_service", ""))
+        raw_src = m.get("source_service")
+        raw_tgt = m.get("azure_service")
+        src = raw_src if isinstance(raw_src, str) else ""
+        tgt = raw_tgt if isinstance(raw_tgt, str) else ""
         src_norm = _normalize(src)
         tgt_norm = _normalize(tgt)
         if "rds" not in src_norm:
             continue
-        has_engine = any(tok in src_norm for tok in engine_tokens)
+        has_engine = any(tok in src_norm or tok in tgt_norm for tok in engine_tokens)
         unresolved = any(marker in tgt_norm for marker in unresolved_markers)
         if unresolved or not has_engine:
             affected.extend([s for s in (src, tgt) if s])

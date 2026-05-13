@@ -23,7 +23,7 @@
     {"source_service": "S3", "azure_service": "Azure Blob Storage", "category": "Storage", "confidence": 0.9},
     {"source_service": "AppStream 2.0", "azure_service": "Manual mapping required", "category": "End User Computing", "confidence": 0.55},
     {"source_service": "ALB", "azure_service": "Application Gateway", "category": "Networking", "confidence": 0.9},
-    {"source_service": "RDS", "azure_service": "Engine-specific target required (Azure SQL / PostgreSQL / MySQL)", "category": "Database", "confidence": 0.55},
+    {"source_service": "RDS", "azure_service": "Engine-specific target required", "category": "Database", "confidence": 0.55},
     {"source_service": "EFS", "azure_service": "Azure Files", "category": "Storage", "confidence": 0.88},
     {"source_service": "MSK", "azure_service": "Azure Event Hubs", "category": "Streaming", "confidence": 0.84},
     {"source_service": "Elasticsearch", "azure_service": "Azure AI Search", "category": "Analytics", "confidence": 0.78}

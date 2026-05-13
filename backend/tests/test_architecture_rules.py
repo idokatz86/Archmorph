@@ -746,6 +746,36 @@ class TestActOneEngineProtocolRulePack:
         assert ambiguity.evidence is not None
         assert ambiguity.evidence.get("traffic_percentages") == [100.0, 0.0]
 
+    def test_rds_engine_target_satisfies_identification(self):
+        analysis = {
+            "mappings": [
+                {
+                    "source_service": "RDS",
+                    "azure_service": "Azure Database for PostgreSQL Flexible Server",
+                    "category": "Database",
+                }
+            ]
+        }
+
+        assert "rds-engine-identification-blocker" not in _rule_ids(analysis)
+
+    def test_rds_unresolved_ignores_null_target_in_affected_services(self):
+        analysis = {
+            "mappings": [
+                {
+                    "source_service": "RDS",
+                    "azure_service": None,
+                    "category": "Database",
+                }
+            ]
+        }
+
+        issues = evaluate(analysis)
+        blocker = next(
+            issue for issue in issues if issue.rule_id == "rds-engine-identification-blocker"
+        )
+        assert blocker.affected_services == ["RDS"]
+
 
 # ---------------------------------------------------------------------------
 # YAML override path
