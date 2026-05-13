@@ -140,13 +140,22 @@ def test_backend_green_revision_deploy_wires_front_door_origin_lock_contract():
     )
     deploy_script = deploy_step["run"]
 
+    assert 'EXISTING_ENV_JSON=$(az containerapp show' in deploy_script
+    assert 'select(.name == "TRUSTED_FRONT_DOOR_FDID")' in deploy_script
+    assert 'select(.name == "TRUSTED_FRONT_DOOR_HOSTS")' in deploy_script
+    assert 'CONTAINER_APP_FQDN=$(az containerapp show' in deploy_script
     assert 'FRONT_DOOR_PROFILES_JSON=$(az resource list' in deploy_script
     assert '--resource-type Microsoft.Cdn/profiles' in deploy_script
     assert '--resource-type Microsoft.Cdn/profiles/afdEndpoints' in deploy_script
+    assert '--resource-type Microsoft.Cdn/profiles/originGroups/origins' in deploy_script
+    assert '--resource-group ${{ env.AZURE_RESOURCE_GROUP }}' not in deploy_script.split('FRONT_DOOR_PROFILES_JSON=$(az resource list', 1)[1].split('FRONT_DOOR_ENDPOINTS_JSON=', 1)[0]
+    assert '--resource-group ${{ env.AZURE_RESOURCE_GROUP }}' not in deploy_script.split('FRONT_DOOR_ENDPOINTS_JSON=$(az resource list', 1)[1].split('FRONT_DOOR_ORIGINS_JSON=', 1)[0]
+    assert 'origin_matches_container=$(echo "$FRONT_DOOR_ORIGINS_JSON" | jq' in deploy_script
+    assert '(.properties.hostName // "") == $container_host' in deploy_script
     assert 'candidate_host=$(echo "$FRONT_DOOR_ENDPOINTS_JSON" | jq' in deploy_script
     assert 'contains("api")' in deploy_script
-    assert 'if [ -z "$FRONT_DOOR_PROFILE_NAME" ]; then' in deploy_script
-    assert deploy_script.index('contains("api")') < deploy_script.index('if [ -z "$FRONT_DOOR_PROFILE_NAME" ]; then')
+    assert 'if [ -z "$TRUSTED_FRONT_DOOR_FDID" ] || [ -z "$TRUSTED_FRONT_DOOR_HOSTS" ]; then' in deploy_script
+    assert deploy_script.index('contains("api")') < deploy_script.index('[.[] | select((.id // "") | startswith($profile_id + "/")) | .properties.hostName][0] // ""')
     assert 'TRUSTED_FRONT_DOOR_FDID="$candidate_fdid"' in deploy_script
     assert 'TRUSTED_FRONT_DOOR_HOSTS="$candidate_host"' in deploy_script
     assert deploy_script.count('if [ -n "$candidate_host" ] && [ -n "$candidate_fdid" ]; then') == 2
