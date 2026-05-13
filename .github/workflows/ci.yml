@@ -925,11 +925,13 @@ jobs:
             fi
           }
 
-          echo "Checking green revision liveness: $TEST_URL/healthz"
-          for attempt in 1 2 3 4 5 6; do
+          HEALTHZ_URL="${TEST_URL%/api}/healthz"
+          echo "Checking green revision liveness: $HEALTHZ_URL"
+          HEALTHZ_MAX_ATTEMPTS=12
+          for attempt in $(seq 1 "$HEALTHZ_MAX_ATTEMPTS"); do
             : > healthz-response.json
             if ! HEALTHZ_CODE=$(curl -sS -o healthz-response.json -w "%{http_code}" \
-              --max-time 15 "$TEST_URL/healthz"); then
+              --max-time 20 "$HEALTHZ_URL"); then
               HEALTHZ_CODE="000"
             fi
             if [ "$HEALTHZ_CODE" = "200" ]; then
@@ -937,8 +939,8 @@ jobs:
             fi
             echo "Green revision /healthz attempt ${attempt} returned HTTP ${HEALTHZ_CODE}"
             [ -s healthz-response.json ] && head -c 2000 healthz-response.json || true
-            if [ "$attempt" -lt 6 ]; then
-              sleep 10
+            if [ "$attempt" -lt "$HEALTHZ_MAX_ATTEMPTS" ]; then
+              sleep 15
             fi
           done
           if [ "$HEALTHZ_CODE" != "200" ]; then
