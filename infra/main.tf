@@ -2538,7 +2538,7 @@ resource "azurerm_cdn_frontdoor_firewall_policy" "waf" {
     match_condition {
       match_variable = "RequestHeader"
       selector       = "x-ms-client-principal"
-      operator       = "Regex"
+      operator       = "RegEx"
       match_values   = [".+"]
     }
   }
