@@ -79,15 +79,26 @@ function StatusPill({ status, label }) {
 
 function getWorkbenchSpine(state) {
   const hasQuestions = (state.questions || []).length > 0 || (state.questionAssumptions || []).length > 0;
-  const inputFailed = state.step === 'upload' && !!state.error;
   const inputAuthRequired = state.step === 'upload' && !!state.authError;
+  const inputFailed = state.step === 'upload' && !!state.error;
   const analysisFailed = ['analyzing', 'results'].includes(state.step) && !!state.error;
   const deliverablesGenerating = state.generatingIac || state.hldLoading || state.costBreakdownLoading;
   const deliverablesFailed = ['iac', 'hld', 'pricing', 'deploy'].includes(state.step) && !!state.error;
+
+  function inputStatusLabel() {
+    if (inputAuthRequired) return { status: 'needsReview', label: 'Authentication required' };
+    if (inputFailed) return { status: 'failed', label: 'Failed' };
+    if (state.analysis) return { status: 'ready', label: 'Ready' };
+    if (state.selectedFile) return { status: 'ready', label: 'File selected' };
+    return { status: 'notGenerated', label: 'Awaiting input' };
+  }
+
+  const { status: inputStatus, label: inputLabel } = inputStatusLabel();
+
   return [
-    { id: 'input', status: inputAuthRequired ? 'needsReview' : inputFailed ? 'failed' : state.selectedFile || state.analysis ? 'ready' : 'notGenerated', label: inputAuthRequired ? 'Authentication required' : inputFailed ? 'Failed' : state.analysis ? 'Ready' : state.selectedFile ? 'File selected' : 'Awaiting input' },
+    { id: 'input', status: inputStatus, label: inputLabel },
     { id: 'analysis', status: analysisFailed ? 'failed' : state.step === 'analyzing' ? 'generating' : state.analysis ? 'ready' : 'notGenerated', label: analysisFailed ? 'Failed' : state.step === 'analyzing' ? 'Analyzing' : state.analysis ? 'Ready' : 'Not started' },
-    { id: 'decisions', status: hasQuestions && state.step === 'questions' ? 'needsReview' : hasQuestions ? 'ready' : state.analysis ? 'notGenerated' : 'notGenerated', label: hasQuestions && state.step === 'questions' ? 'Needs review' : hasQuestions ? 'Captured' : 'Not started' },
+    { id: 'decisions', status: hasQuestions && state.step === 'questions' ? 'needsReview' : hasQuestions ? 'ready' : 'notGenerated', label: hasQuestions && state.step === 'questions' ? 'Needs review' : hasQuestions ? 'Captured' : 'Not started' },
     { id: 'deliverables', status: deliverablesFailed ? 'failed' : deliverablesGenerating ? 'generating' : state.iacCode ? 'ready' : 'notGenerated', label: deliverablesFailed ? 'Failed' : deliverablesGenerating ? 'Generating' : state.iacCode ? 'Ready' : 'Not generated' },
     { id: 'share', status: state.exportCapability ? 'ready' : state.iacCode ? 'needsReview' : 'notGenerated', label: state.exportCapability ? 'Ready' : state.iacCode ? 'Needs review' : 'Not generated' },
   ];

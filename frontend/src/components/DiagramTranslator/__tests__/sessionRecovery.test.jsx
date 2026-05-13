@@ -9,6 +9,7 @@
  * - Auto-recovery on mount
  * - IaC code not persisted across page refresh
  * - HLD data loss on navigation
+ * - Signed-out PDF upload → analyze → auth recovery (#1027)
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
@@ -34,6 +35,9 @@ vi.mock('../../../services/sessionCache', () => ({
   saveSession: (...args) => mockSaveSession(...args),
   loadSession: (...args) => mockLoadSession(...args),
   clearSession: (...args) => mockClearSession(...args),
+  updateSessionCache: vi.fn(),
+  cacheImage: vi.fn(),
+  loadCachedImage: vi.fn(),
 }))
 
 // Mock apiClient
@@ -67,9 +71,21 @@ vi.mock('../../../services/apiClient', () => ({
   },
 }))
 
+// Mock useAuthStore so we can control isAuthenticated per test
+let mockIsAuthenticated = false
+vi.mock('../../../stores/useAuthStore', () => ({
+  default: vi.fn((selector) => selector({
+    isAuthenticated: mockIsAuthenticated,
+    isLoading: false,
+    user: null,
+    sessionToken: null,
+  })),
+}))
+
 describe('DiagramTranslator — Session UX Tests', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockIsAuthenticated = false // signed-out by default for these tests
     mockLoadSession.mockReturnValue(null)
     fetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({}) })
   })
@@ -253,32 +269,25 @@ describe('DiagramTranslator — Data Persistence Gaps', () => {
 // ─────────────────────────────────────────────────────────────
 // Signed-out PDF upload → analyze → auth recovery (#1027 regression)
 // Acceptance criteria:
-//   - 401 without a session token → state.authError === 'auth_required'
-//   - 401 with a token (expired) → state.authError === 'session_expired'
+//   - 401 without a session token → authError: 'auth_required', shows "Authentication required"
+//   - 401 with a token (expired) → authError: 'session_expired', shows "session has expired"
 //   - "Re-upload Diagram" is NOT the primary CTA for auth failures
-//   - selectedFile is preserved across the auth error so the user can retry
+//   - selectedFile is preserved after auth error so user can retry after signing in
 // ─────────────────────────────────────────────────────────────
 describe('DiagramTranslator — Signed-out auth recovery', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockIsAuthenticated = false // signed-out by default
     mockLoadSession.mockReturnValue(null)
     fetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({}) })
     localStorage.clear()
   })
 
-  it('preserves selectedFile after a 401 so user can retry after signing in', async () => {
-    const { ApiError } = await import('../../../services/apiClient')
-    const authErr = new ApiError(401, { detail: 'Not authenticated' }, { hadToken: false })
-
-    // Upload call returns 401
-    mockApi.post.mockRejectedValueOnce(authErr)
-
+  it('shows "Sign in to analyze" button (not "Analyze This Diagram") when user is signed out and selects a file', async () => {
+    mockIsAuthenticated = false
     render(<DiagramTranslator />)
+    await screen.findByText('Upload Architecture Diagram')
 
-    // Wait for the upload step to render
-    expect(await screen.findByText('Upload Architecture Diagram')).toBeInTheDocument()
-
-    // Select a file via the hidden file input
     const input = document.querySelector('input[type="file"]')
     const pdfFile = new File(['%PDF-1.4'], 'architecture.pdf', { type: 'application/pdf' })
 
@@ -286,48 +295,89 @@ describe('DiagramTranslator — Signed-out auth recovery', () => {
       fireEvent.change(input, { target: { files: [pdfFile] } })
     })
 
-    // File should be selected
     await waitFor(() => expect(screen.getByText('architecture.pdf')).toBeInTheDocument())
 
-    // Click "Sign in to analyze" (auth gate) — this opens login modal rather than uploading.
-    // When isAuthenticated=false (default in tests via mocked zustand), the button
-    // reads "Sign in to analyze". We exercise the case where upload IS attempted and returns 401.
-    // Directly call handleUpload by finding the analyze button (authenticated path).
-    // Since default isAuthenticated is false (zustand initial state), the button
-    // is "Sign in to analyze" — we verify the auth card is NOT shown until upload is tried.
-    // Verify no auth error card yet
-    expect(screen.queryByText('Authentication required')).not.toBeInTheDocument()
+    // Proactive auth gate: "Sign in to analyze" instead of "Analyze This Diagram"
+    expect(screen.getByText('Sign in to analyze')).toBeInTheDocument()
+    expect(screen.queryByText('Analyze This Diagram')).not.toBeInTheDocument()
   })
 
   it('shows "Authentication required" card (not "Analysis Error") when upload returns 401 without token', async () => {
+    // Set user as authenticated so the upload button is visible and upload can be triggered
+    mockIsAuthenticated = true
+
     const { ApiError } = await import('../../../services/apiClient')
     const authErr = new ApiError(401, { detail: 'Not authenticated' }, { hadToken: false })
+    authErr.isAuthRequired = true
 
+    // First post (upload) returns 401
     mockApi.post.mockRejectedValueOnce(authErr)
 
     render(<DiagramTranslator />)
     await screen.findByText('Upload Architecture Diagram')
 
-    // Simulate the upload flow completing with a 401 by testing the handleUpload
-    // error path directly through the hook. We verify the authError state drives
-    // the correct UI — "Authentication required" title, no "Re-upload Diagram" CTA.
-    const spineInputLabel = () =>
-      screen.queryByText('Authentication required') ||
-      screen.queryByText('Failed')
+    // Select a PDF file
+    const input = document.querySelector('input[type="file"]')
+    const pdfFile = new File(['%PDF-1.4'], 'architecture.pdf', { type: 'application/pdf' })
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [pdfFile] } })
+    })
+    await waitFor(() => expect(screen.getByText('architecture.pdf')).toBeInTheDocument())
 
-    // The auth error card text should use auth-specific copy
-    expect(authErr.isAuthRequired).toBe(true)
-    expect(authErr.message).toMatch(/Authentication required/i)
-    expect(authErr.message).not.toMatch(/session has expired/i)
+    // Click "Analyze This Diagram" to trigger the upload (authenticated path)
+    const analyzeBtn = screen.getByText('Analyze This Diagram')
+    await act(async () => { fireEvent.click(analyzeBtn) })
+
+    // Should show auth-specific card heading — use role query to avoid matching spine status pill
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Authentication required' })).toBeInTheDocument())
+
+    // "Re-upload Diagram" should NOT be the primary CTA for auth failures
+    expect(screen.queryByText('Re-upload Diagram')).not.toBeInTheDocument()
+
+    // Selected file should still be visible (preserved for retry after sign-in)
+    expect(screen.getByText('architecture.pdf')).toBeInTheDocument()
+
+    // Sign-in CTA should be present in the auth card
+    expect(screen.getByRole('button', { name: /Sign in to analyze/i })).toBeInTheDocument()
   })
 
-  it('shows session_expired copy when 401 has an Authorization header (token was sent)', async () => {
+  it('preserves selectedFile after 401 so user can retry after signing in', async () => {
+    mockIsAuthenticated = true
+
     const { ApiError } = await import('../../../services/apiClient')
-    // Simulate a token being present (expired session)
+    const authErr = new ApiError(401, { detail: 'Not authenticated' }, { hadToken: false })
+    authErr.isAuthRequired = true
+    mockApi.post.mockRejectedValueOnce(authErr)
+
+    render(<DiagramTranslator />)
+    await screen.findByText('Upload Architecture Diagram')
+
+    const input = document.querySelector('input[type="file"]')
+    const pdfFile = new File(['%PDF-1.4'], 'my-diagram.pdf', { type: 'application/pdf' })
+    await act(async () => { fireEvent.change(input, { target: { files: [pdfFile] } }) })
+    await waitFor(() => expect(screen.getByText('my-diagram.pdf')).toBeInTheDocument())
+
+    await act(async () => { fireEvent.click(screen.getByText('Analyze This Diagram')) })
+
+    // After 401, the file should still be shown (not cleared)
+    await waitFor(() => expect(screen.getByText('my-diagram.pdf')).toBeInTheDocument())
+  })
+
+  it('uses "session has expired" copy when 401 had a token (expiry case)', async () => {
+    const { ApiError } = await import('../../../services/apiClient')
     const expiredErr = new ApiError(401, { detail: 'Token expired' }, { hadToken: true })
 
     expect(expiredErr.isAuthRequired).toBe(false)
     expect(expiredErr.message).toMatch(/session has expired/i)
     expect(expiredErr.message).not.toMatch(/Authentication required/i)
+  })
+
+  it('uses "Authentication required" copy when 401 had no token (signed-out case)', async () => {
+    const { ApiError } = await import('../../../services/apiClient')
+    const authErr = new ApiError(401, { detail: 'Not authenticated' }, { hadToken: false })
+
+    expect(authErr.isAuthRequired).toBe(true)
+    expect(authErr.message).toMatch(/Authentication required/i)
+    expect(authErr.message).not.toMatch(/session has expired/i)
   })
 })
