@@ -163,7 +163,23 @@ def test_backend_green_revision_deploy_wires_front_door_origin_lock_contract():
     assert 'select(.name == "TRUSTED_FRONT_DOOR_FDID")' in deploy_script
     assert 'select(.name == "TRUSTED_FRONT_DOOR_HOSTS")' in deploy_script
     assert 'CONTAINER_APP_FQDN=$(az containerapp show' in deploy_script
+    assert 'az extension show --name front-door' in deploy_script
+    assert 'az extension add --name front-door --upgrade --only-show-errors' in deploy_script
+    assert 'AFD_PROFILES_JSON=$(az afd profile list' in deploy_script
+    assert 'AFD_PROFILES_JSON=$(az resource list' in deploy_script
+    assert 'az afd origin-group list' in deploy_script
+    assert 'az afd origin list' in deploy_script
+    assert '.originHostHeader // .properties.originHostHeader' in deploy_script
+    assert 'az afd endpoint list' in deploy_script
+    assert 'show_afd_resource()' in deploy_script
+    assert 'az resource show --ids "$resource_id" --api-version 2024-02-01' in deploy_script
+    assert 'front_door_profile_targets_container "$candidate_profile_name" "$candidate_profile_group" "$CONTAINER_APP_FQDN"' in deploy_script
+    assert 'front_door_profile_fdid "$candidate_profile_json" "$candidate_profile_id" "$candidate_profile_name" "$candidate_profile_group"' in deploy_script
+    assert 'front_door_endpoint_host "$candidate_profile_name" "$candidate_profile_group" "$prefer_api_endpoint"' in deploy_script
+    assert 'AFD_CONTRACT=$(resolve_front_door_contract_from_afd_cli true || true)' in deploy_script
+    assert 'AFD_CONTRACT=$(resolve_front_door_contract_from_afd_cli false || true)' in deploy_script
     assert 'FRONT_DOOR_PROFILES_JSON=$(az resource list' in deploy_script
+    assert deploy_script.index('AFD_PROFILES_JSON=$(az afd profile list') < deploy_script.index('FRONT_DOOR_PROFILES_JSON=$(az resource list')
     assert '--resource-type Microsoft.Cdn/profiles' in deploy_script
     assert '--resource-type Microsoft.Cdn/profiles/afdEndpoints' in deploy_script
     assert '--resource-type Microsoft.Cdn/profiles/originGroups/origins' in deploy_script
@@ -177,6 +193,6 @@ def test_backend_green_revision_deploy_wires_front_door_origin_lock_contract():
     assert deploy_script.index('contains("api")') < deploy_script.index('[.[] | select((.id // "") | startswith($profile_id + "/")) | .properties.hostName][0] // ""')
     assert 'TRUSTED_FRONT_DOOR_FDID="$candidate_fdid"' in deploy_script
     assert 'TRUSTED_FRONT_DOOR_HOSTS="$candidate_host"' in deploy_script
-    assert deploy_script.count('if [ -n "$candidate_host" ] && [ -n "$candidate_fdid" ]; then') == 2
+    assert deploy_script.count('if [ -n "$candidate_host" ] && [ -n "$candidate_fdid" ]; then') >= 3
     assert 'TRUSTED_FRONT_DOOR_FDID="$TRUSTED_FRONT_DOOR_FDID"' in deploy_script
     assert 'TRUSTED_FRONT_DOOR_HOSTS="$TRUSTED_FRONT_DOOR_HOSTS"' in deploy_script
