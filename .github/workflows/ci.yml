@@ -756,54 +756,55 @@ jobs:
         id: green
         run: |
           FRONT_DOOR_PROFILE_NAME=""
+          TRUSTED_FRONT_DOOR_FDID=""
           TRUSTED_FRONT_DOOR_HOSTS=""
-          FRONT_DOOR_PROFILE_NAMES=$(az afd profile list \
+          FRONT_DOOR_PROFILES_JSON=$(az resource list \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --query "[].name" \
-            -o tsv 2>/dev/null || echo "")
+            --resource-type Microsoft.Cdn/profiles \
+            -o json 2>/dev/null || echo "[]")
+          FRONT_DOOR_ENDPOINTS_JSON=$(az resource list \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --resource-type Microsoft.Cdn/profiles/afdEndpoints \
+            -o json 2>/dev/null || echo "[]")
 
-          while IFS= read -r candidate_profile; do
-            if [ -z "$candidate_profile" ]; then
+          while IFS= read -r candidate_profile_json; do
+            if [ -z "$candidate_profile_json" ]; then
               continue
             fi
-            candidate_host=$(az afd endpoint list \
-              --profile-name "$candidate_profile" \
-              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-              --query "[?contains(name, 'api') || contains(hostName, 'api')].hostName | [0]" \
-              -o tsv 2>/dev/null || echo "")
-            if [ -n "$candidate_host" ]; then
-              FRONT_DOOR_PROFILE_NAME="$candidate_profile"
+            candidate_profile_id=$(echo "$candidate_profile_json" | jq -r '.id // ""')
+            candidate_profile_name=$(echo "$candidate_profile_json" | jq -r '.name // ""')
+            candidate_fdid=$(echo "$candidate_profile_json" | jq -r '.properties.frontDoorId // .properties.resourceGuid // ""')
+            candidate_host=$(echo "$FRONT_DOOR_ENDPOINTS_JSON" | jq -r --arg profile_id "$candidate_profile_id" '[.[] | select((.id // "") | startswith($profile_id + "/")) | select(((.name // "") | ascii_downcase | contains("api")) or (((.properties.hostName // "") | ascii_downcase) | contains("api"))) | .properties.hostName][0] // ""')
+            if [ -n "$candidate_host" ] && [ -n "$candidate_fdid" ]; then
+              FRONT_DOOR_PROFILE_NAME="$candidate_profile_name"
+              TRUSTED_FRONT_DOOR_FDID="$candidate_fdid"
               TRUSTED_FRONT_DOOR_HOSTS="$candidate_host"
               break
             fi
-          done <<< "$FRONT_DOOR_PROFILE_NAMES"
+          done < <(echo "$FRONT_DOOR_PROFILES_JSON" | jq -c '.[]')
 
           if [ -z "$FRONT_DOOR_PROFILE_NAME" ]; then
-            while IFS= read -r candidate_profile; do
-              if [ -z "$candidate_profile" ]; then
+            while IFS= read -r candidate_profile_json; do
+              if [ -z "$candidate_profile_json" ]; then
                 continue
               fi
-              candidate_host=$(az afd endpoint list \
-                --profile-name "$candidate_profile" \
-                --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-                --query "[0].hostName" \
-                -o tsv 2>/dev/null || echo "")
-              if [ -n "$candidate_host" ]; then
-                FRONT_DOOR_PROFILE_NAME="$candidate_profile"
+              candidate_profile_id=$(echo "$candidate_profile_json" | jq -r '.id // ""')
+              candidate_profile_name=$(echo "$candidate_profile_json" | jq -r '.name // ""')
+              candidate_fdid=$(echo "$candidate_profile_json" | jq -r '.properties.frontDoorId // .properties.resourceGuid // ""')
+              candidate_host=$(echo "$FRONT_DOOR_ENDPOINTS_JSON" | jq -r --arg profile_id "$candidate_profile_id" '[.[] | select((.id // "") | startswith($profile_id + "/")) | .properties.hostName][0] // ""')
+              if [ -n "$candidate_host" ] && [ -n "$candidate_fdid" ]; then
+                FRONT_DOOR_PROFILE_NAME="$candidate_profile_name"
+                TRUSTED_FRONT_DOOR_FDID="$candidate_fdid"
                 TRUSTED_FRONT_DOOR_HOSTS="$candidate_host"
                 break
               fi
-            done <<< "$FRONT_DOOR_PROFILE_NAMES"
+            done < <(echo "$FRONT_DOOR_PROFILES_JSON" | jq -c '.[]')
           fi
           if [ -z "$FRONT_DOOR_PROFILE_NAME" ]; then
             echo "::error::Unable to resolve owned Azure Front Door profile for origin-lock contract"
             exit 1
           fi
 
-          TRUSTED_FRONT_DOOR_FDID=$(az afd profile show \
-            --profile-name "$FRONT_DOOR_PROFILE_NAME" \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --query resourceGuid -o tsv 2>/dev/null || echo "")
           if [ -z "$TRUSTED_FRONT_DOOR_FDID" ] || [ -z "$TRUSTED_FRONT_DOOR_HOSTS" ]; then
             echo "::error::Unable to resolve Front Door FDID/hostname for origin-lock contract"
             exit 1
