@@ -9,6 +9,10 @@ Performance fix: dependency checks are cached for 10 seconds to avoid
 blocking Redis/OpenAI connections on every request under high traffic.
 """
 
+import asyncio
+import logging
+import os
+import threading
 import time
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
@@ -21,11 +25,61 @@ from api_versioning import get_api_versions
 from routers.shared import ENVIRONMENT, verify_api_key
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 # ── Cached dependency checks (avoid blocking I/O on every request) ─────
 _dep_checks_cache: dict | None = None
 _dep_checks_ts: float = 0
 _DEP_CACHE_TTL = 10  # seconds
+
+_CATALOG_HEALTH_BLOB_TIMEOUT_SECONDS = float(
+    os.getenv("SERVICE_CATALOG_HEALTH_BLOB_TIMEOUT_SECONDS", "3")
+)
+_catalog_health_blob_lock = threading.Lock()
+_catalog_health_blob_running = False
+
+
+def _catalog_health_from_state(*, prefer_blob: bool) -> tuple[dict, dict]:
+    return get_update_status(prefer_blob=prefer_blob), get_freshness(
+        prefer_blob=prefer_blob
+    )
+
+
+def _load_catalog_health_from_blob_once() -> tuple[dict, dict]:
+    global _catalog_health_blob_running
+    try:
+        return _catalog_health_from_state(prefer_blob=True)
+    finally:
+        with _catalog_health_blob_lock:
+            _catalog_health_blob_running = False
+
+
+async def _catalog_health() -> tuple[dict, dict]:
+    """Return durable catalog health with a bounded Blob read and disk fallback."""
+    global _catalog_health_blob_running
+
+    with _catalog_health_blob_lock:
+        if _catalog_health_blob_running:
+            return _catalog_health_from_state(prefer_blob=False)
+        _catalog_health_blob_running = True
+
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(_load_catalog_health_from_blob_once),
+            timeout=_CATALOG_HEALTH_BLOB_TIMEOUT_SECONDS,
+        )
+    except TimeoutError:
+        logger.warning(
+            "Timed out loading service catalog health from blob after %.1fs; falling back to disk",
+            _CATALOG_HEALTH_BLOB_TIMEOUT_SECONDS,
+        )
+        return _catalog_health_from_state(prefer_blob=False)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Failed to load service catalog health from blob; falling back to disk: %s",
+            exc,
+        )
+        return _catalog_health_from_state(prefer_blob=False)
 
 
 def _run_dependency_checks() -> tuple[dict[str, str], bool, bool]:
@@ -121,8 +175,7 @@ async def healthz():
 
 @router.get("/api/health")
 async def health(_auth=Depends(verify_api_key)):
-    update_status = get_update_status()
-    freshness = get_freshness()
+    update_status, freshness = await _catalog_health()
     scheduled_jobs = get_scheduled_jobs()
     checks, degraded, unhealthy = _run_dependency_checks()
 

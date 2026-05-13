@@ -3,6 +3,9 @@ from error_envelope import ArchmorphException
 Cloud Services Catalog & Service Updater routes.
 """
 
+import asyncio
+import threading
+
 from fastapi import APIRouter, Query, Response, Depends
 from typing import Optional
 
@@ -16,6 +19,19 @@ from service_updater import (
 from routers.shared import verify_api_key
 
 router = APIRouter()
+
+_STORAGE_PREFLIGHT_TIMEOUT_SECONDS = 45
+_storage_preflight_lock = threading.Lock()
+_storage_preflight_running = False
+
+
+def _run_storage_preflight_once() -> dict:
+    global _storage_preflight_running
+    try:
+        return verify_service_catalog_blob_access()
+    finally:
+        with _storage_preflight_lock:
+            _storage_preflight_running = False
 
 
 @router.get("/api/services")
@@ -216,7 +232,38 @@ async def trigger_service_update(_auth=Depends(verify_api_key)):
 @router.post("/api/service-updates/storage-preflight")
 async def service_update_storage_preflight(_auth=Depends(verify_api_key)):
     """Verify managed-identity Blob Storage access for deployment smoke."""
-    result = verify_service_catalog_blob_access()
+    global _storage_preflight_running
+
+    with _storage_preflight_lock:
+        if _storage_preflight_running:
+            raise ArchmorphException(
+                503,
+                "Managed identity Blob Storage preflight already in progress",
+                details={
+                    "ok": False,
+                    "account_url_configured": True,
+                    "container": "service-catalog",
+                    "reason": "preflight_in_progress",
+                },
+            )
+        _storage_preflight_running = True
+
+    try:
+        result = await asyncio.wait_for(
+            asyncio.to_thread(_run_storage_preflight_once),
+            timeout=_STORAGE_PREFLIGHT_TIMEOUT_SECONDS,
+        )
+    except TimeoutError as exc:
+        raise ArchmorphException(
+            503,
+            "Managed identity Blob Storage preflight timed out",
+            details={
+                "ok": False,
+                "account_url_configured": True,
+                "container": "service-catalog",
+                "reason": "preflight_timeout",
+            },
+        ) from exc
     if not result.get("ok"):
         raise ArchmorphException(
             503,
