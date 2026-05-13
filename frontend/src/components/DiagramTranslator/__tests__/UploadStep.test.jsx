@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import React from 'react'
 import UploadStep from '../../DiagramTranslator/UploadStep'
@@ -70,6 +70,12 @@ describe('UploadStep', () => {
     expect(screen.getByText('Remove')).toBeInTheDocument()
   })
 
+  it('shows Replace file button when file is selected', () => {
+    const file = new File(['test'], 'diagram.png', { type: 'image/png' })
+    render(<UploadStep {...defaultProps} selectedFile={file} />)
+    expect(screen.getByText('Replace file')).toBeInTheDocument()
+  })
+
   it('shows file preview image when preview URL provided', () => {
     const file = new File(['test'], 'diagram.png', { type: 'image/png' })
     render(<UploadStep {...defaultProps} selectedFile={file} filePreviewUrl="blob:preview" />)
@@ -81,5 +87,59 @@ describe('UploadStep', () => {
     const fileInput = screen.getByLabelText('Select architecture diagram file')
     expect(fileInput).toBeInTheDocument()
     expect(fileInput).toHaveClass('hidden')
+  })
+
+  // Accessibility: no nested interactive controls when a file is selected
+  it('drop zone does not have role="button" when a file is selected', () => {
+    const file = new File(['test'], 'diagram.pdf', { type: 'application/pdf' })
+    render(<UploadStep {...defaultProps} selectedFile={file} />)
+    // There should be no element with role="button" that contains another interactive control
+    const buttons = screen.getAllByRole('button')
+    buttons.forEach((btn) => {
+      const nestedButtons = within(btn).queryAllByRole('button')
+      expect(nestedButtons).toHaveLength(0)
+    })
+  })
+
+  it('drop zone has role="button" only when no file is selected', () => {
+    const { rerender } = render(<UploadStep {...defaultProps} />)
+    // No file: drop zone is a button
+    expect(screen.getByRole('button', { name: /Upload architecture diagram/i })).toBeInTheDocument()
+
+    // File selected: drop zone is NOT a button
+    const file = new File(['test'], 'diagram.pdf', { type: 'application/pdf' })
+    rerender(<UploadStep {...defaultProps} selectedFile={file} />)
+    expect(screen.queryByRole('button', { name: /Upload architecture diagram/i })).not.toBeInTheDocument()
+  })
+
+  it('clicking Analyze calls onUpload with the selected file', async () => {
+    const user = userEvent.setup()
+    const onUpload = vi.fn()
+    const file = new File(['test'], 'diagram.png', { type: 'image/png' })
+    render(<UploadStep {...defaultProps} selectedFile={file} onUpload={onUpload} />)
+    await user.click(screen.getByRole('button', { name: /Analyze This Diagram/i }))
+    expect(onUpload).toHaveBeenCalledTimes(1)
+    expect(onUpload).toHaveBeenCalledWith(file)
+  })
+
+  it('clicking Remove calls onRemoveFile', async () => {
+    const user = userEvent.setup()
+    const onRemoveFile = vi.fn()
+    const file = new File(['test'], 'diagram.png', { type: 'image/png' })
+    render(<UploadStep {...defaultProps} selectedFile={file} onRemoveFile={onRemoveFile} />)
+    await user.click(screen.getByRole('button', { name: /Remove/i }))
+    expect(onRemoveFile).toHaveBeenCalledTimes(1)
+  })
+
+  it('action buttons appear in visual order: Analyze, Remove, Replace file', () => {
+    const file = new File(['test'], 'diagram.pdf', { type: 'application/pdf' })
+    render(<UploadStep {...defaultProps} selectedFile={file} />)
+    const actionsContainer = screen.getByTestId('file-action-buttons')
+    const actionButtons = within(actionsContainer).getAllByRole('button')
+    expect(actionButtons.map((b) => b.textContent?.trim())).toEqual([
+      'Analyze This Diagram',
+      'Remove',
+      'Replace file',
+    ])
   })
 })
