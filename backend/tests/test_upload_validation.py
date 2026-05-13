@@ -229,6 +229,16 @@ class TestValidateUploadUnit:
         with pytest.raises(UploadValidationError, match="javascript"):
             validate_upload(svg, "image/svg+xml", "arch.svg")
 
+    def test_svg_with_javascript_src_raises(self):
+        svg = b'<svg xmlns="http://www.w3.org/2000/svg"><image src="javascript:alert(1)"/></svg>'
+        with pytest.raises(UploadValidationError, match="javascript"):
+            validate_upload(svg, "image/svg+xml", "arch.svg")
+
+    def test_svg_with_javascript_action_raises(self):
+        svg = b'<svg xmlns="http://www.w3.org/2000/svg"><form action="javascript:alert(1)"/></svg>'
+        with pytest.raises(UploadValidationError, match="javascript"):
+            validate_upload(svg, "image/svg+xml", "arch.svg")
+
     def test_svg_xxe_raises(self):
         xxe = (
             b'<?xml version="1.0"?>'

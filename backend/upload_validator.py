@@ -35,6 +35,7 @@ _MAX_ZIP_TOTAL_UNCOMPRESSED = 100 * 1024 * 1024   # 100 MB
 _MAX_ZIP_COMPRESSION_RATIO = 100                   # bomb guard: ratio > 100 ⇒ reject
 _MAX_PDF_PAGES             = 100
 _MAX_PDF_OBJECTS           = 10_000
+_XML_DETECT_HEAD_BYTES     = 512  # bytes to inspect for XML/SVG sniffing
 
 
 # ── Public exception ──────────────────────────────────────────────────────────
@@ -96,7 +97,7 @@ def _check_magic_mismatch(data: bytes, content_type: str, ext: str) -> None:
         # content must look like XML/SVG (starts with '<' after optional BOM).
         known_magics = [_MAGIC_PNG, _MAGIC_JPEG, _MAGIC_PDF, _MAGIC_ZIP]
         has_known_magic = any(_starts_with(data, m) for m in known_magics)
-        head = data[: 512].lstrip(b"\xef\xbb\xbf \t\r\n")  # strip UTF-8 BOM + whitespace
+        head = data[: _XML_DETECT_HEAD_BYTES].lstrip(b"\xef\xbb\xbf \t\r\n")  # strip UTF-8 BOM + whitespace
         is_xml_like = head.startswith(b"<")
         if not has_known_magic and not is_xml_like:
             raise UploadValidationError(
