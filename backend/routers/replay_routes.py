@@ -18,9 +18,9 @@ from strict_models import StrictBaseModel
 from error_envelope import ArchmorphException
 from log_sanitizer import safe
 from routers.shared import (
+    authorize_diagram_access,
     get_api_key_service_principal,
     limiter,
-    require_diagram_access,
     verify_api_key,
 )
 from session_store import get_store
@@ -77,7 +77,7 @@ def require_replay_access(request: Request, replay_id: str) -> dict:
             raise ArchmorphException(404, "Replay not found")
         return replay
 
-    require_diagram_access(request, replay["analysis_id"], purpose="view a replay")
+    authorize_diagram_access(request, replay["analysis_id"], purpose="view a replay")
     return replay
 
 
@@ -94,7 +94,7 @@ async def start_recording(
     request: Request, body: StartRecordingRequest, _auth=Depends(verify_api_key)
 ):
     """Start a new replay recording linked to an analysis."""
-    session = require_diagram_access(request, body.analysis_id, purpose="start a replay recording")
+    session = authorize_diagram_access(request, body.analysis_id, purpose="start a replay recording")
     replay_id = str(uuid.uuid4())
     owner_user_id = session.get("_owner_user_id")
     tenant_id = session.get("_tenant_id")

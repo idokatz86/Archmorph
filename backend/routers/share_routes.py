@@ -11,6 +11,7 @@ from typing import Optional, Literal
 import logging
 
 from routers.shared import (
+    authorize_diagram_access,
     get_api_key_service_principal,
     limiter,
     require_diagram_access,
@@ -32,9 +33,15 @@ def require_share_access(request: Request, share_id: str) -> dict:
     headers = dict(request.headers)
     user = get_user_from_request_headers(headers)
     if user:
-        if record.get("creator_id") != user.id or record.get("creator_tenant_id") != user.tenant_id:
+        creator_id = record.get("creator_id")
+        creator_tenant_id = record.get("creator_tenant_id")
+        if creator_id and creator_id == user.id and (
+            creator_tenant_id is None or creator_tenant_id == user.tenant_id
+        ):
+            return record
+        if not creator_id:
             raise ArchmorphException(404, "Share link not found")
-        return record
+        raise ArchmorphException(403, "Only the creator can access this share")
 
     api_key_principal_id = get_api_key_service_principal(headers)
     if not api_key_principal_id:
@@ -57,9 +64,9 @@ async def create_stakeholder_share(
     _auth=Depends(verify_api_key),
 ):
     """Generate a shareable stakeholder link with role-based views."""
-    analysis = require_diagram_access(request, diagram_id, purpose="create a share link")
+    analysis = authorize_diagram_access(request, diagram_id, purpose="create a share link")
 
-    # Extract creator identity if authenticated
+    # Extract creator identity when the request also carries an end-user session.
     creator_id = None
     creator_tenant_id = None
     creator_api_principal_id = None
@@ -71,7 +78,7 @@ async def create_stakeholder_share(
         elif not user:
             creator_api_principal_id = get_api_key_service_principal(dict(request.headers))
     except Exception:
-        pass  # Anonymous share is fine
+        pass
 
     result = shareable_reports.create_share(
         analysis_snapshot=analysis,
@@ -119,7 +126,6 @@ async def get_share_stats(
     stats = shareable_reports.get_share_stats(share_id)
     if not stats:
         raise ArchmorphException(404, "Share link not found")
-
     return stats
 
 

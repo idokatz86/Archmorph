@@ -18,6 +18,7 @@ from typing import Literal, Optional
 
 from routers.shared import (
     SESSION_STORE,
+    authorize_diagram_access,
     get_api_key_service_principal,
     limiter,
     require_diagram_access,
@@ -171,7 +172,7 @@ async def generate_iac(
     ETag must match.  A mismatch returns HTTP 409 so that concurrent clients
     can detect and resolve conflicts instead of silently overwriting each other.
     """
-    session = require_diagram_access(request, diagram_id, purpose="generate IaC")
+    session = authorize_diagram_access(request, diagram_id, purpose="generate IaC")
     iac_params = session.get("iac_parameters", {})
 
     # Optimistic concurrency guard: honour If-Match when code was previously
@@ -243,7 +244,7 @@ async def iac_chat_endpoint(request: Request, diagram_id: str, msg: IaCChatMessa
     """
     record_event("iac_chat_messages", {"diagram_id": diagram_id})
 
-    session = require_diagram_access(request, diagram_id, purpose="chat about IaC")
+    session = authorize_diagram_access(request, diagram_id, purpose="chat about IaC")
     analysis_context = session.get("analysis") if session else None
 
     # ── Server-side canonical code validation (#842) ──────────────────────
@@ -343,7 +344,7 @@ async def generate_iac_async(
     headers = dict(request.headers)
     user = get_user_from_request_headers(headers)
     api_key_principal_id = get_api_key_service_principal(headers)
-    session = require_diagram_access(request, diagram_id, purpose="queue IaC generation")
+    session = authorize_diagram_access(request, diagram_id, purpose="queue IaC generation")
     _check_architecture_blockers(diagram_id, session, force)
 
     job = job_manager.submit(
@@ -467,7 +468,7 @@ async def generate_iac_scaffold(
     if format != "terraform":
         raise ArchmorphException(400, "Scaffold generation currently supports 'terraform' only")
 
-    session = require_diagram_access(request, diagram_id, purpose="generate IaC scaffold")
+    session = authorize_diagram_access(request, diagram_id, purpose="generate IaC scaffold")
     iac_params = session.get("iac_parameters", {})
 
     try:

@@ -413,7 +413,7 @@ class TestIaCGeneration:
 
     @patch("routers.iac_routes.generate_iac_code", return_value="resource aws_instance {}")
     def test_generate_any_diagram_id(self, mock_iac, client, clean_session):
-        # IaC generation currently returns hardcoded code for any diagram_id
+        SESSION_STORE["any-id"] = copy.deepcopy(MOCK_ANALYSIS)
         resp = client.post("/api/diagrams/any-id/generate?format=terraform")
         assert resp.status_code == 200
         assert "resource" in resp.json()["code"] or "provider" in resp.json()["code"]

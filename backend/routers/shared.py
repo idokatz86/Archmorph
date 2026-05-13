@@ -51,6 +51,10 @@ logger = logging.getLogger(__name__)
 _api_key_warning_logged = False
 
 
+def _safe_log_value(value: object) -> str:
+    return str(value).replace("\n", "").replace("\r", "")
+
+
 async def verify_api_key(api_key: Optional[str] = Security(API_KEY_HEADER)):
     """Verify API key if authentication is enabled."""
     global _api_key_warning_logged
@@ -167,7 +171,7 @@ def _is_public_diagram_session(diagram_id: str, session: Optional[dict]) -> bool
     )
 
 
-def require_diagram_access(
+def authorize_diagram_access(
     request: Request,
     diagram_id: str,
     purpose: str = "access",
@@ -197,7 +201,7 @@ def require_diagram_access(
         if not owner_user_id or not tenant_id:
             logger.debug(
                 "deny_diagram_access_missing_user_metadata diagram_id=%s owner=%s tenant=%s",
-                diagram_id,
+                _safe_log_value(diagram_id),
                 bool(owner_user_id),
                 bool(tenant_id),
             )
@@ -214,11 +218,16 @@ def require_diagram_access(
     if not owner_api_key_id or owner_api_key_id != api_key_principal_id:
         logger.debug(
             "deny_diagram_access_missing_api_principal diagram_id=%s owner_api_key=%s",
-            diagram_id,
+            _safe_log_value(diagram_id),
             bool(owner_api_key_id),
         )
         raise ArchmorphException(404, "Diagram not found")
     return session
+
+
+def require_diagram_access(request: Request, diagram_id: str) -> dict:
+    """FastAPI dependency wrapper for diagram access checks."""
+    return authorize_diagram_access(request, diagram_id)
 
 
 # ─────────────────────────────────────────────────────────────

@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 
 from main import app
 from routers.shared import SESSION_STORE
+import routers.shared as shared_router
 
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures" / "iac_canonical"
@@ -140,6 +141,8 @@ def test_generated_iac_artifacts_validate_via_cli(fixture_path: Path, tmp_path: 
     _require_toolchain()
     analysis = json.loads(fixture_path.read_text(encoding="utf-8"))
     diagram_id = f"iac-validate-{fixture_path.stem}"
+    api_key = shared_router.API_KEY or "iac-validation-key"
+    analysis["_owner_api_key_id"] = shared_router.get_api_key_service_principal({"x-api-key": api_key})
     SESSION_STORE.set(diagram_id, analysis)
 
     try:
@@ -147,8 +150,14 @@ def test_generated_iac_artifacts_validate_via_cli(fixture_path: Path, tmp_path: 
             "iac_generator.cached_chat_completion",
             side_effect=_completion_with_generated_iac(analysis=analysis),
         ):
-            terraform_resp = client.post(f"/api/diagrams/{diagram_id}/generate?format=terraform&force=true")
-            bicep_resp = client.post(f"/api/diagrams/{diagram_id}/generate?format=bicep&force=true")
+            terraform_resp = client.post(
+                f"/api/diagrams/{diagram_id}/generate?format=terraform&force=true",
+                headers={"X-API-Key": api_key},
+            )
+            bicep_resp = client.post(
+                f"/api/diagrams/{diagram_id}/generate?format=bicep&force=true",
+                headers={"X-API-Key": api_key},
+            )
 
         assert terraform_resp.status_code == 200, terraform_resp.text
         assert bicep_resp.status_code == 200, bicep_resp.text

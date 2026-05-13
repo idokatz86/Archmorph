@@ -27,7 +27,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 os.environ.setdefault("ENVIRONMENT", "test")
 os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
 
-from main import app  # noqa: E402
+from main import SESSION_STORE, app  # noqa: E402
 
 client = TestClient(app, raise_server_exceptions=False)
 
@@ -205,6 +205,7 @@ class TestIaCChatStateValidation:
     @patch("iac_chat.cached_chat_completion")
     def test_code_hash_field_rejected_if_wrong_length(self, mock_cc):
         """code_hash must be exactly 64 hex chars (SHA-256); shorter values are rejected."""
+        SESSION_STORE["diag-len-1"] = {"services_detected": 0, "mappings": []}
         resp = client.post(
             "/api/diagrams/diag-len-1/iac-chat",
             json={

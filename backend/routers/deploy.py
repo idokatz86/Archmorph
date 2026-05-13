@@ -5,7 +5,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import Field
 from strict_models import StrictBaseModel
 
-from routers.shared import require_authenticated_user_context
+from routers.shared import require_authenticated_user_context, verify_admin_key
 from services.terraform_runner import TerraformRunner
 from services.security_compliance import analyze_security_compliance
 from services.finops_analyzer import calculate_costs
@@ -66,7 +66,7 @@ async def execute_deployment(
     project_id: str,
     request: Request,
     request_body: DeploymentRequest,
-    current_user: dict = Depends(require_authenticated_user_context)
+    current_user: dict = Depends(verify_admin_key)
 ):
     """
     Kicks off an async Terraform deployment and streams the logs back to the client.

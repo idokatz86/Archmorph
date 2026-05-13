@@ -12,6 +12,7 @@ import logging
 
 from routers.shared import (
     SESSION_STORE,
+    authorize_diagram_access,
     get_api_key_service_principal,
     limiter,
     require_diagram_access,
@@ -40,7 +41,7 @@ async def generate_hld_endpoint(request: Request, diagram_id: str, _auth=Depends
     """Generate a comprehensive High-Level Design document."""
     record_event("hld_generated", {"diagram_id": diagram_id})
 
-    session = require_diagram_access(request, diagram_id, purpose="generate an HLD")
+    session = authorize_diagram_access(request, diagram_id, purpose="generate an HLD")
 
     analysis = session
 
@@ -127,7 +128,7 @@ async def _ensure_hld(session: dict, diagram_id: str) -> dict:
 @limiter.limit("30/minute")
 async def get_hld(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
     """Get previously generated HLD document."""
-    session = require_diagram_access(request, diagram_id, purpose="view an HLD")
+    session = authorize_diagram_access(request, diagram_id, purpose="view an HLD")
     session = await _ensure_hld(session, diagram_id)
     if "hld" not in session:
         raise ArchmorphException(404, "No HLD found. Generate one first.")
@@ -167,7 +168,7 @@ async def export_hld_endpoint(
     include_diagrams = request.query_params.get("include_diagrams", "true").lower() == "true"
     export_mode = request.query_params.get("export_mode", "internal").lower()
 
-    session = require_diagram_access(request, diagram_id, purpose="export an HLD")
+    session = authorize_diagram_access(request, diagram_id, purpose="export an HLD")
     session = await _ensure_hld(session, diagram_id)
     if "hld" not in session:
         raise ArchmorphException(404, "No HLD found. Generate one first.")
@@ -251,7 +252,7 @@ async def generate_hld_async(
     headers = dict(request.headers)
     user = get_user_from_request_headers(headers)
     api_key_principal_id = get_api_key_service_principal(headers)
-    session = require_diagram_access(request, diagram_id, purpose="queue HLD generation")
+    authorize_diagram_access(request, diagram_id, purpose="queue HLD generation")
 
     job = job_manager.submit(
         "generate_hld",
@@ -365,7 +366,7 @@ async def export_migration_package(
     import json
     import zipfile
 
-    session = require_diagram_access(request, diagram_id, purpose="export a migration package")
+    session = authorize_diagram_access(request, diagram_id, purpose="export a migration package")
 
     # Parse options
     iac_format = "terraform"

@@ -9,7 +9,7 @@ Provenance routes — structured confidence evidence for service mappings.
 from fastapi import APIRouter, Request, Depends
 import logging
 
-from routers.shared import limiter, require_diagram_access, verify_api_key
+from routers.shared import authorize_diagram_access, limiter, require_diagram_access, verify_api_key
 from confidence_provenance import build_provenance, build_provenance_summary
 
 logger = logging.getLogger(__name__)
@@ -21,7 +21,7 @@ router = APIRouter()
 @limiter.limit("30/minute")
 async def get_provenance_summary(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
     """Get confidence provenance summary for all mappings in a diagram analysis."""
-    session = require_diagram_access(request, diagram_id, purpose="view provenance")
+    session = authorize_diagram_access(request, diagram_id, purpose="view provenance")
 
     mappings = session.get("mappings", [])
     if not mappings:
@@ -36,7 +36,7 @@ async def get_provenance_summary(request: Request, diagram_id: str, _auth=Depend
 @limiter.limit("30/minute")
 async def get_provenance_detail(request: Request, diagram_id: str, service_name: str, _auth=Depends(verify_api_key)):
     """Get detailed confidence provenance for a specific service mapping."""
-    session = require_diagram_access(request, diagram_id, purpose="view provenance details")
+    session = authorize_diagram_access(request, diagram_id, purpose="view provenance details")
 
     mappings = session.get("mappings", [])
     if not mappings:

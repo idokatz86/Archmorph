@@ -12,7 +12,7 @@ from typing import Optional
 import asyncio
 import logging
 
-from routers.shared import limiter, require_diagram_access, verify_api_key
+from routers.shared import authorize_diagram_access, limiter, require_diagram_access, verify_api_key
 from usage_metrics import record_event
 from migration_timeline import (
     generate_timeline,
@@ -38,7 +38,7 @@ async def create_migration_timeline(
     The timeline includes 7 phases, dependency-ordered services,
     parallel workstreams, and estimated durations per service.
     """
-    session = require_diagram_access(request, diagram_id, purpose="create a migration timeline")
+    session = authorize_diagram_access(request, diagram_id, purpose="create a migration timeline")
 
     timeline = await asyncio.to_thread(generate_timeline, session, project_name)
 
@@ -64,7 +64,7 @@ async def get_migration_timeline(
     _auth=Depends(verify_api_key),
 ):
     """Retrieve the previously generated migration timeline."""
-    session = require_diagram_access(request, diagram_id, purpose="view a migration timeline")
+    session = authorize_diagram_access(request, diagram_id, purpose="view a migration timeline")
     if not session or "migration_timeline" not in session:
         raise ArchmorphException(404, "Timeline not found. Generate one first via POST.")
 
@@ -80,7 +80,7 @@ async def export_migration_timeline(
     _auth=Depends(verify_api_key),
 ):
     """Export the migration timeline in JSON, Markdown, or CSV format."""
-    session = require_diagram_access(request, diagram_id, purpose="export a migration timeline")
+    session = authorize_diagram_access(request, diagram_id, purpose="export a migration timeline")
     if not session or "migration_timeline" not in session:
         raise ArchmorphException(404, "Timeline not found. Generate one first via POST.")
 

@@ -8,7 +8,7 @@ from strict_models import StrictBaseModel
 from typing import Any, Dict, Optional
 import logging
 
-from routers.shared import SESSION_STORE, limiter, require_diagram_access, verify_api_key
+from routers.shared import authorize_diagram_access, limiter, require_diagram_access, verify_api_key
 from error_envelope import ArchmorphException
 from source_provider import normalize_source_provider
 from network_translator import (
@@ -61,7 +61,7 @@ async def generate_network_topology(
     constructs (VPC, subnets, security groups, route tables), and produces
     an Azure-equivalent VNet plan with NSGs, route tables, and NAT gateway.
     """
-    session = require_diagram_access(request, diagram_id, purpose="generate network topology")
+    session = authorize_diagram_access(request, diagram_id, purpose="generate network topology")
 
     analysis = session.get("analysis")
     if not analysis:

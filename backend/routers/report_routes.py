@@ -11,7 +11,7 @@ from fastapi import APIRouter, Request, Depends
 from fastapi.responses import StreamingResponse
 
 from error_envelope import ArchmorphException
-from routers.shared import limiter, require_diagram_access, verify_api_key
+from routers.shared import authorize_diagram_access, limiter, require_diagram_access, verify_api_key
 from report_generator import generate_analysis_report_pdf
 from usage_metrics import record_event
 from export_capabilities import consume_export_capability, issue_export_capability, verify_export_capability
@@ -38,7 +38,7 @@ async def download_analysis_report(
     if fmt != "pdf":
         raise ArchmorphException(400, "Only PDF format is currently supported for analysis reports")
 
-    session = require_diagram_access(request, diagram_id, purpose="download a report")
+    session = authorize_diagram_access(request, diagram_id, purpose="download a report")
 
     if not session.get("mappings"):
         raise ArchmorphException(404, "No analysis data found. Complete an analysis first.")

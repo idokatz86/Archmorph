@@ -10,7 +10,7 @@ from typing import Dict, Any
 import asyncio
 import logging
 
-from routers.shared import SESSION_STORE, limiter, verify_api_key, require_diagram_access
+from routers.shared import SESSION_STORE, authorize_diagram_access, limiter, verify_api_key, require_diagram_access
 from usage_metrics import record_event, record_funnel_step
 from guided_questions import generate_questions, apply_answers, get_question_constraints, build_adaptive_question_set
 from mcp_diagram_generator import mcp_client
@@ -41,7 +41,7 @@ async def get_guided_questions(request: Request, diagram_id: str, smart_dedup: b
     If smart_dedup=True, questions that have been implicitly answered
     by user context (e.g., natural language additions) are filtered out.
     """
-    analysis = require_diagram_access(request, diagram_id, purpose="view questions")
+    analysis = authorize_diagram_access(request, diagram_id, purpose="view questions")
 
     detected = [
         m["source_service"]["name"] if isinstance(m["source_service"], dict) else m["source_service"]
@@ -96,7 +96,7 @@ async def add_services_natural_language(
     The services are added to the existing analysis, and users can continue
     to the guided questions or IaC generation.
     """
-    analysis = require_diagram_access(request, diagram_id, purpose="modify services")
+    analysis = authorize_diagram_access(request, diagram_id, purpose="modify services")
 
     try:
         updated = await asyncio.to_thread(
@@ -144,7 +144,7 @@ async def apply_guided_answers(
     _auth=Depends(verify_api_key),
 ):
     """Apply user answers to refine the Azure architecture analysis."""
-    analysis = require_diagram_access(request, diagram_id, purpose="apply answers")
+    analysis = authorize_diagram_access(request, diagram_id, purpose="apply answers")
 
     refined = apply_answers(analysis, answers)
     SESSION_STORE[diagram_id] = refined
@@ -198,7 +198,7 @@ async def export_architecture_diagram(
             "dr_variant must be 'primary' or 'dr'",
         )
 
-    analysis = require_diagram_access(request, diagram_id, purpose="export diagram")
+    analysis = authorize_diagram_access(request, diagram_id, purpose="export diagram")
 
     try:
         validate_analysis_payload_bounds(analysis)
@@ -275,7 +275,7 @@ async def export_architecture_package(
     if diagram not in ("primary", "dr"):
         raise ArchmorphException(400, "diagram must be 'primary' or 'dr'")
 
-    analysis = require_diagram_access(request, diagram_id, purpose="export architecture package")
+    analysis = authorize_diagram_access(request, diagram_id, purpose="export architecture package")
 
     try:
         validate_analysis_payload_bounds(analysis)
