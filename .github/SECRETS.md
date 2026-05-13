@@ -17,6 +17,7 @@ These secrets are required in `.github/workflows/ci.yml`:
 | `CONTAINER_APP_NAME` | Azure Container Apps name | `archmorph-api` |
 | `CONTAINER_APP_ENV` | Container Apps Environment name | `archmorph-cae-dev` |
 | `ADMIN_KEY` | Backend admin/API key used by deploy smoke to authenticate service catalog refresh | (strong random secret) |
+| `JWT_SECRET` | Recommended dedicated backend JWT signing secret for production user/session tokens. If omitted, deploy falls back to `ADMIN_KEY`; a distinct strong random value is strongly recommended. | (strong random secret) |
 | `SWA_NAME` | Static Web App name | `archmorph-frontend` |
 | `API_URL` | Backend API URL (with `/api` suffix) | `https://your-app.azurecontainerapps.io/api` |
 | `SWA_DEPLOYMENT_TOKEN` | Static Web App deployment token | (from Azure Portal) |
@@ -83,6 +84,7 @@ az staticwebapp secrets list --name YOUR_SWA_NAME --query properties.apiKey -o t
 - Rotate secrets periodically
 - Use production GitHub environment secrets; Archmorph does not maintain a separate staging environment
 - Backend Container Apps deployments require `ARCHMORPH_API_KEY` and `ARCHMORPH_ADMIN_KEY` to reference the `ADMIN_KEY` secret in the deployed revision.
+- Backend Container Apps deployments require `JWT_SECRET` in production/staging. The workflow maps repository secret `JWT_SECRET` into a Container App secret named `jwt-secret`; if the repository secret is absent, it uses `ADMIN_KEY` as a compatibility fallback.
 - The `archmorphmetrics` storage account must keep shared-key access disabled; backend storage access is expected to use `AZURE_STORAGE_ACCOUNT_URL` plus the Container App system-assigned managed identity with `Storage Blob Data Contributor`.
 - `AZURE_CLIENT_ID` is for GitHub Actions OIDC. Do not set it in the backend Container App to select storage identity; use `AZURE_STORAGE_MANAGED_IDENTITY_CLIENT_ID` only when a user-assigned storage identity is intentionally attached.
 - The deploy smoke calls `/api/service-updates/storage-preflight` before traffic shift to prove the deployed revision can write, read, list, and delete service-catalog blobs through managed identity.

@@ -544,6 +544,7 @@ jobs:
       CONTAINER_APP_NAME: ${{ secrets.CONTAINER_APP_NAME }}
       CONTAINER_APP_ENV: ${{ secrets.CONTAINER_APP_ENV }}
       ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
+      JWT_SECRET: ${{ secrets.JWT_SECRET || secrets.ADMIN_KEY }}
     steps:
       - uses: actions/checkout@v6
 
@@ -565,7 +566,8 @@ jobs:
             ACR_NAME \
             ACR_LOGIN_SERVER \
             CONTAINER_APP_NAME \
-            ADMIN_KEY; do
+            ADMIN_KEY \
+            JWT_SECRET; do
             value="${!name:-}"
             if [ -z "$value" ]; then
               echo "::error::Required backend deploy input ${name} is not set"
@@ -756,8 +758,8 @@ jobs:
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --secrets \
               admin-key="${{ env.ADMIN_KEY }}" \
-              storage-connection="${{ env.STORAGE_CONN }}" \
-            2>/dev/null || true
+              jwt-secret="${{ env.JWT_SECRET }}" \
+              storage-connection="${{ env.STORAGE_CONN }}"
 
           SHORT_SHA="${{ github.sha }}"
           SHORT_SHA="${SHORT_SHA:0:8}"
@@ -769,6 +771,7 @@ jobs:
             --set-env-vars \
               ARCHMORPH_ADMIN_KEY=secretref:admin-key \
               ARCHMORPH_API_KEY=secretref:admin-key \
+              JWT_SECRET=secretref:jwt-secret \
               AZURE_STORAGE_ACCOUNT_URL="$STORAGE_ACCOUNT_URL" \
               AZURE_STORAGE_CONNECTION_STRING=secretref:storage-connection \
               AZURE_OPENAI_ENDPOINT="${{ secrets.AZURE_OPENAI_ENDPOINT }}" \
