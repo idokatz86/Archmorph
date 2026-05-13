@@ -1332,20 +1332,7 @@ rules:
       Oracle, etc.) and only then choose the Azure target. If engine is unknown,
       keep the mapping unresolved and block production IaC until clarified.
     docs_url: https://learn.microsoft.com/azure/azure-sql/migration-guides/
-    predicate: service_keywords_without_companion
-    predicate_args:
-      keywords:
-        - RDS
-      companions:
-        - PostgreSQL
-        - MySQL
-        - SQL Server
-        - MariaDB
-        - Oracle
-        - Aurora PostgreSQL
-        - Aurora MySQL
-        - Flexible Server
-        - Managed Instance
+    predicate: rds_engine_unresolved
     tags: [rds, engine, database, blockers]
 
   - id: kafka-compatibility-path-blocker

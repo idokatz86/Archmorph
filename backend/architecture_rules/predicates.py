@@ -530,3 +530,46 @@ def active_active_with_failover_traffic_split(
             "traffic_percentages": percentages,
         },
     )
+
+
+@register_predicate("rds_engine_unresolved")
+def rds_engine_unresolved(analysis: Dict[str, Any]) -> Optional[PredicateMatch]:
+    """Detect RDS mappings where engine is still unresolved."""
+    engine_tokens = ("postgres", "mysql", "sql server", "mariadb", "oracle")
+    unresolved_markers = ("engine-specific target required", "manual mapping required")
+
+    affected: List[str] = []
+    for m in analysis.get("mappings") or []:
+        if not isinstance(m, dict):
+            continue
+        src = str(m.get("source_service", ""))
+        tgt = str(m.get("azure_service", ""))
+        src_norm = _normalize(src)
+        tgt_norm = _normalize(tgt)
+        if "rds" not in src_norm:
+            continue
+        has_engine = any(tok in src_norm for tok in engine_tokens)
+        unresolved = any(marker in tgt_norm for marker in unresolved_markers)
+        if unresolved or not has_engine:
+            affected.extend([s for s in (src, tgt) if s])
+
+    if affected:
+        seen: set[str] = set()
+        deduped = [s for s in affected if not (s in seen or seen.add(s))]
+        return PredicateMatch(
+            affected_services=deduped,
+            evidence={"reason": "rds_engine_unresolved"},
+        )
+
+    services = _services_in_analysis(analysis)
+    has_generic_rds = any(_normalize(s) == "rds" for s in services)
+    has_engine_signal = any(
+        any(token in _normalize(s) for token in engine_tokens) for s in services
+    )
+    if has_generic_rds and not has_engine_signal:
+        return PredicateMatch(
+            affected_services=[s for s in services if _service_matches(s, "RDS")],
+            evidence={"reason": "generic_rds_without_engine_signal"},
+        )
+
+    return None
