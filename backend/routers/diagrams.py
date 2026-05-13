@@ -34,6 +34,7 @@ from hld_generator import generate_hld, generate_hld_markdown  # noqa: F401 — 
 from auth import get_user_from_request_headers
 from analysis_history import maybe_save_from_session
 from error_envelope import ArchmorphException
+from upload_validator import validate_upload, UploadValidationError
 from sku_translator import get_sku_translator
 from confidence_provenance import build_provenance
 from architecture_rules import evaluate as evaluate_architecture_rules
@@ -206,6 +207,12 @@ async def upload_diagram(request: Request, project_id: str, file: UploadFile = F
             )
         chunks.append(chunk)
     image_bytes = b"".join(chunks)
+
+    # Content-level validation (magic bytes, active PDF/SVG/ZIP content, etc.)
+    try:
+        validate_upload(image_bytes, file.content_type or "", file.filename)
+    except UploadValidationError as exc:
+        raise ArchmorphException(exc.status_code, exc.message)
 
     # Base64-encode for Redis/FileStore compatibility
     IMAGE_STORE[diagram_id] = (base64.b64encode(image_bytes).decode("ascii"), file.content_type)
