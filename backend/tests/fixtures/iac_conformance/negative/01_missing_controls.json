@@ -1,0 +1,24 @@
+{
+  "required_controls": [
+    "managed_identity",
+    "tls",
+    "diagnostics",
+    "private_connectivity",
+    "key_vault_handling",
+    "waf_public_ingress_posture",
+    "required_tags",
+    "no_hardcoded_secrets"
+  ],
+  "expected_violations": [
+    "managed_identity",
+    "tls",
+    "diagnostics",
+    "private_connectivity",
+    "key_vault_handling",
+    "waf_public_ingress_posture",
+    "required_tags",
+    "no_hardcoded_secrets"
+  ],
+  "terraform": "resource \"azurerm_linux_web_app\" \"main\" {\n  name                = \"insecure-web\"\n  location            = \"westeurope\"\n  resource_group_name = \"rg-insecure\"\n  service_plan_id     = \"/subscriptions/000/resourceGroups/rg/providers/Microsoft.Web/serverfarms/sp\"\n  https_only          = false\n  app_settings = {\n    admin_password = \"SuperSecret123!\"\n  }\n}\n",
+  "bicep": "resource app 'Microsoft.Web/sites@2023-12-01' = {\n  name: 'insecure-web'\n  location: 'westeurope'\n  properties: {\n    httpsOnly: false\n    administratorLoginPassword: 'SuperSecret123!'\n  }\n}\n"
+}

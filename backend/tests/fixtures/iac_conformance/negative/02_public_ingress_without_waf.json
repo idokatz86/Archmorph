@@ -1,0 +1,19 @@
+{
+  "required_controls": [
+    "managed_identity",
+    "tls",
+    "diagnostics",
+    "private_connectivity",
+    "key_vault_handling",
+    "waf_public_ingress_posture",
+    "required_tags",
+    "no_hardcoded_secrets"
+  ],
+  "expected_violations": [
+    "private_connectivity",
+    "waf_public_ingress_posture",
+    "no_hardcoded_secrets"
+  ],
+  "terraform": "resource \"azurerm_storage_account\" \"public\" {\n  name                              = \"publicingress01\"\n  location                          = \"westeurope\"\n  resource_group_name               = \"rg-public\"\n  account_tier                      = \"Standard\"\n  account_replication_type          = \"LRS\"\n  min_tls_version                   = \"TLS1_2\"\n  public_network_access_enabled     = true\n  infrastructure_encryption_enabled = true\n  identity {\n    type = \"SystemAssigned\"\n  }\n  tags = {\n    project     = \"archmorph\"\n    environment = \"dev\"\n    managed_by  = \"archmorph\"\n  }\n  access_key = \"plain-secret-value\"\n}\n\nresource \"azurerm_key_vault\" \"main\" {\n  name                          = \"kvpublicingress01\"\n  location                      = \"westeurope\"\n  resource_group_name           = \"rg-public\"\n  tenant_id                     = \"00000000-0000-0000-0000-000000000000\"\n  sku_name                      = \"standard\"\n  public_network_access_enabled = true\n}\n\nresource \"azurerm_monitor_diagnostic_setting\" \"storage\" {\n  name               = \"diag-public-storage\"\n  target_resource_id = azurerm_storage_account.public.id\n}\n",
+  "bicep": "var tags = {\n  project: 'archmorph'\n  environment: 'dev'\n  managedBy: 'archmorph'\n}\n\nresource identity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {\n  name: 'id-public-ingress'\n  location: 'westeurope'\n  tags: tags\n}\n\nresource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {\n  name: 'kv-public-ingress'\n  location: 'westeurope'\n  properties: {\n    tenantId: '00000000-0000-0000-0000-000000000000'\n    sku: {\n      family: 'A'\n      name: 'standard'\n    }\n    publicNetworkAccess: 'Enabled'\n  }\n  tags: tags\n}\n\nresource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {\n  name: 'stpublicingress01'\n  location: 'westeurope'\n  sku: {\n    name: 'Standard_LRS'\n  }\n  kind: 'StorageV2'\n  identity: {\n    type: 'SystemAssigned'\n  }\n  properties: {\n    minimumTlsVersion: '1.2'\n    publicNetworkAccess: 'Enabled'\n    accessKey: 'plain-secret-value'\n  }\n  tags: tags\n}\n\nresource storageDiag 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {\n  name: 'diag-public-storage'\n  scope: storage\n  properties: {\n    logs: []\n    metrics: []\n  }\n}\n"
+}
