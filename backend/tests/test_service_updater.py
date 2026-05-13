@@ -761,6 +761,70 @@ class TestBlobPersistence:
         assert result["account_url_configured"] is False
         assert result["error"] == "AZURE_STORAGE_ACCOUNT_URL is not configured"
 
+    def test_blob_client_ignores_azure_client_id_for_system_identity(self):
+        from service_updater import _get_service_catalog_blob_client
+        from unittest.mock import MagicMock
+
+        mock_container = MagicMock()
+        mock_blob_service = MagicMock()
+        mock_blob_service.get_container_client.return_value = mock_container
+
+        with patch.dict(os.environ, {
+            "AZURE_STORAGE_ACCOUNT_URL": "https://example.blob.core.windows.net",
+            "AZURE_STORAGE_CONNECTION_STRING": "",
+            "AZURE_CLIENT_ID": "github-oidc-client-id",
+            "AZURE_STORAGE_MANAGED_IDENTITY_CLIENT_ID": "",
+        }, clear=False), patch(
+            "azure.identity.DefaultAzureCredential"
+        ) as credential_cls, patch(
+            "azure.storage.blob.BlobServiceClient", return_value=mock_blob_service
+        ):
+            _get_service_catalog_blob_client("service_updates.json")
+
+        credential_cls.assert_called_once_with(managed_identity_client_id=None)
+
+    def test_blob_client_uses_storage_managed_identity_client_id(self):
+        from service_updater import _get_service_catalog_blob_client
+        from unittest.mock import MagicMock
+
+        mock_container = MagicMock()
+        mock_blob_service = MagicMock()
+        mock_blob_service.get_container_client.return_value = mock_container
+
+        with patch.dict(os.environ, {
+            "AZURE_STORAGE_ACCOUNT_URL": "https://example.blob.core.windows.net",
+            "AZURE_STORAGE_CONNECTION_STRING": "",
+            "AZURE_CLIENT_ID": "github-oidc-client-id",
+            "AZURE_STORAGE_MANAGED_IDENTITY_CLIENT_ID": "storage-user-assigned-id",
+        }, clear=False), patch(
+            "azure.identity.DefaultAzureCredential"
+        ) as credential_cls, patch(
+            "azure.storage.blob.BlobServiceClient", return_value=mock_blob_service
+        ):
+            _get_service_catalog_blob_client("service_updates.json")
+
+        credential_cls.assert_called_once_with(
+            managed_identity_client_id="storage-user-assigned-id"
+        )
+
+    def test_storage_preflight_managed_identity_ignores_azure_client_id(self):
+        from service_updater import _get_service_catalog_managed_identity_container_client
+        from unittest.mock import MagicMock
+
+        mock_blob_service = MagicMock()
+        with patch.dict(os.environ, {
+            "AZURE_STORAGE_ACCOUNT_URL": "https://example.blob.core.windows.net",
+            "AZURE_CLIENT_ID": "github-oidc-client-id",
+            "AZURE_STORAGE_MANAGED_IDENTITY_CLIENT_ID": "",
+        }, clear=False), patch(
+            "azure.identity.ManagedIdentityCredential"
+        ) as credential_cls, patch(
+            "azure.storage.blob.BlobServiceClient", return_value=mock_blob_service
+        ):
+            _get_service_catalog_managed_identity_container_client()
+
+        credential_cls.assert_called_once_with()
+
     def test_blob_preflight_exercises_managed_identity_operations(self):
         from service_updater import verify_service_catalog_blob_access
 
