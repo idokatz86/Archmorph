@@ -586,7 +586,7 @@
         "title": "Body_upload_icon_pack_api_icon_packs_post",
         "type": "object"
       },
-      "Body_upload_icon_pack_v1_api_v1_api_icon_packs_post": {
+      "Body_upload_icon_pack_v1_api_v1_icon_packs_post": {
         "properties": {
           "file": {
             "contentMediaType": "application/octet-stream",
@@ -597,7 +597,7 @@
         "required": [
           "file"
         ],
-        "title": "Body_upload_icon_pack_v1_api_v1_api_icon_packs_post",
+        "title": "Body_upload_icon_pack_v1_api_v1_icon_packs_post",
         "type": "object"
       },
       "BranchRequest": {
@@ -15412,494 +15412,6 @@
         ]
       }
     },
-    "/api/v1/api/icon-packs": {
-      "post": {
-        "description": "Ingest a ZIP or JSON icon pack.\n\nAccepted formats:\n- **ZIP**: Contains SVG files and an optional ``metadata.json``\n- **JSON**: A valid ``IconPackManifest`` with inline SVG data",
-        "operationId": "upload_icon_pack_v1_api_v1_api_icon_packs_post",
-        "parameters": [
-          {
-            "description": "Custom pack identifier",
-            "in": "query",
-            "name": "pack_id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Custom pack identifier",
-              "title": "Pack Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "multipart/form-data": {
-              "schema": {
-                "$ref": "#/components/schemas/Body_upload_icon_pack_v1_api_v1_api_icon_packs_post"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Upload Icon Pack V1",
-        "tags": [
-          "icons",
-          "v1"
-        ]
-      }
-    },
-    "/api/v1/api/icon-packs/{pack_id}": {
-      "delete": {
-        "description": "Remove an icon pack and all its icons from the registry.",
-        "operationId": "delete_icon_pack_v1_api_v1_api_icon_packs__pack_id__delete",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "pack_id",
-            "required": true,
-            "schema": {
-              "title": "Pack Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Delete Icon Pack V1",
-        "tags": [
-          "icons",
-          "v1"
-        ]
-      }
-    },
-    "/api/v1/api/icons": {
-      "get": {
-        "description": "Search or list icons in the registry.",
-        "operationId": "search_icons_v1_api_v1_api_icons_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "provider",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Provider"
-            }
-          },
-          {
-            "in": "query",
-            "name": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Query"
-            }
-          },
-          {
-            "in": "query",
-            "name": "category",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Category"
-            }
-          },
-          {
-            "in": "query",
-            "name": "packId",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Packid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Search Icons V1",
-        "tags": [
-          "icons",
-          "v1"
-        ]
-      }
-    },
-    "/api/v1/api/icons/metrics": {
-      "get": {
-        "description": "Return icon-registry observability counters.",
-        "operationId": "icon_metrics_v1_api_v1_api_icons_metrics_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Icon Metrics V1",
-        "tags": [
-          "icons",
-          "v1"
-        ]
-      }
-    },
-    "/api/v1/api/icons/packs": {
-      "get": {
-        "description": "List all registered icon packs.",
-        "operationId": "list_packs_v1_api_v1_api_icons_packs_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "List Packs V1",
-        "tags": [
-          "icons",
-          "v1"
-        ]
-      }
-    },
-    "/api/v1/api/icons/{icon_id}/svg": {
-      "get": {
-        "description": "Return the raw SVG for a single icon.",
-        "operationId": "get_icon_svg_v1_api_v1_api_icons__icon_id__svg_get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "icon_id",
-            "required": true,
-            "schema": {
-              "title": "Icon Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Get Icon Svg V1",
-        "tags": [
-          "icons",
-          "v1"
-        ]
-      }
-    },
-    "/api/v1/api/libraries/drawio": {
-      "get": {
-        "description": "Download a draw.io custom shape library (mxlibrary XML).\n\nQuery parameters:\n- **packId**: Required. Icon pack to export.\n- **embedMode**: ``reference`` (stencil IDs) or ``full`` (embedded SVG).\n- **title**: Optional library title.",
-        "operationId": "download_drawio_library_v1_api_v1_api_libraries_drawio_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "packId",
-            "required": true,
-            "schema": {
-              "title": "Packid",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "embedMode",
-            "required": false,
-            "schema": {
-              "default": "reference",
-              "title": "Embedmode",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "title",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Title"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Download Drawio Library V1",
-        "tags": [
-          "icons",
-          "v1"
-        ]
-      }
-    },
-    "/api/v1/api/libraries/excalidraw": {
-      "get": {
-        "description": "Download an Excalidraw library bundle (.excalidrawlib JSON).\n\nQuery parameters:\n- **packId**: Required. Icon pack to export.\n- **title**: Optional library title.",
-        "operationId": "download_excalidraw_library_v1_api_v1_api_libraries_excalidraw_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "packId",
-            "required": true,
-            "schema": {
-              "title": "Packid",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "title",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Title"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Download Excalidraw Library V1",
-        "tags": [
-          "icons",
-          "v1"
-        ]
-      }
-    },
-    "/api/v1/api/libraries/visio": {
-      "get": {
-        "description": "Download a Visio sidecar stencil pack (ZIP).\n\nQuery parameters:\n- **packId**: Required. Icon pack to export.\n- **title**: Optional stencil collection title.\n- **includePng**: Whether to include PNG rasters (default: true).",
-        "operationId": "download_visio_stencil_pack_v1_api_v1_api_libraries_visio_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "packId",
-            "required": true,
-            "schema": {
-              "title": "Packid",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "title",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Title"
-            }
-          },
-          {
-            "in": "query",
-            "name": "includePng",
-            "required": false,
-            "schema": {
-              "default": true,
-              "title": "Includepng",
-              "type": "boolean"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Download Visio Stencil Pack V1",
-        "tags": [
-          "icons",
-          "v1"
-        ]
-      }
-    },
     "/api/v1/auth/config": {
       "get": {
         "description": "Get public authentication configuration.",
@@ -16320,6 +15832,260 @@
         ]
       }
     },
+    "/api/v1/collab/sessions": {
+      "post": {
+        "description": "Create a collaborative session with a shareable join code.",
+        "operationId": "create_session_v1_api_v1_collab_sessions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateSessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Create Session V1",
+        "tags": [
+          "Collaboration",
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/collab/sessions/{session_id}": {
+      "get": {
+        "description": "Get session info including participants.",
+        "operationId": "get_session_v1_api_v1_collab_sessions__session_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Session V1",
+        "tags": [
+          "Collaboration",
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/collab/sessions/{session_id}/changes": {
+      "get": {
+        "description": "Get change history for a session.",
+        "operationId": "get_changes_v1_api_v1_collab_sessions__session_id__changes_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Changes V1",
+        "tags": [
+          "Collaboration",
+          "v1"
+        ]
+      },
+      "post": {
+        "description": "Submit a change to the collaborative session.",
+        "operationId": "submit_change_v1_api_v1_collab_sessions__session_id__changes_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitChangeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Submit Change V1",
+        "tags": [
+          "Collaboration",
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/collab/sessions/{session_id}/join": {
+      "post": {
+        "description": "Join a session using the share code.",
+        "operationId": "join_session_v1_api_v1_collab_sessions__session_id__join_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JoinSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Join Session V1",
+        "tags": [
+          "Collaboration",
+          "v1"
+        ]
+      }
+    },
     "/api/v1/contact": {
       "get": {
         "description": "Return contact information.",
@@ -16582,6 +16348,46 @@
         ]
       }
     },
+    "/api/v1/cost/compare": {
+      "post": {
+        "description": "Estimate and compare monthly costs across AWS, Azure, and GCP.\n\nAccepts an Archmorph analysis schema (zones with services) and\nreturns a side-by-side cost comparison with TCO analysis and\nsavings recommendations.",
+        "operationId": "compare_costs_v1_api_v1_cost_compare_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CostCompareRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Compare Costs V1",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
     "/api/v1/cost/export": {
       "get": {
         "description": "Export cost records as CSV.",
@@ -16776,6 +16582,26 @@
         "summary": "Cost Overview V1",
         "tags": [
           "Cost & Token Observability",
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/cost/pricing-catalog": {
+      "get": {
+        "description": "Return available pricing data for all supported service tiers.",
+        "operationId": "pricing_catalog_v1_api_v1_cost_pricing_catalog_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Pricing Catalog V1",
+        "tags": [
           "v1"
         ]
       }
@@ -17211,7 +17037,6 @@
         },
         "summary": "Execute Deployment V1",
         "tags": [
-          "infra",
           "deploy",
           "v1"
         ]
@@ -17253,7 +17078,6 @@
         },
         "summary": "Run Preflight Check V1",
         "tags": [
-          "infra",
           "deploy",
           "v1"
         ]
@@ -17300,7 +17124,6 @@
         ],
         "summary": "Execute Deployment V1",
         "tags": [
-          "infra",
           "deployments",
           "v1"
         ]
@@ -17347,7 +17170,6 @@
         ],
         "summary": "Preview Deployment V1",
         "tags": [
-          "infra",
           "deployments",
           "v1"
         ]
@@ -17395,7 +17217,6 @@
         ],
         "summary": "Rollback Deployment V1",
         "tags": [
-          "infra",
           "deployments",
           "v1"
         ]
@@ -17443,7 +17264,6 @@
         ],
         "summary": "Get Deployment Status V1",
         "tags": [
-          "infra",
           "deployments",
           "v1"
         ]
@@ -17491,7 +17311,6 @@
         ],
         "summary": "Stream Deployment Logs V1",
         "tags": [
-          "infra",
           "deployments",
           "v1"
         ]
@@ -18127,6 +17946,67 @@
         "summary": "Api Dependency Graph V1",
         "tags": [
           "ai-suggestion",
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/diagrams/{diagram_id}/diff": {
+      "get": {
+        "description": "Compare two version snapshots and return a structured diff.",
+        "operationId": "diff_versions_v1_api_v1_diagrams__diagram_id__diff_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "diagram_id",
+            "required": true,
+            "schema": {
+              "title": "Diagram Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "v1",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "title": "V1",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "v2",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "title": "V2",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Diff Versions V1",
+        "tags": [
           "v1"
         ]
       }
@@ -18935,6 +18815,276 @@
         ]
       }
     },
+    "/api/v1/diagrams/{diagram_id}/migration-timeline": {
+      "get": {
+        "description": "Retrieve the previously generated migration timeline.",
+        "operationId": "get_migration_timeline_v1_api_v1_diagrams__diagram_id__migration_timeline_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "diagram_id",
+            "required": true,
+            "schema": {
+              "title": "Diagram Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Migration Timeline V1",
+        "tags": [
+          "v1"
+        ]
+      },
+      "post": {
+        "description": "Generate a phased migration timeline from analysis results.\n\nThe timeline includes 7 phases, dependency-ordered services,\nparallel workstreams, and estimated durations per service.",
+        "operationId": "create_migration_timeline_v1_api_v1_diagrams__diagram_id__migration_timeline_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "diagram_id",
+            "required": true,
+            "schema": {
+              "title": "Diagram Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project_name",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Create Migration Timeline V1",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/diagrams/{diagram_id}/migration-timeline/export": {
+      "get": {
+        "description": "Export the migration timeline in JSON, Markdown, or CSV format.",
+        "operationId": "export_migration_timeline_v1_api_v1_diagrams__diagram_id__migration_timeline_export_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "diagram_id",
+            "required": true,
+            "schema": {
+              "title": "Diagram Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "json",
+              "pattern": "^(json|md|csv)$",
+              "title": "Format",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Export Migration Timeline V1",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/diagrams/{diagram_id}/network-topology": {
+      "get": {
+        "description": "Retrieve cached network topology for a diagram.\n\nReturns 404 if no topology has been generated yet.",
+        "operationId": "get_network_topology_v1_api_v1_diagrams__diagram_id__network_topology_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "diagram_id",
+            "required": true,
+            "schema": {
+              "title": "Diagram Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Network Topology V1",
+        "tags": [
+          "v1"
+        ]
+      },
+      "post": {
+        "description": "Generate Azure network topology translation from a diagram's analysis.\n\nReads the analysis result from the session store, extracts networking\nconstructs (VPC, subnets, security groups, route tables), and produces\nan Azure-equivalent VNet plan with NSGs, route tables, and NAT gateway.",
+        "operationId": "generate_network_topology_v1_api_v1_diagrams__diagram_id__network_topology_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "diagram_id",
+            "required": true,
+            "schema": {
+              "title": "Diagram Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/NetworkTopologyRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Generate Network Topology V1",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
     "/api/v1/diagrams/{diagram_id}/notify-email": {
       "post": {
         "description": "Send a session-ready notification email to the user.",
@@ -19261,6 +19411,59 @@
         ]
       }
     },
+    "/api/v1/diagrams/{diagram_id}/share": {
+      "post": {
+        "description": "Generate a shareable stakeholder link with role-based views.",
+        "operationId": "create_stakeholder_share_v1_api_v1_diagrams__diagram_id__share_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "diagram_id",
+            "required": true,
+            "schema": {
+              "title": "Diagram Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "expiry_days",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "maximum": 365,
+              "minimum": 1,
+              "title": "Expiry Days",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Stakeholder Share V1",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
     "/api/v1/diagrams/{diagram_id}/terraform-preview": {
       "post": {
         "description": "Generate a preview of what Terraform would create.\n\nUses simulation mode only — never executes real Terraform CLI\nto prevent Remote Code Execution via user-supplied HCL.",
@@ -19309,8 +19512,8 @@
     },
     "/api/v1/diagrams/{diagram_id}/versions": {
       "get": {
-        "description": "Get version history for a diagram.",
-        "operationId": "get_version_history_endpoint_v1_api_v1_diagrams__diagram_id__versions_get",
+        "description": "List all saved versions for a diagram.",
+        "operationId": "list_versions_v1_api_v1_diagrams__diagram_id__versions_get",
         "parameters": [
           {
             "in": "path",
@@ -19342,7 +19545,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Get Version History Endpoint V1",
+        "summary": "List Versions V1",
         "tags": [
           "v1"
         ]
@@ -19466,6 +19669,64 @@
         ]
       }
     },
+    "/api/v1/diagrams/{diagram_id}/versions/save": {
+      "post": {
+        "description": "Save current analysis state as a new version snapshot.",
+        "operationId": "save_version_v1_api_v1_diagrams__diagram_id__versions_save_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "diagram_id",
+            "required": true,
+            "schema": {
+              "title": "Diagram Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/SaveVersionRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Save Version V1",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
     "/api/v1/diagrams/{diagram_id}/versions/{version_number}": {
       "get": {
         "description": "Get a specific version of an architecture.",
@@ -19566,6 +19827,123 @@
         ]
       }
     },
+    "/api/v1/diagrams/{diagram_id}/versions/{version}": {
+      "get": {
+        "description": "Get a specific version snapshot.",
+        "operationId": "get_version_v1_api_v1_diagrams__diagram_id__versions__version__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "diagram_id",
+            "required": true,
+            "schema": {
+              "title": "Diagram Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "title": "Version",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Version V1",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/diagrams/{diagram_id}/versions/{version}/branch": {
+      "post": {
+        "description": "Fork a version for what-if analysis.",
+        "operationId": "branch_version_v1_api_v1_diagrams__diagram_id__versions__version__branch_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "diagram_id",
+            "required": true,
+            "schema": {
+              "title": "Diagram Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "title": "Version",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/BranchRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Branch Version V1",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
     "/api/v1/drift/baselines": {
       "get": {
         "description": "List drift baselines with their last audit summary.",
@@ -19587,7 +19965,6 @@
         ],
         "summary": "List Baselines V1",
         "tags": [
-          "infra",
           "Drift Detection",
           "v1"
         ]
@@ -19632,7 +20009,6 @@
         ],
         "summary": "Create Baseline V1",
         "tags": [
-          "infra",
           "Drift Detection",
           "v1"
         ]
@@ -19680,7 +20056,6 @@
         ],
         "summary": "Get Baseline V1",
         "tags": [
-          "infra",
           "Drift Detection",
           "v1"
         ]
@@ -19752,7 +20127,6 @@
         ],
         "summary": "Compare Baseline V1",
         "tags": [
-          "infra",
           "Drift Detection",
           "v1"
         ]
@@ -19819,7 +20193,6 @@
         ],
         "summary": "Decide Finding V1",
         "tags": [
-          "infra",
           "Drift Detection",
           "v1"
         ]
@@ -19891,7 +20264,6 @@
         ],
         "summary": "Build Baseline Patch V1",
         "tags": [
-          "infra",
           "Drift Detection",
           "v1"
         ]
@@ -19939,7 +20311,6 @@
         ],
         "summary": "Get Baseline Report V1",
         "tags": [
-          "infra",
           "Drift Detection",
           "v1"
         ]
@@ -19986,7 +20357,6 @@
         ],
         "summary": "Detect Drift V1",
         "tags": [
-          "infra",
           "Drift Detection",
           "v1"
         ]
@@ -20378,6 +20748,300 @@
         ]
       }
     },
+    "/api/v1/icon-packs": {
+      "post": {
+        "description": "Ingest a ZIP or JSON icon pack.\n\nAccepted formats:\n- **ZIP**: Contains SVG files and an optional ``metadata.json``\n- **JSON**: A valid ``IconPackManifest`` with inline SVG data",
+        "operationId": "upload_icon_pack_v1_api_v1_icon_packs_post",
+        "parameters": [
+          {
+            "description": "Custom pack identifier",
+            "in": "query",
+            "name": "pack_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Custom pack identifier",
+              "title": "Pack Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_icon_pack_v1_api_v1_icon_packs_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Upload Icon Pack V1",
+        "tags": [
+          "icons",
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/icon-packs/{pack_id}": {
+      "delete": {
+        "description": "Remove an icon pack and all its icons from the registry.",
+        "operationId": "delete_icon_pack_v1_api_v1_icon_packs__pack_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pack_id",
+            "required": true,
+            "schema": {
+              "title": "Pack Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Icon Pack V1",
+        "tags": [
+          "icons",
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/icons": {
+      "get": {
+        "description": "Search or list icons in the registry.",
+        "operationId": "search_icons_v1_api_v1_icons_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "provider",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Provider"
+            }
+          },
+          {
+            "in": "query",
+            "name": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Query"
+            }
+          },
+          {
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Category"
+            }
+          },
+          {
+            "in": "query",
+            "name": "packId",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Packid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Search Icons V1",
+        "tags": [
+          "icons",
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/icons/metrics": {
+      "get": {
+        "description": "Return icon-registry observability counters.",
+        "operationId": "icon_metrics_v1_api_v1_icons_metrics_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Icon Metrics V1",
+        "tags": [
+          "icons",
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/icons/packs": {
+      "get": {
+        "description": "List all registered icon packs.",
+        "operationId": "list_packs_v1_api_v1_icons_packs_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Packs V1",
+        "tags": [
+          "icons",
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/icons/{icon_id}/svg": {
+      "get": {
+        "description": "Return the raw SVG for a single icon.",
+        "operationId": "get_icon_svg_v1_api_v1_icons__icon_id__svg_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "icon_id",
+            "required": true,
+            "schema": {
+              "title": "Icon Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Icon Svg V1",
+        "tags": [
+          "icons",
+          "v1"
+        ]
+      }
+    },
     "/api/v1/import/arm": {
       "post": {
         "description": "Upload an ARM deployment template and receive an Archmorph analysis schema.",
@@ -20419,7 +21083,6 @@
         ],
         "summary": "Import Arm V1",
         "tags": [
-          "infra",
           "v1"
         ]
       }
@@ -20465,7 +21128,6 @@
         ],
         "summary": "Import Cloudformation V1",
         "tags": [
-          "infra",
           "v1"
         ]
       }
@@ -20532,7 +21194,6 @@
         },
         "summary": "Get Supported Formats V1",
         "tags": [
-          "infra",
           "v1"
         ]
       }
@@ -20578,7 +21239,6 @@
         ],
         "summary": "Import Terraform V1",
         "tags": [
-          "infra",
           "v1"
         ]
       }
@@ -20625,6 +21285,52 @@
         "summary": "Create GitHub tracking issue",
         "tags": [
           "Integrations",
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/integrations/github/push-pr": {
+      "post": {
+        "description": "Push generated IaC code to a GitHub repository as a Pull Request.",
+        "operationId": "push_iac_pr_v1_api_v1_integrations_github_push_pr_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushIaCRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Push IaC to GitHub as a PR",
+        "tags": [
+          "integrations",
           "v1"
         ]
       }
@@ -21200,6 +21906,200 @@
         ]
       }
     },
+    "/api/v1/libraries/drawio": {
+      "get": {
+        "description": "Download a draw.io custom shape library (mxlibrary XML).\n\nQuery parameters:\n- **packId**: Required. Icon pack to export.\n- **embedMode**: ``reference`` (stencil IDs) or ``full`` (embedded SVG).\n- **title**: Optional library title.",
+        "operationId": "download_drawio_library_v1_api_v1_libraries_drawio_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "packId",
+            "required": true,
+            "schema": {
+              "title": "Packid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "embedMode",
+            "required": false,
+            "schema": {
+              "default": "reference",
+              "title": "Embedmode",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "title",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Title"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Download Drawio Library V1",
+        "tags": [
+          "icons",
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/libraries/excalidraw": {
+      "get": {
+        "description": "Download an Excalidraw library bundle (.excalidrawlib JSON).\n\nQuery parameters:\n- **packId**: Required. Icon pack to export.\n- **title**: Optional library title.",
+        "operationId": "download_excalidraw_library_v1_api_v1_libraries_excalidraw_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "packId",
+            "required": true,
+            "schema": {
+              "title": "Packid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "title",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Title"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Download Excalidraw Library V1",
+        "tags": [
+          "icons",
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/libraries/visio": {
+      "get": {
+        "description": "Download a Visio sidecar stencil pack (ZIP).\n\nQuery parameters:\n- **packId**: Required. Icon pack to export.\n- **title**: Optional stencil collection title.\n- **includePng**: Whether to include PNG rasters (default: true).",
+        "operationId": "download_visio_stencil_pack_v1_api_v1_libraries_visio_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "packId",
+            "required": true,
+            "schema": {
+              "title": "Packid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "title",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Title"
+            }
+          },
+          {
+            "in": "query",
+            "name": "includePng",
+            "required": false,
+            "schema": {
+              "default": true,
+              "title": "Includepng",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Download Visio Stencil Pack V1",
+        "tags": [
+          "icons",
+          "v1"
+        ]
+      }
+    },
     "/api/v1/models/": {
       "get": {
         "operationId": "list_models_v1_api_v1_models__get",
@@ -21323,6 +22223,78 @@
         "summary": "Delete Model V1",
         "tags": [
           "Model Registry",
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/network/cidr-calculator": {
+      "get": {
+        "description": "Calculate non-overlapping subnet CIDRs for a given VNet address space.\n\nUtility endpoint — no diagram or analysis required.",
+        "operationId": "cidr_calculator_v1_api_v1_network_cidr_calculator_get",
+        "parameters": [
+          {
+            "description": "VNet CIDR block",
+            "in": "query",
+            "name": "vnet_cidr",
+            "required": false,
+            "schema": {
+              "default": "10.0.0.0/16",
+              "description": "VNet CIDR block",
+              "title": "Vnet Cidr",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Number of subnets to create",
+            "in": "query",
+            "name": "subnet_count",
+            "required": false,
+            "schema": {
+              "default": 4,
+              "description": "Number of subnets to create",
+              "maximum": 256,
+              "minimum": 1,
+              "title": "Subnet Count",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Subnet prefix length",
+            "in": "query",
+            "name": "subnet_prefix",
+            "required": false,
+            "schema": {
+              "default": 24,
+              "description": "Subnet prefix length",
+              "maximum": 29,
+              "minimum": 16,
+              "title": "Subnet Prefix",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cidr Calculator V1",
+        "tags": [
           "v1"
         ]
       }
@@ -21711,6 +22683,253 @@
         ]
       }
     },
+    "/api/v1/replay/events": {
+      "post": {
+        "description": "Add an event to an existing replay recording.",
+        "operationId": "add_event_v1_api_v1_replay_events_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddEventRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Add Event V1",
+        "tags": [
+          "Replay",
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/replay/record": {
+      "post": {
+        "description": "Start a new replay recording linked to an analysis.",
+        "operationId": "start_recording_v1_api_v1_replay_record_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartRecordingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Start Recording V1",
+        "tags": [
+          "Replay",
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/replay/{replay_id}": {
+      "get": {
+        "description": "Get full replay with all events.",
+        "operationId": "get_replay_v1_api_v1_replay__replay_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "replay_id",
+            "required": true,
+            "schema": {
+              "title": "Replay Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Replay V1",
+        "tags": [
+          "Replay",
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/replay/{replay_id}/export": {
+      "get": {
+        "description": "Export replay as a JSON timeline.",
+        "operationId": "export_replay_v1_api_v1_replay__replay_id__export_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "replay_id",
+            "required": true,
+            "schema": {
+              "title": "Replay Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Export Replay V1",
+        "tags": [
+          "Replay",
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/replays": {
+      "get": {
+        "description": "List recent replays with pagination (max 20 per page).",
+        "operationId": "list_replays_v1_api_v1_replays_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 20,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "List recent replays",
+        "tags": [
+          "Replay",
+          "v1"
+        ]
+      }
+    },
     "/api/v1/roadmap": {
       "get": {
         "description": "Get the complete Archmorph roadmap with timeline.\n\nReturns all releases from Day 0 to current, plus planned features.",
@@ -21970,7 +23189,6 @@
         },
         "summary": "Run Cloud Scan V1",
         "tags": [
-          "infra",
           "v1"
         ]
       }
@@ -22369,6 +23587,148 @@
           }
         },
         "summary": "Get Service V1",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/shared/{share_id}": {
+      "delete": {
+        "description": "Revoke a share link.",
+        "operationId": "revoke_share_v1_api_v1_shared__share_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "share_id",
+            "required": true,
+            "schema": {
+              "title": "Share Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Revoke Share V1",
+        "tags": [
+          "v1"
+        ]
+      },
+      "get": {
+        "description": "Get shared report (public, no auth). Optionally filter by view type.",
+        "operationId": "get_shared_report_v1_api_v1_shared__share_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "share_id",
+            "required": true,
+            "schema": {
+              "title": "Share Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "view",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "executive",
+                    "technical",
+                    "financial"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "View"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Shared Report V1",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/shared/{share_id}/stats": {
+      "get": {
+        "description": "View count and metadata (creator only).",
+        "operationId": "get_share_stats_v1_api_v1_shared__share_id__stats_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "share_id",
+            "required": true,
+            "schema": {
+              "title": "Share Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Share Stats V1",
         "tags": [
           "v1"
         ]
@@ -22877,7 +24237,6 @@
         },
         "summary": "Get Tf State V1",
         "tags": [
-          "infra",
           "Terraform State Backend",
           "v1"
         ]
@@ -22926,7 +24285,6 @@
         },
         "summary": "Lock Tf State V1",
         "tags": [
-          "infra",
           "Terraform State Backend",
           "v1"
         ]
@@ -22975,7 +24333,6 @@
         },
         "summary": "Update Tf State V1",
         "tags": [
-          "infra",
           "Terraform State Backend",
           "v1"
         ]
@@ -23024,7 +24381,6 @@
         },
         "summary": "Unlock Tf State V1",
         "tags": [
-          "infra",
           "Terraform State Backend",
           "v1"
         ]
@@ -23073,7 +24429,6 @@
         },
         "summary": "Unlock Tf State V1",
         "tags": [
-          "infra",
           "Terraform State Backend",
           "v1"
         ]
@@ -23124,7 +24479,6 @@
         },
         "summary": "Rollback State V1",
         "tags": [
-          "infra",
           "Terraform State Backend",
           "v1"
         ]

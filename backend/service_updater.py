@@ -264,6 +264,11 @@ SERVICE_UPDATES_BLOB_NAME = os.getenv(
 DISCOVERED_BLOB_TIMEOUT_SECONDS = 5
 
 
+def _storage_managed_identity_client_id() -> str | None:
+    """Return the optional user-assigned identity for storage blob access."""
+    return os.getenv("AZURE_STORAGE_MANAGED_IDENTITY_CLIENT_ID") or None
+
+
 def _blob_timeout_seconds() -> int:
     """Return the bounded timeout used for blob catalog operations."""
     raw = os.getenv("DISCOVERED_BLOB_TIMEOUT_SECONDS", "")
@@ -290,7 +295,7 @@ def _get_service_catalog_blob_client(blob_name: str):
             from azure.identity import DefaultAzureCredential
 
             credential = DefaultAzureCredential(
-                managed_identity_client_id=os.getenv("AZURE_CLIENT_ID") or None
+                managed_identity_client_id=_storage_managed_identity_client_id()
             )
             bsc = BlobServiceClient(
                 account_url,
@@ -343,7 +348,7 @@ def _get_service_catalog_managed_identity_container_client():
     from azure.storage.blob import BlobServiceClient
 
     credential_kwargs = {}
-    managed_identity_client_id = os.getenv("AZURE_CLIENT_ID")
+    managed_identity_client_id = _storage_managed_identity_client_id()
     if managed_identity_client_id:
         credential_kwargs["client_id"] = managed_identity_client_id
     credential = ManagedIdentityCredential(**credential_kwargs)

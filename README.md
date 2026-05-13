@@ -95,7 +95,7 @@ The post-merge CTO end-to-end review of `landing-zone-svg` (May 1, 2026) flagged
 - **Security hardening** — timing-safe auth, production fail-closed JWT configuration, security headers, XSS protection, export capability replay protection, authenticated artifact/session mutation routes, Dependabot
 - **CI/CD security** — Semgrep SAST, Gitleaks secret detection, Trivy container scanning, CycloneDX SBOM, and Checkov policy-as-code for checked-in Azure Terraform
 - **Multi-stage Docker** — optimized build with ~50% image size reduction, uv for fast installs
-- **API versioning** — all `/api/*` routes mirrored at `/api/v1/*` for stable integrations
+- **API versioning** — all `/api/*` routes mirrored at `/api/v1/*` for stable integrations; CI enforces route mirroring via `backend/tests/test_api_v1_manifest.py` with explicit exemptions tracked in `backend/api_v1_mirror_exemptions.json`
 - **Feature flags system** — percentage rollout + user targeting with audited admin API and runtime dashboard toggles
 - **Comprehensive audit logging** — structured JSON with actor/IP context, risk levels, alerting rules, compliance queries
 - **Session persistence** — pluggable SessionStore with InMemory and Redis backends
@@ -184,6 +184,8 @@ cd backend
 python export_openapi.py > openapi.snapshot.json
 python check_openapi_contract.py
 ```
+
+For PRs, CI also compares `backend/openapi.snapshot.json` to the base branch snapshot and blocks detected breaking changes unless explicit approval metadata is provided in `backend/openapi.breaking-change.json`.
 
 **Check frontend environment exposure before adding new Vite variables:**
 ```bash

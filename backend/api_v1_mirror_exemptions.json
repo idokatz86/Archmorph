@@ -1,0 +1,4 @@
+{
+  "description": "Document any intentional /api routes that are not mirrored under /api/v1.",
+  "exemptions": []
+}

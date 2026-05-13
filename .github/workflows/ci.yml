@@ -118,8 +118,17 @@ jobs:
       - name: Export OpenAPI schema
         run: python export_openapi.py > openapi.json
 
+      - name: Capture base OpenAPI snapshot (PR only)
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          git fetch origin "${{ github.base_ref }}" --depth=1
+          git show "origin/${{ github.base_ref }}:backend/openapi.snapshot.json" > /tmp/base-openapi.snapshot.json
+
       - name: Check OpenAPI contract snapshot
         run: python check_openapi_contract.py openapi.json
+        env:
+          ARCHMORPH_OPENAPI_BASE_SNAPSHOT: /tmp/base-openapi.snapshot.json
 
       - name: Upload OpenAPI schema
         uses: actions/upload-artifact@v7
