@@ -84,7 +84,7 @@ class TestInMemoryStore:
         store.set("k", b"1234")
         assert store._total_bytes == 4
 
-    def test_overwrite_under_budget_is_not_rejected_by_double_counting(self, monkeypatch):
+    def test_overwrite_within_budget_succeeds(self, monkeypatch):
         monkeypatch.setattr(InMemoryStore, "MAX_MEMORY_BYTES", 10)
         store = InMemoryStore()
         store.set("k", b"123456")
