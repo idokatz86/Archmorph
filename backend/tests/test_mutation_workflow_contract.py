@@ -27,4 +27,4 @@ def test_mutation_baseline_tracks_live_risk_modules():
     assert '"name": "diagram_export"' in baseline
     assert '"name": "export_capabilities"' in baseline
     assert '"name": "iac_generator"' in baseline
-    assert '"name": "services.azure_pricing"' in baseline
+    assert '"name": "services_azure_pricing"' in baseline

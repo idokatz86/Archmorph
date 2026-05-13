@@ -111,16 +111,11 @@ jobs:
       - name: Risk-based module coverage floors
         run: |
           mkdir -p coverage-risk
-          declare -a COVERAGE_TARGETS=(
-            "diagram_export|tests/test_diagram_export.py|70"
-            "export_capabilities|tests/test_export_capabilities.py|70"
-            "iac_generator|tests/test_iac_generator.py|70"
-            "session_store|tests/test_session_store.py|75"
-            "job_queue|tests/test_job_queue.py|70"
-            "services.azure_pricing|tests/test_pricing_blob.py|65"
-          )
-          for target in "${COVERAGE_TARGETS[@]}"; do
-            IFS='|' read -r module tests floor <<< "$target"
+
+          run_risk_coverage_floor() {
+            local module="$1"
+            local tests="$2"
+            local floor="$3"
             safe_module="${module//./_}"
             echo "Running risk-based coverage floor for ${module} with ${tests} (floor=${floor}%)"
             python -m pytest --tb=short -q "$tests" \
@@ -128,7 +123,14 @@ jobs:
               --cov-report=xml:"coverage-risk/${safe_module}.xml" \
               --cov-config=.coveragerc --cov-context=test \
               --cov-fail-under="$floor"
-          done
+          }
+
+          run_risk_coverage_floor "diagram_export" "tests/test_diagram_export.py" "70"
+          run_risk_coverage_floor "export_capabilities" "tests/test_export_capabilities.py" "70"
+          run_risk_coverage_floor "iac_generator" "tests/test_iac_generator.py" "70"
+          run_risk_coverage_floor "session_store" "tests/test_session_store.py" "75"
+          run_risk_coverage_floor "job_queue" "tests/test_job_queue.py" "70"
+          run_risk_coverage_floor "services.azure_pricing" "tests/test_pricing_blob.py" "65"
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v7

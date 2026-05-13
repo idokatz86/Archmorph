@@ -427,8 +427,15 @@ test.describe('Core Funnel: Responsive + keyboard export flow', () => {
     const dialog = page.getByRole('dialog', { name: 'Generate Deliverables' });
     await expect(dialog).toBeVisible();
 
+    const includeInfrastructureCode = page.getByLabel('Include Infrastructure Code');
+    await includeInfrastructureCode.focus();
+    await expect(includeInfrastructureCode).toBeFocused();
     await page.keyboard.press('Tab');
+    const includeArchitecturePackage = page.getByLabel('Include Architecture Package');
+    await expect(includeArchitecturePackage).toBeFocused();
     await page.keyboard.press('Tab');
+    const includeHighLevelDesign = page.getByLabel('Include High-Level Design');
+    await expect(includeHighLevelDesign).toBeFocused();
     await page.keyboard.press('Escape');
 
     await expect(dialog).toBeHidden();

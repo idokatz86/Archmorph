@@ -32,7 +32,7 @@
       "minimum_score": 60
     },
     {
-      "name": "services.azure_pricing",
+      "name": "services_azure_pricing",
       "path": "backend/services/azure_pricing.py",
       "report": "services_azure_pricing.txt",
       "minimum_score": 60
