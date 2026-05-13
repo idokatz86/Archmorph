@@ -9,7 +9,7 @@ import urllib.parse
 
 try:
     from utils.logger_utils import sanitize_log
-except Exception:
+except ImportError:
     def sanitize_log(value):
         return str(value).replace("\n", " ").replace("\r", " ")
 
