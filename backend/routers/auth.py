@@ -76,8 +76,8 @@ async def login(request: Request, body: LoginRequest):
                 raise ArchmorphException(400, "Missing x-ms-client-principal header for SWA login")
             if request_has_untrusted_swa_principal(request.headers) or not swa_principal_header_trust_enabled():
                 raise ArchmorphException(
-                    403,
-                    "SWA principal auth is disabled on this deployment until the backend trust boundary is validated.",
+                    401,
+                    "SWA principal auth is disabled on this deployment unless TRUST_SWA_PRINCIPAL_HEADER is explicitly enabled.",
                 )
             user = parse_swa_client_principal(swa_header)
             if not user:

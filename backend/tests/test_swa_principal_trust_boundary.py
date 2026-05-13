@@ -69,7 +69,7 @@ def test_production_rejects_swa_login_with_forged_header_even_with_csrf(monkeypa
     assert response.status_code == 401
     assert response.json()["error"]["code"] == "UNTRUSTED_SWA_PRINCIPAL"
 
-def test_production_allows_swa_login_when_trust_boundary_is_enabled_and_csrf_matches(monkeypatch):
+def test_production_accepts_swa_login_when_trust_boundary_is_enabled_and_csrf_matches(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.setenv("TRUST_SWA_PRINCIPAL_HEADER", "true")
 
