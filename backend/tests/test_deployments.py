@@ -3,6 +3,7 @@ import os
 from fastapi.testclient import TestClient
 from unittest.mock import AsyncMock, patch
 
+import admin_auth
 from main import app
 from services.azure_deploy_service import AzureDeployService
 from routers.deployments import get_azure_deploy_service
@@ -37,81 +38,110 @@ app.dependency_overrides[get_azure_deploy_service] = mock_get_azure_deploy_servi
 
 
 @pytest.fixture(autouse=True)
-def reset_deploy_flag():
+def reset_deploy_flag(monkeypatch):
+    monkeypatch.setattr(admin_auth, "ADMIN_SECRET", "test-admin-key")
+    monkeypatch.setattr(admin_auth, "JWT_SECRET", "test-admin-key-32-byte-secret-value:test-salt")
     flags = get_feature_flags()
     flags.update_flag("deploy_engine", {"enabled": False})
     yield
     flags.update_flag("deploy_engine", {"enabled": False})
 
-def test_preview_deployment_azure():
+
+@pytest.fixture()
+def admin_headers():
+    return {"Authorization": f"Bearer {admin_auth.create_session_token()}"}
+
+
+def test_preview_deployment_requires_admin_auth():
     payload = {
         "provider": "azure",
         "infrastructure_code": "resource group 'my-rg' {}",
         "variables": {"resource_group": "test-rg"}
     }
     response = client.post("/api/deployments/preview", json=payload)
+    assert response.status_code == 401
+
+
+def test_preview_deployment_azure(admin_headers):
+    payload = {
+        "provider": "azure",
+        "infrastructure_code": "resource group 'my-rg' {}",
+        "variables": {"resource_group": "test-rg"}
+    }
+    response = client.post("/api/deployments/preview", json=payload, headers=admin_headers)
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "success"
     assert "data" in data
 
-def test_preview_deployment_non_azure():
+def test_preview_deployment_non_azure(admin_headers):
     payload = {
         "provider": "aws",
         "infrastructure_code": "test"
     }
-    response = client.post("/api/deployments/preview", json=payload)
+    response = client.post("/api/deployments/preview", json=payload, headers=admin_headers)
     # The endpoint raises HTTP 501 for non-azure
     assert response.status_code == 501
 
-def test_execute_deployment_azure():
+def test_execute_deployment_azure(admin_headers):
     get_feature_flags().update_flag("deploy_engine", {"enabled": True})
     payload = {
         "provider": "azure",
         "infrastructure_code": "test",
         "variables": {"resource_group": "test-rg"}
     }
-    response = client.post("/api/deployments/execute", json=payload)
+    response = client.post("/api/deployments/execute", json=payload, headers=admin_headers)
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "in_progress"
     assert "job_id" in data
 
-def test_execute_deployment_requires_feature_flag():
+def test_execute_deployment_requires_admin_auth_even_when_flag_enabled():
+    get_feature_flags().update_flag("deploy_engine", {"enabled": True})
     payload = {
         "provider": "azure",
         "infrastructure_code": "test",
         "variables": {"resource_group": "test-rg"}
     }
     response = client.post("/api/deployments/execute", json=payload)
+    assert response.status_code == 401
+
+
+def test_execute_deployment_requires_feature_flag(admin_headers):
+    payload = {
+        "provider": "azure",
+        "infrastructure_code": "test",
+        "variables": {"resource_group": "test-rg"}
+    }
+    response = client.post("/api/deployments/execute", json=payload, headers=admin_headers)
     assert response.status_code == 403
     assert response.json()["error"]["details"]["feature_flag"] == "deploy_engine"
 
-def test_execute_deployment_non_azure():
+def test_execute_deployment_non_azure(admin_headers):
     get_feature_flags().update_flag("deploy_engine", {"enabled": True})
     payload = {
         "provider": "gcp",
         "infrastructure_code": "test"
     }
-    response = client.post("/api/deployments/execute", json=payload)
+    response = client.post("/api/deployments/execute", json=payload, headers=admin_headers)
     assert response.status_code == 501
 
-def test_stream_deployment_logs():
+def test_stream_deployment_logs(admin_headers):
     job_id = "test-job-123"
-    response = client.get(f"/api/deployments/{job_id}/stream")
+    response = client.get(f"/api/deployments/{job_id}/stream", headers=admin_headers)
     assert response.status_code == 200
     assert "stubbed" in response.json()["message"]
 
-def test_get_deployment_status():
+def test_get_deployment_status(admin_headers):
     job_id = "test-job-456"
-    response = client.get(f"/api/deployments/{job_id}/status")
+    response = client.get(f"/api/deployments/{job_id}/status", headers=admin_headers)
     assert response.status_code == 200
     assert response.json()["status"] == "running"
 
-def test_rollback_deployment():
+def test_rollback_deployment(admin_headers):
     get_feature_flags().update_flag("deploy_engine", {"enabled": True})
     job_id = "test-job-789"
-    response = client.post(f"/api/deployments/{job_id}/rollback")
+    response = client.post(f"/api/deployments/{job_id}/rollback", headers=admin_headers)
     assert response.status_code == 200
     assert response.json()["status"] == "rollback_initiated"
 

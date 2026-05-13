@@ -4,16 +4,17 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional
 from uuid import uuid4
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, Request
 from pydantic import Field
 from strict_models import StrictBaseModel
 from error_envelope import ArchmorphException
 
 from drift_iac_patch import build_drift_iac_patch
+from routers.shared import limiter, verify_api_key
 from services.drift_detection import DriftDetector
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/drift", tags=["Drift Detection"])
+router = APIRouter(prefix="/api/drift", tags=["Drift Detection"], dependencies=[Depends(verify_api_key)])
 
 _BASELINES: Dict[str, Dict[str, Any]] = {}
 
@@ -49,6 +50,10 @@ def _now() -> str:
 
 def _detector() -> DriftDetector:
     return DriftDetector()
+
+
+def _safe_error_message(error: Exception) -> str:
+    return str(error).replace("\n", "").replace("\r", "")
 
 
 def _baseline_or_404(baseline_id: str) -> Dict[str, Any]:
@@ -123,38 +128,40 @@ def _build_report(baseline: Dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 @router.post("/detect")
-async def detect_drift(request: DriftRequest):
+@limiter.limit("20/minute")
+async def detect_drift(request: Request, payload: DriftRequest):
     """
     Compare designed diagram vs live cloud state.
     Returns drifted components.
     """
     try:
         detector = DriftDetector()
-        results = detector.detect_environmental_drift(request.designed_state, request.live_state)
+        results = detector.detect_environmental_drift(payload.designed_state, payload.live_state)
         _attach_iac_patch(results, current_iac=None)
         return results
     except Exception as e:
-        logger.error(f"Drift detection failed: {e}")
-        raise ArchmorphException(status_code=500, message="Failed to analyze drift", context={"error": str(e)})
+        logger.error("Drift detection failed: %s", _safe_error_message(e))
+        raise ArchmorphException(status_code=500, detail="Failed to analyze drift", details={"error": str(e)})
 
 
 @router.post("/baselines")
-async def create_baseline(request: DriftBaselineCreate):
+@limiter.limit("10/minute")
+async def create_baseline(request: Request, payload: DriftBaselineCreate):
     """Create a drift baseline and optionally run the first comparison."""
     baseline_id = f"baseline-{uuid4().hex[:12]}"
     now = _now()
     baseline = {
         "baseline_id": baseline_id,
-        "name": request.name,
-        "source": request.source,
-        "designed_state": request.designed_state,
+        "name": payload.name,
+        "source": payload.source,
+        "designed_state": payload.designed_state,
         "created_at": now,
         "updated_at": now,
         "history": [],
         "last_result": None,
     }
-    if request.live_state is not None:
-        result = _run_compare(request.designed_state, request.live_state)
+    if payload.live_state is not None:
+        result = _run_compare(payload.designed_state, payload.live_state)
         _attach_iac_patch(result, current_iac=None)
         baseline["last_result"] = result
         baseline["history"].append(result)
@@ -163,7 +170,8 @@ async def create_baseline(request: DriftBaselineCreate):
 
 
 @router.get("/baselines")
-async def list_baselines():
+@limiter.limit("30/minute")
+async def list_baselines(request: Request):
     """List drift baselines with their last audit summary."""
     return {
         "baselines": [_summarize_baseline(item) for item in _BASELINES.values()],
@@ -172,21 +180,24 @@ async def list_baselines():
 
 
 @router.get("/baselines/{baseline_id}")
-async def get_baseline(baseline_id: str):
+@limiter.limit("30/minute")
+async def get_baseline(request: Request, baseline_id: str):
     """Return a complete drift baseline record."""
     return deepcopy(_baseline_or_404(baseline_id))
 
 
 @router.post("/baselines/{baseline_id}/compare")
+@limiter.limit("10/minute")
 async def compare_baseline(
+    request: Request,
     baseline_id: str,
-    request: DriftCompareRequest,
+    payload: DriftCompareRequest,
     format: Literal["terraform", "bicep"] = "terraform",
 ):
     """Run a new drift audit against a saved baseline."""
     baseline = _baseline_or_404(baseline_id)
-    result = _run_compare(baseline["designed_state"], request.live_state)
-    _attach_iac_patch(result, current_iac=request.current_iac, iac_format=format)
+    result = _run_compare(baseline["designed_state"], payload.live_state)
+    _attach_iac_patch(result, current_iac=payload.current_iac, iac_format=format)
     baseline["last_result"] = result
     baseline["history"].append(result)
     baseline["updated_at"] = _now()
@@ -194,9 +205,11 @@ async def compare_baseline(
 
 
 @router.post("/baselines/{baseline_id}/patch")
+@limiter.limit("10/minute")
 async def build_baseline_patch(
+    request: Request,
     baseline_id: str,
-    request: DriftPatchRequest,
+    payload: DriftPatchRequest,
     format: Literal["terraform", "bicep"] = "terraform",
 ):
     """Return a review-only IaC patch artifact for the latest baseline drift audit."""
@@ -206,13 +219,14 @@ async def build_baseline_patch(
         raise ArchmorphException(status_code=404, detail="Baseline has no drift audit yet")
     return build_drift_iac_patch(
         result.get("detailed_findings") or [],
-        current_iac=request.current_iac,
+        current_iac=payload.current_iac,
         iac_format=format,
     )
 
 
 @router.patch("/baselines/{baseline_id}/findings/{finding_id}")
-async def decide_finding(baseline_id: str, finding_id: str, request: DriftFindingDecision):
+@limiter.limit("20/minute")
+async def decide_finding(request: Request, baseline_id: str, finding_id: str, payload: DriftFindingDecision):
     """Accept, reject, defer, or reopen a drift finding."""
     baseline = _baseline_or_404(baseline_id)
     result = baseline.get("last_result")
@@ -220,16 +234,17 @@ async def decide_finding(baseline_id: str, finding_id: str, request: DriftFindin
         raise ArchmorphException(status_code=404, detail="Baseline has no drift audit yet")
     for finding in result.get("detailed_findings", []):
         if finding.get("finding_id") == finding_id:
-            finding["resolution_status"] = request.decision
-            finding["resolution_note"] = request.note or ""
-            finding["resolved_at"] = _now() if request.decision != "open" else None
+            finding["resolution_status"] = payload.decision
+            finding["resolution_note"] = payload.note or ""
+            finding["resolved_at"] = _now() if payload.decision != "open" else None
             baseline["updated_at"] = _now()
             return deepcopy(finding)
     raise ArchmorphException(status_code=404, detail=f"Finding '{finding_id}' not found")
 
 
 @router.get("/baselines/{baseline_id}/report")
-async def get_baseline_report(baseline_id: str):
+@limiter.limit("20/minute")
+async def get_baseline_report(request: Request, baseline_id: str):
     """Return a Markdown drift report for export."""
     baseline = _baseline_or_404(baseline_id)
     return {
