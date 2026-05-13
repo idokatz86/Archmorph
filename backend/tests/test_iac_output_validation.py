@@ -144,7 +144,7 @@ def _run(command: list[str], cwd: Path) -> None:
     assert result.returncode == 0, result.stderr or result.stdout
 
 
-def _required_controls(iac_format: str) -> dict[str, str]:
+def _control_patterns(iac_format: str) -> dict[str, str]:
     if iac_format == "terraform":
         return {
             "managed_identity": r'(identity\s*\{[^}]*type\s*=\s*"(?:SystemAssigned|UserAssigned|SystemAssigned,\s*UserAssigned)")|(azurerm_user_assigned_identity)',
@@ -154,7 +154,7 @@ def _required_controls(iac_format: str) -> dict[str, str]:
             "key_vault_handling": r"azurerm_key_vault|Microsoft\.KeyVault/vaults|key_vault_id",
             "waf_public_ingress_posture": r"web_application_firewall|waf_configuration|firewall_mode\s*=\s*\"Prevention\"",
             "required_tags": r"(project|environment|managed_by)\s*=\s*\"",
-            "no_hardcoded_secrets": r"(?:password|secret|api_key|access_key|administrator_password)\s*=\s*\"[^\"\n]{4,}\"",
+            "no_hardcoded_secrets": r"(?:password|secret|api_key|access_key|administrator_password)\s*=\s*['\"][^'\"]+['\"]",
         }
     return {
         "managed_identity": r"identity:\s*\{[^}]*type:\s*'(?:SystemAssigned|UserAssigned|SystemAssigned,\s*UserAssigned)'|Microsoft\.ManagedIdentity/userAssignedIdentities",
@@ -164,15 +164,16 @@ def _required_controls(iac_format: str) -> dict[str, str]:
         "key_vault_handling": r"Microsoft\.KeyVault/vaults|keyVault",
         "waf_public_ingress_posture": r"Microsoft\.Network/applicationGatewayWebApplicationFirewallPolicies|mode:\s*'Prevention'",
         "required_tags": r"(project|environment|managedBy)\s*:\s*'",
-        "no_hardcoded_secrets": r"(?:password|secret|apiKey|accessKey|administratorLoginPassword)\s*:\s*'[^'\n]{4,}'",
+        "no_hardcoded_secrets": r"(?:password|secret|apiKey|accessKey|administratorLoginPassword)\s*:\s*['\"][^'\"]+['\"]",
     }
 
 
 def _assert_conformance(*, code: str, iac_format: str, controls: list[str]) -> list[str]:
-    patterns = _required_controls(iac_format)
+    patterns = _control_patterns(iac_format)
     missing: list[str] = []
     for control in controls:
         if control == "no_hardcoded_secrets":
+            # This control is intentionally inverse: any match is a violation.
             if re.search(patterns[control], code, re.IGNORECASE):
                 missing.append(control)
             continue
