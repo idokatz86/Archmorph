@@ -546,6 +546,10 @@ jobs:
       ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
       ARCHMORPH_API_KEY: ${{ secrets.ARCHMORPH_API_KEY || secrets.API_KEY }}
       JWT_SECRET: ${{ secrets.JWT_SECRET }}
+      ARM_USE_OIDC: true
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
     steps:
       - uses: actions/checkout@v6
 
@@ -555,6 +559,12 @@ jobs:
           client-id: ${{ env.AZURE_CLIENT_ID }}
           tenant-id: ${{ env.AZURE_TENANT_ID }}
           subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.9.x"
+          terraform_wrapper: false
 
       - name: Validate backend deploy secret inputs
         run: |
@@ -758,12 +768,22 @@ jobs:
           FRONT_DOOR_PROFILE_NAME=""
           TRUSTED_FRONT_DOOR_FDID=""
           TRUSTED_FRONT_DOOR_HOSTS=""
+          if terraform -chdir=infra init -input=false >/tmp/terraform-init-front-door.log 2>&1; then
+            TRUSTED_FRONT_DOOR_FDID=$(terraform -chdir=infra output -raw front_door_profile_resource_guid 2>/dev/null || echo "")
+            TRUSTED_FRONT_DOOR_HOSTS=$(terraform -chdir=infra output -raw front_door_api_hostname 2>/dev/null || echo "")
+          else
+            echo "::warning::Unable to initialize Terraform remote state for Front Door outputs"
+            tail -n 40 /tmp/terraform-init-front-door.log || true
+          fi
+
           EXISTING_ENV_JSON=$(az containerapp show \
             --name ${{ env.CONTAINER_APP_NAME }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --query "properties.template.containers[0].env" -o json 2>/dev/null || echo "[]")
-          TRUSTED_FRONT_DOOR_FDID=$(echo "$EXISTING_ENV_JSON" | jq -r '.[] | select(.name == "TRUSTED_FRONT_DOOR_FDID") | .value // ""' | head -1)
-          TRUSTED_FRONT_DOOR_HOSTS=$(echo "$EXISTING_ENV_JSON" | jq -r '.[] | select(.name == "TRUSTED_FRONT_DOOR_HOSTS") | .value // ""' | head -1)
+          if [ -z "$TRUSTED_FRONT_DOOR_FDID" ] || [ -z "$TRUSTED_FRONT_DOOR_HOSTS" ]; then
+            TRUSTED_FRONT_DOOR_FDID=$(echo "$EXISTING_ENV_JSON" | jq -r '.[] | select(.name == "TRUSTED_FRONT_DOOR_FDID") | .value // ""' | head -1)
+            TRUSTED_FRONT_DOOR_HOSTS=$(echo "$EXISTING_ENV_JSON" | jq -r '.[] | select(.name == "TRUSTED_FRONT_DOOR_HOSTS") | .value // ""' | head -1)
+          fi
           CONTAINER_APP_FQDN=$(az containerapp show \
             --name ${{ env.CONTAINER_APP_NAME }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
