@@ -819,7 +819,7 @@ jobs:
             REPLICAS=$(echo "$REVISION_JSON" | jq -r '.properties.replicas // "unknown"')
             echo "Green revision readiness attempt ${attempt}: provisioning=${PROVISIONING_STATE} running=${RUNNING_STATE} health=${HEALTH_STATE} replicas=${REPLICAS}"
 
-            if [ "$PROVISIONING_STATE" = "Succeeded" ] && { [ "$RUNNING_STATE" = "Running" ] || [ "$RUNNING_STATE" = "unknown" ]; }; then
+            if { [ "$PROVISIONING_STATE" = "Succeeded" ] || [ "$PROVISIONING_STATE" = "Provisioned" ]; } && { [ "$RUNNING_STATE" = "Running" ] || [ "$RUNNING_STATE" = "unknown" ]; }; then
               echo "Green revision is provisioned and running enough for smoke tests"
               exit 0
             fi
