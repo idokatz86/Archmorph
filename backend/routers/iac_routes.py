@@ -29,6 +29,7 @@ from usage_metrics import record_event, record_funnel_step
 from iac_chat import process_iac_chat, get_iac_chat_history, clear_iac_chat
 from iac_generator import generate_iac_code
 from iac_scaffold import generate_scaffold
+from log_sanitizer import safe
 
 logger = logging.getLogger(__name__)
 
@@ -87,9 +88,9 @@ def _check_architecture_blockers(diagram_id: str, session: dict, force: bool) ->
     if force:
         logger.warning(
             "iac_blockers_overridden diagram=%s blocker_count=%d ids=%s",
-            str(diagram_id).replace("\n", "").replace("\r", ""),
+            safe(diagram_id),
             len(blockers),
-            ",".join(b.get("rule_id", "?") for b in blockers),
+            ",".join(safe(b.get("rule_id", "?")) for b in blockers),
         )
         record_event(
             "iac_blockers_overridden",

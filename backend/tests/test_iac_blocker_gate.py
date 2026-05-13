@@ -16,6 +16,7 @@ if str(BACKEND_ROOT) not in sys.path:
 
 from main import app  # noqa: E402
 from routers.shared import SESSION_STORE  # noqa: E402
+from routers.iac_routes import _check_architecture_blockers  # noqa: E402
 
 
 @pytest.fixture
@@ -198,3 +199,25 @@ class TestIaCGateAsync:
         body = resp.json()
         assert body.get("status") == "queued"
         assert body.get("job_id")
+
+
+def test_force_override_log_sanitizes_diagram_and_rule_ids(caplog):
+    session = {
+        "architecture_issues": [
+            {"severity": "blocker", "rule_id": "rule-1\nINJECT"},
+            {"severity": "blocker", "rule_id": "rule-2\rINJECT"},
+        ]
+    }
+
+    with caplog.at_level("WARNING", logger="routers.iac_routes"):
+        _check_architecture_blockers("diag\r\nid", session, force=True)
+
+    warning_records = [
+        r for r in caplog.records if r.levelname == "WARNING" and r.name == "routers.iac_routes"
+    ]
+    assert len(warning_records) == 1
+    message = warning_records[0].getMessage()
+    assert "\n" not in message
+    assert "\r" not in message
+    assert "diagid" in message
+    assert "rule-1INJECT,rule-2INJECT" in message
