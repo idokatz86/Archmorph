@@ -181,7 +181,11 @@ function injectMockSession(page: Page) {
     sessionStorage.setItem('archmorph_active_diagram', data.diagramId);
     sessionStorage.setItem(
       `archmorph_session_${data.diagramId}`,
-      JSON.stringify(data)
+      JSON.stringify({
+        ...data,
+        sensitiveCacheOptIn: true,
+        ts: Date.now(),
+      })
     );
   }, MOCK_ANALYSIS);
 }
