@@ -11,18 +11,18 @@ const CACHE_PREFIX = 'archmorph_session_';
 const LEGACY_CACHE_KEY = 'archmorph_session';
 const SENSITIVE_CACHE_OPT_IN_KEY = 'archmorph_sensitive_cache_opt_in';
 
-function _isTrue(value) {
+function _parseBooleanString(value) {
   return ['true', '1', 'yes', 'on'].includes(String(value || '').toLowerCase());
 }
 
 function _isSensitiveCacheOptedIn() {
   try {
-    const envEnabled = _isTrue(import.meta?.env?.VITE_ENABLE_SENSITIVE_SESSION_CACHE);
+    const envEnabled = _parseBooleanString(import.meta?.env?.VITE_ENABLE_SENSITIVE_SESSION_CACHE);
     if (envEnabled) return true;
   } catch { /* ignore */ }
   try {
     const storageOptIn = sessionStorage.getItem(SENSITIVE_CACHE_OPT_IN_KEY);
-    return _isTrue(storageOptIn);
+    return _parseBooleanString(storageOptIn);
   } catch {
     return false;
   }
