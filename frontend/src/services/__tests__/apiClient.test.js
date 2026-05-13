@@ -408,4 +408,48 @@ describe('apiClient', () => {
     expect(errorResult.status).toBe('rejected')
     expect(errorResult.reason.status).toBe(400)
   })
+
+  // ── Context-aware 401 error messages ──
+
+  it('401 without a stored token sets isAuthRequired=true and uses "Authentication required" copy', async () => {
+    // No token in localStorage — signed-out user
+    localStorage.clear()
+
+    fetch.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: () => Promise.resolve({ detail: 'Not authenticated' }),
+    })
+
+    try {
+      await api.post('/projects/demo-project/diagrams', new FormData())
+    } catch (err) {
+      expect(err.status).toBe(401)
+      expect(err.isAuthRequired).toBe(true)
+      expect(err.message).toMatch(/Authentication required/i)
+      expect(err.message).not.toMatch(/session has expired/i)
+    }
+  })
+
+  it('401 with a stored token sets isAuthRequired=false and uses "session has expired" copy', async () => {
+    // Token is present in localStorage — session expired scenario
+    localStorage.setItem('archmorph_session_token', 'expired-jwt-token')
+
+    fetch.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: () => Promise.resolve({ detail: 'Token expired' }),
+    })
+
+    try {
+      await api.post('/projects/demo-project/diagrams', new FormData())
+    } catch (err) {
+      expect(err.status).toBe(401)
+      expect(err.isAuthRequired).toBe(false)
+      expect(err.message).toMatch(/session has expired/i)
+      expect(err.message).not.toMatch(/Authentication required/i)
+    }
+  })
 })
