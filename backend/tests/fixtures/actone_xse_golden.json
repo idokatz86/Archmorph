@@ -1,0 +1,529 @@
+{
+  "_comment": "Sanitized golden fixture for ActOne/XSE production-style AWS architecture (#1033). Represents SFTP-to-S3 ingest, AppStream desktop access, multi-ALB, multi-AZ VPC subnets, custom pods, RDS Multi-AZ, EFS, Kafka (MSK), Elasticsearch, Container Insights, XSight, and active-active/failover HA labels. Do NOT mutate expected_detections or source_topology without a corresponding test-threshold bump.",
+  "_meta": {
+    "issue": "#1033",
+    "fixture_version": "1",
+    "purpose": "fidelity regression gate for dense enterprise AWS-to-Azure translation",
+    "sanitized": true
+  },
+  "title": "ActOne/XSE Production AWS Architecture (sanitized)",
+  "source_provider": "aws",
+  "target_provider": "azure",
+  "source_topology": {
+    "schema_version": "source-topology/v1",
+    "source_provider": "aws",
+    "boundaries": [
+      {
+        "id": "vpc-main",
+        "type": "vpc",
+        "label": "VPC (Private)",
+        "cidr": "10.0.0.0/16"
+      },
+      {
+        "id": "subnet-public",
+        "type": "subnet",
+        "label": "Public Subnet",
+        "parent": "vpc-main",
+        "availability_zones": ["AZ-A", "AZ-B"],
+        "tier": "public"
+      },
+      {
+        "id": "subnet-app",
+        "type": "subnet",
+        "label": "Private App Subnet",
+        "parent": "vpc-main",
+        "availability_zones": ["AZ-A", "AZ-B"],
+        "tier": "private_app"
+      },
+      {
+        "id": "subnet-db",
+        "type": "subnet",
+        "label": "Private DB Subnet",
+        "parent": "vpc-main",
+        "availability_zones": ["AZ-A", "AZ-B"],
+        "tier": "private_db"
+      }
+    ],
+    "components": [
+      {
+        "id": "sftp-endpoint",
+        "name": "SFTP Endpoint",
+        "category": "Ingress",
+        "service_type": "AWS Transfer Family (SFTP)",
+        "boundary": "subnet-public",
+        "notes": "External data partners deliver files via SFTP"
+      },
+      {
+        "id": "s3-ingest",
+        "name": "S3 Ingest Bucket",
+        "category": "Storage",
+        "service_type": "Amazon S3",
+        "boundary": "vpc-main",
+        "multi_az": true,
+        "notes": "Primary landing zone for SFTP-delivered files"
+      },
+      {
+        "id": "s3-archive",
+        "name": "S3 Archive Bucket",
+        "category": "Storage",
+        "service_type": "Amazon S3",
+        "boundary": "vpc-main",
+        "multi_az": true,
+        "notes": "Long-term retention and audit archive"
+      },
+      {
+        "id": "appstream",
+        "name": "AppStream 2.0",
+        "category": "Desktop",
+        "service_type": "Amazon AppStream 2.0",
+        "boundary": "subnet-public",
+        "notes": "Streamed desktop access for investigators"
+      },
+      {
+        "id": "alb-frontend",
+        "name": "Frontend ALB",
+        "category": "LoadBalancer",
+        "service_type": "Application Load Balancer",
+        "boundary": "subnet-public",
+        "notes": "Internet-facing ALB for investigator UI"
+      },
+      {
+        "id": "alb-internal",
+        "name": "Internal ALB",
+        "category": "LoadBalancer",
+        "service_type": "Application Load Balancer",
+        "boundary": "subnet-app",
+        "notes": "Internal ALB routing between microservice pods"
+      },
+      {
+        "id": "pod-actone",
+        "name": "ActOne",
+        "category": "CustomWorkload",
+        "service_type": "Custom Pod (EKS)",
+        "boundary": "subnet-app",
+        "notes": "Core case management and investigation orchestration workload"
+      },
+      {
+        "id": "pod-ava",
+        "name": "AVA",
+        "category": "CustomWorkload",
+        "service_type": "Custom Pod (EKS)",
+        "boundary": "subnet-app",
+        "notes": "Automated validation and analytics engine"
+      },
+      {
+        "id": "pod-udm",
+        "name": "UDM",
+        "category": "CustomWorkload",
+        "service_type": "Custom Pod (EKS)",
+        "boundary": "subnet-app",
+        "notes": "Unified data model transformation service"
+      },
+      {
+        "id": "pod-ir",
+        "name": "IR",
+        "category": "CustomWorkload",
+        "service_type": "Custom Pod (EKS)",
+        "boundary": "subnet-app",
+        "notes": "Incident response processing service"
+      },
+      {
+        "id": "pod-cmaas",
+        "name": "CMaaS",
+        "category": "CustomWorkload",
+        "service_type": "Custom Pod (EKS)",
+        "boundary": "subnet-app",
+        "notes": "Case Management as a Service orchestration layer"
+      },
+      {
+        "id": "pod-dataextract",
+        "name": "DataExtract",
+        "category": "CustomWorkload",
+        "service_type": "Custom Pod (EKS)",
+        "boundary": "subnet-app",
+        "notes": "Data extraction and export service"
+      },
+      {
+        "id": "rds-multi-az",
+        "name": "RDS Multi-AZ",
+        "category": "Database",
+        "service_type": "Amazon RDS (PostgreSQL Multi-AZ)",
+        "boundary": "subnet-db",
+        "multi_az": true,
+        "ha_mode": "active-standby",
+        "notes": "Primary relational store with synchronous standby in second AZ"
+      },
+      {
+        "id": "efs",
+        "name": "EFS",
+        "category": "Storage",
+        "service_type": "Amazon EFS",
+        "boundary": "subnet-app",
+        "multi_az": true,
+        "notes": "Shared file storage mounted by multiple pods"
+      },
+      {
+        "id": "kafka-msk",
+        "name": "Kafka (MSK)",
+        "category": "Messaging",
+        "service_type": "Amazon MSK (Kafka)",
+        "boundary": "subnet-app",
+        "multi_az": true,
+        "ha_mode": "active-active",
+        "notes": "Event streaming backbone; brokers spread across AZ-A and AZ-B"
+      },
+      {
+        "id": "elasticsearch",
+        "name": "Elasticsearch",
+        "category": "Search",
+        "service_type": "Amazon OpenSearch Service",
+        "boundary": "subnet-app",
+        "multi_az": true,
+        "ha_mode": "active-active",
+        "notes": "Full-text search and analytics for case data; multi-AZ domain"
+      },
+      {
+        "id": "container-insights",
+        "name": "Container Insights",
+        "category": "Observability",
+        "service_type": "Amazon CloudWatch Container Insights",
+        "boundary": "vpc-main",
+        "notes": "Container-level metrics and logs for EKS workloads"
+      },
+      {
+        "id": "xsight",
+        "name": "XSight",
+        "category": "CustomObservability",
+        "service_type": "Custom Observability Integration (XSight)",
+        "boundary": "vpc-main",
+        "notes": "Proprietary observability integration; semantics partially unresolved"
+      }
+    ],
+    "flows": [
+      {
+        "id": "flow-sftp-s3",
+        "from": "sftp-endpoint",
+        "to": "s3-ingest",
+        "type": "file-ingest",
+        "label": "SFTP → S3",
+        "p0": true
+      },
+      {
+        "id": "flow-alb-actone",
+        "from": "alb-frontend",
+        "to": "pod-actone",
+        "type": "http",
+        "label": "Investigator UI → ActOne",
+        "p0": true
+      },
+      {
+        "id": "flow-actone-kafka",
+        "from": "pod-actone",
+        "to": "kafka-msk",
+        "type": "event-stream",
+        "label": "ActOne → Kafka",
+        "p0": true
+      },
+      {
+        "id": "flow-kafka-ava",
+        "from": "kafka-msk",
+        "to": "pod-ava",
+        "type": "event-stream",
+        "label": "Kafka → AVA",
+        "p0": true
+      },
+      {
+        "id": "flow-actone-rds",
+        "from": "pod-actone",
+        "to": "rds-multi-az",
+        "type": "sql",
+        "label": "ActOne → RDS",
+        "p0": true
+      },
+      {
+        "id": "flow-actone-es",
+        "from": "pod-actone",
+        "to": "elasticsearch",
+        "type": "index",
+        "label": "ActOne → Elasticsearch",
+        "p0": false
+      },
+      {
+        "id": "flow-pods-efs",
+        "from": "pod-actone",
+        "to": "efs",
+        "type": "file-share",
+        "label": "Pods → EFS",
+        "p0": false
+      },
+      {
+        "id": "flow-pods-s3-archive",
+        "from": "pod-dataextract",
+        "to": "s3-archive",
+        "type": "export",
+        "label": "DataExtract → S3 Archive",
+        "p0": false
+      }
+    ],
+    "ha_dr": {
+      "primary_region": "us-east-1",
+      "dr_region": "us-west-2",
+      "ha_mode": "active-active",
+      "dr_mode": "active-passive-failover",
+      "labels": ["active-active", "failover", "multi-az"],
+      "rpo_hours": 1,
+      "rto_hours": 4
+    }
+  },
+  "zones": [
+    {
+      "id": 1,
+      "name": "ingress",
+      "number": 1,
+      "services": []
+    },
+    {
+      "id": 2,
+      "name": "compute",
+      "number": 2,
+      "services": []
+    },
+    {
+      "id": 3,
+      "name": "data",
+      "number": 3,
+      "services": []
+    },
+    {
+      "id": 4,
+      "name": "observability",
+      "number": 4,
+      "services": []
+    }
+  ],
+  "mappings": [
+    {
+      "source_service": "AWS Transfer Family (SFTP)",
+      "azure_service": "Azure Blob Storage (SFTP)",
+      "category": "Ingress",
+      "confidence": 0.88,
+      "rationale": "Azure Blob Storage supports SFTP protocol natively; functionally equivalent for partner file ingest",
+      "assumptions": ["Partners can reconfigure SFTP host keys", "Blob Storage SFTP is enabled on the target account"],
+      "unresolved_blockers": []
+    },
+    {
+      "source_service": "Amazon S3",
+      "azure_service": "Azure Blob Storage",
+      "category": "Storage",
+      "confidence": 0.97,
+      "rationale": "Blob Storage is the direct Azure equivalent for object storage at scale",
+      "assumptions": [],
+      "unresolved_blockers": []
+    },
+    {
+      "source_service": "Amazon AppStream 2.0",
+      "azure_service": "Azure Virtual Desktop",
+      "category": "Desktop",
+      "confidence": 0.82,
+      "rationale": "Azure Virtual Desktop provides equivalent managed desktop streaming with per-user session isolation",
+      "assumptions": ["AppStream custom images can be rebuilt as AVD session host images"],
+      "unresolved_blockers": ["AppStream-specific IAM role bindings need manual review"]
+    },
+    {
+      "source_service": "Application Load Balancer",
+      "azure_service": "Azure Application Gateway",
+      "category": "LoadBalancer",
+      "confidence": 0.93,
+      "rationale": "Application Gateway provides L7 HTTP(S) routing matching ALB functionality",
+      "assumptions": [],
+      "unresolved_blockers": []
+    },
+    {
+      "source_service": "Application Load Balancer (Internal)",
+      "azure_service": "Azure Internal Load Balancer",
+      "category": "LoadBalancer",
+      "confidence": 0.91,
+      "rationale": "Internal ALB translates to Azure Internal Load Balancer for east-west traffic",
+      "assumptions": [],
+      "unresolved_blockers": []
+    },
+    {
+      "source_service": "ActOne",
+      "azure_service": "ActOne (custom — preserved, no forced mapping)",
+      "category": "CustomWorkload",
+      "confidence": 0.0,
+      "rationale": "Custom proprietary workload; no Azure service equivalent identified at this stage. Preserved by original name.",
+      "assumptions": [],
+      "unresolved_blockers": [
+        "ActOne workload semantics require customer clarification before Azure service selection"
+      ]
+    },
+    {
+      "source_service": "AVA",
+      "azure_service": "AVA (custom — preserved, no forced mapping)",
+      "category": "CustomWorkload",
+      "confidence": 0.0,
+      "rationale": "Custom proprietary workload; preserved by original name pending architecture review.",
+      "assumptions": [],
+      "unresolved_blockers": [
+        "AVA workload semantics require customer clarification before Azure service selection"
+      ]
+    },
+    {
+      "source_service": "UDM",
+      "azure_service": "UDM (custom — preserved, no forced mapping)",
+      "category": "CustomWorkload",
+      "confidence": 0.0,
+      "rationale": "Custom proprietary workload; preserved by original name pending architecture review.",
+      "assumptions": [],
+      "unresolved_blockers": [
+        "UDM workload semantics require customer clarification before Azure service selection"
+      ]
+    },
+    {
+      "source_service": "IR",
+      "azure_service": "IR (custom — preserved, no forced mapping)",
+      "category": "CustomWorkload",
+      "confidence": 0.0,
+      "rationale": "Custom proprietary workload; preserved by original name pending architecture review.",
+      "assumptions": [],
+      "unresolved_blockers": [
+        "IR workload semantics require customer clarification before Azure service selection"
+      ]
+    },
+    {
+      "source_service": "CMaaS",
+      "azure_service": "CMaaS (custom — preserved, no forced mapping)",
+      "category": "CustomWorkload",
+      "confidence": 0.0,
+      "rationale": "Custom proprietary workload; preserved by original name pending architecture review.",
+      "assumptions": [],
+      "unresolved_blockers": [
+        "CMaaS workload semantics require customer clarification before Azure service selection"
+      ]
+    },
+    {
+      "source_service": "DataExtract",
+      "azure_service": "DataExtract (custom — preserved, no forced mapping)",
+      "category": "CustomWorkload",
+      "confidence": 0.0,
+      "rationale": "Custom proprietary workload; preserved by original name pending architecture review.",
+      "assumptions": [],
+      "unresolved_blockers": [
+        "DataExtract workload semantics require customer clarification before Azure service selection"
+      ]
+    },
+    {
+      "source_service": "Amazon RDS (PostgreSQL Multi-AZ)",
+      "azure_service": "Azure Database for PostgreSQL Flexible Server",
+      "category": "Database",
+      "confidence": 0.92,
+      "rationale": "PostgreSQL Flexible Server with zone-redundant HA matches RDS Multi-AZ semantics",
+      "assumptions": ["Zone-redundant HA enabled on Flexible Server", "Data migrated using pg_dump or Azure DMS"],
+      "unresolved_blockers": []
+    },
+    {
+      "source_service": "Amazon EFS",
+      "azure_service": "Azure Files",
+      "category": "Storage",
+      "confidence": 0.85,
+      "rationale": "Azure Files provides managed NFS/SMB shared file storage equivalent to EFS",
+      "assumptions": ["NFS 4.1 protocol selected on Azure Files premium tier"],
+      "unresolved_blockers": []
+    },
+    {
+      "source_service": "Amazon MSK (Kafka)",
+      "azure_service": "Azure Event Hubs (Kafka protocol)",
+      "category": "Messaging",
+      "confidence": 0.87,
+      "rationale": "Event Hubs Kafka-compatible endpoint enables producer/consumer migration without code rewrite",
+      "assumptions": ["Kafka client version is compatible with Event Hubs Kafka surface"],
+      "unresolved_blockers": ["Schema Registry migration path requires validation"]
+    },
+    {
+      "source_service": "Amazon OpenSearch Service",
+      "azure_service": "Elasticsearch on Azure (via Elastic Cloud)",
+      "category": "Search",
+      "confidence": 0.80,
+      "rationale": "Elastic Cloud on Azure preserves Elasticsearch APIs and index compatibility",
+      "assumptions": ["Elastic operator or Elastic Cloud subscription required"],
+      "unresolved_blockers": ["Index mapping compatibility must be verified for major version differences"]
+    },
+    {
+      "source_service": "Amazon CloudWatch Container Insights",
+      "azure_service": "Azure Monitor Container Insights",
+      "category": "Observability",
+      "confidence": 0.90,
+      "rationale": "Azure Monitor Container Insights provides equivalent container-level metrics, logs, and dashboards for AKS",
+      "assumptions": [],
+      "unresolved_blockers": []
+    },
+    {
+      "source_service": "XSight",
+      "azure_service": "XSight (custom observability — preserved, Azure integration TBD)",
+      "category": "CustomObservability",
+      "confidence": 0.0,
+      "rationale": "Proprietary observability integration; semantics and Azure counterpart unresolved. Preserved by original name.",
+      "assumptions": [],
+      "unresolved_blockers": [
+        "XSight integration points and telemetry contracts must be clarified before mapping to Azure Monitor or a custom solution"
+      ]
+    },
+    {
+      "source_service": "VPC",
+      "azure_service": "Azure Virtual Network",
+      "category": "Networking",
+      "confidence": 0.97,
+      "rationale": "Virtual Network is the direct Azure equivalent for AWS VPC isolation and routing",
+      "assumptions": [],
+      "unresolved_blockers": []
+    },
+    {
+      "source_service": "Amazon EKS",
+      "azure_service": "Azure Kubernetes Service",
+      "category": "Containers",
+      "confidence": 0.94,
+      "rationale": "AKS provides managed Kubernetes equivalent to EKS; custom pods run unchanged after image migration",
+      "assumptions": ["Container images are cloud-agnostic and do not reference AWS SDK from within the image"],
+      "unresolved_blockers": []
+    }
+  ],
+  "expected_detections": {
+    "_comment": "Regression gate: all items below must appear in the source_topology components. Test should fail if any is silently dropped.",
+    "source_services": [
+      "AWS Transfer Family (SFTP)",
+      "Amazon S3",
+      "Amazon AppStream 2.0",
+      "Application Load Balancer",
+      "ActOne",
+      "AVA",
+      "UDM",
+      "IR",
+      "CMaaS",
+      "DataExtract",
+      "Amazon RDS (PostgreSQL Multi-AZ)",
+      "Amazon EFS",
+      "Amazon MSK (Kafka)",
+      "Amazon OpenSearch Service",
+      "Amazon CloudWatch Container Insights",
+      "XSight"
+    ],
+    "boundary_types": ["vpc", "subnet"],
+    "ha_labels": ["active-active", "failover", "multi-az"],
+    "p0_flows": [
+      "flow-sftp-s3",
+      "flow-alb-actone",
+      "flow-actone-kafka",
+      "flow-kafka-ava",
+      "flow-actone-rds"
+    ],
+    "custom_workload_names": ["ActOne", "AVA", "UDM", "IR", "CMaaS", "DataExtract", "XSight"],
+    "multi_az_services": [
+      "Amazon S3",
+      "Amazon RDS (PostgreSQL Multi-AZ)",
+      "Amazon EFS",
+      "Amazon MSK (Kafka)",
+      "Amazon OpenSearch Service"
+    ]
+  }
+}
