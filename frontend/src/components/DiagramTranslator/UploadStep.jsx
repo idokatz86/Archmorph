@@ -58,7 +58,7 @@ export default function UploadStep({
                 <p className="text-sm font-medium text-text-primary">{selectedFile.name}</p>
                 <p className="text-xs text-text-muted">{(selectedFile.size / 1024).toFixed(0)} KB</p>
               </div>
-              <div className="flex items-center justify-center gap-2">
+              <div className="flex items-center justify-center gap-2" data-testid="file-action-buttons">
                 <Button onClick={() => onUpload(selectedFile)} variant="primary" size="md" icon={Upload}>
                   Analyze This Diagram
                 </Button>

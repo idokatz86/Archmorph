@@ -134,10 +134,12 @@ describe('UploadStep', () => {
   it('action buttons appear in visual order: Analyze, Remove, Replace file', () => {
     const file = new File(['test'], 'diagram.pdf', { type: 'application/pdf' })
     render(<UploadStep {...defaultProps} selectedFile={file} />)
-    const buttons = screen.getAllByRole('button')
-    const actionButtonTexts = buttons
-      .map((b) => b.textContent?.trim())
-      .filter((t) => ['Analyze This Diagram', 'Remove', 'Replace file'].includes(t))
-    expect(actionButtonTexts).toEqual(['Analyze This Diagram', 'Remove', 'Replace file'])
+    const actionsContainer = screen.getByTestId('file-action-buttons')
+    const actionButtons = within(actionsContainer).getAllByRole('button')
+    expect(actionButtons.map((b) => b.textContent?.trim())).toEqual([
+      'Analyze This Diagram',
+      'Remove',
+      'Replace file',
+    ])
   })
 })
