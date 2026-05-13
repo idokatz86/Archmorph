@@ -12,6 +12,7 @@ import copy
 import os
 import sys
 import time
+from urllib.parse import urlparse
 from unittest.mock import MagicMock
 
 import pytest
@@ -26,6 +27,7 @@ os.environ.setdefault("ARCHMORPH_EXPORT_CAPABILITY_REQUIRED", "false")
 os.environ.setdefault("ENVIRONMENT", "test")
 
 from main import app  # noqa: E402
+from routers import shared as shared_router  # noqa: E402
 
 
 # ─────────────────────────────────────────────────────────────
@@ -112,6 +114,81 @@ def mock_openai_response():
         return mock_resp
 
     return _build
+
+
+TEST_API_KEY = "test-suite-api-key"
+
+
+def _diagram_id_from_url(url: object) -> str | None:
+    path = urlparse(str(url)).path
+    prefixes = ("/api/diagrams/", "/api/v1/diagrams/")
+    prefix = next((value for value in prefixes if path.startswith(value)), None)
+    if prefix is None:
+        return None
+    suffix = path[len(prefix):]
+    diagram_id = suffix.split("/", 1)[0]
+    return diagram_id or None
+
+
+def _has_owner_metadata(session: dict) -> bool:
+    return bool(
+        session.get("_owner_user_id")
+        or session.get("_tenant_id")
+        or session.get("_owner_api_key_id")
+    )
+
+
+def _auth_headers_for_session_owner(session: dict) -> dict[str, str] | None:
+    owner_user_id = session.get("_owner_user_id")
+    tenant_id = session.get("_tenant_id")
+    if not owner_user_id or not tenant_id:
+        return None
+
+    from auth import AuthProvider, User, UserTier, generate_session_token
+
+    user = User(
+        id=owner_user_id,
+        email=f"{owner_user_id}@example.test",
+        name=owner_user_id,
+        provider=AuthProvider.GITHUB,
+        tier=UserTier.TEAM,
+        tenant_id=tenant_id,
+    )
+    return {"Authorization": f"Bearer {generate_session_token(user)}"}
+
+
+@pytest.fixture(autouse=True)
+def _default_diagram_route_api_key(request, monkeypatch):
+    """Authenticate legacy diagram-route TestClient calls with a stable API principal."""
+
+    if request.node.nodeid.endswith("test_owned_async_generation_requires_authenticated_user"):
+        return
+
+    original_request = TestClient.request
+
+    def request_with_test_api_key(self, method, url, *args, **kwargs):
+        diagram_id = _diagram_id_from_url(url)
+        if diagram_id is not None:
+            headers = dict(kwargs.pop("headers", None) or {})
+            has_auth = any(key.lower() in {"authorization", "x-api-key"} for key in headers)
+            if not has_auth:
+                session = shared_router.SESSION_STORE.get(diagram_id)
+                if isinstance(session, dict):
+                    owner_headers = _auth_headers_for_session_owner(session)
+                    if owner_headers:
+                        headers.update(owner_headers)
+                    else:
+                        headers["X-API-Key"] = TEST_API_KEY
+                        if not _has_owner_metadata(session):
+                            session["_owner_api_key_id"] = shared_router.get_api_key_service_principal(
+                                {"x-api-key": TEST_API_KEY}
+                            )
+                else:
+                    headers["X-API-Key"] = TEST_API_KEY
+            kwargs["headers"] = headers
+        return original_request(self, method, url, *args, **kwargs)
+
+    monkeypatch.setattr(TestClient, "request", request_with_test_api_key)
 
 
 # ─────────────────────────────────────────────────────────────

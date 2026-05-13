@@ -16,7 +16,14 @@ import re
 import secrets
 from typing import Literal, Optional
 
-from routers.shared import SESSION_STORE, get_api_key_service_principal, limiter, verify_api_key
+from routers.shared import (
+    SESSION_STORE,
+    authorize_diagram_access,
+    get_api_key_service_principal,
+    limiter,
+    require_diagram_access,
+    verify_api_key,
+)
 from job_queue import job_manager
 from usage_metrics import record_event, record_funnel_step
 from iac_chat import process_iac_chat, get_iac_chat_history, clear_iac_chat
@@ -147,7 +154,7 @@ class IaCChatMessage(StrictBaseModel):
 # ─────────────────────────────────────────────────────────────
 # IaC Generation
 # ─────────────────────────────────────────────────────────────
-@router.post("/api/diagrams/{diagram_id}/generate")
+@router.post("/api/diagrams/{diagram_id}/generate", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("5/minute")
 async def generate_iac(
     request: Request,
@@ -165,7 +172,7 @@ async def generate_iac(
     ETag must match.  A mismatch returns HTTP 409 so that concurrent clients
     can detect and resolve conflicts instead of silently overwriting each other.
     """
-    session = SESSION_STORE.get(diagram_id, {})
+    session = authorize_diagram_access(request, diagram_id, purpose="generate IaC")
     iac_params = session.get("iac_parameters", {})
 
     # Optimistic concurrency guard: honour If-Match when code was previously
@@ -224,7 +231,7 @@ async def generate_iac(
 # ─────────────────────────────────────────────────────────────
 # IaC Chat — GPT-4o powered Terraform/Bicep assistant
 # ─────────────────────────────────────────────────────────────
-@router.post("/api/diagrams/{diagram_id}/iac-chat")
+@router.post("/api/diagrams/{diagram_id}/iac-chat", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("10/minute")
 async def iac_chat_endpoint(request: Request, diagram_id: str, msg: IaCChatMessage, _auth=Depends(verify_api_key)):
     """Chat with AI to modify generated Terraform/Bicep code.
@@ -237,7 +244,7 @@ async def iac_chat_endpoint(request: Request, diagram_id: str, msg: IaCChatMessa
     """
     record_event("iac_chat_messages", {"diagram_id": diagram_id})
 
-    session = SESSION_STORE.get(diagram_id, {})
+    session = authorize_diagram_access(request, diagram_id, purpose="chat about IaC")
     analysis_context = session.get("analysis") if session else None
 
     # ── Server-side canonical code validation (#842) ──────────────────────
@@ -288,9 +295,14 @@ async def iac_chat_endpoint(request: Request, diagram_id: str, msg: IaCChatMessa
     return result
 
 
-@router.get("/api/diagrams/{diagram_id}/iac-chat/history")
+@router.get("/api/diagrams/{diagram_id}/iac-chat/history", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("30/minute")
-async def iac_chat_history(request: Request, diagram_id: str):
+async def iac_chat_history(
+    request: Request,
+    diagram_id: str,
+    _auth=Depends(verify_api_key),
+    _session=Depends(require_diagram_access),
+):
     """Get IaC chat history for a diagram."""
     return {
         "diagram_id": diagram_id,
@@ -298,9 +310,14 @@ async def iac_chat_history(request: Request, diagram_id: str):
     }
 
 
-@router.delete("/api/diagrams/{diagram_id}/iac-chat")
+@router.delete("/api/diagrams/{diagram_id}/iac-chat", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("10/minute")
-async def iac_chat_clear(request: Request, diagram_id: str):
+async def iac_chat_clear(
+    request: Request,
+    diagram_id: str,
+    _auth=Depends(verify_api_key),
+    _session=Depends(require_diagram_access),
+):
     """Clear IaC chat session for a diagram."""
     cleared = clear_iac_chat(diagram_id)
     return {"cleared": cleared}
@@ -309,7 +326,7 @@ async def iac_chat_clear(request: Request, diagram_id: str):
 # ─────────────────────────────────────────────────────────────
 # Async IaC Generation (Issue #172)
 # ─────────────────────────────────────────────────────────────
-@router.post("/api/diagrams/{diagram_id}/generate-async")
+@router.post("/api/diagrams/{diagram_id}/generate-async", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("5/minute")
 async def generate_iac_async(
     request: Request,
@@ -327,15 +344,7 @@ async def generate_iac_async(
     headers = dict(request.headers)
     user = get_user_from_request_headers(headers)
     api_key_principal_id = get_api_key_service_principal(headers)
-    session = SESSION_STORE.get(diagram_id, {})
-    owner_user_id = session.get("_owner_user_id")
-    tenant_id = session.get("_tenant_id")
-    if (owner_user_id or tenant_id) and not user:
-        raise ArchmorphException(401, "Authentication required")
-    if user and owner_user_id and owner_user_id != user.id:
-        raise ArchmorphException(403, "Forbidden: diagram owner mismatch")
-    if user and tenant_id and tenant_id != user.tenant_id:
-        raise ArchmorphException(403, "Forbidden: tenant mismatch")
+    session = authorize_diagram_access(request, diagram_id, purpose="queue IaC generation")
     _check_architecture_blockers(diagram_id, session, force)
 
     job = job_manager.submit(
@@ -408,9 +417,15 @@ class NotifyEmailRequest(StrictBaseModel):
     diagram_name: str = Field(default="", max_length=200)
 
 
-@router.post("/api/diagrams/{diagram_id}/notify-email")
+@router.post("/api/diagrams/{diagram_id}/notify-email", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("3/minute")
-async def notify_email(request: Request, diagram_id: str, body: NotifyEmailRequest, _auth=Depends(verify_api_key)):
+async def notify_email(
+    request: Request,
+    diagram_id: str,
+    body: NotifyEmailRequest,
+    _auth=Depends(verify_api_key),
+    _session=Depends(require_diagram_access),
+):
     """Send a session-ready notification email to the user."""
     if not _EMAIL_RE.match(body.email):
         raise ArchmorphException(400, "Invalid email address format.")
@@ -437,7 +452,7 @@ async def notify_email(request: Request, diagram_id: str, body: NotifyEmailReque
 # ─────────────────────────────────────────────────────────────
 # IaC Scaffold — Full Terraform project structure
 # ─────────────────────────────────────────────────────────────
-@router.post("/api/diagrams/{diagram_id}/iac-scaffold")
+@router.post("/api/diagrams/{diagram_id}/iac-scaffold", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("5/minute")
 async def generate_iac_scaffold(
     request: Request,
@@ -453,7 +468,7 @@ async def generate_iac_scaffold(
     if format != "terraform":
         raise ArchmorphException(400, "Scaffold generation currently supports 'terraform' only")
 
-    session = SESSION_STORE.get(diagram_id, {})
+    session = authorize_diagram_access(request, diagram_id, purpose="generate IaC scaffold")
     iac_params = session.get("iac_parameters", {})
 
     try:

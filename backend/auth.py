@@ -13,7 +13,7 @@ import base64
 import json
 from collections import deque
 from datetime import datetime, timezone, timedelta
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -47,6 +47,7 @@ JWT_SECRET = _jwt_secret_env or "archmorph-dev-secret-change-in-production"  # n
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRY_HOURS = int(os.getenv("JWT_EXPIRY_HOURS", "24"))
 JWT_REFRESH_EXPIRY_HOURS = int(os.getenv("JWT_REFRESH_EXPIRY_HOURS", "168"))  # 7 days
+PRODUCTION_LIKE_ENVIRONMENTS = frozenset({"production", "prod", "staging"})
 
 # JWKS cache (refresh every hour)
 JWKS_CACHE: TTLCache = TTLCache(maxsize=10, ttl=3600)
@@ -650,6 +651,20 @@ def parse_swa_client_principal(header_value: str) -> Optional[User]:
     return user
 
 
+def runtime_environment() -> str:
+    return (os.getenv("ENVIRONMENT") or os.getenv("ENV") or "development").lower()
+
+
+def swa_principal_header_trust_enabled() -> bool:
+    if runtime_environment() not in PRODUCTION_LIKE_ENVIRONMENTS:
+        return True
+    return os.getenv("TRUST_SWA_PRINCIPAL_HEADER", "false").lower() == "true"
+
+
+def request_has_untrusted_swa_principal(headers: Mapping[str, str]) -> bool:
+    return bool(headers.get("x-ms-client-principal")) and not swa_principal_header_trust_enabled()
+
+
 def get_user_from_request_headers(headers: Dict[str, str]) -> Optional[User]:
     """Extract user from request headers — SWA principal or Bearer JWT.
 
@@ -658,7 +673,13 @@ def get_user_from_request_headers(headers: Dict[str, str]) -> Optional[User]:
     # 1. Azure SWA built-in auth header (production on SWA)
     swa_principal = headers.get("x-ms-client-principal")
     if swa_principal:
-        return parse_swa_client_principal(swa_principal)
+        if request_has_untrusted_swa_principal(headers):
+            logger.warning(
+                "Rejected x-ms-client-principal header because SWA principal trust is disabled in %s",
+                runtime_environment(),
+            )
+        else:
+            return parse_swa_client_principal(swa_principal)
 
     # 2. Bearer JWT token
     auth_header = headers.get("authorization", "")

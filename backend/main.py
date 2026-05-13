@@ -154,7 +154,7 @@ from routers.collaboration_routes import router as collaboration_router  # noqa:
 from routers.replay_routes import router as replay_router  # noqa: E402
 from routers.v1 import build_v1_router  # noqa: E402
 from api_versioning import VersionMiddleware  # noqa: E402
-from auth import get_user_from_request_headers  # noqa: E402
+from auth import get_user_from_request_headers, request_has_untrusted_swa_principal  # noqa: E402
 from audit_logging import audit_logger, AuditEventType  # noqa: E402, F401
 from error_envelope import register_error_handlers  # noqa: E402
 
@@ -407,23 +407,36 @@ class ArchmorphMiddleware(BaseHTTPMiddleware):
 
         start_time = time.perf_counter()
         try:
-            trusted_origin_error = self._validate_trusted_origin(request, cid)
-            if trusted_origin_error is not None:
-                response = trusted_origin_error
-            elif requires_csrf_check(request) and not csrf_token_valid(request):
+            if request_has_untrusted_swa_principal(request.headers):
                 response = _JSONResponse(
-                    status_code=403,
+                    status_code=401,
                     content={
                         "error": {
-                            "code": "CSRF_TOKEN_MISSING_OR_INVALID",
-                            "message": "Missing or invalid CSRF token",
+                            "code": "UNTRUSTED_SWA_PRINCIPAL",
+                            "message": "x-ms-client-principal is not accepted on this deployment. Use the standard sign-in flow through the trusted frontend.",
                             "details": {},
                             "correlation_id": cid,
                         }
                     },
                 )
             else:
-                response = await call_next(request)
+                trusted_origin_error = self._validate_trusted_origin(request, cid)
+                if trusted_origin_error is not None:
+                    response = trusted_origin_error
+                elif requires_csrf_check(request) and not csrf_token_valid(request):
+                    response = _JSONResponse(
+                        status_code=403,
+                        content={
+                            "error": {
+                                "code": "CSRF_TOKEN_MISSING_OR_INVALID",
+                                "message": "Missing or invalid CSRF token",
+                                "details": {},
+                                "correlation_id": cid,
+                            }
+                        },
+                    )
+                else:
+                    response = await call_next(request)
         finally:
             correlation_id_var.reset(token)
 

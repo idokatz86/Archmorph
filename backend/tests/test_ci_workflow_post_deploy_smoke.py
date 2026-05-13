@@ -7,13 +7,13 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 
 
-def test_post_deploy_smoke_passes_health_api_key_from_admin_secret():
+def test_post_deploy_smoke_passes_health_api_key_from_service_api_secret():
     workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
 
     steps = workflow["jobs"]["post-deploy-smoke"]["steps"]
     smoke_step = next(step for step in steps if step.get("name") == "Run deployed app smoke checks")
 
-    assert smoke_step["env"]["HEALTH_API_KEY"] == "${{ secrets.ADMIN_KEY }}"
+    assert smoke_step["env"]["HEALTH_API_KEY"] == "${{ secrets.ARCHMORPH_API_KEY || secrets.API_KEY }}"
 
 
 def test_backend_deploy_wires_jwt_secret_to_container_app_revision():
@@ -21,7 +21,8 @@ def test_backend_deploy_wires_jwt_secret_to_container_app_revision():
     workflow = yaml.safe_load(workflow_text)
 
     deploy_job = workflow["jobs"]["deploy-backend"]
-    assert deploy_job["env"]["JWT_SECRET"] == "${{ secrets.JWT_SECRET || secrets.ADMIN_KEY }}"
+    assert deploy_job["env"]["JWT_SECRET"] == "${{ secrets.JWT_SECRET }}"
+    assert "secrets.JWT_SECRET || secrets.ADMIN_KEY" not in workflow_text
 
     deploy_step = next(step for step in deploy_job["steps"] if step.get("name") == "Deploy green revision")
     deploy_script = deploy_step["run"]
@@ -29,6 +30,34 @@ def test_backend_deploy_wires_jwt_secret_to_container_app_revision():
     assert 'jwt-secret="${{ env.JWT_SECRET }}"' in deploy_script
     assert "JWT_SECRET=secretref:jwt-secret" in deploy_script
     assert "2>/dev/null || true" not in deploy_script
+
+
+def test_backend_deploy_uses_distinct_api_key_secret_reference():
+    workflow_text = CI_WORKFLOW.read_text(encoding="utf-8")
+    workflow = yaml.safe_load(workflow_text)
+
+    deploy_job = workflow["jobs"]["deploy-backend"]
+    assert deploy_job["env"]["ARCHMORPH_API_KEY"] == "${{ secrets.ARCHMORPH_API_KEY || secrets.API_KEY }}"
+
+    deploy_step = next(step for step in deploy_job["steps"] if step.get("name") == "Deploy green revision")
+    deploy_script = deploy_step["run"]
+
+    assert 'api-key="${{ env.ARCHMORPH_API_KEY }}"' in deploy_script
+    assert "ARCHMORPH_API_KEY=secretref:api-key" in deploy_script
+    assert "ARCHMORPH_API_KEY=secretref:admin-key" not in workflow_text
+
+
+def test_backend_deploy_keeps_acs_connection_string_in_container_app_secret():
+    workflow_text = CI_WORKFLOW.read_text(encoding="utf-8")
+    workflow = yaml.safe_load(workflow_text)
+
+    deploy_job = workflow["jobs"]["deploy-backend"]
+    deploy_step = next(step for step in deploy_job["steps"] if step.get("name") == "Deploy green revision")
+    deploy_script = deploy_step["run"]
+
+    assert 'acs-connection-string="${{ secrets.ACS_CONNECTION_STRING }}"' in deploy_script
+    assert "ACS_CONNECTION_STRING=secretref:acs-connection-string" in deploy_script
+    assert 'ACS_CONNECTION_STRING="${{ secrets.ACS_CONNECTION_STRING }}"' not in workflow_text
 
 
 def test_backend_deploy_limits_workers_for_fast_container_app_activation():

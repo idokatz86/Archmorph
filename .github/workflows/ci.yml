@@ -544,7 +544,8 @@ jobs:
       CONTAINER_APP_NAME: ${{ secrets.CONTAINER_APP_NAME }}
       CONTAINER_APP_ENV: ${{ secrets.CONTAINER_APP_ENV }}
       ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
-      JWT_SECRET: ${{ secrets.JWT_SECRET || secrets.ADMIN_KEY }}
+      ARCHMORPH_API_KEY: ${{ secrets.ARCHMORPH_API_KEY || secrets.API_KEY }}
+      JWT_SECRET: ${{ secrets.JWT_SECRET }}
     steps:
       - uses: actions/checkout@v6
 
@@ -567,6 +568,7 @@ jobs:
             ACR_LOGIN_SERVER \
             CONTAINER_APP_NAME \
             ADMIN_KEY \
+            ARCHMORPH_API_KEY \
             JWT_SECRET; do
             value="${!name:-}"
             if [ -z "$value" ]; then
@@ -758,8 +760,31 @@ jobs:
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --secrets \
               admin-key="${{ env.ADMIN_KEY }}" \
+              api-key="${{ env.ARCHMORPH_API_KEY }}" \
               jwt-secret="${{ env.JWT_SECRET }}" \
               storage-connection="${{ env.STORAGE_CONN }}"
+
+          SET_ENV_VARS=(
+            ARCHMORPH_ADMIN_KEY=secretref:admin-key
+            ARCHMORPH_API_KEY=secretref:api-key
+            JWT_SECRET=secretref:jwt-secret
+            AZURE_STORAGE_ACCOUNT_URL="$STORAGE_ACCOUNT_URL"
+            AZURE_STORAGE_CONNECTION_STRING=secretref:storage-connection
+            AZURE_OPENAI_ENDPOINT="${{ secrets.AZURE_OPENAI_ENDPOINT }}"
+            AZURE_OPENAI_DEPLOYMENT="gpt-4.1"
+            AZURE_OPENAI_FALLBACK_DEPLOYMENT="gpt-4o"
+            AZURE_OPENAI_API_VERSION="2025-04-01-preview"
+            ACS_SENDER_EMAIL="${{ secrets.ACS_SENDER_EMAIL }}"
+            WEB_CONCURRENCY="1"
+          )
+
+          if [ -n "${{ secrets.ACS_CONNECTION_STRING }}" ]; then
+            az containerapp secret set \
+              --name ${{ env.CONTAINER_APP_NAME }} \
+              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --secrets acs-connection-string="${{ secrets.ACS_CONNECTION_STRING }}"
+            SET_ENV_VARS+=(ACS_CONNECTION_STRING=secretref:acs-connection-string)
+          fi
 
           SHORT_SHA="${{ github.sha }}"
           SHORT_SHA="${SHORT_SHA:0:8}"
@@ -768,19 +793,7 @@ jobs:
             --name ${{ env.CONTAINER_APP_NAME }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --image "${IMAGE_REF}" \
-            --set-env-vars \
-              ARCHMORPH_ADMIN_KEY=secretref:admin-key \
-              ARCHMORPH_API_KEY=secretref:admin-key \
-              JWT_SECRET=secretref:jwt-secret \
-              AZURE_STORAGE_ACCOUNT_URL="$STORAGE_ACCOUNT_URL" \
-              AZURE_STORAGE_CONNECTION_STRING=secretref:storage-connection \
-              AZURE_OPENAI_ENDPOINT="${{ secrets.AZURE_OPENAI_ENDPOINT }}" \
-              AZURE_OPENAI_DEPLOYMENT="gpt-4.1" \
-              AZURE_OPENAI_FALLBACK_DEPLOYMENT="gpt-4o" \
-              AZURE_OPENAI_API_VERSION="2025-04-01-preview" \
-              ACS_CONNECTION_STRING="${{ secrets.ACS_CONNECTION_STRING }}" \
-              ACS_SENDER_EMAIL="${{ secrets.ACS_SENDER_EMAIL }}" \
-              WEB_CONCURRENCY="1" \
+            --set-env-vars "${SET_ENV_VARS[@]}" \
             --revision-suffix "$REVISION_SUFFIX" \
             --no-wait
 
@@ -863,10 +876,22 @@ jobs:
             fi
           done
 
+          ADMIN_SECRET_REF=$(echo "$ENV_JSON" | jq -r '.[] | select(.name == "ARCHMORPH_ADMIN_KEY") | .secretRef // ""')
+          if [ "$ADMIN_SECRET_REF" != "admin-key" ]; then
+            echo "::error::ARCHMORPH_ADMIN_KEY must reference admin-key secret"
+            exit 1
+          fi
+
+          API_SECRET_REF=$(echo "$ENV_JSON" | jq -r '.[] | select(.name == "ARCHMORPH_API_KEY") | .secretRef // ""')
+          if [ "$API_SECRET_REF" != "api-key" ]; then
+            echo "::error::ARCHMORPH_API_KEY must reference api-key secret"
+            exit 1
+          fi
+
           for name in ARCHMORPH_ADMIN_KEY ARCHMORPH_API_KEY; do
             SECRET_REF=$(echo "$ENV_JSON" | jq -r --arg name "$name" '.[] | select(.name == $name) | .secretRef // ""')
-            if [ "$SECRET_REF" != "admin-key" ]; then
-              echo "::error::${name} must reference admin-key secret"
+            if [ -z "$SECRET_REF" ]; then
+              echo "::error::${name} must reference a Container App secret"
               exit 1
             fi
           done
@@ -945,7 +970,10 @@ jobs:
             if [ ${#TRUSTED_ORIGIN_CURL_ARGS[@]} -gt 0 ]; then
               curl_args+=("${TRUSTED_ORIGIN_CURL_ARGS[@]}")
             fi
-            if [ -n "${ADMIN_KEY:-}" ]; then
+            if [ -n "${ARCHMORPH_API_KEY:-}" ]; then
+              curl_args+=(-H "X-API-Key: $ARCHMORPH_API_KEY")
+            fi
+            if [ -z "${ARCHMORPH_API_KEY:-}" ] && [ -n "${ADMIN_KEY:-}" ]; then
               curl_args+=(-H "X-API-Key: $ADMIN_KEY")
             fi
             curl "${curl_args[@]}" "$url"
@@ -1010,7 +1038,7 @@ jobs:
               --max-time 60 \
               "${TRUSTED_ORIGIN_CURL_ARGS[@]}" \
               -X POST "$STORAGE_PREFLIGHT_URL" \
-              -H "X-API-Key: $ADMIN_KEY" \
+              -H "X-API-Key: $ARCHMORPH_API_KEY" \
               -H "Content-Type: application/json" \
               -d '{}'); then
               HTTP_CODE="${HTTP_CODE:-000}"
@@ -1040,7 +1068,7 @@ jobs:
               --max-time 300 \
               "${TRUSTED_ORIGIN_CURL_ARGS[@]}" \
               -X POST "$REFRESH_URL" \
-              -H "X-API-Key: $ADMIN_KEY" \
+              -H "X-API-Key: $ARCHMORPH_API_KEY" \
               -H "Content-Type: application/json" \
               -d '{}'); then
               HTTP_CODE="${HTTP_CODE:-000}"
@@ -1064,7 +1092,7 @@ jobs:
             fi
           done
 
-          HEALTH_RETRIES=3 HEALTH_RETRY_SECONDS=15 HEALTH_API_KEY="$ADMIN_KEY" ./scripts/health_gate.sh "$TEST_URL$HEALTH_PATH"
+          HEALTH_RETRIES=3 HEALTH_RETRY_SECONDS=15 HEALTH_API_KEY="$ARCHMORPH_API_KEY" ./scripts/health_gate.sh "$TEST_URL$HEALTH_PATH"
           VERSION=$(curl_health "$TEST_URL$HEALTH_PATH" | jq -r '.version' 2>/dev/null || echo 'unknown')
           echo "Green revision version: $VERSION — all smoke tests passed"
 
@@ -1098,8 +1126,8 @@ jobs:
       - name: Verify production deployment
         run: |
           sleep 10
-          HEALTH_RETRIES=3 HEALTH_RETRY_SECONDS=10 HEALTH_API_KEY="$ADMIN_KEY" ./scripts/health_gate.sh "${{ env.API_URL }}/health"
-          HEALTH_BODY=$(curl -s --max-time 30 -H "X-API-Key: $ADMIN_KEY" "${{ env.API_URL }}/health")
+          HEALTH_RETRIES=3 HEALTH_RETRY_SECONDS=10 HEALTH_API_KEY="$ARCHMORPH_API_KEY" ./scripts/health_gate.sh "${{ env.API_URL }}/health"
+          HEALTH_BODY=$(curl -s --max-time 30 -H "X-API-Key: $ARCHMORPH_API_KEY" "${{ env.API_URL }}/health")
           HEALTH=$(printf '%s' "$HEALTH_BODY" | jq -r '.status')
           VERSION=$(printf '%s' "$HEALTH_BODY" | jq -r '.version')
           echo "Deployed version: $VERSION — status: $HEALTH (blue-green complete)"
@@ -1147,4 +1175,4 @@ jobs:
         env:
           API_URL: ${{ env.API_URL }}
           FRONTEND_URL: ${{ env.FRONTEND_URL }}
-          HEALTH_API_KEY: ${{ secrets.ADMIN_KEY }}
+          HEALTH_API_KEY: ${{ secrets.ARCHMORPH_API_KEY || secrets.API_KEY }}
