@@ -155,7 +155,7 @@ async def create_session(
         raise ArchmorphException(403, "Forbidden: owner mismatch")
 
     session_id = str(uuid.uuid4())
-    share_code = secrets.token_urlsafe(9)[:12]
+    share_code = secrets.token_urlsafe(9)
     owner_participant = _new_participant(user_id=user.id, role="architect", tenant_id=user.tenant_id)
 
     session = {
