@@ -95,8 +95,11 @@ def _find_participant_by_user_id(session: dict, user_id: str) -> Optional[dict]:
 
 
 def _find_participant_by_token(session: dict, participant_token: str) -> Optional[dict]:
+    if not participant_token:
+        return None
     for participant in session.get("participants", []):
-        if secrets.compare_digest(participant.get("participant_token") or "", participant_token):
+        stored_token = participant.get("participant_token")
+        if stored_token and secrets.compare_digest(stored_token, participant_token):
             return participant
     return None
 
