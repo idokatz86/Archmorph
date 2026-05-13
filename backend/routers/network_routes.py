@@ -124,12 +124,12 @@ async def get_network_topology(
     diagram_id: str,
     response: Response = None,
     _auth=Depends(verify_api_key),
+    _session=Depends(require_diagram_access),
 ):
     """Retrieve cached network topology for a diagram.
 
     Returns 404 if no topology has been generated yet.
     """
-    require_diagram_access(request, diagram_id, purpose="view network topology")
     cached = _topology_cache.get(diagram_id)
     if not cached:
         raise ArchmorphException(

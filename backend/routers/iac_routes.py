@@ -300,9 +300,9 @@ async def iac_chat_history(
     request: Request,
     diagram_id: str,
     _auth=Depends(verify_api_key),
+    _session=Depends(require_diagram_access),
 ):
     """Get IaC chat history for a diagram."""
-    require_diagram_access(request, diagram_id, purpose="view IaC chat history")
     return {
         "diagram_id": diagram_id,
         "messages": get_iac_chat_history(diagram_id),
@@ -315,9 +315,9 @@ async def iac_chat_clear(
     request: Request,
     diagram_id: str,
     _auth=Depends(verify_api_key),
+    _session=Depends(require_diagram_access),
 ):
     """Clear IaC chat session for a diagram."""
-    require_diagram_access(request, diagram_id, purpose="clear IaC chat history")
     cleared = clear_iac_chat(diagram_id)
     return {"cleared": cleared}
 
@@ -418,9 +418,14 @@ class NotifyEmailRequest(StrictBaseModel):
 
 @router.post("/api/diagrams/{diagram_id}/notify-email", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("3/minute")
-async def notify_email(request: Request, diagram_id: str, body: NotifyEmailRequest, _auth=Depends(verify_api_key)):
+async def notify_email(
+    request: Request,
+    diagram_id: str,
+    body: NotifyEmailRequest,
+    _auth=Depends(verify_api_key),
+    _session=Depends(require_diagram_access),
+):
     """Send a session-ready notification email to the user."""
-    require_diagram_access(request, diagram_id, purpose="send a notification email")
     if not _EMAIL_RE.match(body.email):
         raise ArchmorphException(400, "Invalid email address format.")
 

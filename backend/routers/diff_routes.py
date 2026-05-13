@@ -33,9 +33,13 @@ class BranchRequest(StrictBaseModel):
 
 @router.get("/api/diagrams/{diagram_id}/versions", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("30/minute")
-async def list_versions(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
+async def list_versions(
+    request: Request,
+    diagram_id: str,
+    _auth=Depends(verify_api_key),
+    _session=Depends(require_diagram_access),
+):
     """List all saved versions for a diagram."""
-    require_diagram_access(request, diagram_id, purpose="list diff versions")
     versions = architecture_diff.list_versions(diagram_id)
     return {"diagram_id": diagram_id, "versions": versions, "total": len(versions)}
 
@@ -47,9 +51,9 @@ async def get_version(
     diagram_id: str,
     version: int,
     _auth=Depends(verify_api_key),
+    _session=Depends(require_diagram_access),
 ):
     """Get a specific version snapshot."""
-    require_diagram_access(request, diagram_id, purpose="view a diff version")
     record = architecture_diff.get_version(diagram_id, version)
     if record is None:
         raise ArchmorphException(404, f"Version {version} not found for diagram {diagram_id}")
@@ -63,10 +67,9 @@ async def save_version(
     diagram_id: str,
     body: Optional[SaveVersionRequest] = None,
     _auth=Depends(verify_api_key),
+    analysis=Depends(require_diagram_access),
 ):
     """Save current analysis state as a new version snapshot."""
-    analysis = require_diagram_access(request, diagram_id, purpose="save a diff version")
-
     label = body.label if body else None
     result = architecture_diff.save_version(diagram_id, analysis, label=label)
     return result
@@ -84,9 +87,9 @@ async def diff_versions(
     v1: int = Query(..., ge=1),
     v2: int = Query(..., ge=1),
     _auth=Depends(verify_api_key),
+    _session=Depends(require_diagram_access),
 ):
     """Compare two version snapshots and return a structured diff."""
-    require_diagram_access(request, diagram_id, purpose="view version diffs")
     if v1 == v2:
         raise ArchmorphException(400, "Cannot diff a version with itself")
 
@@ -108,9 +111,9 @@ async def branch_version(
     version: int,
     body: Optional[BranchRequest] = None,
     _auth=Depends(verify_api_key),
+    _session=Depends(require_diagram_access),
 ):
     """Fork a version for what-if analysis."""
-    require_diagram_access(request, diagram_id, purpose="branch a diagram version")
     label = body.label if body else None
     result = architecture_diff.branch_version(diagram_id, version, label=label)
     if result is None:

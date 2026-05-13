@@ -22,10 +22,9 @@ async def create_version_endpoint(
     diagram_id: str,
     message: Optional[str] = None,
     _auth=Depends(verify_api_key),
+    analysis=Depends(require_diagram_access),
 ):
     """Create a new version of an architecture analysis."""
-    analysis = require_diagram_access(request, diagram_id, purpose="create diagram versions")
-    
     version = create_version(
         diagram_id=diagram_id,
         snapshot=analysis,
@@ -37,9 +36,13 @@ async def create_version_endpoint(
 
 @router.get("/api/diagrams/{diagram_id}/versions", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("30/minute")
-async def get_version_history_endpoint(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
+async def get_version_history_endpoint(
+    request: Request,
+    diagram_id: str,
+    _auth=Depends(verify_api_key),
+    _session=Depends(require_diagram_access),
+):
     """Get version history for a diagram."""
-    require_diagram_access(request, diagram_id, purpose="view version history")
     return get_version_history(diagram_id)
 
 
@@ -50,9 +53,9 @@ async def get_version_endpoint(
     diagram_id: str,
     version_number: int,
     _auth=Depends(verify_api_key),
+    _session=Depends(require_diagram_access),
 ):
     """Get a specific version of an architecture."""
-    require_diagram_access(request, diagram_id, purpose="view a diagram version")
     version = get_version(diagram_id, version_number)
     if not version:
         raise ArchmorphException(404, f"Version {version_number} not found")
@@ -67,9 +70,9 @@ async def restore_version_endpoint(
     diagram_id: str,
     version_number: int,
     _auth=Depends(verify_api_key),
+    _session=Depends(require_diagram_access),
 ):
     """Restore a previous version, creating a new version from it."""
-    require_diagram_access(request, diagram_id, purpose="restore a diagram version")
     snapshot = restore_version(diagram_id, version_number)
     if not snapshot:
         raise ArchmorphException(404, f"Version {version_number} not found")
@@ -88,7 +91,7 @@ async def compare_versions_endpoint(
     v1: int = Query(..., description="First version number"),
     v2: int = Query(..., description="Second version number"),
     _auth=Depends(verify_api_key),
+    _session=Depends(require_diagram_access),
 ):
     """Compare two versions of an architecture."""
-    require_diagram_access(request, diagram_id, purpose="compare diagram versions")
     return compare_versions(diagram_id, v1, v2)
