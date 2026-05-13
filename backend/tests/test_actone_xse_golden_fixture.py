@@ -33,7 +33,11 @@ SOURCE_TOPOLOGY = GOLDEN["source_topology"]
 EXPECTED = GOLDEN["expected_detections"]
 
 # Mappings with confidence above this threshold should not also have unresolved blockers.
-_MAX_CONFIDENCE_WITH_BLOCKERS = 0.9
+_MAX_CONFIDENCE_WITH_UNRESOLVED_BLOCKERS = 0.9
+
+# Custom pods — subset of EXPECTED["custom_workload_names"] excluding XSight, which is
+# a custom observability integration (not a pod) and is asserted separately.
+CUSTOM_POD_WORKLOADS = [w for w in EXPECTED["custom_workload_names"] if w != "XSight"]
 
 
 # ---------------------------------------------------------------------------
@@ -154,7 +158,7 @@ class TestCustomWorkloadPreservation:
 
     # XSight is intentionally omitted here because it is a custom observability integration,
     # not a pod, and is asserted separately in test_xsight_preserved_and_has_unresolved_blocker.
-    @pytest.mark.parametrize("workload_name", [w for w in EXPECTED["custom_workload_names"] if w != "XSight"])
+    @pytest.mark.parametrize("workload_name", CUSTOM_POD_WORKLOADS)
     def test_custom_pod_not_forced_into_wrong_azure_service(self, workload_name: str):
         """Custom pods must retain their original name in the azure_service field rather than being silently mapped to a generic Azure service."""
         matching_mappings = [m for m in GOLDEN["mappings"] if m["source_service"] == workload_name]
@@ -264,7 +268,7 @@ class TestSourceToTargetTraceability:
                 )
 
     def test_all_resolved_mappings_have_positive_confidence(self):
-        """Non-custom mappings must have confidence > 0.5 to be meaningful."""
+        """Resolved (non-custom) mappings must have confidence > 0.5 to be meaningful."""
         custom_workloads = set(EXPECTED["custom_workload_names"])
         for mapping in GOLDEN["mappings"]:
             if mapping["source_service"] not in custom_workloads:
@@ -278,7 +282,7 @@ class TestSourceToTargetTraceability:
             blockers = mapping.get("unresolved_blockers", [])
             if blockers:
                 # If blockers are present, confidence should be at or below the threshold
-                assert mapping["confidence"] <= _MAX_CONFIDENCE_WITH_BLOCKERS, (
+                assert mapping["confidence"] <= _MAX_CONFIDENCE_WITH_UNRESOLVED_BLOCKERS, (
                     f"Mapping for '{mapping['source_service']}' has both high confidence ({mapping['confidence']}) "
                     f"and unresolved blockers — review required"
                 )
