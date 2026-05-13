@@ -537,8 +537,9 @@ async def _run_analysis_job(job_id: str, diagram_id: str) -> None:
         record_event("analyses_run", {"diagram_id": diagram_id, "services": result.get("services_detected", 0)})
         record_funnel_step(diagram_id, "analyze")
 
-        # Save to user history if job carries user_id (#245)
-        job_user_id = getattr(job_manager.get_job(job_id), "user_id", None) if hasattr(job_manager, "get_job") else None
+        # Save to user history if job carries an authenticated owner.
+        job_owner = job_manager.get(job_id)
+        job_user_id = getattr(job_owner, "owner_user_id", None)
         if job_user_id:
             maybe_save_from_session(job_user_id, result, diagram_id)
 

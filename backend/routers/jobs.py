@@ -10,7 +10,7 @@ Provides endpoints for:
 """
 
 import logging
-from typing import Optional
+from typing import Optional, TYPE_CHECKING, Tuple
 
 from fastapi import APIRouter, Query, Request
 
@@ -25,8 +25,12 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+if TYPE_CHECKING:
+    from auth import User
+    from job_queue import Job
 
-def _ensure_job_access(job, user, api_key_principal_id: Optional[str]) -> None:
+
+def _ensure_job_access(job: "Job", user: Optional["User"], api_key_principal_id: Optional[str]) -> None:
     if user:
         if not job.owner_user_id or not job.tenant_id:
             raise ArchmorphException(404, "Job not found")
@@ -57,7 +61,11 @@ def _stream_user_from_request(request: Request):
     return user
 
 
-def _job_principal_from_request(request: Request, *, allow_stream_token: bool = False):
+def _job_principal_from_request(
+    request: Request,
+    *,
+    allow_stream_token: bool = False,
+) -> Tuple[Optional["User"], Optional[str]]:
     from auth import get_user_from_request_headers
 
     headers = dict(request.headers)

@@ -31,7 +31,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
 from session_store import get_store, session_store_backend
 
@@ -111,7 +111,10 @@ class Job:
         )
         job.job_id = payload.get("job_id", job.job_id)
         status = payload.get("status", JobStatus.QUEUED.value)
-        job.status = JobStatus(status) if status in JobStatus._value2member_map_ else JobStatus.QUEUED
+        try:
+            job.status = JobStatus(status)
+        except ValueError:
+            job.status = JobStatus.QUEUED
         job.progress = int(payload.get("progress", 0))
         job.progress_message = payload.get("progress_message", "Queued")
         job.result = payload.get("result")
@@ -174,10 +177,6 @@ class JobManager:
         loaded = Job.from_dict(payload)
         self._jobs[job_id] = loaded
         return loaded
-
-    def get_job(self, job_id: str) -> Optional[Job]:
-        """Backward-compatible alias for get()."""
-        return self.get(job_id)
 
     def start(self, job_id: str) -> None:
         """Mark a job as running."""
@@ -277,6 +276,10 @@ class JobManager:
             event: progress
             data: {"progress": 50, "message": "Analyzing..."}
 
+        Active jobs stream only new events from connect-time onward.
+        Completed/failed/cancelled jobs replay the retained ring-buffer
+        events before termination.
+
         Terminates when job completes, fails, or timeout expires.
         """
         job = self._jobs.get(job_id)
@@ -317,14 +320,19 @@ class JobManager:
                 event_state = self._events_store.get(job_id, {"next_seq": 0, "events": [], "dropped_events": 0})
                 events = event_state.get("events", [])
                 next_seq = int(event_state.get("next_seq", 0))
+                # Ring buffer stores only the newest N events. base_seq is the
+                # oldest still-retained event id for this job stream.
                 base_seq = max(0, next_seq - len(events))
                 if event_cursor < base_seq:
                     event_cursor = base_seq
 
+                terminal_event_seen = False
                 for evt in events:
                     evt_id = int(evt.get("id", -1))
                     if evt_id < event_cursor:
                         continue
+                    if evt.get("event") in ("complete", "error", "cancelled"):
+                        terminal_event_seen = True
                     yield _sse_format(evt["event"], evt["data"])
                     event_cursor = evt_id + 1
 
@@ -336,8 +344,9 @@ class JobManager:
                 # Check if job is done
                 latest = self.get(job_id)
                 if latest and latest.status in (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED) and event_cursor >= next_seq:
-                    # If completion event was evicted, still emit a final terminal event once.
-                    if next_seq == 0:
+                    # If terminal event wasn't observed from retained ring-buffer events,
+                    # emit one terminal event to ensure stream consumers close cleanly.
+                    if not terminal_event_seen:
                         if latest.status == JobStatus.COMPLETED:
                             yield _sse_format("complete", {"result": latest.result})
                         elif latest.status == JobStatus.FAILED:
@@ -381,7 +390,7 @@ class JobManager:
 
     def _evict_completed(self) -> None:
         """Remove oldest completed/failed/cancelled jobs to free space."""
-        done: List[tuple[str, str]] = []
+        done: List[Tuple[str, str]] = []
         for payload in self.list_jobs(limit=self._max_jobs):
             if payload.get("status") in (
                 JobStatus.COMPLETED.value,

@@ -179,8 +179,10 @@ class TestJobManager:
     @pytest.mark.asyncio
     async def test_cross_worker_stream_continuity_with_shared_store(self, monkeypatch):
         from session_store import reset_stores
+        from session_store import session_store_backend
         from job_queue import JobManager
 
+        # Forces session_store.get_store() to select multi-worker-safe backend.
         monkeypatch.setenv("WEB_CONCURRENCY", "2")
         monkeypatch.delenv("REDIS_URL", raising=False)
         monkeypatch.delenv("REDIS_HOST", raising=False)
@@ -188,6 +190,7 @@ class TestJobManager:
         try:
             writer = JobManager(max_jobs=50, max_events_per_job=10, ttl_seconds=120)
             reader = JobManager(max_jobs=50, max_events_per_job=10, ttl_seconds=120)
+            assert session_store_backend() == "file"
             job = writer.submit("cross-worker", owner_api_key_id="api-key:test")
             writer.start(job.job_id)
             writer.update_progress(job.job_id, 42, "cross-worker progress")
@@ -196,9 +199,15 @@ class TestJobManager:
             events = []
             async for payload in reader.stream(job.job_id, timeout=1.0):
                 events.append(payload)
-
-            assert any("event: progress" in payload for payload in events)
-            assert any("event: complete" in payload for payload in events)
+            event_types = []
+            for payload in events:
+                event_types.extend(
+                    line.split(":", 1)[1].strip()
+                    for line in payload.splitlines()
+                    if line.startswith("event:")
+                )
+            assert "progress" in event_types
+            assert "complete" in event_types
         finally:
             reset_stores()
 

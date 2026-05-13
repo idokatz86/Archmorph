@@ -7,6 +7,7 @@ import os
 import logging
 import secrets
 import hashlib
+import hmac
 from collections import OrderedDict
 from typing import Optional, List
 
@@ -42,6 +43,7 @@ limiter = Limiter(
 API_KEY = os.getenv("ARCHMORPH_API_KEY", "")  # Empty = auth disabled (dev mode)
 API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=False)
 ADMIN_BEARER = HTTPBearer(auto_error=False)
+_API_PRINCIPAL_SALT = b"archmorph-api-principal-v1"
 
 logger = logging.getLogger(__name__)
 
@@ -69,13 +71,17 @@ def get_api_key_service_principal(headers: dict) -> Optional[str]:
     if API_KEY:
         if not secrets.compare_digest(api_key or "", API_KEY):
             return None
-        key_material = api_key or API_KEY
+        key_material = api_key
     else:
         # Dev mode (API key auth disabled): only derive principal when a key is supplied.
         key_material = api_key
         if not key_material:
             return None
-    digest = hashlib.sha256(key_material.encode("utf-8")).hexdigest()[:24]
+    digest = hmac.new(
+        _API_PRINCIPAL_SALT,
+        key_material.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()[:24]
     return f"api-key:{digest}"
 
 

@@ -367,7 +367,7 @@ async def export_migration_package(request: Request, diagram_id: str, _auth=Depe
         if isinstance(body, dict):
             iac_format = body.get("iac_format", "terraform")
             include_diagrams = body.get("include_diagrams", True)
-    except (ValueError, TypeError):
+    except (json.JSONDecodeError, ValueError):
         # Optional request body; treat malformed/absent JSON as defaults.
         pass
     if iac_format not in {"terraform", "bicep"}:
