@@ -5,18 +5,23 @@ import React from 'react'
 import UploadStep from '../../DiagramTranslator/UploadStep'
 
 describe('UploadStep', () => {
-  const originalPdfViewerEnabled = navigator.pdfViewerEnabled
+  const getPdfViewerEnabled = () => (typeof navigator !== 'undefined' ? navigator.pdfViewerEnabled : undefined)
+  const originalPdfViewerEnabled = getPdfViewerEnabled()
 
   beforeEach(() => {
     vi.clearAllMocks()
     vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:pdf-preview')
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
-    Object.defineProperty(navigator, 'pdfViewerEnabled', { configurable: true, value: originalPdfViewerEnabled })
+    if (typeof navigator !== 'undefined') {
+      Object.defineProperty(navigator, 'pdfViewerEnabled', { configurable: true, value: originalPdfViewerEnabled })
+    }
   })
 
   afterEach(() => {
     vi.restoreAllMocks()
-    Object.defineProperty(navigator, 'pdfViewerEnabled', { configurable: true, value: originalPdfViewerEnabled })
+    if (typeof navigator !== 'undefined') {
+      Object.defineProperty(navigator, 'pdfViewerEnabled', { configurable: true, value: originalPdfViewerEnabled })
+    }
   })
 
   const defaultProps = {
