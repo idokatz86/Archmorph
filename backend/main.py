@@ -335,7 +335,7 @@ class ArchmorphMiddleware(BaseHTTPMiddleware):
                     content={
                         "error": {
                             "code": "UNTRUSTED_SWA_PRINCIPAL",
-                            "message": "x-ms-client-principal is rejected on this deployment until trusted ingress is validated.",
+                            "message": "x-ms-client-principal is not accepted on this deployment. Use the standard sign-in flow through the trusted frontend.",
                             "details": {},
                             "correlation_id": cid,
                         }
