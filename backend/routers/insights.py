@@ -23,6 +23,7 @@ from services.azure_pricing import estimate_services_cost
 from terraform_preview import preview_terraform_plan
 from utils.chat_coercion import coerce_to_str_list
 from iac_generator import generate_iac_code
+from export_capabilities import consume_export_capability, issue_export_capability, verify_export_capability
 
 logger = logging.getLogger(__name__)
 
@@ -517,6 +518,7 @@ async def configure_cost_estimate(
     request: Request,
     diagram_id: str,
     body: CostConfigureRequest,
+    _auth=Depends(verify_api_key),
 ):
     """Update per-service cost configuration (instance count, SKU, reserved capacity)."""
     session = get_or_recreate_session(diagram_id)
@@ -539,7 +541,7 @@ async def configure_cost_estimate(
 
 @router.get("/api/diagrams/{diagram_id}/cost-estimate/configured")
 @limiter.limit("30/minute")
-async def get_configured_cost(request: Request, diagram_id: str):
+async def get_configured_cost(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
     """Get cost estimate with user-configured overrides applied."""
     session = get_or_recreate_session(diagram_id)
     if not session:
@@ -580,7 +582,7 @@ async def get_configured_cost(request: Request, diagram_id: str):
 
 @router.get("/api/diagrams/{diagram_id}/cost-assumptions", response_model=CostAssumptionsResponse)
 @limiter.limit("15/minute")
-async def get_cost_assumptions(request: Request, diagram_id: str):
+async def get_cost_assumptions(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
     """Return a reviewable JSON artifact with cost-estimate assumptions."""
     session = get_or_recreate_session(diagram_id)
     if not session:
@@ -593,7 +595,7 @@ async def get_cost_assumptions(request: Request, diagram_id: str):
 
 @router.get("/api/diagrams/{diagram_id}/cost-estimate/savings")
 @limiter.limit("15/minute")
-async def get_ri_savings(request: Request, diagram_id: str):
+async def get_ri_savings(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
     """Show Reserved Instance savings vs pay-as-you-go pricing."""
     session = get_or_recreate_session(diagram_id)
     if not session:
@@ -655,7 +657,12 @@ async def get_ri_savings(request: Request, diagram_id: str):
 
 @router.get("/api/diagrams/{diagram_id}/cost-estimate/export")
 @limiter.limit("10/minute")
-async def export_cost_csv(request: Request, diagram_id: str):
+async def export_cost_csv(
+    request: Request,
+    diagram_id: str,
+    _auth=Depends(verify_api_key),
+    capability=Depends(verify_export_capability),
+):
     """Export cost breakdown as CSV with overrides applied."""
     from starlette.responses import Response
 
@@ -700,8 +707,11 @@ async def export_cost_csv(request: Request, diagram_id: str):
     writer.writerow(["TOTAL", "", "", "", round(total_low, 2), round(total_high, 2), round(total_savings, 2), total_mid])
 
     csv_content = output.getvalue()
-    return Response(
+    consume_export_capability(capability)
+    response = Response(
         content=csv_content,
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename=cost-estimate-{diagram_id}.csv"},
     )
+    response.headers["X-Export-Capability-Next"] = issue_export_capability(diagram_id)
+    return response

@@ -84,7 +84,7 @@ The post-merge CTO end-to-end review of `landing-zone-svg` (May 1, 2026) flagged
 - **Social authentication** — Microsoft, Google, GitHub sign-in (Azure SWA + JWT fallback)
 - **User profiles** — preferences, avatar, GDPR-compliant account deletion, and programmatically labeled profile settings fields
 - **Authenticated user menu** — profile/settings/sign-out dropdown uses menu semantics with Arrow/Home/End navigation and Escape return-focus behavior
-- **Scoped API keys and admin gates** — current access control focuses on API keys, admin session checks, feature flags, and guarded scaffold execution; multi-tenant org/profile surfaces are no longer active routes
+- **Scoped API keys and admin gates** — current access control focuses on API keys, admin session checks, one-time export capabilities, feature flags, and guarded scaffold execution; deployment execution routes require admin bearer sessions, and multi-tenant org/profile surfaces are no longer active routes
 - **Admin dashboard** — runtime health, release gate view, audit stream, scheduled-job freshness, and guarded feature flag controls
 - **Persistent analytics** — Azure Blob Storage with background flush and crash-safe shutdown
 - **Toast notification system** — non-blocking success/error/warning notifications with auto-dismiss
@@ -92,7 +92,7 @@ The post-merge CTO end-to-end review of `landing-zone-svg` (May 1, 2026) flagged
 - **Browser close protection** — `beforeunload` guard prevents accidental data loss during analysis
 - **Accessibility** — focus traps for modals, keyboard navigation, ARIA attributes
 - **Error envelope middleware** — standardized JSON error responses with correlation IDs, including consistent 429 + `Retry-After` throttling responses
-- **Security hardening** — timing-safe auth, security headers, XSS protection, Dependabot
+- **Security hardening** — timing-safe auth, production fail-closed JWT configuration, security headers, XSS protection, export capability replay protection, authenticated artifact/session mutation routes, Dependabot
 - **CI/CD security** — Semgrep SAST, Gitleaks secret detection, Trivy container scanning, CycloneDX SBOM, and Checkov policy-as-code for checked-in Azure Terraform
 - **Multi-stage Docker** — optimized build with ~50% image size reduction, uv for fast installs
 - **API versioning** — all `/api/*` routes mirrored at `/api/v1/*` for stable integrations
@@ -101,7 +101,7 @@ The post-merge CTO end-to-end review of `landing-zone-svg` (May 1, 2026) flagged
 - **Session persistence** — pluggable SessionStore with InMemory and Redis backends
 - **GPT response caching** — content-hash TTLCache for GPT-4o responses with configurable timeout and fallback model
 - **Vision analysis cache** — TTLCache for repeated diagram analysis avoiding redundant API calls
-- **Zero Trust WAF** — Azure Front Door Premium with OWASP CRS 3.2
+- **Zero Trust WAF** — Azure Front Door Premium with OWASP CRS 3.2 and all-client per-IP rate limiting
 - **Helm charts** — self-hosted Kubernetes deployment via `charts/archmorph/`
 - **Server-Sent Events** — real-time progress streaming for long-running operations
 - **Job queue** — background task processing with status tracking

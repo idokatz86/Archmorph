@@ -367,10 +367,16 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
 
     if ci_smoke.enabled():
         result = ci_smoke.clone_analysis(diagram_id)
+        user = get_user_from_request_headers(dict(request.headers))
+        if user:
+            result["_owner_user_id"] = user.id
+            result["_tenant_id"] = user.tenant_id
         SESSION_STORE[diagram_id] = result
         mark_diagram_analyzed(diagram_id, result)
         record_event("analyses_run", {"diagram_id": diagram_id, "services": result["services_detected"]})
         record_funnel_step(diagram_id, "analyze")
+        if user:
+            maybe_save_from_session(user.id, result, diagram_id)
         return attach_export_capability(result, diagram_id)
 
     # No need to pre-compress, vision analyzer and classifier handle it internally
@@ -415,6 +421,12 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
     result["diagram_id"] = diagram_id
     result["image_classification"] = classification
 
+    # Save to user history if authenticated (#245)
+    user = get_user_from_request_headers(dict(request.headers))
+    if user:
+        result["_owner_user_id"] = user.id
+        result["_tenant_id"] = user.tenant_id
+
     if len(SESSION_STORE) >= SESSION_STORE.maxsize:
         logger.warning("Session store at capacity (%d/%d) — oldest sessions will be evicted",
                        str(len(SESSION_STORE)).replace('\n', '').replace('\r', ''), str(SESSION_STORE.maxsize).replace('\n', '').replace('\r', ''))
@@ -423,11 +435,7 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
     record_event("analyses_run", {"diagram_id": diagram_id, "services": result["services_detected"]})
     record_funnel_step(diagram_id, "analyze")
 
-    # Save to user history if authenticated (#245)
-    user = get_user_from_request_headers(dict(request.headers))
     if user:
-        result["_owner_user_id"] = user.id
-        result["_tenant_id"] = user.tenant_id
         maybe_save_from_session(user.id, result, diagram_id)
 
     return attach_export_capability(result, diagram_id)

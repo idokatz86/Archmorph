@@ -12524,7 +12524,9 @@ export interface operations {
     export_cost_csv_api_diagrams__diagram_id__cost_estimate_export_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Export-Capability"?: string | null;
+            };
             path: {
                 diagram_id: string;
             };
@@ -12788,7 +12790,9 @@ export interface operations {
     export_migration_package_api_diagrams__diagram_id__export_package_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Export-Capability"?: string | null;
+            };
             path: {
                 diagram_id: string;
             };
@@ -19175,7 +19179,9 @@ export interface operations {
     export_cost_csv_v1_api_v1_diagrams__diagram_id__cost_estimate_export_get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Export-Capability"?: string | null;
+            };
             path: {
                 diagram_id: string;
             };
@@ -19405,7 +19411,9 @@ export interface operations {
     export_migration_package_v1_api_v1_diagrams__diagram_id__export_package_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "X-Export-Capability"?: string | null;
+            };
             path: {
                 diagram_id: string;
             };

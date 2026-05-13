@@ -15,7 +15,7 @@ from routers.shared import limiter, verify_api_key
 from routers.samples import get_or_recreate_session
 from report_generator import generate_analysis_report_pdf
 from usage_metrics import record_event
-from export_capabilities import issue_export_capability, verify_export_capability
+from export_capabilities import consume_export_capability, issue_export_capability, verify_export_capability
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ async def download_analysis_report(
     request: Request,
     diagram_id: str,
     _auth=Depends(verify_api_key),
-    _capability=Depends(verify_export_capability),
+    capability=Depends(verify_export_capability),
 ):
     """Download a full analysis report as PDF.
 
@@ -49,6 +49,7 @@ async def download_analysis_report(
     record_event("report_downloaded", {"diagram_id": diagram_id, "format": fmt})
 
     pdf_bytes = generate_analysis_report_pdf(session)
+    consume_export_capability(capability)
 
     filename = f"archmorph-report-{diagram_id[:8]}.pdf"
 
