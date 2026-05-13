@@ -66,6 +66,16 @@ MOCK_ANALYSIS = {
 }
 
 
+def _make_minimal_pdf() -> bytes:
+    from pypdf import PdfWriter
+
+    writer = PdfWriter()
+    writer.add_blank_page(width=612, height=792)
+    buffer = io.BytesIO()
+    writer.write(buffer)
+    return buffer.getvalue()
+
+
 def _upload_png(client):
     """Helper: upload a minimal PNG."""
     content = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
@@ -349,10 +359,9 @@ class TestUnexpectedContentTypes:
 
     def test_upload_pdf_accepted(self, client):
         """PDF is an allowed type."""
-        pdf_bytes = b"%PDF-1.4" + b"\x00" * 100
         resp = client.post(
             "/api/projects/proj-001/diagrams",
-            files={"file": ("diagram.pdf", io.BytesIO(pdf_bytes), "application/pdf")},
+            files={"file": ("diagram.pdf", io.BytesIO(_make_minimal_pdf()), "application/pdf")},
         )
         assert resp.status_code == 200
 
