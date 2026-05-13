@@ -123,11 +123,6 @@ def _resolve_session_participant(
         participant = _find_participant_by_user_id(session, user.id)
         if participant:
             return participant
-        if participant_token:
-            token_participant = _find_participant_by_token(session, participant_token)
-            if token_participant and token_participant.get("user_id") == user.id:
-                return token_participant
-            raise ArchmorphException(403, "Forbidden: participant mismatch")
         raise ArchmorphException(403, "Not a participant in this session")
 
     if not participant_token:
