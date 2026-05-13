@@ -719,6 +719,16 @@ resource "azurerm_container_app" "backend" {
       }
 
       env {
+        name  = "TRUSTED_FRONT_DOOR_FDID"
+        value = var.enable_front_door_waf ? azurerm_cdn_frontdoor_profile.main[0].resource_guid : ""
+      }
+
+      env {
+        name  = "TRUSTED_FRONT_DOOR_HOSTS"
+        value = var.enable_front_door_waf ? azurerm_cdn_frontdoor_endpoint.api[0].host_name : ""
+      }
+
+      env {
         name        = "REDIS_URL"
         secret_name = "redis-url"
       }
@@ -2575,7 +2585,7 @@ resource "azurerm_cdn_frontdoor_origin" "api" {
 
   certificate_name_check_enabled = true
   host_name                      = azurerm_container_app.backend.ingress[0].fqdn
-  origin_host_header             = azurerm_container_app.backend.ingress[0].fqdn
+  origin_host_header             = azurerm_cdn_frontdoor_endpoint.api[0].host_name
   http_port                      = 80
   https_port                     = 443
   priority                       = 1

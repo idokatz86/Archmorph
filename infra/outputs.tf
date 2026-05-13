@@ -4,8 +4,18 @@ output "resource_group_name" {
 }
 
 output "backend_url" {
-  description = "URL for the backend API"
+  description = "Direct Container App origin URL for the backend API"
   value       = "https://${azurerm_container_app.backend.ingress[0].fqdn}"
+}
+
+output "front_door_api_hostname" {
+  description = "Front Door hostname that the backend origin expects on trusted requests"
+  value       = var.enable_front_door_waf ? azurerm_cdn_frontdoor_endpoint.api[0].host_name : null
+}
+
+output "front_door_profile_resource_guid" {
+  description = "Azure Front Door profile resource GUID forwarded in the X-Azure-FDID header"
+  value       = var.enable_front_door_waf ? azurerm_cdn_frontdoor_profile.main[0].resource_guid : null
 }
 
 output "backend_image_reference" {

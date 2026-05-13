@@ -79,3 +79,21 @@ def test_backend_green_revision_healthz_is_retried_before_failure():
     assert 'if [ "$attempt" -lt "$HEALTHZ_MAX_ATTEMPTS" ]; then' in smoke_script
     assert "sleep 15" in smoke_script
     assert 'dump_green_revision_diagnostics "healthz-${HEALTHZ_CODE}"' in smoke_script
+
+
+def test_backend_green_revision_smoke_checks_origin_lock_and_reuses_front_door_contract():
+    workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
+
+    smoke_step = next(
+        step
+        for step in workflow["jobs"]["deploy-backend"]["steps"]
+        if step.get("name") == "Smoke test green revision"
+    )
+    smoke_script = smoke_step["run"]
+
+    assert "TRUSTED_FRONT_DOOR_FDID=$(az containerapp show" in smoke_script
+    assert "TRUSTED_FRONT_DOOR_HOST=$(az containerapp show" in smoke_script
+    assert 'TRUSTED_ORIGIN_CURL_ARGS=(-H "X-Azure-FDID: $TRUSTED_FRONT_DOOR_FDID" -H "Host: $TRUSTED_FRONT_DOOR_HOST")' in smoke_script
+    assert 'DIRECT_ORIGIN_CODE=$(curl -sS -o direct-origin-response.json -w "%{http_code}"' in smoke_script
+    assert 'echo "::error::Direct green revision origin-lock check returned HTTP ${DIRECT_ORIGIN_CODE}"' in smoke_script
+    assert 'echo "Direct green revision access correctly blocked (${DIRECT_ORIGIN_CODE})"' in smoke_script
