@@ -105,7 +105,7 @@ def test_redis_private_endpoint_resources_created_for_prod():
     assert "enable_redis_private_endpoint" in redis_pe_block
 
     redis_dns_block = _terraform_resource_block(infra, "azurerm_private_dns_zone", "redis")
-    assert "privatelink.redis.cache.windows.net" in redis_dns_block
+    assert 'name                = "privatelink.redis.cache.windows.net"' in redis_dns_block
 
 
 def test_redis_policy_fails_when_public_access_is_true():
@@ -187,7 +187,7 @@ def test_storage_private_endpoint_resources_created_for_prod():
     assert "enable_storage_private_endpoint" in storage_pe_block
 
     storage_dns_block = _terraform_resource_block(infra, "azurerm_private_dns_zone", "storage")
-    assert "privatelink.blob.core.windows.net" in storage_dns_block
+    assert 'name                = "privatelink.blob.core.windows.net"' in storage_dns_block
 
 
 def test_container_apps_subnet_has_storage_service_endpoint():
