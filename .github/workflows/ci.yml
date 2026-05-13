@@ -925,6 +925,28 @@ jobs:
             HEALTH_PATH="/health"
           fi
 
+          TRUSTED_FRONT_DOOR_FDID=""
+          TRUSTED_FRONT_DOOR_HOST=""
+          TRUSTED_ORIGIN_CURL_ARGS=()
+          if [ -n "$GREEN_FQDN" ]; then
+            TRUSTED_FRONT_DOOR_FDID=$(az containerapp show \
+              --name ${{ env.CONTAINER_APP_NAME }} \
+              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --query "properties.template.containers[0].env[?name=='TRUSTED_FRONT_DOOR_FDID'].value | [0]" \
+              -o tsv 2>/dev/null || echo "")
+            TRUSTED_FRONT_DOOR_HOST=$(az containerapp show \
+              --name ${{ env.CONTAINER_APP_NAME }} \
+              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --query "properties.template.containers[0].env[?name=='TRUSTED_FRONT_DOOR_HOSTS'].value | [0]" \
+              -o tsv 2>/dev/null || echo "")
+            TRUSTED_FRONT_DOOR_HOST="${TRUSTED_FRONT_DOOR_HOST%%,*}"
+            if [ -z "$TRUSTED_FRONT_DOOR_FDID" ] || [ -z "$TRUSTED_FRONT_DOOR_HOST" ]; then
+              echo "::error::Expected Front Door origin-lock settings are missing from the Container App"
+              exit 1
+            fi
+            TRUSTED_ORIGIN_CURL_ARGS=(-H "X-Azure-FDID: $TRUSTED_FRONT_DOOR_FDID" -H "Host: $TRUSTED_FRONT_DOOR_HOST")
+          fi
+
           dump_green_revision_diagnostics() {
             local reason="$1"
             echo "::group::Green revision diagnostics (${reason})"
@@ -944,11 +966,17 @@ jobs:
 
           curl_health() {
             local url="$1"
-            if [ -n "${ARCHMORPH_API_KEY:-}" ]; then
-              curl -sS --max-time 30 -H "X-API-Key: $ARCHMORPH_API_KEY" "$url"
-            else
-              curl -sS --max-time 30 "$url"
+            local curl_args=(-sS --max-time 30)
+            if [ ${#TRUSTED_ORIGIN_CURL_ARGS[@]} -gt 0 ]; then
+              curl_args+=("${TRUSTED_ORIGIN_CURL_ARGS[@]}")
             fi
+            if [ -n "${ARCHMORPH_API_KEY:-}" ]; then
+              curl_args+=(-H "X-API-Key: $ARCHMORPH_API_KEY")
+            fi
+            if [ -z "${ARCHMORPH_API_KEY:-}" ] && [ -n "${ADMIN_KEY:-}" ]; then
+              curl_args+=(-H "X-API-Key: $ADMIN_KEY")
+            fi
+            curl "${curl_args[@]}" "$url"
           }
 
           HEALTHZ_URL="${TEST_URL%/api}/healthz"
@@ -976,6 +1004,21 @@ jobs:
             exit 1
           fi
 
+          if [ -n "$GREEN_FQDN" ]; then
+            : > direct-origin-response.json
+            if ! DIRECT_ORIGIN_CODE=$(curl -sS -o direct-origin-response.json -w "%{http_code}" \
+              --max-time 20 "$TEST_URL/openapi.json"); then
+              DIRECT_ORIGIN_CODE="000"
+            fi
+            if [ "$DIRECT_ORIGIN_CODE" != "403" ]; then
+              echo "::error::Direct green revision origin-lock check returned HTTP ${DIRECT_ORIGIN_CODE}"
+              [ -s direct-origin-response.json ] && head -c 2000 direct-origin-response.json || true
+              dump_green_revision_diagnostics "origin-lock-${DIRECT_ORIGIN_CODE}"
+              exit 1
+            fi
+            echo "Direct green revision access correctly blocked (${DIRECT_ORIGIN_CODE})"
+          fi
+
           echo "Running smoke tests against: $TEST_URL$HEALTH_PATH"
           BODY=$(curl_health "$TEST_URL$HEALTH_PATH" || true)
           CATALOG_STALE=$(echo "$BODY" | jq -r '.service_catalog_refresh.stale // false' 2>/dev/null || echo false)
@@ -993,6 +1036,7 @@ jobs:
           for attempt in 1 2 3 4 5 6; do
             if ! HTTP_CODE=$(curl -sS -o storage-preflight-response.json -w "%{http_code}" \
               --max-time 60 \
+              "${TRUSTED_ORIGIN_CURL_ARGS[@]}" \
               -X POST "$STORAGE_PREFLIGHT_URL" \
               -H "X-API-Key: $ARCHMORPH_API_KEY" \
               -H "Content-Type: application/json" \
@@ -1022,6 +1066,7 @@ jobs:
           for attempt in 1 2; do
             if ! HTTP_CODE=$(curl -sS -o refresh-response.json -w "%{http_code}" \
               --max-time 300 \
+              "${TRUSTED_ORIGIN_CURL_ARGS[@]}" \
               -X POST "$REFRESH_URL" \
               -H "X-API-Key: $ARCHMORPH_API_KEY" \
               -H "Content-Type: application/json" \
