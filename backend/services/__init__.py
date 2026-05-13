@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 _DISCOVERED_FILE = Path(__file__).resolve().parent.parent / "data" / "discovered_services.json"
 
 
-def _load_discovered() -> dict[str, list[dict]]:
+def _load_discovered(*, prefer_blob: bool = True) -> dict[str, list[dict]]:
     """Load discovered services from the JSON data file.
 
     Issue #647 — also consults the durable Azure Blob mirror (when configured)
@@ -24,27 +24,26 @@ def _load_discovered() -> dict[str, list[dict]]:
     boots before its first refresh still picks up the cumulative discoveries
     rather than serving the static-only catalog.
     """
-    # Try blob first when available — this is the source of truth on stateless
-    # container deployments (Azure Container Apps wipe the disk on restart).
-    try:
-        # Local import to avoid module-load circular: service_updater imports
-        # this module's _load_discovered when called from run_update_now after
-        # write, but it does not need the blob loader at import time.
-        from service_updater import _load_discovered_from_blob
+    if prefer_blob:
+        try:
+            # Local import to avoid module-load circular: service_updater imports
+            # this module's _load_discovered when called from run_update_now after
+            # write, but it does not need the blob loader at import time.
+            from service_updater import _load_discovered_from_blob
 
-        blob_data = _load_discovered_from_blob()
-        if blob_data is not None:
-            return blob_data
-    except ImportError as exc:
-        logger.debug(
-            "Blob catalog bootstrap unavailable; falling back to disk: %s",
-            exc,
-        )
-    except Exception:
-        logger.warning(
-            "Blob catalog bootstrap failed; falling back to disk",
-            exc_info=True,
-        )
+            blob_data = _load_discovered_from_blob()
+            if blob_data is not None:
+                return blob_data
+        except ImportError as exc:
+            logger.debug(
+                "Blob catalog bootstrap unavailable; falling back to disk: %s",
+                exc,
+            )
+        except Exception:
+            logger.warning(
+                "Blob catalog bootstrap failed; falling back to disk",
+                exc_info=True,
+            )
 
     try:
         with open(_DISCOVERED_FILE, "r", encoding="utf-8") as fh:
@@ -77,7 +76,7 @@ AZURE_SERVICES: list[dict] = []
 GCP_SERVICES: list[dict] = []
 
 
-def reload() -> dict[str, int]:
+def reload(*, prefer_blob: bool = True) -> dict[str, int]:
     """Re-merge static + discovered catalogs in place.
 
     Issue #647 — the merged lists were previously bound once at module-import
@@ -88,7 +87,7 @@ def reload() -> dict[str, int]:
 
     Returns a dict of ``{provider: total_count}`` after reload.
     """
-    discovered = _load_discovered()
+    discovered = _load_discovered(prefer_blob=prefer_blob)
 
     new_aws = _merge(_AWS_STATIC, discovered.get("aws", []))
     new_azure = _merge(_AZURE_STATIC, discovered.get("azure", []))
@@ -127,9 +126,9 @@ def reload() -> dict[str, int]:
     return counts
 
 
-# Initial load at module import. Blob bootstrap uses bounded Azure SDK timeouts
-# so startup falls back quickly to local disk when storage is slow/unavailable.
-reload()
+# Initial load at module import must not depend on external Blob/identity I/O;
+# Gunicorn preloads the app before the server accepts health probes.
+reload(prefer_blob=False)
 
 __all__ = [
     "AWS_SERVICES",

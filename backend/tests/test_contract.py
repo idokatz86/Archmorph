@@ -173,7 +173,7 @@ class TestHealthContract:
 
         calls = []
 
-        def fake_freshness():
+        def fake_freshness(*, prefer_blob=True):
             calls.append("freshness")
             return {
                 "last_check": "2026-01-01T00:00:00+00:00",
@@ -233,7 +233,7 @@ class TestHealthContract:
         monkeypatch.setattr(
             health_router,
             "get_freshness",
-            lambda: {
+            lambda **_: {
                 "last_check": "2026-01-01T00:00:00+00:00",
                 "age_hours": 1.0,
                 "budget_hours": 36.0,
@@ -289,7 +289,7 @@ class TestHealthContract:
         monkeypatch.setattr(
             health_router,
             "get_freshness",
-            lambda: {
+            lambda **_: {
                 "last_check": "2026-01-01T00:00:00+00:00",
                 "age_hours": 1.0,
                 "budget_hours": 36.0,

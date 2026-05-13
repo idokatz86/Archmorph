@@ -791,6 +791,53 @@ jobs:
           echo "green_revision=$GREEN_REV" >> $GITHUB_OUTPUT
           echo "Green revision: $GREEN_REV"
 
+      - name: Wait for green revision readiness
+        run: |
+          GREEN_REV="${{ steps.green.outputs.green_revision }}"
+          if [ -z "$GREEN_REV" ]; then
+            echo "::error::Green revision name was not produced by deploy step"
+            exit 1
+          fi
+
+          for attempt in $(seq 1 24); do
+            if ! REVISION_JSON=$(az containerapp revision show \
+              --name ${{ env.CONTAINER_APP_NAME }} \
+              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --revision "$GREEN_REV" \
+              -o json 2>revision-show.err); then
+              echo "Green revision readiness attempt ${attempt}: revision show failed"
+              cat revision-show.err || true
+              sleep 10
+              continue
+            fi
+            PROVISIONING_STATE=$(echo "$REVISION_JSON" | jq -r '.properties.provisioningState // "unknown"')
+            RUNNING_STATE=$(echo "$REVISION_JSON" | jq -r '.properties.runningState // "unknown"')
+            HEALTH_STATE=$(echo "$REVISION_JSON" | jq -r '.properties.healthState // "unknown"')
+            REPLICAS=$(echo "$REVISION_JSON" | jq -r '.properties.replicas // "unknown"')
+            echo "Green revision readiness attempt ${attempt}: provisioning=${PROVISIONING_STATE} running=${RUNNING_STATE} health=${HEALTH_STATE} replicas=${REPLICAS}"
+
+            if [ "$PROVISIONING_STATE" = "Succeeded" ] && { [ "$RUNNING_STATE" = "Running" ] || [ "$RUNNING_STATE" = "unknown" ]; }; then
+              echo "Green revision is provisioned and running enough for smoke tests"
+              exit 0
+            fi
+
+            sleep 10
+          done
+
+          echo "::error::Green revision did not become ready before smoke tests"
+          az containerapp revision show \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --revision "$GREEN_REV" \
+            --query '{name:name,provisioningState:properties.provisioningState,runningState:properties.runningState,healthState:properties.healthState,replicas:properties.replicas,createdTime:properties.createdTime}' \
+            -o json || true
+          az containerapp logs show \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --revision "$GREEN_REV" \
+            --tail 100 || true
+          exit 1
+
       - name: Preflight green revision auth and storage contract
         run: |
           GREEN_REV="${{ steps.green.outputs.green_revision }}"
@@ -849,6 +896,23 @@ jobs:
             HEALTH_PATH="/health"
           fi
 
+          dump_green_revision_diagnostics() {
+            local reason="$1"
+            echo "::group::Green revision diagnostics (${reason})"
+            az containerapp revision show \
+              --name ${{ env.CONTAINER_APP_NAME }} \
+              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --revision "${{ steps.green.outputs.green_revision }}" \
+              --query '{name:name,provisioningState:properties.provisioningState,runningState:properties.runningState,healthState:properties.healthState,replicas:properties.replicas,createdTime:properties.createdTime,fqdn:properties.fqdn}' \
+              -o json || true
+            az containerapp logs show \
+              --name ${{ env.CONTAINER_APP_NAME }} \
+              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --revision "${{ steps.green.outputs.green_revision }}" \
+              --tail 100 || true
+            echo "::endgroup::"
+          }
+
           curl_health() {
             local url="$1"
             if [ -n "${ADMIN_KEY:-}" ]; then
@@ -857,6 +921,18 @@ jobs:
               curl -sS --max-time 30 "$url"
             fi
           }
+
+          echo "Checking green revision liveness: $TEST_URL/healthz"
+          if ! HEALTHZ_CODE=$(curl -sS -o healthz-response.json -w "%{http_code}" \
+            --max-time 15 "$TEST_URL/healthz"); then
+            HEALTHZ_CODE="000"
+          fi
+          if [ "$HEALTHZ_CODE" != "200" ]; then
+            echo "::error::Green revision /healthz returned HTTP ${HEALTHZ_CODE}"
+            [ -s healthz-response.json ] && head -c 2000 healthz-response.json || true
+            dump_green_revision_diagnostics "healthz-${HEALTHZ_CODE}"
+            exit 1
+          fi
 
           echo "Running smoke tests against: $TEST_URL$HEALTH_PATH"
           BODY=$(curl_health "$TEST_URL$HEALTH_PATH" || true)

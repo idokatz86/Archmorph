@@ -220,11 +220,12 @@ _running: bool = False
 # ---------------------------------------------------------------------------
 
 
-def _read_state() -> dict[str, Any]:
+def _read_state(*, prefer_blob: bool = True) -> dict[str, Any]:
     """Load the service_updates.json state file."""
-    blob_state = _load_state_from_blob()
-    if blob_state is not None:
-        return blob_state
+    if prefer_blob:
+        blob_state = _load_state_from_blob()
+        if blob_state is not None:
+            return blob_state
     try:
         with open(_UPDATES_FILE, "r", encoding="utf-8") as fh:
             return json.load(fh)
@@ -1075,12 +1076,12 @@ def get_last_update() -> dict[str, Any]:
     }
 
 
-def get_update_status() -> dict[str, Any]:
+def get_update_status(*, prefer_blob: bool = True) -> dict[str, Any]:
     """
     Return the overall status of the updater including scheduler state,
     total checks performed, and aggregate new services found.
     """
-    state = _read_state()
+    state = _read_state(prefer_blob=prefer_blob)
     return {
         "scheduler_running": _running,
         "last_check": state["last_check"],
@@ -1125,17 +1126,21 @@ def _last_successful_refresh_timestamp_from_state(state: dict[str, Any]) -> Opti
     return None
 
 
-def _last_successful_refresh_timestamp() -> Optional[datetime]:
+def _last_successful_refresh_timestamp(*, prefer_blob: bool = True) -> Optional[datetime]:
     """Return the newest persisted service-refresh timestamp with no errors."""
-    return _last_successful_refresh_timestamp_from_state(_read_state())
+    return _last_successful_refresh_timestamp_from_state(_read_state(prefer_blob=prefer_blob))
 
 
-def _register_service_catalog_freshness(last_success: Optional[datetime] = None) -> None:
+def _register_service_catalog_freshness(
+    last_success: Optional[datetime] = None,
+    *,
+    prefer_blob: bool = True,
+) -> None:
     """Register the service catalog refresh job, seeding durable state."""
     from freshness_registry import mark_success, register_with_last_success
 
     if last_success is None:
-        last_success = _last_successful_refresh_timestamp()
+        last_success = _last_successful_refresh_timestamp(prefer_blob=prefer_blob)
 
     register_with_last_success(
         "service_catalog_refresh",
@@ -1150,12 +1155,12 @@ def _register_service_catalog_freshness(last_success: Optional[datetime] = None)
 # shows up in the /api/health.scheduled_jobs block alongside any other periodic
 # work, and is monitored by the freshness-watchdog GH Actions workflow.
 try:
-    _register_service_catalog_freshness()
+    _register_service_catalog_freshness(prefer_blob=False)
 except Exception:  # noqa: BLE001
     pass  # registry import failure is non-fatal
 
 
-def get_freshness() -> dict[str, Any]:
+def get_freshness(*, prefer_blob: bool = True) -> dict[str, Any]:
     """Return last-successful-run age in hours and a stale flag.
 
     Returns:
@@ -1168,7 +1173,7 @@ def get_freshness() -> dict[str, Any]:
           "providers_failed": [str, ...]
         }
     """
-    state = _read_state()
+    state = _read_state(prefer_blob=prefer_blob)
     last_success = _last_successful_refresh_timestamp_from_state(state)
     try:
         _register_service_catalog_freshness(last_success=last_success)

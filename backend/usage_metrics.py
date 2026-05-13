@@ -33,7 +33,10 @@ METRICS_FILE = os.path.join(DATA_DIR, "usage_metrics.json")
 # Azure Blob Storage persistence — RBAC preferred, connection string fallback
 AZURE_STORAGE_ACCOUNT_URL = os.getenv("AZURE_STORAGE_ACCOUNT_URL", "")
 AZURE_STORAGE_CONNECTION_STRING = os.getenv("AZURE_STORAGE_CONNECTION_STRING", "")
-AZURE_CLIENT_ID = os.getenv("AZURE_CLIENT_ID", "")  # For user-assigned managed identity
+AZURE_STORAGE_MANAGED_IDENTITY_CLIENT_ID = os.getenv(
+    "AZURE_STORAGE_MANAGED_IDENTITY_CLIENT_ID",
+    "",
+)
 METRICS_BLOB_CONTAINER = "metrics"
 METRICS_BLOB_NAME = "usage_metrics.json"
 
@@ -118,7 +121,7 @@ def _get_blob_client():
         if AZURE_STORAGE_ACCOUNT_URL:
             from azure.identity import DefaultAzureCredential
             credential = DefaultAzureCredential(
-                managed_identity_client_id=AZURE_CLIENT_ID or None
+                managed_identity_client_id=AZURE_STORAGE_MANAGED_IDENTITY_CLIENT_ID or None
             )
             bsc = BlobServiceClient(AZURE_STORAGE_ACCOUNT_URL, credential=credential)
             logger.debug("Using RBAC auth for blob storage")
@@ -138,12 +141,12 @@ def _get_blob_client():
         return None
 
 
-def _load_metrics():
+def _load_metrics(*, prefer_blob: bool = True):
     """Load metrics from Azure Blob Storage (primary) or local disk (fallback)."""
     global _metrics
 
     # 1. Try Azure Blob Storage
-    blob = _get_blob_client()
+    blob = _get_blob_client() if prefer_blob else None
     if blob:
         try:
             from circuit_breakers import blob_breaker
@@ -233,8 +236,8 @@ def _shutdown_flush(*_args):
                 logger.warning("Shutdown flush failed: %s", exc)
 
 
-# Load on import
-_load_metrics()
+# Load on import without external storage I/O so API startup remains probeable.
+_load_metrics(prefer_blob=False)
 
 # Start background flush daemon
 _flush_thread = threading.Thread(target=_background_flush, daemon=True, name="metrics-flush")

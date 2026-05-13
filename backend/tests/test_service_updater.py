@@ -332,6 +332,36 @@ class TestReadWriteState:
             state = _read_state()
             assert state["last_check"] == "blob"
 
+    def test_read_state_can_skip_blob_for_startup_and_health(self, tmp_path):
+        state_file = tmp_path / "state.json"
+        disk_state = {
+            "last_check": "disk",
+            "checks": [],
+            "new_services_found": {"aws": [], "azure": [], "gcp": []},
+            "auto_added": {"aws": [], "azure": [], "gcp": []},
+        }
+        state_file.write_text(json.dumps(disk_state), encoding="utf-8")
+
+        with patch("service_updater._load_state_from_blob") as load_blob, \
+             patch("service_updater._UPDATES_FILE", state_file), \
+             patch("service_updater._DATA_DIR", tmp_path):
+            state = _read_state(prefer_blob=False)
+
+        assert state["last_check"] == "disk"
+        load_blob.assert_not_called()
+
+    def test_freshness_registration_can_skip_blob_for_import_time(self, tmp_path):
+        import service_updater
+
+        with patch("service_updater._load_state_from_blob") as load_blob, \
+             patch("service_updater._UPDATES_FILE", tmp_path / "missing.json"), \
+             patch("freshness_registry.register_with_last_success") as register, \
+             patch("freshness_registry.mark_success"):
+            service_updater._register_service_catalog_freshness(prefer_blob=False)
+
+        load_blob.assert_not_called()
+        register.assert_called_once()
+
     def test_write_state_mirrors_to_blob(self, tmp_path):
         from unittest.mock import MagicMock
 
