@@ -17,7 +17,12 @@ from strict_models import StrictBaseModel
 
 from error_envelope import ArchmorphException
 from log_sanitizer import safe
-from routers.shared import limiter, verify_api_key
+from routers.shared import (
+    get_api_key_service_principal,
+    limiter,
+    require_diagram_access,
+    verify_api_key,
+)
 from session_store import get_store
 
 logger = logging.getLogger(__name__)
@@ -49,6 +54,37 @@ class AddEventRequest(StrictBaseModel):
     data: dict = Field(default_factory=dict)
 
 
+def require_replay_access(request: Request, replay_id: str) -> dict:
+    from auth import get_user_from_request_headers
+
+    replay = _replay_store.get(replay_id)
+    if not replay:
+        raise ArchmorphException(404, "Replay not found")
+
+    if replay.get("owner_user_id") and replay.get("tenant_id"):
+        user = get_user_from_request_headers(dict(request.headers))
+        if not user:
+            raise ArchmorphException(401, "Authentication required")
+        if replay["owner_user_id"] != user.id or replay["tenant_id"] != user.tenant_id:
+            raise ArchmorphException(404, "Replay not found")
+        return replay
+
+    if replay.get("owner_api_key_id"):
+        api_key_principal_id = get_api_key_service_principal(dict(request.headers))
+        if not api_key_principal_id:
+            raise ArchmorphException(401, "Authentication required")
+        if replay["owner_api_key_id"] != api_key_principal_id:
+            raise ArchmorphException(404, "Replay not found")
+        return replay
+
+    require_diagram_access(request, replay["analysis_id"], purpose="view a replay")
+    return replay
+
+
+def require_replay_body_access(request: Request, body: AddEventRequest) -> dict:
+    return require_replay_access(request, body.replay_id)
+
+
 # ── Endpoints ────────────────────────────────────────────────
 
 
@@ -58,12 +94,19 @@ async def start_recording(
     request: Request, body: StartRecordingRequest, _auth=Depends(verify_api_key)
 ):
     """Start a new replay recording linked to an analysis."""
+    session = require_diagram_access(request, body.analysis_id, purpose="start a replay recording")
     replay_id = str(uuid.uuid4())
+    owner_user_id = session.get("_owner_user_id")
+    tenant_id = session.get("_tenant_id")
+    owner_api_key_id = session.get("_owner_api_key_id")
 
     replay = {
         "replay_id": replay_id,
         "analysis_id": body.analysis_id,
         "title": body.title or f"Replay {replay_id[:8]}",
+        "owner_user_id": owner_user_id,
+        "tenant_id": tenant_id,
+        "owner_api_key_id": owner_api_key_id,
         "events": [],
         "created_at": time.time(),
         "updated_at": time.time(),
@@ -77,12 +120,12 @@ async def start_recording(
 @router.post("/events")
 @limiter.limit("60/minute")
 async def add_event(
-    request: Request, body: AddEventRequest, _auth=Depends(verify_api_key)
+    request: Request,
+    body: AddEventRequest,
+    _auth=Depends(verify_api_key),
+    replay=Depends(require_replay_body_access),
 ):
     """Add an event to an existing replay recording."""
-    replay = _replay_store.get(body.replay_id)
-    if not replay:
-        raise ArchmorphException(404, "Replay not found")
 
     event = {
         "event_id": str(uuid.uuid4()),
@@ -101,24 +144,24 @@ async def add_event(
 @router.get("/{replay_id}")
 @limiter.limit("30/minute")
 async def get_replay(
-    request: Request, replay_id: str, _auth=Depends(verify_api_key)
+    request: Request,
+    replay_id: str,
+    _auth=Depends(verify_api_key),
+    replay=Depends(require_replay_access),
 ):
     """Get full replay with all events."""
-    replay = _replay_store.get(replay_id)
-    if not replay:
-        raise ArchmorphException(404, "Replay not found")
     return replay
 
 
 @router.get("/{replay_id}/export")
 @limiter.limit("10/minute")
 async def export_replay(
-    request: Request, replay_id: str, _auth=Depends(verify_api_key)
+    request: Request,
+    replay_id: str,
+    _auth=Depends(verify_api_key),
+    replay=Depends(require_replay_access),
 ):
     """Export replay as a JSON timeline."""
-    replay = _replay_store.get(replay_id)
-    if not replay:
-        raise ArchmorphException(404, "Replay not found")
 
     timeline = {
         "format": "archmorph-replay-v1",
@@ -146,11 +189,29 @@ async def list_replays(
     _auth=Depends(verify_api_key),
 ):
     """List recent replays with pagination (max 20 per page)."""
+    from auth import get_user_from_request_headers
+
+    headers = dict(request.headers)
+    user = get_user_from_request_headers(headers)
+    api_key_principal_id = get_api_key_service_principal(headers)
+    if not user and not api_key_principal_id:
+        raise ArchmorphException(401, "Authentication required")
+
     all_replays = sorted(
         _replay_store.values(),
         key=lambda r: r.get("created_at", 0),
         reverse=True,
     )
+    if user:
+        all_replays = [
+            replay for replay in all_replays
+            if replay.get("owner_user_id") == user.id and replay.get("tenant_id") == user.tenant_id
+        ]
+    else:
+        all_replays = [
+            replay for replay in all_replays
+            if replay.get("owner_api_key_id") == api_key_principal_id
+        ]
     start = (page - 1) * limit
     page_items = all_replays[start : start + limit]
 

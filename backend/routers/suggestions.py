@@ -12,8 +12,7 @@ from typing import Optional
 import asyncio
 import logging
 
-from routers.shared import limiter, verify_api_key
-from routers.samples import get_or_recreate_session
+from routers.shared import limiter, require_diagram_access, verify_api_key
 from source_provider import normalize_source_provider
 from usage_metrics import record_event
 from ai_suggestion import (
@@ -104,15 +103,13 @@ async def api_suggest_batch(
     return {"suggestions": results, "count": len(results)}
 
 
-@router.get("/api/diagrams/{diagram_id}/dependency-graph", tags=["ai-suggestion"])
+@router.get("/api/diagrams/{diagram_id}/dependency-graph", tags=["ai-suggestion"], dependencies=[Depends(require_diagram_access)])
 @limiter.limit("20/minute")
 async def api_dependency_graph(
     request: Request, diagram_id: str, _=Depends(verify_api_key)
 ):
     """Build a dependency graph from an existing analysis."""
-    session = get_or_recreate_session(diagram_id)
-    if not session:
-        raise ArchmorphException(status_code=404, detail="Analysis not found")
+    session = require_diagram_access(request, diagram_id, purpose="view a dependency graph")
     mappings = session.get("mappings", [])
     graph = build_dependency_graph(mappings)
     return {"diagram_id": diagram_id, **graph}

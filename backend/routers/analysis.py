@@ -10,8 +10,7 @@ from typing import Dict, Any
 import asyncio
 import logging
 
-from routers.shared import SESSION_STORE, limiter, verify_api_key
-from routers.samples import get_or_recreate_session
+from routers.shared import SESSION_STORE, limiter, verify_api_key, require_diagram_access
 from usage_metrics import record_event, record_funnel_step
 from guided_questions import generate_questions, apply_answers, get_question_constraints, build_adaptive_question_set
 from mcp_diagram_generator import mcp_client
@@ -34,7 +33,7 @@ class AddServicesRequest(StrictBaseModel):
 # ─────────────────────────────────────────────────────────────
 # Guided Questions
 # ─────────────────────────────────────────────────────────────
-@router.post("/api/diagrams/{diagram_id}/questions")
+@router.post("/api/diagrams/{diagram_id}/questions", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("15/minute")
 async def get_guided_questions(request: Request, diagram_id: str, smart_dedup: bool = True, _auth=Depends(verify_api_key)):
     """Generate guided questions based on detected AWS services.
@@ -42,9 +41,7 @@ async def get_guided_questions(request: Request, diagram_id: str, smart_dedup: b
     If smart_dedup=True, questions that have been implicitly answered
     by user context (e.g., natural language additions) are filtered out.
     """
-    analysis = get_or_recreate_session(diagram_id)
-    if not analysis:
-        raise ArchmorphException(404, f"No analysis found for diagram {diagram_id}. Run /analyze first.")
+    analysis = require_diagram_access(request, diagram_id, purpose="view questions")
 
     detected = [
         m["source_service"]["name"] if isinstance(m["source_service"], dict) else m["source_service"]
@@ -84,7 +81,7 @@ async def get_guided_questions(request: Request, diagram_id: str, smart_dedup: b
 # ─────────────────────────────────────────────────────────────
 # Natural Language Service Builder
 # ─────────────────────────────────────────────────────────────
-@router.post("/api/diagrams/{diagram_id}/add-services")
+@router.post("/api/diagrams/{diagram_id}/add-services", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("10/minute")
 async def add_services_natural_language(
     request: Request,
@@ -99,9 +96,7 @@ async def add_services_natural_language(
     The services are added to the existing analysis, and users can continue
     to the guided questions or IaC generation.
     """
-    analysis = get_or_recreate_session(diagram_id)
-    if not analysis:
-        raise ArchmorphException(404, f"No analysis found for diagram {diagram_id}. Run /analyze first.")
+    analysis = require_diagram_access(request, diagram_id, purpose="modify services")
 
     try:
         updated = await asyncio.to_thread(
@@ -140,7 +135,7 @@ async def add_services_natural_language(
 # ─────────────────────────────────────────────────────────────
 # Apply Guided Answers
 # ─────────────────────────────────────────────────────────────
-@router.post("/api/diagrams/{diagram_id}/apply-answers")
+@router.post("/api/diagrams/{diagram_id}/apply-answers", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("15/minute")
 async def apply_guided_answers(
     request: Request,
@@ -149,9 +144,7 @@ async def apply_guided_answers(
     _auth=Depends(verify_api_key),
 ):
     """Apply user answers to refine the Azure architecture analysis."""
-    analysis = get_or_recreate_session(diagram_id)
-    if not analysis:
-        raise ArchmorphException(404, f"No analysis found for diagram {diagram_id}. Run /analyze first.")
+    analysis = require_diagram_access(request, diagram_id, purpose="apply answers")
 
     refined = apply_answers(analysis, answers)
     SESSION_STORE[diagram_id] = refined
@@ -163,7 +156,7 @@ async def apply_guided_answers(
 # ─────────────────────────────────────────────────────────────
 # Diagram Export (Excalidraw / Draw.io / Visio)
 # ─────────────────────────────────────────────────────────────
-@router.post("/api/diagrams/{diagram_id}/export-diagram")
+@router.post("/api/diagrams/{diagram_id}/export-diagram", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("10/minute")
 async def export_architecture_diagram(
     request: Request,
@@ -171,6 +164,7 @@ async def export_architecture_diagram(
     format: str = "excalidraw",
     multi_page: bool = False,
     dr_variant: str = "primary",
+    _auth=Depends(verify_api_key),
     capability=Depends(verify_export_capability),
 ):
     """Generate an architecture diagram in Excalidraw, Draw.io, Visio, or
@@ -204,9 +198,7 @@ async def export_architecture_diagram(
             "dr_variant must be 'primary' or 'dr'",
         )
 
-    analysis = get_or_recreate_session(diagram_id)
-    if not analysis:
-        raise ArchmorphException(404, f"No analysis found for diagram {diagram_id}. Run /analyze first.")
+    analysis = require_diagram_access(request, diagram_id, purpose="export diagram")
 
     try:
         validate_analysis_payload_bounds(analysis)
@@ -263,13 +255,14 @@ async def export_architecture_diagram(
 # ─────────────────────────────────────────────────────────────
 # Architecture Package Export (HTML / SVG)
 # ─────────────────────────────────────────────────────────────
-@router.post("/api/diagrams/{diagram_id}/export-architecture-package")
+@router.post("/api/diagrams/{diagram_id}/export-architecture-package", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("10/minute")
 async def export_architecture_package(
     request: Request,
     diagram_id: str,
     format: str = "html",
     diagram: str = "primary",
+    _auth=Depends(verify_api_key),
     capability=Depends(verify_export_capability),
 ):
     """Generate the customer-facing Architecture Package.
@@ -282,9 +275,7 @@ async def export_architecture_package(
     if diagram not in ("primary", "dr"):
         raise ArchmorphException(400, "diagram must be 'primary' or 'dr'")
 
-    analysis = get_or_recreate_session(diagram_id)
-    if not analysis:
-        raise ArchmorphException(404, f"No analysis found for diagram {diagram_id}. Run /analyze first.")
+    analysis = require_diagram_access(request, diagram_id, purpose="export architecture package")
 
     try:
         validate_analysis_payload_bounds(analysis)

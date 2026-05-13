@@ -143,6 +143,73 @@ def require_authenticated_user_context(request: Request) -> dict:
     return context
 
 
+def _load_diagram_session_for_access(diagram_id: str) -> Optional[dict]:
+    session = SESSION_STORE.get(diagram_id)
+    if session is not None:
+        return session
+    if not diagram_id.startswith("sample-"):
+        return None
+
+    from routers.samples import get_or_recreate_session
+
+    return get_or_recreate_session(diagram_id)
+
+
+def _is_public_diagram_session(diagram_id: str, session: Optional[dict]) -> bool:
+    if diagram_id.startswith("sample-"):
+        return True
+    if not isinstance(session, dict):
+        return False
+    return bool(
+        session.get("is_sample")
+        or session.get("is_template")
+        or session.get("is_starter")
+    )
+
+
+def require_diagram_access(
+    request: Request,
+    diagram_id: str,
+    purpose: str = "access",
+) -> dict:
+    """Authorize access to a session-backed diagram resource.
+
+    Public sample/template sessions are explicitly exempt. All other sessions
+    require either the owning authenticated user within the same tenant, or the
+    owning API-key principal that created the private session.
+    """
+    from auth import get_user_from_request_headers
+
+    session = _load_diagram_session_for_access(diagram_id)
+    if _is_public_diagram_session(diagram_id, session):
+        if session is None:
+            raise ArchmorphException(404, "Diagram not found")
+        return session
+
+    if session is None:
+        raise ArchmorphException(404, "Diagram not found")
+
+    headers = dict(request.headers)
+    user = get_user_from_request_headers(headers)
+    if user:
+        owner_user_id = session.get("_owner_user_id")
+        tenant_id = session.get("_tenant_id")
+        if not owner_user_id or not tenant_id:
+            raise ArchmorphException(404, "Diagram not found")
+        if owner_user_id != user.id or tenant_id != user.tenant_id:
+            raise ArchmorphException(404, "Diagram not found")
+        return session
+
+    api_key_principal_id = get_api_key_service_principal(headers)
+    if not api_key_principal_id:
+        raise ArchmorphException(401, f"Authentication required to {purpose}")
+
+    owner_api_key_id = session.get("_owner_api_key_id")
+    if not owner_api_key_id or owner_api_key_id != api_key_principal_id:
+        raise ArchmorphException(404, "Diagram not found")
+    return session
+
+
 # ─────────────────────────────────────────────────────────────
 # Stores (#494 — Redis-backed in production, InMemory for dev)
 # ─────────────────────────────────────────────────────────────

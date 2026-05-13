@@ -365,12 +365,17 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
     image_bytes = base64.b64decode(image_b64) if isinstance(image_b64, str) else image_b64
     logger.info("Analyzing diagram %s (%s bytes)", str(diagram_id).replace('\n', '').replace('\r', ''), str(len(image_bytes)).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
 
+    headers = dict(request.headers)
+    user = get_user_from_request_headers(headers)
+    api_key_principal_id = get_api_key_service_principal(headers)
+
     if ci_smoke.enabled():
         result = ci_smoke.clone_analysis(diagram_id)
-        user = get_user_from_request_headers(dict(request.headers))
         if user:
             result["_owner_user_id"] = user.id
             result["_tenant_id"] = user.tenant_id
+        elif api_key_principal_id:
+            result["_owner_api_key_id"] = api_key_principal_id
         SESSION_STORE[diagram_id] = result
         mark_diagram_analyzed(diagram_id, result)
         record_event("analyses_run", {"diagram_id": diagram_id, "services": result["services_detected"]})
@@ -422,10 +427,11 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
     result["image_classification"] = classification
 
     # Save to user history if authenticated (#245)
-    user = get_user_from_request_headers(dict(request.headers))
     if user:
         result["_owner_user_id"] = user.id
         result["_tenant_id"] = user.tenant_id
+    elif api_key_principal_id:
+        result["_owner_api_key_id"] = api_key_principal_id
 
     if len(SESSION_STORE) >= SESSION_STORE.maxsize:
         logger.warning("Session store at capacity (%d/%d) — oldest sessions will be evicted",
@@ -536,6 +542,16 @@ async def _run_analysis_job(job_id: str, diagram_id: str) -> None:
         result["diagram_id"] = diagram_id
         result["image_classification"] = classification
 
+        job_owner = job_manager.get(job_id)
+        job_user_id = getattr(job_owner, "owner_user_id", None)
+        job_tenant_id = getattr(job_owner, "tenant_id", None)
+        job_api_principal_id = getattr(job_owner, "owner_api_key_id", None)
+        if job_user_id and job_tenant_id:
+            result["_owner_user_id"] = job_user_id
+            result["_tenant_id"] = job_tenant_id
+        elif job_api_principal_id:
+            result["_owner_api_key_id"] = job_api_principal_id
+
         job_manager.update_progress(job_id, 80, "Storing analysis results...")
         SESSION_STORE[diagram_id] = result
         mark_diagram_analyzed(diagram_id, result)
@@ -546,8 +562,6 @@ async def _run_analysis_job(job_id: str, diagram_id: str) -> None:
         record_funnel_step(diagram_id, "analyze")
 
         # Save to user history if job carries an authenticated owner.
-        job_owner = job_manager.get(job_id)
-        job_user_id = getattr(job_owner, "owner_user_id", None)
         if job_user_id:
             maybe_save_from_session(job_user_id, result, diagram_id)
 

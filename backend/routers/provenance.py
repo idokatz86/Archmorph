@@ -9,7 +9,7 @@ Provenance routes — structured confidence evidence for service mappings.
 from fastapi import APIRouter, Request, Depends
 import logging
 
-from routers.shared import SESSION_STORE, limiter, verify_api_key
+from routers.shared import limiter, require_diagram_access, verify_api_key
 from confidence_provenance import build_provenance, build_provenance_summary
 
 logger = logging.getLogger(__name__)
@@ -17,13 +17,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-@router.get("/api/diagrams/{diagram_id}/provenance")
+@router.get("/api/diagrams/{diagram_id}/provenance", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("30/minute")
 async def get_provenance_summary(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
     """Get confidence provenance summary for all mappings in a diagram analysis."""
-    session = SESSION_STORE.get(diagram_id)
-    if session is None:
-        raise ArchmorphException(404, f"No analysis found for diagram {diagram_id}. Analyze first.")
+    session = require_diagram_access(request, diagram_id, purpose="view provenance")
 
     mappings = session.get("mappings", [])
     if not mappings:
@@ -34,13 +32,11 @@ async def get_provenance_summary(request: Request, diagram_id: str, _auth=Depend
     return summary
 
 
-@router.get("/api/diagrams/{diagram_id}/provenance/{service_name}")
+@router.get("/api/diagrams/{diagram_id}/provenance/{service_name}", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("30/minute")
 async def get_provenance_detail(request: Request, diagram_id: str, service_name: str, _auth=Depends(verify_api_key)):
     """Get detailed confidence provenance for a specific service mapping."""
-    session = SESSION_STORE.get(diagram_id)
-    if session is None:
-        raise ArchmorphException(404, f"No analysis found for diagram {diagram_id}. Analyze first.")
+    session = require_diagram_access(request, diagram_id, purpose="view provenance details")
 
     mappings = session.get("mappings", [])
     if not mappings:
