@@ -108,11 +108,40 @@ jobs:
           AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
           AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
 
+      - name: Risk-based module coverage floors
+        run: |
+          mkdir -p coverage-risk
+          declare -a COVERAGE_TARGETS=(
+            "diagram_export|tests/test_diagram_export.py|70"
+            "export_capabilities|tests/test_export_capabilities.py|70"
+            "iac_generator|tests/test_iac_generator.py|70"
+            "session_store|tests/test_session_store.py|75"
+            "job_queue|tests/test_job_queue.py|70"
+            "services.azure_pricing|tests/test_pricing_blob.py|65"
+          )
+          for target in "${COVERAGE_TARGETS[@]}"; do
+            IFS='|' read -r module tests floor <<< "$target"
+            safe_module="${module//./_}"
+            echo "Running risk-based coverage floor for ${module} with ${tests} (floor=${floor}%)"
+            python -m pytest --tb=short -q "$tests" \
+              --cov="$module" --cov-report=term-missing \
+              --cov-report=xml:"coverage-risk/${safe_module}.xml" \
+              --cov-config=.coveragerc --cov-context=test \
+              --cov-fail-under="$floor"
+          done
+
       - name: Upload coverage report
         uses: actions/upload-artifact@v7
         with:
           name: coverage-report
           path: backend/htmlcov/
+          retention-days: 30
+
+      - name: Upload risk-based coverage reports
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-risk-report
+          path: backend/coverage-risk/
           retention-days: 30
 
       - name: Export OpenAPI schema
@@ -365,8 +394,8 @@ jobs:
       - name: Guard Vite environment exposure
         run: python3 ../scripts/lint_vite_env_guard.py
 
-      - name: Run frontend tests
-        run: npx vitest run
+      - name: Run frontend tests with Live coverage gate
+        run: npx vitest run --coverage
 
       - name: Build
         run: npm run build
@@ -393,7 +422,7 @@ jobs:
             cat /tmp/archmorph-lighthouse.log
             exit 1
           fi
-          npx --yes @lhci/cli@0.15.1 autorun --config=./lighthouserc.json --collect.url="http://127.0.0.1:${LHCI_PORT}/"
+          npx --yes @lhci/cli@0.15.1 autorun --config=./lighthouserc.json
 
       - name: Upload Lighthouse report
         if: always()
@@ -429,6 +458,13 @@ jobs:
           name: frontend-dist
           path: frontend/dist
           retention-days: 1
+
+      - name: Upload frontend coverage report
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-coverage-report
+          path: frontend/coverage
+          if-no-files-found: error
 
   # ============================================
   # GENERATED OPENAPI CLIENT DRIFT
