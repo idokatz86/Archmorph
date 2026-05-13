@@ -3165,6 +3165,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/jobs/metrics/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Queue Metrics
+         * @description Return async queue and event-buffer metrics for observability.
+         */
+        get: operations["get_queue_metrics_api_jobs_metrics_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/jobs/{job_id}": {
         parameters: {
             query?: never;
@@ -7147,6 +7167,26 @@ export interface paths {
          * @description List jobs with optional filters.
          */
         get: operations["list_jobs_v1_api_v1_jobs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/jobs/metrics/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Queue Metrics V1
+         * @description Return async queue and event-buffer metrics for observability.
+         */
+        get: operations["get_queue_metrics_v1_api_v1_jobs_metrics_summary_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -14915,6 +14955,26 @@ export interface operations {
             };
         };
     };
+    get_queue_metrics_api_jobs_metrics_summary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
     get_job_status_api_jobs__job_id__get: {
         parameters: {
             query?: never;
@@ -21028,6 +21088,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_queue_metrics_v1_api_v1_jobs_metrics_summary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
         };

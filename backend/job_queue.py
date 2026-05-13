@@ -168,19 +168,25 @@ class JobManager:
 
     def get(self, job_id: str) -> Optional[Job]:
         """Get a job by ID."""
-        job = self._jobs.get(job_id)
-        if job:
-            return job
         payload = self._jobs_store.get(job_id)
-        if not payload:
-            return None
+        if payload:
+            return self._hydrate_from_store(job_id, payload)
+        return self._jobs.get(job_id)
+
+    def _hydrate_from_store(self, job_id: str, payload: Dict[str, Any]) -> Job:
+        """Refresh the local job object from shared-store state."""
         loaded = Job.from_dict(payload)
-        self._jobs[job_id] = loaded
-        return loaded
+        job = self._jobs.get(job_id)
+        if not job:
+            self._jobs[job_id] = loaded
+            return loaded
+        for field in loaded.to_dict():
+            setattr(job, field, getattr(loaded, field))
+        return job
 
     def start(self, job_id: str) -> None:
         """Mark a job as running."""
-        job = self._jobs.get(job_id)
+        job = self.get(job_id)
         if not job:
             return
         job.status = JobStatus.RUNNING
@@ -191,7 +197,7 @@ class JobManager:
 
     def update_progress(self, job_id: str, progress: int, message: str = "") -> None:
         """Update job progress (0-100) and emit SSE event."""
-        job = self._jobs.get(job_id)
+        job = self.get(job_id)
         if not job or job.status in (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED):
             return
         job.progress = min(progress, 100)
@@ -205,8 +211,8 @@ class JobManager:
 
     def complete(self, job_id: str, result: Optional[Dict[str, Any]] = None) -> None:
         """Mark a job as completed with optional result."""
-        job = self._jobs.get(job_id)
-        if not job:
+        job = self.get(job_id)
+        if not job or job.status == JobStatus.CANCELLED:
             return
         job.status = JobStatus.COMPLETED
         job.progress = 100
@@ -219,8 +225,8 @@ class JobManager:
 
     def fail(self, job_id: str, error: str) -> None:
         """Mark a job as failed."""
-        job = self._jobs.get(job_id)
-        if not job:
+        job = self.get(job_id)
+        if not job or job.status == JobStatus.CANCELLED:
             return
         job.status = JobStatus.FAILED
         job.error = error
@@ -231,7 +237,7 @@ class JobManager:
 
     def cancel(self, job_id: str) -> bool:
         """Cancel a job. Returns True if cancelled, False if already done."""
-        job = self._jobs.get(job_id)
+        job = self.get(job_id)
         if not job:
             return False
         if job.status in (JobStatus.COMPLETED, JobStatus.FAILED):
@@ -245,7 +251,7 @@ class JobManager:
 
     def is_cancelled(self, job_id: str) -> bool:
         """Check if a job has been cancelled (for worker polling)."""
-        job = self._jobs.get(job_id)
+        job = self.get(job_id)
         return job.status == JobStatus.CANCELLED if job else False
 
     def list_jobs(

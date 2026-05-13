@@ -11325,6 +11325,23 @@
         "summary": "List Jobs"
       }
     },
+    "/api/jobs/metrics/summary": {
+      "get": {
+        "description": "Return async queue and event-buffer metrics for observability.",
+        "operationId": "get_queue_metrics_api_jobs_metrics_summary_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Queue Metrics"
+      }
+    },
     "/api/jobs/{job_id}": {
       "get": {
         "description": "Get the current status of an async job.",
@@ -20821,6 +20838,26 @@
           }
         },
         "summary": "List Jobs V1",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/jobs/metrics/summary": {
+      "get": {
+        "description": "Return async queue and event-buffer metrics for observability.",
+        "operationId": "get_queue_metrics_v1_api_v1_jobs_metrics_summary_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Queue Metrics V1",
         "tags": [
           "v1"
         ]

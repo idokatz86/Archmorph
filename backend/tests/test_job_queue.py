@@ -211,6 +211,27 @@ class TestJobManager:
         finally:
             reset_stores()
 
+    def test_cross_worker_cancel_visible_to_worker(self, monkeypatch):
+        from session_store import reset_stores
+        from job_queue import JobManager, JobStatus
+
+        monkeypatch.setenv("WEB_CONCURRENCY", "2")
+        monkeypatch.delenv("REDIS_URL", raising=False)
+        monkeypatch.delenv("REDIS_HOST", raising=False)
+        reset_stores()
+        try:
+            worker = JobManager(max_jobs=50, max_events_per_job=10, ttl_seconds=120)
+            api = JobManager(max_jobs=50, max_events_per_job=10, ttl_seconds=120)
+            job = worker.submit("cross-worker", owner_api_key_id="api-key:test")
+            worker.start(job.job_id)
+
+            assert api.cancel(job.job_id) is True
+            assert worker.is_cancelled(job.job_id) is True
+            worker.complete(job.job_id, result={"should_not": "win"})
+            assert worker.get(job.job_id).status == JobStatus.CANCELLED
+        finally:
+            reset_stores()
+
 
 # ─────────────────────────────────────────────────────────────
 # Job serialization

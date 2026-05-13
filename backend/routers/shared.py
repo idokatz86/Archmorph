@@ -7,8 +7,8 @@ import os
 import logging
 import secrets
 import hashlib
-import hmac
 from collections import OrderedDict
+from functools import lru_cache
 from typing import Optional, List
 
 from fastapi import Security, Request
@@ -44,6 +44,7 @@ API_KEY = os.getenv("ARCHMORPH_API_KEY", "")  # Empty = auth disabled (dev mode)
 API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=False)
 ADMIN_BEARER = HTTPBearer(auto_error=False)
 _API_PRINCIPAL_SALT = b"archmorph-api-principal-v1"
+_API_PRINCIPAL_KDF_ITERATIONS = 120_000
 
 logger = logging.getLogger(__name__)
 
@@ -77,12 +78,19 @@ def get_api_key_service_principal(headers: dict) -> Optional[str]:
         key_material = api_key
         if not key_material:
             return None
-    digest = hmac.new(
-        _API_PRINCIPAL_SALT,
-        key_material.encode("utf-8"),
-        hashlib.sha256,
-    ).hexdigest()[:24]
+    digest = _derive_api_key_principal_digest(key_material)
     return f"api-key:{digest}"
+
+
+@lru_cache(maxsize=32)
+def _derive_api_key_principal_digest(key_material: str) -> str:
+    """Derive a stable opaque principal ID from API-key material."""
+    return hashlib.pbkdf2_hmac(
+        "sha256",
+        key_material.encode("utf-8"),
+        _API_PRINCIPAL_SALT,
+        _API_PRINCIPAL_KDF_ITERATIONS,
+    ).hex()[:24]
 
 
 # ─────────────────────────────────────────────────────────────
