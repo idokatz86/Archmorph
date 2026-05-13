@@ -97,6 +97,8 @@ def _find_participant_by_user_id(session: dict, user_id: str) -> Optional[dict]:
 def _find_participant_by_token(session: dict, participant_token: str) -> Optional[dict]:
     if not participant_token:
         return None
+    if len(participant_token) > 256:
+        return None
     for participant in session.get("participants", []):
         stored_token = participant.get("participant_token")
         if stored_token and secrets.compare_digest(stored_token, participant_token):
@@ -153,7 +155,7 @@ async def create_session(
         raise ArchmorphException(403, "Forbidden: owner mismatch")
 
     session_id = str(uuid.uuid4())
-    share_code = secrets.token_urlsafe(4)[:6]  # 6-char code
+    share_code = secrets.token_urlsafe(9)[:12]
     owner_participant = _new_participant(user_id=user.id, role="architect", tenant_id=user.tenant_id)
 
     session = {
@@ -220,6 +222,7 @@ async def join_session(
     existing_participant = _find_participant_by_user_id(session, user.id)
     if existing_participant:
         if not existing_participant.get("participant_token"):
+            logger.warning("Participant %s missing collaboration token in session %s", safe(user.id), safe(session_id))
             existing_participant["participant_token"] = secrets.token_urlsafe(24)
             _session_store[session_id] = session
         return {

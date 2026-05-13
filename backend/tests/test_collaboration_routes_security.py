@@ -25,11 +25,17 @@ def _clear_collaboration_stores():
     _change_store.clear()
 
 
-def _create_session(test_client, headers: dict[str, str], *, owner: str, analysis_id: str = "analysis-1") -> dict:
+def _create_session(
+    test_client,
+    headers: dict[str, str],
+    *,
+    requested_owner: str,
+    analysis_id: str = "analysis-1",
+) -> dict:
     response = test_client.post(
         "/api/collab/sessions",
         headers=headers,
-        json={"analysis_id": analysis_id, "owner": owner},
+        json={"analysis_id": analysis_id, "owner": requested_owner},
     )
     assert response.status_code == 200, response.text
     return response.json()
@@ -54,7 +60,7 @@ def test_create_session_rejects_forged_owner_and_binds_authenticated_owner(
     created = _create_session(
         test_client,
         tenant_a_auth_headers,
-        owner=tenant_a["user_id"],
+        requested_owner=tenant_a["user_id"],
     )
 
     stored = _session_store[created["session_id"]]
@@ -76,7 +82,7 @@ def test_join_requires_authenticated_matching_participant_and_tenant(
     created = _create_session(
         test_client,
         tenant_a_auth_headers,
-        owner=tenant_a["user_id"],
+        requested_owner=tenant_a["user_id"],
     )
     same_tenant_headers = _auth_headers("user-a-002", tenant_a["tenant_id"])
 
@@ -118,13 +124,13 @@ def test_session_reads_require_membership_or_participant_proof(
     created = _create_session(
         test_client,
         tenant_a_auth_headers,
-        owner=tenant_a["user_id"],
+        requested_owner=tenant_a["user_id"],
     )
     outsider_headers = _auth_headers("user-a-003", tenant_a["tenant_id"])
     second_session = _create_session(
         test_client,
         tenant_a_auth_headers,
-        owner=tenant_a["user_id"],
+        requested_owner=tenant_a["user_id"],
         analysis_id="analysis-2",
     )
 
@@ -169,7 +175,7 @@ def test_change_and_history_routes_reject_forgery_and_allow_valid_participant_fl
     created = _create_session(
         test_client,
         tenant_a_auth_headers,
-        owner=tenant_a["user_id"],
+        requested_owner=tenant_a["user_id"],
     )
     member_user_id = "user-a-002"
     member_headers = _auth_headers(member_user_id, tenant_a["tenant_id"])
