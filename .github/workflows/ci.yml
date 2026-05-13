@@ -789,6 +789,143 @@ jobs:
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --query "properties.configuration.ingress.fqdn" -o tsv 2>/dev/null || echo "")
 
+          if ! az extension show --name front-door &>/dev/null; then
+            az extension add --name front-door --upgrade --only-show-errors \
+              || echo "::warning::Unable to install Azure CLI front-door extension; falling back to generic ARM discovery"
+          fi
+
+          resource_group_from_id() {
+            echo "$1" | sed -E 's#^/subscriptions/[^/]+/resourceGroups/([^/]+)/.*#\1#'
+          }
+
+          show_afd_resource() {
+            local resource_id="$1"
+            az resource show --ids "$resource_id" --api-version 2024-02-01 -o json 2>/dev/null \
+              || az resource show --ids "$resource_id" -o json 2>/dev/null \
+              || echo "{}"
+          }
+
+          front_door_profile_fdid() {
+            local profile_json="$1"
+            local profile_id="$2"
+            local profile_name="$3"
+            local profile_group="$4"
+            local fdid
+            fdid=$(echo "$profile_json" | jq -r '.frontDoorId // .resourceGuid // .properties.frontDoorId // .properties.resourceGuid // ""')
+            if [ -z "$fdid" ] && [ -n "$profile_id" ]; then
+              fdid=$(show_afd_resource "$profile_id" | jq -r '.frontDoorId // .resourceGuid // .properties.frontDoorId // .properties.resourceGuid // ""')
+            fi
+            if [ -z "$fdid" ] && [ -n "$profile_name" ] && [ -n "$profile_group" ]; then
+              fdid=$(az afd profile show \
+                --profile-name "$profile_name" \
+                --resource-group "$profile_group" \
+                -o json 2>/dev/null \
+                | jq -r '.frontDoorId // .resourceGuid // .properties.frontDoorId // .properties.resourceGuid // ""')
+            fi
+            echo "$fdid"
+          }
+
+          front_door_profile_targets_container() {
+            local profile_name="$1"
+            local profile_group="$2"
+            local container_host="$3"
+            local origin_groups_json
+            if [ -z "$profile_name" ] || [ -z "$profile_group" ] || [ -z "$container_host" ]; then
+              return 1
+            fi
+
+            origin_groups_json=$(az afd origin-group list \
+              --profile-name "$profile_name" \
+              --resource-group "$profile_group" \
+              -o json 2>/dev/null || echo "[]")
+            while IFS= read -r origin_group_name; do
+              if [ -z "$origin_group_name" ]; then
+                continue
+              fi
+              if az afd origin list \
+                --profile-name "$profile_name" \
+                --resource-group "$profile_group" \
+                --origin-group-name "$origin_group_name" \
+                -o json 2>/dev/null \
+                | jq -e --arg container_host "$(echo "$container_host" | tr '[:upper:]' '[:lower:]')" 'any(.[]; [(.hostName // .properties.hostName // ""), (.originHostHeader // .properties.originHostHeader // "")] | map(ascii_downcase) | any(. == $container_host))' >/dev/null; then
+                return 0
+              fi
+            done < <(echo "$origin_groups_json" | jq -r '.[] | .name // empty')
+            return 1
+          }
+
+          front_door_endpoint_host() {
+            local profile_name="$1"
+            local profile_group="$2"
+            local prefer_api_endpoint="$3"
+            local endpoints_json
+            local fallback_host=""
+            endpoints_json=$(az afd endpoint list \
+              --profile-name "$profile_name" \
+              --resource-group "$profile_group" \
+              -o json 2>/dev/null || echo "[]")
+            while IFS= read -r endpoint_json; do
+              local endpoint_host
+              local endpoint_label
+              endpoint_host=$(echo "$endpoint_json" | jq -r '.hostName // .properties.hostName // ""')
+              if [ -z "$endpoint_host" ]; then
+                continue
+              fi
+              endpoint_label=$(echo "$endpoint_json" | jq -r '((.name // "") + " " + (.hostName // .properties.hostName // "")) | ascii_downcase')
+              if [ -z "$fallback_host" ]; then
+                fallback_host="$endpoint_host"
+              fi
+              if [ "$prefer_api_endpoint" = "true" ] && [[ "$endpoint_label" == *api* ]]; then
+                echo "$endpoint_host"
+                return 0
+              fi
+            done < <(echo "$endpoints_json" | jq -c '.[]')
+            echo "$fallback_host"
+          }
+
+          resolve_front_door_contract_from_afd_cli() {
+            local prefer_api_endpoint="$1"
+            while IFS= read -r candidate_profile_json; do
+              if [ -z "$candidate_profile_json" ]; then
+                continue
+              fi
+              candidate_profile_id=$(echo "$candidate_profile_json" | jq -r '.id // ""')
+              candidate_profile_name=$(echo "$candidate_profile_json" | jq -r '.name // ""')
+              candidate_profile_group=$(resource_group_from_id "$candidate_profile_id")
+              if ! front_door_profile_targets_container "$candidate_profile_name" "$candidate_profile_group" "$CONTAINER_APP_FQDN"; then
+                continue
+              fi
+              candidate_fdid=$(front_door_profile_fdid "$candidate_profile_json" "$candidate_profile_id" "$candidate_profile_name" "$candidate_profile_group")
+              candidate_host=$(front_door_endpoint_host "$candidate_profile_name" "$candidate_profile_group" "$prefer_api_endpoint")
+              if [ -n "$candidate_host" ] && [ -n "$candidate_fdid" ]; then
+                echo "${candidate_profile_name}|${candidate_fdid}|${candidate_host}"
+                return 0
+              fi
+            done < <(echo "$AFD_PROFILES_JSON" | jq -c '.[]')
+            return 1
+          }
+
+          if [ -z "$TRUSTED_FRONT_DOOR_FDID" ] || [ -z "$TRUSTED_FRONT_DOOR_HOSTS" ]; then
+            AFD_PROFILES_JSON=$(az afd profile list -o json 2>/dev/null || echo "[]")
+            if [ "$(echo "$AFD_PROFILES_JSON" | jq 'length')" -eq 0 ]; then
+              echo "::warning::Azure CLI AFD profile list returned no profiles; trying generic ARM profile list"
+              AFD_PROFILES_JSON=$(az resource list \
+                --resource-type Microsoft.Cdn/profiles \
+                -o json 2>/dev/null || echo "[]")
+            fi
+            AFD_CONTRACT=$(resolve_front_door_contract_from_afd_cli true || true)
+            if [ -z "$AFD_CONTRACT" ]; then
+              AFD_CONTRACT=$(resolve_front_door_contract_from_afd_cli false || true)
+            fi
+            if [ -n "$AFD_CONTRACT" ]; then
+              IFS='|' read -r FRONT_DOOR_PROFILE_NAME TRUSTED_FRONT_DOOR_FDID TRUSTED_FRONT_DOOR_HOSTS <<< "$AFD_CONTRACT"
+            else
+              if [ "$(echo "$AFD_PROFILES_JSON" | jq 'length')" -gt 0 ]; then
+                echo "::warning::Unable to resolve Front Door contract from AFD CLI profiles; trying generic ARM discovery"
+              fi
+            fi
+          fi
+
           FRONT_DOOR_PROFILES_JSON=$(az resource list \
             --resource-type Microsoft.Cdn/profiles \
             -o json 2>/dev/null || echo "[]")
