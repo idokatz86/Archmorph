@@ -201,7 +201,9 @@ def test_redisstore_warning_logs_are_sanitized(monkeypatch, caplog):
         store.set("bad\rkey", {"v": 1})
         store.delete("bad\r\nkey")
 
-    warning_records = [r for r in caplog.records if r.levelname == "WARNING"]
+    warning_records = [
+        r for r in caplog.records if r.levelname == "WARNING" and r.name == "session_store"
+    ]
     assert len(warning_records) == 3
     for record in warning_records:
         message = record.getMessage()

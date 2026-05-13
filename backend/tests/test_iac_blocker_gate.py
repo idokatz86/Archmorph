@@ -212,8 +212,11 @@ def test_force_override_log_sanitizes_diagram_and_rule_ids(caplog):
     with caplog.at_level("WARNING", logger="routers.iac_routes"):
         _check_architecture_blockers("diag\r\nid", session, force=True)
 
-    assert len(caplog.records) == 1
-    message = caplog.records[0].getMessage()
+    warning_records = [
+        r for r in caplog.records if r.levelname == "WARNING" and r.name == "routers.iac_routes"
+    ]
+    assert len(warning_records) == 1
+    message = warning_records[0].getMessage()
     assert "\n" not in message
     assert "\r" not in message
     assert "diagid" in message
