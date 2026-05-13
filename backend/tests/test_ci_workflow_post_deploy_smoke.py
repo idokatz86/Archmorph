@@ -126,3 +126,22 @@ def test_backend_green_revision_smoke_checks_origin_lock_and_reuses_front_door_c
     assert 'DIRECT_ORIGIN_CODE=$(curl -sS -o direct-origin-response.json -w "%{http_code}"' in smoke_script
     assert 'echo "::error::Direct green revision origin-lock check returned HTTP ${DIRECT_ORIGIN_CODE}"' in smoke_script
     assert 'echo "Direct green revision access correctly blocked (${DIRECT_ORIGIN_CODE})"' in smoke_script
+    assert 'HEALTH_BODY=$(curl_health "$TEST_URL$HEALTH_PATH" || true)' in smoke_script
+    assert 'HEALTH_BODY="$HEALTH_BODY" HEALTH_RETRIES=1 HEALTH_RETRY_SECONDS=0 ./scripts/health_gate.sh' in smoke_script
+
+
+def test_backend_green_revision_deploy_wires_front_door_origin_lock_contract():
+    workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
+
+    deploy_step = next(
+        step
+        for step in workflow["jobs"]["deploy-backend"]["steps"]
+        if step.get("name") == "Deploy green revision"
+    )
+    deploy_script = deploy_step["run"]
+
+    assert "FRONT_DOOR_PROFILE_NAME=$(az afd profile list" in deploy_script
+    assert "TRUSTED_FRONT_DOOR_FDID=$(az afd profile show" in deploy_script
+    assert "TRUSTED_FRONT_DOOR_HOSTS=$(az afd endpoint list" in deploy_script
+    assert 'TRUSTED_FRONT_DOOR_FDID="$TRUSTED_FRONT_DOOR_FDID"' in deploy_script
+    assert 'TRUSTED_FRONT_DOOR_HOSTS="$TRUSTED_FRONT_DOOR_HOSTS"' in deploy_script

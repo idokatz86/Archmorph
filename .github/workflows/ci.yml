@@ -755,6 +755,29 @@ jobs:
       - name: Deploy green revision
         id: green
         run: |
+          FRONT_DOOR_PROFILE_NAME=$(az afd profile list \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --query "[?starts_with(name, 'archmorph-fd')].name | [0]" \
+            -o tsv 2>/dev/null || echo "")
+          if [ -z "$FRONT_DOOR_PROFILE_NAME" ]; then
+            echo "::error::Unable to resolve owned Azure Front Door profile for origin-lock contract"
+            exit 1
+          fi
+
+          TRUSTED_FRONT_DOOR_FDID=$(az afd profile show \
+            --profile-name "$FRONT_DOOR_PROFILE_NAME" \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --query resourceGuid -o tsv 2>/dev/null || echo "")
+          TRUSTED_FRONT_DOOR_HOSTS=$(az afd endpoint list \
+            --profile-name "$FRONT_DOOR_PROFILE_NAME" \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --query "[?starts_with(name, 'archmorph-api')].hostName | [0]" \
+            -o tsv 2>/dev/null || echo "")
+          if [ -z "$TRUSTED_FRONT_DOOR_FDID" ] || [ -z "$TRUSTED_FRONT_DOOR_HOSTS" ]; then
+            echo "::error::Unable to resolve Front Door FDID/hostname for origin-lock contract"
+            exit 1
+          fi
+
           az containerapp secret set \
             --name ${{ env.CONTAINER_APP_NAME }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
@@ -776,6 +799,8 @@ jobs:
             AZURE_OPENAI_API_VERSION="2025-04-01-preview"
             ACS_SENDER_EMAIL="${{ secrets.ACS_SENDER_EMAIL }}"
             WEB_CONCURRENCY="1"
+            TRUSTED_FRONT_DOOR_FDID="$TRUSTED_FRONT_DOOR_FDID"
+            TRUSTED_FRONT_DOOR_HOSTS="$TRUSTED_FRONT_DOOR_HOSTS"
           )
 
           if [ -n "${{ secrets.ACS_CONNECTION_STRING }}" ]; then
@@ -1092,7 +1117,16 @@ jobs:
             fi
           done
 
-          HEALTH_RETRIES=3 HEALTH_RETRY_SECONDS=15 HEALTH_API_KEY="$ARCHMORPH_API_KEY" ./scripts/health_gate.sh "$TEST_URL$HEALTH_PATH"
+          for attempt in 1 2 3; do
+            HEALTH_BODY=$(curl_health "$TEST_URL$HEALTH_PATH" || true)
+            if HEALTH_BODY="$HEALTH_BODY" HEALTH_RETRIES=1 HEALTH_RETRY_SECONDS=0 ./scripts/health_gate.sh; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              exit 1
+            fi
+            sleep 15
+          done
           VERSION=$(curl_health "$TEST_URL$HEALTH_PATH" | jq -r '.version' 2>/dev/null || echo 'unknown')
           echo "Green revision version: $VERSION — all smoke tests passed"
 
