@@ -1,0 +1,46 @@
+from pathlib import Path
+
+import yaml
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+WORKFLOW = REPO_ROOT / ".github" / "workflows" / "live-export-full-spine-smoke.yml"
+
+
+def _load() -> dict:
+    return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+
+
+def _step_by_name(steps: list[dict], name: str) -> dict:
+    for step in steps:
+        if step.get("name") == name:
+            return step
+    raise AssertionError(f'Expected workflow step "{name}"')
+
+
+def test_live_export_smoke_has_pull_request_path_filters_for_live_export_surfaces():
+    workflow = _load()
+    trigger = workflow.get("on", workflow.get(True))
+    paths = trigger["pull_request"]["paths"]
+
+    assert "backend/routers/**" in paths
+    assert "backend/**/*iac*.py" in paths
+    assert "backend/**/*hld*.py" in paths
+    assert "backend/**/*cost*.py" in paths
+    assert "backend/**/*auth*.py" in paths
+    assert "backend/**/*capab*.py" in paths
+    assert "frontend/src/**" in paths
+
+
+def test_live_export_smoke_runs_architecture_package_script_and_desktop_mobile_playwright():
+    workflow = _load()
+    steps = workflow["jobs"]["smoke"]["steps"]
+
+    package_step = _step_by_name(steps, "Run Architecture Package full-spine smoke")
+    assert package_step["run"] == "./scripts/architecture_package_smoke.sh"
+
+    playwright_step = _step_by_name(steps, "Run Live funnel hard-assertion smoke (desktop + mobile)")
+    run_script = playwright_step["run"]
+    assert "e2e/core-funnel.spec.ts" in run_script
+    assert '--project=chromium' in run_script
+    assert '--project=mobile-chromium' in run_script

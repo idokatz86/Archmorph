@@ -72,6 +72,7 @@ The supporting workflows should also be green or explicitly reviewed:
 - `Security Scanning`
 - `Backend Performance K6 Tests`
 - `Playwright Tests`
+- `Live Export Full-Spine Smoke` (required for PRs that touch Live export/IaC/HLD/cost/auth-capability/frontend export surfaces)
 - `E2E Health Monitoring`
 
 Generated artifact validation coverage is tracked in the [Generated Artifact Validation Matrix](GENERATED_ARTIFACT_VALIDATION_MATRIX.md). Review that matrix when a release changes Architecture Package, diagram, IaC, HLD, cost, or OpenAPI output behavior.

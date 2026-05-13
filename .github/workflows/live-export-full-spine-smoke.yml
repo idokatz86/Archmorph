@@ -1,0 +1,118 @@
+name: Live Export Full-Spine Smoke
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'backend/**/*export*.py'
+      - 'backend/**/*iac*.py'
+      - 'backend/**/*hld*.py'
+      - 'backend/**/*cost*.py'
+      - 'backend/**/*auth*.py'
+      - 'backend/**/*capab*.py'
+      - 'backend/routers/**'
+      - 'frontend/src/**'
+      - 'e2e/core-funnel.spec.ts'
+      - 'playwright.config.ts'
+      - 'scripts/architecture_package_smoke.sh'
+      - '.github/workflows/live-export-full-spine-smoke.yml'
+  merge_group:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-export-full-spine-smoke-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Use fallback environment variables
+        run: |
+          cp backend/.env.example backend/.env
+          {
+            echo "ARCHMORPH_API_KEY=test-api-key"
+            echo "ARCHMORPH_ADMIN_KEY=test-admin-key"
+            echo "ARCHMORPH_CI_SMOKE_MODE=1"
+            echo "ARCHMORPH_DISABLE_IAC_CLI_VALIDATION=1"
+            echo "ARCHMORPH_EXPORT_CAPABILITY_REQUIRED=false"
+          } >> backend/.env
+
+      - name: Install dependencies
+        run: npm ci --no-fund --no-audit || npm ci --no-fund --no-audit
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --no-fund --no-audit || npm ci --no-fund --no-audit
+
+      - name: Start application locally
+        run: |
+          docker compose up -d postgres redis backend
+          echo "Waiting for backend..."
+          for i in {1..30}; do curl -fsS http://127.0.0.1:8000/healthz > /dev/null && break || sleep 2; done
+          if ! curl -fsS http://127.0.0.1:8000/healthz > /dev/null; then
+            docker compose logs backend
+            exit 1
+          fi
+
+          echo "Waiting for frontend..."
+          (cd frontend && nohup env ARCHMORPH_PROXY_API_KEY=test-api-key npm run dev -- --host 0.0.0.0 > ../frontend-vite.log 2>&1 &)
+          npx wait-on http://127.0.0.1:5173 -t 120000 || { cat frontend-vite.log; exit 1; }
+          docker compose ps
+
+      - name: Run Architecture Package full-spine smoke
+        env:
+          API_URL: http://127.0.0.1:8000/api
+          FRONTEND_URL: http://127.0.0.1:5173
+          ARCHMORPH_API_KEY: test-api-key
+          ADMIN_KEY: test-admin-key
+          STRICT_FRESHNESS: false
+          ARTIFACT_ROOT: smoke-artifacts/architecture-package/${{ github.run_id }}
+        run: ./scripts/architecture_package_smoke.sh
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+
+      - name: Run Live funnel hard-assertion smoke (desktop + mobile)
+        env:
+          FRONTEND_URL: http://127.0.0.1:5173
+          API_BASE: http://127.0.0.1:8000/api
+          ADMIN_KEY: test-admin-key
+        run: |
+          npx wait-on http://127.0.0.1:5173 -t 60000
+          npx playwright test e2e/core-funnel.spec.ts \
+            -g "Core Funnel: Live full-spine smoke assertions" \
+            --project=chromium \
+            --project=mobile-chromium
+
+      - name: Dump docker logs on failure
+        if: failure()
+        run: |
+          docker compose logs backend
+          cat frontend-vite.log || true
+
+      - name: Upload full-spine smoke artifacts
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: live-export-full-spine-smoke-${{ github.run_id }}
+          path: |
+            smoke-artifacts/architecture-package/${{ github.run_id }}/
+            playwright-report/
+            test-results/
+          retention-days: 30
