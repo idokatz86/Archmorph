@@ -140,12 +140,15 @@ def test_backend_green_revision_deploy_wires_front_door_origin_lock_contract():
     )
     deploy_script = deploy_step["run"]
 
-    assert 'FRONT_DOOR_PROFILE_NAMES=$(az afd profile list' in deploy_script
-    assert 'candidate_host=$(az afd endpoint list' in deploy_script
-    assert "contains(name, 'api') || contains(hostName, 'api')" in deploy_script
+    assert 'FRONT_DOOR_PROFILES_JSON=$(az resource list' in deploy_script
+    assert '--resource-type Microsoft.Cdn/profiles' in deploy_script
+    assert '--resource-type Microsoft.Cdn/profiles/afdEndpoints' in deploy_script
+    assert 'candidate_host=$(echo "$FRONT_DOOR_ENDPOINTS_JSON" | jq' in deploy_script
+    assert 'contains("api")' in deploy_script
     assert 'if [ -z "$FRONT_DOOR_PROFILE_NAME" ]; then' in deploy_script
-    assert deploy_script.index("contains(name, 'api') || contains(hostName, 'api')") < deploy_script.index('if [ -z "$FRONT_DOOR_PROFILE_NAME" ]; then')
+    assert deploy_script.index('contains("api")') < deploy_script.index('if [ -z "$FRONT_DOOR_PROFILE_NAME" ]; then')
+    assert 'TRUSTED_FRONT_DOOR_FDID="$candidate_fdid"' in deploy_script
     assert 'TRUSTED_FRONT_DOOR_HOSTS="$candidate_host"' in deploy_script
-    assert "TRUSTED_FRONT_DOOR_FDID=$(az afd profile show" in deploy_script
+    assert deploy_script.count('if [ -n "$candidate_host" ] && [ -n "$candidate_fdid" ]; then') == 2
     assert 'TRUSTED_FRONT_DOOR_FDID="$TRUSTED_FRONT_DOOR_FDID"' in deploy_script
     assert 'TRUSTED_FRONT_DOOR_HOSTS="$TRUSTED_FRONT_DOOR_HOSTS"' in deploy_script
