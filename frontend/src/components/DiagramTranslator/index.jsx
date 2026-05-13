@@ -387,8 +387,14 @@ export default function DiagramTranslator() {
     }
   };
 
+  const clearSelectedUpload = useCallback(() => {
+    if (state.filePreviewUrl) URL.revokeObjectURL(state.filePreviewUrl);
+    set({ selectedFile: null, filePreviewUrl: null });
+  }, [set, state.filePreviewUrl]);
+
   const handleAddProjectDiagram = () => {
-    set({ step: 'upload', selectedFile: null, filePreviewUrl: null, iacCode: null, error: null, analysis: null });
+    clearSelectedUpload();
+    set({ step: 'upload', iacCode: null, error: null, analysis: null });
   };
 
   // ── Session auto-recovery: push cached analysis back to backend on 404 ──
@@ -1155,10 +1161,7 @@ export default function DiagramTranslator() {
           onDrop={handleDrop}
           onFileSelect={handleFileSelect}
           onUpload={handleUpload}
-          onRemoveFile={() => {
-            if (state.filePreviewUrl) URL.revokeObjectURL(state.filePreviewUrl);
-            set({ selectedFile: null, filePreviewUrl: null });
-          }}
+          onRemoveFile={clearSelectedUpload}
           onLoadSample={handleLoadSample}
         />
       )}

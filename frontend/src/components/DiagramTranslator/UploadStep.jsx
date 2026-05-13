@@ -2,6 +2,7 @@ import React from 'react';
 import { Upload, FileText, X, Building2, Globe2, Boxes, Network } from 'lucide-react';
 import { Badge, Button, Card } from '../ui';
 import { ContextualHint } from '../ContextualHint';
+import PdfPreviewPanel from './PdfPreviewPanel';
 
 const SAMPLES = [
   { id: 'aws-hub-spoke', name: 'Hub & Spoke', icon: Building2, desc: 'Secure Landing Zone', provider: 'aws' },
@@ -14,8 +15,10 @@ export default function UploadStep({
   dragOver, selectedFile, filePreviewUrl, fileInputRef,
   onDragOver, onDragLeave, onDrop, onFileSelect, onUpload, onRemoveFile, onLoadSample,
 }) {
+  const isPdf = !!selectedFile && (selectedFile.type === 'application/pdf' || /\.pdf$/i.test(selectedFile.name));
+
   return (
-    <Card className="p-12">
+    <Card className="p-6 pb-24 sm:p-12 sm:pb-12">
       <div className="text-center max-w-lg mx-auto">
 
         {/* Drag & Drop Zone */}
@@ -45,26 +48,29 @@ export default function UploadStep({
         >
           {/* File preview */}
           {selectedFile ? (
-            <div className="space-y-3">
-              {filePreviewUrl ? (
-                <img src={filePreviewUrl} alt="Preview" className="max-h-40 mx-auto rounded-lg border border-border object-contain" />
-              ) : (
-                <div className="w-16 h-16 rounded-2xl bg-cta/10 flex items-center justify-center mx-auto">
-                  <FileText className="w-8 h-8 text-cta" />
+            <div className="space-y-4">
+              <div className="space-y-3 rounded-xl border border-border bg-secondary/30 p-3 sm:p-4">
+                {filePreviewUrl ? (
+                  <img src={filePreviewUrl} alt="Preview" className="max-h-40 mx-auto rounded-lg border border-border object-contain" />
+                ) : (
+                  <div className="w-16 h-16 rounded-2xl bg-cta/10 flex items-center justify-center mx-auto">
+                    <FileText className="w-8 h-8 text-cta" />
+                  </div>
+                )}
+                <div>
+                  <p className="text-sm font-medium text-text-primary break-all">{selectedFile.name}</p>
+                  <p className="text-xs text-text-muted">{(selectedFile.size / 1024).toFixed(0)} KB</p>
                 </div>
-              )}
-              <div>
-                <p className="text-sm font-medium text-text-primary">{selectedFile.name}</p>
-                <p className="text-xs text-text-muted">{(selectedFile.size / 1024).toFixed(0)} KB</p>
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  <Button onClick={(e) => { e.stopPropagation(); onUpload(selectedFile); }} variant="primary" size="md" icon={Upload}>
+                    Analyze This Diagram
+                  </Button>
+                  <Button onClick={(e) => { e.stopPropagation(); onRemoveFile(); }} variant="ghost" size="sm" icon={X}>
+                    Remove
+                  </Button>
+                </div>
               </div>
-              <div className="flex items-center justify-center gap-2">
-                <Button onClick={(e) => { e.stopPropagation(); onUpload(selectedFile); }} variant="primary" size="md" icon={Upload}>
-                  Analyze This Diagram
-                </Button>
-                <Button onClick={(e) => { e.stopPropagation(); onRemoveFile(); }} variant="ghost" size="sm" icon={X}>
-                  Remove
-                </Button>
-              </div>
+              {isPdf ? <PdfPreviewPanel file={selectedFile} /> : null}
             </div>
           ) : (
             <>
