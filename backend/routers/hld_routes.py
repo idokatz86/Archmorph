@@ -10,7 +10,7 @@ import asyncio
 import base64
 import logging
 
-from routers.shared import SESSION_STORE, limiter, verify_api_key
+from routers.shared import SESSION_STORE, get_api_key_service_principal, limiter, verify_api_key
 from routers.samples import get_or_recreate_session
 from job_queue import job_manager
 from usage_metrics import record_event
@@ -249,7 +249,9 @@ async def generate_hld_async(
     """Start async HLD document generation. Returns 202 with job_id."""
     from auth import get_user_from_request_headers
 
-    user = get_user_from_request_headers(dict(request.headers))
+    headers = dict(request.headers)
+    user = get_user_from_request_headers(headers)
+    api_key_principal_id = get_api_key_service_principal(headers)
     session = get_or_recreate_session(diagram_id)
     if not session:
         raise ArchmorphException(404, "Your migration analysis session expired. Please re-analyze the diagram.")
@@ -267,6 +269,7 @@ async def generate_hld_async(
         diagram_id=diagram_id,
         owner_user_id=user.id if user else None,
         tenant_id=user.tenant_id if user else None,
+        owner_api_key_id=api_key_principal_id if not user else None,
     )
     asyncio.create_task(_run_hld_job(job.job_id, diagram_id))
 
@@ -370,7 +373,8 @@ async def export_migration_package(
         if isinstance(body, dict):
             iac_format = body.get("iac_format", "terraform")
             include_diagrams = body.get("include_diagrams", True)
-    except Exception:
+    except (json.JSONDecodeError, ValueError):
+        # Optional request body; treat malformed/absent JSON as defaults.
         pass
     if iac_format not in {"terraform", "bicep"}:
         raise ArchmorphException(422, "IaC format must be 'terraform' or 'bicep'.")

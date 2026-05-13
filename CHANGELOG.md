@@ -54,6 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### QA guardrails
 
+- **Async job queue production hardening** — async analyze/IaC/HLD jobs now persist ownership/state/event rings in shared store backends (Redis/File/InMemory), API-key-only flows get verifiable service-principal ownership, job status/stream/cancel/list honor that principal, and `/api/jobs/metrics/summary` exposes bounded queue/event-drop metrics.
 - **Cost assumptions artifact** — Architecture Package and cost-estimate flows now publish a reviewable assumptions JSON artifact with region/SKU/quantity/storage/data-transfer/reservation context, directional-cost notice, and missing-price warnings.
 - **Import endpoint security posture (#802)** — legacy Terraform, CloudFormation, and ARM import mutations now require the same API-key gate as the unified infrastructure import route; all import mutations share a 5/minute mutation budget and 10 MB payload ceiling, with regression tests covering anonymous 401s and valid-key parsing.
 - **SWA cookie-auth CSRF protection (#877)** — unsafe SWA/cookie-auth API requests now require `X-CSRF-Token` to match an `archmorph_csrf` cookie issued with `SameSite=Strict`, while Bearer-token and API-key automation flows remain unaffected. The frontend API client automatically supplies the double-submit token for internal POST/PUT/PATCH/DELETE calls.
