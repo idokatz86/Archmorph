@@ -44,3 +44,20 @@ def test_backend_readiness_accepts_azure_provisioned_state():
     assert '[ "$PROVISIONING_STATE" = "Provisioned" ]' in readiness_script
     assert '[ "$PROVISIONING_STATE" = "Succeeded" ]' in readiness_script
     assert '[ "$RUNNING_STATE" = "Running" ]' in readiness_script
+
+
+def test_backend_green_revision_healthz_is_retried_before_failure():
+    workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
+
+    smoke_step = next(
+        step
+        for step in workflow["jobs"]["deploy-backend"]["steps"]
+        if step.get("name") == "Smoke test green revision"
+    )
+    smoke_script = smoke_step["run"]
+
+    assert "for attempt in 1 2 3 4 5 6; do" in smoke_script
+    assert ": > healthz-response.json" in smoke_script
+    assert 'Green revision /healthz attempt ${attempt} returned HTTP ${HEALTHZ_CODE}' in smoke_script
+    assert 'if [ "$attempt" -lt 6 ]; then' in smoke_script
+    assert 'dump_green_revision_diagnostics "healthz-${HEALTHZ_CODE}"' in smoke_script
