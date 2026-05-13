@@ -1,0 +1,38 @@
+{
+  "title": "ActOne Production AWS Architecture",
+  "description": "Production ActOne/AVA workload with SFTP incoming bucket ingestion, AppStream user access, ALB HTTP ingress, RDS hot standby, EFS-backed pods, Kafka topics, Elasticsearch logs and business metrics.",
+  "source_provider": "aws",
+  "dr_mode": "active-active",
+  "architecture_patterns": ["production", "active-active", "multi-region"],
+  "regions": [
+    {"name": "eu-west-1", "role": "primary", "traffic_pct": 100},
+    {"name": "eu-central-1", "role": "secondary", "traffic_pct": 0}
+  ],
+  "identified_services": [
+    {"name": "SFTP Gateway", "category": "Ingress"},
+    {"name": "S3 Incoming Bucket", "category": "Storage"},
+    {"name": "AppStream 2.0", "category": "VDI"},
+    {"name": "Application Load Balancer", "category": "Networking"},
+    {"name": "RDS", "category": "Database"},
+    {"name": "EFS Shared Filesystem", "category": "Storage"},
+    {"name": "MSK Kafka Topics", "category": "Streaming"},
+    {"name": "Elasticsearch Cluster", "category": "Analytics"},
+    {"name": "CloudWatch Container Insights", "category": "Operations"}
+  ],
+  "mappings": [
+    {"source_service": "S3", "azure_service": "Azure Blob Storage", "category": "Storage", "confidence": 0.9},
+    {"source_service": "AppStream 2.0", "azure_service": "Manual mapping required", "category": "End User Computing", "confidence": 0.55},
+    {"source_service": "ALB", "azure_service": "Application Gateway", "category": "Networking", "confidence": 0.9},
+    {"source_service": "RDS", "azure_service": "Azure SQL Database", "category": "Database", "confidence": 0.9},
+    {"source_service": "EFS", "azure_service": "Azure Files", "category": "Storage", "confidence": 0.88},
+    {"source_service": "MSK", "azure_service": "Azure Event Hubs", "category": "Streaming", "confidence": 0.84},
+    {"source_service": "Elasticsearch", "azure_service": "Azure AI Search", "category": "Analytics", "confidence": 0.78}
+  ],
+  "service_connections": [
+    {"from": "SFTP Gateway", "to": "S3 Incoming Bucket", "type": "SFTP"},
+    {"from": "Application Load Balancer", "to": "ActOne API", "type": "HTTPS"},
+    {"from": "Application Load Balancer", "to": "AVA API", "type": "HTTPS"},
+    {"from": "ActOne API", "to": "RDS", "type": "TCP/5432"},
+    {"from": "ActOne API", "to": "MSK Kafka Topics", "type": "Kafka"}
+  ]
+}

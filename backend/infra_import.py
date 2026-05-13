@@ -269,7 +269,7 @@ SERVICE_TO_AZURE: Dict[str, Tuple[str, float]] = {
     "EFS": ("Azure Files", 0.90),
     "FSx": ("Azure NetApp Files", 0.85),
     "Glacier": ("Azure Archive Storage", 0.95),
-    "RDS": ("Azure SQL Database", 0.90),
+    "RDS": ("Engine-specific target required (Azure SQL / PostgreSQL / MySQL)", 0.55),
     "Aurora": ("Azure Database for PostgreSQL", 0.85),
     "DynamoDB": ("Azure Cosmos DB", 0.90),
     "ElastiCache": ("Azure Cache for Redis", 0.90),
@@ -582,7 +582,13 @@ def _build_analysis(
         azure_service, confidence = azure_info
 
         # Build confidence explanation
-        if svc_name in SERVICE_TO_AZURE:
+        if svc_name == "RDS":
+            conf_explanation = [
+                "RDS detected without explicit engine identification",
+                "Target remains unresolved until engine is confirmed (PostgreSQL/MySQL/SQL Server/etc.)",
+                f"Source: infrastructure-as-code import ({source_format})",
+            ]
+        elif svc_name in SERVICE_TO_AZURE:
             conf_explanation = [
                 f"Curated mapping confidence: {int(confidence * 100)}% — based on verified cross-cloud service equivalence",
                 f"Source: infrastructure-as-code import ({source_format})",

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -22,6 +23,8 @@ from architecture_rules import (  # noqa: E402
 )
 from architecture_rules import predicates as preds  # noqa: E402
 from architecture_rules import engine as engine_mod  # noqa: E402
+
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
 
 # ---------------------------------------------------------------------------
@@ -257,6 +260,15 @@ def frontdoor_private_origin_analysis():
             {"from": "Azure Front Door", "to": "Private Endpoint", "type": "HTTPS"},
         ],
     }
+
+
+@pytest.fixture
+def actone_engine_protocol_analysis():
+    return json.loads(
+        (FIXTURES / "actone_engine_protocol_decisions.json").read_text(
+            encoding="utf-8"
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -694,6 +706,29 @@ class TestPhase3RulePack:
         assert "premium-edge-cost-acknowledgement-info" not in _rule_ids(
             sane_web_analysis
         )
+
+
+class TestActOneEngineProtocolRulePack:
+    def test_actone_fixture_fires_engine_protocol_decision_blockers(
+        self, actone_engine_protocol_analysis
+    ):
+        ids = _rule_ids(actone_engine_protocol_analysis)
+        assert {
+            "sftp-s3-ingestion-decision-blocker",
+            "appstream-target-decision-blocker",
+            "alb-l7-ingress-decision-blocker",
+            "rds-engine-identification-blocker",
+            "kafka-compatibility-path-blocker",
+            "efs-filesystem-choice-blocker",
+            "elasticsearch-workload-classification-blocker",
+            "active-active-traffic-split-ambiguity-warning",
+        }.issubset(ids)
+
+    def test_actone_fixture_keeps_iac_gate_blocked(
+        self, actone_engine_protocol_analysis
+    ):
+        issues = evaluate(actone_engine_protocol_analysis)
+        assert has_blocker(issues) is True
 
 
 # ---------------------------------------------------------------------------

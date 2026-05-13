@@ -20,6 +20,7 @@ Authoring guidance:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import re
 from typing import Any, Callable, Dict, List, Optional
 
 
@@ -94,9 +95,12 @@ def _services_in_analysis(analysis: Dict[str, Any]) -> List[str]:
 
     for m in analysis.get("mappings") or []:
         if isinstance(m, dict):
-            n = m.get("azure_service") or m.get("source_service")
-            if isinstance(n, str):
-                out.append(n)
+            source = m.get("source_service")
+            target = m.get("azure_service") or m.get("target")
+            if isinstance(source, str):
+                out.append(source)
+            if isinstance(target, str):
+                out.append(target)
 
     return out
 
@@ -459,3 +463,70 @@ def path_uses_service_with_protocol_mismatch(
                 )
 
     return None
+
+
+@register_predicate("active_active_with_failover_traffic_split")
+def active_active_with_failover_traffic_split(
+    analysis: Dict[str, Any],
+) -> Optional[PredicateMatch]:
+    """Detect active-active labels mixed with failover-style 100/0 traffic splits."""
+    services = _services_in_analysis(analysis)
+    patterns = analysis.get("architecture_patterns") or []
+    dr_mode = str(analysis.get("dr_mode", "")).lower()
+    active_active_signal = "active-active" in dr_mode or any(
+        "active-active" in str(p).lower() for p in patterns
+    ) or any("active-active" in _normalize(s) for s in services)
+    if not active_active_signal:
+        return None
+
+    regions = analysis.get("regions") or []
+    percentages: List[float] = []
+    region_names: List[str] = []
+    if isinstance(regions, list):
+        for r in regions:
+            if not isinstance(r, dict):
+                continue
+            name = r.get("name")
+            if isinstance(name, str) and name:
+                region_names.append(name)
+            pct = r.get("traffic_pct")
+            if isinstance(pct, (int, float)):
+                percentages.append(float(pct))
+            elif isinstance(pct, str):
+                numeric = re.sub(r"[^0-9.]", "", pct)
+                if numeric:
+                    try:
+                        percentages.append(float(numeric))
+                    except ValueError:
+                        pass
+
+    if not percentages:
+        blob = " ".join(
+            [
+                str(analysis.get("description", "")),
+                str(analysis.get("title", "")),
+                " ".join(services),
+            ]
+        ).lower()
+        if "100/0" in blob or "100 0" in blob:
+            return PredicateMatch(
+                affected_services=region_names,
+                evidence={
+                    "dr_mode": analysis.get("dr_mode"),
+                    "traffic_split": "100/0",
+                },
+            )
+        return None
+
+    has_primary_like = any(p >= 90 for p in percentages)
+    has_standby_like = any(p <= 10 for p in percentages)
+    if not (has_primary_like and has_standby_like):
+        return None
+
+    return PredicateMatch(
+        affected_services=region_names,
+        evidence={
+            "dr_mode": analysis.get("dr_mode"),
+            "traffic_percentages": percentages,
+        },
+    )
