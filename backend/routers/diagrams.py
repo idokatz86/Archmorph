@@ -542,10 +542,10 @@ async def _run_analysis_job(job_id: str, diagram_id: str) -> None:
         result["diagram_id"] = diagram_id
         result["image_classification"] = classification
 
-        job_owner = job_manager.get(job_id)
-        job_user_id = getattr(job_owner, "owner_user_id", None)
-        job_tenant_id = getattr(job_owner, "tenant_id", None)
-        job_api_principal_id = getattr(job_owner, "owner_api_key_id", None)
+        job_record = job_manager.get(job_id)
+        job_user_id = getattr(job_record, "owner_user_id", None)
+        job_tenant_id = getattr(job_record, "tenant_id", None)
+        job_api_principal_id = getattr(job_record, "owner_api_key_id", None)
         if job_user_id and job_tenant_id:
             result["_owner_user_id"] = job_user_id
             result["_tenant_id"] = job_tenant_id

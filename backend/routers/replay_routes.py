@@ -202,16 +202,17 @@ async def list_replays(
         key=lambda r: r.get("created_at", 0),
         reverse=True,
     )
-    if user:
-        all_replays = [
-            replay for replay in all_replays
-            if replay.get("owner_user_id") == user.id and replay.get("tenant_id") == user.tenant_id
-        ]
-    else:
-        all_replays = [
-            replay for replay in all_replays
-            if replay.get("owner_api_key_id") == api_key_principal_id
-        ]
+    authorized_replays = []
+    for replay in all_replays:
+        replay_id = replay.get("replay_id")
+        if not replay_id:
+            continue
+        try:
+            require_replay_access(request, replay_id)
+        except ArchmorphException:
+            continue
+        authorized_replays.append(replay)
+    all_replays = authorized_replays
     start = (page - 1) * limit
     page_items = all_replays[start : start + limit]
 

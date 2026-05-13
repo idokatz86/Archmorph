@@ -195,6 +195,12 @@ def require_diagram_access(
         owner_user_id = session.get("_owner_user_id")
         tenant_id = session.get("_tenant_id")
         if not owner_user_id or not tenant_id:
+            logger.debug(
+                "deny_diagram_access_missing_user_metadata diagram_id=%s owner=%s tenant=%s",
+                diagram_id,
+                bool(owner_user_id),
+                bool(tenant_id),
+            )
             raise ArchmorphException(404, "Diagram not found")
         if owner_user_id != user.id or tenant_id != user.tenant_id:
             raise ArchmorphException(404, "Diagram not found")
@@ -206,6 +212,11 @@ def require_diagram_access(
 
     owner_api_key_id = session.get("_owner_api_key_id")
     if not owner_api_key_id or owner_api_key_id != api_key_principal_id:
+        logger.debug(
+            "deny_diagram_access_missing_api_principal diagram_id=%s owner_api_key=%s",
+            diagram_id,
+            bool(owner_api_key_id),
+        )
         raise ArchmorphException(404, "Diagram not found")
     return session
 
