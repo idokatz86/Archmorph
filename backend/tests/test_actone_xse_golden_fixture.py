@@ -97,16 +97,16 @@ class TestFixtureSchema:
 class TestExpectedDetections:
     @pytest.mark.parametrize("expected_service", EXPECTED["source_services"])
     def test_expected_source_service_in_source_topology(self, expected_service: str):
-        """Every P0 source service must appear in source_topology components."""
-        all_names_and_types = _component_names() + _component_service_types()
-        assert any(expected_service in entry for entry in all_names_and_types), (
+        """Every P0 source service must appear in source_topology components (exact match)."""
+        all_names_and_types = set(_component_names()) | set(_component_service_types())
+        assert expected_service in all_names_and_types, (
             f"Expected source service '{expected_service}' not found in source_topology components"
         )
 
     @pytest.mark.parametrize("expected_service", EXPECTED["source_services"])
     def test_expected_source_service_has_mapping(self, expected_service: str):
-        """Every P0 source service must have a corresponding mapping entry."""
-        assert any(expected_service in src for src in _mapping_source_services()), (
+        """Every P0 source service must have a corresponding mapping entry (exact match)."""
+        assert expected_service in set(_mapping_source_services()), (
             f"Expected source service '{expected_service}' has no mapping entry"
         )
 
@@ -115,13 +115,14 @@ class TestExpectedDetections:
         assert "flow-sftp-s3" in flow_ids
 
     def test_albs_both_detected(self):
-        alb_components = [c for c in SOURCE_TOPOLOGY["components"] if "load balancer" in c["service_type"].lower() or "alb" in c["id"].lower()]
+        # Identify ALBs by category to avoid fragile substring matching on service_type or id
+        alb_components = [c for c in SOURCE_TOPOLOGY["components"] if c.get("category") == "LoadBalancer"]
         assert len(alb_components) >= 2, "Expected at least two ALB entries (frontend and internal)"
 
     def test_multi_az_services_annotated(self):
-        multi_az_components = {c["service_type"] for c in SOURCE_TOPOLOGY["components"] if c.get("multi_az") is True}
+        multi_az_types = {c["service_type"] for c in SOURCE_TOPOLOGY["components"] if c.get("multi_az") is True}
         for service in EXPECTED["multi_az_services"]:
-            assert any(service in st for st in multi_az_components), (
+            assert service in multi_az_types, (
                 f"Multi-AZ service '{service}' not annotated with multi_az=true in source_topology"
             )
 
@@ -143,20 +144,22 @@ class TestExpectedDetections:
 class TestCustomWorkloadPreservation:
     @pytest.mark.parametrize("workload_name", EXPECTED["custom_workload_names"])
     def test_custom_workload_preserved_by_original_name_in_source_topology(self, workload_name: str):
-        """Custom workloads must appear in source_topology under their original names."""
-        assert any(workload_name in c["name"] for c in SOURCE_TOPOLOGY["components"]), (
+        """Custom workloads must appear in source_topology under their original names (exact name match)."""
+        assert any(c["name"] == workload_name for c in SOURCE_TOPOLOGY["components"]), (
             f"Custom workload '{workload_name}' not found in source_topology components"
         )
 
-    @pytest.mark.parametrize("workload_name", ["ActOne", "AVA", "UDM", "IR", "CMaaS", "DataExtract"])
+    # XSight is intentionally omitted here because it is a custom observability integration,
+    # not a pod, and is asserted separately in test_xsight_preserved_and_has_unresolved_blocker.
+    @pytest.mark.parametrize("workload_name", [w for w in EXPECTED["custom_workload_names"] if w != "XSight"])
     def test_custom_pod_not_forced_into_wrong_azure_service(self, workload_name: str):
         """Custom pods must retain their original name in the azure_service field rather than being silently mapped to a generic Azure service."""
         matching_mappings = [m for m in GOLDEN["mappings"] if m["source_service"] == workload_name]
         assert matching_mappings, f"No mapping entry found for custom workload '{workload_name}'"
         for mapping in matching_mappings:
             azure_svc = mapping["azure_service"]
-            # Must preserve the original name — not silently replaced
-            assert workload_name in azure_svc, (
+            # Must preserve the original name at the start of the azure_service field
+            assert azure_svc.startswith(workload_name), (
                 f"Custom workload '{workload_name}' was silently dropped or renamed in azure_service: '{azure_svc}'"
             )
             # Confidence must be 0 when there is no resolved mapping
@@ -248,7 +251,7 @@ class TestSourceToTargetTraceability:
             assert svc in resolved_azure, f"Expected resolved Azure service '{svc}' not in traceability map entries"
 
     def test_custom_workloads_have_zero_confidence_in_mappings(self):
-        custom_workloads = ["ActOne", "AVA", "UDM", "IR", "CMaaS", "DataExtract", "XSight"]
+        custom_workloads = set(EXPECTED["custom_workload_names"])
         for mapping in GOLDEN["mappings"]:
             if mapping["source_service"] in custom_workloads:
                 assert mapping["confidence"] == 0.0, (
@@ -257,7 +260,7 @@ class TestSourceToTargetTraceability:
 
     def test_all_resolved_mappings_have_positive_confidence(self):
         """Non-custom mappings must have confidence > 0.5 to be meaningful."""
-        custom_workloads = {"ActOne", "AVA", "UDM", "IR", "CMaaS", "DataExtract", "XSight"}
+        custom_workloads = set(EXPECTED["custom_workload_names"])
         for mapping in GOLDEN["mappings"]:
             if mapping["source_service"] not in custom_workloads:
                 assert mapping["confidence"] > 0.5, (
