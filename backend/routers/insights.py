@@ -35,7 +35,7 @@ router = APIRouter()
 # ─────────────────────────────────────────────────────────────
 @router.get("/api/diagrams/{diagram_id}/cost-estimate")
 @limiter.limit("15/minute")
-async def estimate_cost(request: Request, diagram_id: str):
+async def estimate_cost(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
     """Estimate monthly Azure costs for the analysed architecture."""
     record_event("cost_estimates", {"diagram_id": diagram_id})
 
@@ -73,7 +73,7 @@ async def estimate_cost(request: Request, diagram_id: str):
 # ─────────────────────────────────────────────────────────────
 @router.get("/api/diagrams/{diagram_id}/cost-breakdown")
 @limiter.limit("15/minute")
-async def cost_breakdown(request: Request, diagram_id: str):
+async def cost_breakdown(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
     """Return enriched cost data for the Pricing tab.
 
     Includes per-service formula, assumptions, alternative SKUs,
@@ -254,7 +254,7 @@ async def cost_breakdown(request: Request, diagram_id: str):
 # ─────────────────────────────────────────────────────────────
 @router.get("/api/diagrams/{diagram_id}/cost-optimization")
 @limiter.limit("15/minute")
-async def get_cost_optimization(request: Request, diagram_id: str):
+async def get_cost_optimization(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
     """Get cost optimization recommendations for the architecture."""
     analysis = get_or_recreate_session(diagram_id)
     if not analysis:

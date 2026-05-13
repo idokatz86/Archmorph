@@ -1,5 +1,5 @@
 {
   "approved_by": "api-contract-maintainers",
-  "review_url": "https://github.com/idokatz86/Archmorph/pull/999",
-  "reason": "PR #999 intentionally removes accidental double-prefixed /api/v1/api/* OpenAPI aliases while preserving the intended /api/* and /api/v1/* route contract."
+  "review_url": "https://github.com/idokatz86/Archmorph/pull/1018",
+  "reason": "PR #1018 intentionally tightens sensitive route contracts by adding API-key requirements for artifact/session read-write routes and admin bearer requirements for deployment execution and AI suggestion administration."
 }

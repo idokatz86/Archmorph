@@ -3,10 +3,10 @@ from error_envelope import ArchmorphException
 Architecture Versioning routes (v2.9.0).
 """
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from typing import Optional
 
-from routers.shared import SESSION_STORE, limiter
+from routers.shared import SESSION_STORE, limiter, verify_api_key
 from versioning import (
     create_version, get_version_history, get_version,
     restore_version, compare_versions,
@@ -17,7 +17,12 @@ router = APIRouter()
 
 @router.post("/api/diagrams/{diagram_id}/versions")
 @limiter.limit("10/minute")
-async def create_version_endpoint(request: Request, diagram_id: str, message: Optional[str] = None):
+async def create_version_endpoint(
+    request: Request,
+    diagram_id: str,
+    message: Optional[str] = None,
+    _auth=Depends(verify_api_key),
+):
     """Create a new version of an architecture analysis."""
     analysis = SESSION_STORE.get(diagram_id)
     if not analysis:
@@ -34,14 +39,19 @@ async def create_version_endpoint(request: Request, diagram_id: str, message: Op
 
 @router.get("/api/diagrams/{diagram_id}/versions")
 @limiter.limit("30/minute")
-async def get_version_history_endpoint(request: Request, diagram_id: str):
+async def get_version_history_endpoint(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
     """Get version history for a diagram."""
     return get_version_history(diagram_id)
 
 
 @router.get("/api/diagrams/{diagram_id}/versions/{version_number}")
 @limiter.limit("30/minute")
-async def get_version_endpoint(request: Request, diagram_id: str, version_number: int):
+async def get_version_endpoint(
+    request: Request,
+    diagram_id: str,
+    version_number: int,
+    _auth=Depends(verify_api_key),
+):
     """Get a specific version of an architecture."""
     version = get_version(diagram_id, version_number)
     if not version:
@@ -52,7 +62,12 @@ async def get_version_endpoint(request: Request, diagram_id: str, version_number
 
 @router.post("/api/diagrams/{diagram_id}/versions/{version_number}/restore")
 @limiter.limit("10/minute")
-async def restore_version_endpoint(request: Request, diagram_id: str, version_number: int):
+async def restore_version_endpoint(
+    request: Request,
+    diagram_id: str,
+    version_number: int,
+    _auth=Depends(verify_api_key),
+):
     """Restore a previous version, creating a new version from it."""
     snapshot = restore_version(diagram_id, version_number)
     if not snapshot:
@@ -71,6 +86,7 @@ async def compare_versions_endpoint(
     diagram_id: str,
     v1: int = Query(..., description="First version number"),
     v2: int = Query(..., description="Second version number"),
+    _auth=Depends(verify_api_key),
 ):
     """Compare two versions of an architecture."""
     return compare_versions(diagram_id, v1, v2)
