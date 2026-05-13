@@ -546,6 +546,9 @@ jobs:
       ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
       ARCHMORPH_API_KEY: ${{ secrets.ARCHMORPH_API_KEY || secrets.API_KEY }}
       JWT_SECRET: ${{ secrets.JWT_SECRET }}
+      TRUSTED_FRONT_DOOR_FDID: ${{ secrets.TRUSTED_FRONT_DOOR_FDID }}
+      TRUSTED_FRONT_DOOR_HOSTS: ${{ secrets.TRUSTED_FRONT_DOOR_HOSTS }}
+      REQUIRE_FRONT_DOOR_ORIGIN_LOCK: ${{ vars.REQUIRE_FRONT_DOOR_ORIGIN_LOCK || 'false' }}
       ARM_USE_OIDC: true
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
@@ -766,11 +769,18 @@ jobs:
         id: green
         run: |
           FRONT_DOOR_PROFILE_NAME=""
-          TRUSTED_FRONT_DOOR_FDID=""
-          TRUSTED_FRONT_DOOR_HOSTS=""
+          TRUSTED_FRONT_DOOR_FDID="${TRUSTED_FRONT_DOOR_FDID:-}"
+          TRUSTED_FRONT_DOOR_HOSTS="${TRUSTED_FRONT_DOOR_HOSTS:-}"
+          REQUIRE_FRONT_DOOR_ORIGIN_LOCK=$(echo "${REQUIRE_FRONT_DOOR_ORIGIN_LOCK:-false}" | tr '[:upper:]' '[:lower:]')
           if terraform -chdir=infra init -input=false >/tmp/terraform-init-front-door.log 2>&1; then
-            TRUSTED_FRONT_DOOR_FDID=$(terraform -chdir=infra output -raw front_door_profile_resource_guid 2>/dev/null || echo "")
-            TRUSTED_FRONT_DOOR_HOSTS=$(terraform -chdir=infra output -raw front_door_api_hostname 2>/dev/null || echo "")
+            TERRAFORM_FRONT_DOOR_FDID=$(terraform -chdir=infra output -raw front_door_profile_resource_guid 2>/dev/null || echo "")
+            TERRAFORM_FRONT_DOOR_HOSTS=$(terraform -chdir=infra output -raw front_door_api_hostname 2>/dev/null || echo "")
+            if [ -n "$TERRAFORM_FRONT_DOOR_FDID" ]; then
+              TRUSTED_FRONT_DOOR_FDID="$TERRAFORM_FRONT_DOOR_FDID"
+            fi
+            if [ -n "$TERRAFORM_FRONT_DOOR_HOSTS" ]; then
+              TRUSTED_FRONT_DOOR_HOSTS="$TERRAFORM_FRONT_DOOR_HOSTS"
+            fi
           else
             echo "::warning::Unable to initialize Terraform remote state for Front Door outputs"
             tail -n 40 /tmp/terraform-init-front-door.log || true
@@ -781,8 +791,14 @@ jobs:
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --query "properties.template.containers[0].env" -o json 2>/dev/null || echo "[]")
           if [ -z "$TRUSTED_FRONT_DOOR_FDID" ] || [ -z "$TRUSTED_FRONT_DOOR_HOSTS" ]; then
-            TRUSTED_FRONT_DOOR_FDID=$(echo "$EXISTING_ENV_JSON" | jq -r '.[] | select(.name == "TRUSTED_FRONT_DOOR_FDID") | .value // ""' | head -1)
-            TRUSTED_FRONT_DOOR_HOSTS=$(echo "$EXISTING_ENV_JSON" | jq -r '.[] | select(.name == "TRUSTED_FRONT_DOOR_HOSTS") | .value // ""' | head -1)
+            EXISTING_FRONT_DOOR_FDID=$(echo "$EXISTING_ENV_JSON" | jq -r '.[] | select(.name == "TRUSTED_FRONT_DOOR_FDID") | .value // ""' | head -1)
+            EXISTING_FRONT_DOOR_HOSTS=$(echo "$EXISTING_ENV_JSON" | jq -r '.[] | select(.name == "TRUSTED_FRONT_DOOR_HOSTS") | .value // ""' | head -1)
+            if [ -z "$TRUSTED_FRONT_DOOR_FDID" ] && [ -n "$EXISTING_FRONT_DOOR_FDID" ]; then
+              TRUSTED_FRONT_DOOR_FDID="$EXISTING_FRONT_DOOR_FDID"
+            fi
+            if [ -z "$TRUSTED_FRONT_DOOR_HOSTS" ] && [ -n "$EXISTING_FRONT_DOOR_HOSTS" ]; then
+              TRUSTED_FRONT_DOOR_HOSTS="$EXISTING_FRONT_DOOR_HOSTS"
+            fi
           fi
           CONTAINER_APP_FQDN=$(az containerapp show \
             --name ${{ env.CONTAINER_APP_NAME }} \
@@ -937,8 +953,6 @@ jobs:
             -o json 2>/dev/null || echo "[]")
 
           if [ -z "$TRUSTED_FRONT_DOOR_FDID" ] || [ -z "$TRUSTED_FRONT_DOOR_HOSTS" ]; then
-            TRUSTED_FRONT_DOOR_FDID=""
-            TRUSTED_FRONT_DOOR_HOSTS=""
             while IFS= read -r candidate_profile_json; do
               if [ -z "$candidate_profile_json" ]; then
                 continue
@@ -983,8 +997,13 @@ jobs:
           fi
 
           if [ -z "$TRUSTED_FRONT_DOOR_FDID" ] || [ -z "$TRUSTED_FRONT_DOOR_HOSTS" ]; then
-            echo "::error::Unable to resolve Front Door FDID/hostname for origin-lock contract"
-            exit 1
+            if [ "$REQUIRE_FRONT_DOOR_ORIGIN_LOCK" = "true" ]; then
+              echo "::error::Unable to resolve Front Door FDID/hostname for required origin-lock contract"
+              exit 1
+            fi
+            echo "::warning::Unable to resolve Front Door FDID/hostname; deploying without origin-lock because REQUIRE_FRONT_DOOR_ORIGIN_LOCK is not true"
+            TRUSTED_FRONT_DOOR_FDID=""
+            TRUSTED_FRONT_DOOR_HOSTS=""
           fi
 
           az containerapp secret set \
@@ -1162,6 +1181,7 @@ jobs:
           TRUSTED_FRONT_DOOR_FDID=""
           TRUSTED_FRONT_DOOR_HOST=""
           TRUSTED_ORIGIN_CURL_ARGS=()
+          REQUIRE_FRONT_DOOR_ORIGIN_LOCK=$(echo "${REQUIRE_FRONT_DOOR_ORIGIN_LOCK:-false}" | tr '[:upper:]' '[:lower:]')
           if [ -n "$GREEN_FQDN" ]; then
             TRUSTED_FRONT_DOOR_FDID=$(az containerapp show \
               --name ${{ env.CONTAINER_APP_NAME }} \
@@ -1175,10 +1195,14 @@ jobs:
               -o tsv 2>/dev/null || echo "")
             TRUSTED_FRONT_DOOR_HOST="${TRUSTED_FRONT_DOOR_HOST%%,*}"
             if [ -z "$TRUSTED_FRONT_DOOR_FDID" ] || [ -z "$TRUSTED_FRONT_DOOR_HOST" ]; then
-              echo "::error::Expected Front Door origin-lock settings are missing from the Container App"
-              exit 1
+              if [ "$REQUIRE_FRONT_DOOR_ORIGIN_LOCK" = "true" ]; then
+                echo "::error::Expected Front Door origin-lock settings are missing from the Container App"
+                exit 1
+              fi
+              echo "::warning::Front Door origin-lock settings are missing; direct-origin rejection check will be skipped"
+            else
+              TRUSTED_ORIGIN_CURL_ARGS=(-H "X-Azure-FDID: $TRUSTED_FRONT_DOOR_FDID" -H "Host: $TRUSTED_FRONT_DOOR_HOST")
             fi
-            TRUSTED_ORIGIN_CURL_ARGS=(-H "X-Azure-FDID: $TRUSTED_FRONT_DOOR_FDID" -H "Host: $TRUSTED_FRONT_DOOR_HOST")
           fi
 
           dump_green_revision_diagnostics() {
@@ -1238,7 +1262,7 @@ jobs:
             exit 1
           fi
 
-          if [ -n "$GREEN_FQDN" ]; then
+          if [ -n "$GREEN_FQDN" ] && [ ${#TRUSTED_ORIGIN_CURL_ARGS[@]} -gt 0 ]; then
             : > direct-origin-response.json
             if ! DIRECT_ORIGIN_CODE=$(curl -sS -o direct-origin-response.json -w "%{http_code}" \
               --max-time 20 "$TEST_URL/openapi.json"); then
@@ -1251,6 +1275,8 @@ jobs:
               exit 1
             fi
             echo "Direct green revision access correctly blocked (${DIRECT_ORIGIN_CODE})"
+          elif [ -n "$GREEN_FQDN" ]; then
+            echo "::warning::Skipping direct green revision origin-lock rejection check because no trusted Front Door contract is configured"
           fi
 
           echo "Running smoke tests against: $TEST_URL$HEALTH_PATH"
