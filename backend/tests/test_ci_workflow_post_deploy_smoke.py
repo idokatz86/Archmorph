@@ -32,6 +32,22 @@ def test_backend_deploy_wires_jwt_secret_to_container_app_revision():
     assert "2>/dev/null || true" not in deploy_script
 
 
+def test_backend_deploy_can_read_terraform_front_door_outputs():
+    workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
+
+    deploy_job = workflow["jobs"]["deploy-backend"]
+    assert deploy_job["env"]["ARM_USE_OIDC"] is True
+    assert deploy_job["env"]["ARM_CLIENT_ID"] == "${{ secrets.AZURE_CLIENT_ID }}"
+    assert deploy_job["env"]["ARM_TENANT_ID"] == "${{ secrets.AZURE_TENANT_ID }}"
+    assert deploy_job["env"]["ARM_SUBSCRIPTION_ID"] == "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
+    assert any(
+        step.get("name") == "Set up Terraform"
+        and step.get("uses") == "hashicorp/setup-terraform@v4"
+        and step.get("with", {}).get("terraform_wrapper") is False
+        for step in deploy_job["steps"]
+    )
+
+
 def test_backend_deploy_uses_distinct_api_key_secret_reference():
     workflow_text = CI_WORKFLOW.read_text(encoding="utf-8")
     workflow = yaml.safe_load(workflow_text)
@@ -140,6 +156,9 @@ def test_backend_green_revision_deploy_wires_front_door_origin_lock_contract():
     )
     deploy_script = deploy_step["run"]
 
+    assert 'terraform -chdir=infra init -input=false' in deploy_script
+    assert 'terraform -chdir=infra output -raw front_door_profile_resource_guid' in deploy_script
+    assert 'terraform -chdir=infra output -raw front_door_api_hostname' in deploy_script
     assert 'EXISTING_ENV_JSON=$(az containerapp show' in deploy_script
     assert 'select(.name == "TRUSTED_FRONT_DOOR_FDID")' in deploy_script
     assert 'select(.name == "TRUSTED_FRONT_DOOR_HOSTS")' in deploy_script
