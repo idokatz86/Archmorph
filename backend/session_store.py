@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any, List, Optional
 
 from cachetools import TTLCache
+from log_sanitizer import safe
 
 logger = logging.getLogger(__name__)
 
@@ -427,7 +428,7 @@ class RedisStore(SessionStore):
         try:
             raw = redis_breaker.call(self._redis.get, self._key(key))
         except Exception as exc:
-            logger.warning("Redis GET failed for '%s': %s — returning default", key, exc)
+            logger.warning("Redis GET failed for '%s': %s — returning default", safe(key), safe(exc))
             return default
         if raw is None:
             return default
@@ -447,14 +448,14 @@ class RedisStore(SessionStore):
             payload = self._json.dumps(value, default=str)
             redis_breaker.call(self._redis.setex, self._key(key), ttl or self._ttl, payload)
         except Exception as exc:
-            logger.warning("Redis SET failed for '%s': %s — data not persisted", key, exc)
+            logger.warning("Redis SET failed for '%s': %s — data not persisted", safe(key), safe(exc))
 
     def delete(self, key: str) -> None:
         from circuit_breakers import redis_breaker
         try:
             redis_breaker.call(self._redis.delete, self._key(key))
         except Exception as exc:
-            logger.warning("Redis DELETE failed for '%s': %s", key, exc)
+            logger.warning("Redis DELETE failed for '%s': %s", safe(key), safe(exc))
 
     def keys(self, pattern: str = "*") -> List[str]:
         full_pattern = f"{self._prefix}:{pattern}"
