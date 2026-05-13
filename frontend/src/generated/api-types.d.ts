@@ -4971,204 +4971,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/api/icon-packs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Upload Icon Pack V1
-         * @description Ingest a ZIP or JSON icon pack.
-         *
-         *     Accepted formats:
-         *     - **ZIP**: Contains SVG files and an optional ``metadata.json``
-         *     - **JSON**: A valid ``IconPackManifest`` with inline SVG data
-         */
-        post: operations["upload_icon_pack_v1_api_v1_api_icon_packs_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/api/icon-packs/{pack_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Delete Icon Pack V1
-         * @description Remove an icon pack and all its icons from the registry.
-         */
-        delete: operations["delete_icon_pack_v1_api_v1_api_icon_packs__pack_id__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/api/icons": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Search Icons V1
-         * @description Search or list icons in the registry.
-         */
-        get: operations["search_icons_v1_api_v1_api_icons_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/api/icons/metrics": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Icon Metrics V1
-         * @description Return icon-registry observability counters.
-         */
-        get: operations["icon_metrics_v1_api_v1_api_icons_metrics_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/api/icons/packs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List Packs V1
-         * @description List all registered icon packs.
-         */
-        get: operations["list_packs_v1_api_v1_api_icons_packs_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/api/icons/{icon_id}/svg": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Icon Svg V1
-         * @description Return the raw SVG for a single icon.
-         */
-        get: operations["get_icon_svg_v1_api_v1_api_icons__icon_id__svg_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/api/libraries/drawio": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Download Drawio Library V1
-         * @description Download a draw.io custom shape library (mxlibrary XML).
-         *
-         *     Query parameters:
-         *     - **packId**: Required. Icon pack to export.
-         *     - **embedMode**: ``reference`` (stencil IDs) or ``full`` (embedded SVG).
-         *     - **title**: Optional library title.
-         */
-        get: operations["download_drawio_library_v1_api_v1_api_libraries_drawio_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/api/libraries/excalidraw": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Download Excalidraw Library V1
-         * @description Download an Excalidraw library bundle (.excalidrawlib JSON).
-         *
-         *     Query parameters:
-         *     - **packId**: Required. Icon pack to export.
-         *     - **title**: Optional library title.
-         */
-        get: operations["download_excalidraw_library_v1_api_v1_api_libraries_excalidraw_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/api/libraries/visio": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Download Visio Stencil Pack V1
-         * @description Download a Visio sidecar stencil pack (ZIP).
-         *
-         *     Query parameters:
-         *     - **packId**: Required. Icon pack to export.
-         *     - **title**: Optional stencil collection title.
-         *     - **includePng**: Whether to include PNG rasters (default: true).
-         */
-        get: operations["download_visio_stencil_pack_v1_api_v1_api_libraries_visio_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/auth/config": {
         parameters: {
             query?: never;
@@ -5389,6 +5191,90 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/collab/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Session V1
+         * @description Create a collaborative session with a shareable join code.
+         */
+        post: operations["create_session_v1_api_v1_collab_sessions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/collab/sessions/{session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Session V1
+         * @description Get session info including participants.
+         */
+        get: operations["get_session_v1_api_v1_collab_sessions__session_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/collab/sessions/{session_id}/changes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Changes V1
+         * @description Get change history for a session.
+         */
+        get: operations["get_changes_v1_api_v1_collab_sessions__session_id__changes_get"];
+        put?: never;
+        /**
+         * Submit Change V1
+         * @description Submit a change to the collaborative session.
+         */
+        post: operations["submit_change_v1_api_v1_collab_sessions__session_id__changes_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/collab/sessions/{session_id}/join": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Join Session V1
+         * @description Join a session using the share code.
+         */
+        post: operations["join_session_v1_api_v1_collab_sessions__session_id__join_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/contact": {
         parameters: {
             query?: never;
@@ -5493,6 +5379,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/cost/compare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Compare Costs V1
+         * @description Estimate and compare monthly costs across AWS, Azure, and GCP.
+         *
+         *     Accepts an Archmorph analysis schema (zones with services) and
+         *     returns a side-by-side cost comparison with TCO analysis and
+         *     savings recommendations.
+         */
+        post: operations["compare_costs_v1_api_v1_cost_compare_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/cost/export": {
         parameters: {
             query?: never;
@@ -5545,6 +5455,26 @@ export interface paths {
          * @description Aggregate cost/token summary — total spend, total tokens, active agents.
          */
         get: operations["cost_overview_v1_api_v1_cost_overview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/cost/pricing-catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Pricing Catalog V1
+         * @description Return available pricing data for all supported service tiers.
+         */
+        get: operations["pricing_catalog_v1_api_v1_cost_pricing_catalog_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -6098,6 +6028,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/diagrams/{diagram_id}/diff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Diff Versions V1
+         * @description Compare two version snapshots and return a structured diff.
+         */
+        get: operations["diff_versions_v1_api_v1_diagrams__diagram_id__diff_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/diagrams/{diagram_id}/export-architecture-package": {
         parameters: {
             query?: never;
@@ -6414,6 +6364,83 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/diagrams/{diagram_id}/migration-timeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Migration Timeline V1
+         * @description Retrieve the previously generated migration timeline.
+         */
+        get: operations["get_migration_timeline_v1_api_v1_diagrams__diagram_id__migration_timeline_get"];
+        put?: never;
+        /**
+         * Create Migration Timeline V1
+         * @description Generate a phased migration timeline from analysis results.
+         *
+         *     The timeline includes 7 phases, dependency-ordered services,
+         *     parallel workstreams, and estimated durations per service.
+         */
+        post: operations["create_migration_timeline_v1_api_v1_diagrams__diagram_id__migration_timeline_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/diagrams/{diagram_id}/migration-timeline/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Migration Timeline V1
+         * @description Export the migration timeline in JSON, Markdown, or CSV format.
+         */
+        get: operations["export_migration_timeline_v1_api_v1_diagrams__diagram_id__migration_timeline_export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/diagrams/{diagram_id}/network-topology": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Network Topology V1
+         * @description Retrieve cached network topology for a diagram.
+         *
+         *     Returns 404 if no topology has been generated yet.
+         */
+        get: operations["get_network_topology_v1_api_v1_diagrams__diagram_id__network_topology_get"];
+        put?: never;
+        /**
+         * Generate Network Topology V1
+         * @description Generate Azure network topology translation from a diagram's analysis.
+         *
+         *     Reads the analysis result from the session store, extracts networking
+         *     constructs (VPC, subnets, security groups, route tables), and produces
+         *     an Azure-equivalent VNet plan with NSGs, route tables, and NAT gateway.
+         */
+        post: operations["generate_network_topology_v1_api_v1_diagrams__diagram_id__network_topology_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/diagrams/{diagram_id}/notify-email": {
         parameters: {
             query?: never;
@@ -6544,6 +6571,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/diagrams/{diagram_id}/share": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Stakeholder Share V1
+         * @description Generate a shareable stakeholder link with role-based views.
+         */
+        post: operations["create_stakeholder_share_v1_api_v1_diagrams__diagram_id__share_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/diagrams/{diagram_id}/terraform-preview": {
         parameters: {
             query?: never;
@@ -6575,10 +6622,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Version History Endpoint V1
-         * @description Get version history for a diagram.
+         * List Versions V1
+         * @description List all saved versions for a diagram.
          */
-        get: operations["get_version_history_endpoint_v1_api_v1_diagrams__diagram_id__versions_get"];
+        get: operations["list_versions_v1_api_v1_diagrams__diagram_id__versions_get"];
         put?: never;
         /**
          * Create Version Endpoint V1
@@ -6605,6 +6652,26 @@ export interface paths {
         get: operations["compare_versions_endpoint_v1_api_v1_diagrams__diagram_id__versions_compare_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/diagrams/{diagram_id}/versions/save": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Save Version V1
+         * @description Save current analysis state as a new version snapshot.
+         */
+        post: operations["save_version_v1_api_v1_diagrams__diagram_id__versions_save_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6645,6 +6712,46 @@ export interface paths {
          * @description Restore a previous version, creating a new version from it.
          */
         post: operations["restore_version_endpoint_v1_api_v1_diagrams__diagram_id__versions__version_number__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/diagrams/{diagram_id}/versions/{version}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Version V1
+         * @description Get a specific version snapshot.
+         */
+        get: operations["get_version_v1_api_v1_diagrams__diagram_id__versions__version__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/diagrams/{diagram_id}/versions/{version}/branch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Branch Version V1
+         * @description Fork a version for what-if analysis.
+         */
+        post: operations["branch_version_v1_api_v1_diagrams__diagram_id__versions__version__branch_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6971,6 +7078,130 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/icon-packs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload Icon Pack V1
+         * @description Ingest a ZIP or JSON icon pack.
+         *
+         *     Accepted formats:
+         *     - **ZIP**: Contains SVG files and an optional ``metadata.json``
+         *     - **JSON**: A valid ``IconPackManifest`` with inline SVG data
+         */
+        post: operations["upload_icon_pack_v1_api_v1_icon_packs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/icon-packs/{pack_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Icon Pack V1
+         * @description Remove an icon pack and all its icons from the registry.
+         */
+        delete: operations["delete_icon_pack_v1_api_v1_icon_packs__pack_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/icons": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search Icons V1
+         * @description Search or list icons in the registry.
+         */
+        get: operations["search_icons_v1_api_v1_icons_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/icons/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Icon Metrics V1
+         * @description Return icon-registry observability counters.
+         */
+        get: operations["icon_metrics_v1_api_v1_icons_metrics_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/icons/packs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Packs V1
+         * @description List all registered icon packs.
+         */
+        get: operations["list_packs_v1_api_v1_icons_packs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/icons/{icon_id}/svg": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Icon Svg V1
+         * @description Return the raw SVG for a single icon.
+         */
+        get: operations["get_icon_svg_v1_api_v1_icons__icon_id__svg_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/import/arm": {
         parameters: {
             query?: never;
@@ -7089,6 +7320,26 @@ export interface paths {
          * @description Create a GitHub issue with a markdown summary from the analysis.
          */
         post: operations["github_issue_v1_api_v1_integrations_github_issue_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integrations/github/push-pr": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Push IaC to GitHub as a PR
+         * @description Push generated IaC code to a GitHub repository as a Pull Request.
+         */
+        post: operations["push_iac_pr_v1_api_v1_integrations_github_push_pr_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7348,6 +7599,80 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/libraries/drawio": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download Drawio Library V1
+         * @description Download a draw.io custom shape library (mxlibrary XML).
+         *
+         *     Query parameters:
+         *     - **packId**: Required. Icon pack to export.
+         *     - **embedMode**: ``reference`` (stencil IDs) or ``full`` (embedded SVG).
+         *     - **title**: Optional library title.
+         */
+        get: operations["download_drawio_library_v1_api_v1_libraries_drawio_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/libraries/excalidraw": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download Excalidraw Library V1
+         * @description Download an Excalidraw library bundle (.excalidrawlib JSON).
+         *
+         *     Query parameters:
+         *     - **packId**: Required. Icon pack to export.
+         *     - **title**: Optional library title.
+         */
+        get: operations["download_excalidraw_library_v1_api_v1_libraries_excalidraw_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/libraries/visio": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download Visio Stencil Pack V1
+         * @description Download a Visio sidecar stencil pack (ZIP).
+         *
+         *     Query parameters:
+         *     - **packId**: Required. Icon pack to export.
+         *     - **title**: Optional stencil collection title.
+         *     - **includePng**: Whether to include PNG rasters (default: true).
+         */
+        get: operations["download_visio_stencil_pack_v1_api_v1_libraries_visio_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/models/": {
         parameters: {
             query?: never;
@@ -7378,6 +7703,28 @@ export interface paths {
         post?: never;
         /** Delete Model V1 */
         delete: operations["delete_model_v1_api_v1_models__model_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/network/cidr-calculator": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Cidr Calculator V1
+         * @description Calculate non-overlapping subnet CIDRs for a given VNet address space.
+         *
+         *     Utility endpoint — no diagram or analysis required.
+         */
+        get: operations["cidr_calculator_v1_api_v1_network_cidr_calculator_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -7512,6 +7859,106 @@ export interface paths {
          * @description Generate unified Infrastructure as Code from combined project analysis.
          */
         post: operations["generate_project_iac_v1_api_v1_projects__project_id__generate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/replay/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Add Event V1
+         * @description Add an event to an existing replay recording.
+         */
+        post: operations["add_event_v1_api_v1_replay_events_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/replay/record": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Recording V1
+         * @description Start a new replay recording linked to an analysis.
+         */
+        post: operations["start_recording_v1_api_v1_replay_record_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/replay/{replay_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Replay V1
+         * @description Get full replay with all events.
+         */
+        get: operations["get_replay_v1_api_v1_replay__replay_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/replay/{replay_id}/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Replay V1
+         * @description Export replay as a JSON timeline.
+         */
+        get: operations["export_replay_v1_api_v1_replay__replay_id__export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/replays": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List recent replays
+         * @description List recent replays with pagination (max 20 per page).
+         */
+        get: operations["list_replays_v1_api_v1_replays_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -7860,6 +8307,50 @@ export interface paths {
          * @description Get a specific service by provider and ID.
          */
         get: operations["get_service_v1_api_v1_services__provider___service_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/shared/{share_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Shared Report V1
+         * @description Get shared report (public, no auth). Optionally filter by view type.
+         */
+        get: operations["get_shared_report_v1_api_v1_shared__share_id__get"];
+        put?: never;
+        post?: never;
+        /**
+         * Revoke Share V1
+         * @description Revoke a share link.
+         */
+        delete: operations["revoke_share_v1_api_v1_shared__share_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/shared/{share_id}/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Share Stats V1
+         * @description View count and metadata (creator only).
+         */
+        get: operations["get_share_stats_v1_api_v1_shared__share_id__stats_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -8570,8 +9061,8 @@ export interface components {
             /** File */
             file: string;
         };
-        /** Body_upload_icon_pack_v1_api_v1_api_icon_packs_post */
-        Body_upload_icon_pack_v1_api_v1_api_icon_packs_post: {
+        /** Body_upload_icon_pack_v1_api_v1_icon_packs_post */
+        Body_upload_icon_pack_v1_api_v1_icon_packs_post: {
             /** File */
             file: string;
         };
@@ -17665,276 +18156,6 @@ export interface operations {
             };
         };
     };
-    upload_icon_pack_v1_api_v1_api_icon_packs_post: {
-        parameters: {
-            query?: {
-                /** @description Custom pack identifier */
-                pack_id?: string | null;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "multipart/form-data": components["schemas"]["Body_upload_icon_pack_v1_api_v1_api_icon_packs_post"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    delete_icon_pack_v1_api_v1_api_icon_packs__pack_id__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                pack_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    search_icons_v1_api_v1_api_icons_get: {
-        parameters: {
-            query?: {
-                provider?: string | null;
-                query?: string | null;
-                category?: string | null;
-                packId?: string | null;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    icon_metrics_v1_api_v1_api_icons_metrics_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
-    list_packs_v1_api_v1_api_icons_packs_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-        };
-    };
-    get_icon_svg_v1_api_v1_api_icons__icon_id__svg_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                icon_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    download_drawio_library_v1_api_v1_api_libraries_drawio_get: {
-        parameters: {
-            query: {
-                packId: string;
-                embedMode?: string;
-                title?: string | null;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    download_excalidraw_library_v1_api_v1_api_libraries_excalidraw_get: {
-        parameters: {
-            query: {
-                packId: string;
-                title?: string | null;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    download_visio_stencil_pack_v1_api_v1_api_libraries_visio_get: {
-        parameters: {
-            query: {
-                packId: string;
-                title?: string | null;
-                includePng?: boolean;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     get_auth_config_v1_api_v1_auth_config_get: {
         parameters: {
             query?: never;
@@ -18251,6 +18472,171 @@ export interface operations {
             };
         };
     };
+    create_session_v1_api_v1_collab_sessions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSessionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateSessionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_session_v1_api_v1_collab_sessions__session_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_changes_v1_api_v1_collab_sessions__session_id__changes_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    submit_change_v1_api_v1_collab_sessions__session_id__changes_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SubmitChangeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    join_session_v1_api_v1_collab_sessions__session_id__join_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JoinSessionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     contact_info_v1_api_v1_contact_get: {
         parameters: {
             query?: never;
@@ -18422,6 +18808,39 @@ export interface operations {
             };
         };
     };
+    compare_costs_v1_api_v1_cost_compare_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CostCompareRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     export_csv_v1_api_v1_cost_export_get: {
         parameters: {
             query?: {
@@ -18507,6 +18926,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    pricing_catalog_v1_api_v1_cost_pricing_catalog_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
         };
@@ -19362,6 +19801,40 @@ export interface operations {
             };
         };
     };
+    diff_versions_v1_api_v1_diagrams__diagram_id__diff_get: {
+        parameters: {
+            query: {
+                v1: number;
+                v2: number;
+            };
+            header?: never;
+            path: {
+                diagram_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     export_architecture_package_v1_api_v1_diagrams__diagram_id__export_architecture_package_post: {
         parameters: {
             query?: {
@@ -19823,6 +20296,169 @@ export interface operations {
             };
         };
     };
+    get_migration_timeline_v1_api_v1_diagrams__diagram_id__migration_timeline_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                diagram_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_migration_timeline_v1_api_v1_diagrams__diagram_id__migration_timeline_post: {
+        parameters: {
+            query?: {
+                project_name?: string | null;
+            };
+            header?: never;
+            path: {
+                diagram_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_migration_timeline_v1_api_v1_diagrams__diagram_id__migration_timeline_export_get: {
+        parameters: {
+            query?: {
+                format?: string;
+            };
+            header?: never;
+            path: {
+                diagram_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_network_topology_v1_api_v1_diagrams__diagram_id__network_topology_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                diagram_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    generate_network_topology_v1_api_v1_diagrams__diagram_id__network_topology_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                diagram_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["NetworkTopologyRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     notify_email_v1_api_v1_diagrams__diagram_id__notify_email_post: {
         parameters: {
             query?: never;
@@ -20022,6 +20658,39 @@ export interface operations {
             };
         };
     };
+    create_stakeholder_share_v1_api_v1_diagrams__diagram_id__share_post: {
+        parameters: {
+            query?: {
+                expiry_days?: number;
+            };
+            header?: never;
+            path: {
+                diagram_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     preview_terraform_plan_endpoint_v1_api_v1_diagrams__diagram_id__terraform_preview_post: {
         parameters: {
             query?: never;
@@ -20053,7 +20722,7 @@ export interface operations {
             };
         };
     };
-    get_version_history_endpoint_v1_api_v1_diagrams__diagram_id__versions_get: {
+    list_versions_v1_api_v1_diagrams__diagram_id__versions_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -20153,6 +20822,41 @@ export interface operations {
             };
         };
     };
+    save_version_v1_api_v1_diagrams__diagram_id__versions_save_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                diagram_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["SaveVersionRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_version_endpoint_v1_api_v1_diagrams__diagram_id__versions__version_number__get: {
         parameters: {
             query?: never;
@@ -20196,6 +20900,74 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_version_v1_api_v1_diagrams__diagram_id__versions__version__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                diagram_id: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    branch_version_v1_api_v1_diagrams__diagram_id__versions__version__branch_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                diagram_id: string;
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["BranchRequest"] | null;
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -20775,6 +21547,178 @@ export interface operations {
             };
         };
     };
+    upload_icon_pack_v1_api_v1_icon_packs_post: {
+        parameters: {
+            query?: {
+                /** @description Custom pack identifier */
+                pack_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_icon_pack_v1_api_v1_icon_packs_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_icon_pack_v1_api_v1_icon_packs__pack_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pack_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    search_icons_v1_api_v1_icons_get: {
+        parameters: {
+            query?: {
+                provider?: string | null;
+                query?: string | null;
+                category?: string | null;
+                packId?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    icon_metrics_v1_api_v1_icons_metrics_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    list_packs_v1_api_v1_icons_packs_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    get_icon_svg_v1_api_v1_icons__icon_id__svg_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                icon_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     import_arm_v1_api_v1_import_arm_post: {
         parameters: {
             query?: never;
@@ -20937,6 +21881,39 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["GitHubIssueRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    push_iac_pr_v1_api_v1_integrations_github_push_pr_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PushIaCRequest"];
             };
         };
         responses: {
@@ -21353,6 +22330,104 @@ export interface operations {
             };
         };
     };
+    download_drawio_library_v1_api_v1_libraries_drawio_get: {
+        parameters: {
+            query: {
+                packId: string;
+                embedMode?: string;
+                title?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    download_excalidraw_library_v1_api_v1_libraries_excalidraw_get: {
+        parameters: {
+            query: {
+                packId: string;
+                title?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    download_visio_stencil_pack_v1_api_v1_libraries_visio_get: {
+        parameters: {
+            query: {
+                packId: string;
+                title?: string | null;
+                includePng?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_models_v1_api_v1_models__get: {
         parameters: {
             query?: never;
@@ -21417,6 +22492,42 @@ export interface operations {
             path: {
                 model_id: string;
             };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cidr_calculator_v1_api_v1_network_cidr_calculator_get: {
+        parameters: {
+            query?: {
+                /** @description VNet CIDR block */
+                vnet_cidr?: string;
+                /** @description Number of subnets to create */
+                subnet_count?: number;
+                /** @description Subnet prefix length */
+                subnet_prefix?: number;
+            };
+            header?: never;
+            path?: never;
             cookie?: never;
         };
         requestBody?: never;
@@ -21665,6 +22776,166 @@ export interface operations {
             path: {
                 project_id: string;
             };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_event_v1_api_v1_replay_events_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddEventRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_recording_v1_api_v1_replay_record_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartRecordingRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_replay_v1_api_v1_replay__replay_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                replay_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_replay_v1_api_v1_replay__replay_id__export_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                replay_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_replays_v1_api_v1_replays_get: {
+        parameters: {
+            query?: {
+                page?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
             cookie?: never;
         };
         requestBody?: never;
@@ -22115,6 +23386,101 @@ export interface operations {
             path: {
                 provider: string;
                 service_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_shared_report_v1_api_v1_shared__share_id__get: {
+        parameters: {
+            query?: {
+                view?: ("executive" | "technical" | "financial") | null;
+            };
+            header?: never;
+            path: {
+                share_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_share_v1_api_v1_shared__share_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                share_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_share_stats_v1_api_v1_shared__share_id__stats_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                share_id: string;
             };
             cookie?: never;
         };
