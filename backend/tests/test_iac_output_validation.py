@@ -148,13 +148,13 @@ def _required_controls(iac_format: str) -> dict[str, str]:
     if iac_format == "terraform":
         return {
             "managed_identity": r'(identity\s*\{[^}]*type\s*=\s*"(?:SystemAssigned|UserAssigned|SystemAssigned,\s*UserAssigned)")|(azurerm_user_assigned_identity)',
-            "tls": r'(?:min_tls_version|minimum_tls_version)\s*=\s*"TLS1_2"|minimumTlsVersion',
+            "tls": r'(?:min_tls_version|minimum_tls_version)\s*=\s*"TLS1_2"',
             "diagnostics": r"azurerm_monitor_diagnostic_setting|Microsoft\.Insights/diagnosticSettings",
             "private_connectivity": r"azurerm_private_endpoint|public_network_access_enabled\s*=\s*false",
-            "key_vault_handling": r"azurerm_key_vault|Microsoft\.KeyVault/vaults|key_vault",
+            "key_vault_handling": r"azurerm_key_vault|Microsoft\.KeyVault/vaults|key_vault_id",
             "waf_public_ingress_posture": r"web_application_firewall|waf_configuration|firewall_mode\s*=\s*\"Prevention\"",
             "required_tags": r"(project|environment|managed_by)\s*=\s*\"",
-            "no_hardcoded_secrets": r"(?:password|secret|api_key|access_key)\s*=\s*\"[^\"\n]{4,}\"",
+            "no_hardcoded_secrets": r"(?:password|secret|api_key|access_key|administrator_password)\s*=\s*\"[^\"\n]{4,}\"",
         }
     return {
         "managed_identity": r"identity:\s*\{[^}]*type:\s*'(?:SystemAssigned|UserAssigned|SystemAssigned,\s*UserAssigned)'|Microsoft\.ManagedIdentity/userAssignedIdentities",
