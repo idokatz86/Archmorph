@@ -48,10 +48,10 @@ def _upload(test_client, project_id="project-241", filename="arch.png"):
     return response.json()
 
 
-def _analyze(test_client, diagram_id, analysis=None):
+def _analyze(test_client, diagram_id, analysis=None, headers=None):
     analysis = analysis or MOCK_ANALYSIS
     with patch("routers.diagrams.analyze_image", return_value=copy.deepcopy(analysis)):
-        response = test_client.post(f"/api/diagrams/{diagram_id}/analyze")
+        response = test_client.post(f"/api/diagrams/{diagram_id}/analyze", headers=headers or {})
     assert response.status_code == 200
     return response.json()
 
@@ -120,12 +120,12 @@ def test_project_analysis_requires_analyzed_diagrams(test_client):
     assert response.status_code == 404
 
 
-def test_purge_removes_diagram_from_project_indexes(test_client):
+def test_purge_removes_diagram_from_project_indexes(test_client, tenant_a_auth_headers):
     uploaded = _upload(test_client, project_id="project-241")
     diagram_id = uploaded["diagram_id"]
-    _analyze(test_client, diagram_id)
+    _analyze(test_client, diagram_id, headers=tenant_a_auth_headers)
 
-    purge = test_client.delete(f"/api/diagrams/{diagram_id}/purge")
+    purge = test_client.delete(f"/api/diagrams/{diagram_id}/purge", headers=tenant_a_auth_headers)
     assert purge.status_code == 200
 
     project_response = test_client.get("/api/projects/project-241")

@@ -264,10 +264,10 @@ class TestPurge:
         assert resp.status_code == 200
         return resp.json()["diagram_id"]
 
-    def test_purge_clears_server_side_artifacts(self, client, clean_session):
+    def test_purge_clears_server_side_artifacts(self, client, clean_session, tenant_a_auth_headers):
         did = self._upload(client)
         with patch("routers.diagrams.analyze_image", return_value=copy.deepcopy(MOCK_ANALYSIS)):
-            analyzed = client.post(f"/api/diagrams/{did}/analyze")
+            analyzed = client.post(f"/api/diagrams/{did}/analyze", headers=tenant_a_auth_headers)
         assert analyzed.status_code == 200
         assert did in SESSION_STORE
         assert did in IMAGE_STORE
@@ -279,7 +279,7 @@ class TestPurge:
         assert job_manager.get(job.job_id) is not None
         assert shareable_reports.get_share_stats(share["share_id"]) is not None
 
-        purge = client.delete(f"/api/diagrams/{did}/purge")
+        purge = client.delete(f"/api/diagrams/{did}/purge", headers=tenant_a_auth_headers)
         assert purge.status_code == 200
         payload = purge.json()
         assert payload["status"] == "purged"

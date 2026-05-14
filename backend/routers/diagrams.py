@@ -22,6 +22,7 @@ from routers.shared import (
     SESSION_STORE, IMAGE_STORE, SHARE_STORE, EXPORT_CAPABILITY_STORE,
     limiter, verify_api_key, MAX_UPLOAD_SIZE, generate_session_id,
     require_authenticated_user, get_api_key_service_principal,
+    require_diagram_access,
 )
 import ci_smoke
 from job_queue import job_manager
@@ -343,7 +344,7 @@ async def restore_session(
     )
 
 
-@router.delete("/api/diagrams/{diagram_id}/purge")
+@router.delete("/api/diagrams/{diagram_id}/purge", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("20/minute")
 async def purge_diagram_session(
     request: Request,
