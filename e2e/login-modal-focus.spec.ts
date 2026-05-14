@@ -35,7 +35,7 @@ test.describe('Accessibility: Login modal keyboard focus order', () => {
     const microsoftButton = dialog.getByRole('button', { name: /continue with microsoft/i });
     const googleButton = dialog.getByRole('button', { name: /continue with google/i });
     const githubButton = dialog.getByRole('button', { name: /continue with github/i });
-    const guestButton = dialog.getByRole('button', { name: /continue as guest/i });
+    const continueBrowsingButton = dialog.getByRole('button', { name: /continue browsing/i });
 
     await expect(closeButton).toBeFocused();
     await page.keyboard.press('Tab');
@@ -45,12 +45,12 @@ test.describe('Accessibility: Login modal keyboard focus order', () => {
     await page.keyboard.press('Tab');
     await expect(githubButton).toBeFocused();
     await page.keyboard.press('Tab');
-    await expect(guestButton).toBeFocused();
+    await expect(continueBrowsingButton).toBeFocused();
     await page.keyboard.press('Tab');
     await expect(closeButton).toBeFocused();
 
     await page.keyboard.press('Shift+Tab');
-    await expect(guestButton).toBeFocused();
+    await expect(continueBrowsingButton).toBeFocused();
 
     await page.keyboard.press('Escape');
     await expect(dialog).toBeHidden();

@@ -8,7 +8,7 @@ from strict_models import StrictBaseModel
 from typing import Any, Dict, Optional
 import logging
 
-from routers.shared import SESSION_STORE, limiter, verify_api_key
+from routers.shared import authorize_diagram_access, limiter, require_diagram_access, verify_api_key
 from error_envelope import ArchmorphException
 from source_provider import normalize_source_provider
 from network_translator import (
@@ -47,7 +47,7 @@ class NetworkTopologyRequest(StrictBaseModel):
 # POST /api/diagrams/{diagram_id}/network-topology
 # ─────────────────────────────────────────────────────────────
 
-@router.post("/api/diagrams/{diagram_id}/network-topology")
+@router.post("/api/diagrams/{diagram_id}/network-topology", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("10/minute")
 async def generate_network_topology(
     request: Request,
@@ -61,9 +61,7 @@ async def generate_network_topology(
     constructs (VPC, subnets, security groups, route tables), and produces
     an Azure-equivalent VNet plan with NSGs, route tables, and NAT gateway.
     """
-    session = SESSION_STORE.get(diagram_id)
-    if not session:
-        raise ArchmorphException(404, f"Diagram {diagram_id} not found. Upload and analyze first.")
+    session = authorize_diagram_access(request, diagram_id, purpose="generate network topology")
 
     analysis = session.get("analysis")
     if not analysis:
@@ -119,13 +117,14 @@ async def generate_network_topology(
 # GET /api/diagrams/{diagram_id}/network-topology
 # ─────────────────────────────────────────────────────────────
 
-@router.get("/api/diagrams/{diagram_id}/network-topology")
+@router.get("/api/diagrams/{diagram_id}/network-topology", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("30/minute")
 async def get_network_topology(
     request: Request,
     diagram_id: str,
     response: Response = None,
     _auth=Depends(verify_api_key),
+    _session=Depends(require_diagram_access),
 ):
     """Retrieve cached network topology for a diagram.
 

@@ -391,6 +391,14 @@ class TestAsyncAnalyzeEndpoint:
 
     def test_generate_async_invalid_format(self, test_client, auth_headers):
         """Invalid IaC format should return 422 from schema validation."""
+        from routers.shared import SESSION_STORE
+
+        SESSION_STORE["test"] = {
+            "services_detected": 0,
+            "mappings": [],
+            "_owner_user_id": "jobs-test-user",
+            "_tenant_id": "tenant-jobs",
+        }
         res = test_client.post("/api/diagrams/test/generate-async?format=invalid", headers=auth_headers)
         assert res.status_code == 422
 
@@ -408,7 +416,11 @@ class TestAsyncAnalyzeEndpoint:
 
         monkeypatch.setattr("routers.iac_routes._run_iac_job", _fake_run_iac_job)
         diagram_id = "api-key-iac-diagram"
-        SESSION_STORE[diagram_id] = {"services_detected": 0, "mappings": []}
+        SESSION_STORE[diagram_id] = {
+            "services_detected": 0,
+            "mappings": [],
+            "_owner_api_key_id": _api_key_principal(api_key_headers),
+        }
         try:
             create = test_client.post(f"/api/diagrams/{diagram_id}/generate-async", headers=api_key_headers)
             assert create.status_code == 202, create.text

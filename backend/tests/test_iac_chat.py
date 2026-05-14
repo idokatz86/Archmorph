@@ -422,8 +422,7 @@ class TestIacChatEndpoints:
 
     def test_iac_chat_clear_nonexistent(self, client):
         resp = client.delete("/api/diagrams/nonexistent-diagram/iac-chat")
-        assert resp.status_code == 200
-        assert resp.json()["cleared"] is False
+        assert resp.status_code == 404
 
 
 # ====================================================================

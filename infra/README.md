@@ -46,6 +46,26 @@ Before any Sweden Central plan or apply:
 4. Keep West Europe and East US rollback paths live until Sweden Central passes dark launch, traffic shift, soak, and rollback drills.
 5. Treat old-region deletion as a separate reviewed destroy plan after zero-traffic evidence.
 
+## Front Door Origin Lock Contract
+
+Production backend traffic is expected to arrive through the Archmorph-owned Azure Front Door profile, not directly at the Container App FQDN.
+
+- Terraform sets the Front Door origin `origin_host_header` to the owned endpoint hostname (`azurerm_cdn_frontdoor_endpoint.api[0].host_name`).
+- The Container App receives `TRUSTED_FRONT_DOOR_FDID` from `azurerm_cdn_frontdoor_profile.main[0].resource_guid` and `TRUSTED_FRONT_DOOR_HOSTS` from the Front Door endpoint hostname.
+- Runtime middleware enforces that production requests (except `/healthz` platform liveness probes) carry the matching `X-Azure-FDID` header and a trusted host value before the app serves the request.
+- The values above are identifiers, not secrets. They are safe to use in smoke tests that prove direct Container App access is rejected while Front Door-routed traffic succeeds.
+
+For operator verification after Terraform changes, inspect:
+
+```bash
+cd infra
+terraform output front_door_api_hostname
+terraform output front_door_profile_resource_guid
+terraform output backend_url
+```
+
+Use the Front Door hostname (or the production custom domain that routes through it) for successful smoke traffic, and use `backend_url` only to confirm the direct origin is blocked.
+
 ## Local Validation
 
 Run these commands when editing files under `infra/`:

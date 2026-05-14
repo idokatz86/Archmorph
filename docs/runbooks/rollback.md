@@ -169,6 +169,31 @@ Also verify:
 - Service catalog freshness is current or has a documented accepted reason.
 - Architecture Package smoke passes for a sample or known customer-safe fixture.
 - GitHub Actions `post-deploy-smoke` or `E2E Health Monitoring` is green.
+- If you have the direct Container App origin, verify forged SWA headers are rejected there and on the public API edge:
+
+```bash
+FORGED_PRINCIPAL="$(python - <<'PY'
+import base64, json
+print(base64.b64encode(json.dumps({
+    "identityProvider": "aad",
+    "userId": "smoke-user",
+    "userDetails": "smoke@example.com",
+    "userRoles": ["authenticated"],
+    "claims": [],
+}).encode("utf-8")).decode("ascii"))
+PY
+)"
+
+curl -sS -o /tmp/direct-origin-swa.json -w "%{http_code}\n" \
+  -H "x-ms-client-principal: ${FORGED_PRINCIPAL}" \
+  "${DIRECT_ORIGIN_URL%/}/api/auth/me"
+
+curl -sS -o /tmp/public-edge-swa.json -w "%{http_code}\n" \
+  -H "x-ms-client-principal: ${FORGED_PRINCIPAL}" \
+  "${API_URL%/api}/api/auth/me"
+```
+
+Both requests must stay unauthenticated (`401` with `UNTRUSTED_SWA_PRINCIPAL`, or a documented anonymous response if the trust gate is intentionally relaxed outside production). Do not set `TRUST_SWA_PRINCIPAL_HEADER=true` unless the backend is exclusively reachable through a validated SWA-linked ingress.
 
 ## Sub-10-Minute Drill
 

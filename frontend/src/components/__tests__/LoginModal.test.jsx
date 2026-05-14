@@ -3,7 +3,7 @@
  * #818 #819 #820 #821 #822 #853 #854 #907 #908).
  *
  * Covers: portal rendering, ARIA semantics, Escape close, backdrop click,
- * body scroll lock, focus trap, and Continue-as-Guest.
+ * body scroll lock, focus trap, and browsing-only dismissal.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -79,11 +79,17 @@ describe('LoginModal', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('calls onClose when Continue as Guest is clicked', async () => {
+  it('calls onClose when Continue Browsing is clicked', async () => {
     const onClose = vi.fn();
     render(<LoginModal isOpen={true} onClose={onClose} />);
-    await userEvent.click(screen.getByRole('button', { name: /continue as guest/i }));
+    await userEvent.click(screen.getByRole('button', { name: /continue browsing/i }));
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('makes clear that diagram analysis requires sign-in', () => {
+    render(<LoginModal isOpen={true} onClose={vi.fn()} />);
+    expect(screen.getByText(/sign in is required to analyze diagrams/i)).toBeInTheDocument();
+    expect(screen.queryByText(/no account needed to use the translator/i)).not.toBeInTheDocument();
   });
 
   it('locks body scroll when open and restores on close', () => {

@@ -34,6 +34,7 @@ from hld_generator import generate_hld, generate_hld_markdown  # noqa: F401 — 
 from auth import get_user_from_request_headers
 from analysis_history import maybe_save_from_session
 from error_envelope import ArchmorphException
+from upload_validator import validate_upload, UploadValidationError
 from sku_translator import get_sku_translator
 from confidence_provenance import build_provenance
 from architecture_rules import evaluate as evaluate_architecture_rules
@@ -207,6 +208,12 @@ async def upload_diagram(request: Request, project_id: str, file: UploadFile = F
         chunks.append(chunk)
     image_bytes = b"".join(chunks)
 
+    # Content-level validation (magic bytes, active PDF/SVG/ZIP content, etc.)
+    try:
+        validate_upload(image_bytes, file.content_type or "", file.filename)
+    except UploadValidationError as exc:
+        raise ArchmorphException(exc.status_code, exc.message)
+
     # Base64-encode for Redis/FileStore compatibility
     IMAGE_STORE[diagram_id] = (base64.b64encode(image_bytes).decode("ascii"), file.content_type)
     logger.info("Stored image for %s (%s bytes, %s)", str(diagram_id).replace('\n', '').replace('\r', ''), str(len(image_bytes)).replace('\n', '').replace('\r', ''), str(file.content_type).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
@@ -302,9 +309,14 @@ async def restore_session(
                 413,
                 f"image_base64 too large. Maximum allowed: {MAX_UPLOAD_SIZE // (1024*1024)} MB.",
             )
+        restored_content_type = body.image_content_type or "image/png"
+        try:
+            validate_upload(decoded, restored_content_type, None)
+        except UploadValidationError as exc:
+            raise ArchmorphException(exc.status_code, exc.message)
         IMAGE_STORE[diagram_id] = (
             body.image_base64,
-            body.image_content_type or "image/png",
+            restored_content_type,
         )
         restored_parts.append("image")
     logger.info("Session restored for %s via client cache (%s)", str(diagram_id).replace('\n', '').replace('\r', ''), str(", ".join(restored_parts)).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
@@ -365,12 +377,17 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
     image_bytes = base64.b64decode(image_b64) if isinstance(image_b64, str) else image_b64
     logger.info("Analyzing diagram %s (%s bytes)", str(diagram_id).replace('\n', '').replace('\r', ''), str(len(image_bytes)).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
 
+    headers = dict(request.headers)
+    user = get_user_from_request_headers(headers)
+    api_key_principal_id = get_api_key_service_principal(headers)
+
     if ci_smoke.enabled():
         result = ci_smoke.clone_analysis(diagram_id)
-        user = get_user_from_request_headers(dict(request.headers))
         if user:
             result["_owner_user_id"] = user.id
             result["_tenant_id"] = user.tenant_id
+        elif api_key_principal_id:
+            result["_owner_api_key_id"] = api_key_principal_id
         SESSION_STORE[diagram_id] = result
         mark_diagram_analyzed(diagram_id, result)
         record_event("analyses_run", {"diagram_id": diagram_id, "services": result["services_detected"]})
@@ -422,10 +439,11 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
     result["image_classification"] = classification
 
     # Save to user history if authenticated (#245)
-    user = get_user_from_request_headers(dict(request.headers))
     if user:
         result["_owner_user_id"] = user.id
         result["_tenant_id"] = user.tenant_id
+    elif api_key_principal_id:
+        result["_owner_api_key_id"] = api_key_principal_id
 
     if len(SESSION_STORE) >= SESSION_STORE.maxsize:
         logger.warning("Session store at capacity (%d/%d) — oldest sessions will be evicted",
@@ -536,6 +554,16 @@ async def _run_analysis_job(job_id: str, diagram_id: str) -> None:
         result["diagram_id"] = diagram_id
         result["image_classification"] = classification
 
+        job_record = job_manager.get(job_id)
+        job_user_id = getattr(job_record, "owner_user_id", None)
+        job_tenant_id = getattr(job_record, "tenant_id", None)
+        job_api_principal_id = getattr(job_record, "owner_api_key_id", None)
+        if job_user_id and job_tenant_id:
+            result["_owner_user_id"] = job_user_id
+            result["_tenant_id"] = job_tenant_id
+        elif job_api_principal_id:
+            result["_owner_api_key_id"] = job_api_principal_id
+
         job_manager.update_progress(job_id, 80, "Storing analysis results...")
         SESSION_STORE[diagram_id] = result
         mark_diagram_analyzed(diagram_id, result)
@@ -546,10 +574,13 @@ async def _run_analysis_job(job_id: str, diagram_id: str) -> None:
         record_funnel_step(diagram_id, "analyze")
 
         # Save to user history if job carries an authenticated owner.
-        job_owner = job_manager.get(job_id)
-        job_user_id = getattr(job_owner, "owner_user_id", None)
         if job_user_id:
             maybe_save_from_session(job_user_id, result, diagram_id)
+        elif job_api_principal_id:
+            logger.debug(
+                "Skipping user history persistence for API principal-owned async analysis %s",
+                str(diagram_id).replace('\n', '').replace('\r', ''),
+            )
 
         job_manager.update_progress(job_id, 95, "Finalizing...")
         job_manager.complete(job_id, result=attach_export_capability(result, diagram_id))

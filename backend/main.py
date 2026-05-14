@@ -22,6 +22,7 @@ import uuid  # noqa: E402
 import hashlib  # noqa: E402
 import concurrent.futures  # noqa: E402
 import asyncio  # noqa: E402
+from urllib.parse import urlsplit  # noqa: E402
 
 from slowapi.errors import RateLimitExceeded  # noqa: E402
 from starlette.responses import JSONResponse as _JSONResponse  # noqa: E402
@@ -153,7 +154,7 @@ from routers.collaboration_routes import router as collaboration_router  # noqa:
 from routers.replay_routes import router as replay_router  # noqa: E402
 from routers.v1 import build_v1_router  # noqa: E402
 from api_versioning import VersionMiddleware  # noqa: E402
-from auth import get_user_from_request_headers  # noqa: E402
+from auth import get_user_from_request_headers, request_has_untrusted_swa_principal  # noqa: E402
 from audit_logging import audit_logger, AuditEventType  # noqa: E402, F401
 from error_envelope import register_error_handlers  # noqa: E402
 
@@ -174,6 +175,39 @@ ALLOWED_ORIGINS = list(set(env_origins + default_origins))
 # Add local dev origins only when running locally
 if os.getenv("ENVIRONMENT", "production") == "dev":
     ALLOWED_ORIGINS.extend(["http://localhost:5173", "http://localhost:3000"])
+
+
+def _normalize_host(value: str | None) -> str:
+    if not value:
+        return ""
+
+    candidate = value.strip().rstrip(".")
+    if not candidate:
+        return ""
+
+    first_value = candidate.split(",", 1)[0].strip()
+    parsed = urlsplit(first_value if "://" in first_value else f"https://{first_value}")
+    host = parsed.netloc or parsed.path
+    return host.split("@", 1)[-1].split(":", 1)[0].lower()
+
+
+def _trusted_front_door_hosts() -> set[str]:
+    return {
+        normalized
+        for raw_value in os.getenv("TRUSTED_FRONT_DOOR_HOSTS", "").split(",")
+        if (normalized := _normalize_host(raw_value))
+    }
+
+
+def _trusted_front_door_fdid() -> str:
+    return os.getenv("TRUSTED_FRONT_DOOR_FDID", "").strip().lower()
+
+
+def _origin_lock_enabled() -> bool:
+    return (
+        os.getenv("ENVIRONMENT", "production").lower() == "production"
+        and bool(_trusted_front_door_fdid())
+    )
 
 
 @asynccontextmanager
@@ -300,6 +334,9 @@ class ArchmorphMiddleware(BaseHTTPMiddleware):
         "/health", "/api/health", "/favicon.ico",
         "/openapi.json", "/docs", "/redoc",
     })
+    _ORIGIN_LOCK_SKIP = frozenset({
+        "/healthz",
+    })
 
     @staticmethod
     def _client_ip(request: Request) -> str:
@@ -311,6 +348,47 @@ class ArchmorphMiddleware(BaseHTTPMiddleware):
         user_agent = request.headers.get("user-agent", "")
         digest = hashlib.sha256(f"{day}|{ip_address}|{user_agent}".encode("utf-8")).hexdigest()[:16]
         return f"guest-{day}-{digest}"
+
+    @staticmethod
+    def _trusted_origin_error(correlation_id: str) -> _JSONResponse:
+        return _JSONResponse(
+            status_code=403,
+            content={
+                "error": {
+                    "code": "TRUSTED_ORIGIN_REQUIRED",
+                    "message": (
+                        "Production traffic must arrive through the configured Azure Front Door "
+                        "origin contract."
+                    ),
+                    "details": {"trusted_origin_required": True},
+                    "correlation_id": correlation_id,
+                }
+            },
+        )
+
+    @classmethod
+    def _validate_trusted_origin(cls, request: Request, correlation_id: str) -> _JSONResponse | None:
+        if request.url.path in cls._ORIGIN_LOCK_SKIP or not _origin_lock_enabled():
+            return None
+
+        expected_fdid = _trusted_front_door_fdid()
+        request_fdid = request.headers.get("X-Azure-FDID", "").strip().lower()
+        if request_fdid != expected_fdid:
+            return cls._trusted_origin_error(correlation_id)
+
+        trusted_hosts = _trusted_front_door_hosts()
+        if not trusted_hosts:
+            return None
+
+        host_candidates = {
+            normalized
+            for header_name in ("host", "x-forwarded-host", "x-original-host")
+            if (normalized := _normalize_host(request.headers.get(header_name)))
+        }
+        if host_candidates.intersection(trusted_hosts):
+            return None
+
+        return cls._trusted_origin_error(correlation_id)
 
     @classmethod
     def _audit_actor_context(cls, request: Request) -> tuple[str, str, str]:
@@ -329,20 +407,36 @@ class ArchmorphMiddleware(BaseHTTPMiddleware):
 
         start_time = time.perf_counter()
         try:
-            if requires_csrf_check(request) and not csrf_token_valid(request):
+            if request_has_untrusted_swa_principal(request.headers):
                 response = _JSONResponse(
-                    status_code=403,
+                    status_code=401,
                     content={
                         "error": {
-                            "code": "CSRF_TOKEN_MISSING_OR_INVALID",
-                            "message": "Missing or invalid CSRF token",
+                            "code": "UNTRUSTED_SWA_PRINCIPAL",
+                            "message": "x-ms-client-principal is not accepted on this deployment. Use the standard sign-in flow through the trusted frontend.",
                             "details": {},
                             "correlation_id": cid,
                         }
                     },
                 )
             else:
-                response = await call_next(request)
+                trusted_origin_error = self._validate_trusted_origin(request, cid)
+                if trusted_origin_error is not None:
+                    response = trusted_origin_error
+                elif requires_csrf_check(request) and not csrf_token_valid(request):
+                    response = _JSONResponse(
+                        status_code=403,
+                        content={
+                            "error": {
+                                "code": "CSRF_TOKEN_MISSING_OR_INVALID",
+                                "message": "Missing or invalid CSRF token",
+                                "details": {},
+                                "correlation_id": cid,
+                            }
+                        },
+                    )
+                else:
+                    response = await call_next(request)
         finally:
             correlation_id_var.reset(token)
 

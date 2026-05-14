@@ -545,7 +545,15 @@ jobs:
       CONTAINER_APP_NAME: ${{ secrets.CONTAINER_APP_NAME }}
       CONTAINER_APP_ENV: ${{ secrets.CONTAINER_APP_ENV }}
       ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
-      JWT_SECRET: ${{ secrets.JWT_SECRET || secrets.ADMIN_KEY }}
+      ARCHMORPH_API_KEY: ${{ secrets.ARCHMORPH_API_KEY || secrets.API_KEY }}
+      JWT_SECRET: ${{ secrets.JWT_SECRET }}
+      TRUSTED_FRONT_DOOR_FDID: ${{ secrets.TRUSTED_FRONT_DOOR_FDID }}
+      TRUSTED_FRONT_DOOR_HOSTS: ${{ secrets.TRUSTED_FRONT_DOOR_HOSTS }}
+      REQUIRE_FRONT_DOOR_ORIGIN_LOCK: ${{ vars.REQUIRE_FRONT_DOOR_ORIGIN_LOCK || 'false' }}
+      ARM_USE_OIDC: true
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
     steps:
       - uses: actions/checkout@v6
 
@@ -555,6 +563,12 @@ jobs:
           client-id: ${{ env.AZURE_CLIENT_ID }}
           tenant-id: ${{ env.AZURE_TENANT_ID }}
           subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.9.x"
+          terraform_wrapper: false
 
       - name: Validate backend deploy secret inputs
         run: |
@@ -568,6 +582,7 @@ jobs:
             ACR_LOGIN_SERVER \
             CONTAINER_APP_NAME \
             ADMIN_KEY \
+            ARCHMORPH_API_KEY \
             JWT_SECRET; do
             value="${!name:-}"
             if [ -z "$value" ]; then
@@ -754,13 +769,276 @@ jobs:
       - name: Deploy green revision
         id: green
         run: |
+          FRONT_DOOR_PROFILE_NAME=""
+          TRUSTED_FRONT_DOOR_FDID="${TRUSTED_FRONT_DOOR_FDID:-}"
+          TRUSTED_FRONT_DOOR_HOSTS="${TRUSTED_FRONT_DOOR_HOSTS:-}"
+          REQUIRE_FRONT_DOOR_ORIGIN_LOCK=$(echo "${REQUIRE_FRONT_DOOR_ORIGIN_LOCK:-false}" | tr '[:upper:]' '[:lower:]')
+          if terraform -chdir=infra init -input=false >/tmp/terraform-init-front-door.log 2>&1; then
+            TERRAFORM_FRONT_DOOR_FDID=$(terraform -chdir=infra output -raw front_door_profile_resource_guid 2>/dev/null || echo "")
+            TERRAFORM_FRONT_DOOR_HOSTS=$(terraform -chdir=infra output -raw front_door_api_hostname 2>/dev/null || echo "")
+            if [ -n "$TERRAFORM_FRONT_DOOR_FDID" ]; then
+              TRUSTED_FRONT_DOOR_FDID="$TERRAFORM_FRONT_DOOR_FDID"
+            fi
+            if [ -n "$TERRAFORM_FRONT_DOOR_HOSTS" ]; then
+              TRUSTED_FRONT_DOOR_HOSTS="$TERRAFORM_FRONT_DOOR_HOSTS"
+            fi
+          else
+            echo "::warning::Unable to initialize Terraform remote state for Front Door outputs"
+            tail -n 40 /tmp/terraform-init-front-door.log || true
+          fi
+
+          EXISTING_ENV_JSON=$(az containerapp show \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --query "properties.template.containers[0].env" -o json 2>/dev/null || echo "[]")
+          if [ -z "$TRUSTED_FRONT_DOOR_FDID" ] || [ -z "$TRUSTED_FRONT_DOOR_HOSTS" ]; then
+            EXISTING_FRONT_DOOR_FDID=$(echo "$EXISTING_ENV_JSON" | jq -r '.[] | select(.name == "TRUSTED_FRONT_DOOR_FDID") | .value // ""' | head -1)
+            EXISTING_FRONT_DOOR_HOSTS=$(echo "$EXISTING_ENV_JSON" | jq -r '.[] | select(.name == "TRUSTED_FRONT_DOOR_HOSTS") | .value // ""' | head -1)
+            if [ -z "$TRUSTED_FRONT_DOOR_FDID" ] && [ -n "$EXISTING_FRONT_DOOR_FDID" ]; then
+              TRUSTED_FRONT_DOOR_FDID="$EXISTING_FRONT_DOOR_FDID"
+            fi
+            if [ -z "$TRUSTED_FRONT_DOOR_HOSTS" ] && [ -n "$EXISTING_FRONT_DOOR_HOSTS" ]; then
+              TRUSTED_FRONT_DOOR_HOSTS="$EXISTING_FRONT_DOOR_HOSTS"
+            fi
+          fi
+          CONTAINER_APP_FQDN=$(az containerapp show \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --query "properties.configuration.ingress.fqdn" -o tsv 2>/dev/null || echo "")
+
+          if ! az extension show --name front-door &>/dev/null; then
+            az extension add --name front-door --upgrade --only-show-errors \
+              || echo "::warning::Unable to install Azure CLI front-door extension; falling back to generic ARM discovery"
+          fi
+
+          resource_group_from_id() {
+            echo "$1" | sed -E 's#^/subscriptions/[^/]+/resourceGroups/([^/]+)/.*#\1#'
+          }
+
+          show_afd_resource() {
+            local resource_id="$1"
+            az resource show --ids "$resource_id" --api-version 2024-02-01 -o json 2>/dev/null \
+              || az resource show --ids "$resource_id" -o json 2>/dev/null \
+              || echo "{}"
+          }
+
+          front_door_profile_fdid() {
+            local profile_json="$1"
+            local profile_id="$2"
+            local profile_name="$3"
+            local profile_group="$4"
+            local fdid
+            fdid=$(echo "$profile_json" | jq -r '.frontDoorId // .resourceGuid // .properties.frontDoorId // .properties.resourceGuid // ""')
+            if [ -z "$fdid" ] && [ -n "$profile_id" ]; then
+              fdid=$(show_afd_resource "$profile_id" | jq -r '.frontDoorId // .resourceGuid // .properties.frontDoorId // .properties.resourceGuid // ""')
+            fi
+            if [ -z "$fdid" ] && [ -n "$profile_name" ] && [ -n "$profile_group" ]; then
+              fdid=$(az afd profile show \
+                --profile-name "$profile_name" \
+                --resource-group "$profile_group" \
+                -o json 2>/dev/null \
+                | jq -r '.frontDoorId // .resourceGuid // .properties.frontDoorId // .properties.resourceGuid // ""')
+            fi
+            echo "$fdid"
+          }
+
+          front_door_profile_targets_container() {
+            local profile_name="$1"
+            local profile_group="$2"
+            local container_host="$3"
+            local origin_groups_json
+            if [ -z "$profile_name" ] || [ -z "$profile_group" ] || [ -z "$container_host" ]; then
+              return 1
+            fi
+
+            origin_groups_json=$(az afd origin-group list \
+              --profile-name "$profile_name" \
+              --resource-group "$profile_group" \
+              -o json 2>/dev/null || echo "[]")
+            while IFS= read -r origin_group_name; do
+              if [ -z "$origin_group_name" ]; then
+                continue
+              fi
+              if az afd origin list \
+                --profile-name "$profile_name" \
+                --resource-group "$profile_group" \
+                --origin-group-name "$origin_group_name" \
+                -o json 2>/dev/null \
+                | jq -e --arg container_host "$(echo "$container_host" | tr '[:upper:]' '[:lower:]')" 'any(.[]; [(.hostName // .properties.hostName // ""), (.originHostHeader // .properties.originHostHeader // "")] | map(ascii_downcase) | any(. == $container_host))' >/dev/null; then
+                return 0
+              fi
+            done < <(echo "$origin_groups_json" | jq -r '.[] | .name // empty')
+            return 1
+          }
+
+          front_door_endpoint_host() {
+            local profile_name="$1"
+            local profile_group="$2"
+            local prefer_api_endpoint="$3"
+            local endpoints_json
+            local fallback_host=""
+            endpoints_json=$(az afd endpoint list \
+              --profile-name "$profile_name" \
+              --resource-group "$profile_group" \
+              -o json 2>/dev/null || echo "[]")
+            while IFS= read -r endpoint_json; do
+              local endpoint_host
+              local endpoint_label
+              endpoint_host=$(echo "$endpoint_json" | jq -r '.hostName // .properties.hostName // ""')
+              if [ -z "$endpoint_host" ]; then
+                continue
+              fi
+              endpoint_label=$(echo "$endpoint_json" | jq -r '((.name // "") + " " + (.hostName // .properties.hostName // "")) | ascii_downcase')
+              if [ -z "$fallback_host" ]; then
+                fallback_host="$endpoint_host"
+              fi
+              if [ "$prefer_api_endpoint" = "true" ] && [[ "$endpoint_label" == *api* ]]; then
+                echo "$endpoint_host"
+                return 0
+              fi
+            done < <(echo "$endpoints_json" | jq -c '.[]')
+            echo "$fallback_host"
+          }
+
+          resolve_front_door_contract_from_afd_cli() {
+            local prefer_api_endpoint="$1"
+            while IFS= read -r candidate_profile_json; do
+              if [ -z "$candidate_profile_json" ]; then
+                continue
+              fi
+              candidate_profile_id=$(echo "$candidate_profile_json" | jq -r '.id // ""')
+              candidate_profile_name=$(echo "$candidate_profile_json" | jq -r '.name // ""')
+              candidate_profile_group=$(resource_group_from_id "$candidate_profile_id")
+              if ! front_door_profile_targets_container "$candidate_profile_name" "$candidate_profile_group" "$CONTAINER_APP_FQDN"; then
+                continue
+              fi
+              candidate_fdid=$(front_door_profile_fdid "$candidate_profile_json" "$candidate_profile_id" "$candidate_profile_name" "$candidate_profile_group")
+              candidate_host=$(front_door_endpoint_host "$candidate_profile_name" "$candidate_profile_group" "$prefer_api_endpoint")
+              if [ -n "$candidate_host" ] && [ -n "$candidate_fdid" ]; then
+                echo "${candidate_profile_name}|${candidate_fdid}|${candidate_host}"
+                return 0
+              fi
+            done < <(echo "$AFD_PROFILES_JSON" | jq -c '.[]')
+            return 1
+          }
+
+          if [ -z "$TRUSTED_FRONT_DOOR_FDID" ] || [ -z "$TRUSTED_FRONT_DOOR_HOSTS" ]; then
+            AFD_PROFILES_JSON=$(az afd profile list -o json 2>/dev/null || echo "[]")
+            if [ "$(echo "$AFD_PROFILES_JSON" | jq 'length')" -eq 0 ]; then
+              echo "::warning::Azure CLI AFD profile list returned no profiles; trying generic ARM profile list"
+              AFD_PROFILES_JSON=$(az resource list \
+                --resource-type Microsoft.Cdn/profiles \
+                -o json 2>/dev/null || echo "[]")
+            fi
+            AFD_CONTRACT=$(resolve_front_door_contract_from_afd_cli true || true)
+            if [ -z "$AFD_CONTRACT" ]; then
+              AFD_CONTRACT=$(resolve_front_door_contract_from_afd_cli false || true)
+            fi
+            if [ -n "$AFD_CONTRACT" ]; then
+              IFS='|' read -r FRONT_DOOR_PROFILE_NAME TRUSTED_FRONT_DOOR_FDID TRUSTED_FRONT_DOOR_HOSTS <<< "$AFD_CONTRACT"
+            else
+              if [ "$(echo "$AFD_PROFILES_JSON" | jq 'length')" -gt 0 ]; then
+                echo "::warning::Unable to resolve Front Door contract from AFD CLI profiles; trying generic ARM discovery"
+              fi
+            fi
+          fi
+
+          FRONT_DOOR_PROFILES_JSON=$(az resource list \
+            --resource-type Microsoft.Cdn/profiles \
+            -o json 2>/dev/null || echo "[]")
+          FRONT_DOOR_ENDPOINTS_JSON=$(az resource list \
+            --resource-type Microsoft.Cdn/profiles/afdEndpoints \
+            -o json 2>/dev/null || echo "[]")
+          FRONT_DOOR_ORIGINS_JSON=$(az resource list \
+            --resource-type Microsoft.Cdn/profiles/originGroups/origins \
+            -o json 2>/dev/null || echo "[]")
+
+          if [ -z "$TRUSTED_FRONT_DOOR_FDID" ] || [ -z "$TRUSTED_FRONT_DOOR_HOSTS" ]; then
+            while IFS= read -r candidate_profile_json; do
+              if [ -z "$candidate_profile_json" ]; then
+                continue
+              fi
+              candidate_profile_id=$(echo "$candidate_profile_json" | jq -r '.id // ""')
+              candidate_profile_name=$(echo "$candidate_profile_json" | jq -r '.name // ""')
+              candidate_fdid=$(echo "$candidate_profile_json" | jq -r '.properties.frontDoorId // .properties.resourceGuid // ""')
+              origin_matches_container=$(echo "$FRONT_DOOR_ORIGINS_JSON" | jq -r --arg profile_id "$candidate_profile_id" --arg container_host "$CONTAINER_APP_FQDN" 'any(.[]; ((.id // "") | startswith($profile_id + "/")) and ((.properties.hostName // "") == $container_host))')
+              if [ "$origin_matches_container" != "true" ]; then
+                continue
+              fi
+              candidate_host=$(echo "$FRONT_DOOR_ENDPOINTS_JSON" | jq -r --arg profile_id "$candidate_profile_id" '[.[] | select((.id // "") | startswith($profile_id + "/")) | select(((.name // "") | ascii_downcase | contains("api")) or (((.properties.hostName // "") | ascii_downcase) | contains("api"))) | .properties.hostName][0] // ""')
+              if [ -n "$candidate_host" ] && [ -n "$candidate_fdid" ]; then
+                FRONT_DOOR_PROFILE_NAME="$candidate_profile_name"
+                TRUSTED_FRONT_DOOR_FDID="$candidate_fdid"
+                TRUSTED_FRONT_DOOR_HOSTS="$candidate_host"
+                break
+              fi
+            done < <(echo "$FRONT_DOOR_PROFILES_JSON" | jq -c '.[]')
+          fi
+
+          if [ -z "$TRUSTED_FRONT_DOOR_FDID" ] || [ -z "$TRUSTED_FRONT_DOOR_HOSTS" ]; then
+            while IFS= read -r candidate_profile_json; do
+              if [ -z "$candidate_profile_json" ]; then
+                continue
+              fi
+              candidate_profile_id=$(echo "$candidate_profile_json" | jq -r '.id // ""')
+              candidate_profile_name=$(echo "$candidate_profile_json" | jq -r '.name // ""')
+              candidate_fdid=$(echo "$candidate_profile_json" | jq -r '.properties.frontDoorId // .properties.resourceGuid // ""')
+              origin_matches_container=$(echo "$FRONT_DOOR_ORIGINS_JSON" | jq -r --arg profile_id "$candidate_profile_id" --arg container_host "$CONTAINER_APP_FQDN" 'any(.[]; ((.id // "") | startswith($profile_id + "/")) and ((.properties.hostName // "") == $container_host))')
+              if [ "$origin_matches_container" != "true" ]; then
+                continue
+              fi
+              candidate_host=$(echo "$FRONT_DOOR_ENDPOINTS_JSON" | jq -r --arg profile_id "$candidate_profile_id" '[.[] | select((.id // "") | startswith($profile_id + "/")) | .properties.hostName][0] // ""')
+              if [ -n "$candidate_host" ] && [ -n "$candidate_fdid" ]; then
+                FRONT_DOOR_PROFILE_NAME="$candidate_profile_name"
+                TRUSTED_FRONT_DOOR_FDID="$candidate_fdid"
+                TRUSTED_FRONT_DOOR_HOSTS="$candidate_host"
+                break
+              fi
+            done < <(echo "$FRONT_DOOR_PROFILES_JSON" | jq -c '.[]')
+          fi
+
+          if [ -z "$TRUSTED_FRONT_DOOR_FDID" ] || [ -z "$TRUSTED_FRONT_DOOR_HOSTS" ]; then
+            if [ "$REQUIRE_FRONT_DOOR_ORIGIN_LOCK" = "true" ]; then
+              echo "::error::Unable to resolve Front Door FDID/hostname for required origin-lock contract"
+              exit 1
+            fi
+            echo "::warning::Unable to resolve Front Door FDID/hostname; deploying without origin-lock because REQUIRE_FRONT_DOOR_ORIGIN_LOCK is not true"
+            TRUSTED_FRONT_DOOR_FDID=""
+            TRUSTED_FRONT_DOOR_HOSTS=""
+          fi
+
           az containerapp secret set \
             --name ${{ env.CONTAINER_APP_NAME }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --secrets \
               admin-key="${{ env.ADMIN_KEY }}" \
+              api-key="${{ env.ARCHMORPH_API_KEY }}" \
               jwt-secret="${{ env.JWT_SECRET }}" \
               storage-connection="${{ env.STORAGE_CONN }}"
+
+          SET_ENV_VARS=(
+            ARCHMORPH_ADMIN_KEY=secretref:admin-key
+            ARCHMORPH_API_KEY=secretref:api-key
+            JWT_SECRET=secretref:jwt-secret
+            AZURE_STORAGE_ACCOUNT_URL="$STORAGE_ACCOUNT_URL"
+            AZURE_STORAGE_CONNECTION_STRING=secretref:storage-connection
+            AZURE_OPENAI_ENDPOINT="${{ secrets.AZURE_OPENAI_ENDPOINT }}"
+            AZURE_OPENAI_DEPLOYMENT="gpt-4.1"
+            AZURE_OPENAI_FALLBACK_DEPLOYMENT="gpt-4o"
+            AZURE_OPENAI_API_VERSION="2025-04-01-preview"
+            ACS_SENDER_EMAIL="${{ secrets.ACS_SENDER_EMAIL }}"
+            WEB_CONCURRENCY="1"
+            TRUSTED_FRONT_DOOR_FDID="$TRUSTED_FRONT_DOOR_FDID"
+            TRUSTED_FRONT_DOOR_HOSTS="$TRUSTED_FRONT_DOOR_HOSTS"
+          )
+
+          if [ -n "${{ secrets.ACS_CONNECTION_STRING }}" ]; then
+            az containerapp secret set \
+              --name ${{ env.CONTAINER_APP_NAME }} \
+              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --secrets acs-connection-string="${{ secrets.ACS_CONNECTION_STRING }}"
+            SET_ENV_VARS+=(ACS_CONNECTION_STRING=secretref:acs-connection-string)
+          fi
 
           SHORT_SHA="${{ github.sha }}"
           SHORT_SHA="${SHORT_SHA:0:8}"
@@ -769,19 +1047,7 @@ jobs:
             --name ${{ env.CONTAINER_APP_NAME }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --image "${IMAGE_REF}" \
-            --set-env-vars \
-              ARCHMORPH_ADMIN_KEY=secretref:admin-key \
-              ARCHMORPH_API_KEY=secretref:admin-key \
-              JWT_SECRET=secretref:jwt-secret \
-              AZURE_STORAGE_ACCOUNT_URL="$STORAGE_ACCOUNT_URL" \
-              AZURE_STORAGE_CONNECTION_STRING=secretref:storage-connection \
-              AZURE_OPENAI_ENDPOINT="${{ secrets.AZURE_OPENAI_ENDPOINT }}" \
-              AZURE_OPENAI_DEPLOYMENT="gpt-4.1" \
-              AZURE_OPENAI_FALLBACK_DEPLOYMENT="gpt-4o" \
-              AZURE_OPENAI_API_VERSION="2025-04-01-preview" \
-              ACS_CONNECTION_STRING="${{ secrets.ACS_CONNECTION_STRING }}" \
-              ACS_SENDER_EMAIL="${{ secrets.ACS_SENDER_EMAIL }}" \
-              WEB_CONCURRENCY="1" \
+            --set-env-vars "${SET_ENV_VARS[@]}" \
             --revision-suffix "$REVISION_SUFFIX" \
             --no-wait
 
@@ -864,10 +1130,22 @@ jobs:
             fi
           done
 
+          ADMIN_SECRET_REF=$(echo "$ENV_JSON" | jq -r '.[] | select(.name == "ARCHMORPH_ADMIN_KEY") | .secretRef // ""')
+          if [ "$ADMIN_SECRET_REF" != "admin-key" ]; then
+            echo "::error::ARCHMORPH_ADMIN_KEY must reference admin-key secret"
+            exit 1
+          fi
+
+          API_SECRET_REF=$(echo "$ENV_JSON" | jq -r '.[] | select(.name == "ARCHMORPH_API_KEY") | .secretRef // ""')
+          if [ "$API_SECRET_REF" != "api-key" ]; then
+            echo "::error::ARCHMORPH_API_KEY must reference api-key secret"
+            exit 1
+          fi
+
           for name in ARCHMORPH_ADMIN_KEY ARCHMORPH_API_KEY; do
             SECRET_REF=$(echo "$ENV_JSON" | jq -r --arg name "$name" '.[] | select(.name == $name) | .secretRef // ""')
-            if [ "$SECRET_REF" != "admin-key" ]; then
-              echo "::error::${name} must reference admin-key secret"
+            if [ -z "$SECRET_REF" ]; then
+              echo "::error::${name} must reference a Container App secret"
               exit 1
             fi
           done
@@ -901,6 +1179,33 @@ jobs:
             HEALTH_PATH="/health"
           fi
 
+          TRUSTED_FRONT_DOOR_FDID=""
+          TRUSTED_FRONT_DOOR_HOST=""
+          TRUSTED_ORIGIN_CURL_ARGS=()
+          REQUIRE_FRONT_DOOR_ORIGIN_LOCK=$(echo "${REQUIRE_FRONT_DOOR_ORIGIN_LOCK:-false}" | tr '[:upper:]' '[:lower:]')
+          if [ -n "$GREEN_FQDN" ]; then
+            TRUSTED_FRONT_DOOR_FDID=$(az containerapp show \
+              --name ${{ env.CONTAINER_APP_NAME }} \
+              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --query "properties.template.containers[0].env[?name=='TRUSTED_FRONT_DOOR_FDID'].value | [0]" \
+              -o tsv 2>/dev/null || echo "")
+            TRUSTED_FRONT_DOOR_HOST=$(az containerapp show \
+              --name ${{ env.CONTAINER_APP_NAME }} \
+              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --query "properties.template.containers[0].env[?name=='TRUSTED_FRONT_DOOR_HOSTS'].value | [0]" \
+              -o tsv 2>/dev/null || echo "")
+            TRUSTED_FRONT_DOOR_HOST="${TRUSTED_FRONT_DOOR_HOST%%,*}"
+            if [ -z "$TRUSTED_FRONT_DOOR_FDID" ] || [ -z "$TRUSTED_FRONT_DOOR_HOST" ]; then
+              if [ "$REQUIRE_FRONT_DOOR_ORIGIN_LOCK" = "true" ]; then
+                echo "::error::Expected Front Door origin-lock settings are missing from the Container App"
+                exit 1
+              fi
+              echo "::warning::Front Door origin-lock settings are missing; direct-origin rejection check will be skipped"
+            else
+              TRUSTED_ORIGIN_CURL_ARGS=(-H "X-Azure-FDID: $TRUSTED_FRONT_DOOR_FDID" -H "Host: $TRUSTED_FRONT_DOOR_HOST")
+            fi
+          fi
+
           dump_green_revision_diagnostics() {
             local reason="$1"
             echo "::group::Green revision diagnostics (${reason})"
@@ -920,11 +1225,17 @@ jobs:
 
           curl_health() {
             local url="$1"
-            if [ -n "${ADMIN_KEY:-}" ]; then
-              curl -sS --max-time 30 -H "X-API-Key: $ADMIN_KEY" "$url"
-            else
-              curl -sS --max-time 30 "$url"
+            local curl_args=(-sS --max-time 30)
+            if [ ${#TRUSTED_ORIGIN_CURL_ARGS[@]} -gt 0 ]; then
+              curl_args+=("${TRUSTED_ORIGIN_CURL_ARGS[@]}")
             fi
+            if [ -n "${ARCHMORPH_API_KEY:-}" ]; then
+              curl_args+=(-H "X-API-Key: $ARCHMORPH_API_KEY")
+            fi
+            if [ -z "${ARCHMORPH_API_KEY:-}" ] && [ -n "${ADMIN_KEY:-}" ]; then
+              curl_args+=(-H "X-API-Key: $ADMIN_KEY")
+            fi
+            curl "${curl_args[@]}" "$url"
           }
 
           HEALTHZ_URL="${TEST_URL%/api}/healthz"
@@ -952,6 +1263,23 @@ jobs:
             exit 1
           fi
 
+          if [ -n "$GREEN_FQDN" ] && [ ${#TRUSTED_ORIGIN_CURL_ARGS[@]} -gt 0 ]; then
+            : > direct-origin-response.json
+            if ! DIRECT_ORIGIN_CODE=$(curl -sS -o direct-origin-response.json -w "%{http_code}" \
+              --max-time 20 "$TEST_URL/openapi.json"); then
+              DIRECT_ORIGIN_CODE="000"
+            fi
+            if [ "$DIRECT_ORIGIN_CODE" != "403" ]; then
+              echo "::error::Direct green revision origin-lock check returned HTTP ${DIRECT_ORIGIN_CODE}"
+              [ -s direct-origin-response.json ] && head -c 2000 direct-origin-response.json || true
+              dump_green_revision_diagnostics "origin-lock-${DIRECT_ORIGIN_CODE}"
+              exit 1
+            fi
+            echo "Direct green revision access correctly blocked (${DIRECT_ORIGIN_CODE})"
+          elif [ -n "$GREEN_FQDN" ]; then
+            echo "::warning::Skipping direct green revision origin-lock rejection check because no trusted Front Door contract is configured"
+          fi
+
           echo "Running smoke tests against: $TEST_URL$HEALTH_PATH"
           BODY=$(curl_health "$TEST_URL$HEALTH_PATH" || true)
           CATALOG_STALE=$(echo "$BODY" | jq -r '.service_catalog_refresh.stale // false' 2>/dev/null || echo false)
@@ -969,8 +1297,9 @@ jobs:
           for attempt in 1 2 3 4 5 6; do
             if ! HTTP_CODE=$(curl -sS -o storage-preflight-response.json -w "%{http_code}" \
               --max-time 60 \
+              "${TRUSTED_ORIGIN_CURL_ARGS[@]}" \
               -X POST "$STORAGE_PREFLIGHT_URL" \
-              -H "X-API-Key: $ADMIN_KEY" \
+              -H "X-API-Key: $ARCHMORPH_API_KEY" \
               -H "Content-Type: application/json" \
               -d '{}'); then
               HTTP_CODE="${HTTP_CODE:-000}"
@@ -998,8 +1327,9 @@ jobs:
           for attempt in 1 2; do
             if ! HTTP_CODE=$(curl -sS -o refresh-response.json -w "%{http_code}" \
               --max-time 300 \
+              "${TRUSTED_ORIGIN_CURL_ARGS[@]}" \
               -X POST "$REFRESH_URL" \
-              -H "X-API-Key: $ADMIN_KEY" \
+              -H "X-API-Key: $ARCHMORPH_API_KEY" \
               -H "Content-Type: application/json" \
               -d '{}'); then
               HTTP_CODE="${HTTP_CODE:-000}"
@@ -1023,7 +1353,16 @@ jobs:
             fi
           done
 
-          HEALTH_RETRIES=3 HEALTH_RETRY_SECONDS=15 HEALTH_API_KEY="$ADMIN_KEY" ./scripts/health_gate.sh "$TEST_URL$HEALTH_PATH"
+          for attempt in 1 2 3; do
+            HEALTH_BODY=$(curl_health "$TEST_URL$HEALTH_PATH" || true)
+            if HEALTH_BODY="$HEALTH_BODY" HEALTH_RETRIES=1 HEALTH_RETRY_SECONDS=0 ./scripts/health_gate.sh; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              exit 1
+            fi
+            sleep 15
+          done
           VERSION=$(curl_health "$TEST_URL$HEALTH_PATH" | jq -r '.version' 2>/dev/null || echo 'unknown')
           echo "Green revision version: $VERSION — all smoke tests passed"
 
@@ -1057,8 +1396,8 @@ jobs:
       - name: Verify production deployment
         run: |
           sleep 10
-          HEALTH_RETRIES=3 HEALTH_RETRY_SECONDS=10 HEALTH_API_KEY="$ADMIN_KEY" ./scripts/health_gate.sh "${{ env.API_URL }}/health"
-          HEALTH_BODY=$(curl -s --max-time 30 -H "X-API-Key: $ADMIN_KEY" "${{ env.API_URL }}/health")
+          HEALTH_RETRIES=3 HEALTH_RETRY_SECONDS=10 HEALTH_API_KEY="$ARCHMORPH_API_KEY" ./scripts/health_gate.sh "${{ env.API_URL }}/health"
+          HEALTH_BODY=$(curl -s --max-time 30 -H "X-API-Key: $ARCHMORPH_API_KEY" "${{ env.API_URL }}/health")
           HEALTH=$(printf '%s' "$HEALTH_BODY" | jq -r '.status')
           VERSION=$(printf '%s' "$HEALTH_BODY" | jq -r '.version')
           echo "Deployed version: $VERSION — status: $HEALTH (blue-green complete)"
@@ -1108,4 +1447,4 @@ jobs:
         env:
           API_URL: ${{ env.API_URL }}
           FRONTEND_URL: ${{ env.FRONTEND_URL }}
-          HEALTH_API_KEY: ${{ secrets.ADMIN_KEY }}
+          HEALTH_API_KEY: ${{ secrets.ARCHMORPH_API_KEY || secrets.API_KEY }}

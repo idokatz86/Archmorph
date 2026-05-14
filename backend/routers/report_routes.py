@@ -11,8 +11,7 @@ from fastapi import APIRouter, Request, Depends
 from fastapi.responses import StreamingResponse
 
 from error_envelope import ArchmorphException
-from routers.shared import limiter, verify_api_key
-from routers.samples import get_or_recreate_session
+from routers.shared import authorize_diagram_access, limiter, require_diagram_access, verify_api_key
 from report_generator import generate_analysis_report_pdf
 from usage_metrics import record_event
 from export_capabilities import consume_export_capability, issue_export_capability, verify_export_capability
@@ -22,7 +21,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-@router.get("/api/diagrams/{diagram_id}/report")
+@router.get("/api/diagrams/{diagram_id}/report", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("10/minute")
 async def download_analysis_report(
     request: Request,
@@ -39,9 +38,7 @@ async def download_analysis_report(
     if fmt != "pdf":
         raise ArchmorphException(400, "Only PDF format is currently supported for analysis reports")
 
-    session = get_or_recreate_session(diagram_id)
-    if not session:
-        raise ArchmorphException(404, "Analysis session not found. Please re-analyze the diagram.")
+    session = authorize_diagram_access(request, diagram_id, purpose="download a report")
 
     if not session.get("mappings"):
         raise ArchmorphException(404, "No analysis data found. Complete an analysis first.")

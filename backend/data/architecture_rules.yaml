@@ -1225,3 +1225,210 @@ rules:
         - Front Door
         - Private Endpoint
     tags: [frontdoor, cost, premium]
+
+  # ────────────────────────────────────────────────────────────
+  # Category 10 — ActOne/XSE engine + protocol mapping decisions (#1029)
+  # ────────────────────────────────────────────────────────────
+
+  - id: sftp-s3-ingestion-decision-blocker
+    title: SFTP + S3 ingestion workflows need explicit Azure ingestion controls
+    severity: blocker
+    category: data-plane
+    message: |
+      An SFTP + S3-style incoming-bucket workflow was detected without explicit
+      ingestion-path controls. Production migration needs a declared target
+      pattern (Azure Storage/ADLS Gen2 SFTP), private access, firewall/auth
+      controls, lifecycle policy, and downstream trigger handling.
+    remediation: |
+      Choose and document one ingestion path: Azure Blob/ADLS Gen2 SFTP endpoint
+      with local users or approved identity model, private endpoint/firewall
+      controls, lifecycle/retention policy, and trigger wiring (Event Grid,
+      Data Factory, Function, or Logic App) for downstream processing.
+    docs_url: https://learn.microsoft.com/azure/storage/blobs/secure-file-transfer-protocol-support
+    predicate: service_keywords_without_companion
+    predicate_args:
+      keywords:
+        - SFTP
+        - S3
+        - Incoming Bucket
+      companions:
+        - ADLS Gen2
+        - Azure Storage SFTP
+        - Private Endpoint
+        - Storage Firewall
+        - Local User
+        - Lifecycle
+        - Event Grid
+        - Data Factory
+        - Logic App
+        - Function Trigger
+      threshold: 2
+    tags: [sftp, s3, ingestion, storage, blockers]
+
+  - id: appstream-target-decision-blocker
+    title: AppStream workloads require explicit Azure Virtual Desktop or modernization choice
+    severity: blocker
+    category: identity-auth
+    message: |
+      AppStream usage was detected without an explicit target decision. Production
+      planning must choose Azure Virtual Desktop RemoteApp (or a modernization
+      path) with identity, private access, and session profile assumptions.
+    remediation: |
+      Select one target path: (1) Azure Virtual Desktop RemoteApp, (2) app
+      modernization to web/native, or (3) managed third-party VDI. Capture Entra
+      identity integration, network isolation/private access, and session-data
+      storage assumptions before generating production IaC.
+    docs_url: https://learn.microsoft.com/azure/virtual-desktop/overview
+    predicate: service_keywords_without_companion
+    predicate_args:
+      keywords:
+        - AppStream
+      companions:
+        - Azure Virtual Desktop
+        - RemoteApp
+        - Modernization
+        - Entra
+        - Private Endpoint
+        - Private Access
+    tags: [appstream, avd, vdi, modernization]
+
+  - id: alb-l7-ingress-decision-blocker
+    title: ALB ingress needs Application Gateway WAF v2 listener/backend mapping decisions
+    severity: blocker
+    category: network-topology
+    message: |
+      ALB ingress was detected without explicit Application Gateway WAF v2
+      listener and backend-pool mapping details. For production migrations,
+      separate listener/backend intents (for example AVA vs ActOne paths) must
+      be preserved rather than collapsed into a generic edge mapping.
+    remediation: |
+      Define a regional Application Gateway WAF v2 design with explicit HTTPS
+      listeners, routing rules, and backend pools that preserve each source ALB
+      ingress path. Document certificate/WAF policy ownership and rule mapping.
+    docs_url: https://learn.microsoft.com/azure/application-gateway/overview
+    predicate: service_keywords_without_companion
+    predicate_args:
+      keywords:
+        - ALB
+        - Application Load Balancer
+      companions:
+        - WAF v2
+        - Listener
+        - Backend Pool
+        - Routing Rule
+      threshold: 1
+    tags: [alb, appgateway, waf, ingress]
+
+  - id: rds-engine-identification-blocker
+    title: Generic RDS mappings need engine identification before Azure target selection
+    severity: blocker
+    category: data-plane
+    message: |
+      Generic RDS was detected without engine identification. Mapping RDS
+      directly to Azure SQL by default can be incorrect for PostgreSQL/MySQL and
+      hides compatibility, operational, and licensing decisions.
+    remediation: |
+      Identify the RDS engine first (PostgreSQL, MySQL, SQL Server, MariaDB,
+      Oracle, etc.) and only then choose the Azure target. If engine is unknown,
+      keep the mapping unresolved and block production IaC until clarified.
+    docs_url: https://learn.microsoft.com/azure/azure-sql/migration-guides/
+    predicate: rds_engine_unresolved
+    tags: [rds, engine, database, blockers]
+
+  - id: kafka-compatibility-path-blocker
+    title: Kafka/MSK workloads require explicit compatibility target path
+    severity: blocker
+    category: data-plane
+    message: |
+      Kafka/MSK signals were detected without a compatibility target decision.
+      Production migration must choose between Event Hubs Kafka endpoint,
+      Confluent Cloud, or self-managed Kafka on AKS based on client/protocol
+      compatibility needs.
+    remediation: |
+      Document the Kafka target option and compatibility assumptions: protocol
+      version/client expectations, schema registry approach, connector strategy,
+      and operational ownership.
+    docs_url: https://learn.microsoft.com/azure/event-hubs/azure-event-hubs-apache-kafka-overview
+    predicate: service_keywords_without_companion
+    predicate_args:
+      keywords:
+        - Kafka
+        - MSK
+      companions:
+        - Confluent
+        - Kafka on AKS
+        - Self-managed Kafka
+        - Schema Registry
+        - Kafka Compatibility
+      threshold: 1
+    tags: [kafka, msk, streaming, blockers]
+
+  - id: efs-filesystem-choice-blocker
+    title: EFS-backed workloads need filesystem target choice (Azure Files Premium NFS vs ANF)
+    severity: blocker
+    category: data-plane
+    message: |
+      EFS-style shared filesystem usage was detected without a target filesystem
+      decision. Production migration should choose Azure Files Premium NFS or
+      Azure NetApp Files based on POSIX behavior and performance requirements.
+    remediation: |
+      Capture filesystem requirements (POSIX semantics, locking, throughput,
+      latency, and scale), then choose Azure Files Premium NFS or Azure NetApp
+      Files explicitly before generating production IaC.
+    docs_url: https://learn.microsoft.com/azure/storage/files/files-nfs-protocol
+    predicate: service_keywords_without_companion
+    predicate_args:
+      keywords:
+        - EFS
+      companions:
+        - NetApp Volume
+        - POSIX
+        - NFSv4.1
+        - Throughput
+        - Latency
+    tags: [efs, nfs, posix, storage, blockers]
+
+  - id: elasticsearch-workload-classification-blocker
+    title: Elasticsearch/OpenSearch mappings need workload classification
+    severity: blocker
+    category: operations
+    message: |
+      Elasticsearch/OpenSearch was detected without clear workload
+      classification (logs, business metrics, or product search). A generic
+      search mapping can misplace log analytics workloads.
+    remediation: |
+      Classify Elasticsearch usage first: log analytics, business metrics, or
+      product/content search. Use Azure Monitor/Log Analytics/Data Explorer for
+      logs and operational analytics; reserve Azure AI Search for search/RAG
+      use-cases where appropriate.
+    docs_url: https://learn.microsoft.com/azure/architecture/data-guide/technology-choices/search-options
+    predicate: service_keywords_without_companion
+    predicate_args:
+      keywords:
+        - Elasticsearch
+        - ElasticSearch
+        - OpenSearch
+      companions:
+        - Log Analytics
+        - Azure Monitor
+        - Data Explorer
+        - Business Metrics
+        - Product Search
+        - Full-text Search
+      threshold: 1
+    tags: [elasticsearch, opensearch, logs, metrics, search]
+
+  - id: active-active-traffic-split-ambiguity-warning
+    title: Active-active label conflicts with failover-style 100/0 traffic split
+    severity: warning
+    category: resilience
+    message: |
+      The architecture signals active-active while traffic appears 100/0
+      failover-style. This is ambiguous and can lead to incorrect HA/DR plans.
+    remediation: |
+      Clarify whether the workload is true active-active or active-passive
+      failover. Confirm expected steady-state traffic split, RTO, RPO, and
+      failover orchestration/runbook assumptions before production cutover.
+    docs_url: https://learn.microsoft.com/azure/architecture/framework/resiliency/reliability-pillars
+    predicate: active_active_with_failover_traffic_split
+    tags: [ha, dr, active-active, failover, rto, rpo]

@@ -5,14 +5,13 @@ Architecture Diff & Version Comparison routes.
 Version snapshots and diffing for analysis results.
 """
 
-from fastapi import APIRouter, Request, Query
+from fastapi import APIRouter, Depends, Request, Query
 from pydantic import Field
 from strict_models import StrictBaseModel
 from typing import Optional
 import logging
 
-from routers.shared import limiter
-from routers.samples import get_or_recreate_session
+from routers.shared import limiter, require_diagram_access, verify_api_key
 import architecture_diff
 
 logger = logging.getLogger(__name__)
@@ -32,17 +31,28 @@ class BranchRequest(StrictBaseModel):
 # Version Management
 # ─────────────────────────────────────────────────────────────
 
-@router.get("/api/diagrams/{diagram_id}/versions")
+@router.get("/api/diagrams/{diagram_id}/versions", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("30/minute")
-async def list_versions(request: Request, diagram_id: str):
+async def list_versions(
+    request: Request,
+    diagram_id: str,
+    _auth=Depends(verify_api_key),
+    _session=Depends(require_diagram_access),
+):
     """List all saved versions for a diagram."""
     versions = architecture_diff.list_versions(diagram_id)
     return {"diagram_id": diagram_id, "versions": versions, "total": len(versions)}
 
 
-@router.get("/api/diagrams/{diagram_id}/versions/{version}")
+@router.get("/api/diagrams/{diagram_id}/versions/{version}", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("30/minute")
-async def get_version(request: Request, diagram_id: str, version: int):
+async def get_version(
+    request: Request,
+    diagram_id: str,
+    version: int,
+    _auth=Depends(verify_api_key),
+    _session=Depends(require_diagram_access),
+):
     """Get a specific version snapshot."""
     record = architecture_diff.get_version(diagram_id, version)
     if record is None:
@@ -50,18 +60,16 @@ async def get_version(request: Request, diagram_id: str, version: int):
     return record
 
 
-@router.post("/api/diagrams/{diagram_id}/versions/save")
+@router.post("/api/diagrams/{diagram_id}/versions/save", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("10/minute")
 async def save_version(
     request: Request,
     diagram_id: str,
     body: Optional[SaveVersionRequest] = None,
+    _auth=Depends(verify_api_key),
+    analysis=Depends(require_diagram_access),
 ):
     """Save current analysis state as a new version snapshot."""
-    analysis = get_or_recreate_session(diagram_id)
-    if not analysis:
-        raise ArchmorphException(404, "Analysis not found")
-
     label = body.label if body else None
     result = architecture_diff.save_version(diagram_id, analysis, label=label)
     return result
@@ -71,13 +79,15 @@ async def save_version(
 # Diff
 # ─────────────────────────────────────────────────────────────
 
-@router.get("/api/diagrams/{diagram_id}/diff")
+@router.get("/api/diagrams/{diagram_id}/diff", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("20/minute")
 async def diff_versions(
     request: Request,
     diagram_id: str,
     v1: int = Query(..., ge=1),
     v2: int = Query(..., ge=1),
+    _auth=Depends(verify_api_key),
+    _session=Depends(require_diagram_access),
 ):
     """Compare two version snapshots and return a structured diff."""
     if v1 == v2:
@@ -93,13 +103,15 @@ async def diff_versions(
 # What-If Branching
 # ─────────────────────────────────────────────────────────────
 
-@router.post("/api/diagrams/{diagram_id}/versions/{version}/branch")
+@router.post("/api/diagrams/{diagram_id}/versions/{version}/branch", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("10/minute")
 async def branch_version(
     request: Request,
     diagram_id: str,
     version: int,
     body: Optional[BranchRequest] = None,
+    _auth=Depends(verify_api_key),
+    _session=Depends(require_diagram_access),
 ):
     """Fork a version for what-if analysis."""
     label = body.label if body else None

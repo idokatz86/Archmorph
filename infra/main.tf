@@ -719,6 +719,16 @@ resource "azurerm_container_app" "backend" {
       }
 
       env {
+        name  = "TRUSTED_FRONT_DOOR_FDID"
+        value = var.enable_front_door_waf ? azurerm_cdn_frontdoor_profile.main[0].resource_guid : ""
+      }
+
+      env {
+        name  = "TRUSTED_FRONT_DOOR_HOSTS"
+        value = var.enable_front_door_waf ? azurerm_cdn_frontdoor_endpoint.api[0].host_name : ""
+      }
+
+      env {
         name        = "REDIS_URL"
         secret_name = "redis-url"
       }
@@ -736,6 +746,11 @@ resource "azurerm_container_app" "backend" {
       env {
         name  = "OTEL_TRACES_SAMPLER_ARG"
         value = var.environment == "prod" ? tostring(var.app_insights_sampling_percentage_prod / 100) : "1.0"
+      }
+
+      env {
+        name  = "TRUST_SWA_PRINCIPAL_HEADER"
+        value = "false"
       }
 
       liveness_probe {
@@ -2499,7 +2514,7 @@ resource "azurerm_cdn_frontdoor_firewall_policy" "waf" {
     match_condition {
       match_variable = "RemoteAddr"
       operator       = "IPMatch"
-      match_values   = ["0.0.0.0/0"] # Match all (rate-limit everyone equally)
+      match_values   = ["0.0.0.0/0", "::/0"] # Match all IPv4 and IPv6 clients equally
     }
   }
 
@@ -2518,6 +2533,23 @@ resource "azurerm_cdn_frontdoor_firewall_policy" "waf" {
       negation_condition = false
       match_values       = ["sqlmap", "nikto", "nmap", "dirbuster", "havij"]
       transforms         = ["Lowercase"]
+    }
+  }
+
+  # Current production topology does not proxy backend requests through SWA,
+  # so any client-supplied x-ms-client-principal is forged and should be blocked.
+  custom_rule {
+    name     = "BlockForgedSWAPrincipal"
+    enabled  = true
+    priority = 50
+    type     = "MatchRule"
+    action   = "Block"
+
+    match_condition {
+      match_variable = "RequestHeader"
+      selector       = "x-ms-client-principal"
+      operator       = "RegEx"
+      match_values   = [".+"]
     }
   }
 
@@ -2575,7 +2607,7 @@ resource "azurerm_cdn_frontdoor_origin" "api" {
 
   certificate_name_check_enabled = true
   host_name                      = azurerm_container_app.backend.ingress[0].fqdn
-  origin_host_header             = azurerm_container_app.backend.ingress[0].fqdn
+  origin_host_header             = azurerm_cdn_frontdoor_endpoint.api[0].host_name
   http_port                      = 80
   https_port                     = 443
   priority                       = 1
