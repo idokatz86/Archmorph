@@ -205,8 +205,8 @@ def test_storage_bypass_policy_fails_when_azure_services_missing():
     check = AzureStorageProdNetworkBypass()
 
     from checkov.common.models.enums import CheckResult
-    assert check.scan_resource_conf({"network_rules": [{"bypass": []}]}) == CheckResult.FAILED
-    assert check.scan_resource_conf({"network_rules": [{"bypass": ["Logging"]}]}) == CheckResult.FAILED
+    assert check.scan_resource_conf({"network_rules": [{"default_action": "Deny", "bypass": []}]}) == CheckResult.FAILED
+    assert check.scan_resource_conf({"network_rules": [{"default_action": ["Deny"], "bypass": ["Logging"]}]}) == CheckResult.FAILED
 
 
 def test_storage_bypass_policy_passes_when_azure_services_in_bypass():
@@ -217,7 +217,9 @@ def test_storage_bypass_policy_passes_when_azure_services_in_bypass():
     check = AzureStorageProdNetworkBypass()
 
     from checkov.common.models.enums import CheckResult
-    assert check.scan_resource_conf({"network_rules": [{"bypass": ["AzureServices"]}]}) == CheckResult.PASSED
-    assert check.scan_resource_conf({"network_rules": [{"bypass": ["Logging", "AzureServices"]}]}) == CheckResult.PASSED
+    assert check.scan_resource_conf({"network_rules": [{"default_action": "Deny", "bypass": ["AzureServices"]}]}) == CheckResult.PASSED
+    assert check.scan_resource_conf({"network_rules": [{"default_action": ["Deny"], "bypass": ["Logging", "AzureServices"]}]}) == CheckResult.PASSED
+    # Allow-by-default rules are not deny-without-path risks.
+    assert check.scan_resource_conf({"network_rules": [{"default_action": "Allow", "bypass": []}]}) == CheckResult.PASSED
     # No network rules at all — no deny-without-path risk
     assert check.scan_resource_conf({}) == CheckResult.PASSED

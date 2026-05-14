@@ -114,6 +114,7 @@ def _run_dependency_checks() -> tuple[dict[str, str], bool, bool]:
         from usage_metrics import AZURE_STORAGE_ACCOUNT_URL, AZURE_STORAGE_CONNECTION_STRING
         if AZURE_STORAGE_ACCOUNT_URL or AZURE_STORAGE_CONNECTION_STRING:
             # Probe actual reachability — catch private-network misconfiguration early.
+            _bsc = None
             try:
                 from azure.storage.blob import BlobServiceClient
                 if AZURE_STORAGE_ACCOUNT_URL:
@@ -124,9 +125,17 @@ def _run_dependency_checks() -> tuple[dict[str, str], bool, bool]:
                     _bsc = BlobServiceClient.from_connection_string(AZURE_STORAGE_CONNECTION_STRING)
                 _bsc.get_service_properties(timeout=4)
                 checks["storage"] = "ok"
-            except Exception:
+            except Exception as exc:
+                logger.warning(
+                    "Storage health probe unreachable: %s: %s",
+                    type(exc).__name__,
+                    exc,
+                )
                 checks["storage"] = "unreachable"
                 degraded = True
+            finally:
+                if _bsc is not None:
+                    _bsc.close()
         else:
             checks["storage"] = "local_only"
     except Exception:
@@ -145,8 +154,13 @@ def _run_dependency_checks() -> tuple[dict[str, str], bool, bool]:
             try:
                 _create_redis_client(socket_connect_timeout=2)
                 checks["redis"] = "ok"
-            except Exception:
+            except Exception as exc:
                 # Connection failed — private endpoint not reachable or misconfigured
+                logger.warning(
+                    "Redis health probe unreachable: %s: %s",
+                    type(exc).__name__,
+                    exc,
+                )
                 checks["redis"] = "unreachable"
                 degraded = True
         else:

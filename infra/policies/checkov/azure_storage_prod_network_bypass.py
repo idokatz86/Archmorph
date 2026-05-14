@@ -26,6 +26,12 @@ class AzureStorageProdNetworkBypass(BaseResourceCheck):
         if not isinstance(rules, dict):
             return CheckResult.UNKNOWN
 
+        default_action = rules.get("default_action")
+        if isinstance(default_action, list) and default_action:
+            default_action = default_action[0]
+        if str(default_action).lower() != "deny":
+            return CheckResult.PASSED
+
         bypass = rules.get("bypass", [])
         # bypass may be nested in an extra list layer from HCL parsing
         if isinstance(bypass, list) and len(bypass) > 0 and isinstance(bypass[0], list):
