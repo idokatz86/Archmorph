@@ -58,7 +58,13 @@ describe('UploadStep', () => {
     expect(screen.getByText('diagram.png')).toBeInTheDocument()
   })
 
-  it('shows Analyze button when file is selected', () => {
+  it('shows Analyze button when file is selected and user is authenticated', () => {
+    const file = new File(['test'], 'diagram.png', { type: 'image/png' })
+    render(<UploadStep {...defaultProps} selectedFile={file} isAuthenticated={true} />)
+    expect(screen.getByText('Analyze This Diagram')).toBeInTheDocument()
+  })
+
+  it('shows Analyze button when file is selected and isAuthenticated is omitted (defaults to true)', () => {
     const file = new File(['test'], 'diagram.png', { type: 'image/png' })
     render(<UploadStep {...defaultProps} selectedFile={file} />)
     expect(screen.getByText('Analyze This Diagram')).toBeInTheDocument()
@@ -141,5 +147,33 @@ describe('UploadStep', () => {
       'Remove',
       'Replace file',
     ])
+  })
+
+  // ── Auth gate ──
+
+  it('shows "Sign in to analyze" instead of "Analyze This Diagram" when user is signed out and a file is selected', () => {
+    const file = new File(['diagram.pdf'], 'diagram.pdf', { type: 'application/pdf' })
+    render(<UploadStep {...defaultProps} selectedFile={file} isAuthenticated={false} onSignIn={vi.fn()} />)
+    expect(screen.getByText('Sign in to analyze')).toBeInTheDocument()
+    expect(screen.queryByText('Analyze This Diagram')).not.toBeInTheDocument()
+  })
+
+  it('calls onSignIn when "Sign in to analyze" button is clicked', async () => {
+    const user = userEvent.setup()
+    const onSignIn = vi.fn()
+    const file = new File(['diagram.pdf'], 'diagram.pdf', { type: 'application/pdf' })
+    render(<UploadStep {...defaultProps} selectedFile={file} isAuthenticated={false} onSignIn={onSignIn} />)
+    await user.click(screen.getByText('Sign in to analyze'))
+    expect(onSignIn).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not call onUpload when "Sign in to analyze" is clicked (auth gate blocks upload)', async () => {
+    const user = userEvent.setup()
+    const onUpload = vi.fn()
+    const onSignIn = vi.fn()
+    const file = new File(['diagram.pdf'], 'diagram.pdf', { type: 'application/pdf' })
+    render(<UploadStep {...defaultProps} selectedFile={file} isAuthenticated={false} onUpload={onUpload} onSignIn={onSignIn} />)
+    await user.click(screen.getByText('Sign in to analyze'))
+    expect(onUpload).not.toHaveBeenCalled()
   })
 })
