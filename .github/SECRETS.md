@@ -31,6 +31,14 @@ These secrets are required in `.github/workflows/monitoring.yml`:
 | `API_URL` | Backend API URL | `https://your-app.azurecontainerapps.io/api` |
 | `FRONTEND_URL` | Frontend Static Web App URL | `https://your-swa.azurestaticapps.net` |
 
+## Production Terraform Workflow Secrets
+
+These secrets are required in `.github/workflows/terraform-prod.yml`:
+
+| Secret Name | Description | Example Value |
+|-------------|-------------|---------------|
+| `TFPLAN_ARTIFACT_PASSPHRASE` | High-entropy passphrase used to encrypt reviewed binary Terraform plan artifacts before upload and decrypt them inside the approved production apply job. | (strong random secret) |
+
 ## E2E Test Environment Variables
 
 When running E2E tests locally or in CI, set these environment variables:

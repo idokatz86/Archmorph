@@ -126,19 +126,37 @@ jobs:
           Path("plan-metadata.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
           PY
 
+      - name: Encrypt reviewed production plan bundle
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          TFPLAN_ARTIFACT_PASSPHRASE: ${{ secrets.TFPLAN_ARTIFACT_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TFPLAN_ARTIFACT_PASSPHRASE:-}" ]; then
+            echo "::error::TFPLAN_ARTIFACT_PASSPHRASE secret is required to encrypt the reviewed Terraform plan artifact."
+            exit 1
+          fi
+          tar -czf prod-reviewed-plan.tar.gz \
+            tfplan \
+            tfplan.sha256 \
+            .terraform.lock.hcl \
+            provider_lock.sha256 \
+            plan-metadata.json
+          openssl enc -aes-256-cbc -pbkdf2 -salt \
+            -in prod-reviewed-plan.tar.gz \
+            -out prod-reviewed-plan.tar.gz.enc \
+            -pass env:TFPLAN_ARTIFACT_PASSPHRASE
+          rm -f prod-reviewed-plan.tar.gz
+
       - name: Upload reviewed production plan artifact
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v7
         with:
           name: prod-reviewed-plan
           path: |
-            infra/tfplan
-            infra/tfplan.sha256
             infra/tfplan.txt
-            infra/.terraform.lock.hcl
-            infra/provider_lock.sha256
-            infra/plan-metadata.json
-          retention-days: 14
+            infra/prod-reviewed-plan.tar.gz.enc
+          retention-days: 1
 
   prod-apply:
     name: prod-apply
@@ -151,6 +169,29 @@ jobs:
         working-directory: ${{ env.TF_WORKING_DIR }}
     steps:
       - uses: actions/checkout@v6
+
+      - name: Download reviewed production plan artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: prod-reviewed-plan
+          path: infra/reviewed-plan
+
+      - name: Decrypt reviewed production plan bundle
+        env:
+          TFPLAN_ARTIFACT_PASSPHRASE: ${{ secrets.TFPLAN_ARTIFACT_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TFPLAN_ARTIFACT_PASSPHRASE:-}" ]; then
+            echo "::error::TFPLAN_ARTIFACT_PASSPHRASE secret is required to decrypt the reviewed Terraform plan artifact."
+            exit 1
+          fi
+          openssl enc -d -aes-256-cbc -pbkdf2 \
+            -in reviewed-plan/prod-reviewed-plan.tar.gz.enc \
+            -out reviewed-plan/prod-reviewed-plan.tar.gz \
+            -pass env:TFPLAN_ARTIFACT_PASSPHRASE
+          tar -xzf reviewed-plan/prod-reviewed-plan.tar.gz -C reviewed-plan
+          rm -f reviewed-plan/prod-reviewed-plan.tar.gz
+          cp reviewed-plan/.terraform.lock.hcl .terraform.lock.hcl
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v4
@@ -167,12 +208,6 @@ jobs:
       - name: Terraform Init
         run: terraform init -input=false
 
-      - name: Download reviewed production plan artifact
-        uses: actions/download-artifact@v8
-        with:
-          name: prod-reviewed-plan
-          path: infra
-
       - name: Verify reviewed plan artifact integrity and assumptions
         run: |
           set -euo pipefail
@@ -188,9 +223,9 @@ jobs:
               print(f"::error::{message}")
               sys.exit(1)
 
-          metadata_path = Path("plan-metadata.json")
-          plan_path = Path("tfplan")
-          plan_hash_path = Path("tfplan.sha256")
+          metadata_path = Path("reviewed-plan/plan-metadata.json")
+          plan_path = Path("reviewed-plan/tfplan")
+          plan_hash_path = Path("reviewed-plan/tfplan.sha256")
 
           if not metadata_path.exists():
               fail("Missing plan-metadata.json from reviewed plan artifact.")
@@ -249,14 +284,15 @@ jobs:
           import os
           from pathlib import Path
 
-          metadata = json.loads(Path("plan-metadata.json").read_text(encoding="utf-8"))
+          metadata = json.loads(Path("reviewed-plan/plan-metadata.json").read_text(encoding="utf-8"))
           metadata["approval"] = {
-              "approved_by": os.environ["GITHUB_ACTOR"],
-              "approved_at": os.environ["APPROVED_AT"],
+              "workflow_actor": os.environ["GITHUB_ACTOR"],
+              "environment": "production",
+              "recorded_at": os.environ["APPROVED_AT"],
               "workflow_run_id": os.environ["GITHUB_RUN_ID"],
               "workflow_run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
           }
-          Path("approval-metadata.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+          Path("reviewed-plan/approval-metadata.json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
           PY
 
       - name: Upload approval metadata artifact
@@ -264,8 +300,8 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: prod-reviewed-plan-approval
-          path: infra/approval-metadata.json
+          path: infra/reviewed-plan/approval-metadata.json
           retention-days: 14
 
       - name: Terraform Apply (reviewed plan artifact)
-        run: terraform apply -input=false tfplan
+        run: terraform apply -input=false reviewed-plan/tfplan
