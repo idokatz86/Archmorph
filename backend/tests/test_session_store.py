@@ -209,4 +209,7 @@ def test_redisstore_warning_logs_are_sanitized(monkeypatch, caplog):
         message = record.getMessage()
         assert "\n" not in message
         assert "\r" not in message
-        assert "breakerfailurepayload" in message
+        assert "error_type=RuntimeError" in message
+        assert "badkey" not in message
+        assert "breaker" not in message
+        assert "payload" not in message
