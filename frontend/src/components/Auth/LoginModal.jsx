@@ -2,7 +2,7 @@
  * LoginModal — Social sign-in modal (#246).
  *
  * Offers Microsoft, Google, GitHub sign-in buttons
- * plus "Continue as Guest" — all using Azure SWA auth redirects.
+ * plus a browsing-only guest dismissal.
  */
 
 import React, { useEffect, useId } from 'react';
@@ -146,16 +146,16 @@ export default function LoginModal({ isOpen, onClose }) {
           <div className="flex-1 h-px bg-border" />
         </div>
 
-        {/* Continue as Guest */}
+        {/* Browsing-only dismissal */}
         <button
           onClick={onClose}
           className="w-full px-4 py-2.5 text-sm font-medium text-text-secondary hover:text-text-primary rounded-lg hover:bg-secondary transition-colors cursor-pointer"
         >
-          Continue as Guest
+          Continue Browsing
         </button>
 
         <p className="text-[11px] text-text-muted text-center mt-4">
-          No account needed to use the translator. Sign in to save your work.
+          Sign in is required to analyze diagrams. You can keep browsing without an account.
         </p>
       </div>
     </div>,
