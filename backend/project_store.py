@@ -120,3 +120,28 @@ def list_analyzed_diagrams(project: Dict[str, Any]) -> List[str]:
         for diagram in project.get("diagrams", [])
         if diagram.get("status") == "analyzed" and diagram.get("diagram_id")
     ]
+
+
+def remove_diagram(diagram_id: str) -> Optional[Dict[str, Any]]:
+    """Remove a diagram from project indexes and return updated project if present."""
+    project_id = DIAGRAM_PROJECT_STORE.get(diagram_id)
+    if not project_id:
+        return None
+
+    project = PROJECT_STORE.get(project_id)
+    if not project:
+        return None
+    DIAGRAM_PROJECT_STORE.delete(diagram_id)
+
+    remaining = [d for d in project.get("diagrams", []) if d.get("diagram_id") != diagram_id]
+    project["diagrams"] = remaining
+    project["diagram_ids"] = [d.get("diagram_id") for d in project["diagrams"] if d.get("diagram_id")]
+    project["combined_status"] = "stale" if project["diagram_ids"] else "empty"
+    project["combined_analysis"] = None
+    project["updated_at"] = _now_iso()
+    if project["diagram_ids"]:
+        PROJECT_STORE[project_id] = project
+        return deepcopy(project)
+
+    PROJECT_STORE.delete(project_id)
+    return None

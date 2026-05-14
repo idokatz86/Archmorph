@@ -111,6 +111,18 @@ def delete_share(share_id: str) -> bool:
         return _shares.pop(share_id, None) is not None
 
 
+def purge_diagram_shares(diagram_id: str) -> int:
+    """Delete share links whose snapshots are tied to *diagram_id*."""
+    removed = 0
+    with _lock:
+        for share_id, record in list(_shares.items()):
+            snapshot = record.get("analysis_snapshot") or {}
+            if snapshot.get("diagram_id") == diagram_id:
+                del _shares[share_id]
+                removed += 1
+    return removed
+
+
 # ─────────────────────────────────────────────────────────────
 # Role-Based View Filtering
 # ─────────────────────────────────────────────────────────────

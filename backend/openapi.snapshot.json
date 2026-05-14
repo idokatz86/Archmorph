@@ -9221,6 +9221,49 @@
         "summary": "Get Provenance Detail"
       }
     },
+    "/api/diagrams/{diagram_id}/purge": {
+      "delete": {
+        "description": "Purge uploaded content and derived artifacts for a diagram.\n\nRetention baseline: upload/session/project/export capability stores use a\n2-hour TTL by default. Browser sessionStorage cache may also hold analysis\nstate until tab/session close unless the client clears it.\n\nThis endpoint provides immediate deletion of server-side data for API/UI\ncallers, including uploaded bytes, analysis session payloads, project\nindexes, share links, export capabilities, and queued async jobs/events.\nUploaded data is processed by model services for analysis and is not used\nby Archmorph for model training.",
+        "operationId": "purge_diagram_session_api_diagrams__diagram_id__purge_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "diagram_id",
+            "required": true,
+            "schema": {
+              "title": "Diagram Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Purge Diagram Session"
+      }
+    },
     "/api/diagrams/{diagram_id}/questions": {
       "post": {
         "description": "Generate guided questions based on detected AWS services.\n\nIf smart_dedup=True, questions that have been implicitly answered\nby user context (e.g., natural language additions) are filtered out.",
@@ -19484,6 +19527,52 @@
           }
         ],
         "summary": "Get Provenance Detail V1",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/diagrams/{diagram_id}/purge": {
+      "delete": {
+        "description": "Purge uploaded content and derived artifacts for a diagram.\n\nRetention baseline: upload/session/project/export capability stores use a\n2-hour TTL by default. Browser sessionStorage cache may also hold analysis\nstate until tab/session close unless the client clears it.\n\nThis endpoint provides immediate deletion of server-side data for API/UI\ncallers, including uploaded bytes, analysis session payloads, project\nindexes, share links, export capabilities, and queued async jobs/events.\nUploaded data is processed by model services for analysis and is not used\nby Archmorph for model training.",
+        "operationId": "purge_diagram_session_v1_api_v1_diagrams__diagram_id__purge_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "diagram_id",
+            "required": true,
+            "schema": {
+              "title": "Diagram Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Purge Diagram Session V1",
         "tags": [
           "v1"
         ]

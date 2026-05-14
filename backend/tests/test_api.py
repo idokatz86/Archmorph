@@ -19,12 +19,16 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 os.environ["RATE_LIMIT_ENABLED"] = "false"
 
 from main import app, SESSION_STORE, IMAGE_STORE
+from routers.shared import SHARE_STORE, EXPORT_CAPABILITY_STORE
 from chatbot import process_chat_message, get_chat_history, clear_chat_session
 from usage_metrics import record_event, record_funnel_step, get_metrics_summary, get_funnel_metrics, get_daily_metrics, get_recent_events
 from guided_questions import generate_questions, apply_answers
 from diagram_export import generate_diagram, get_azure_stencil_id
 from services import AWS_SERVICES, AZURE_SERVICES, GCP_SERVICES, CROSS_CLOUD_MAPPINGS
 from openai_client import OpenAIServiceError
+from export_capabilities import issue_export_capability
+from job_queue import job_manager
+import shareable_reports
 
 
 # ====================================================================
@@ -248,6 +252,54 @@ class TestAnalyze:
         body = resp.json()
         assert body["error"]["details"]["error"] == "analysis_retryable"
         assert body["error"]["details"]["retry_after_seconds"] == 30
+
+
+class TestPurge:
+    def _upload(self, client):
+        content = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+        resp = client.post(
+            "/api/projects/proj-001/diagrams",
+            files={"file": ("test.png", io.BytesIO(content), "image/png")},
+        )
+        assert resp.status_code == 200
+        return resp.json()["diagram_id"]
+
+    def test_purge_clears_server_side_artifacts(self, client, clean_session, tenant_a_auth_headers):
+        did = self._upload(client)
+        with patch("routers.diagrams.analyze_image", return_value=copy.deepcopy(MOCK_ANALYSIS)):
+            analyzed = client.post(f"/api/diagrams/{did}/analyze", headers=tenant_a_auth_headers)
+        assert analyzed.status_code == 200
+        assert did in SESSION_STORE
+        assert did in IMAGE_STORE
+
+        issue_export_capability(did)
+        SHARE_STORE.set("share-test", {"diagram_id": did, "kind": "legacy"})
+        share = shareable_reports.create_share({"diagram_id": did, "mappings": []})
+        job = job_manager.submit("analyze", diagram_id=did)
+        assert job_manager.get(job.job_id) is not None
+        assert shareable_reports.get_share_stats(share["share_id"]) is not None
+
+        purge = client.delete(f"/api/diagrams/{did}/purge", headers=tenant_a_auth_headers)
+        assert purge.status_code == 200
+        payload = purge.json()
+        assert payload["status"] == "purged"
+        assert payload["diagram_id"] == did
+        assert payload["purged"]["image"] is True
+        assert payload["purged"]["session"] is True
+        assert payload["purged"]["jobs"] >= 1
+
+        assert did not in IMAGE_STORE
+        assert did not in SESSION_STORE
+        assert job_manager.get(job.job_id) is None
+        assert shareable_reports.get_share_stats(share["share_id"]) is None
+        assert not any(
+            (EXPORT_CAPABILITY_STORE.get(key) or {}).get("diagram_id") == did
+            for key in EXPORT_CAPABILITY_STORE.keys("*")
+        )
+        assert not any(
+            (SHARE_STORE.get(key) or {}).get("diagram_id") == did
+            for key in SHARE_STORE.keys("*")
+        )
 
 
 # ====================================================================

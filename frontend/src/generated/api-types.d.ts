@@ -2240,6 +2240,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/diagrams/{diagram_id}/purge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Purge Diagram Session
+         * @description Purge uploaded content and derived artifacts for a diagram.
+         *
+         *     Retention baseline: upload/session/project/export capability stores use a
+         *     2-hour TTL by default. Browser sessionStorage cache may also hold analysis
+         *     state until tab/session close unless the client clears it.
+         *
+         *     This endpoint provides immediate deletion of server-side data for API/UI
+         *     callers, including uploaded bytes, analysis session payloads, project
+         *     indexes, share links, export capabilities, and queued async jobs/events.
+         *     Uploaded data is processed by model services for analysis and is not used
+         *     by Archmorph for model training.
+         */
+        delete: operations["purge_diagram_session_api_diagrams__diagram_id__purge_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/diagrams/{diagram_id}/questions": {
         parameters: {
             query?: never;
@@ -6496,6 +6526,36 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/diagrams/{diagram_id}/purge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Purge Diagram Session V1
+         * @description Purge uploaded content and derived artifacts for a diagram.
+         *
+         *     Retention baseline: upload/session/project/export capability stores use a
+         *     2-hour TTL by default. Browser sessionStorage cache may also hold analysis
+         *     state until tab/session close unless the client clears it.
+         *
+         *     This endpoint provides immediate deletion of server-side data for API/UI
+         *     callers, including uploaded bytes, analysis session payloads, project
+         *     indexes, share links, export capabilities, and queued async jobs/events.
+         *     Uploaded data is processed by model services for analysis and is not used
+         *     by Archmorph for model training.
+         */
+        delete: operations["purge_diagram_session_v1_api_v1_diagrams__diagram_id__purge_delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -13942,6 +14002,37 @@ export interface operations {
             };
         };
     };
+    purge_diagram_session_api_diagrams__diagram_id__purge_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                diagram_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_guided_questions_api_diagrams__diagram_id__questions_post: {
         parameters: {
             query?: {
@@ -20544,6 +20635,37 @@ export interface operations {
             path: {
                 diagram_id: string;
                 service_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    purge_diagram_session_v1_api_v1_diagrams__diagram_id__purge_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                diagram_id: string;
             };
             cookie?: never;
         };

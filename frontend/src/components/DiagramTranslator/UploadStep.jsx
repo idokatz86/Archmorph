@@ -1,5 +1,5 @@
 import React from 'react';
-import { Upload, FileText, X, Building2, Globe2, Boxes, Network, LogIn } from 'lucide-react';
+import { Upload, FileText, X, Building2, Globe2, Boxes, Network, ShieldAlert, LogIn } from 'lucide-react';
 import { Badge, Button, Card } from '../ui';
 import { ContextualHint } from '../ContextualHint';
 
@@ -19,6 +19,18 @@ export default function UploadStep({
   return (
     <Card className="p-12">
       <div className="text-center max-w-lg mx-auto">
+        <div className="mb-4 rounded-xl border border-warning/30 bg-warning/5 p-4 text-left">
+          <div className="mb-2 flex items-center gap-2 text-warning">
+            <ShieldAlert className="h-4 w-4" aria-hidden="true" />
+            <p className="text-xs font-semibold uppercase tracking-wide">Confidential Upload Disclosure</p>
+          </div>
+          <ul className="space-y-1 text-xs text-text-secondary">
+            <li>• Files are uploaded for analysis/model processing only and are not used by Archmorph for model training.</li>
+            <li>• Server-side upload/session/project/export data uses a 2-hour retention window by default.</li>
+            <li>• Browser sessionStorage may keep cached analysis for session-recovery until tab/session close.</li>
+            <li>• After analysis completes, a <strong>Purge Current Analysis</strong> option is available to immediately delete uploaded bytes and derived artifacts.</li>
+          </ul>
+        </div>
 
         {/* Drag & Drop Zone */}
         <ContextualHint id="upload-prompt" content="Drop any cloud diagram here — or try a sample below" position="bottom">
