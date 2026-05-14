@@ -26,6 +26,7 @@ const initialState = {
   loading: false,
   generatingIac: false,
   error: null,
+  authError: null, // 'auth_required' | 'session_expired' | null — set on 401 to drive auth-specific UX
   analyzeProgress: [],
   // UX
   dragOver: false,
