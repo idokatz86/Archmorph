@@ -6,10 +6,11 @@
 # ══════════════════════════════════════════════════════════════
 
 # ── Stage 1: Builder ─────────────────────────────────────────
-ARG PYTHON_BASE_IMAGE=python:3.12.9-slim-bookworm@sha256:48a11b7ba705fd53bf15248d1f94d36c39549903c5d59edcfa2f3f84126e7b44
+ARG PYTHON_BASE_IMAGE=python:3.12.12-slim-bookworm@sha256:593bd06efe90efa80dc4eee3948be7c0fde4134606dd40d8dd8dbcade98e669c
 FROM ${PYTHON_BASE_IMAGE} AS builder
 
 RUN apt-get update && \
+    apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
         gcc g++ python3-dev build-essential libc6-dev libpq-dev && \
     rm -rf /var/lib/apt/lists/*
@@ -31,9 +32,9 @@ FROM ${PYTHON_BASE_IMAGE}
 RUN pip install --no-cache-dir --upgrade "pip>=26.0"
 
 # Runtime-only system deps (libpq for psycopg2, curl for healthcheck)
-# Also upgrade openssl to patch CVE-2026-28390 (HIGH)
+# Apply current Debian security patches before installing runtime packages.
 RUN apt-get update && \
-    apt-get upgrade -y libssl3 && \
+    apt-get upgrade -y && \
     apt-get install -y --no-install-recommends libpq5 curl && \
     rm -rf /var/lib/apt/lists/*
 
