@@ -20,6 +20,7 @@ Authoring guidance:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import re
 from typing import Any, Callable, Dict, List, Optional
 
 
@@ -94,9 +95,12 @@ def _services_in_analysis(analysis: Dict[str, Any]) -> List[str]:
 
     for m in analysis.get("mappings") or []:
         if isinstance(m, dict):
-            n = m.get("azure_service") or m.get("source_service")
-            if isinstance(n, str):
-                out.append(n)
+            source = m.get("source_service")
+            target = m.get("azure_service") or m.get("target")
+            if isinstance(source, str):
+                out.append(source)
+            if isinstance(target, str):
+                out.append(target)
 
     return out
 
@@ -457,5 +461,116 @@ def path_uses_service_with_protocol_mismatch(
                     affected_services=via_hits,
                     evidence={"via": via, "hint_protocol": c.get("type"), "fallback": True},
                 )
+
+    return None
+
+
+@register_predicate("active_active_with_failover_traffic_split")
+def active_active_with_failover_traffic_split(
+    analysis: Dict[str, Any],
+) -> Optional[PredicateMatch]:
+    """Detect active-active labels mixed with failover-style 100/0 traffic splits."""
+    services = _services_in_analysis(analysis)
+    patterns = analysis.get("architecture_patterns") or []
+    dr_mode = str(analysis.get("dr_mode", "")).lower()
+    active_active_signal = "active-active" in dr_mode or any(
+        "active-active" in str(p).lower() for p in patterns
+    ) or any("active-active" in _normalize(s) for s in services)
+    if not active_active_signal:
+        return None
+
+    regions = analysis.get("regions") or []
+    percentages: List[float] = []
+    region_names: List[str] = []
+    if isinstance(regions, list):
+        for r in regions:
+            if not isinstance(r, dict):
+                continue
+            name = r.get("name")
+            if isinstance(name, str) and name:
+                region_names.append(name)
+            pct = r.get("traffic_pct")
+            if isinstance(pct, (int, float)):
+                percentages.append(float(pct))
+            elif isinstance(pct, str):
+                numeric_match = re.search(r"\d+(?:\.\d+)?", pct)
+                if numeric_match:
+                    try:
+                        percentages.append(float(numeric_match.group(0)))
+                    except ValueError:
+                        pass
+
+    if not percentages:
+        blob = " ".join(
+            [
+                str(analysis.get("description", "")),
+                str(analysis.get("title", "")),
+                " ".join(services),
+            ]
+        ).lower()
+        if "100/0" in blob or "100 0" in blob:
+            return PredicateMatch(
+                affected_services=region_names,
+                evidence={
+                    "dr_mode": analysis.get("dr_mode"),
+                    "traffic_split": "100/0",
+                },
+            )
+        return None
+
+    has_primary_like = any(p >= 90 for p in percentages)
+    has_standby_like = any(p <= 10 for p in percentages)
+    if not (has_primary_like and has_standby_like):
+        return None
+
+    return PredicateMatch(
+        affected_services=region_names,
+        evidence={
+            "dr_mode": analysis.get("dr_mode"),
+            "traffic_percentages": percentages,
+        },
+    )
+
+
+@register_predicate("rds_engine_unresolved")
+def rds_engine_unresolved(analysis: Dict[str, Any]) -> Optional[PredicateMatch]:
+    """Detect RDS mappings where engine is still unresolved."""
+    engine_tokens = ("postgres", "mysql", "sql server", "mariadb", "oracle")
+    unresolved_markers = ("engine-specific target required", "manual mapping required")
+
+    affected: List[str] = []
+    for m in analysis.get("mappings") or []:
+        if not isinstance(m, dict):
+            continue
+        raw_src = m.get("source_service")
+        raw_tgt = m.get("azure_service")
+        src = raw_src if isinstance(raw_src, str) else ""
+        tgt = raw_tgt if isinstance(raw_tgt, str) else ""
+        src_norm = _normalize(src)
+        tgt_norm = _normalize(tgt)
+        if "rds" not in src_norm:
+            continue
+        has_engine = any(tok in src_norm or tok in tgt_norm for tok in engine_tokens)
+        unresolved = any(marker in tgt_norm for marker in unresolved_markers)
+        if unresolved or not has_engine:
+            affected.extend([s for s in (src, tgt) if s])
+
+    if affected:
+        deduped = list(dict.fromkeys(affected))
+        return PredicateMatch(
+            affected_services=deduped,
+            evidence={"reason": "rds_engine_unresolved"},
+        )
+
+    services = _services_in_analysis(analysis)
+    has_generic_rds = any(_normalize(s) == "rds" for s in services)
+    has_engine_signal = any(
+        any(token in _normalize(s) for token in engine_tokens) for s in services
+    )
+    if has_generic_rds and not has_engine_signal:
+        return PredicateMatch(
+            affected_services=[s for s in services if _service_matches(s, "RDS")],
+            evidence={"reason": "generic_rds_without_engine_signal"},
+        )
 
     return None

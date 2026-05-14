@@ -170,3 +170,23 @@ resource "aws_s3_bucket" "logs" {
         for m in result.get("mappings", []):
             assert "confidence" in m
             assert 0 <= m["confidence"] <= 1
+
+    def test_rds_mapping_requires_engine_identification(self):
+        content = json.dumps(
+            {
+                "version": 4,
+                "terraform_version": "1.5.0",
+                "resources": [
+                    {
+                        "type": "aws_db_instance",
+                        "name": "db",
+                        "provider": "aws",
+                        "instances": [{"attributes": {"id": "db-1"}}],
+                    }
+                ],
+            }
+        )
+        result = parse_infrastructure(content, InfraFormat.TERRAFORM_STATE, "diag-008")
+        rds = next(m for m in result.get("mappings", []) if m["source_service"] == "RDS")
+        assert "Engine-specific target required" in rds["azure_service"]
+        assert rds["confidence"] < 0.8
