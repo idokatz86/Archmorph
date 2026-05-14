@@ -6,9 +6,11 @@
 # ══════════════════════════════════════════════════════════════
 
 # ── Stage 1: Builder ─────────────────────────────────────────
-FROM python:3.14-slim-bookworm AS builder
+ARG PYTHON_BASE_IMAGE=python:3.12.12-slim-bookworm@sha256:593bd06efe90efa80dc4eee3948be7c0fde4134606dd40d8dd8dbcade98e669c
+FROM ${PYTHON_BASE_IMAGE} AS builder
 
 RUN apt-get update && \
+    apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
         gcc g++ python3-dev build-essential libc6-dev libpq-dev && \
     rm -rf /var/lib/apt/lists/*
@@ -24,15 +26,15 @@ RUN pip install --no-cache-dir --upgrade "pip>=26.0" setuptools wheel && \
     pip install --no-cache-dir -r requirements.txt
 
 # ── Stage 2: Runtime ─────────────────────────────────────────
-FROM python:3.14-slim-bookworm
+FROM ${PYTHON_BASE_IMAGE}
 
 # Upgrade system pip to fix CVE-2026-1703 and CVE-2025-8869
 RUN pip install --no-cache-dir --upgrade "pip>=26.0"
 
 # Runtime-only system deps (libpq for psycopg2, curl for healthcheck)
-# Also upgrade openssl to patch CVE-2026-28390 (HIGH)
+# Apply current Debian security patches before installing runtime packages.
 RUN apt-get update && \
-    apt-get upgrade -y libssl3 && \
+    apt-get upgrade -y && \
     apt-get install -y --no-install-recommends libpq5 curl && \
     rm -rf /var/lib/apt/lists/*
 
@@ -58,7 +60,7 @@ USER appuser
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD curl -sf http://localhost:8000/api/health || exit 1
+    CMD curl -sf http://localhost:8000/healthz || exit 1
 
 # Run with gunicorn config file (#369)
 CMD ["gunicorn", "-c", "gunicorn.conf.py", "main:app"]

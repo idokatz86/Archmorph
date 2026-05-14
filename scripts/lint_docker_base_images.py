@@ -11,6 +11,7 @@ from pathlib import Path
 FROM_RE = re.compile(r"^\s*FROM\s+(?:--platform=\S+\s+)?(?P<image>\S+)", re.IGNORECASE)
 ARG_RE = re.compile(r"^\s*ARG\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)(?:=(?P<value>\S+))?", re.IGNORECASE)
 NODE_PATCH_TAG_RE = re.compile(r"^\d+\.\d+\.\d+(?:-[A-Za-z0-9_.-]+)?$")
+PYTHON_PATCH_TAG_RE = re.compile(r"^\d+\.\d+\.\d+(?:-[A-Za-z0-9_.-]+)?$")
 
 
 def _git_files(repo_root: Path) -> list[Path]:
@@ -30,6 +31,12 @@ def _is_node_image(image: str) -> bool:
     return repository == "node" or repository.endswith("/node")
 
 
+def _is_python_image(image: str) -> bool:
+    without_digest = image.split("@", 1)[0]
+    repository = without_digest.rsplit(":", 1)[0] if ":" in without_digest else without_digest
+    return repository == "python" or repository.endswith("/python")
+
+
 def _has_pinned_node_patch_digest(image: str) -> bool:
     if not _is_node_image(image):
         return True
@@ -44,6 +51,20 @@ def _has_pinned_node_patch_digest(image: str) -> bool:
     return bool(NODE_PATCH_TAG_RE.match(tag))
 
 
+def _has_pinned_python_patch_digest(image: str) -> bool:
+    if not _is_python_image(image):
+        return True
+    if "@sha256:" not in image:
+        return False
+    image_without_digest, digest = image.split("@sha256:", 1)
+    if not re.fullmatch(r"[a-fA-F0-9]{64}", digest):
+        return False
+    if ":" not in image_without_digest:
+        return False
+    tag = image_without_digest.rsplit(":", 1)[1]
+    return bool(PYTHON_PATCH_TAG_RE.match(tag))
+
+
 def _resolve_image_token(image: str, args: dict[str, str]) -> str:
     for name, value in args.items():
         image = image.replace(f"${{{name}}}", value).replace(f"${name}", value)
@@ -55,6 +76,13 @@ def _looks_like_node_image_variable(image: str) -> bool:
         return False
     name = image.strip("${}").upper()
     return "NODE" in name
+
+
+def _looks_like_python_image_variable(image: str) -> bool:
+    if not image.startswith("$"):
+        return False
+    name = image.strip("${}").upper()
+    return "PYTHON" in name
 
 
 def find_violations(paths: list[Path]) -> list[str]:
@@ -81,11 +109,15 @@ def find_violations(paths: list[Path]) -> list[str]:
                 violations.append(
                     f"{path}:{line_number}: Node base image '{raw_image}' must pin a full patch tag and sha256 digest"
                 )
+            if _looks_like_python_image_variable(image) or (_is_python_image(image) and not _has_pinned_python_patch_digest(image)):
+                violations.append(
+                    f"{path}:{line_number}: Python base image '{raw_image}' must pin a full patch tag and sha256 digest"
+                )
     return violations
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Reject floating Node Docker base images.")
+    parser = argparse.ArgumentParser(description="Reject floating Node/Python Docker base images.")
     parser.add_argument("paths", nargs="*", type=Path, help="Dockerfiles to scan. Defaults to git-tracked Dockerfiles.")
     args = parser.parse_args(argv)
 

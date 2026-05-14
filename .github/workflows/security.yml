@@ -92,27 +92,60 @@ jobs:
     name: "Container Scan — Trivy"
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - name: backend
+            context: ./backend
+            dockerfile: ./backend/Dockerfile
+            tag: archmorph-api:scan
+            port: "8000:8000"
+            health_url: http://127.0.0.1:8000/healthz
+          - name: mcp-gateway
+            context: ./mcp-gateway
+            dockerfile: ./mcp-gateway/Dockerfile
+            tag: archmorph-mcp-gateway:scan
+            port: "8080:8080"
+            health_url: http://127.0.0.1:8080/health
     steps:
       - uses: actions/checkout@v6
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Build backend image for scanning
+      - name: Build ${{ matrix.image.name }} image for scanning
         uses: docker/build-push-action@v7
         with:
-          context: ./backend
+          context: ${{ matrix.image.context }}
+          file: ${{ matrix.image.dockerfile }}
           load: true
-          tags: archmorph-api:scan
+          tags: ${{ matrix.image.tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Container healthcheck smoke (${{ matrix.image.name }})
+        run: |
+          set -euo pipefail
+          CONTAINER_NAME="${{ matrix.image.name }}-scan-smoke"
+          docker run -d --rm --name "$CONTAINER_NAME" -p ${{ matrix.image.port }} ${{ matrix.image.tag }}
+          trap 'docker logs "$CONTAINER_NAME" || true; docker stop "$CONTAINER_NAME" || true' EXIT
+          for i in {1..30}; do
+            if curl -fsS "${{ matrix.image.health_url }}" >/dev/null; then
+              echo "Health smoke passed for $CONTAINER_NAME"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::Health smoke failed for $CONTAINER_NAME"
+          exit 1
 
       - name: Trivy vulnerability scan (SARIF)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: archmorph-api:scan
+          image-ref: ${{ matrix.image.tag }}
           format: sarif
-          output: trivy-results.sarif
+          output: trivy-results-${{ matrix.image.name }}.sarif
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           scanners: vuln
@@ -121,7 +154,7 @@ jobs:
         uses: aquasecurity/trivy-action@v0.36.0
         if: always()
         with:
-          image-ref: archmorph-api:scan
+          image-ref: ${{ matrix.image.tag }}
           format: table
           exit-code: 1
           severity: CRITICAL,HIGH
@@ -133,5 +166,20 @@ jobs:
         if: always()
         continue-on-error: true
         with:
-          sarif_file: trivy-results.sarif
-          category: trivy-container
+          sarif_file: trivy-results-${{ matrix.image.name }}.sarif
+          category: trivy-container-${{ matrix.image.name }}
+
+  trivy-container-required:
+    name: "Container Scan — Trivy"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: trivy-container
+    if: always()
+    steps:
+      - name: Verify Trivy matrix completed
+        run: |
+          if [ "${{ needs.trivy-container.result }}" != "success" ]; then
+            echo "::error::One or more Trivy container scan matrix jobs failed"
+            exit 1
+          fi
+          echo "All Trivy container scan matrix jobs passed"
