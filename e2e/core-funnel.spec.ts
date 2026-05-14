@@ -70,6 +70,37 @@ const MOCK_ANALYSIS = {
   ts: Date.now(),
 };
 
+const MOCK_ANALYSIS_RESULT = {
+  diagram_id: MOCK_ANALYSIS.diagramId,
+  source_provider: 'aws',
+  mappings: MOCK_ANALYSIS.analysis.mappings,
+  service_connections: MOCK_ANALYSIS.analysis.service_connections,
+  guided_questions: MOCK_ANALYSIS.analysis.guided_questions,
+  confidence_summary: MOCK_ANALYSIS.analysis.confidence_summary,
+  zones: [
+    {
+      id: 'compute-data',
+      number: 1,
+      name: 'Application and data tier',
+      services: [
+        { source: 'Amazon EC2', azure: 'Azure Virtual Machines' },
+        { source: 'Amazon RDS', azure: 'Azure SQL Database' },
+      ],
+    },
+  ],
+  export_capability: 'stub-capability-initial',
+};
+
+const MOCK_TERRAFORM = `terraform {
+  required_version = ">= 1.6.0"
+}
+
+resource "azurerm_resource_group" "main" {
+  name     = "rg-archmorph-e2e"
+  location = "westeurope"
+}
+`;
+
 const ACCESSIBLE_LANDING_ZONE_SVG = `
 <svg role="img" aria-labelledby="lz-title" aria-describedby="lz-desc" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180">
   <title id="lz-title">Azure Landing Zone</title>
@@ -131,11 +162,71 @@ const MOCK_HLD = {
 };
 
 async function stubDeterministicDeliverables(page: Page) {
+  await page.route('**/api/projects/*/diagrams', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        project_id: 'demo-project',
+        diagram_id: MOCK_ANALYSIS.diagramId,
+        filename: 'favicon.svg',
+        status: 'uploaded',
+        export_capability: 'stub-capability-upload',
+      }),
+    });
+  });
+
+  await page.route('**/api/projects/demo-project', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        project_id: 'demo-project',
+        diagrams: [
+          {
+            diagram_id: MOCK_ANALYSIS.diagramId,
+            filename: 'favicon.svg',
+            status: 'analyzed',
+          },
+        ],
+      }),
+    });
+  });
+
   await page.route('**/api/diagrams/*/analyze-async', async route => {
     await route.fulfill({
       status: 404,
       contentType: 'application/json',
       body: JSON.stringify({ detail: 'Use sync analyze for deterministic E2E flow' }),
+    });
+  });
+
+  await page.route('**/api/diagrams/*/analyze', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(MOCK_ANALYSIS_RESULT),
+    });
+  });
+
+  await page.route('**/api/diagrams/*/questions', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        questions: [],
+        all_questions: [],
+        assumptions: [],
+        inferred_answers: {},
+      }),
+    });
+  });
+
+  await page.route('**/api/diagrams/*/generate?format=*', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ code: MOCK_TERRAFORM }),
     });
   });
 
@@ -156,6 +247,18 @@ async function stubDeterministicDeliverables(page: Page) {
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify(MOCK_COST_ESTIMATE),
+    });
+  });
+
+  await page.route('**/api/diagrams/*/export-architecture-package**', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        content: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 60"><text x="8" y="32">Archmorph E2E</text></svg>',
+        filename: 'archmorph-architecture-package.svg',
+        export_capability: 'stub-capability-architecture-package',
+      }),
     });
   });
 
@@ -188,6 +291,36 @@ function injectMockSession(page: Page) {
       })
     );
   }, MOCK_ANALYSIS);
+}
+
+async function stubAuthenticatedUser(page: Page) {
+  await page.route('**/.auth/me', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        clientPrincipal: {
+          userId: 'e2e-user',
+          userDetails: 'e2e@archmorph.test',
+          identityProvider: 'github',
+          userRoles: ['authenticated'],
+        },
+      }),
+    });
+  });
+
+  await page.route('**/api/auth/me', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id: 'e2e-user',
+        email: 'e2e@archmorph.test',
+        name: 'E2E User',
+        provider: 'github',
+      }),
+    });
+  });
 }
 
 // ─── Test Suite ──────────────────────────────────────────────
@@ -322,6 +455,7 @@ test.describe('Core Funnel: Upload → Analyze → IaC → Export All', () => {
       localStorage.clear();
       sessionStorage.clear();
     });
+    await stubAuthenticatedUser(page);
     await stubDeterministicDeliverables(page);
 
     await page.goto('/#translator');

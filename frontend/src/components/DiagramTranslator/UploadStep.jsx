@@ -1,5 +1,5 @@
 import React from 'react';
-import { Upload, FileText, X, Building2, Globe2, Boxes, Network } from 'lucide-react';
+import { Upload, FileText, X, Building2, Globe2, Boxes, Network, LogIn } from 'lucide-react';
 import { Badge, Button, Card } from '../ui';
 import { ContextualHint } from '../ContextualHint';
 
@@ -13,6 +13,8 @@ const SAMPLES = [
 export default function UploadStep({
   dragOver, selectedFile, filePreviewUrl, fileInputRef,
   onDragOver, onDragLeave, onDrop, onFileSelect, onUpload, onRemoveFile, onLoadSample,
+  isAuthenticated = true,
+  onSignIn,
 }) {
   return (
     <Card className="p-12">
@@ -59,13 +61,19 @@ export default function UploadStep({
                 <p className="text-xs text-text-muted">{(selectedFile.size / 1024).toFixed(0)} KB</p>
               </div>
               <div className="flex items-center justify-center gap-2" data-testid="file-action-buttons">
-                <Button onClick={() => onUpload(selectedFile)} variant="primary" size="md" icon={Upload}>
-                  Analyze This Diagram
-                </Button>
-                <Button onClick={onRemoveFile} variant="ghost" size="sm" icon={X}>
+                {isAuthenticated ? (
+                  <Button onClick={(e) => { e.stopPropagation(); onUpload(selectedFile); }} variant="primary" size="md" icon={Upload}>
+                    Analyze This Diagram
+                  </Button>
+                ) : (
+                  <Button onClick={(e) => { e.stopPropagation(); onSignIn?.(); }} variant="primary" size="md" icon={LogIn}>
+                    Sign in to analyze
+                  </Button>
+                )}
+                <Button onClick={(e) => { e.stopPropagation(); onRemoveFile(); }} variant="ghost" size="sm" icon={X}>
                   Remove
                 </Button>
-                <Button onClick={() => fileInputRef.current?.click()} variant="ghost" size="sm">
+                <Button onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }} variant="ghost" size="sm">
                   Replace file
                 </Button>
               </div>

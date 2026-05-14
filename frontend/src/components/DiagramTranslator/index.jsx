@@ -1,7 +1,7 @@
-import React, { useRef, useCallback, useEffect, Suspense, lazy } from 'react';
+import React, { useRef, useCallback, useEffect, Suspense, lazy, useState } from 'react';
 import {
   Upload, ChevronRight, CheckCircle, XCircle, X,
-  Loader2, Eye, Clock, FileCode, FileText, DollarSign, Rocket, Layers3, GitMerge,
+  Loader2, Eye, Clock, FileCode, FileText, DollarSign, Rocket, Layers3, GitMerge, LogIn,
 } from 'lucide-react';
 import { Button, Card, ErrorCard, Tabs } from '../ui';
 import { buildJobStreamUrl } from '../../utils/jobStreamUrl';
@@ -20,8 +20,10 @@ import useSSE from '../../hooks/useSSE';
 import useSessionExpiry from '../../hooks/useSessionExpiry';
 import useBeforeUnload from '../../hooks/useBeforeUnload';
 import useAppStore from '../../stores/useAppStore';
+import useAuthStore from '../../stores/useAuthStore';
 import { isFeatureEnabled } from '../../featureFlags';
 const UploadStep = lazy(() => import('./UploadStep'));
+const LoginModal = lazy(() => import('../Auth/LoginModal'));
 const GuidedQuestions = lazy(() => import('./GuidedQuestions'));
 const AnalysisResults = lazy(() => import('./AnalysisResults'));
 const IaCViewer = lazy(() => import('./IaCViewer'));
@@ -83,16 +85,37 @@ function StatusPill({ status, label }) {
   );
 }
 
+/**
+ * Determine the workbench Input stage status and label based on current state.
+ * Extracted as a module-level helper for clarity and potential reuse.
+ */
+function getInputStatusLabel({ inputAuthRequired, inputFailed, analysis, selectedFile }) {
+  if (inputAuthRequired) return { status: 'needsReview', label: 'Authentication required' };
+  if (inputFailed) return { status: 'failed', label: 'Failed' };
+  if (analysis) return { status: 'ready', label: 'Ready' };
+  if (selectedFile) return { status: 'ready', label: 'File selected' };
+  return { status: 'notGenerated', label: 'Awaiting input' };
+}
+
 function getWorkbenchSpine(state) {
   const hasQuestions = (state.questions || []).length > 0 || (state.questionAssumptions || []).length > 0;
+  const inputAuthRequired = state.step === 'upload' && !!state.authError;
   const inputFailed = state.step === 'upload' && !!state.error;
   const analysisFailed = ['analyzing', 'results'].includes(state.step) && !!state.error;
   const deliverablesGenerating = state.generatingIac || state.hldLoading || state.costBreakdownLoading;
   const deliverablesFailed = ['iac', 'hld', 'pricing', 'deploy'].includes(state.step) && !!state.error;
+
+  const { status: inputStatus, label: inputLabel } = getInputStatusLabel({
+    inputAuthRequired,
+    inputFailed,
+    analysis: state.analysis,
+    selectedFile: state.selectedFile,
+  });
+
   return [
-    { id: 'input', status: inputFailed ? 'failed' : state.selectedFile || state.analysis ? 'ready' : 'notGenerated', label: inputFailed ? 'Failed' : state.analysis ? 'Ready' : state.selectedFile ? 'Selected' : 'Awaiting input' },
+    { id: 'input', status: inputStatus, label: inputLabel },
     { id: 'analysis', status: analysisFailed ? 'failed' : state.step === 'analyzing' ? 'generating' : state.analysis ? 'ready' : 'notGenerated', label: analysisFailed ? 'Failed' : state.step === 'analyzing' ? 'Analyzing' : state.analysis ? 'Ready' : 'Not started' },
-    { id: 'decisions', status: hasQuestions && state.step === 'questions' ? 'needsReview' : hasQuestions ? 'ready' : state.analysis ? 'notGenerated' : 'notGenerated', label: hasQuestions && state.step === 'questions' ? 'Needs review' : hasQuestions ? 'Captured' : 'Not started' },
+    { id: 'decisions', status: hasQuestions && state.step === 'questions' ? 'needsReview' : hasQuestions ? 'ready' : 'notGenerated', label: hasQuestions && state.step === 'questions' ? 'Needs review' : hasQuestions ? 'Captured' : 'Not started' },
     { id: 'deliverables', status: deliverablesFailed ? 'failed' : deliverablesGenerating ? 'generating' : state.iacCode ? 'ready' : 'notGenerated', label: deliverablesFailed ? 'Failed' : deliverablesGenerating ? 'Generating' : state.iacCode ? 'Ready' : 'Not generated' },
     { id: 'share', status: state.exportCapability ? 'ready' : state.iacCode ? 'needsReview' : 'notGenerated', label: state.exportCapability ? 'Ready' : state.iacCode ? 'Needs review' : 'Not generated' },
   ];
@@ -218,6 +241,10 @@ export default function DiagramTranslator() {
   const fileInputRef = useRef(null);
   const iacChatEndRef = useRef(null);
   const iacChatInputRef = useRef(null);
+
+  // Auth state — used for proactive gate and 401 error differentiation
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const [loginModalOpen, setLoginModalOpen] = useState(false);
 
   // Refs for cleanup of async resources
   const activeEsRef = useRef(null);        // current EventSource
@@ -483,17 +510,18 @@ export default function DiagramTranslator() {
       return;
     }
     if (state.filePreviewUrl) URL.revokeObjectURL(state.filePreviewUrl);
-    // Clear stale errors when user selects a new file (#227)
+    // Clear stale errors (including auth errors) when user selects a new file (#227)
     set({
       selectedFile: file,
       filePreviewUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : null,
       error: null,
+      authError: null,
     });
   }, [set, state.filePreviewUrl]);
 
   // ── Upload & Analyze ──
   const handleUpload = async (file) => {
-    set({ error: null, step: 'analyzing', analyzeProgress: [] });
+    set({ error: null, authError: null, step: 'analyzing', analyzeProgress: [] });
     // Create a new AbortController for this upload flow
     if (abortRef.current) abortRef.current.abort();
     const controller = new AbortController();
@@ -698,6 +726,16 @@ export default function DiagramTranslator() {
         return;
       }
       if (err.name === 'AbortError') return; // Component unmounted
+      // 401 — authentication failure: distinguish "no auth" from "session expired"
+      if (err.status === 401) {
+        set({
+          authError: err.isAuthRequired ? 'auth_required' : 'session_expired',
+          error: null,
+          step: 'upload',
+          // Preserve selectedFile so the user can retry after signing in
+        });
+        return;
+      }
       set({ error: err.message, step: 'upload' });
     }
   };
@@ -1128,6 +1166,34 @@ export default function DiagramTranslator() {
         />
       )}
 
+      {/* Authentication required card — shown on 401 instead of generic error */}
+      {state.authError && (
+        <Card className="p-6 border-warning/30 animate-fade-in" role="alert">
+          <div className="flex flex-col items-center text-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-warning/15 flex items-center justify-center">
+              <LogIn className="w-5 h-5 text-warning" aria-hidden="true" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-text-primary">Authentication required</h3>
+              <p className="text-xs text-text-muted mt-1">
+                {state.authError === 'session_expired'
+                  ? 'Your session has expired. Sign in to continue.'
+                  : 'Sign in to analyze your diagram.'}
+                {state.selectedFile && ' Your selected file is ready to analyze once you sign in.'}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="primary" size="sm" icon={LogIn} onClick={() => setLoginModalOpen(true)}>
+                {state.authError === 'session_expired' ? 'Sign in again' : 'Sign in to analyze'}
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => set({ authError: null })}>
+                Dismiss
+              </Button>
+            </div>
+          </div>
+        </Card>
+      )}
+
       {/* Session expiry warning (#261) */}
       {expiryWarning && (
         <Card className="p-3 border-warning/30 bg-warning/5" role="status" aria-live="polite">
@@ -1163,9 +1229,11 @@ export default function DiagramTranslator() {
           onUpload={handleUpload}
           onRemoveFile={() => {
             if (state.filePreviewUrl) URL.revokeObjectURL(state.filePreviewUrl);
-            set({ selectedFile: null, filePreviewUrl: null });
+            set({ selectedFile: null, filePreviewUrl: null, error: null, authError: null });
           }}
           onLoadSample={handleLoadSample}
+          isAuthenticated={isAuthenticated}
+          onSignIn={() => setLoginModalOpen(true)}
         />
       )}
 
@@ -1269,6 +1337,13 @@ export default function DiagramTranslator() {
         </div>
       )}
 
+      </Suspense>
+
+      {/* Login modal — opened when signed-out user tries to analyze */}
+      <Suspense fallback={null}>
+        {loginModalOpen && (
+          <LoginModal isOpen={loginModalOpen} onClose={() => setLoginModalOpen(false)} />
+        )}
       </Suspense>
     </div>
   );
