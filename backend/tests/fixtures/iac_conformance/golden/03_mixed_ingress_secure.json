@@ -1,0 +1,39 @@
+{
+  "analysis": {
+    "title": "Mixed Ingress Secure",
+    "source_provider": "mixed",
+    "target_provider": "azure",
+    "mappings": [
+      {
+        "source_service": "CloudFront",
+        "azure_service": "Azure Front Door",
+        "category": "Networking",
+        "confidence": 0.94
+      },
+      {
+        "source_service": "Cloud Armor",
+        "azure_service": "Web Application Firewall",
+        "category": "Security",
+        "confidence": 0.9
+      },
+      {
+        "source_service": "Secrets Manager",
+        "azure_service": "Key Vault",
+        "category": "Security",
+        "confidence": 0.95
+      }
+    ]
+  },
+  "required_controls": [
+    "managed_identity",
+    "tls",
+    "diagnostics",
+    "private_connectivity",
+    "key_vault_handling",
+    "waf_public_ingress_posture",
+    "required_tags",
+    "no_hardcoded_secrets"
+  ],
+  "terraform": "terraform {\n  required_version = \">= 1.5\"\n}\n\nlocals {\n  tags = {\n    project     = \"archmorph\"\n    environment = \"stage\"\n    managed_by  = \"archmorph\"\n  }\n}\n\nresource \"azurerm_user_assigned_identity\" \"edge\" {\n  name                = \"id-mixed-ingress\"\n  location            = \"westeurope\"\n  resource_group_name = \"rg-mixed-ingress\"\n  tags                = local.tags\n}\n\nresource \"azurerm_key_vault\" \"main\" {\n  name                          = \"kvmixedingress01\"\n  location                      = \"westeurope\"\n  resource_group_name           = \"rg-mixed-ingress\"\n  tenant_id                     = \"00000000-0000-0000-0000-000000000000\"\n  sku_name                      = \"standard\"\n  enable_rbac_authorization     = true\n  public_network_access_enabled = false\n  tags                          = local.tags\n}\n\nresource \"azurerm_storage_account\" \"content\" {\n  name                              = \"stmixedcontent01\"\n  location                          = \"westeurope\"\n  resource_group_name               = \"rg-mixed-ingress\"\n  account_tier                      = \"Standard\"\n  account_replication_type          = \"LRS\"\n  min_tls_version                   = \"TLS1_2\"\n  public_network_access_enabled     = false\n  infrastructure_encryption_enabled = true\n  tags                              = local.tags\n}\n\nresource \"azurerm_private_endpoint\" \"content\" {\n  name                = \"pe-mixed-content\"\n  location            = \"westeurope\"\n  resource_group_name = \"rg-mixed-ingress\"\n  subnet_id           = \"/subscriptions/000/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet/subnets/private\"\n\n  private_service_connection {\n    name                           = \"psc-content\"\n    private_connection_resource_id = azurerm_storage_account.content.id\n    subresource_names              = [\"blob\"]\n    is_manual_connection           = false\n  }\n}\n\nresource \"azurerm_log_analytics_workspace\" \"main\" {\n  name                = \"law-mixed-ingress\"\n  location            = \"westeurope\"\n  resource_group_name = \"rg-mixed-ingress\"\n  sku                 = \"PerGB2018\"\n  retention_in_days   = 30\n  tags                = local.tags\n}\n\nresource \"azurerm_monitor_diagnostic_setting\" \"storage\" {\n  name                       = \"diag-mixed-storage\"\n  target_resource_id         = azurerm_storage_account.content.id\n  log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id\n\n  enabled_log {\n    category = \"StorageRead\"\n  }\n\n  metric {\n    category = \"AllMetrics\"\n    enabled  = true\n  }\n}\n\nresource \"azurerm_web_application_firewall_policy\" \"edge\" {\n  name                = \"waf-mixed-ingress\"\n  resource_group_name = \"rg-mixed-ingress\"\n  location            = \"westeurope\"\n\n  policy_settings {\n    enabled = true\n    mode    = \"Prevention\"\n  }\n\n  managed_rules {\n    managed_rule_set {\n      type    = \"OWASP\"\n      version = \"3.2\"\n    }\n  }\n\n  tags = local.tags\n}\n",
+  "bicep": "targetScope = 'subscription'\n\nparam location string = 'westeurope'\n\nvar tags = {\n  project: 'archmorph'\n  environment: 'stage'\n  managedBy: 'archmorph'\n}\n\nresource identity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {\n  name: 'id-mixed-ingress'\n  location: location\n  tags: tags\n}\n\nresource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {\n  name: 'kv-mixed-ingress'\n  location: location\n  properties: {\n    tenantId: '00000000-0000-0000-0000-000000000000'\n    sku: {\n      family: 'A'\n      name: 'standard'\n    }\n    enableRbacAuthorization: true\n    publicNetworkAccess: 'Disabled'\n  }\n  tags: tags\n}\n\nresource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {\n  name: 'stmixedcontent01'\n  location: location\n  sku: {\n    name: 'Standard_LRS'\n  }\n  kind: 'StorageV2'\n  identity: {\n    type: 'SystemAssigned'\n  }\n  properties: {\n    minimumTlsVersion: '1.2'\n    publicNetworkAccess: 'Disabled'\n  }\n  tags: tags\n}\n\nresource privateEndpoint 'Microsoft.Network/privateEndpoints@2023-09-01' = {\n  name: 'pe-mixed-content'\n  location: location\n  properties: {\n    subnet: {\n      id: '/subscriptions/000/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet/subnets/private'\n    }\n    privateLinkServiceConnections: [\n      {\n        name: 'storage-link'\n        properties: {\n          privateLinkServiceId: storage.id\n          groupIds: [\n            'blob'\n          ]\n        }\n      }\n    ]\n  }\n  tags: tags\n}\n\nresource workspace 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {\n  name: 'law-mixed-ingress'\n  location: location\n  properties: {\n    sku: {\n      name: 'PerGB2018'\n    }\n  }\n  tags: tags\n}\n\nresource storageDiag 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {\n  name: 'diag-mixed-storage'\n  scope: storage\n  properties: {\n    workspaceId: workspace.id\n    logs: [\n      {\n        category: 'StorageRead'\n        enabled: true\n      }\n    ]\n    metrics: [\n      {\n        category: 'AllMetrics'\n        enabled: true\n      }\n    ]\n  }\n}\n\nresource wafPolicy 'Microsoft.Network/applicationGatewayWebApplicationFirewallPolicies@2023-09-01' = {\n  name: 'waf-mixed-ingress'\n  location: location\n  properties: {\n    policySettings: {\n      enabledState: 'Enabled'\n      mode: 'Prevention'\n    }\n    managedRules: {\n      managedRuleSets: [\n        {\n          ruleSetType: 'OWASP'\n          ruleSetVersion: '3.2'\n        }\n      ]\n    }\n  }\n  tags: tags\n}\n"
+}

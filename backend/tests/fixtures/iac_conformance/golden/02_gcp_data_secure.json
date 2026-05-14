@@ -1,0 +1,32 @@
+{
+  "analysis": {
+    "title": "GCP Data Secure",
+    "source_provider": "gcp",
+    "target_provider": "azure",
+    "mappings": [
+      {
+        "source_service": "Cloud SQL PostgreSQL",
+        "azure_service": "Azure Database for PostgreSQL",
+        "category": "Database",
+        "confidence": 0.93
+      },
+      {
+        "source_service": "Memorystore",
+        "azure_service": "Azure Cache for Redis",
+        "category": "Cache",
+        "confidence": 0.89
+      }
+    ]
+  },
+  "required_controls": [
+    "managed_identity",
+    "tls",
+    "diagnostics",
+    "private_connectivity",
+    "key_vault_handling",
+    "required_tags",
+    "no_hardcoded_secrets"
+  ],
+  "terraform": "terraform {\n  required_version = \">= 1.5\"\n}\n\nlocals {\n  tags = {\n    project     = \"archmorph\"\n    environment = \"prod\"\n    managed_by  = \"archmorph\"\n  }\n}\n\nresource \"azurerm_user_assigned_identity\" \"db\" {\n  name                = \"id-gcp-data-secure\"\n  location            = \"westeurope\"\n  resource_group_name = \"rg-gcp-data-secure\"\n  tags                = local.tags\n}\n\nresource \"azurerm_key_vault\" \"main\" {\n  name                          = \"kvgcpdatasecure01\"\n  location                      = \"westeurope\"\n  resource_group_name           = \"rg-gcp-data-secure\"\n  tenant_id                     = \"00000000-0000-0000-0000-000000000000\"\n  sku_name                      = \"standard\"\n  public_network_access_enabled = false\n  enable_rbac_authorization     = true\n  tags                          = local.tags\n}\n\nresource \"azurerm_postgresql_flexible_server\" \"main\" {\n  name                          = \"pg-gcp-data-secure\"\n  resource_group_name           = \"rg-gcp-data-secure\"\n  location                      = \"westeurope\"\n  version                       = \"14\"\n  delegated_subnet_id           = \"/subscriptions/000/resourceGroups/rg/providers/Microsoft.Network/virtualNetworks/vnet/subnets/db\"\n  private_dns_zone_id           = \"/subscriptions/000/resourceGroups/rg/providers/Microsoft.Network/privateDnsZones/privatelink.postgres.database.azure.com\"\n  public_network_access_enabled = false\n  administrator_login           = \"archmorphadmin\"\n  storage_mb                    = 32768\n  sku_name                      = \"B_Standard_B1ms\"\n  zone                          = \"1\"\n  tags                          = local.tags\n}\n\nresource \"azurerm_storage_account\" \"diag\" {\n  name                            = \"stgcpdatadiag01\"\n  location                        = \"westeurope\"\n  resource_group_name             = \"rg-gcp-data-secure\"\n  account_tier                    = \"Standard\"\n  account_replication_type        = \"LRS\"\n  min_tls_version                 = \"TLS1_2\"\n  public_network_access_enabled   = false\n  infrastructure_encryption_enabled = true\n  tags                            = local.tags\n}\n\nresource \"azurerm_monitor_diagnostic_setting\" \"postgres\" {\n  name               = \"diag-postgres\"\n  target_resource_id = azurerm_postgresql_flexible_server.main.id\n  storage_account_id = azurerm_storage_account.diag.id\n\n  enabled_log {\n    category = \"PostgreSQLLogs\"\n  }\n\n  metric {\n    category = \"AllMetrics\"\n    enabled  = true\n  }\n}\n",
+  "bicep": "targetScope = 'subscription'\n\nparam location string = 'westeurope'\n\nvar tags = {\n  project: 'archmorph'\n  environment: 'prod'\n  managedBy: 'archmorph'\n}\n\nresource identity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {\n  name: 'id-gcp-data-secure'\n  location: location\n  tags: tags\n}\n\nresource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {\n  name: 'kv-gcp-data-secure'\n  location: location\n  properties: {\n    tenantId: '00000000-0000-0000-0000-000000000000'\n    sku: {\n      family: 'A'\n      name: 'standard'\n    }\n    enableRbacAuthorization: true\n    publicNetworkAccess: 'Disabled'\n  }\n  tags: tags\n}\n\nresource postgres 'Microsoft.DBforPostgreSQL/flexibleServers@2023-06-01-preview' = {\n  name: 'pg-gcp-data-secure'\n  location: location\n  properties: {\n    version: '14'\n    publicNetworkAccess: 'Disabled'\n    administratorLogin: 'archmorphadmin'\n    storage: {\n      storageSizeGB: 32\n    }\n  }\n  identity: {\n    type: 'SystemAssigned'\n  }\n  tags: tags\n}\n\nresource diagnosticsStorage 'Microsoft.Storage/storageAccounts@2023-05-01' = {\n  name: 'stgcpdatadiag01'\n  location: location\n  sku: {\n    name: 'Standard_LRS'\n  }\n  kind: 'StorageV2'\n  properties: {\n    minimumTlsVersion: '1.2'\n    publicNetworkAccess: 'Disabled'\n  }\n  tags: tags\n}\n\nresource postgresDiag 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = {\n  name: 'diag-postgres'\n  scope: postgres\n  properties: {\n    storageAccountId: diagnosticsStorage.id\n    logs: [\n      {\n        category: 'PostgreSQLLogs'\n        enabled: true\n      }\n    ]\n    metrics: [\n      {\n        category: 'AllMetrics'\n        enabled: true\n      }\n    ]\n  }\n}\n"
+}
