@@ -1,5 +1,5 @@
 import React from 'react';
-import { Upload, FileText, X, Building2, Globe2, Boxes, Network, ShieldAlert } from 'lucide-react';
+import { Upload, FileText, X, Building2, Globe2, Boxes, Network, ShieldAlert, LogIn } from 'lucide-react';
 import { Badge, Button, Card } from '../ui';
 import { ContextualHint } from '../ContextualHint';
 
@@ -13,6 +13,8 @@ const SAMPLES = [
 export default function UploadStep({
   dragOver, selectedFile, filePreviewUrl, fileInputRef,
   onDragOver, onDragLeave, onDrop, onFileSelect, onUpload, onRemoveFile, onLoadSample,
+  isAuthenticated = true,
+  onSignIn,
 }) {
   return (
     <Card className="p-12">
@@ -33,26 +35,27 @@ export default function UploadStep({
         {/* Drag & Drop Zone */}
         <ContextualHint id="upload-prompt" content="Drop any cloud diagram here — or try a sample below" position="bottom">
         <div
-          role="button"
-          tabIndex={0}
-          aria-label={selectedFile ? `Selected file: ${selectedFile.name}. Press Enter to upload or browse for a new file.` : 'Upload architecture diagram. Press Enter to browse files.'}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              if (selectedFile) onUpload(selectedFile);
-              else fileInputRef.current?.click();
-            }
-          }}
+          {...(!selectedFile && {
+            role: 'button',
+            tabIndex: 0,
+            'aria-label': 'Upload architecture diagram. Press Enter to browse files.',
+            onKeyDown: (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                fileInputRef.current?.click();
+              }
+            },
+            onClick: () => fileInputRef.current?.click(),
+          })}
           onDragOver={onDragOver}
           onDragLeave={onDragLeave}
           onDrop={onDrop}
-          onClick={() => !selectedFile && fileInputRef.current?.click()}
-          className={`relative rounded-2xl border-2 border-dashed p-8 mb-6 transition-all duration-200 cursor-pointer ${
+          className={`relative rounded-2xl border-2 border-dashed p-8 mb-6 transition-all duration-200 ${
             dragOver
               ? 'border-cta bg-cta/10 scale-[1.02] drop-zone-glow'
               : selectedFile
                 ? 'border-cta/40 bg-cta/5'
-                : 'border-border hover:border-cta/40 hover:bg-secondary/50'
+                : 'border-border hover:border-cta/40 hover:bg-secondary/50 cursor-pointer'
           }`}
         >
           {/* File preview */}
@@ -69,12 +72,21 @@ export default function UploadStep({
                 <p className="text-sm font-medium text-text-primary">{selectedFile.name}</p>
                 <p className="text-xs text-text-muted">{(selectedFile.size / 1024).toFixed(0)} KB</p>
               </div>
-              <div className="flex items-center justify-center gap-2">
-                <Button onClick={(e) => { e.stopPropagation(); onUpload(selectedFile); }} variant="primary" size="md" icon={Upload}>
-                  Analyze This Diagram
-                </Button>
+              <div className="flex items-center justify-center gap-2" data-testid="file-action-buttons">
+                {isAuthenticated ? (
+                  <Button onClick={(e) => { e.stopPropagation(); onUpload(selectedFile); }} variant="primary" size="md" icon={Upload}>
+                    Analyze This Diagram
+                  </Button>
+                ) : (
+                  <Button onClick={(e) => { e.stopPropagation(); onSignIn?.(); }} variant="primary" size="md" icon={LogIn}>
+                    Sign in to analyze
+                  </Button>
+                )}
                 <Button onClick={(e) => { e.stopPropagation(); onRemoveFile(); }} variant="ghost" size="sm" icon={X}>
                   Remove
+                </Button>
+                <Button onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }} variant="ghost" size="sm">
+                  Replace file
                 </Button>
               </div>
             </div>

@@ -48,9 +48,12 @@ For secure authentication without storing credentials:
 
 1. Create an Azure AD App Registration
 2. Add federated credentials for GitHub Actions:
-   - Organization: `your-org`
-   - Repository: `your-repo`
-   - Entity type: `Branch` or `Pull Request`
+   - Organization: `idokatz86`
+   - Repository: `Archmorph`
+   - Entity type for production deploy/apply/rollback: `Environment`
+   - Environment name: `production`
+   - Subject: `repo:idokatz86/Archmorph:environment:production`
+   - Do not scope production Azure access only to `repo:idokatz86/Archmorph:ref:refs/heads/main`; the production GitHub Environment approval gate must be part of the OIDC trust boundary.
 3. Assign necessary roles to the service principal
 
 ### 2. GitHub Secrets Configuration
@@ -83,6 +86,7 @@ az staticwebapp secrets list --name YOUR_SWA_NAME --query properties.apiKey -o t
 - Use OIDC authentication instead of service principal secrets when possible
 - Rotate secrets periodically
 - Use production GitHub environment secrets; Archmorph does not maintain a separate staging environment
+- Production Azure federated credentials should trust the GitHub Environment subject `repo:idokatz86/Archmorph:environment:production`.
 - Backend Container Apps deployments require `ARCHMORPH_API_KEY` and `ARCHMORPH_ADMIN_KEY` to reference the `ADMIN_KEY` secret in the deployed revision.
 - Backend Container Apps deployments require `JWT_SECRET` in production/staging. The workflow maps repository secret `JWT_SECRET` into a Container App secret named `jwt-secret`; if the repository secret is absent, it uses `ADMIN_KEY` as a compatibility fallback.
 - The `archmorphmetrics` storage account must keep shared-key access disabled; backend storage access is expected to use `AZURE_STORAGE_ACCOUNT_URL` plus the Container App system-assigned managed identity with `Storage Blob Data Contributor`.

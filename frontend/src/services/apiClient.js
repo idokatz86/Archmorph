@@ -46,9 +46,9 @@ export function setErrorHandler(fn) {
 /**
  * Map raw API errors to user-friendly messages (#305).
  * Falls back to the raw message if no mapping exists.
+ * NOTE: 401 is handled separately (context-aware) — see ApiError constructor.
  */
 const USER_FRIENDLY_ERRORS = {
-  401: 'Your session has expired. Please sign in again.',
   403: 'You don\u2019t have permission to perform this action.',
   404: 'The requested resource was not found. It may have expired.',
   408: 'The request timed out. Please try again.',
@@ -61,9 +61,16 @@ const USER_FRIENDLY_ERRORS = {
 };
 
 class ApiError extends Error {
-  constructor(status, body) {
+  constructor(status, body, { hadToken = false } = {}) {
     const rawMsg = body?.error?.message || body?.detail || `HTTP ${status}`;
-    const friendlyMsg = USER_FRIENDLY_ERRORS[status] || rawMsg;
+    let friendlyMsg;
+    if (status === 401) {
+      friendlyMsg = hadToken
+        ? 'Your session has expired. Please sign in again.'
+        : 'Authentication required. Please sign in to analyze.';
+    } else {
+      friendlyMsg = USER_FRIENDLY_ERRORS[status] || rawMsg;
+    }
     super(friendlyMsg);
     this.name = 'ApiError';
     this.status = status;
@@ -71,6 +78,11 @@ class ApiError extends Error {
     this.rawMessage = rawMsg;
     this.correlationId = body?.error?.correlation_id || null;
     this.retryable = RETRYABLE_STATUS_CODES.has(status);
+    /**
+     * True when the 401 was due to missing authentication (no token sent).
+     * False when a token was sent but rejected (session expired / revoked).
+     */
+    this.isAuthRequired = status === 401 && !hadToken;
   }
 }
 
@@ -164,6 +176,9 @@ async function request(path, options = {}, signal) {
   const includeDefaultCredentials = isApiRequest(path, url);
 
   const headers = buildHeaders(options.headers, includeDefaultCredentials);
+  // Track whether an Authorization header was included (for context-aware 401 messages).
+  // Reuse the existing hasHeader helper to avoid an extra intermediate array allocation.
+  const hadToken = hasHeader(headers, 'authorization');
   // Auto-set JSON content type for non-FormData bodies
   if (options.body && !(options.body instanceof FormData)) {
     headers['Content-Type'] = headers['Content-Type'] || 'application/json';
@@ -213,13 +228,13 @@ async function request(path, options = {}, signal) {
 
       // Non-JSON responses (binary exports)
       if (!contentType.includes('application/json')) {
-        if (!res.ok) throw new ApiError(res.status, { detail: res.statusText });
+        if (!res.ok) throw new ApiError(res.status, { detail: res.statusText }, { hadToken });
         return res;
       }
 
       const body = await res.json();
       if (!res.ok) {
-        const err = new ApiError(res.status, body);
+        const err = new ApiError(res.status, body, { hadToken });
         // Only retry on retryable status codes and if we have attempts left
         if (err.retryable && attempt < MAX_RETRIES) {
           lastError = err;
