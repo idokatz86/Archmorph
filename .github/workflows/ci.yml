@@ -314,7 +314,7 @@ jobs:
             --framework terraform \
             --directory infra \
             --external-checks-dir infra/policies/checkov \
-            --check CKV_ARCHMORPH_1,CKV_ARCHMORPH_2,CKV_ARCHMORPH_3
+            --check CKV_ARCHMORPH_1,CKV_ARCHMORPH_2,CKV_ARCHMORPH_3,CKV_ARCHMORPH_4,CKV_ARCHMORPH_5
 
   # ============================================
   # CLI FULL-SPINE ARTIFACT CONTRACT
