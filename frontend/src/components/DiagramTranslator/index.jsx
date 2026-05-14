@@ -6,7 +6,15 @@ import {
 import { Button, Card, ErrorCard, Tabs } from '../ui';
 import { buildJobStreamUrl } from '../../utils/jobStreamUrl';
 import api from '../../services/apiClient';
-import { saveSession, loadSession, clearSession, updateSessionCache, cacheImage, loadCachedImage } from '../../services/sessionCache';
+import {
+  saveSession,
+  loadSession,
+  clearSession,
+  updateSessionCache,
+  cacheImage,
+  loadCachedImage,
+  shouldPersistSensitiveSessionCache,
+} from '../../services/sessionCache';
 import useWorkflow from './useWorkflow';
 import useSSE from '../../hooks/useSSE';
 import useSessionExpiry from '../../hooks/useSessionExpiry';
@@ -244,6 +252,7 @@ export default function DiagramTranslator() {
   const activeTimeoutsRef = useRef([]);    // pending setTimeout IDs
   const filePreviewUrlRef = useRef(null);  // latest blob URL
   const abortRef = useRef(null);           // AbortController for fetch calls
+  const persistSensitiveCache = shouldPersistSensitiveSessionCache();
 
   // Session expiry warning countdown (#261) + auto-reset on expiry (#227)
   const handleSessionExpired = useCallback(() => {
@@ -303,7 +312,7 @@ export default function DiagramTranslator() {
         iacCode: cached.iacCode || null,
         iacFormat: normalizeIacFormat(cached.iacFormat),
         hldData: cached.hldData || null,
-        exportCapability: cached.exportCapability || cached.analysis?.export_capability || null,
+        exportCapability: null,
         step: cached.iacCode ? 'iac' : 'results',
       });
     }
@@ -360,7 +369,7 @@ export default function DiagramTranslator() {
         const qData = await api.post(`/diagrams/${analysis.diagram_id}/questions`);
         const questionState = buildQuestionState(qData);
         saveSession(analysis.diagram_id, analysis, questionState.questions, questionState.answers, {
-          exportCapability: analysis.export_capability || null,
+          persistSensitive: true,
           allQuestions: questionState.allQuestions,
           questionAssumptions: questionState.questionAssumptions,
         });
@@ -434,7 +443,7 @@ export default function DiagramTranslator() {
         payload.iac_format = cached.iacFormat || null;
       }
       // Include cached diagram image so IMAGE_STORE is also restored (#333)
-      const cachedImg = loadCachedImage(diagramId);
+      const cachedImg = loadCachedImage(diagramId, { persistSensitive: persistSensitiveCache });
       if (cachedImg) {
         payload.image_base64 = cachedImg.base64;
         payload.image_content_type = cachedImg.contentType;
@@ -442,7 +451,6 @@ export default function DiagramTranslator() {
       const restoredData = await api.post(`/diagrams/${diagramId}/restore-session`, payload);
       if (restoredData?.export_capability) {
         set({ exportCapability: restoredData.export_capability });
-        updateSessionCache({ exportCapability: restoredData.export_capability });
       }
       return true;
     } catch {
@@ -538,7 +546,7 @@ export default function DiagramTranslator() {
         const reader = new FileReader();
         reader.onload = () => {
           const b64 = reader.result.split(',')[1];
-          cacheImage(diagram_id, b64, file.type);
+          cacheImage(diagram_id, b64, file.type, { persistSensitive: persistSensitiveCache });
         };
         reader.readAsDataURL(file);
       }
@@ -636,7 +644,7 @@ export default function DiagramTranslator() {
         const qData = await api.post(`/diagrams/${diagram_id}/questions`, undefined, signal);
         const questionState = buildQuestionState(qData);
         saveSession(diagram_id, result, questionState.questions, questionState.answers, {
-          exportCapability: result.export_capability || uploadData.export_capability || null,
+          persistSensitive: persistSensitiveCache,
           allQuestions: questionState.allQuestions,
           questionAssumptions: questionState.questionAssumptions,
         });
@@ -694,7 +702,7 @@ export default function DiagramTranslator() {
         const qData = await api.post(`/diagrams/${diagram_id}/questions`, undefined, signal);
         const questionState = buildQuestionState(qData);
         saveSession(diagram_id, result, questionState.questions, questionState.answers, {
-          exportCapability: result.export_capability || uploadData.export_capability || null,
+          persistSensitive: persistSensitiveCache,
           allQuestions: questionState.allQuestions,
           questionAssumptions: questionState.questionAssumptions,
         });
@@ -749,7 +757,7 @@ export default function DiagramTranslator() {
       const qData = await api.post(`/diagrams/${result.diagram_id}/questions`);
       const questionState = buildQuestionState(qData);
       saveSession(result.diagram_id, result, questionState.questions, questionState.answers, {
-        exportCapability: result.export_capability || null,
+        persistSensitive: true,
         allQuestions: questionState.allQuestions,
         questionAssumptions: questionState.questionAssumptions,
       });
@@ -844,7 +852,7 @@ export default function DiagramTranslator() {
     setHldExportLoading(fmt, true);
     try {
       // Include diagram image in HLD export if available (#357)
-      const cachedImg = loadCachedImage(state.diagramId);
+      const cachedImg = loadCachedImage(state.diagramId, { persistSensitive: persistSensitiveCache });
       const exportBody = {};
       if (cachedImg?.base64) {
         exportBody.diagram_image = cachedImg.base64;
@@ -862,7 +870,6 @@ export default function DiagramTranslator() {
       if (data) {
         if (data.export_capability) {
           set({ exportCapability: data.export_capability });
-          updateSessionCache({ exportCapability: data.export_capability });
         }
         const bytes = Uint8Array.from(atob(data.content_b64), c => c.charCodeAt(0));
         const blob = new Blob([bytes], { type: data.content_type });
@@ -908,7 +915,6 @@ export default function DiagramTranslator() {
       if (data) {
         if (data.export_capability) {
           set({ exportCapability: data.export_capability });
-          updateSessionCache({ exportCapability: data.export_capability });
         }
         const content = typeof data.content === 'string' ? data.content : JSON.stringify(data.content, null, 2);
         const exportMime = isArchitecturePackage
@@ -1305,7 +1311,6 @@ export default function DiagramTranslator() {
           questionsCount={(state.questions || []).length}
           onExportCapability={(token) => {
             set({ exportCapability: token });
-            updateSessionCache({ exportCapability: token });
           }}
         />
       )}

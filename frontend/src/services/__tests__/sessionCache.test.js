@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { saveSession, loadSession, clearSession } from '../../services/sessionCache'
+import { saveSession, loadSession, clearSession, cacheImage, loadCachedImage } from '../../services/sessionCache'
+
+function saveSessionWithOptIn(diagramId, analysis, questions = [], answers = {}, extra = {}) {
+  return saveSession(diagramId, analysis, questions, answers, { ...extra, persistSensitive: true })
+}
 
 describe('sessionCache', () => {
   beforeEach(() => {
@@ -14,7 +18,7 @@ describe('sessionCache', () => {
   // ── Basic operations ──
 
   it('saveSession stores data to sessionStorage', () => {
-    saveSession('diagram-1', { services: 3 }, [{ id: 'q1' }], { q1: 'yes' })
+    saveSessionWithOptIn('diagram-1', { services: 3 }, [{ id: 'q1' }], { q1: 'yes' })
     // Multi-tab support (#265): per-diagram key
     const raw = sessionStorage.getItem('archmorph_session_diagram-1')
     expect(raw).not.toBeNull()
@@ -24,7 +28,7 @@ describe('sessionCache', () => {
   })
 
   it('loadSession returns saved data', () => {
-    saveSession('diagram-1', { zones: [] }, [], {})
+    saveSessionWithOptIn('diagram-1', { zones: [] }, [], {})
     const result = loadSession()
     expect(result).not.toBeNull()
     expect(result.diagramId).toBe('diagram-1')
@@ -36,7 +40,7 @@ describe('sessionCache', () => {
   })
 
   it('clearSession removes stored data', () => {
-    saveSession('d1', {}, [], {})
+    saveSessionWithOptIn('d1', {}, [], {})
     clearSession()
     expect(loadSession()).toBeNull()
     expect(sessionStorage.getItem('archmorph_session_d1')).toBeNull()
@@ -45,7 +49,7 @@ describe('sessionCache', () => {
   // ── TTL expiry ──
 
   it('loadSession returns null when cache is older than 2 hours', () => {
-    saveSession('d1', { data: 'old' }, [], {})
+    saveSessionWithOptIn('d1', { data: 'old' }, [], {})
 
     // Advance time by 2 hours + 1 second
     vi.advanceTimersByTime(2 * 60 * 60 * 1000 + 1000)
@@ -57,7 +61,7 @@ describe('sessionCache', () => {
   })
 
   it('loadSession returns data when cache is under 2 hours old', () => {
-    saveSession('d1', { data: 'fresh' }, [], {})
+    saveSessionWithOptIn('d1', { data: 'fresh' }, [], {})
 
     // Advance time by 1 hour 59 minutes
     vi.advanceTimersByTime(1 * 60 * 60 * 1000 + 59 * 60 * 1000)
@@ -76,7 +80,7 @@ describe('sessionCache', () => {
     ]
     const answers = { q1: 'Prod', q2: 'Yes' }
 
-    saveSession('d1', { zones: [] }, questions, answers)
+    saveSessionWithOptIn('d1', { zones: [] }, questions, answers)
     const result = loadSession()
 
     expect(result.questions).toEqual(questions)
@@ -89,7 +93,7 @@ describe('sessionCache', () => {
     ]
     const allQuestions = [{ id: 'env_target' }, { id: 'arch_ha' }]
 
-    saveSession('d1', { zones: [] }, [], {}, { allQuestions, questionAssumptions: assumptions })
+    saveSessionWithOptIn('d1', { zones: [] }, [], {}, { allQuestions, questionAssumptions: assumptions })
     const result = loadSession()
 
     expect(result.allQuestions).toEqual(allQuestions)
@@ -98,7 +102,7 @@ describe('sessionCache', () => {
 
   it('stores timestamp for TTL checks', () => {
     const before = Date.now()
-    saveSession('d1', {}, [], {})
+    saveSessionWithOptIn('d1', {}, [], {})
     const result = loadSession()
     expect(result.ts).toBeGreaterThanOrEqual(before)
     expect(result.ts).toBeLessThanOrEqual(Date.now())
@@ -107,8 +111,8 @@ describe('sessionCache', () => {
   // ── Single session limitation ──
 
   it('only stores last session (overwrite behavior)', () => {
-    saveSession('diagram-A', { id: 'A' }, [], {})
-    saveSession('diagram-B', { id: 'B' }, [], {})
+    saveSessionWithOptIn('diagram-A', { id: 'A' }, [], {})
+    saveSessionWithOptIn('diagram-B', { id: 'B' }, [], {})
 
     const result = loadSession()
     expect(result.diagramId).toBe('diagram-B')
@@ -131,7 +135,7 @@ describe('sessionCache', () => {
     })
 
     // Should not throw
-    expect(() => saveSession('d1', { big: 'data' }, [], {})).not.toThrow()
+    expect(() => saveSessionWithOptIn('d1', { big: 'data' }, [], {})).not.toThrow()
 
     sessionStorage.setItem = originalSetItem
   })
@@ -144,7 +148,7 @@ describe('sessionCache', () => {
   // ── Default parameter handling ──
 
   it('saveSession handles missing questions and answers', () => {
-    saveSession('d1', { zones: [] })
+    saveSessionWithOptIn('d1', { zones: [] })
     const result = loadSession()
     expect(result.questions).toEqual([])
     expect(result.answers).toEqual({})
@@ -170,15 +174,91 @@ describe('sessionCache', () => {
       })),
     }
 
-    saveSession('large-diagram', largeAnalysis, [], {})
+    saveSessionWithOptIn('large-diagram', largeAnalysis, [], {})
     const result = loadSession()
     expect(result.analysis.zones.length).toBe(20)
     expect(result.analysis.mappings.length).toBe(200)
   })
 
   it('handles empty analysis object', () => {
-    saveSession('empty-analysis', {}, [], {})
+    saveSessionWithOptIn('empty-analysis', {}, [], {})
     const result = loadSession()
     expect(result.analysis).toEqual({})
+  })
+
+  it('does not persist sensitive analysis by default (confidential mode)', () => {
+    saveSession('sensitive-diagram', { zones: ['private'] }, [], {}, { exportCapability: 'secret-token' })
+    expect(sessionStorage.getItem('archmorph_session_sensitive-diagram')).toBeNull()
+    expect(loadSession('sensitive-diagram')).toBeNull()
+  })
+
+  it('never persists exportCapability even with explicit sensitive cache opt-in', () => {
+    saveSessionWithOptIn('demo-diagram', { zones: [] }, [], {}, { exportCapability: 'secret-token' })
+    const raw = sessionStorage.getItem('archmorph_session_demo-diagram')
+    expect(raw).not.toBeNull()
+    const payload = JSON.parse(raw)
+    expect(payload.exportCapability).toBeUndefined()
+    expect(payload.analysis.export_capability).toBeUndefined()
+  })
+
+  it('does not persist uploaded image bytes by default (confidential mode)', () => {
+    cacheImage('diagram-1', 'ZmFrZS1pbWFnZQ==', 'image/png')
+    expect(sessionStorage.getItem('archmorph_img_diagram-1')).toBeNull()
+  })
+
+  it('clears legacy sensitive cache payloads instead of restoring them by default', () => {
+    sessionStorage.setItem('archmorph_active_diagram', 'legacy-diagram')
+    sessionStorage.setItem('archmorph_session_legacy-diagram', JSON.stringify({
+      diagramId: 'legacy-diagram',
+      analysis: { zones: ['private'], export_capability: 'nested-token' },
+      exportCapability: 'top-level-token',
+      questions: [],
+      answers: {},
+      ts: Date.now(),
+    }))
+
+    expect(loadSession()).toBeNull()
+    expect(sessionStorage.getItem('archmorph_session_legacy-diagram')).toBeNull()
+    expect(sessionStorage.getItem('archmorph_session')).toBeNull()
+  })
+
+  it('rewrites allowed legacy cache payloads after removing export capabilities', () => {
+    sessionStorage.setItem('archmorph_sensitive_cache_opt_in', 'true')
+    sessionStorage.setItem('archmorph_active_diagram', 'legacy-diagram')
+    sessionStorage.setItem('archmorph_session_legacy-diagram', JSON.stringify({
+      diagramId: 'legacy-diagram',
+      analysis: { zones: ['private'], export_capability: 'nested-token' },
+      exportCapability: 'top-level-token',
+      questions: [],
+      answers: {},
+      ts: Date.now(),
+    }))
+
+    const restored = loadSession()
+    expect(restored.analysis.export_capability).toBeUndefined()
+    expect(restored.exportCapability).toBeUndefined()
+    const rewritten = JSON.parse(sessionStorage.getItem('archmorph_session_legacy-diagram'))
+    expect(rewritten.analysis.export_capability).toBeUndefined()
+    expect(rewritten.exportCapability).toBeUndefined()
+  })
+
+  it('persists session and image data when storage opt-in is enabled', () => {
+    sessionStorage.setItem('archmorph_sensitive_cache_opt_in', 'true')
+
+    saveSession('opted-in-diagram', { zones: ['demo'] }, [], {})
+    cacheImage('opted-in-diagram', 'ZmFrZS1pbWFnZQ==', 'image/png')
+
+    expect(loadSession('opted-in-diagram').analysis.zones).toEqual(['demo'])
+    expect(loadCachedImage('opted-in-diagram').contentType).toBe('image/png')
+  })
+
+  it('honors explicit false override even when storage opt-in is enabled', () => {
+    sessionStorage.setItem('archmorph_sensitive_cache_opt_in', 'true')
+
+    saveSession('blocked-diagram', { zones: ['private'] }, [], {}, { persistSensitive: false })
+    cacheImage('blocked-diagram', 'ZmFrZS1pbWFnZQ==', 'image/png', { persistSensitive: false })
+
+    expect(sessionStorage.getItem('archmorph_session_blocked-diagram')).toBeNull()
+    expect(sessionStorage.getItem('archmorph_img_blocked-diagram')).toBeNull()
   })
 })
