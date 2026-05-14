@@ -222,7 +222,7 @@ async def join_session(
     existing_participant = _find_participant_by_user_id(session, user.id)
     if existing_participant:
         if not existing_participant.get("participant_token"):
-            logger.warning("Participant %s missing collaboration token in session %s", safe(user.id), safe(session_id))
+            logger.warning("Participant missing collaboration token; regenerating token")
             existing_participant["participant_token"] = secrets.token_urlsafe(24)
             _session_store[session_id] = session
         return {
@@ -236,7 +236,7 @@ async def join_session(
     session["participants"].append(participant)
     _session_store[session_id] = session
 
-    logger.info("User %s joined session %s as %s", safe(user.id), safe(session_id), safe(body.role))
+    logger.info("Collaboration participant joined session")
     return {
         "status": "joined",
         "session_id": session_id,
