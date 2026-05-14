@@ -219,5 +219,8 @@ def test_force_override_log_sanitizes_diagram_and_rule_ids(caplog):
     message = warning_records[0].getMessage()
     assert "\n" not in message
     assert "\r" not in message
-    assert "diagid" in message
-    assert "rule-1INJECT,rule-2INJECT" in message
+    assert "blocker_count=2" in message
+    assert "diag" not in message
+    assert "rule-1" not in message
+    assert "rule-2" not in message
+    assert "INJECT" not in message
