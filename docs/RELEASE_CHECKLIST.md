@@ -26,6 +26,7 @@ Core deployment secrets:
 - `ACR_LOGIN_SERVER`
 - `CONTAINER_APP_NAME`
 - `CONTAINER_APP_ENV`
+- `ARCHMORPH_API_KEY`
 - `ADMIN_KEY`
 
 Application secrets:
@@ -83,7 +84,7 @@ After deployment, verify:
 - `/#translator` opens the translator workflow.
 - `/#playground` opens the sample playground.
 - `${API_URL}/health` passes `scripts/health_gate.sh`: status must be `healthy`, scheduled jobs must be fresh, and Redis must report either `ok` or `disabled_optional`. `missing_required` is release-blocking.
-- The green backend revision must successfully run `/api/service-updates/storage-preflight` and `/api/service-updates/run-now` with `X-API-Key: ADMIN_KEY` before traffic shift; this validates `ARCHMORPH_API_KEY`, `AZURE_STORAGE_ACCOUNT_URL`, and the managed-identity Blob Storage read/write/list path.
+- The green backend revision must successfully run `/api/service-updates/storage-preflight` and `/api/service-updates/run-now` with `X-API-Key: ARCHMORPH_API_KEY` before traffic shift; this validates API authentication, `AZURE_STORAGE_ACCOUNT_URL`, and the managed-identity Blob Storage read/write/list path.
 - `${API_ROOT}/openapi.json` loads and reports `Archmorph API`.
 - Run the [Production Architecture Package Smoke](PRODUCTION_SMOKE_ARCHITECTURE_PACKAGE.md) workflow with `strict_freshness=true`; retain the summary and artifact bundle for release evidence.
 - Confirm each changed generated artifact has an owner, validation command or explicit gap note, fixture, release evidence location, and gap tracking entry in the [Generated Artifact Validation Matrix](GENERATED_ARTIFACT_VALIDATION_MATRIX.md).

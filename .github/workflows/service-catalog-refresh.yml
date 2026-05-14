@@ -46,12 +46,10 @@ jobs:
     steps:
       - name: Trigger refresh
         id: refresh
-        env:
-          ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
         run: |
           set -euo pipefail
-          if [ -z "${API_URL:-}" ] || [ -z "${ADMIN_KEY:-}" ]; then
-            echo "::error::API_URL or ADMIN_KEY secret missing"
+          if [ -z "${API_URL:-}" ] || [ -z "${ARCHMORPH_API_KEY:-}" ]; then
+            echo "::error::API_URL or ARCHMORPH_API_KEY secret missing"
             exit 1
           fi
 
@@ -68,7 +66,7 @@ jobs:
             HTTP_CODE=$(curl -sS -o response.json -w "%{http_code}" \
               --max-time 600 \
               -X POST "${BASE}/api/service-updates/run-now" \
-              -H "X-API-Key: ${ADMIN_KEY}" \
+              -H "X-API-Key: ${ARCHMORPH_API_KEY}" \
               -H "Content-Type: application/json" \
               -d '{}' || echo "000")
 
@@ -112,23 +110,22 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Verify freshness via /api/health
-        env:
-          ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
         run: |
           set -euo pipefail
           BASE="${API_URL%/}"
           BASE="${BASE%/api}"
-          # Pass API key when configured — /api/health requires auth in production (#844).
-          HEALTH_API_KEY="${ARCHMORPH_API_KEY:-${ADMIN_KEY:-}}"
+          # /api/health requires API-key auth in production (#844).
           _CURL_ARGS=(-sS --max-time 30)
-          if [ -n "${HEALTH_API_KEY}" ]; then
-            _CURL_ARGS+=(-H "X-API-Key: ${HEALTH_API_KEY}")
+          if [ -z "${ARCHMORPH_API_KEY:-}" ]; then
+            echo "::error::ARCHMORPH_API_KEY secret missing; cannot verify authenticated /api/health"
+            exit 1
           fi
+          _CURL_ARGS+=(-H "X-API-Key: ${ARCHMORPH_API_KEY}")
           HTTP_CODE=$(curl "${_CURL_ARGS[@]}" -o health.json -w "%{http_code}" "${BASE}/api/health" || echo "000")
           if [ "$HTTP_CODE" != "200" ]; then
             ERROR_CODE=$(jq -r '.error.code // empty' health.json 2>/dev/null || true)
             if [ -n "$ERROR_CODE" ]; then
-              echo "::error::/api/health returned HTTP ${HTTP_CODE} (${ERROR_CODE}); check ARCHMORPH_API_KEY/ADMIN_KEY secrets"
+              echo "::error::/api/health returned HTTP ${HTTP_CODE} (${ERROR_CODE}); check ARCHMORPH_API_KEY secret"
             else
               echo "::error::/api/health returned HTTP ${HTTP_CODE}; cannot verify refresh freshness"
             fi
@@ -170,9 +167,9 @@ jobs:
               '',
               '### Triage',
               '1. Check the workflow logs above for the failed HTTP code.',
-              '2. Hit `GET /api/health` and inspect `service_catalog_refresh`.',
-              '3. If the API is healthy, re-run the workflow with `workflow_dispatch`.',
-              '4. If the API is unreachable, this is a production outage — treat as P1.',
+              '2. Hit authenticated `GET /api/health` with `X-API-Key: ARCHMORPH_API_KEY` and inspect `service_catalog_refresh`.',
+              '3. If the API is healthy and the API key is valid, re-run the workflow with `workflow_dispatch`.',
+              '4. If the API is unreachable or the production API key is rejected, treat as P1.',
               '',
               '_Filed automatically by `.github/workflows/service-catalog-refresh.yml`._',
             ].join('\n');
