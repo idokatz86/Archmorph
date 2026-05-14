@@ -168,3 +168,18 @@ jobs:
         with:
           sarif_file: trivy-results-${{ matrix.image.name }}.sarif
           category: trivy-container-${{ matrix.image.name }}
+
+  trivy-container-required:
+    name: "Container Scan — Trivy"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: trivy-container
+    if: always()
+    steps:
+      - name: Verify Trivy matrix completed
+        run: |
+          if [ "${{ needs.trivy-container.result }}" != "success" ]; then
+            echo "::error::One or more Trivy container scan matrix jobs failed"
+            exit 1
+          fi
+          echo "All Trivy container scan matrix jobs passed"

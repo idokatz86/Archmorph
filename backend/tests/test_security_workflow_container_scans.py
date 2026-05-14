@@ -34,3 +34,11 @@ def test_security_workflow_uses_distinct_sarif_category_per_runtime_image():
     workflow = _load()
     upload_step = _step_by_name(workflow["jobs"]["trivy-container"]["steps"], "Upload Trivy SARIF to GitHub Security")
     assert upload_step["with"]["category"] == "trivy-container-${{ matrix.image.name }}"
+
+
+def test_security_workflow_keeps_required_trivy_status_context():
+    workflow = _load()
+    required_job = workflow["jobs"]["trivy-container-required"]
+
+    assert required_job["name"] == "Container Scan — Trivy"
+    assert required_job["needs"] == "trivy-container"
