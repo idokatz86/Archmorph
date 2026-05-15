@@ -258,6 +258,14 @@ def test_ci_and_prod_workflows_enforce_readonly_terraform_lockfiles():
     for line in combined_workflows.splitlines():
         stripped = line.strip()
         command = re.sub(r"^(-\s*)?run:\s*", "", stripped)
-        is_shell_init = command.startswith(("terraform ", "if terraform ", "if ! terraform "))
-        if is_shell_init and " init" in command:
+        if re.match(r"^(?:if\s+!?\s*)?terraform(?:\s+-chdir=(?:\"[^\"]+\"|\S+))?\s+init\b", command):
             assert "-lockfile=readonly" in stripped
+
+
+def test_ci_validates_prod_storage_network_and_user_assigned_identity_role():
+    ci_workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+
+    assert '[ "$PUBLIC_NETWORK_ACCESS" != "Disabled" ]' in ci_workflow
+    assert 'select(.name == "AZURE_CLIENT_ID")' in ci_workflow
+    assert "identity.userAssignedIdentities" in ci_workflow
+    assert "Storage Blob Data Contributor" in ci_workflow
