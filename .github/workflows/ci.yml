@@ -116,7 +116,7 @@ jobs:
             local module="$1"
             local tests="$2"
             local floor="$3"
-            safe_module="${module//./_}"
+            local safe_module="${module//./_}"
             echo "Running risk-based coverage floor for ${module} with ${tests} (floor=${floor}%)"
             python -m pytest --tb=short -q "$tests" \
               --cov="$module" --cov-report=term-missing \
