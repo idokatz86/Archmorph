@@ -100,6 +100,18 @@ class TestInMemoryStore:
         assert "upload-2" in store
         assert store._total_bytes <= store.MAX_MEMORY_BYTES
 
+    def test_overwrite_oldest_entry_evicts_other_keys_before_replacement(self):
+        store = InMemoryStore(maxsize=10, ttl=300)
+        store.MAX_MEMORY_BYTES = 1_000
+
+        store["target"] = (b"a" * 400, "image/png")
+        store["other"] = (b"b" * 400, "image/png")
+        store["target"] = (b"c" * 700, "image/png")
+
+        assert store.get("target") == (b"c" * 700, "image/png")
+        assert store.get("other") is None
+        assert store._total_bytes == 700
+
 
 class TestGetStore:
     def test_returns_inmemory_by_default(self):
