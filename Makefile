@@ -58,15 +58,20 @@ test-e2e: ## Run Playwright E2E tests
 
 mutation-baseline: ## Run backend mutation baseline gate for critical modules
 	cd $(BACKEND_DIR) && mkdir -p ../mutation-results && \
-	for module in session_store vision_analyzer iac_generator; do \
+	for module in session_store job_queue diagram_export export_capabilities iac_generator services/azure_pricing vision_analyzer; do \
 		rm -rf .mutmut-cache; \
 		case "$$module" in \
 			session_store) tests="tests/test_session_store.py" ;; \
+			job_queue) tests="tests/test_job_queue.py" ;; \
+			diagram_export) tests="tests/test_diagram_export.py" ;; \
+			export_capabilities) tests="tests/test_export_capabilities.py" ;; \
 			vision_analyzer) tests="tests/test_vision_analyzer.py" ;; \
 			iac_generator) tests="tests/test_iac_generator.py" ;; \
+			services/azure_pricing) tests="tests/test_pricing_blob.py" ;; \
 		esac; \
 		$(PYTHON) -m mutmut run --paths-to-mutate "$$module.py" --runner "$(PYTHON) -m pytest -q $$tests" || true; \
-		$(PYTHON) -m mutmut results --all > "../mutation-results/$$module.txt" || true; \
+		module_report_name="$${module//\//_}"; \
+		$(PYTHON) -m mutmut results --all > "../mutation-results/$$module_report_name.txt" || true; \
 	done
 	$(PYTHON) scripts/mutation_score_gate.py --baseline docs/testing/mutation-baseline.json --report-dir mutation-results
 
