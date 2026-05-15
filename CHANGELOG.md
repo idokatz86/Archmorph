@@ -12,7 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **#661 Compliance/risk/best-practices/living-architecture retirement** — removed off-spine analyzer modules, API routes, generated contract entries, direct tests, and active UI references for the retired compliance, migration-risk, best-practices, and living-architecture surfaces.
 - **#664 Agent PaaS/RAG beta surface retirement** — removed the off-spine `/api/agent-paas/*` and `/api/rag/*` routers, their private ReAct/RAG helper modules, and the RAG-only backend dependencies from the active API contract.
 
-### Added
+### Fixed
+
+- **Async IaC canonical state parity + session-store overwrite accounting fix** — async `/generate-async` jobs now persist canonical `iac_code`/`iac_code_hash`/ETag state like sync generation (including job-result hash/ETag), and in-memory session-store byte tracking now correctly subtracts replaced values on key overwrites.
 
 #### Infrastructure and security maintenance
 

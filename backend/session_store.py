@@ -26,7 +26,7 @@ import json as _json
 import time as _time
 import fcntl
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, Callable, List, Optional
 
 from cachetools import TTLCache
 
@@ -48,7 +48,7 @@ class SessionStore:
     def get(self, key: str, default: Any = None) -> Any:
         raise NotImplementedError
 
-    def set(self, key: str, value: Any, ttl: Optional[int] = None) -> None:
+    def set(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
         raise NotImplementedError
 
     def delete(self, key: str) -> None:
@@ -59,6 +59,21 @@ class SessionStore:
 
     def clear(self) -> None:
         raise NotImplementedError
+
+    def update_if(
+        self,
+        key: str,
+        predicate: Callable[[Any], bool],
+        updater: Callable[[Any], Any],
+        ttl: Optional[int] = None,
+    ) -> tuple[bool, Any]:
+        current = self.get(key)
+        if not predicate(current):
+            return False, current
+        updated = updater(current)
+        if self.set(key, updated, ttl=ttl):
+            return True, updated
+        return False, self.get(key)
 
     # Sentinel for __contains__ — distinguishes "key absent" from "value is None"
     _MISSING = object()
@@ -103,10 +118,12 @@ class InMemoryStore(SessionStore):
         self._maxsize = maxsize
         self._ttl = ttl
         self._total_bytes = 0  # approximate memory tracking (Issue #294)
-        self._entry_sizes: dict[str, int] = {}
+        self._lock = threading.RLock()
 
-    def _estimate_entry_size(self, value: Any) -> int:
+    @staticmethod
+    def _estimate_entry_size(value: Any) -> int:
         import sys
+
         if value is None:
             return 0
         if isinstance(value, (bytes, bytearray)):
@@ -118,77 +135,83 @@ class InMemoryStore(SessionStore):
             return len(value[0])
         return sys.getsizeof(value)
 
-    def _reconcile_total_bytes(self) -> None:
-        # TTLCache expires lazily, so refresh accounting from live keys to avoid drift.
-        live_sizes: dict[str, int] = {}
-        total = 0
-        for key in list(self._cache.keys()):
-            value = self._cache.get(key)
-            if value is None:
-                continue
-            size = self._entry_sizes.get(key)
-            if size is None:
-                size = self._estimate_entry_size(value)
-            live_sizes[key] = size
-            total += size
-        self._entry_sizes = live_sizes
-        self._total_bytes = total
-
     # ── public API ────────────────────────────────────────
 
     def get(self, key: str, default: Any = None) -> Any:
-        val = self._cache.get(key)
-        if val is None:
-            size = self._entry_sizes.pop(key, None)
-            if size is not None:
-                self._total_bytes = max(0, self._total_bytes - size)
-            return default
-        # Refresh TTL by re-inserting the value (Issue #260)
-        self._cache[key] = val
-        return val
+        with self._lock:
+            val = self._cache.get(key)
+            if val is None:
+                return default
+            # Refresh TTL by re-inserting the value (Issue #260)
+            self._cache[key] = val
+            return val
 
-    def set(self, key: str, value: Any, ttl: Optional[int] = None) -> None:
-        # Estimate entry size and enforce memory budget (Issue #294)
-        self._reconcile_total_bytes()
-        entry_size = self._estimate_entry_size(value)
-        existing_size = self._entry_sizes.get(key, 0)
+    def set(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
+        with self._lock:
+            # Estimate entry size and enforce memory budget (Issue #294)
+            entry_size = self._estimate_entry_size(value)
+            if entry_size > self.MAX_MEMORY_BYTES:
+                logger.warning(
+                    "InMemoryStore entry exceeds memory budget (%d > %s bytes) — rejecting entry",
+                    entry_size, self.MAX_MEMORY_BYTES,
+                )
+                return False
 
-        # Evict oldest entries until there is room or the cache is empty
-        evicted_keys = []
-        while self._total_bytes - existing_size + entry_size > self.MAX_MEMORY_BYTES and self._cache:
-            oldest_key = next((candidate for candidate in self._cache if candidate != key), key)
-            # If the replacement key is the only resident entry, avoid evicting
-            # it here; the post-loop budget check rejects oversize replacements.
-            if oldest_key == key:
-                break
-            self.delete(oldest_key)
-            evicted_keys.append(oldest_key)
+            key_exists = key in self._cache
+            replaced_size = self._estimate_entry_size(self._cache[key]) if key_exists else 0
 
-        if evicted_keys:
-            logger.warning(
-                "InMemoryStore memory budget exceeded (%d + %d > %s bytes) — evicted %d oldest entries",
-                self._total_bytes, entry_size, self.MAX_MEMORY_BYTES, len(evicted_keys),
-            )
+            # Evict oldest entries until there is room or the cache is empty.
+            evicted_keys = []
+            projected_total = self._total_bytes - replaced_size + entry_size
+            while projected_total > self.MAX_MEMORY_BYTES and self._cache:
+                oldest_key = next((candidate for candidate in self._cache if candidate != key), key)
+                self.delete(oldest_key)
+                evicted_keys.append(oldest_key)
+                if oldest_key == key:
+                    key_exists = False
+                    replaced_size = 0
+                projected_total = self._total_bytes - replaced_size + entry_size
 
-        if self._total_bytes - existing_size + entry_size > self.MAX_MEMORY_BYTES:
-            logger.warning(
-                "InMemoryStore memory budget still exceeded after eviction — rejecting entry",
-            )
-            return
+            if evicted_keys:
+                logger.warning(
+                    "InMemoryStore memory budget exceeded (%d + %d > %s bytes) — evicted %d oldest entries",
+                    self._total_bytes, entry_size, self.MAX_MEMORY_BYTES, len(evicted_keys),
+                )
 
-        # TTLCache doesn't support per-key TTL; use the store-wide TTL
-        self._cache[key] = value
-        self._entry_sizes[key] = entry_size
-        self._total_bytes = max(0, self._total_bytes - existing_size + entry_size)
-        self._reconcile_total_bytes()
+            if projected_total > self.MAX_MEMORY_BYTES:
+                logger.warning(
+                    "InMemoryStore memory budget still exceeded after eviction — rejecting entry",
+                )
+                return False
+
+            # TTLCache doesn't support per-key TTL; use the store-wide TTL
+            if key_exists:
+                self.delete(key)
+            self._cache[key] = value
+            self._total_bytes += entry_size
+            return True
 
     def delete(self, key: str) -> None:
-        val = self._cache.pop(key, None)
-        if val is not None:
-            size = self._entry_sizes.pop(key, None)
-            if size is None:
-                size = self._estimate_entry_size(val)
-            self._total_bytes = max(0, self._total_bytes - size)
+        with self._lock:
+            val = self._cache.pop(key, None)
+            if val is not None:
+                self._total_bytes -= self._estimate_entry_size(val)
+
+    def update_if(
+        self,
+        key: str,
+        predicate: Callable[[Any], bool],
+        updater: Callable[[Any], Any],
+        ttl: Optional[int] = None,
+    ) -> tuple[bool, Any]:
+        with self._lock:
+            current = self._cache.get(key)
+            if not predicate(current):
+                return False, current
+            updated = updater(current)
+            if self.set(key, updated, ttl=ttl):
+                return True, updated
+            return False, self._cache.get(key)
 
     def keys(self, pattern: str = "*") -> List[str]:
         if pattern == "*":
@@ -200,7 +223,6 @@ class InMemoryStore(SessionStore):
     def clear(self) -> None:
         self._cache.clear()
         self._total_bytes = 0
-        self._entry_sizes.clear()
 
     # ── dict-like overrides ───────────────────────────────
 
@@ -249,6 +271,16 @@ class FileStore(SessionStore):
         safe = key.replace("/", "_").replace("..", "_")
         return self._base / f"{safe}.json"
 
+    def _lock_path(self, key: str) -> Path:
+        safe = key.replace("/", "_").replace("..", "_")
+        return self._base / f"{safe}.lock"
+
+    def _write_payload(self, path: Path, payload: dict[str, Any]) -> None:
+        tmp = path.with_suffix(".tmp")
+        with open(tmp, "w") as f:
+            _json.dump(payload, f, default=str)
+        tmp.rename(path)  # Atomic on POSIX
+
     def _read(self, path: Path) -> Any:
         """Read a file, return value if not expired, else None."""
         if not path.exists():
@@ -294,21 +326,48 @@ class FileStore(SessionStore):
         except (ValueError, OSError):
             pass  # Best-effort TTL refresh
 
-    def set(self, key: str, value: Any, ttl: Optional[int] = None) -> None:
+    def set(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
         self._evict_if_full()
         path = self._path(key)
         payload = {"value": value, "expires_at": _time.time() + (ttl or self._ttl)}
-        tmp = path.with_suffix(".tmp")
-        with open(tmp, "w") as f:
-            fcntl.flock(f, fcntl.LOCK_EX)
+        with open(self._lock_path(key), "a+") as lock_file:
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
             try:
-                _json.dump(payload, f, default=str)
+                self._write_payload(path, payload)
             finally:
-                fcntl.flock(f, fcntl.LOCK_UN)
-        tmp.rename(path)  # Atomic on POSIX
+                fcntl.flock(lock_file, fcntl.LOCK_UN)
+        return True
+
+    def update_if(
+        self,
+        key: str,
+        predicate: Callable[[Any], bool],
+        updater: Callable[[Any], Any],
+        ttl: Optional[int] = None,
+    ) -> tuple[bool, Any]:
+        path = self._path(key)
+        with open(self._lock_path(key), "a+") as lock_file:
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
+            try:
+                current = self._read(path)
+                if not predicate(current):
+                    return False, current
+                updated = updater(current)
+                if current is None:
+                    self._evict_if_full()
+                payload = {"value": updated, "expires_at": _time.time() + (ttl or self._ttl)}
+                self._write_payload(path, payload)
+                return True, updated
+            finally:
+                fcntl.flock(lock_file, fcntl.LOCK_UN)
 
     def delete(self, key: str) -> None:
-        self._path(key).unlink(missing_ok=True)
+        with open(self._lock_path(key), "a+") as lock_file:
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
+            try:
+                self._path(key).unlink(missing_ok=True)
+            finally:
+                fcntl.flock(lock_file, fcntl.LOCK_UN)
 
     def keys(self, pattern: str = "*") -> List[str]:
         import fnmatch
@@ -475,16 +534,54 @@ class RedisStore(SessionStore):
         except (self._json.JSONDecodeError, TypeError):
             return raw
 
-    def set(self, key: str, value: Any, ttl: Optional[int] = None) -> None:
+    def set(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
         from circuit_breakers import redis_breaker
         try:
             payload = self._json.dumps(value, default=str)
             redis_breaker.call(self._redis.setex, self._key(key), ttl or self._ttl, payload)
+            return True
         except Exception as exc:
             logger.warning(
                 "Redis SET failed; data not persisted (error_type=%s)",
                 type(exc).__name__,
             )
+            return False
+
+    def update_if(
+        self,
+        key: str,
+        predicate: Callable[[Any], bool],
+        updater: Callable[[Any], Any],
+        ttl: Optional[int] = None,
+    ) -> tuple[bool, Any]:
+        import redis as _redis
+
+        redis_key = self._key(key)
+        while True:
+            try:
+                with self._redis.pipeline() as pipe:
+                    pipe.watch(redis_key)
+                    raw = pipe.get(redis_key)
+                    if raw is None:
+                        current = None
+                    else:
+                        try:
+                            current = self._json.loads(raw)
+                        except (self._json.JSONDecodeError, TypeError):
+                            current = raw
+                    if not predicate(current):
+                        pipe.unwatch()
+                        return False, current
+                    updated = updater(current)
+                    pipe.multi()
+                    pipe.setex(redis_key, ttl or self._ttl, self._json.dumps(updated, default=str))
+                    pipe.execute()
+                    return True, updated
+            except _redis.WatchError:
+                continue
+            except Exception as exc:
+                logger.warning("Redis conditional update failed (error_type=%s)", type(exc).__name__)
+                return False, self.get(key)
 
     def delete(self, key: str) -> None:
         from circuit_breakers import redis_breaker
