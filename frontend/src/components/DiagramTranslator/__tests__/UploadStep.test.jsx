@@ -248,7 +248,7 @@ describe('UploadStep', () => {
     render(<UploadStep {...defaultProps} selectedFile={file} />)
 
     expect(await screen.findByText(/Inline PDF preview is not supported/)).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Open PDF in a new tab' })).toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: 'Open PDF in a new tab' })).toBeInTheDocument()
   })
 
   it('shows encrypted PDF preview failure message', async () => {
