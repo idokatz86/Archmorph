@@ -98,8 +98,8 @@ class InMemoryStore(SessionStore):
     # Maximum total memory budget for a single store (default 512MB)
     MAX_MEMORY_BYTES = int(os.getenv("SESSION_STORE_MAX_MEMORY_MB", "512")) * 1024 * 1024
 
-    def __init__(self, maxsize: int = 500, ttl: int = 7200):
-        self._cache: TTLCache = TTLCache(maxsize=maxsize, ttl=ttl)
+    def __init__(self, maxsize: int = 500, ttl: int = 7200, timer=None):
+        self._cache: TTLCache = TTLCache(maxsize=maxsize, ttl=ttl, timer=timer or _time.monotonic)
         self._maxsize = maxsize
         self._ttl = ttl
         self._total_bytes = 0  # approximate memory tracking (Issue #294)
@@ -143,7 +143,6 @@ class InMemoryStore(SessionStore):
             return default
         # Refresh TTL by re-inserting the value (Issue #260)
         self._cache[key] = val
-        self._reconcile_total_bytes()
         return val
 
     def set(self, key: str, value: Any, ttl: Optional[int] = None) -> None:

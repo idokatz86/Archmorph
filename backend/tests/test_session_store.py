@@ -2,7 +2,6 @@
 
 import os
 import sys
-import time
 from unittest.mock import patch
 
 import pytest
@@ -83,10 +82,11 @@ class TestInMemoryStore:
         assert store._total_bytes == 100
 
     def test_expired_entries_are_reconciled_from_tracked_bytes(self):
-        store = InMemoryStore(maxsize=10, ttl=1)
+        now = [0.0]
+        store = InMemoryStore(maxsize=10, ttl=1, timer=lambda: now[0])
         store["img"] = (b"x" * 200, "image/png")
         assert store._total_bytes == 200
-        time.sleep(1.1)
+        now[0] = 1.1
         assert store.get("img") is None
         assert store._total_bytes == 0
 

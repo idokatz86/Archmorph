@@ -42,6 +42,10 @@ class OpenAIServiceError(Exception):
         self.status_code = status_code
 
 
+class OpenAIAdmissionTimeout(TimeoutError):
+    """Raised when local admission capacity is exhausted before an API attempt starts."""
+
+
 def handle_openai_error(exc: Exception, context: str = "OpenAI call") -> OpenAIServiceError:
     """Map raw OpenAI exceptions to a unified OpenAIServiceError.
 
@@ -142,7 +146,7 @@ OPENAI_ADMISSION_TIMEOUT_SECONDS = max(0.1, float(os.getenv("OPENAI_ADMISSION_TI
 _openai_inflight = threading.BoundedSemaphore(OPENAI_MAX_INFLIGHT_PER_WORKER)
 
 
-RETRYABLE_EXCEPTIONS = (RateLimitError, APITimeoutError, APIConnectionError, TimeoutError, APIStatusError)
+RETRYABLE_EXCEPTIONS = (RateLimitError, APITimeoutError, APIConnectionError, TimeoutError)
 
 
 def _retryable_status(exc: Exception) -> bool:
@@ -153,6 +157,8 @@ def _retryable_status(exc: Exception) -> bool:
 
 
 def _is_retryable_exception(exc: Exception) -> bool:
+    if isinstance(exc, OpenAIAdmissionTimeout):
+        return False
     if isinstance(exc, (APITimeoutError, APIConnectionError, TimeoutError)):
         return True
     if isinstance(exc, APIStatusError):
@@ -197,7 +203,7 @@ def _retry_wait_seconds(retry_state) -> float:
 def openai_admission_slot():
     acquired = _openai_inflight.acquire(timeout=OPENAI_ADMISSION_TIMEOUT_SECONDS)
     if not acquired:
-        raise TimeoutError("OpenAI admission queue timed out")
+        raise OpenAIAdmissionTimeout("OpenAI admission queue timed out")
     try:
         yield
     finally:
@@ -215,13 +221,11 @@ _retry_impl = retry(
 
 def openai_retry(fn):
     """Retry wrapper with deployment-aware admission control."""
-    wrapped = _retry_impl(fn)
-
-    def guarded(*args, **kwargs):
+    def guarded_attempt(*args, **kwargs):
         with openai_admission_slot():
-            return wrapped(*args, **kwargs)
+            return fn(*args, **kwargs)
 
-    return guarded
+    return _retry_impl(guarded_attempt)
 
 
 
@@ -425,7 +429,9 @@ def cached_chat_completion(
         }) as span:
             try:
                 response = openai_retry(client.chat.completions.create)(**api_kwargs)
-            except RETRYABLE_EXCEPTIONS as primary_exc:
+            except Exception as primary_exc:
+                if not _is_retryable_exception(primary_exc):
+                    raise
                 # If a fallback model is configured, try it before giving up (#285)
                 if AZURE_OPENAI_FALLBACK_DEPLOYMENT and AZURE_OPENAI_FALLBACK_DEPLOYMENT != deployment:
                     logger.warning(

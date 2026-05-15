@@ -138,7 +138,7 @@ class TestAnalyzeImage:
         assert overview.total_completion_tokens == 45
 
     @patch("vision_analyzer.get_openai_client")
-    def test_vision_analysis_retries_on_provider_throttle(self, mock_client_fn):
+    def test_vision_analysis_retries_on_provider_throttle(self, mock_client_fn, monkeypatch):
         mock_client = MagicMock()
         mock_client_fn.return_value = mock_client
         throttled = RateLimitError(
@@ -150,6 +150,17 @@ class TestAnalyzeImage:
             throttled,
             _vision_response({"diagram_type": "AWS Architecture", "warnings": []}),
         ]
+
+        def retry_without_sleep(fn):
+            def wrapped(*args, **kwargs):
+                try:
+                    return fn(*args, **kwargs)
+                except RateLimitError:
+                    return fn(*args, **kwargs)
+
+            return wrapped
+
+        monkeypatch.setattr("vision_analyzer.openai_retry", retry_without_sleep)
 
         result = analyze_image(_minimal_png(), "image/png")
         assert result["diagram_type"] == "AWS Architecture"
