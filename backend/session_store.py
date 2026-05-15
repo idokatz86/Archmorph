@@ -48,7 +48,7 @@ class SessionStore:
     def get(self, key: str, default: Any = None) -> Any:
         raise NotImplementedError
 
-    def set(self, key: str, value: Any, ttl: Optional[int] = None) -> None:
+    def set(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
         raise NotImplementedError
 
     def delete(self, key: str) -> None:
@@ -71,8 +71,7 @@ class SessionStore:
         if not predicate(current):
             return False, current
         updated = updater(current)
-        self.set(key, updated, ttl=ttl)
-        return True, updated
+        return self.set(key, updated, ttl=ttl), updated
 
     # Sentinel for __contains__ — distinguishes "key absent" from "value is None"
     _MISSING = object()
@@ -145,7 +144,7 @@ class InMemoryStore(SessionStore):
             self._cache[key] = val
             return val
 
-    def set(self, key: str, value: Any, ttl: Optional[int] = None) -> None:
+    def set(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
         with self._lock:
             # Estimate entry size and enforce memory budget (Issue #294)
             entry_size = self._estimate_entry_size(value)
@@ -154,7 +153,7 @@ class InMemoryStore(SessionStore):
                     "InMemoryStore entry exceeds memory budget (%d > %s bytes) — rejecting entry",
                     entry_size, self.MAX_MEMORY_BYTES,
                 )
-                return
+                return False
 
             key_exists = key in self._cache
             replaced_size = self._estimate_entry_size(self._cache[key]) if key_exists else 0
@@ -181,13 +180,14 @@ class InMemoryStore(SessionStore):
                 logger.warning(
                     "InMemoryStore memory budget still exceeded after eviction — rejecting entry",
                 )
-                return
+                return False
 
             # TTLCache doesn't support per-key TTL; use the store-wide TTL
             if key_exists:
                 self.delete(key)
             self._cache[key] = value
             self._total_bytes += entry_size
+            return True
 
     def delete(self, key: str) -> None:
         with self._lock:
@@ -207,8 +207,7 @@ class InMemoryStore(SessionStore):
             if not predicate(current):
                 return False, current
             updated = updater(current)
-            self.set(key, updated, ttl=ttl)
-            return True, updated
+            return self.set(key, updated, ttl=ttl), updated
 
     def keys(self, pattern: str = "*") -> List[str]:
         if pattern == "*":
@@ -268,6 +267,16 @@ class FileStore(SessionStore):
         safe = key.replace("/", "_").replace("..", "_")
         return self._base / f"{safe}.json"
 
+    def _lock_path(self, key: str) -> Path:
+        safe = key.replace("/", "_").replace("..", "_")
+        return self._base / f"{safe}.lock"
+
+    def _write_payload(self, path: Path, payload: dict[str, Any]) -> None:
+        tmp = path.with_suffix(".tmp")
+        with open(tmp, "w") as f:
+            _json.dump(payload, f, default=str)
+        tmp.rename(path)  # Atomic on POSIX
+
     def _read(self, path: Path) -> Any:
         """Read a file, return value if not expired, else None."""
         if not path.exists():
@@ -313,18 +322,17 @@ class FileStore(SessionStore):
         except (ValueError, OSError):
             pass  # Best-effort TTL refresh
 
-    def set(self, key: str, value: Any, ttl: Optional[int] = None) -> None:
+    def set(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
         self._evict_if_full()
         path = self._path(key)
         payload = {"value": value, "expires_at": _time.time() + (ttl or self._ttl)}
-        tmp = path.with_suffix(".tmp")
-        with open(tmp, "w") as f:
-            fcntl.flock(f, fcntl.LOCK_EX)
+        with open(self._lock_path(key), "a+") as lock_file:
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
             try:
-                _json.dump(payload, f, default=str)
+                self._write_payload(path, payload)
             finally:
-                fcntl.flock(f, fcntl.LOCK_UN)
-        tmp.rename(path)  # Atomic on POSIX
+                fcntl.flock(lock_file, fcntl.LOCK_UN)
+        return True
 
     def update_if(
         self,
@@ -334,8 +342,7 @@ class FileStore(SessionStore):
         ttl: Optional[int] = None,
     ) -> tuple[bool, Any]:
         path = self._path(key)
-        lock_path = path.with_suffix(".lock")
-        with open(lock_path, "a+") as lock_file:
+        with open(self._lock_path(key), "a+") as lock_file:
             fcntl.flock(lock_file, fcntl.LOCK_EX)
             try:
                 current = self._read(path)
@@ -343,16 +350,18 @@ class FileStore(SessionStore):
                     return False, current
                 updated = updater(current)
                 payload = {"value": updated, "expires_at": _time.time() + (ttl or self._ttl)}
-                tmp = path.with_suffix(".tmp")
-                with open(tmp, "w") as f:
-                    _json.dump(payload, f, default=str)
-                tmp.rename(path)
+                self._write_payload(path, payload)
                 return True, updated
             finally:
                 fcntl.flock(lock_file, fcntl.LOCK_UN)
 
     def delete(self, key: str) -> None:
-        self._path(key).unlink(missing_ok=True)
+        with open(self._lock_path(key), "a+") as lock_file:
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
+            try:
+                self._path(key).unlink(missing_ok=True)
+            finally:
+                fcntl.flock(lock_file, fcntl.LOCK_UN)
 
     def keys(self, pattern: str = "*") -> List[str]:
         import fnmatch
@@ -519,16 +528,18 @@ class RedisStore(SessionStore):
         except (self._json.JSONDecodeError, TypeError):
             return raw
 
-    def set(self, key: str, value: Any, ttl: Optional[int] = None) -> None:
+    def set(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
         from circuit_breakers import redis_breaker
         try:
             payload = self._json.dumps(value, default=str)
             redis_breaker.call(self._redis.setex, self._key(key), ttl or self._ttl, payload)
+            return True
         except Exception as exc:
             logger.warning(
                 "Redis SET failed; data not persisted (error_type=%s)",
                 type(exc).__name__,
             )
+            return False
 
     def update_if(
         self,
