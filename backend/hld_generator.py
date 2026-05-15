@@ -16,6 +16,7 @@ from typing import Any, Dict, Optional
 from openai_client import cached_chat_completion, AZURE_OPENAI_DEPLOYMENT
 from prompt_guard import PROMPT_ARMOR
 from traceability_map import build_traceability_map, traceability_summary
+import ci_smoke
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +107,82 @@ def _find_doc_link(service_name: str) -> str:
     # Generic fallback
     slug = service_name.lower().replace(" ", "-").replace("(", "").replace(")", "")
     return f"https://learn.microsoft.com/en-us/azure/{slug}/"
+
+
+def _ci_smoke_hld(analysis: Dict[str, Any], cost_estimate: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    mappings = analysis.get("mappings", [])
+    services = []
+    for mapping in mappings[:8]:
+        azure_service = mapping.get("azure_service") or "Azure service"
+        services.append({
+            "azure_service": azure_service,
+            "source_service": mapping.get("source_service", "source service"),
+            "justification": f"CI smoke deterministic mapping to {azure_service}.",
+            "alternatives_considered": [],
+            "description": f"{azure_service} supports the target Azure landing-zone design.",
+            "tier_recommendation": "Use a production-ready baseline SKU after sizing validation.",
+            "limitations": [],
+            "sla": "See Microsoft SLA documentation",
+            "communication": {"connects_to": [], "protocol": "HTTPS", "pattern": "Sync"},
+            "estimated_monthly_cost": "Covered by CI smoke estimate",
+            "documentation_url": _find_doc_link(azure_service),
+        })
+
+    return {
+        "title": "CI Smoke Azure High-Level Design",
+        "executive_summary": (
+            "This deterministic HLD is generated for CI full-spine smoke validation. "
+            "It verifies the HLD rendering and export path without requiring a live Azure OpenAI connection."
+        ),
+        "architecture_overview": {
+            "description": "The target architecture maps detected source services into an Azure landing zone with private networking, managed identity, monitoring, and cost governance.",
+            "diagram_description": "Source services flow through Azure compute, storage, and observability tiers in the generated landing-zone package.",
+            "architecture_style": "Cloud-native migration",
+            "deployment_model": "Public Cloud",
+        },
+        "services": services,
+        "networking_design": {
+            "topology": "Hub-Spoke",
+            "vnet_design": "Dedicated workload spokes connected to shared services.",
+            "connectivity": "Private endpoints where supported.",
+            "dns_strategy": "Azure Private DNS Zones",
+            "security_controls": ["NSG", "Private Endpoints", "Azure Monitor"],
+            "recommendations": ["Validate subnet sizing before production deployment."],
+        },
+        "security_design": {
+            "identity": "Microsoft Entra ID with managed identities.",
+            "data_protection": "Encryption in transit and at rest.",
+            "network_security": "Least-privilege network access.",
+            "secrets_management": "Azure Key Vault.",
+            "compliance_frameworks": ["GDPR"],
+        },
+        "data_architecture": {"data_flow": "Application data remains within Azure regional boundaries."},
+        "azure_caf_alignment": {"landing_zone": "CAF-aligned platform landing zone."},
+        "finops": {
+            "total_estimated_monthly_cost": str(
+                (cost_estimate or {}).get("total_monthly_estimate", "CI smoke estimate")
+            ),
+            "cost_optimization_recommendations": ["Use budgets and reserved capacity after right-sizing."],
+        },
+        "region_strategy": {"primary_region": "westeurope", "dr_region": "northeurope"},
+        "waf_assessment": {
+            "reliability": {"score": "Medium", "notes": "CI smoke validates the full export path."},
+            "security": {"score": "Medium", "notes": "Private networking and identity are included."},
+            "cost_optimization": {"score": "Medium", "notes": "Cost estimate is included."},
+            "operational_excellence": {"score": "Medium", "notes": "Monitoring is included."},
+            "performance_efficiency": {"score": "Medium", "notes": "Sizing remains a production task."},
+        },
+        "migration_approach": {"strategy": "Replatform", "phases": []},
+        "next_steps": ["Review generated artifacts.", "Validate Azure deployment parameters."],
+        "_metadata": {
+            "source_provider": analysis.get("source_provider", "aws"),
+            "diagram_type": analysis.get("diagram_type", "Cloud Architecture"),
+            "services_count": len(services),
+            "zones_count": len(analysis.get("zones", [])),
+            "generated_by": "Archmorph CI Smoke HLD",
+            "traceability_map": build_traceability_map(analysis),
+        },
+    }
 
 
 # ─────────────────────────────────────────────────────────────
@@ -272,6 +349,9 @@ def generate_hld(
     source_provider = analysis.get("source_provider", "aws")
     diagram_type = analysis.get("diagram_type", "Cloud Architecture")
     warnings = analysis.get("warnings", [])
+
+    if ci_smoke.enabled():
+        return _ci_smoke_hld(analysis, cost_estimate)
 
     # Deduplicate services
     seen = set()
