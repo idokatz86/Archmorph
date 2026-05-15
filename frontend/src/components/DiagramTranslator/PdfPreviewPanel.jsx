@@ -40,7 +40,7 @@ function hasEncryptionDictionary(text) {
 }
 
 function hasActivePdfContent(text) {
-  return /\/(JavaScript|JS|OpenAction|AA|Launch|EmbeddedFile|RichMedia)\b/.test(text);
+  return /\/(JavaScript|JS|OpenAction|AA|Launch|EmbeddedFile|RichMedia|ImportData)\b/.test(text);
 }
 
 function extractPdfDetails(buffer, fileSize) {

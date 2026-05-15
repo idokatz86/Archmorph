@@ -297,6 +297,18 @@ describe('UploadStep', () => {
     expect(screen.queryByLabelText('First page PDF preview')).not.toBeInTheDocument()
   })
 
+  it('suppresses inline preview for PDFs with ImportData actions', async () => {
+    const file = new File(['placeholder'], 'active.pdf', { type: 'application/pdf' })
+    Object.defineProperty(file, 'arrayBuffer', {
+      configurable: true,
+      value: vi.fn(async () => new TextEncoder().encode('%PDF-1.7\n<< /Type /Pages /Count 1 >>\n1 0 obj << /S /ImportData >> endobj\ntrailer << /Root 1 0 R >>').buffer),
+    })
+    render(<UploadStep {...defaultProps} selectedFile={file} />)
+
+    expect(await screen.findByText(/contains active content/)).toBeInTheDocument()
+    expect(screen.queryByLabelText('First page PDF preview')).not.toBeInTheDocument()
+  })
+
   it('uses the largest Pages tree count when child nodes appear first', async () => {
     const file = new File(['placeholder'], 'diagram.pdf', { type: 'application/pdf' })
     Object.defineProperty(file, 'arrayBuffer', {
