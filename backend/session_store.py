@@ -132,6 +132,13 @@ class InMemoryStore(SessionStore):
     def set(self, key: str, value: Any, ttl: Optional[int] = None) -> None:
         # Estimate entry size and enforce memory budget (Issue #294)
         entry_size = self._estimate_entry_size(value)
+        if entry_size > self.MAX_MEMORY_BYTES:
+            logger.warning(
+                "InMemoryStore entry exceeds memory budget (%d > %s bytes) — rejecting entry",
+                entry_size, self.MAX_MEMORY_BYTES,
+            )
+            return
+
         key_exists = key in self._cache
         replaced_size = self._estimate_entry_size(self._cache[key]) if key_exists else 0
 
