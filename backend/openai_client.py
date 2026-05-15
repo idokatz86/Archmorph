@@ -146,9 +146,6 @@ OPENAI_ADMISSION_TIMEOUT_SECONDS = max(0.1, float(os.getenv("OPENAI_ADMISSION_TI
 _openai_inflight = threading.BoundedSemaphore(OPENAI_MAX_INFLIGHT_PER_WORKER)
 
 
-RETRYABLE_EXCEPTIONS = (RateLimitError, APITimeoutError, APIConnectionError, TimeoutError)
-
-
 def _retryable_status(exc: Exception) -> bool:
     if isinstance(exc, RateLimitError):
         return True

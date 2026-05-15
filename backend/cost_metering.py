@@ -27,7 +27,10 @@ from pydantic import BaseModel, Field
 logger = logging.getLogger(__name__)
 # Bootstrap only the most recent slice to bound startup memory; operators can
 # tune/disable this via COST_METER_BOOTSTRAP_LIMIT based on deployment size.
-_BOOTSTRAP_RECORD_LIMIT = max(0, int(os.getenv("COST_METER_BOOTSTRAP_LIMIT", "5000")))
+try:
+    _BOOTSTRAP_RECORD_LIMIT = max(0, int(os.getenv("COST_METER_BOOTSTRAP_LIMIT", "5000")))
+except (TypeError, ValueError):
+    _BOOTSTRAP_RECORD_LIMIT = 5000
 
 
 # ─────────────────────────────────────────────────────────────

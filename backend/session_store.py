@@ -137,9 +137,11 @@ class InMemoryStore(SessionStore):
     # ── public API ────────────────────────────────────────
 
     def get(self, key: str, default: Any = None) -> Any:
-        self._reconcile_total_bytes()
         val = self._cache.get(key)
         if val is None:
+            size = self._entry_sizes.pop(key, None)
+            if size is not None:
+                self._total_bytes = max(0, self._total_bytes - size)
             return default
         # Refresh TTL by re-inserting the value (Issue #260)
         self._cache[key] = val
