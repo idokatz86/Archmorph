@@ -734,7 +734,7 @@ jobs:
           TRUSTED_FRONT_DOOR_FDID="${TRUSTED_FRONT_DOOR_FDID:-}"
           TRUSTED_FRONT_DOOR_HOSTS="${TRUSTED_FRONT_DOOR_HOSTS:-}"
           REQUIRE_FRONT_DOOR_ORIGIN_LOCK=$(echo "${REQUIRE_FRONT_DOOR_ORIGIN_LOCK:-false}" | tr '[:upper:]' '[:lower:]')
-          if terraform -chdir=infra init -input=false >/tmp/terraform-init-front-door.log 2>&1; then
+          if terraform -chdir=infra init -input=false -lockfile=readonly >/tmp/terraform-init-front-door.log 2>&1; then
             TERRAFORM_FRONT_DOOR_FDID=$(terraform -chdir=infra output -raw front_door_profile_resource_guid 2>/dev/null || echo "")
             TERRAFORM_FRONT_DOOR_HOSTS=$(terraform -chdir=infra output -raw front_door_api_hostname 2>/dev/null || echo "")
             if [ -n "$TERRAFORM_FRONT_DOOR_FDID" ]; then

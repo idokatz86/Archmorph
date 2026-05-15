@@ -74,8 +74,8 @@ Run these commands when editing files under `infra/`:
 cd infra
 find . -path './.terraform' -prune -o -name '*.tf' -print0 | xargs -0 terraform fmt -check
 for dir in . staging dr observability; do
- 	terraform -chdir="$dir" init -backend=false -input=false -lockfile=readonly
-	terraform -chdir="$dir" validate -no-color
+  terraform -chdir="$dir" init -backend=false -input=false -lockfile=readonly
+  terraform -chdir="$dir" validate -no-color
 done
 ```
 

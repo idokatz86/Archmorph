@@ -248,7 +248,14 @@ def test_ci_does_not_create_persistent_metrics_storage_or_use_storage_connection
 def test_ci_and_prod_workflows_enforce_readonly_terraform_lockfiles():
     ci_workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     prod_workflow = (ROOT / ".github/workflows/terraform-prod.yml").read_text(encoding="utf-8")
+    combined_workflows = ci_workflow + "\n" + prod_workflow
 
     assert "terraform -chdir=\"$dir\" init -backend=false -input=false -lockfile=readonly" in ci_workflow
+    assert "terraform -chdir=infra init -input=false -lockfile=readonly" in ci_workflow
     assert "terraform init -backend=false -input=false -lockfile=readonly" in prod_workflow
     assert "terraform init -input=false -lockfile=readonly" in prod_workflow
+    for line in combined_workflows.splitlines():
+        stripped = line.strip()
+        is_shell_init = stripped.startswith("terraform ") or stripped.startswith("if terraform ")
+        if is_shell_init and " init" in stripped:
+            assert "-lockfile=readonly" in stripped
