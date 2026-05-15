@@ -191,6 +191,35 @@ describe('apiClient', () => {
     await expect(api.get('/broken')).rejects.toThrow(ApiError)
   })
 
+  it('retries retryable non-JSON export errors with Retry-After', async () => {
+    vi.useFakeTimers()
+    const mockResponse = {
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/octet-stream' }),
+      blob: () => Promise.resolve(new Blob(['file-content'])),
+    }
+    fetch
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        statusText: 'Service Unavailable',
+        headers: new Headers({ 'content-type': 'text/plain', 'retry-after': '2' }),
+      })
+      .mockResolvedValueOnce(mockResponse)
+
+    const request = api.get('/diagrams/d1/export')
+    await Promise.resolve()
+    expect(fetch).toHaveBeenCalledTimes(1)
+
+    await vi.advanceTimersByTimeAsync(1900)
+    expect(fetch).toHaveBeenCalledTimes(1)
+
+    await vi.advanceTimersByTimeAsync(200)
+    await expect(request).resolves.toBe(mockResponse)
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
+
   // ── Error structure ──
 
   it('ApiError includes status and body', async () => {

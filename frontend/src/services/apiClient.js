@@ -250,7 +250,17 @@ async function request(path, options = {}, signal) {
       // Non-JSON responses (binary exports)
       if (!contentType.includes('application/json')) {
         if (!res.ok) {
-          throw new ApiError(res.status, { detail: res.statusText }, { hadToken, retryAfterMs: parseRetryAfterMs(res.headers) });
+          const err = new ApiError(res.status, { detail: res.statusText }, { hadToken, retryAfterMs: parseRetryAfterMs(res.headers) });
+          if (err.retryable && attempt < MAX_RETRIES) {
+            lastError = err;
+            await sleep(retryDelayMs(attempt, err));
+            continue;
+          }
+          if (err.status >= 500) {
+            reportError(err, 'apiClient', { path, status: err.status, correlationId: err.correlationId });
+            if (_errorHandler) _errorHandler(err.message);
+          }
+          throw err;
         }
         return res;
       }

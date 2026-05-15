@@ -92,6 +92,11 @@ class TestOpenAIGuardrails:
 
         assert openai_client._openai_per_worker_limit() == 5
 
+    def test_malformed_admission_timeout_falls_back_to_default(self, monkeypatch):
+        monkeypatch.setenv("OPENAI_ADMISSION_TIMEOUT_SECONDS", "not-a-float")
+
+        assert openai_client._env_float("OPENAI_ADMISSION_TIMEOUT_SECONDS", 2.0) == 2.0
+
     def test_admission_queue_times_out_when_worker_slots_exhausted(self, monkeypatch):
         monkeypatch.setattr(openai_client, "_openai_inflight", threading.BoundedSemaphore(1))
         monkeypatch.setattr(openai_client, "OPENAI_ADMISSION_TIMEOUT_SECONDS", 0.01)

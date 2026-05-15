@@ -125,6 +125,13 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
 def _configured_worker_count() -> int:
     return max(
         1,
@@ -141,7 +148,7 @@ def _openai_per_worker_limit() -> int:
 
 
 OPENAI_MAX_INFLIGHT_PER_WORKER = _openai_per_worker_limit()
-OPENAI_ADMISSION_TIMEOUT_SECONDS = max(0.1, float(os.getenv("OPENAI_ADMISSION_TIMEOUT_SECONDS", "2")))
+OPENAI_ADMISSION_TIMEOUT_SECONDS = max(0.1, _env_float("OPENAI_ADMISSION_TIMEOUT_SECONDS", 2.0))
 _openai_inflight = threading.BoundedSemaphore(OPENAI_MAX_INFLIGHT_PER_WORKER)
 
 
@@ -182,7 +189,7 @@ def _parse_retry_after_seconds(exc: Exception) -> Optional[float]:
 
 
 def _retry_wait_seconds(retry_state) -> float:
-    # Exponential backoff (2, 4, 8...) with jitter, capped at 30s.
+    # Exponential backoff (2, 4, 8...) with jitter; provider Retry-After wins even when longer.
     attempt = max(1, retry_state.attempt_number)
     safe_attempt = min(attempt, 10)
     base = min(30.0, float(2 ** safe_attempt))
