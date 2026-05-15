@@ -76,7 +76,10 @@ def clean_session():
 def diagram_with_analysis(client):
     """Seed a diagram session with a pre-populated analysis."""
     diagram_id = "test-concurrency-diag-001"
-    SESSION_STORE[diagram_id] = copy.deepcopy(SAMPLE_ANALYSIS)
+    session = copy.deepcopy(SAMPLE_ANALYSIS)
+    session["_owner_user_id"] = "iac-async-user"
+    session["_tenant_id"] = "tenant-iac-async"
+    SESSION_STORE[diagram_id] = session
     return diagram_id
 
 
