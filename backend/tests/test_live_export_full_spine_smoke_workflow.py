@@ -30,12 +30,18 @@ def test_live_export_smoke_has_pull_request_path_filters_for_live_export_surface
     assert "backend/**/*cost*.py" in paths
     assert "backend/**/*auth*.py" in paths
     assert "backend/**/*capab*.py" in paths
+    assert "backend/architecture_package.py" in paths
+    assert "backend/azure_landing_zone.py" in paths
+    assert "backend/services/azure_pricing.py" in paths
     assert "frontend/src/**" in paths
 
 
 def test_live_export_smoke_runs_architecture_package_script_and_desktop_mobile_playwright():
     workflow = _load()
     steps = workflow["jobs"]["smoke"]["steps"]
+
+    env_step = _step_by_name(steps, "Use fallback environment variables")
+    assert "ARCHMORPH_EXPORT_CAPABILITY_REQUIRED=true" in env_step["run"]
 
     package_step = _step_by_name(steps, "Run Architecture Package full-spine smoke")
     assert package_step["run"] == "./scripts/architecture_package_smoke.sh"

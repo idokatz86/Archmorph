@@ -527,6 +527,7 @@ test.describe('Core Funnel: Live full-spine smoke assertions', () => {
       localStorage.clear();
       sessionStorage.clear();
     });
+    await stubAuthenticatedUser(page);
     await stubDeterministicDeliverables(page);
 
     await page.goto('/#translator');
@@ -588,6 +589,7 @@ test.describe('Core Funnel: Live full-spine smoke assertions', () => {
   });
 
   test('fails when required analyze control is removed', async ({ page }) => {
+    await stubAuthenticatedUser(page);
     await stubDeterministicDeliverables(page);
     await page.goto('/#translator');
     await expect(page.locator('#root')).toBeVisible({ timeout: 15000 });

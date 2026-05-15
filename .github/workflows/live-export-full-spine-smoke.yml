@@ -10,7 +10,10 @@ on:
       - 'backend/**/*cost*.py'
       - 'backend/**/*auth*.py'
       - 'backend/**/*capab*.py'
+      - 'backend/architecture_package.py'
+      - 'backend/azure_landing_zone.py'
       - 'backend/routers/**'
+      - 'backend/services/azure_pricing.py'
       - 'frontend/src/**'
       - 'e2e/core-funnel.spec.ts'
       - 'playwright.config.ts'
@@ -50,7 +53,7 @@ jobs:
             echo "ARCHMORPH_ADMIN_KEY=test-admin-key"
             echo "ARCHMORPH_CI_SMOKE_MODE=1"
             echo "ARCHMORPH_DISABLE_IAC_CLI_VALIDATION=1"
-            echo "ARCHMORPH_EXPORT_CAPABILITY_REQUIRED=false"
+            echo "ARCHMORPH_EXPORT_CAPABILITY_REQUIRED=true"
           } >> backend/.env
 
       - name: Install dependencies
