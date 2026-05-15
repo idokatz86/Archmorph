@@ -376,3 +376,33 @@ class TestAsyncIacCanonicalState:
         assert session["iac_code"] == newer_code
         assert session["iac_code_hash"] == _iac_code_hash(newer_code)
         assert session[_IAC_ETAG_KEY] == _compute_iac_etag(newer_code)
+
+    def test_async_completion_does_not_recreate_purged_session(
+        self,
+        client,
+        owned_diagram_with_analysis,
+    ):
+        from routers.iac_routes import _iac_code_hash
+
+        headers = _auth_headers()
+
+        def generate_after_purge(*args, **kwargs):
+            SESSION_STORE.delete(owned_diagram_with_analysis)
+            return MOCK_TERRAFORM_CODE
+
+        with patch("routers.iac_routes.generate_iac_code", side_effect=generate_after_purge):
+            queued = client.post(
+                f"/api/diagrams/{owned_diagram_with_analysis}/generate-async",
+                params={"format": "terraform"},
+                headers=headers,
+            )
+        assert queued.status_code == 202
+        job_status = self._wait_for_completion(client, queued.json()["job_id"], headers)
+
+        result = job_status["result"]
+        assert result["code"] == MOCK_TERRAFORM_CODE
+        assert result["code_hash"] == _iac_code_hash(MOCK_TERRAFORM_CODE)
+        assert result["canonical_state_persisted"] is False
+        assert result["canonical_state_conflict"] is True
+        assert result["current_etag"] is None
+        assert SESSION_STORE.get(owned_diagram_with_analysis) is None

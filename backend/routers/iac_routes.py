@@ -407,13 +407,29 @@ async def _run_iac_job(
         # Keep async generation canonical state aligned with sync /generate,
         # unless the canonical code changed while this job was running.
         latest_session = SESSION_STORE.get(diagram_id)
-        if latest_session is None:
-            latest_session = session
-        session = latest_session
         current_etag = _get_stored_etag(session)
         current_code_hash = session.get("iac_code_hash")
         code_hash = _iac_code_hash(code)
         new_etag = _compute_iac_etag(code)
+        if latest_session is None:
+            job_manager.complete(
+                job_id,
+                result={
+                    "diagram_id": diagram_id,
+                    "format": iac_format,
+                    "code": code,
+                    "code_hash": code_hash,
+                    "etag": new_etag,
+                    "canonical_state_persisted": False,
+                    "canonical_state_conflict": True,
+                    "current_etag": None,
+                },
+            )
+            return
+
+        session = latest_session
+        current_etag = _get_stored_etag(session)
+        current_code_hash = session.get("iac_code_hash")
         canonical_state_changed = current_etag != queued_etag or current_code_hash != queued_code_hash
         if not canonical_state_changed:
             session["iac_code"] = code
