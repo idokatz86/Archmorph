@@ -102,6 +102,18 @@ class TestInMemoryStore:
         assert store.get("k2") is None
         assert store._total_bytes == 8
 
+    def test_oversized_overwrite_rejects_without_deleting_existing_value(self, monkeypatch):
+        monkeypatch.setattr(InMemoryStore, "MAX_MEMORY_BYTES", 10)
+        store = InMemoryStore()
+        store.set("k", b"1234")
+        store.set("other", b"56")
+
+        store.set("k", b"12345678901")
+
+        assert store.get("k") == b"1234"
+        assert store.get("other") == b"56"
+        assert store._total_bytes == 6
+
 
 class TestGetStore:
     def test_returns_inmemory_by_default(self):
