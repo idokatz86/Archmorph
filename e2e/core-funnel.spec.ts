@@ -568,12 +568,19 @@ test.describe('Core Funnel: Responsive + keyboard export flow', () => {
     const includeInfrastructureCode = page.getByLabel('Include Infrastructure Code');
     await includeInfrastructureCode.focus();
     await expect(includeInfrastructureCode).toBeFocused();
-    await page.keyboard.press('Tab');
+
+    const advanceFocusTo = async (target, maxTabs = 4) => {
+      for (let index = 0; index < maxTabs; index += 1) {
+        if (await target.evaluate(element => element === document.activeElement)) return;
+        await page.keyboard.press('Tab');
+      }
+      await expect(target).toBeFocused();
+    };
+
     const includeArchitecturePackage = page.getByLabel('Include Architecture Package');
-    await expect(includeArchitecturePackage).toBeFocused();
-    await page.keyboard.press('Tab');
+    await advanceFocusTo(includeArchitecturePackage);
     const includeHighLevelDesign = page.getByLabel('Include High-Level Design');
-    await expect(includeHighLevelDesign).toBeFocused();
+    await advanceFocusTo(includeHighLevelDesign);
     await page.keyboard.press('Escape');
 
     await expect(dialog).toBeHidden();

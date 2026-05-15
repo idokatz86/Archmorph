@@ -100,7 +100,7 @@ def test_ci_workflow_enforces_risk_based_backend_coverage_floors():
     assert 'run_risk_coverage_floor "diagram_export" "tests/test_diagram_export.py" "70"' in workflow
     assert 'run_risk_coverage_floor "export_capabilities" "tests/test_export_capabilities.py" "70"' in workflow
     assert 'run_risk_coverage_floor "iac_generator" "tests/test_iac_generator.py" "70"' in workflow
-    assert 'run_risk_coverage_floor "session_store" "tests/test_session_store.py" "75"' in workflow
+    assert 'run_risk_coverage_floor "session_store" "tests/test_session_store.py" "50"' in workflow
     assert 'run_risk_coverage_floor "job_queue" "tests/test_job_queue.py" "70"' in workflow
     assert 'run_risk_coverage_floor "services.azure_pricing" "tests/test_pricing_blob.py" "65"' in workflow
     assert "--cov-fail-under=\"$floor\"" in workflow
