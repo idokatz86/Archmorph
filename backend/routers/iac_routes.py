@@ -67,6 +67,23 @@ def _with_iac_etag(session: dict, code: str) -> tuple[dict, str]:
     return updated, etag
 
 
+def _enforce_iac_if_match(request: Request, session: dict) -> None:
+    if_match = request.headers.get("If-Match")
+    stored_etag = _get_stored_etag(session)
+    if if_match is not None and stored_etag is not None and if_match != stored_etag:
+        raise ArchmorphException(
+            409,
+            detail={
+                "error": "iac_version_conflict",
+                "message": (
+                    "The IaC code has been updated since you last fetched it. "
+                    "Re-fetch the current version and retry."
+                ),
+                "current_etag": stored_etag,
+            },
+        )
+
+
 # ─────────────────────────────────────────────────────────────
 # Architecture-blocker gate (Issue #610)
 # ─────────────────────────────────────────────────────────────
@@ -184,20 +201,7 @@ async def generate_iac(
     # Optimistic concurrency guard: honour If-Match when code was previously
     # generated for this diagram.  Only enforced when the caller supplies the
     # header — omitting it freely regenerates (first-time or intentional).
-    if_match = request.headers.get("If-Match")
-    stored_etag = _get_stored_etag(session)
-    if if_match is not None and stored_etag is not None and if_match != stored_etag:
-        raise ArchmorphException(
-            409,
-            detail={
-                "error": "iac_version_conflict",
-                "message": (
-                    "The IaC code has been updated since you last fetched it. "
-                    "Re-fetch the current version and retry."
-                ),
-                "current_etag": stored_etag,
-            },
-        )
+    _enforce_iac_if_match(request, session)
 
     _check_architecture_blockers(diagram_id, session, force)
 
@@ -351,6 +355,7 @@ async def generate_iac_async(
     user = get_user_from_request_headers(headers)
     api_key_principal_id = get_api_key_service_principal(headers)
     session = authorize_diagram_access(request, diagram_id, purpose="queue IaC generation")
+    _enforce_iac_if_match(request, session)
     _check_architecture_blockers(diagram_id, session, force)
     queued_etag = _get_stored_etag(session)
     queued_code_hash = session.get("iac_code_hash")

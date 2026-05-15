@@ -353,6 +353,8 @@ class FileStore(SessionStore):
                 if not predicate(current):
                     return False, current
                 updated = updater(current)
+                if current is None:
+                    self._evict_if_full()
                 payload = {"value": updated, "expires_at": _time.time() + (ttl or self._ttl)}
                 self._write_payload(path, payload)
                 return True, updated

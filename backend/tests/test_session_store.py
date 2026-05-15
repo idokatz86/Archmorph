@@ -175,6 +175,23 @@ class TestFileStore:
         payload = json.loads(store._path("k").read_text(encoding="utf-8"))
         assert payload["expires_at"] > time.time() + 60
 
+    def test_update_if_conditional_insert_preserves_maxsize(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SESSION_FILE_DIR", str(tmp_path))
+        store = FileStore("file_update_insert_evict", maxsize=1, ttl=120)
+        store.set("old", {"version": 1})
+
+        success, value = store.update_if(
+            "new",
+            lambda current: current is None,
+            lambda _current: {"version": 2},
+        )
+
+        assert success is True
+        assert value == {"version": 2}
+        assert store.get("new") == {"version": 2}
+        assert store.get("old") is None
+        assert len(list(store._base.glob("*.json"))) == 1
+
 
 class TestRedisStore:
     class _FakeRedis:

@@ -203,6 +203,25 @@ class TestIacOptimisticConcurrency:
         )
         assert r2.status_code == 200
 
+    def test_async_generate_with_stale_if_match_returns_409(self, client, owned_diagram_with_analysis):
+        """Async generation must honor the same stale If-Match guard as sync generation."""
+        from routers.iac_routes import _IAC_ETAG_KEY, _compute_iac_etag
+
+        current_etag = _compute_iac_etag("current async canonical code")
+        stale_etag = _compute_iac_etag("stale async canonical code")
+        session = SESSION_STORE[owned_diagram_with_analysis]
+        session[_IAC_ETAG_KEY] = current_etag
+        SESSION_STORE[owned_diagram_with_analysis] = session
+
+        response = client.post(
+            f"/api/diagrams/{owned_diagram_with_analysis}/generate-async",
+            params={"format": "terraform"},
+            headers={**_auth_headers(), "If-Match": stale_etag},
+        )
+
+        assert response.status_code == 409
+        assert current_etag in str(response.json())
+
     def test_409_body_includes_current_etag(self, client, diagram_with_analysis):
         """409 response body must include the current ETag for client recovery."""
         from routers.iac_routes import _IAC_ETAG_KEY, _compute_iac_etag
