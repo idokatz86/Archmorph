@@ -255,11 +255,16 @@ def test_ci_and_prod_workflows_enforce_readonly_terraform_lockfiles():
     assert "terraform -chdir=infra init -input=false -lockfile=readonly" in ci_workflow
     assert "terraform init -backend=false -input=false -lockfile=readonly" in prod_workflow
     assert "terraform init -input=false -lockfile=readonly" in prod_workflow
+    non_readonly_inits = []
     for line in combined_workflows.splitlines():
         stripped = line.strip()
-        command = re.sub(r"^(-\s*)?run:\s*", "", stripped)
-        if re.match(r"^(?:if\s+!?\s*)?terraform(?:\s+-chdir=(?:\"[^\"]+\"|\S+))?\s+init\b", command):
-            assert "-lockfile=readonly" in stripped
+        command = re.sub(r"^(-\s*)?run:\s*", "", stripped).strip()
+        if command.startswith(("echo ", "fail(")):
+            continue
+        if re.search(r"(?:^|[\s;&|()])terraform(?:\s+-chdir=(?:\"[^\"]+\"|\S+))?\s+init\b", command):
+            if "-lockfile=readonly" not in command:
+                non_readonly_inits.append(stripped)
+    assert non_readonly_inits == []
 
 
 def test_ci_validates_prod_storage_network_and_user_assigned_identity_role():
