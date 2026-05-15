@@ -59,6 +59,31 @@ def _store_iac_etag(diagram_id: str, session: dict, code: str) -> str:
     return etag
 
 
+def _with_iac_etag(session: dict, code: str) -> tuple[dict, str]:
+    """Return a session copy with the IaC ETag set."""
+    updated = dict(session)
+    etag = _compute_iac_etag(code)
+    updated[_IAC_ETAG_KEY] = etag
+    return updated, etag
+
+
+def _enforce_iac_if_match(request: Request, session: dict) -> None:
+    if_match = request.headers.get("If-Match")
+    stored_etag = _get_stored_etag(session)
+    if if_match is not None and stored_etag is not None and if_match != stored_etag:
+        raise ArchmorphException(
+            409,
+            detail={
+                "error": "iac_version_conflict",
+                "message": (
+                    "The IaC code has been updated since you last fetched it. "
+                    "Re-fetch the current version and retry."
+                ),
+                "current_etag": stored_etag,
+            },
+        )
+
+
 # ─────────────────────────────────────────────────────────────
 # Architecture-blocker gate (Issue #610)
 # ─────────────────────────────────────────────────────────────
@@ -176,20 +201,7 @@ async def generate_iac(
     # Optimistic concurrency guard: honour If-Match when code was previously
     # generated for this diagram.  Only enforced when the caller supplies the
     # header — omitting it freely regenerates (first-time or intentional).
-    if_match = request.headers.get("If-Match")
-    stored_etag = _get_stored_etag(session)
-    if if_match is not None and stored_etag is not None and if_match != stored_etag:
-        raise ArchmorphException(
-            409,
-            detail={
-                "error": "iac_version_conflict",
-                "message": (
-                    "The IaC code has been updated since you last fetched it. "
-                    "Re-fetch the current version and retry."
-                ),
-                "current_etag": stored_etag,
-            },
-        )
+    _enforce_iac_if_match(request, session)
 
     _check_architecture_blockers(diagram_id, session, force)
 
@@ -343,7 +355,10 @@ async def generate_iac_async(
     user = get_user_from_request_headers(headers)
     api_key_principal_id = get_api_key_service_principal(headers)
     session = authorize_diagram_access(request, diagram_id, purpose="queue IaC generation")
+    _enforce_iac_if_match(request, session)
     _check_architecture_blockers(diagram_id, session, force)
+    queued_etag = _get_stored_etag(session)
+    queued_code_hash = session.get("iac_code_hash")
 
     job = job_manager.submit(
         "generate_iac",
@@ -352,7 +367,7 @@ async def generate_iac_async(
         tenant_id=user.tenant_id if user else None,
         owner_api_key_id=api_key_principal_id if not user else None,
     )
-    asyncio.create_task(_run_iac_job(job.job_id, diagram_id, format))
+    asyncio.create_task(_run_iac_job(job.job_id, diagram_id, format, queued_etag, queued_code_hash))
 
     from starlette.responses import JSONResponse
     return JSONResponse(
@@ -367,7 +382,13 @@ async def generate_iac_async(
     )
 
 
-async def _run_iac_job(job_id: str, diagram_id: str, iac_format: str) -> None:
+async def _run_iac_job(
+    job_id: str,
+    diagram_id: str,
+    iac_format: str,
+    queued_etag: Optional[str] = None,
+    queued_code_hash: Optional[str] = None,
+) -> None:
     """Background worker for IaC generation."""
     try:
         job_manager.start(job_id)
@@ -396,7 +417,49 @@ async def _run_iac_job(job_id: str, diagram_id: str, iac_format: str) -> None:
         record_event(f"iac_generated_{iac_format}", {"diagram_id": diagram_id})
         record_funnel_step(diagram_id, "iac_generate")
 
-        job_manager.complete(job_id, result={"diagram_id": diagram_id, "format": iac_format, "code": code})
+        # Keep async generation canonical state aligned with sync /generate,
+        # unless the canonical code changed while this job was running.
+        code_hash = _iac_code_hash(code)
+        new_etag = _compute_iac_etag(code)
+        current_etag: Optional[str] = None
+
+        def _canonical_state_matches(candidate: dict | None) -> bool:
+            if candidate is None:
+                return False
+            return _get_stored_etag(candidate) == queued_etag and candidate.get("iac_code_hash") == queued_code_hash
+
+        def _write_canonical_state(candidate: dict) -> dict:
+            updated, _ = _with_iac_etag(candidate, code)
+            updated["iac_code"] = code
+            updated["iac_code_hash"] = code_hash
+            updated["iac_format"] = iac_format
+            return updated
+
+        canonical_state_persisted, latest_session = SESSION_STORE.update_if(
+            diagram_id,
+            _canonical_state_matches,
+            _write_canonical_state,
+        )
+        canonical_state_changed = not canonical_state_persisted
+        if canonical_state_persisted:
+            new_etag = _get_stored_etag(latest_session) or new_etag
+            current_etag = new_etag
+        elif latest_session is not None:
+            current_etag = _get_stored_etag(latest_session)
+
+        job_manager.complete(
+            job_id,
+            result={
+                "diagram_id": diagram_id,
+                "format": iac_format,
+                "code": code,
+                "code_hash": code_hash,
+                "etag": new_etag,
+                "canonical_state_persisted": canonical_state_persisted,
+                "canonical_state_conflict": canonical_state_changed,
+                "current_etag": current_etag,
+            },
+        )
 
     except Exception as exc:
         logger.error("Async IaC generation failed: %s", str(exc).replace('\n', '').replace('\r', ''), exc_info=True)  # codeql[py/log-injection] Handled by custom

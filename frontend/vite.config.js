@@ -45,5 +45,30 @@ export default defineConfig({
     setupFiles: './src/test/setup.js',
     css: true,
     testTimeout: 10000,  // 10s timeout for async tests in CI
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json-summary', 'html'],
+      reportsDirectory: './coverage',
+      include: [
+        'src/components/DiagramTranslator/ExportHub.jsx',
+        'src/components/DiagramTranslator/LandingZoneViewer.jsx',
+        'src/components/DiagramTranslator/useWorkflow.js',
+        'src/services/apiClient.js',
+        'src/services/errorReporter.js',
+        'src/services/sessionCache.js',
+      ],
+      exclude: [
+        'src/**/*.test.{js,jsx}',
+        'src/**/__tests__/**',
+        'src/test/**',
+        'src/generated/**',
+      ],
+      thresholds: {
+        lines: 75,
+        functions: 75,
+        branches: 70,
+        statements: 75,
+      },
+    },
   }
 })

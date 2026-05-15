@@ -28,6 +28,7 @@ jobs:
             --name archmorph-sla-spine \
             -p 127.0.0.1:18082:8000 \
             -e ENVIRONMENT=test \
+            -e ARCHMORPH_API_KEY=sla-spine-api-key \
             -e RATE_LIMIT_ENABLED=false \
             -e ARCHMORPH_CI_SMOKE_MODE=1 \
             -e ARCHMORPH_EXPORT_CAPABILITY_REQUIRED=false \
@@ -57,6 +58,7 @@ jobs:
         continue-on-error: true
         env:
           SLO_SPINE_SUMMARY_PATH: ${{ runner.temp }}/sla-spine-summary/sla-spine-summary.json
+          SLO_SPINE_API_KEY: sla-spine-api-key
           SLO_SPINE_TARGET_RPS: "30"
           SLO_SPINE_USER_RPS: "1"
         run: |

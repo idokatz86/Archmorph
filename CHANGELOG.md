@@ -12,7 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **#661 Compliance/risk/best-practices/living-architecture retirement** — removed off-spine analyzer modules, API routes, generated contract entries, direct tests, and active UI references for the retired compliance, migration-risk, best-practices, and living-architecture surfaces.
 - **#664 Agent PaaS/RAG beta surface retirement** — removed the off-spine `/api/agent-paas/*` and `/api/rag/*` routers, their private ReAct/RAG helper modules, and the RAG-only backend dependencies from the active API contract.
 
-### Added
+### Fixed
+
+- **Async IaC canonical state parity + session-store overwrite accounting fix** — async `/generate-async` jobs now persist canonical `iac_code`/`iac_code_hash`/ETag state like sync generation (including job-result hash/ETag), and in-memory session-store byte tracking now correctly subtracts replaced values on key overwrites.
 
 #### Infrastructure and security maintenance
 
@@ -28,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### CI and release maintenance
 
 - **API contract enforcement hardening** — backend CI now enforces `/api` → `/api/v1` mirroring coverage through a manifest test with explicit exemption tracking, validates representative live runtime responses against OpenAPI success/error schemas, and requires explicit `backend/openapi.breaking-change.json` approval metadata when base-branch OpenAPI compatibility checks detect breaking changes.
+- **Live export full-spine PR gate** — added a path-filtered `Live Export Full-Spine Smoke` workflow that runs Architecture Package smoke evidence plus Playwright core-funnel hard assertions on both desktop and mobile viewports for Live export/IaC/HLD/cost/auth-capability/frontend export UI changes.
 - **GitHub Actions Node.js 24 readiness** — audited workflow action runtimes, moved deprecated Node.js 20 action pins to Node.js 24-compatible majors, pinned Trivy to a release tag, and documented the workflow runtime inventory for release maintenance.
 - **Dependabot PR #785** — upgraded `hashicorp/setup-terraform` from v3 to v4 in CI after a clean rebase and green checks, keeping Terraform validation on the action's Node.js 24-compatible runtime.
 - **Audit P2 infrastructure policy-as-code (#906)** — added a Checkov-backed Terraform policy gate for checked-in Azure infrastructure with project-owned `CKV_ARCHMORPH_*` checks for required baseline tags, PostgreSQL public-network denial, and Storage infrastructure encryption. The root Terraform now explicitly disables PostgreSQL public network access so a PR introducing a public database is blocked by CI.
@@ -45,6 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Keyboard a11y E2E coverage (#861)** — added a Playwright keyboard-only LoginModal spec that asserts Tab order stays trapped inside the dialog, Shift+Tab wraps backward, Escape closes it, and focus returns to the Sign In trigger.
 - **Backend flake visibility (#863)** — added a CI guard that rejects default pytest rerun flags or `pytest-rerunfailures`, plus a flake-tracking dashboard so intermittent failures stay visible until triaged.
 - **Mutation score baseline (#862)** — added a quarterly/manual `mutmut` workflow for `session_store`, `vision_analyzer`, and `iac_generator`, with a 60% per-module baseline gate and raw result artifacts for drop triage.
+- **Risk-based Live quality gates** — CI now enforces per-module backend coverage floors for export/IaC/auth-capability/pricing/workflow-state paths, runs frontend Vitest coverage thresholds for Live components/services, enforces Lighthouse category assertions for the home route, and expands Playwright coverage to include mobile Chrome plus translator/export keyboard-focus checks with color-contrast axe assertions enabled.
 - **IaC chat history trimming (#838)** — compacted legacy chat history before model calls so prior turns keep conversational context and change summaries without replaying complete IaC code blobs.
 - **Vision response cache sizing (#839)** — moved the vision analyzer cache onto the shared store with deploy-configurable size/TTL defaults sized for the 200-repeat upload profile.
 - **Audit actor/IP coverage (#878)** — state-changing guest requests now stamp a daily rotating guest actor/session ID plus client IP in audit rows, closing the forensic gap for unauthenticated activity.
