@@ -423,8 +423,14 @@ export default function DiagramTranslator() {
     }
   };
 
+  const clearSelectedUpload = useCallback(() => {
+    if (state.filePreviewUrl) URL.revokeObjectURL(state.filePreviewUrl);
+    set({ selectedFile: null, filePreviewUrl: null, error: null, authError: null });
+  }, [set, state.filePreviewUrl]);
+
   const handleAddProjectDiagram = () => {
-    set({ step: 'upload', selectedFile: null, filePreviewUrl: null, iacCode: null, error: null, analysis: null });
+    clearSelectedUpload();
+    set({ step: 'upload', iacCode: null, error: null, analysis: null });
   };
 
   const handlePurgeCurrentAnalysis = async () => {
@@ -1268,10 +1274,7 @@ export default function DiagramTranslator() {
           onDrop={handleDrop}
           onFileSelect={handleFileSelect}
           onUpload={handleUpload}
-          onRemoveFile={() => {
-            if (state.filePreviewUrl) URL.revokeObjectURL(state.filePreviewUrl);
-            set({ selectedFile: null, filePreviewUrl: null, error: null, authError: null });
-          }}
+          onRemoveFile={clearSelectedUpload}
           onLoadSample={handleLoadSample}
           isAuthenticated={isAuthenticated}
           onSignIn={() => setLoginModalOpen(true)}

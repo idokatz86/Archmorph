@@ -1,10 +1,29 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import React from 'react'
 import UploadStep from '../../DiagramTranslator/UploadStep'
 
 describe('UploadStep', () => {
+  const getPdfViewerEnabled = () => (typeof navigator !== 'undefined' ? navigator.pdfViewerEnabled : undefined)
+  const originalPdfViewerEnabled = getPdfViewerEnabled()
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:pdf-preview')
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    if (typeof navigator !== 'undefined') {
+      Object.defineProperty(navigator, 'pdfViewerEnabled', { configurable: true, value: originalPdfViewerEnabled })
+    }
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    if (typeof navigator !== 'undefined') {
+      Object.defineProperty(navigator, 'pdfViewerEnabled', { configurable: true, value: originalPdfViewerEnabled })
+    }
+  })
+
   const defaultProps = {
     dragOver: false,
     selectedFile: null,
@@ -105,7 +124,7 @@ describe('UploadStep', () => {
 
   // Accessibility: no nested interactive controls when a file is selected
   it('drop zone does not have role="button" when a file is selected', () => {
-    const file = new File(['test'], 'diagram.pdf', { type: 'application/pdf' })
+    const file = new File(['test'], 'diagram.png', { type: 'image/png' })
     render(<UploadStep {...defaultProps} selectedFile={file} />)
     // There should be no element with role="button" that contains another interactive control
     const buttons = screen.getAllByRole('button')
@@ -121,7 +140,7 @@ describe('UploadStep', () => {
     expect(screen.getByRole('button', { name: /Upload architecture diagram/i })).toBeInTheDocument()
 
     // File selected: drop zone is NOT a button
-    const file = new File(['test'], 'diagram.pdf', { type: 'application/pdf' })
+    const file = new File(['test'], 'diagram.png', { type: 'image/png' })
     rerender(<UploadStep {...defaultProps} selectedFile={file} />)
     expect(screen.queryByRole('button', { name: /Upload architecture diagram/i })).not.toBeInTheDocument()
   })
@@ -146,7 +165,7 @@ describe('UploadStep', () => {
   })
 
   it('action buttons appear in visual order: Analyze, Remove, Replace file', () => {
-    const file = new File(['test'], 'diagram.pdf', { type: 'application/pdf' })
+    const file = new File(['test'], 'diagram.png', { type: 'image/png' })
     render(<UploadStep {...defaultProps} selectedFile={file} />)
     const actionsContainer = screen.getByTestId('file-action-buttons')
     const actionButtons = within(actionsContainer).getAllByRole('button')
@@ -160,7 +179,7 @@ describe('UploadStep', () => {
   // ── Auth gate ──
 
   it('shows "Sign in to analyze" instead of "Analyze This Diagram" when user is signed out and a file is selected', () => {
-    const file = new File(['diagram.pdf'], 'diagram.pdf', { type: 'application/pdf' })
+    const file = new File(['diagram.png'], 'diagram.png', { type: 'image/png' })
     render(<UploadStep {...defaultProps} selectedFile={file} isAuthenticated={false} onSignIn={vi.fn()} />)
     expect(screen.getByText('Sign in to analyze')).toBeInTheDocument()
     expect(screen.queryByText('Analyze This Diagram')).not.toBeInTheDocument()
@@ -169,7 +188,7 @@ describe('UploadStep', () => {
   it('calls onSignIn when "Sign in to analyze" button is clicked', async () => {
     const user = userEvent.setup()
     const onSignIn = vi.fn()
-    const file = new File(['diagram.pdf'], 'diagram.pdf', { type: 'application/pdf' })
+    const file = new File(['diagram.png'], 'diagram.png', { type: 'image/png' })
     render(<UploadStep {...defaultProps} selectedFile={file} isAuthenticated={false} onSignIn={onSignIn} />)
     await user.click(screen.getByText('Sign in to analyze'))
     expect(onSignIn).toHaveBeenCalledTimes(1)
@@ -179,9 +198,141 @@ describe('UploadStep', () => {
     const user = userEvent.setup()
     const onUpload = vi.fn()
     const onSignIn = vi.fn()
-    const file = new File(['diagram.pdf'], 'diagram.pdf', { type: 'application/pdf' })
+    const file = new File(['diagram.png'], 'diagram.png', { type: 'image/png' })
     render(<UploadStep {...defaultProps} selectedFile={file} isAuthenticated={false} onUpload={onUpload} onSignIn={onSignIn} />)
     await user.click(screen.getByText('Sign in to analyze'))
     expect(onUpload).not.toHaveBeenCalled()
+  })
+
+  it('shows first-page PDF preview with page count and file size metadata', async () => {
+    const file = new File(['%PDF-1.7\n/Type /Page\n/Count 1'], 'diagram.pdf', { type: 'application/pdf' })
+    render(<UploadStep {...defaultProps} selectedFile={file} />)
+
+    expect(await screen.findByText('PDF Preview')).toBeInTheDocument()
+    expect(await screen.findByText(/1 page ·/)).toBeInTheDocument()
+    expect(screen.getByLabelText('First page PDF preview')).toBeInTheDocument()
+  })
+
+  it('uses the pages tree count instead of the first raw Count token', async () => {
+    const file = new File([
+      '%PDF-1.7\n<< /Type /Outlines /Count 9 >>\n<< /Type /Pages /Count 2 >>\n/Type /Page\n/Type /Page',
+    ], 'diagram.pdf', { type: 'application/pdf' })
+    render(<UploadStep {...defaultProps} selectedFile={file} />)
+
+    expect(await screen.findByText(/2 pages ·/)).toBeInTheDocument()
+  })
+
+  it('supports keyboard focus for preview controls', async () => {
+    const file = new File(['%PDF-1.7\n/Type /Page\n/Count 1'], 'diagram.pdf', { type: 'application/pdf' })
+    render(<UploadStep {...defaultProps} selectedFile={file} />)
+
+    const openLarger = await screen.findByRole('button', { name: 'Open Larger View' })
+    openLarger.focus()
+    expect(openLarger).toHaveFocus()
+    expect(screen.getByRole('group', { name: 'PDF zoom controls' })).toBeInTheDocument()
+  })
+
+  it('opens larger inspectable PDF view', async () => {
+    const user = userEvent.setup()
+    const file = new File(['%PDF-1.7\n/Type /Page\n/Count 1'], 'diagram.pdf', { type: 'application/pdf' })
+    render(<UploadStep {...defaultProps} selectedFile={file} />)
+
+    await user.click(await screen.findByRole('button', { name: 'Open Larger View' }))
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByLabelText('Large first page PDF preview')).toBeInTheDocument()
+  })
+
+  it('shows graceful fallback when inline PDF preview is unsupported', async () => {
+    Object.defineProperty(navigator, 'pdfViewerEnabled', { configurable: true, value: false })
+    const file = new File(['%PDF-1.7\n/Type /Page\n/Count 1'], 'diagram.pdf', { type: 'application/pdf' })
+    render(<UploadStep {...defaultProps} selectedFile={file} />)
+
+    expect(await screen.findByText(/Inline PDF preview is not supported/)).toBeInTheDocument()
+    expect(await screen.findByRole('link', { name: 'Open PDF in a new tab' })).toBeInTheDocument()
+  })
+
+  it('shows encrypted PDF preview failure message', async () => {
+    const encryptedFile = new File(['placeholder'], 'encrypted.pdf', { type: 'application/pdf' })
+    Object.defineProperty(encryptedFile, 'arrayBuffer', {
+      configurable: true,
+      value: vi.fn(async () => new TextEncoder().encode('%PDF-1.7\ntrailer << /Encrypt 3 0 R /Root 1 0 R >>\n<< /Type /Pages /Count 1 >>').buffer),
+    })
+    render(<UploadStep {...defaultProps} selectedFile={encryptedFile} />)
+
+    expect(await screen.findByText(/Preview unavailable: this PDF appears encrypted/)).toBeInTheDocument()
+  })
+
+  it('detects PDF encryption keys with hex-escaped name bytes', async () => {
+    const encryptedFile = new File(['placeholder'], 'encrypted.pdf', { type: 'application/pdf' })
+    Object.defineProperty(encryptedFile, 'arrayBuffer', {
+      configurable: true,
+      value: vi.fn(async () => new TextEncoder().encode('%PDF-1.7\ntrailer << /#45ncrypt 3 0 R /Root 1 0 R >>\n<< /Type /Pages /Count 1 >>').buffer),
+    })
+    render(<UploadStep {...defaultProps} selectedFile={encryptedFile} />)
+
+    expect(await screen.findByText(/Preview unavailable: this PDF appears encrypted/)).toBeInTheDocument()
+  })
+
+  it('does not treat body text containing Encrypt as password protection', async () => {
+    const file = new File(['placeholder'], 'diagram.pdf', { type: 'application/pdf' })
+    Object.defineProperty(file, 'arrayBuffer', {
+      configurable: true,
+      value: vi.fn(async () => new TextEncoder().encode('%PDF-1.7\nstream /Encrypt label only endstream\n<< /Type /Pages /Count 1 >>\ntrailer << /Root 1 0 R >>').buffer),
+    })
+    render(<UploadStep {...defaultProps} selectedFile={file} />)
+
+    expect(await screen.findByText(/1 page ·/)).toBeInTheDocument()
+    expect(screen.queryByText(/Preview unavailable: this PDF appears encrypted/)).not.toBeInTheDocument()
+  })
+
+  it('suppresses inline preview for PDFs with active content markers', async () => {
+    const file = new File(['placeholder'], 'active.pdf', { type: 'application/pdf' })
+    Object.defineProperty(file, 'arrayBuffer', {
+      configurable: true,
+      value: vi.fn(async () => new TextEncoder().encode('%PDF-1.7\n<< /Type /Pages /Count 1 >>\n1 0 obj << /OpenAction 2 0 R >> endobj\ntrailer << /Root 1 0 R >>').buffer),
+    })
+    render(<UploadStep {...defaultProps} selectedFile={file} />)
+
+    expect(await screen.findByText(/contains active content/)).toBeInTheDocument()
+    expect(screen.queryByLabelText('First page PDF preview')).not.toBeInTheDocument()
+  })
+
+  it('suppresses inline preview for PDFs with ImportData actions', async () => {
+    const file = new File(['placeholder'], 'active.pdf', { type: 'application/pdf' })
+    Object.defineProperty(file, 'arrayBuffer', {
+      configurable: true,
+      value: vi.fn(async () => new TextEncoder().encode('%PDF-1.7\n<< /Type /Pages /Count 1 >>\n1 0 obj << /S /ImportData >> endobj\ntrailer << /Root 1 0 R >>').buffer),
+    })
+    render(<UploadStep {...defaultProps} selectedFile={file} />)
+
+    expect(await screen.findByText(/contains active content/)).toBeInTheDocument()
+    expect(screen.queryByLabelText('First page PDF preview')).not.toBeInTheDocument()
+  })
+
+  it('uses the largest Pages tree count when child nodes appear first', async () => {
+    const file = new File(['placeholder'], 'diagram.pdf', { type: 'application/pdf' })
+    Object.defineProperty(file, 'arrayBuffer', {
+      configurable: true,
+      value: vi.fn(async () => new TextEncoder().encode('%PDF-1.7\n<< /Type /Pages /Count 2 >>\n<< /Type /Pages /Count 7 >>\ntrailer << /Root 1 0 R >>').buffer),
+    })
+    render(<UploadStep {...defaultProps} selectedFile={file} />)
+
+    expect(await screen.findByText(/7 pages ·/)).toBeInTheDocument()
+  })
+
+  it('does not persist PDF preview bytes to sessionStorage by default', async () => {
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem')
+    const file = new File(['%PDF-1.7\n/Type /Page\n/Count 1'], 'diagram.pdf', { type: 'application/pdf' })
+    render(<UploadStep {...defaultProps} selectedFile={file} />)
+    await screen.findByText(/1 page ·/)
+
+    const archmorphWrites = setItemSpy.mock.calls.filter(([key]) => String(key).includes('archmorph'))
+    expect(archmorphWrites).toHaveLength(0)
+  })
+
+  it('adds mobile-safe bottom padding to avoid overlap with chat launcher', () => {
+    render(<UploadStep {...defaultProps} />)
+    const card = screen.getByText('Upload Architecture Diagram').closest('.bg-primary')
+    expect(card).toHaveClass('pb-24')
   })
 })
