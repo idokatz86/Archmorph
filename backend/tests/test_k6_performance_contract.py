@@ -72,6 +72,8 @@ def test_sla_spine_workflow_posts_pr_summary_and_runs_locust():
     assert "locust==" in workflow
     assert "backend/tests/performance/sla_spine_locust.py" in workflow
     assert "ARCHMORPH_CI_SMOKE_MODE=1" in workflow
+    assert "ARCHMORPH_API_KEY=sla-spine-api-key" in workflow
+    assert "SLO_SPINE_API_KEY: sla-spine-api-key" in workflow
     assert "ENVIRONMENT=test" in workflow
     assert "Full-Spine SLO Gate" in workflow
     assert "issues: write" in workflow
