@@ -255,7 +255,7 @@ describe('UploadStep', () => {
     const encryptedFile = new File(['placeholder'], 'encrypted.pdf', { type: 'application/pdf' })
     Object.defineProperty(encryptedFile, 'arrayBuffer', {
       configurable: true,
-      value: vi.fn(async () => new TextEncoder().encode('%PDF-1.7\n/Encrypt <<>>\n/Count 1').buffer),
+      value: vi.fn(async () => new TextEncoder().encode('%PDF-1.7\ntrailer << /Encrypt 3 0 R /Root 1 0 R >>\n<< /Type /Pages /Count 1 >>').buffer),
     })
     render(<UploadStep {...defaultProps} selectedFile={encryptedFile} />)
 
@@ -266,18 +266,53 @@ describe('UploadStep', () => {
     const encryptedFile = new File(['placeholder'], 'encrypted.pdf', { type: 'application/pdf' })
     Object.defineProperty(encryptedFile, 'arrayBuffer', {
       configurable: true,
-      value: vi.fn(async () => new TextEncoder().encode('%PDF-1.7\n/#45ncrypt <<>>\n<< /Type /Pages /Count 1 >>').buffer),
+      value: vi.fn(async () => new TextEncoder().encode('%PDF-1.7\ntrailer << /#45ncrypt 3 0 R /Root 1 0 R >>\n<< /Type /Pages /Count 1 >>').buffer),
     })
     render(<UploadStep {...defaultProps} selectedFile={encryptedFile} />)
 
     expect(await screen.findByText(/Preview unavailable: this PDF appears encrypted/)).toBeInTheDocument()
   })
 
+  it('does not treat body text containing Encrypt as password protection', async () => {
+    const file = new File(['placeholder'], 'diagram.pdf', { type: 'application/pdf' })
+    Object.defineProperty(file, 'arrayBuffer', {
+      configurable: true,
+      value: vi.fn(async () => new TextEncoder().encode('%PDF-1.7\nstream /Encrypt label only endstream\n<< /Type /Pages /Count 1 >>\ntrailer << /Root 1 0 R >>').buffer),
+    })
+    render(<UploadStep {...defaultProps} selectedFile={file} />)
+
+    expect(await screen.findByText(/1 page ·/)).toBeInTheDocument()
+    expect(screen.queryByText(/Preview unavailable: this PDF appears encrypted/)).not.toBeInTheDocument()
+  })
+
+  it('suppresses inline preview for PDFs with active content markers', async () => {
+    const file = new File(['placeholder'], 'active.pdf', { type: 'application/pdf' })
+    Object.defineProperty(file, 'arrayBuffer', {
+      configurable: true,
+      value: vi.fn(async () => new TextEncoder().encode('%PDF-1.7\n<< /Type /Pages /Count 1 >>\n1 0 obj << /OpenAction 2 0 R >> endobj\ntrailer << /Root 1 0 R >>').buffer),
+    })
+    render(<UploadStep {...defaultProps} selectedFile={file} />)
+
+    expect(await screen.findByText(/contains active content/)).toBeInTheDocument()
+    expect(screen.queryByLabelText('First page PDF preview')).not.toBeInTheDocument()
+  })
+
+  it('uses the largest Pages tree count when child nodes appear first', async () => {
+    const file = new File(['placeholder'], 'diagram.pdf', { type: 'application/pdf' })
+    Object.defineProperty(file, 'arrayBuffer', {
+      configurable: true,
+      value: vi.fn(async () => new TextEncoder().encode('%PDF-1.7\n<< /Type /Pages /Count 2 >>\n<< /Type /Pages /Count 7 >>\ntrailer << /Root 1 0 R >>').buffer),
+    })
+    render(<UploadStep {...defaultProps} selectedFile={file} />)
+
+    expect(await screen.findByText(/7 pages ·/)).toBeInTheDocument()
+  })
+
   it('does not persist PDF preview bytes to sessionStorage by default', async () => {
     const setItemSpy = vi.spyOn(Storage.prototype, 'setItem')
     const file = new File(['%PDF-1.7\n/Type /Page\n/Count 1'], 'diagram.pdf', { type: 'application/pdf' })
     render(<UploadStep {...defaultProps} selectedFile={file} />)
-    await screen.findByText('PDF Preview')
+    await screen.findByText(/1 page ·/)
 
     const archmorphWrites = setItemSpy.mock.calls.filter(([key]) => String(key).includes('archmorph'))
     expect(archmorphWrites).toHaveLength(0)

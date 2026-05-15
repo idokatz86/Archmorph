@@ -19,19 +19,35 @@ function decodePdfNameEscapes(text) {
 
 function extractPagesTreeCount(text) {
   const dictionaries = text.match(/<<[\s\S]*?>>/g) || [];
+  let highestCount = null;
   for (const dictionary of dictionaries) {
     if (/\/Type\s*\/Pages\b/.test(dictionary)) {
       const count = Number(dictionary.match(/\/Count\s+(\d+)/)?.[1] || 0);
-      if (count > 0) return count;
+      if (count > 0) highestCount = Math.max(highestCount || 0, count);
     }
   }
-  return null;
+  return highestCount;
+}
+
+function extractTrailerText(text) {
+  const tail = text.slice(Math.max(0, text.length - 16 * 1024));
+  const trailerIndex = tail.lastIndexOf('trailer');
+  return trailerIndex >= 0 ? tail.slice(trailerIndex) : tail;
+}
+
+function hasEncryptionDictionary(text) {
+  return /\/Encrypt\b/.test(extractTrailerText(text));
+}
+
+function hasActivePdfContent(text) {
+  return /\/(JavaScript|JS|OpenAction|AA|Launch|EmbeddedFile|RichMedia)\b/.test(text);
 }
 
 function extractPdfDetails(buffer, fileSize) {
   const decoder = new TextDecoder('latin1');
   const text = decodePdfNameEscapes(decoder.decode(buffer));
-  const encrypted = /\/Encrypt\b/.test(text);
+  const encrypted = hasEncryptionDictionary(text);
+  const unsafe = hasActivePdfContent(text);
   const pagesByType = (text.match(/\/Type\s*\/Page\b/g) || []).length || null;
   const pagesByCount = extractPagesTreeCount(text);
   const pageCount = pagesByCount || pagesByType;
@@ -42,7 +58,7 @@ function extractPdfDetails(buffer, fileSize) {
     legibilityWarning = LOW_LEGIBILITY_WARNING;
   }
 
-  return { encrypted, pageCount, legibilityWarning };
+  return { encrypted, pageCount, legibilityWarning, unsafe };
 }
 
 export default function PdfPreviewPanel({ file }) {
@@ -58,8 +74,8 @@ export default function PdfPreviewPanel({ file }) {
   useEffect(() => {
     if (!file) return undefined;
     let cancelled = false;
-    const nextUrl = URL.createObjectURL(file);
-    setPreviewUrl(nextUrl);
+    let nextUrl = null;
+    setPreviewUrl(null);
     setZoom(125);
     setOpen(false);
     setPageCount(null);
@@ -74,6 +90,14 @@ export default function PdfPreviewPanel({ file }) {
         setPageCount(details.pageCount);
         setEncrypted(details.encrypted);
         setLegibilityWarning(details.legibilityWarning);
+        if (details.unsafe) {
+          setPreviewError('Preview unavailable: this PDF contains active content and must be validated by the server first.');
+          return;
+        }
+        if (!details.encrypted) {
+          nextUrl = URL.createObjectURL(file);
+          setPreviewUrl(nextUrl);
+        }
       })
       .catch(() => {
         if (!cancelled) setPreviewError('Could not read this PDF for preview metadata.');
@@ -81,7 +105,7 @@ export default function PdfPreviewPanel({ file }) {
 
     return () => {
       cancelled = true;
-      URL.revokeObjectURL(nextUrl);
+      if (nextUrl) URL.revokeObjectURL(nextUrl);
     };
   }, [file]);
 
