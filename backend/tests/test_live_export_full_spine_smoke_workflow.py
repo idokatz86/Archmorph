@@ -48,6 +48,7 @@ def test_live_export_smoke_runs_architecture_package_script_and_desktop_mobile_p
     package_step = _step_by_name(steps, "Run Architecture Package full-spine smoke")
     assert package_step["run"] == "./scripts/architecture_package_smoke.sh"
     assert package_step["env"]["ENVIRONMENT"] == "test"
+    assert package_step["env"]["SECONDARY_FORMAT_SMOKE"] is False
 
     playwright_step = _step_by_name(steps, "Run Live funnel hard-assertion smoke (desktop + mobile)")
     run_script = playwright_step["run"]

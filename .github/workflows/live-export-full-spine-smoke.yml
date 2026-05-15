@@ -87,6 +87,7 @@ jobs:
           ENVIRONMENT: test
           ADMIN_KEY: test-admin-key
           STRICT_FRESHNESS: false
+          SECONDARY_FORMAT_SMOKE: false
           ARTIFACT_ROOT: smoke-artifacts/architecture-package/${{ github.run_id }}
         run: ./scripts/architecture_package_smoke.sh
 
