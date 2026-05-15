@@ -60,6 +60,12 @@ def handle_openai_error(exc: Exception, context: str = "OpenAI call") -> OpenAIS
     OpenAIServiceError
         A normalized error with ``retryable`` and ``status_code`` attributes.
     """
+    if isinstance(exc, OpenAIAdmissionTimeout):
+        logger.warning("%s admission queue exhausted: %s", context, exc)
+        return OpenAIServiceError(
+            f"{context} is temporarily at capacity. Please retry shortly.",
+            retryable=True, status_code=429,
+        )
     if isinstance(exc, RateLimitError):
         logger.warning("%s rate-limited: %s", context, exc)
         return OpenAIServiceError(
@@ -189,7 +195,7 @@ def _parse_retry_after_seconds(exc: Exception) -> Optional[float]:
 
 
 def _retry_wait_seconds(retry_state) -> float:
-    # Exponential backoff (2, 4, 8...) with jitter; provider Retry-After wins even when longer.
+    # Exponential backoff (2, 4, 8...) with jitter; provider Retry-After is honored as a minimum.
     attempt = max(1, retry_state.attempt_number)
     safe_attempt = min(attempt, 10)
     base = min(30.0, float(2 ** safe_attempt))
@@ -198,7 +204,7 @@ def _retry_wait_seconds(retry_state) -> float:
     if exc is not None and _retryable_status(exc):
         provider_delay = _parse_retry_after_seconds(exc)
         if provider_delay is not None:
-            return provider_delay
+            return max(delay, provider_delay)
     return min(120.0, delay)
 
 

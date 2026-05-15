@@ -85,6 +85,18 @@ class TestOpenAIGuardrails:
 
         assert openai_client._retry_wait_seconds(retry_state) == 180
 
+    def test_retry_wait_uses_retry_after_as_minimum(self, monkeypatch):
+        monkeypatch.setattr(openai_client.random, "uniform", lambda *_args: 0)
+        rate_limit_error = MagicMock()
+        rate_limit_error.response = MagicMock(headers={"Retry-After": "1"})
+        rate_limit_error.status_code = 429
+        retry_state = MagicMock()
+        retry_state.attempt_number = 1
+        retry_state.outcome = MagicMock()
+        retry_state.outcome.exception.return_value = rate_limit_error
+
+        assert openai_client._retry_wait_seconds(retry_state) == 2
+
     def test_deployment_limit_uses_floor_per_worker(self, monkeypatch):
         monkeypatch.delenv("OPENAI_MAX_INFLIGHT_PER_WORKER", raising=False)
         monkeypatch.setenv("OPENAI_MAX_INFLIGHT_DEPLOYMENT", "16")
@@ -123,3 +135,12 @@ class TestOpenAIGuardrails:
 
         thread.join(timeout=1)
         assert first_result["value"] == "ok"
+
+    def test_admission_timeout_maps_to_retryable_429(self):
+        error = openai_client.handle_openai_error(
+            openai_client.OpenAIAdmissionTimeout("queue full"),
+            context="OpenAI test call",
+        )
+
+        assert error.retryable is True
+        assert error.status_code == 429
