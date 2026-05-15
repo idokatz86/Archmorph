@@ -124,7 +124,7 @@ describe('UploadStep', () => {
 
   // Accessibility: no nested interactive controls when a file is selected
   it('drop zone does not have role="button" when a file is selected', () => {
-    const file = new File(['test'], 'diagram.pdf', { type: 'application/pdf' })
+    const file = new File(['test'], 'diagram.png', { type: 'image/png' })
     render(<UploadStep {...defaultProps} selectedFile={file} />)
     // There should be no element with role="button" that contains another interactive control
     const buttons = screen.getAllByRole('button')
@@ -140,7 +140,7 @@ describe('UploadStep', () => {
     expect(screen.getByRole('button', { name: /Upload architecture diagram/i })).toBeInTheDocument()
 
     // File selected: drop zone is NOT a button
-    const file = new File(['test'], 'diagram.pdf', { type: 'application/pdf' })
+    const file = new File(['test'], 'diagram.png', { type: 'image/png' })
     rerender(<UploadStep {...defaultProps} selectedFile={file} />)
     expect(screen.queryByRole('button', { name: /Upload architecture diagram/i })).not.toBeInTheDocument()
   })
@@ -165,7 +165,7 @@ describe('UploadStep', () => {
   })
 
   it('action buttons appear in visual order: Analyze, Remove, Replace file', () => {
-    const file = new File(['test'], 'diagram.pdf', { type: 'application/pdf' })
+    const file = new File(['test'], 'diagram.png', { type: 'image/png' })
     render(<UploadStep {...defaultProps} selectedFile={file} />)
     const actionsContainer = screen.getByTestId('file-action-buttons')
     const actionButtons = within(actionsContainer).getAllByRole('button')
@@ -179,7 +179,7 @@ describe('UploadStep', () => {
   // ── Auth gate ──
 
   it('shows "Sign in to analyze" instead of "Analyze This Diagram" when user is signed out and a file is selected', () => {
-    const file = new File(['diagram.pdf'], 'diagram.pdf', { type: 'application/pdf' })
+    const file = new File(['diagram.png'], 'diagram.png', { type: 'image/png' })
     render(<UploadStep {...defaultProps} selectedFile={file} isAuthenticated={false} onSignIn={vi.fn()} />)
     expect(screen.getByText('Sign in to analyze')).toBeInTheDocument()
     expect(screen.queryByText('Analyze This Diagram')).not.toBeInTheDocument()
@@ -188,7 +188,7 @@ describe('UploadStep', () => {
   it('calls onSignIn when "Sign in to analyze" button is clicked', async () => {
     const user = userEvent.setup()
     const onSignIn = vi.fn()
-    const file = new File(['diagram.pdf'], 'diagram.pdf', { type: 'application/pdf' })
+    const file = new File(['diagram.png'], 'diagram.png', { type: 'image/png' })
     render(<UploadStep {...defaultProps} selectedFile={file} isAuthenticated={false} onSignIn={onSignIn} />)
     await user.click(screen.getByText('Sign in to analyze'))
     expect(onSignIn).toHaveBeenCalledTimes(1)
@@ -198,7 +198,7 @@ describe('UploadStep', () => {
     const user = userEvent.setup()
     const onUpload = vi.fn()
     const onSignIn = vi.fn()
-    const file = new File(['diagram.pdf'], 'diagram.pdf', { type: 'application/pdf' })
+    const file = new File(['diagram.png'], 'diagram.png', { type: 'image/png' })
     render(<UploadStep {...defaultProps} selectedFile={file} isAuthenticated={false} onUpload={onUpload} onSignIn={onSignIn} />)
     await user.click(screen.getByText('Sign in to analyze'))
     expect(onUpload).not.toHaveBeenCalled()
