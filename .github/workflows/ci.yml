@@ -689,10 +689,21 @@ jobs:
           echo "STORAGE_ID=$STORAGE_ID" >> "$GITHUB_ENV"
 
           METRICS_CONTAINER_ID="$STORAGE_ID/blobServices/default/containers/metrics"
+          METRICS_CONTAINER_ERROR=$(mktemp)
+          set +e
           METRICS_CONTAINER_RESOURCE=$(az rest \
             --method get \
             --uri "https://management.azure.com${METRICS_CONTAINER_ID}?api-version=2023-01-01" \
-            --query id -o tsv 2>/dev/null || true)
+            --query id -o tsv 2>"$METRICS_CONTAINER_ERROR")
+          METRICS_CONTAINER_STATUS=$?
+          set -e
+          if [ "$METRICS_CONTAINER_STATUS" -ne 0 ]; then
+            echo "::error::Unable to query Terraform-managed metrics container through Azure Resource Manager"
+            sed 's/^/az rest: /' "$METRICS_CONTAINER_ERROR" >&2
+            rm -f "$METRICS_CONTAINER_ERROR"
+            exit 1
+          fi
+          rm -f "$METRICS_CONTAINER_ERROR"
           if [ "$METRICS_CONTAINER_RESOURCE" != "$METRICS_CONTAINER_ID" ]; then
             echo "::error::Expected Terraform-managed metrics container to exist in storage account $STORAGE_NAME"
             exit 1
