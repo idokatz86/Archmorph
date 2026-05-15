@@ -71,7 +71,9 @@ class SessionStore:
         if not predicate(current):
             return False, current
         updated = updater(current)
-        return self.set(key, updated, ttl=ttl), updated
+        if self.set(key, updated, ttl=ttl):
+            return True, updated
+        return False, self.get(key)
 
     # Sentinel for __contains__ — distinguishes "key absent" from "value is None"
     _MISSING = object()
@@ -207,7 +209,9 @@ class InMemoryStore(SessionStore):
             if not predicate(current):
                 return False, current
             updated = updater(current)
-            return self.set(key, updated, ttl=ttl), updated
+            if self.set(key, updated, ttl=ttl):
+                return True, updated
+            return False, self._cache.get(key)
 
     def keys(self, pattern: str = "*") -> List[str]:
         if pattern == "*":

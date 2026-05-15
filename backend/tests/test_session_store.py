@@ -114,6 +114,17 @@ class TestInMemoryStore:
         assert store.get("other") == b"56"
         assert store._total_bytes == 6
 
+    def test_update_if_rejection_returns_persisted_value(self, monkeypatch):
+        monkeypatch.setattr(InMemoryStore, "MAX_MEMORY_BYTES", 10)
+        store = InMemoryStore()
+        store.set("k", b"1234")
+
+        success, value = store.update_if("k", lambda current: current == b"1234", lambda _current: b"12345678901")
+
+        assert success is False
+        assert value == b"1234"
+        assert store.get("k") == b"1234"
+
 
 class TestGetStore:
     def test_returns_inmemory_by_default(self):
