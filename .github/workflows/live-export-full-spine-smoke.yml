@@ -52,6 +52,7 @@ jobs:
             echo "ARCHMORPH_API_KEY=test-api-key"
             echo "ARCHMORPH_ADMIN_KEY=test-admin-key"
             echo "ARCHMORPH_CI_SMOKE_MODE=1"
+            echo "ENVIRONMENT=test"
             echo "ARCHMORPH_DISABLE_IAC_CLI_VALIDATION=1"
             echo "ARCHMORPH_EXPORT_CAPABILITY_REQUIRED=true"
           } >> backend/.env
@@ -83,6 +84,7 @@ jobs:
           API_URL: http://127.0.0.1:8000/api
           FRONTEND_URL: http://127.0.0.1:5173
           ARCHMORPH_API_KEY: test-api-key
+          ENVIRONMENT: test
           ADMIN_KEY: test-admin-key
           STRICT_FRESHNESS: false
           ARTIFACT_ROOT: smoke-artifacts/architecture-package/${{ github.run_id }}
