@@ -2,13 +2,15 @@
 
 import os
 import sys
+import json
+import time
 from unittest.mock import patch
 
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from session_store import InMemoryStore, SessionStore, get_store, reset_stores, session_store_readiness
+from session_store import FileStore, InMemoryStore, RedisStore, SessionStore, get_store, reset_stores, session_store_readiness
 
 
 @pytest.fixture(autouse=True)
@@ -74,6 +76,224 @@ class TestInMemoryStore:
         store["k"] = 1
         store["k"] = 2
         assert store["k"] == 2
+
+    def test_repeated_overwrite_updates_byte_accounting(self):
+        store = InMemoryStore()
+        store.set("k", b"123456")
+        assert store._total_bytes == 6
+        store.set("k", b"12")
+        assert store._total_bytes == 2
+        store.set("k", b"1234")
+        assert store._total_bytes == 4
+
+    def test_overwrite_within_budget_succeeds(self, monkeypatch):
+        monkeypatch.setattr(InMemoryStore, "MAX_MEMORY_BYTES", 10)
+        store = InMemoryStore()
+        store.set("k", b"123456")
+        store.set("k", b"12345678")
+        assert store.get("k") == b"12345678"
+        assert store._total_bytes == 8
+
+    def test_overwrite_can_evict_other_entries_when_budget_is_tight(self, monkeypatch):
+        monkeypatch.setattr(InMemoryStore, "MAX_MEMORY_BYTES", 10)
+        store = InMemoryStore()
+        store.set("k1", b"1234")
+        store.set("k2", b"5678")
+        store.set("k1", b"abcdefgh")
+        assert store.get("k1") == b"abcdefgh"
+        assert store.get("k2") is None
+        assert store._total_bytes == 8
+
+    def test_oversized_overwrite_rejects_without_deleting_existing_value(self, monkeypatch):
+        monkeypatch.setattr(InMemoryStore, "MAX_MEMORY_BYTES", 10)
+        store = InMemoryStore()
+        store.set("k", b"1234")
+        store.set("other", b"56")
+
+        store.set("k", b"12345678901")
+
+        assert store.get("k") == b"1234"
+        assert store.get("other") == b"56"
+        assert store._total_bytes == 6
+
+    def test_update_if_rejection_returns_persisted_value(self, monkeypatch):
+        monkeypatch.setattr(InMemoryStore, "MAX_MEMORY_BYTES", 10)
+        store = InMemoryStore()
+        store.set("k", b"1234")
+
+        success, value = store.update_if("k", lambda current: current == b"1234", lambda _current: b"12345678901")
+
+        assert success is False
+        assert value == b"1234"
+        assert store.get("k") == b"1234"
+
+
+class TestFileStore:
+    def test_update_if_success_writes_updated_value_and_refreshes_ttl(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SESSION_FILE_DIR", str(tmp_path))
+        store = FileStore("file_update_success", ttl=10)
+        store.set("k", {"version": 1})
+
+        success, value = store.update_if(
+            "k",
+            lambda current: current["version"] == 1,
+            lambda current: {**current, "version": 2},
+            ttl=120,
+        )
+
+        assert success is True
+        assert value == {"version": 2}
+        payload = json.loads(store._path("k").read_text(encoding="utf-8"))
+        assert payload["expires_at"] > time.time() + 60
+        assert store.get("k") == {"version": 2}
+
+    def test_update_if_predicate_false_returns_current_without_writing(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SESSION_FILE_DIR", str(tmp_path))
+        store = FileStore("file_update_predicate", ttl=120)
+        store.set("k", {"version": 1})
+        before = store._path("k").read_text(encoding="utf-8")
+
+        success, value = store.update_if(
+            "k",
+            lambda current: current["version"] == 2,
+            lambda current: {**current, "version": 3},
+        )
+
+        assert success is False
+        assert value == {"version": 1}
+        assert store._path("k").read_text(encoding="utf-8") == before
+
+    def test_update_if_refreshes_default_ttl(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SESSION_FILE_DIR", str(tmp_path))
+        store = FileStore("file_update_ttl", ttl=90)
+        store.set("k", {"version": 1}, ttl=1)
+
+        success, value = store.update_if("k", lambda current: True, lambda current: current)
+
+        assert success is True
+        assert value == {"version": 1}
+        payload = json.loads(store._path("k").read_text(encoding="utf-8"))
+        assert payload["expires_at"] > time.time() + 60
+
+    def test_update_if_conditional_insert_preserves_maxsize(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SESSION_FILE_DIR", str(tmp_path))
+        store = FileStore("file_update_insert_evict", maxsize=1, ttl=120)
+        store.set("old", {"version": 1})
+
+        success, value = store.update_if(
+            "new",
+            lambda current: current is None,
+            lambda _current: {"version": 2},
+        )
+
+        assert success is True
+        assert value == {"version": 2}
+        assert store.get("new") == {"version": 2}
+        assert store.get("old") is None
+        assert len(list(store._base.glob("*.json"))) == 1
+
+
+class TestRedisStore:
+    class _FakeRedis:
+        def __init__(self, *, fail_first_execute=False):
+            self.values = {}
+            self.fail_first_execute = fail_first_execute
+            self.execute_attempts = 0
+            self.unwatched = False
+
+        def pipeline(self):
+            return TestRedisStore._FakePipeline(self)
+
+    class _FakePipeline:
+        def __init__(self, redis_client):
+            self.redis_client = redis_client
+            self.pending = None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def watch(self, _key):
+            return None
+
+        def get(self, key):
+            return self.redis_client.values.get(key)
+
+        def unwatch(self):
+            self.redis_client.unwatched = True
+
+        def multi(self):
+            return None
+
+        def setex(self, key, _ttl, payload):
+            self.pending = (key, payload)
+
+        def execute(self):
+            import redis
+
+            self.redis_client.execute_attempts += 1
+            if self.redis_client.fail_first_execute and self.redis_client.execute_attempts == 1:
+                raise redis.WatchError("retry")
+            key, payload = self.pending
+            self.redis_client.values[key] = payload
+
+    def test_update_if_success_uses_watch_multi(self, monkeypatch):
+        import session_store
+
+        fake = self._FakeRedis()
+        monkeypatch.setattr(session_store, "_create_redis_client", lambda: fake)
+        store = RedisStore(prefix="test", ttl=120)
+        fake.values["test:k"] = json.dumps({"version": 1})
+
+        success, value = store.update_if(
+            "k",
+            lambda current: current["version"] == 1,
+            lambda current: {**current, "version": 2},
+        )
+
+        assert success is True
+        assert value == {"version": 2}
+        assert json.loads(fake.values["test:k"]) == {"version": 2}
+
+    def test_update_if_predicate_false_unwatches_and_returns_current(self, monkeypatch):
+        import session_store
+
+        fake = self._FakeRedis()
+        monkeypatch.setattr(session_store, "_create_redis_client", lambda: fake)
+        store = RedisStore(prefix="test", ttl=120)
+        fake.values["test:k"] = json.dumps({"version": 1})
+
+        success, value = store.update_if(
+            "k",
+            lambda current: current["version"] == 2,
+            lambda current: {**current, "version": 3},
+        )
+
+        assert success is False
+        assert value == {"version": 1}
+        assert fake.unwatched is True
+        assert fake.values["test:k"] == json.dumps({"version": 1})
+
+    def test_update_if_retries_watch_error(self, monkeypatch):
+        import session_store
+
+        fake = self._FakeRedis(fail_first_execute=True)
+        monkeypatch.setattr(session_store, "_create_redis_client", lambda: fake)
+        store = RedisStore(prefix="test", ttl=120)
+        fake.values["test:k"] = json.dumps({"version": 1})
+
+        success, value = store.update_if(
+            "k",
+            lambda current: current["version"] == 1,
+            lambda current: {**current, "version": 2},
+        )
+
+        assert success is True
+        assert value == {"version": 2}
+        assert fake.execute_attempts == 2
+        assert json.loads(fake.values["test:k"]) == {"version": 2}
 
 
 class TestGetStore:
