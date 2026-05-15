@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -256,6 +257,7 @@ def test_ci_and_prod_workflows_enforce_readonly_terraform_lockfiles():
     assert "terraform init -input=false -lockfile=readonly" in prod_workflow
     for line in combined_workflows.splitlines():
         stripped = line.strip()
-        is_shell_init = stripped.startswith("terraform ") or stripped.startswith("if terraform ")
-        if is_shell_init and " init" in stripped:
+        command = re.sub(r"^(-\s*)?run:\s*", "", stripped)
+        is_shell_init = command.startswith(("terraform ", "if terraform ", "if ! terraform "))
+        if is_shell_init and " init" in command:
             assert "-lockfile=readonly" in stripped
