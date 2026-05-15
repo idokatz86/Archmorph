@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import DiagramTranslator from '../../DiagramTranslator'
 
 // Mock Prism to avoid require issues
@@ -17,6 +18,10 @@ describe('DiagramTranslator', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     fetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({}) })
+    vi.spyOn(URL, 'createObjectURL')
+      .mockReturnValueOnce('blob:first-preview')
+      .mockReturnValueOnce('blob:second-preview')
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
   })
 
   it('renders without crashing', async () => {
@@ -59,5 +64,25 @@ describe('DiagramTranslator', () => {
     render(<DiagramTranslator />)
     expect(await screen.findByText('Hub & Spoke')).toBeInTheDocument()
     expect(await screen.findByText('GKE Cluster')).toBeInTheDocument()
+  })
+
+  it('revokes image preview URLs when replacing and removing selected files', async () => {
+    const user = userEvent.setup()
+    render(<DiagramTranslator />)
+
+    const input = await screen.findByLabelText('Select architecture diagram file')
+    const firstFile = new File(['first'], 'first.png', { type: 'image/png' })
+    const secondFile = new File(['second'], 'second.png', { type: 'image/png' })
+
+    await user.upload(input, firstFile)
+    expect(await screen.findByAltText('Preview')).toHaveAttribute('src', 'blob:first-preview')
+
+    await user.upload(input, secondFile)
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:first-preview')
+    expect(await screen.findByAltText('Preview')).toHaveAttribute('src', 'blob:second-preview')
+
+    await user.click(screen.getByRole('button', { name: /Remove/i }))
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:second-preview')
+    expect(screen.queryByAltText('Preview')).not.toBeInTheDocument()
   })
 })
