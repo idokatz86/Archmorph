@@ -592,6 +592,10 @@ test.describe('Core Funnel: Live full-spine smoke assertions', () => {
     await page.goto('/#translator');
     await expect(page.locator('#root')).toBeVisible({ timeout: 15000 });
 
+    await page.locator('input[type="file"]').setInputFiles(SAMPLE_UPLOAD_PATH);
+    await expect(page.getByText('favicon.svg')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Analyze This Diagram' })).toBeVisible();
+
     await page.locator('button').evaluateAll(buttons => {
       for (const button of buttons) {
         if ((button.textContent || '').includes('Analyze This Diagram')) {

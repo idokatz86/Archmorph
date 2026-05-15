@@ -23,6 +23,7 @@ def test_live_export_smoke_has_pull_request_path_filters_for_live_export_surface
     trigger = workflow.get("on", workflow.get(True))
     paths = trigger["pull_request"]["paths"]
 
+    assert "backend/**/*export*.py" in paths
     assert "backend/routers/**" in paths
     assert "backend/**/*iac*.py" in paths
     assert "backend/**/*hld*.py" in paths
