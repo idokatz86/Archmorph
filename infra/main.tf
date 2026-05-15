@@ -348,6 +348,12 @@ resource "azurerm_storage_container" "iac" {
   container_access_type = "private"
 }
 
+resource "azurerm_storage_container" "metrics" {
+  name                  = "metrics"
+  storage_account_id    = azurerm_storage_account.main.id
+  container_access_type = "private"
+}
+
 # ─────────────────────────────────────────────────────────────
 # Azure Container Registry
 # ─────────────────────────────────────────────────────────────
@@ -495,12 +501,6 @@ resource "azurerm_key_vault" "main" {
 resource "azurerm_key_vault_secret" "db_connection" {
   name         = "db-connection-string"
   value        = "postgresql://${var.db_admin_username}:${var.db_admin_password}@${azurerm_postgresql_flexible_server.main.fqdn}:5432/archmorph?sslmode=require"
-  key_vault_id = azurerm_key_vault.main.id
-}
-
-resource "azurerm_key_vault_secret" "storage_connection" {
-  name         = "storage-connection-string"
-  value        = azurerm_storage_account.main.primary_connection_string
   key_vault_id = azurerm_key_vault.main.id
 }
 

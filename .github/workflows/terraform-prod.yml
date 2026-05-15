@@ -49,9 +49,9 @@ jobs:
         if: github.event_name == 'push'
         run: terraform fmt -check -recursive
 
-      - name: Terraform Init (backendless validation)
+      - name: Terraform Init (backendless validation, readonly lockfile)
         if: github.event_name == 'push'
-        run: terraform init -backend=false -input=false
+        run: terraform init -backend=false -input=false -lockfile=readonly
 
       - name: Terraform Validate
         if: github.event_name == 'push'
@@ -74,7 +74,7 @@ jobs:
 
       - name: Terraform Init
         if: github.event_name == 'workflow_dispatch'
-        run: terraform init -input=false
+        run: terraform init -input=false -lockfile=readonly
 
       - name: Terraform Plan (production)
         if: github.event_name == 'workflow_dispatch'
@@ -206,7 +206,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Terraform Init
-        run: terraform init -input=false
+        run: terraform init -input=false -lockfile=readonly
 
       - name: Verify reviewed plan artifact integrity and assumptions
         run: |
