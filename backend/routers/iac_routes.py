@@ -344,6 +344,8 @@ async def generate_iac_async(
     api_key_principal_id = get_api_key_service_principal(headers)
     session = authorize_diagram_access(request, diagram_id, purpose="queue IaC generation")
     _check_architecture_blockers(diagram_id, session, force)
+    queued_etag = _get_stored_etag(session)
+    queued_code_hash = session.get("iac_code_hash")
 
     job = job_manager.submit(
         "generate_iac",
@@ -352,7 +354,7 @@ async def generate_iac_async(
         tenant_id=user.tenant_id if user else None,
         owner_api_key_id=api_key_principal_id if not user else None,
     )
-    asyncio.create_task(_run_iac_job(job.job_id, diagram_id, format))
+    asyncio.create_task(_run_iac_job(job.job_id, diagram_id, format, queued_etag, queued_code_hash))
 
     from starlette.responses import JSONResponse
     return JSONResponse(
@@ -367,7 +369,13 @@ async def generate_iac_async(
     )
 
 
-async def _run_iac_job(job_id: str, diagram_id: str, iac_format: str) -> None:
+async def _run_iac_job(
+    job_id: str,
+    diagram_id: str,
+    iac_format: str,
+    queued_etag: Optional[str] = None,
+    queued_code_hash: Optional[str] = None,
+) -> None:
     """Background worker for IaC generation."""
     try:
         job_manager.start(job_id)
@@ -396,16 +404,22 @@ async def _run_iac_job(job_id: str, diagram_id: str, iac_format: str) -> None:
         record_event(f"iac_generated_{iac_format}", {"diagram_id": diagram_id})
         record_funnel_step(diagram_id, "iac_generate")
 
-        # Keep async generation canonical state aligned with sync /generate:
-        # persist code/hash/format + ETag for chat handoff and If-Match checks.
+        # Keep async generation canonical state aligned with sync /generate,
+        # unless the canonical code changed while this job was running.
         latest_session = SESSION_STORE.get(diagram_id)
         if latest_session is None:
             latest_session = session
         session = latest_session
-        session["iac_code"] = code
-        session["iac_code_hash"] = _iac_code_hash(code)
-        session["iac_format"] = iac_format
-        new_etag = _store_iac_etag(diagram_id, session, code)
+        current_etag = _get_stored_etag(session)
+        current_code_hash = session.get("iac_code_hash")
+        code_hash = _iac_code_hash(code)
+        new_etag = _compute_iac_etag(code)
+        canonical_state_changed = current_etag != queued_etag or current_code_hash != queued_code_hash
+        if not canonical_state_changed:
+            session["iac_code"] = code
+            session["iac_code_hash"] = code_hash
+            session["iac_format"] = iac_format
+            new_etag = _store_iac_etag(diagram_id, session, code)
 
         job_manager.complete(
             job_id,
@@ -413,8 +427,11 @@ async def _run_iac_job(job_id: str, diagram_id: str, iac_format: str) -> None:
                 "diagram_id": diagram_id,
                 "format": iac_format,
                 "code": code,
-                "code_hash": session["iac_code_hash"],
+                "code_hash": code_hash,
                 "etag": new_etag,
+                "canonical_state_persisted": not canonical_state_changed,
+                "canonical_state_conflict": canonical_state_changed,
+                "current_etag": current_etag if canonical_state_changed else new_etag,
             },
         )
 
