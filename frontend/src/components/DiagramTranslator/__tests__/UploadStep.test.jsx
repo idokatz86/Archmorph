@@ -209,8 +209,17 @@ describe('UploadStep', () => {
     render(<UploadStep {...defaultProps} selectedFile={file} />)
 
     expect(await screen.findByText('PDF Preview')).toBeInTheDocument()
+    expect(await screen.findByText(/1 page ·/)).toBeInTheDocument()
     expect(screen.getByLabelText('First page PDF preview')).toBeInTheDocument()
-    expect(screen.getByText(/1 page ·/)).toBeInTheDocument()
+  })
+
+  it('uses the pages tree count instead of the first raw Count token', async () => {
+    const file = new File([
+      '%PDF-1.7\n<< /Type /Outlines /Count 9 >>\n<< /Type /Pages /Count 2 >>\n/Type /Page\n/Type /Page',
+    ], 'diagram.pdf', { type: 'application/pdf' })
+    render(<UploadStep {...defaultProps} selectedFile={file} />)
+
+    expect(await screen.findByText(/2 pages ·/)).toBeInTheDocument()
   })
 
   it('supports keyboard focus for preview controls', async () => {
@@ -247,6 +256,17 @@ describe('UploadStep', () => {
     Object.defineProperty(encryptedFile, 'arrayBuffer', {
       configurable: true,
       value: vi.fn(async () => new TextEncoder().encode('%PDF-1.7\n/Encrypt <<>>\n/Count 1').buffer),
+    })
+    render(<UploadStep {...defaultProps} selectedFile={encryptedFile} />)
+
+    expect(await screen.findByText(/Preview unavailable: this PDF appears encrypted/)).toBeInTheDocument()
+  })
+
+  it('detects PDF encryption keys with hex-escaped name bytes', async () => {
+    const encryptedFile = new File(['placeholder'], 'encrypted.pdf', { type: 'application/pdf' })
+    Object.defineProperty(encryptedFile, 'arrayBuffer', {
+      configurable: true,
+      value: vi.fn(async () => new TextEncoder().encode('%PDF-1.7\n/#45ncrypt <<>>\n<< /Type /Pages /Count 1 >>').buffer),
     })
     render(<UploadStep {...defaultProps} selectedFile={encryptedFile} />)
 

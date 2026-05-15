@@ -13,12 +13,27 @@ function formatKb(size) {
   return `${Math.max(1, Math.round(size / 1024))} KB`;
 }
 
+function decodePdfNameEscapes(text) {
+  return text.replace(/#([0-9a-fA-F]{2})/g, (_match, hex) => String.fromCharCode(parseInt(hex, 16)));
+}
+
+function extractPagesTreeCount(text) {
+  const dictionaries = text.match(/<<[\s\S]*?>>/g) || [];
+  for (const dictionary of dictionaries) {
+    if (/\/Type\s*\/Pages\b/.test(dictionary)) {
+      const count = Number(dictionary.match(/\/Count\s+(\d+)/)?.[1] || 0);
+      if (count > 0) return count;
+    }
+  }
+  return null;
+}
+
 function extractPdfDetails(buffer, fileSize) {
   const decoder = new TextDecoder('latin1');
-  const text = decoder.decode(buffer);
+  const text = decodePdfNameEscapes(decoder.decode(buffer));
   const encrypted = /\/Encrypt\b/.test(text);
   const pagesByType = (text.match(/\/Type\s*\/Page\b/g) || []).length || null;
-  const pagesByCount = Number(text.match(/\/Count\s+(\d+)/)?.[1] || 0) || null;
+  const pagesByCount = extractPagesTreeCount(text);
   const pageCount = pagesByCount || pagesByType;
   const bytesPerPage = pageCount ? (fileSize / pageCount) : null;
 
