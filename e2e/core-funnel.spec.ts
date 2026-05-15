@@ -542,7 +542,7 @@ test.describe('Core Funnel: Responsive + keyboard export flow', () => {
     await expect(page.locator('#root')).toBeVisible({ timeout: 15000 });
   });
 
-  test('translator export controls remain visible across mobile viewports', async ({ page }) => {
+  test('@mobile translator export controls remain visible across mobile viewports', async ({ page }) => {
     const exportAllButton = page.getByRole('button', { name: 'Export All' });
 
     for (const viewport of [

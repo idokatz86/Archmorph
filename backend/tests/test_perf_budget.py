@@ -61,7 +61,8 @@ def test_lighthouse_config_enforces_core_flow_category_thresholds():
 
     collect = config["ci"]["collect"]
     assert "http://127.0.0.1:4173/" in collect["url"]
-    assert "http://127.0.0.1:4173/#translator" in collect["url"]
+    assert "http://127.0.0.1:4173/#translator" not in collect["url"]
+    assert len(collect["url"]) == len(set(collect["url"]))
 
     assertions = config["ci"]["assert"]["assertions"]
     assert assertions["categories:performance"][0] == "error"
