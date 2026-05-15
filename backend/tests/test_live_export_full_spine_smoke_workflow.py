@@ -55,7 +55,7 @@ def test_live_export_smoke_runs_architecture_package_script_and_desktop_mobile_p
     run_script = playwright_step["run"]
     assert "e2e/core-funnel.spec.ts" in run_script
     assert '--project=chromium' in run_script
-    assert '--project=mobile-chromium' in run_script
+    assert '--project=mobile-chrome' in run_script
 
 
 def test_architecture_package_script_rotates_capability_from_response_header():

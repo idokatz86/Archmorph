@@ -54,7 +54,7 @@ jobs:
       - name: Run Playwright tests
         run: |
           npx wait-on http://localhost:5173 -t 60000
-          npx playwright test --project=chromium
+          npx playwright test --project=chromium --project=mobile-chrome
         env:
           FRONTEND_URL: "http://localhost:5173"
           API_BASE: "http://localhost:8000/api"

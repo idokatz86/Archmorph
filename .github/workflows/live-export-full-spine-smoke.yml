@@ -105,7 +105,7 @@ jobs:
           npx playwright test e2e/core-funnel.spec.ts \
             -g "Core Funnel: Live full-spine smoke assertions" \
             --project=chromium \
-            --project=mobile-chromium
+            --project=mobile-chrome
 
       - name: Dump docker logs on failure
         if: failure()

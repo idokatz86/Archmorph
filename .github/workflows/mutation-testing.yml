@@ -39,15 +39,20 @@ jobs:
           mkdir -p ../mutation-results
           declare -A TEST_TARGETS=(
             [session_store]="tests/test_session_store.py"
-            [vision_analyzer]="tests/test_vision_analyzer.py"
+            [job_queue]="tests/test_job_queue.py"
+            [diagram_export]="tests/test_diagram_export.py"
+            [export_capabilities]="tests/test_export_capabilities.py"
             [iac_generator]="tests/test_iac_generator.py"
+            [services/azure_pricing]="tests/test_pricing_blob.py"
+            [vision_analyzer]="tests/test_vision_analyzer.py"
           )
           for module in "${!TEST_TARGETS[@]}"; do
             rm -rf .mutmut-cache
             python -m mutmut run \
               --paths-to-mutate "${module}.py" \
               --runner "python -m pytest -q ${TEST_TARGETS[$module]}" || true
-            python -m mutmut results --all > "../mutation-results/${module}.txt" || true
+            module_report_name="${module//\//_}"
+            python -m mutmut results --all > "../mutation-results/${module_report_name}.txt" || true
           done
 
       - name: Enforce mutation score baseline

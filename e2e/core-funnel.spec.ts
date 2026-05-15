@@ -627,6 +627,59 @@ test.describe('Core Funnel: Diagram Export', () => {
   });
 });
 
+test.describe('Core Funnel: Responsive + keyboard export flow', () => {
+  test.beforeEach(async ({ page }) => {
+    await injectMockSession(page);
+    await page.goto('/#translator');
+    await expect(page.locator('#root')).toBeVisible({ timeout: 15000 });
+  });
+
+  test('@mobile translator export controls remain visible across mobile viewports', async ({ page }) => {
+    const exportAllButton = page.getByRole('button', { name: 'Export All' });
+
+    for (const viewport of [
+      { width: 320, height: 568 },
+      { width: 360, height: 640 },
+      { width: 390, height: 844 },
+    ]) {
+      await page.setViewportSize(viewport);
+      await expect(exportAllButton).toBeVisible();
+      await expect(exportAllButton).toBeEnabled();
+    }
+  });
+
+  test('export dialog supports keyboard close and returns focus to trigger', async ({ page }) => {
+    const exportAllButton = page.getByRole('button', { name: 'Export All' });
+    await exportAllButton.focus();
+    await expect(exportAllButton).toBeFocused();
+
+    await page.keyboard.press('Enter');
+    const dialog = page.getByRole('dialog', { name: 'Generate Deliverables' });
+    await expect(dialog).toBeVisible();
+
+    const includeInfrastructureCode = page.getByLabel('Include Infrastructure Code');
+    await includeInfrastructureCode.focus();
+    await expect(includeInfrastructureCode).toBeFocused();
+
+    const advanceFocusTo = async (target, maxTabs = 4) => {
+      for (let index = 0; index < maxTabs; index += 1) {
+        if (await target.evaluate(element => element === document.activeElement)) return;
+        await page.keyboard.press('Tab');
+      }
+      await expect(target).toBeFocused();
+    };
+
+    const includeArchitecturePackage = page.getByLabel('Include Architecture Package');
+    await advanceFocusTo(includeArchitecturePackage);
+    const includeHighLevelDesign = page.getByLabel('Include High-Level Design');
+    await advanceFocusTo(includeHighLevelDesign);
+    await page.keyboard.press('Escape');
+
+    await expect(dialog).toBeHidden();
+    await expect(exportAllButton).toBeFocused();
+  });
+});
+
 test.describe('Core Funnel: Chatbot', () => {
   test('chatbot toggle button is visible', async ({ page }) => {
     await page.goto('/#translator');
@@ -660,7 +713,6 @@ test.describe('Accessibility: axe-core scan', () => {
 
     const results = await new AxeBuilder({ page })
       .withTags(['wcag2a', 'wcag2aa'])
-      .disableRules(['color-contrast']) // Often false positive with dark themes
       .analyze();
 
     const critical = results.violations.filter(v => v.impact === 'critical');
@@ -674,7 +726,6 @@ test.describe('Accessibility: axe-core scan', () => {
 
     const results = await new AxeBuilder({ page })
       .withTags(['wcag2a', 'wcag2aa'])
-      .disableRules(['color-contrast'])
       .analyze();
 
     const critical = results.violations.filter(v => v.impact === 'critical');
@@ -725,7 +776,6 @@ test.describe('Accessibility: axe-core scan', () => {
     const results = await new AxeBuilder({ page })
       .include('[data-testid="landing-zone-viewer"]')
       .withTags(['wcag2a', 'wcag2aa'])
-      .disableRules(['color-contrast'])
       .analyze();
 
     const seriousOrCritical = results.violations.filter(v => v.impact === 'serious' || v.impact === 'critical');

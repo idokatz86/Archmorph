@@ -89,7 +89,7 @@ export default function LandingZoneViewer({ svgContent, variant = 'primary', fil
               <Layers className="w-4 h-4 text-cta" aria-hidden="true" />
               {label} Landing Zone Preview
             </h3>
-            <p className="text-xs text-text-muted mt-1">
+            <p className="text-xs text-text-secondary mt-1">
               {metadata.title}{filename ? ` · ${filename}` : ''}
             </p>
           </div>
