@@ -74,6 +74,24 @@ class TestOpenAIGuardrails:
         delay = openai_client._retry_wait_seconds(retry_state)
         assert delay >= 5
 
+    def test_retry_wait_does_not_cap_provider_retry_after(self):
+        rate_limit_error = MagicMock()
+        rate_limit_error.response = MagicMock(headers={"Retry-After": "180"})
+        rate_limit_error.status_code = 429
+        retry_state = MagicMock()
+        retry_state.attempt_number = 1
+        retry_state.outcome = MagicMock()
+        retry_state.outcome.exception.return_value = rate_limit_error
+
+        assert openai_client._retry_wait_seconds(retry_state) == 180
+
+    def test_deployment_limit_uses_floor_per_worker(self, monkeypatch):
+        monkeypatch.delenv("OPENAI_MAX_INFLIGHT_PER_WORKER", raising=False)
+        monkeypatch.setenv("OPENAI_MAX_INFLIGHT_DEPLOYMENT", "16")
+        monkeypatch.setenv("WEB_CONCURRENCY", "3")
+
+        assert openai_client._openai_per_worker_limit() == 5
+
     def test_admission_queue_times_out_when_worker_slots_exhausted(self, monkeypatch):
         monkeypatch.setattr(openai_client, "_openai_inflight", threading.BoundedSemaphore(1))
         monkeypatch.setattr(openai_client, "OPENAI_ADMISSION_TIMEOUT_SECONDS", 0.01)

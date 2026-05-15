@@ -11,7 +11,6 @@ Includes content-hash caching to reduce redundant GPT-4o API calls
 import hashlib
 import json
 import logging
-import math
 import os
 import random
 import threading
@@ -138,7 +137,7 @@ def _openai_per_worker_limit() -> int:
     if explicit:
         return max(1, _env_int("OPENAI_MAX_INFLIGHT_PER_WORKER", 4))
     deployment_total = max(1, _env_int("OPENAI_MAX_INFLIGHT_DEPLOYMENT", 16))
-    return max(1, math.ceil(deployment_total / _configured_worker_count()))
+    return max(1, deployment_total // _configured_worker_count())
 
 
 OPENAI_MAX_INFLIGHT_PER_WORKER = _openai_per_worker_limit()
@@ -192,7 +191,7 @@ def _retry_wait_seconds(retry_state) -> float:
     if exc is not None and _retryable_status(exc):
         provider_delay = _parse_retry_after_seconds(exc)
         if provider_delay is not None:
-            delay = max(delay, provider_delay)
+            return provider_delay
     return min(120.0, delay)
 
 
