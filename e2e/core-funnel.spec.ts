@@ -520,6 +520,98 @@ test.describe('Core Funnel: Upload → Analyze → IaC → Export All', () => {
   });
 });
 
+test.describe('Core Funnel: Live full-spine smoke assertions', () => {
+  test('uses hard assertions for required controls and deliverables', async ({ page }) => {
+    test.setTimeout(90_000);
+    await page.addInitScript(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
+    await stubAuthenticatedUser(page);
+    await stubDeterministicDeliverables(page);
+
+    await page.goto('/#translator');
+    await expect(page.locator('#root')).toBeVisible({ timeout: 15000 });
+
+    const fileInput = page.locator('input[type="file"]');
+    await expect(page.getByRole('button', { name: /Upload architecture diagram/i })).toBeVisible();
+    await fileInput.setInputFiles(SAMPLE_UPLOAD_PATH);
+    await expect(page.getByText('favicon.svg')).toBeVisible();
+
+    const uploadRequest = page.waitForResponse(response =>
+      response.request().method() === 'POST' &&
+      response.url().includes('/api/projects/demo-project/diagrams') &&
+      response.status() === 200
+    );
+    const analyzeRequest = page.waitForResponse(response => {
+      const requestUrl = new URL(response.url());
+      return response.request().method() === 'POST' &&
+        /\/api\/diagrams\/[^/]+\/analyze$/.test(requestUrl.pathname) &&
+        response.status() === 200;
+    });
+
+    const analyzeButton = page.getByRole('button', { name: 'Analyze This Diagram' });
+    await expect(analyzeButton).toBeVisible();
+    await expect(analyzeButton).toBeEnabled();
+    await analyzeButton.click();
+    await uploadRequest;
+    await analyzeRequest;
+
+    const terraformButton = page.getByRole('button', { name: 'Terraform' });
+    await expect(terraformButton).toBeVisible();
+    await terraformButton.click();
+    await expect(page.getByRole('heading', { name: 'Terraform Code' })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText(/terraform\s*\{/)).toBeVisible();
+
+    await page.getByRole('button', { name: 'Back to Analysis' }).click();
+    const exportAllButton = page.getByRole('button', { name: 'Export All' });
+    await expect(exportAllButton).toBeVisible();
+    await exportAllButton.click();
+
+    const exportDialog = page.getByRole('dialog', { name: 'Generate Deliverables' });
+    await expect(exportDialog).toBeVisible();
+    await expect(page.getByLabel('Architecture Package format')).toBeVisible();
+    await expect(exportDialog.getByRole('status')).toContainText('6 of 6 selected');
+
+    await page.getByRole('button', { name: /Generate All Selected/i }).click();
+    await expect(page.getByRole('button', { name: 'Download All (6)' })).toBeVisible({ timeout: 60_000 });
+
+    for (const label of [
+      'Infrastructure Code',
+      'Architecture Package',
+      'High-Level Design',
+      'Cost Estimate',
+      'Migration Timeline',
+      'PDF Analysis Report',
+    ]) {
+      await expect(page.getByRole('button', { name: `Download ${label}` })).toBeVisible();
+    }
+  });
+
+  test('fails when required analyze control is removed', async ({ page }) => {
+    await stubAuthenticatedUser(page);
+    await stubDeterministicDeliverables(page);
+    await page.goto('/#translator');
+    await expect(page.locator('#root')).toBeVisible({ timeout: 15000 });
+
+    await page.locator('input[type="file"]').setInputFiles(SAMPLE_UPLOAD_PATH);
+    await expect(page.getByText('favicon.svg')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Analyze This Diagram' })).toBeVisible();
+
+    await page.locator('button').evaluateAll(buttons => {
+      for (const button of buttons) {
+        if ((button.textContent || '').includes('Analyze This Diagram')) {
+          button.remove();
+        }
+      }
+    });
+
+    await expect(async () => {
+      await expect(page.getByRole('button', { name: 'Analyze This Diagram' })).toBeVisible({ timeout: 1000 });
+    }).rejects.toThrow();
+  });
+});
+
 test.describe('Core Funnel: Diagram Export', () => {
   test.beforeEach(async ({ page }) => {
     await injectMockSession(page);
@@ -532,6 +624,59 @@ test.describe('Core Funnel: Diagram Export', () => {
     if (visible) {
       await expect(exportBtn).toBeEnabled();
     }
+  });
+});
+
+test.describe('Core Funnel: Responsive + keyboard export flow', () => {
+  test.beforeEach(async ({ page }) => {
+    await injectMockSession(page);
+    await page.goto('/#translator');
+    await expect(page.locator('#root')).toBeVisible({ timeout: 15000 });
+  });
+
+  test('@mobile translator export controls remain visible across mobile viewports', async ({ page }) => {
+    const exportAllButton = page.getByRole('button', { name: 'Export All' });
+
+    for (const viewport of [
+      { width: 320, height: 568 },
+      { width: 360, height: 640 },
+      { width: 390, height: 844 },
+    ]) {
+      await page.setViewportSize(viewport);
+      await expect(exportAllButton).toBeVisible();
+      await expect(exportAllButton).toBeEnabled();
+    }
+  });
+
+  test('export dialog supports keyboard close and returns focus to trigger', async ({ page }) => {
+    const exportAllButton = page.getByRole('button', { name: 'Export All' });
+    await exportAllButton.focus();
+    await expect(exportAllButton).toBeFocused();
+
+    await page.keyboard.press('Enter');
+    const dialog = page.getByRole('dialog', { name: 'Generate Deliverables' });
+    await expect(dialog).toBeVisible();
+
+    const includeInfrastructureCode = page.getByLabel('Include Infrastructure Code');
+    await includeInfrastructureCode.focus();
+    await expect(includeInfrastructureCode).toBeFocused();
+
+    const advanceFocusTo = async (target, maxTabs = 4) => {
+      for (let index = 0; index < maxTabs; index += 1) {
+        if (await target.evaluate(element => element === document.activeElement)) return;
+        await page.keyboard.press('Tab');
+      }
+      await expect(target).toBeFocused();
+    };
+
+    const includeArchitecturePackage = page.getByLabel('Include Architecture Package');
+    await advanceFocusTo(includeArchitecturePackage);
+    const includeHighLevelDesign = page.getByLabel('Include High-Level Design');
+    await advanceFocusTo(includeHighLevelDesign);
+    await page.keyboard.press('Escape');
+
+    await expect(dialog).toBeHidden();
+    await expect(exportAllButton).toBeFocused();
   });
 });
 
@@ -568,7 +713,6 @@ test.describe('Accessibility: axe-core scan', () => {
 
     const results = await new AxeBuilder({ page })
       .withTags(['wcag2a', 'wcag2aa'])
-      .disableRules(['color-contrast']) // Often false positive with dark themes
       .analyze();
 
     const critical = results.violations.filter(v => v.impact === 'critical');
@@ -582,7 +726,6 @@ test.describe('Accessibility: axe-core scan', () => {
 
     const results = await new AxeBuilder({ page })
       .withTags(['wcag2a', 'wcag2aa'])
-      .disableRules(['color-contrast'])
       .analyze();
 
     const critical = results.violations.filter(v => v.impact === 'critical');
@@ -633,7 +776,6 @@ test.describe('Accessibility: axe-core scan', () => {
     const results = await new AxeBuilder({ page })
       .include('[data-testid="landing-zone-viewer"]')
       .withTags(['wcag2a', 'wcag2aa'])
-      .disableRules(['color-contrast'])
       .analyze();
 
     const seriousOrCritical = results.violations.filter(v => v.impact === 'serious' || v.impact === 'critical');

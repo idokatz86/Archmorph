@@ -101,6 +101,9 @@ request() {
 
   local next_capability
   next_capability=$(jq -er '.export_capability // empty' "$output_file" 2>/dev/null || true)
+  if [[ -z "$next_capability" && -f "$headers_file" ]]; then
+    next_capability=$(awk 'tolower($0) ~ /^x-export-capability-next:/ {gsub(/\r/, ""); sub(/^[^:]+:[[:space:]]*/, ""); sub(/[[:space:]]*$/, ""); print; exit}' "$headers_file")
+  fi
   if [[ -n "$next_capability" ]]; then
     EXPORT_CAPABILITY="$next_capability"
   fi
