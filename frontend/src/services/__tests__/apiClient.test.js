@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import api, { ApiError } from '../../services/apiClient'
 
 /**
@@ -13,6 +13,10 @@ describe('apiClient', () => {
   beforeEach(() => {
     fetch.mockReset()
     localStorage.clear()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   // ── GET requests ──
@@ -42,6 +46,34 @@ describe('apiClient', () => {
     })
 
     await expect(api.get('/missing')).rejects.toThrow(ApiError)
+  })
+
+  it('honors Retry-After for 429 retries', async () => {
+    vi.useFakeTimers()
+    fetch
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 429,
+        headers: new Headers({ 'content-type': 'application/json', 'retry-after': '2' }),
+        json: () => Promise.resolve({ detail: 'rate limited' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: () => Promise.resolve({ ok: true }),
+      })
+
+    const request = api.get('/retry-after')
+    await Promise.resolve()
+    expect(fetch).toHaveBeenCalledTimes(1)
+
+    await vi.advanceTimersByTimeAsync(1900)
+    expect(fetch).toHaveBeenCalledTimes(1)
+
+    await vi.advanceTimersByTimeAsync(200)
+    await expect(request).resolves.toEqual({ ok: true })
+    expect(fetch).toHaveBeenCalledTimes(2)
   })
 
   it('GET handles 404 status correctly', async () => {
@@ -157,6 +189,35 @@ describe('apiClient', () => {
     })
 
     await expect(api.get('/broken')).rejects.toThrow(ApiError)
+  })
+
+  it('retries retryable non-JSON export errors with Retry-After', async () => {
+    vi.useFakeTimers()
+    const mockResponse = {
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/octet-stream' }),
+      blob: () => Promise.resolve(new Blob(['file-content'])),
+    }
+    fetch
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        statusText: 'Service Unavailable',
+        headers: new Headers({ 'content-type': 'text/plain', 'retry-after': '2' }),
+      })
+      .mockResolvedValueOnce(mockResponse)
+
+    const request = api.get('/diagrams/d1/export')
+    await Promise.resolve()
+    expect(fetch).toHaveBeenCalledTimes(1)
+
+    await vi.advanceTimersByTimeAsync(1900)
+    expect(fetch).toHaveBeenCalledTimes(1)
+
+    await vi.advanceTimersByTimeAsync(200)
+    await expect(request).resolves.toBe(mockResponse)
+    expect(fetch).toHaveBeenCalledTimes(2)
   })
 
   // ── Error structure ──
