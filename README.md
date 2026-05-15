@@ -664,7 +664,7 @@ Dynamic pricing powered by the [Azure Retail Prices API](https://prices.azure.co
 | Suite | Framework | Tests | Command |
 |-------|-----------|-------|---------|
 | Backend unit | pytest | 76 files | `cd backend && python -m pytest --tb=short -q -n auto --dist loadfile --cov=. --cov-report=term-missing --cov-config=.coveragerc --cov-context=test --cov-fail-under=63` |
-| Frontend unit | Vitest | 262 | `cd frontend && npx vitest run` |
+| Frontend unit | Vitest | 262 | `cd frontend && npx vitest run --coverage` |
 | Browser smoke | Playwright | 17 | `npx playwright test` |
 | Frontend lint | ESLint | hard gate | `cd frontend && npm run lint` |
 
