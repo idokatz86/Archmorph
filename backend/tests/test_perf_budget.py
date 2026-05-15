@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from tests.perf_budget_test_utils import load_perf_budget_module
@@ -53,6 +54,21 @@ def test_latency_budget_rejects_configured_regression():
 def test_frontend_perf_budget_files_are_checked_in():
     for path in (BUNDLE_BUDGET, LIGHTHOUSE_BUDGET, LIGHTHOUSE_CONFIG):
         assert path.exists(), f"missing {path}"
+
+
+def test_lighthouse_config_enforces_core_flow_category_thresholds():
+    config = json.loads(LIGHTHOUSE_CONFIG.read_text(encoding="utf-8"))
+
+    collect = config["ci"]["collect"]
+    assert "http://127.0.0.1:4173/" in collect["url"]
+    assert "http://127.0.0.1:4173/#translator" not in collect["url"]
+    assert len(collect["url"]) == len(set(collect["url"]))
+
+    assertions = config["ci"]["assert"]["assertions"]
+    assert assertions["categories:performance"][0] == "error"
+    assert assertions["categories:accessibility"][0] == "error"
+    assert assertions["categories:best-practices"][0] == "error"
+    assert assertions["categories:seo"][0] == "error"
 
 
 def test_bundle_summary_requires_built_assets(tmp_path):
