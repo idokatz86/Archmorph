@@ -14,6 +14,7 @@ import hashlib
 import logging
 import re
 import secrets
+import threading
 from typing import Literal, Optional
 
 from routers.shared import (
@@ -39,6 +40,13 @@ router = APIRouter()
 # IaC version (ETag) helpers — optimistic concurrency (#858 / F-BUG-8)
 # ─────────────────────────────────────────────────────────────
 _IAC_ETAG_KEY = "_iac_etag"
+_IAC_CANONICAL_LOCKS: dict[str, threading.Lock] = {}
+_IAC_CANONICAL_LOCKS_LOCK = threading.Lock()
+
+
+def _iac_canonical_lock(diagram_id: str) -> threading.Lock:
+    with _IAC_CANONICAL_LOCKS_LOCK:
+        return _IAC_CANONICAL_LOCKS.setdefault(diagram_id, threading.Lock())
 
 
 def _compute_iac_etag(code: str) -> str:
@@ -406,36 +414,35 @@ async def _run_iac_job(
 
         # Keep async generation canonical state aligned with sync /generate,
         # unless the canonical code changed while this job was running.
-        latest_session = SESSION_STORE.get(diagram_id)
-        current_etag = _get_stored_etag(session)
-        current_code_hash = session.get("iac_code_hash")
         code_hash = _iac_code_hash(code)
         new_etag = _compute_iac_etag(code)
-        if latest_session is None:
-            job_manager.complete(
-                job_id,
-                result={
-                    "diagram_id": diagram_id,
-                    "format": iac_format,
-                    "code": code,
-                    "code_hash": code_hash,
-                    "etag": new_etag,
-                    "canonical_state_persisted": False,
-                    "canonical_state_conflict": True,
-                    "current_etag": None,
-                },
-            )
-            return
+        with _iac_canonical_lock(diagram_id):
+            latest_session = SESSION_STORE.get(diagram_id)
+            if latest_session is None:
+                job_manager.complete(
+                    job_id,
+                    result={
+                        "diagram_id": diagram_id,
+                        "format": iac_format,
+                        "code": code,
+                        "code_hash": code_hash,
+                        "etag": new_etag,
+                        "canonical_state_persisted": False,
+                        "canonical_state_conflict": True,
+                        "current_etag": None,
+                    },
+                )
+                return
 
-        session = latest_session
-        current_etag = _get_stored_etag(session)
-        current_code_hash = session.get("iac_code_hash")
-        canonical_state_changed = current_etag != queued_etag or current_code_hash != queued_code_hash
-        if not canonical_state_changed:
-            session["iac_code"] = code
-            session["iac_code_hash"] = code_hash
-            session["iac_format"] = iac_format
-            new_etag = _store_iac_etag(diagram_id, session, code)
+            session = latest_session
+            current_etag = _get_stored_etag(session)
+            current_code_hash = session.get("iac_code_hash")
+            canonical_state_changed = current_etag != queued_etag or current_code_hash != queued_code_hash
+            if not canonical_state_changed:
+                session["iac_code"] = code
+                session["iac_code_hash"] = code_hash
+                session["iac_format"] = iac_format
+                new_etag = _store_iac_etag(diagram_id, session, code)
 
         job_manager.complete(
             job_id,
