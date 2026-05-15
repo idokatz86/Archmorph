@@ -10,6 +10,7 @@ on:
       - 'backend/**/*cost*.py'
       - 'backend/**/*auth*.py'
       - 'backend/**/*capab*.py'
+      - 'backend/ci_smoke.py'
       - 'backend/architecture_package.py'
       - 'backend/azure_landing_zone.py'
       - 'backend/routers/**'
