@@ -411,7 +411,7 @@ class TestAsyncAnalyzeEndpoint:
         from job_queue import job_manager
         from routers.shared import SESSION_STORE
 
-        async def _fake_run_iac_job(job_id: str, diagram_id: str, iac_format: str) -> None:
+        async def _fake_run_iac_job(job_id: str, diagram_id: str, iac_format: str, *args, **kwargs) -> None:
             await asyncio.sleep(0)
 
         monkeypatch.setattr("routers.iac_routes._run_iac_job", _fake_run_iac_job)
