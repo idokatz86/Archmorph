@@ -76,6 +76,14 @@ def clean_session():
 def diagram_with_analysis(client):
     """Seed a diagram session with a pre-populated analysis."""
     diagram_id = "test-concurrency-diag-001"
+    SESSION_STORE[diagram_id] = copy.deepcopy(SAMPLE_ANALYSIS)
+    return diagram_id
+
+
+@pytest.fixture()
+def owned_diagram_with_analysis(client):
+    """Seed an authenticated diagram session for async job access checks."""
+    diagram_id = "test-concurrency-diag-owned-001"
     session = copy.deepcopy(SAMPLE_ANALYSIS)
     session["_owner_user_id"] = "iac-async-user"
     session["_tenant_id"] = "tenant-iac-async"
@@ -261,13 +269,13 @@ class TestAsyncIacCanonicalState:
         self,
         mock_gen,
         client,
-        diagram_with_analysis,
+        owned_diagram_with_analysis,
     ):
         from routers.iac_routes import _IAC_ETAG_KEY, _compute_iac_etag, _iac_code_hash
 
         headers = _auth_headers()
         queued = client.post(
-            f"/api/diagrams/{diagram_with_analysis}/generate-async",
+            f"/api/diagrams/{owned_diagram_with_analysis}/generate-async",
             params={"format": "terraform"},
             headers=headers,
         )
@@ -284,7 +292,7 @@ class TestAsyncIacCanonicalState:
         assert result["code_hash"] == expected_hash
         assert result["etag"] == expected_etag
 
-        session = SESSION_STORE[diagram_with_analysis]
+        session = SESSION_STORE[owned_diagram_with_analysis]
         assert session["iac_code"] == MOCK_TERRAFORM_CODE
         assert session["iac_code_hash"] == expected_hash
         assert session["iac_format"] == "terraform"
@@ -295,13 +303,13 @@ class TestAsyncIacCanonicalState:
         self,
         mock_gen,
         client,
-        diagram_with_analysis,
+        owned_diagram_with_analysis,
     ):
         from routers.iac_routes import _compute_iac_etag, _iac_code_hash
 
         headers = _auth_headers()
         queued = client.post(
-            f"/api/diagrams/{diagram_with_analysis}/generate-async",
+            f"/api/diagrams/{owned_diagram_with_analysis}/generate-async",
             params={"format": "terraform"},
             headers=headers,
         )
@@ -312,7 +320,8 @@ class TestAsyncIacCanonicalState:
 
         stale_hash = _iac_code_hash(STALE_TERRAFORM_CODE)
         chat_resp = client.post(
-            f"/api/diagrams/{diagram_with_analysis}/iac-chat",
+            f"/api/diagrams/{owned_diagram_with_analysis}/iac-chat",
+            headers=headers,
             json={
                 "message": "add tags",
                 "code": "client copy",
@@ -324,8 +333,8 @@ class TestAsyncIacCanonicalState:
 
         stale_etag = _compute_iac_etag(STALE_TERRAFORM_CODE)
         generate_resp = client.post(
-            f"/api/diagrams/{diagram_with_analysis}/generate",
+            f"/api/diagrams/{owned_diagram_with_analysis}/generate",
             params={"format": "terraform"},
-            headers={"If-Match": stale_etag},
+            headers={**headers, "If-Match": stale_etag},
         )
         assert generate_resp.status_code == 409
