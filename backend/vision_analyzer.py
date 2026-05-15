@@ -16,7 +16,7 @@ import threading
 
 from utils.chat_coercion import coerce_to_str_list
 
-from openai_client import get_openai_client, AZURE_OPENAI_DEPLOYMENT, openai_retry
+from openai_client import get_openai_client, AZURE_OPENAI_DEPLOYMENT, meter_openai_response, openai_retry
 from observability import increment_counter, record_histogram, set_gauge
 from prompt_guard import PROMPT_ARMOR
 from session_store import get_store
@@ -354,6 +354,7 @@ def analyze_image(image_bytes: bytes, content_type: str = "image/png") -> Dict[s
         temperature=0.0,
         timeout=60.0
     )
+    meter_openai_response(response, model_name, "vision_analyzer.analyze_image")
 
     try:
         content = response.choices[0].message.content.strip()

@@ -4,9 +4,11 @@ import json
 from unittest.mock import patch, MagicMock
 import pytest
 from cachetools import TTLCache
+from openai import RateLimitError
 
 import observability
 import vision_analyzer
+from cost_metering import CostMeter
 from vision_analyzer import analyze_image
 
 
@@ -52,12 +54,14 @@ def clean_vision_cache_and_metrics():
     observability._metrics["counters"].clear()
     observability._metrics["histograms"].clear()
     observability._metrics["gauges"].clear()
+    CostMeter.reset()
     yield
     with vision_analyzer._vision_cache_lock:
         vision_analyzer._vision_cache.clear()
     observability._metrics["counters"].clear()
     observability._metrics["histograms"].clear()
     observability._metrics["gauges"].clear()
+    CostMeter.reset()
 
 
 class TestAnalyzeImage:
@@ -111,6 +115,56 @@ class TestAnalyzeImage:
             analyze_image(png_bytes, "test-error-diagram")
         except Exception:
             pass  # Expected - some implementations re-raise
+
+    @patch("vision_analyzer.get_openai_client")
+    def test_direct_vision_analysis_records_token_cost_metrics(self, mock_client_fn):
+        mock_client = MagicMock()
+        mock_client_fn.return_value = mock_client
+        mock_client.chat.completions.create.return_value = _vision_response({
+            "diagram_type": "AWS Architecture",
+            "services_detected": 1,
+            "warnings": [],
+        })
+        mock_client.chat.completions.create.return_value.usage = MagicMock(
+            prompt_tokens=123,
+            completion_tokens=45,
+        )
+
+        analyze_image(_minimal_png(), "image/png")
+
+        overview = CostMeter.instance().get_overview()
+        assert overview.total_records == 1
+        assert overview.total_prompt_tokens == 123
+        assert overview.total_completion_tokens == 45
+
+    @patch("vision_analyzer.get_openai_client")
+    def test_vision_analysis_retries_on_provider_throttle(self, mock_client_fn, monkeypatch):
+        mock_client = MagicMock()
+        mock_client_fn.return_value = mock_client
+        throttled = RateLimitError(
+            message="too many requests",
+            response=MagicMock(status_code=429, headers={"Retry-After": "1"}),
+            body=None,
+        )
+        mock_client.chat.completions.create.side_effect = [
+            throttled,
+            _vision_response({"diagram_type": "AWS Architecture", "warnings": []}),
+        ]
+
+        def retry_without_sleep(fn):
+            def wrapped(*args, **kwargs):
+                try:
+                    return fn(*args, **kwargs)
+                except RateLimitError:
+                    return fn(*args, **kwargs)
+
+            return wrapped
+
+        monkeypatch.setattr("vision_analyzer.openai_retry", retry_without_sleep)
+
+        result = analyze_image(_minimal_png(), "image/png")
+        assert result["diagram_type"] == "AWS Architecture"
+        assert mock_client.chat.completions.create.call_count == 2
 
 
 class TestWarningsCoercion:
@@ -297,4 +351,3 @@ class TestVisionCacheObservability:
         assert original_hash != tail_hash, (
             "Hash must change when SYSTEM_PROMPT tail changes (#833 regression guard)"
         )
-

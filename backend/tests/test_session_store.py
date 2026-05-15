@@ -77,6 +77,28 @@ class TestInMemoryStore:
         store["k"] = 2
         assert store["k"] == 2
 
+    def test_large_upload_residency_evicts_oldest_when_budget_exceeded(self):
+        store = InMemoryStore(maxsize=10, ttl=300)
+        store.MAX_MEMORY_BYTES = 3_000_000
+
+        store["upload-1"] = ("A" * 2_000_000, "image/png")
+        store["upload-2"] = ("B" * 2_000_000, "image/png")
+
+        assert "upload-2" in store
+        assert store._total_bytes <= store.MAX_MEMORY_BYTES
+
+    def test_overwrite_oldest_entry_evicts_other_keys_before_replacement(self):
+        store = InMemoryStore(maxsize=10, ttl=300)
+        store.MAX_MEMORY_BYTES = 1_000
+
+        store["target"] = (b"a" * 400, "image/png")
+        store["other"] = (b"b" * 400, "image/png")
+        store["target"] = (b"c" * 700, "image/png")
+
+        assert store.get("target") == (b"c" * 700, "image/png")
+        assert store.get("other") is None
+        assert store._total_bytes == 700
+
     def test_repeated_overwrite_updates_byte_accounting(self):
         store = InMemoryStore()
         store.set("k", b"123456")

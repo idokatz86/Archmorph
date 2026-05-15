@@ -12,17 +12,20 @@ import hashlib
 import json
 import logging
 import os
+import random
 import threading
+from contextlib import contextmanager
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Any, Dict, List, Optional
 
-from openai import AzureOpenAI, RateLimitError, APITimeoutError, APIConnectionError, BadRequestError, AuthenticationError, Timeout as OpenAITimeout
+from openai import AzureOpenAI, RateLimitError, APITimeoutError, APIConnectionError, BadRequestError, AuthenticationError, APIStatusError, Timeout as OpenAITimeout
 from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 from cachetools import TTLCache
 from tenacity import (
     retry,
     stop_after_attempt,
-    wait_exponential,
-    retry_if_exception_type,
+    retry_if_exception,
     before_sleep_log,
 )
 
@@ -36,6 +39,10 @@ class OpenAIServiceError(Exception):
         super().__init__(message)
         self.retryable = retryable
         self.status_code = status_code
+
+
+class OpenAIAdmissionTimeout(TimeoutError):
+    """Raised when local admission capacity is exhausted before an API attempt starts."""
 
 
 def handle_openai_error(exc: Exception, context: str = "OpenAI call") -> OpenAIServiceError:
@@ -53,6 +60,12 @@ def handle_openai_error(exc: Exception, context: str = "OpenAI call") -> OpenAIS
     OpenAIServiceError
         A normalized error with ``retryable`` and ``status_code`` attributes.
     """
+    if isinstance(exc, OpenAIAdmissionTimeout):
+        logger.warning("%s admission queue exhausted: %s", context, exc)
+        return OpenAIServiceError(
+            f"{context} is temporarily at capacity. Please retry shortly.",
+            retryable=True, status_code=429,
+        )
     if isinstance(exc, RateLimitError):
         logger.warning("%s rate-limited: %s", context, exc)
         return OpenAIServiceError(
@@ -111,15 +124,118 @@ _OPENAI_TIMEOUT = OpenAITimeout(timeout=_OPENAI_TIMEOUT_SECONDS, connect=_OPENAI
 # ─────────────────────────────────────────────────────────────
 # Retry decorator — shared across all OpenAI callers
 # ─────────────────────────────────────────────────────────────
-RETRYABLE_EXCEPTIONS = (RateLimitError, APITimeoutError, APIConnectionError, TimeoutError)
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
 
-openai_retry = retry(
-    retry=retry_if_exception_type(RETRYABLE_EXCEPTIONS),
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _configured_worker_count() -> int:
+    return max(
+        1,
+        _env_int("WEB_CONCURRENCY", _env_int("GUNICORN_WORKERS", _env_int("UVICORN_WORKERS", 1))),
+    )
+
+
+def _openai_per_worker_limit() -> int:
+    explicit = os.getenv("OPENAI_MAX_INFLIGHT_PER_WORKER")
+    if explicit:
+        return max(1, _env_int("OPENAI_MAX_INFLIGHT_PER_WORKER", 4))
+    deployment_total = max(1, _env_int("OPENAI_MAX_INFLIGHT_DEPLOYMENT", 16))
+    return max(1, deployment_total // _configured_worker_count())
+
+
+OPENAI_MAX_INFLIGHT_PER_WORKER = _openai_per_worker_limit()
+OPENAI_ADMISSION_TIMEOUT_SECONDS = max(0.1, _env_float("OPENAI_ADMISSION_TIMEOUT_SECONDS", 2.0))
+_openai_inflight = threading.BoundedSemaphore(OPENAI_MAX_INFLIGHT_PER_WORKER)
+
+
+def _retryable_status(exc: Exception) -> bool:
+    if isinstance(exc, RateLimitError):
+        return True
+    status_code = getattr(exc, "status_code", None)
+    return status_code in {429, 500, 502, 503, 504}
+
+
+def _is_retryable_exception(exc: Exception) -> bool:
+    if isinstance(exc, OpenAIAdmissionTimeout):
+        return False
+    if isinstance(exc, (APITimeoutError, APIConnectionError, TimeoutError)):
+        return True
+    if isinstance(exc, APIStatusError):
+        return _retryable_status(exc)
+    return isinstance(exc, RateLimitError)
+
+
+def _parse_retry_after_seconds(exc: Exception) -> Optional[float]:
+    response = getattr(exc, "response", None)
+    headers = getattr(response, "headers", None) or {}
+    raw = headers.get("Retry-After") or headers.get("retry-after")
+    if not raw:
+        return None
+    try:
+        return max(0.0, float(raw))
+    except (TypeError, ValueError):
+        pass
+    try:
+        retry_at = parsedate_to_datetime(str(raw))
+        if retry_at.tzinfo is None:
+            retry_at = retry_at.replace(tzinfo=timezone.utc)
+        return max(0.0, (retry_at - datetime.now(timezone.utc)).total_seconds())
+    except Exception:
+        return None
+
+
+def _retry_wait_seconds(retry_state) -> float:
+    # Exponential backoff (2, 4, 8...) with jitter; provider Retry-After is honored as a minimum.
+    attempt = max(1, retry_state.attempt_number)
+    safe_attempt = min(attempt, 10)
+    base = min(30.0, float(2 ** safe_attempt))
+    delay = base + random.uniform(0, 0.5)
+    exc = retry_state.outcome.exception() if retry_state.outcome else None
+    if exc is not None and _retryable_status(exc):
+        provider_delay = _parse_retry_after_seconds(exc)
+        if provider_delay is not None:
+            return max(delay, provider_delay)
+    return min(120.0, delay)
+
+
+@contextmanager
+def openai_admission_slot():
+    acquired = _openai_inflight.acquire(timeout=OPENAI_ADMISSION_TIMEOUT_SECONDS)
+    if not acquired:
+        raise OpenAIAdmissionTimeout("OpenAI admission queue timed out")
+    try:
+        yield
+    finally:
+        _openai_inflight.release()
+
+
+_retry_impl = retry(
+    retry=retry_if_exception(_is_retryable_exception),
     stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=2, min=2, max=30),
+    wait=_retry_wait_seconds,
     before_sleep=before_sleep_log(logger, logging.WARNING),
     reraise=True,
 )
+
+
+def openai_retry(fn):
+    """Retry wrapper with deployment-aware admission control."""
+    def guarded_attempt(*args, **kwargs):
+        with openai_admission_slot():
+            return fn(*args, **kwargs)
+
+    return _retry_impl(guarded_attempt)
+
 
 
 def get_openai_client() -> AzureOpenAI:
@@ -322,7 +438,9 @@ def cached_chat_completion(
         }) as span:
             try:
                 response = openai_retry(client.chat.completions.create)(**api_kwargs)
-            except RETRYABLE_EXCEPTIONS as primary_exc:
+            except Exception as primary_exc:
+                if not _is_retryable_exception(primary_exc):
+                    raise
                 # If a fallback model is configured, try it before giving up (#285)
                 if AZURE_OPENAI_FALLBACK_DEPLOYMENT and AZURE_OPENAI_FALLBACK_DEPLOYMENT != deployment:
                     logger.warning(
@@ -392,3 +510,8 @@ def _meter_response(response: Any, model: str, caller: str = "cached_chat_comple
         )
     except Exception:
         pass  # nosec B110 — Cost metering must never break request handling
+
+
+def meter_openai_response(response: Any, model: str, caller: str) -> None:
+    """Public metering hook for direct OpenAI call-sites."""
+    _meter_response(response, model, caller)
