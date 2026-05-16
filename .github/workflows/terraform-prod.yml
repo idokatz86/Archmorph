@@ -25,10 +25,12 @@ env:
   ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
   TF_WORKING_DIR: infra
   TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  TF_VAR_environment: prod
   TF_VAR_db_admin_username: ${{ secrets.DB_ADMIN_USERNAME }}
   TF_VAR_db_admin_password: ${{ secrets.DB_ADMIN_PASSWORD }}
   TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
   TF_VAR_frontend_url: ${{ secrets.FRONTEND_URL }}
+  TF_VAR_openai_api_key: ${{ secrets.AZURE_OPENAI_API_KEY }}
 
 jobs:
   prod-plan:

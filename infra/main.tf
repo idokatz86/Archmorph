@@ -516,6 +516,23 @@ resource "azurerm_key_vault_secret" "appinsights_connection" {
   key_vault_id = azurerm_key_vault.main.id
 }
 
+moved {
+  from = azurerm_key_vault_secret.openai_key
+  to   = azurerm_key_vault_secret.openai_key["prod"]
+}
+
+resource "azurerm_key_vault_secret" "openai_key" {
+  for_each = var.environment == "prod" ? toset(["prod"]) : toset([])
+
+  name         = "openai-api-key"
+  value        = var.openai_api_key
+  key_vault_id = azurerm_key_vault.main.id
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
 # ─────────────────────────────────────────────────────────────
 # Azure OpenAI Service
 # ─────────────────────────────────────────────────────────────
