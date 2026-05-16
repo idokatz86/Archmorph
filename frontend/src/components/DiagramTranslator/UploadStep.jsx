@@ -89,7 +89,7 @@ export default function UploadStep({
                   <Button onClick={(e) => { e.stopPropagation(); onRemoveFile(); }} variant="ghost" size="sm" icon={X}>
                     Remove
                   </Button>
-                  <Button onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }} variant="ghost" size="sm">
+                  <Button onClick={(e) => { e.stopPropagation(); if (fileInputRef.current) fileInputRef.current.value = ''; fileInputRef.current?.click(); }} variant="ghost" size="sm">
                     Replace file
                   </Button>
                 </div>
