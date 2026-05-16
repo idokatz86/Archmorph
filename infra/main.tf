@@ -59,6 +59,7 @@ locals {
   name_suffix                        = random_string.suffix.result
   stack_environment                  = coalesce(var.resource_group_environment, var.environment)
   production_infra_hardening_enabled = var.environment == "prod" && var.enable_production_infra_hardening
+  redis_cache_name                   = coalesce(var.redis_name_override, "archmorph-redis-${local.name_suffix}")
   paired_region_defaults = {
     westeurope    = "northeurope"
     northeurope   = "westeurope"
@@ -427,7 +428,7 @@ resource "azurerm_postgresql_flexible_server_firewall_rule" "allow_azure" {
 # Azure Cache for Redis — session store & caching layer
 # ─────────────────────────────────────────────────────────────
 resource "azurerm_redis_cache" "main" {
-  name                          = "archmorph-redis-${local.name_suffix}"
+  name                          = local.redis_cache_name
   resource_group_name           = azurerm_resource_group.main.name
   location                      = azurerm_resource_group.main.location
   capacity                      = var.redis_capacity
