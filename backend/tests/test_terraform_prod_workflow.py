@@ -104,6 +104,7 @@ def test_prod_plan_blocks_existing_live_resource_creates_until_imported():
     assert '"azurerm_user_assigned_identity.container_app"' in adoption_script
     assert '"azurerm_storage_account.main"' in adoption_script
     assert '"azurerm_redis_cache.main"' in adoption_script
+    assert 'redis_name = os.environ.get("TF_VAR_redis_name_override") or f"archmorph-redis-{name_suffix}"' in adoption_script
     assert '"legacy_resource_ids"' in adoption_script
     assert "/providers/Microsoft.Cache/Redis/archmorph-redis" in adoption_script
     assert "Do not import blindly" in adoption_script
@@ -174,6 +175,7 @@ def test_prod_workflow_uses_prod_runtime_with_legacy_live_stack_names():
     assert env["TF_VAR_environment"] == "prod"
     assert env["TF_VAR_resource_group_environment"] == "dev"
     assert env["TF_VAR_enable_production_infra_hardening"] is False
+    assert env["TF_VAR_redis_name_override"] == "archmorph-redis"
 
 
 def test_prod_apply_downloads_and_applies_reviewed_plan_only():

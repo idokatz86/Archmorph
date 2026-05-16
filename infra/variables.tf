@@ -112,6 +112,18 @@ variable "preserve_legacy_openai_key" {
 # ─────────────────────────────────────────────────────────────
 # Azure Cache for Redis
 # ─────────────────────────────────────────────────────────────
+variable "redis_name_override" {
+  description = "Optional existing Redis cache name to preserve during legacy live-stack import reconciliation. Leave null for suffix-based names on new stacks."
+  type        = string
+  nullable    = true
+  default     = null
+
+  validation {
+    condition     = var.redis_name_override == null || can(regex("^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$", var.redis_name_override))
+    error_message = "redis_name_override must be null or a valid Azure Cache for Redis name."
+  }
+}
+
 variable "redis_capacity" {
   description = "Redis cache capacity (0 = 250MB, 1 = 1GB, 2 = 2.5GB). Basic C0 ~$16/mo, Standard C0 ~$40/mo."
   type        = number

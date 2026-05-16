@@ -30,6 +30,8 @@ env:
   # Keep resource names aligned with state until a reviewed prod RG migration exists.
   TF_VAR_resource_group_environment: dev
   TF_VAR_enable_production_infra_hardening: false
+  # Preserve the live legacy Redis cache name until a reviewed Redis migration/cutover is approved.
+  TF_VAR_redis_name_override: archmorph-redis
   TF_VAR_db_admin_username: ${{ secrets.DB_ADMIN_USERNAME }}
   TF_VAR_db_admin_password: ${{ secrets.DB_ADMIN_PASSWORD }}
   TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
@@ -258,6 +260,8 @@ jobs:
                   "the legacy live resource IDs that must be imported before any reviewed apply."
               )
 
+          redis_name = os.environ.get("TF_VAR_redis_name_override") or f"archmorph-redis-{name_suffix}"
+
           live_resources = [
               {
                   "address": "azurerm_container_app_environment.main",
@@ -291,7 +295,7 @@ jobs:
                   "address": "azurerm_redis_cache.main",
                   "resource_id": (
                       f"/subscriptions/{subscription_id}/resourceGroups/{resource_group}"
-                      f"/providers/Microsoft.Cache/Redis/archmorph-redis-{name_suffix}"
+                    f"/providers/Microsoft.Cache/Redis/{redis_name}"
                   ),
                   "legacy_resource_ids": [
                       (
@@ -301,7 +305,8 @@ jobs:
                   ],
                   "manual_reconciliation": (
                       "The live Redis cache uses the legacy unsuffixed name archmorph-redis, while "
-                      "Terraform currently targets archmorph-redis-${random_string.suffix.result}. "
+                      "Terraform may target archmorph-redis-${random_string.suffix.result} when "
+                      "TF_VAR_redis_name_override is not set. "
                       "Do not import blindly; either preserve the legacy name in Terraform or approve "
                       "a reviewed Redis migration before any apply."
                   ),
