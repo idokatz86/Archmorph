@@ -38,6 +38,24 @@ variable "environment" {
   }
 }
 
+variable "resource_group_environment" {
+  description = "Optional legacy environment suffix used for Azure resource names/resource group while runtime environment remains production."
+  type        = string
+  nullable    = true
+  default     = null
+
+  validation {
+    condition     = var.resource_group_environment == null || contains(["dev", "staging", "prod"], var.resource_group_environment)
+    error_message = "resource_group_environment must be null, dev, staging, or prod."
+  }
+}
+
+variable "enable_production_infra_hardening" {
+  description = "Enable production SKU, network, DR, and private endpoint hardening. Keep false for the legacy live-stack identity cutover until the migration plan is reviewed."
+  type        = bool
+  default     = true
+}
+
 variable "db_admin_username" {
   description = "PostgreSQL administrator username"
   type        = string
@@ -75,8 +93,19 @@ variable "openai_api_key" {
   default     = null
 
   validation {
-    condition     = var.environment != "prod" || (var.openai_api_key != null && length(var.openai_api_key) > 0)
-    error_message = "openai_api_key must be provided for production to preserve the existing Key Vault secret during apply."
+    condition     = var.openai_api_key == null || length(var.openai_api_key) > 0
+    error_message = "openai_api_key must be null or a non-empty string."
+  }
+}
+
+variable "preserve_legacy_openai_key" {
+  description = "Manage the existing legacy openai-api-key Key Vault secret during the production managed identity cutover."
+  type        = bool
+  default     = false
+
+  validation {
+    condition     = !var.preserve_legacy_openai_key || (var.openai_api_key != null && length(var.openai_api_key) > 0)
+    error_message = "openai_api_key must be provided when preserve_legacy_openai_key is true."
   }
 }
 
