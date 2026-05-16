@@ -36,6 +36,19 @@ def test_security_workflow_uses_distinct_sarif_category_per_runtime_image():
     assert upload_step["with"]["category"] == "trivy-container-${{ matrix.image.name }}"
 
 
+def test_security_workflow_builds_scan_images_without_layer_cache():
+    workflow = _load()
+    build_step = _step_by_name(
+        workflow["jobs"]["trivy-container"]["steps"],
+        "Build ${{ matrix.image.name }} image for scanning",
+    )
+
+    assert build_step["with"]["pull"] is True
+    assert build_step["with"]["no-cache"] is True
+    assert "cache-from" not in build_step["with"]
+    assert "cache-to" not in build_step["with"]
+
+
 def test_security_workflow_keeps_required_trivy_status_context():
     workflow = _load()
     required_job = workflow["jobs"]["trivy-container-required"]
