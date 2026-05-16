@@ -65,6 +65,16 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
+      - name: Diagnose Azure OIDC principal
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          set -euo pipefail
+          SIGNED_IN_APP_ID=$(az account show --query user.name -o tsv)
+          az ad sp show \
+            --id "${SIGNED_IN_APP_ID}" \
+            --query '{displayName:displayName, objectId:id, servicePrincipalType:servicePrincipalType}' \
+            -o json
+
       - name: "Preflight: verify remote-state Blob data-plane RBAC"
         if: github.event_name == 'workflow_dispatch'
         run: |
