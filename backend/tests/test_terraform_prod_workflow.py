@@ -68,6 +68,25 @@ def test_prod_plan_preflights_remote_state_blob_rbac_before_init():
     assert preflight_index < init_index
 
 
+def test_prod_plan_diagnoses_oidc_principal_without_blocking_init():
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    plan_steps = workflow["jobs"]["prod-plan"]["steps"]
+
+    diagnostic_step = _step_by_name(plan_steps, "Diagnose Azure OIDC principal")
+    diagnostic_script = diagnostic_step["run"]
+    assert "az account show --query user.name" in diagnostic_script
+    assert "az ad sp show" in diagnostic_script
+    assert "objectId:id" in diagnostic_script
+    assert "AZURE_CLIENT_ID" not in diagnostic_script
+    assert "|| true" in diagnostic_script
+
+    login_index = plan_steps.index(_step_by_name(plan_steps, "Azure Login (OIDC)"))
+    diagnostic_index = plan_steps.index(diagnostic_step)
+    preflight_index = plan_steps.index(_step_by_name(plan_steps, "Preflight: verify remote-state Blob data-plane RBAC"))
+    init_index = plan_steps.index(_step_by_name(plan_steps, "Terraform Init"))
+    assert login_index < diagnostic_index < preflight_index < init_index
+
+
 def test_prod_apply_downloads_and_applies_reviewed_plan_only():
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     apply_steps = workflow["jobs"]["prod-apply"]["steps"]
