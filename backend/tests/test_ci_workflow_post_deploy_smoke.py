@@ -145,6 +145,24 @@ def test_backend_storage_validation_classifies_pending_terraform_migration():
     assert "grant AZURE_CLIENT_ID Blob data-plane access on the tfstate storage account/container" in validate_script
 
 
+def test_backend_storage_validation_accepts_system_identity_until_user_identity_migration():
+    workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
+
+    validate_step = next(
+        step
+        for step in workflow["jobs"]["deploy-backend"]["steps"]
+        if step.get("name") == "Validate Terraform-managed metrics storage"
+    )
+    validate_script = validate_step["run"]
+
+    assert "CONTAINER_APP_JSON=$(az containerapp show" in validate_script
+    assert "Using Container App user-assigned managed identity for storage validation" in validate_script
+    assert "Container App AZURE_CLIENT_ID is not set; using the system-assigned managed identity" in validate_script
+    assert "Container App is missing AZURE_CLIENT_ID and has no system-assigned identity principal" in validate_script
+    assert 'jq -r \'.identity.principalId // ""\'' in validate_script
+    assert "Container App identity is missing Storage Blob Data Contributor" in validate_script
+
+
 def test_backend_green_revision_healthz_is_retried_before_failure():
     workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
 
