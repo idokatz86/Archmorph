@@ -231,6 +231,13 @@ def _global_openai_mock(request, monkeypatch):
     Globally prevent live OpenAI calls by mocking cached_chat_completion.
     Test execution speed will dramatically improve and flakiness will drop.
     """
+    if (
+        "tests/test_service_builder.py::TestServiceBuilderIntegration::test_real_service_extraction"
+        in request.node.nodeid
+        and os.getenv("ARCHMORPH_ENABLE_LIVE_OPENAI_TESTS") == "1"
+    ):
+        return
+
     if "test_gpt_cache.py" in request.node.nodeid:
         return
         

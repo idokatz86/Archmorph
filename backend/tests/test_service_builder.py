@@ -17,6 +17,17 @@ from service_builder import (
 )
 
 
+def _live_service_builder_integration_ready() -> bool:
+    """Gate live OpenAI integration to explicit opt-in runs with full credentials."""
+    api_key = os.getenv("AZURE_OPENAI_API_KEY") or os.getenv("AZURE_OPENAI_KEY")
+    return (
+        os.getenv("ARCHMORPH_ENABLE_LIVE_OPENAI_TESTS") == "1"
+        and bool(api_key)
+        and bool(os.getenv("AZURE_OPENAI_ENDPOINT"))
+        and bool(os.getenv("AZURE_OPENAI_DEPLOYMENT"))
+    )
+
+
 # ====================================================================
 # Fixtures
 # ====================================================================
@@ -402,8 +413,13 @@ class TestSmartDefaults:
 # ====================================================================
 
 @pytest.mark.skipif(
-    not os.getenv("AZURE_OPENAI_API_KEY"),
-    reason="Requires Azure OpenAI credentials"
+    not _live_service_builder_integration_ready(),
+    reason=(
+        "Requires live OpenAI opt-in and credentials: "
+        "ARCHMORPH_ENABLE_LIVE_OPENAI_TESTS=1, "
+        "AZURE_OPENAI_API_KEY (or AZURE_OPENAI_KEY), "
+        "AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_DEPLOYMENT"
+    ),
 )
 class TestServiceBuilderIntegration:
     def test_real_service_extraction(self, sample_analysis):
@@ -414,5 +430,6 @@ class TestServiceBuilderIntegration:
         )
         
         assert "services_added" in result
+        assert "add_services_error" not in result
         # Should extract at least one service
         assert len(result["services_added"]) >= 1
