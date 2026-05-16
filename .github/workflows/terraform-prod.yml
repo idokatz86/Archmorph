@@ -26,10 +26,15 @@ env:
   TF_WORKING_DIR: infra
   TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
   TF_VAR_environment: prod
+  # The public production deployment currently lives in a legacy dev-named Azure stack.
+  # Keep resource names aligned with state until a reviewed prod RG migration exists.
+  TF_VAR_resource_group_environment: dev
+  TF_VAR_enable_production_infra_hardening: false
   TF_VAR_db_admin_username: ${{ secrets.DB_ADMIN_USERNAME }}
   TF_VAR_db_admin_password: ${{ secrets.DB_ADMIN_PASSWORD }}
   TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
   TF_VAR_frontend_url: ${{ secrets.FRONTEND_URL }}
+  TF_VAR_preserve_legacy_openai_key: true
   TF_VAR_openai_api_key: ${{ secrets.AZURE_OPENAI_API_KEY }}
 
 jobs:
@@ -139,6 +144,52 @@ jobs:
       - name: Terraform Init
         if: github.event_name == 'workflow_dispatch'
         run: terraform init -input=false -lockfile=readonly
+
+      - name: "Preflight: verify Terraform state stack contract"
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          set -euo pipefail
+          STACK_ENVIRONMENT="${TF_VAR_resource_group_environment:-${TF_VAR_environment}}"
+          EXPECTED_RESOURCE_GROUP="archmorph-rg-${STACK_ENVIRONMENT}"
+
+          if [ "$(az group exists --name "${EXPECTED_RESOURCE_GROUP}" -o tsv)" != "true" ]; then
+            echo "::error::Expected Terraform target resource group ${EXPECTED_RESOURCE_GROUP} does not exist. Refusing to plan."
+            exit 1
+          fi
+
+          STATE_SNAPSHOT="$(mktemp)"
+          terraform state pull > "${STATE_SNAPSHOT}"
+          EXPECTED_RESOURCE_GROUP="${EXPECTED_RESOURCE_GROUP}" STATE_SNAPSHOT="${STATE_SNAPSHOT}" python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          state = json.loads(Path(os.environ["STATE_SNAPSHOT"]).read_text(encoding="utf-8"))
+          expected_resource_group = os.environ["EXPECTED_RESOURCE_GROUP"]
+
+          managed_resources = state.get("resources", [])
+          resource_group = next(
+              (
+                  instance.get("attributes", {}).get("name")
+                  for resource in managed_resources
+                  if resource.get("type") == "azurerm_resource_group" and resource.get("name") == "main"
+                  for instance in resource.get("instances", [])
+              ),
+              None,
+          )
+
+          if resource_group is None:
+              raise SystemExit("::error::Terraform state does not contain azurerm_resource_group.main. Refusing to plan.")
+
+          if resource_group != expected_resource_group:
+              raise SystemExit(
+                  f"::error::Terraform state targets {resource_group}, but workflow stack settings "
+                  f"expects {expected_resource_group}. Refusing to plan because this would replace the stack."
+              )
+
+          print(f"Terraform state stack preflight succeeded for {resource_group}.")
+          PY
+          rm -f "${STATE_SNAPSHOT}"
 
       - name: Terraform Plan (production)
         if: github.event_name == 'workflow_dispatch'
