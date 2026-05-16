@@ -21,10 +21,12 @@ def test_deployment_smoke_checks_frontend_security_headers():
     smoke_script = DEPLOYMENT_SMOKE.read_text(encoding="utf-8")
 
     assert "check_frontend_security_headers() {" in smoke_script
-    assert 'curl -sS -D "$headers_file" -o /tmp/archmorph-frontend-shell --max-time 30 "$FRONTEND_URL"' in smoke_script
+    assert 'curl -sSL -D "$headers_file" -o /tmp/archmorph-frontend-shell --max-time 30 "$FRONTEND_URL"' in smoke_script
     assert "Frontend shell is missing Content-Security-Policy" in smoke_script
     assert "frame-ancestors 'none'" in smoke_script
     assert "x-frame-options:[[:space:]]*deny" in smoke_script
+    assert "object-src 'none'" in smoke_script
+    assert "permissions-policy:[[:space:]]*camera=(), microphone=(), geolocation=()" in smoke_script
     assert "Frontend shell security headers OK" in smoke_script
 
 

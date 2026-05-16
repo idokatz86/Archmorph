@@ -40,7 +40,7 @@ check_frontend_security_headers() {
   local header_dump
   local csp_line
 
-  curl -sS -D "$headers_file" -o /tmp/archmorph-frontend-shell --max-time 30 "$FRONTEND_URL" >/dev/null
+  curl -sSL -D "$headers_file" -o /tmp/archmorph-frontend-shell --max-time 30 "$FRONTEND_URL" >/dev/null
   header_dump=$(tr '[:upper:]' '[:lower:]' < "$headers_file" | tr -d '\r')
   csp_line=$(printf '%s\n' "$header_dump" | grep '^content-security-policy:' || true)
 
