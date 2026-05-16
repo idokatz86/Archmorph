@@ -67,11 +67,11 @@ terraform import azurerm_user_assigned_identity.container_app \
   "/subscriptions/${ARM_SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/archmorph-api-identity"
 terraform import azurerm_storage_account.main \
   "/subscriptions/${ARM_SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.Storage/storageAccounts/archmorph${NAME_SUFFIX}"
-terraform import azurerm_redis_cache.main \
-  "/subscriptions/${ARM_SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.Cache/Redis/archmorph-redis-${NAME_SUFFIX}"
 ```
 
 Then re-run the plan-only workflow and confirm the resources above no longer appear as creates. `azurerm_static_web_app.frontend` is already in state when the plan shows an in-place update only, so it should stay a drift review item rather than an import gap.
+
+Do not blindly import Redis with the suffix-based name unless that exact Azure resource exists. The current live inventory contains the legacy cache `archmorph-redis`, while Terraform targets `archmorph-redis-${NAME_SUFFIX}`. Treat that as an explicit reconciliation decision: either preserve the legacy Redis name in Terraform before import, or approve a reviewed migration to a new suffix-based cache with session/cache cutover and rollback notes. The production workflow blocks the reviewed-plan artifact while that legacy Redis resource exists and `azurerm_redis_cache.main` is still planned as a create.
 
 If the plan still wants to destroy `azurerm_postgresql_flexible_server_firewall_rule.allow_azure[0]`, verify Azure still reports `publicNetworkAccess = Disabled` on the live PostgreSQL Flexible Server before approving any future apply:
 

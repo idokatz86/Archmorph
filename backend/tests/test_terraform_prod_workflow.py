@@ -104,10 +104,14 @@ def test_prod_plan_blocks_existing_live_resource_creates_until_imported():
     assert '"azurerm_user_assigned_identity.container_app"' in adoption_script
     assert '"azurerm_storage_account.main"' in adoption_script
     assert '"azurerm_redis_cache.main"' in adoption_script
+    assert '"legacy_resource_ids"' in adoption_script
+    assert "/providers/Microsoft.Cache/Redis/archmorph-redis" in adoption_script
+    assert "Do not import blindly" in adoption_script
     assert '"azurerm_static_web_app.frontend"' in adoption_script
     assert '"resource"' in adoption_script
     assert '"show"' in adoption_script
     assert "Import with:" in adoption_script
+    assert "conflicts with existing live resource" in adoption_script
     assert 'terraform import {resource["address"]}' in adoption_script
     assert "Terraform live-resource adoption preflight found no known existing resources planned as creates." in adoption_script
     assert "After importing the resources above, rerun Terraform Production with apply=false" in adoption_script

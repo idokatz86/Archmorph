@@ -293,6 +293,18 @@ jobs:
                       f"/subscriptions/{subscription_id}/resourceGroups/{resource_group}"
                       f"/providers/Microsoft.Cache/Redis/archmorph-redis-{name_suffix}"
                   ),
+                  "legacy_resource_ids": [
+                      (
+                          f"/subscriptions/{subscription_id}/resourceGroups/{resource_group}"
+                          "/providers/Microsoft.Cache/Redis/archmorph-redis"
+                      )
+                  ],
+                  "manual_reconciliation": (
+                      "The live Redis cache uses the legacy unsuffixed name archmorph-redis, while "
+                      "Terraform currently targets archmorph-redis-${random_string.suffix.result}. "
+                      "Do not import blindly; either preserve the legacy name in Terraform or approve "
+                      "a reviewed Redis migration before any apply."
+                  ),
               },
               {
                   "address": "azurerm_static_web_app.frontend",
@@ -311,15 +323,18 @@ jobs:
               actions = change.get("change", {}).get("actions", []) if change else []
               if "create" not in actions:
                   continue
-              if not azure_resource_exists(resource["resource_id"]):
+              existing_resource_id = None
+              for candidate_resource_id in [resource["resource_id"], *resource.get("legacy_resource_ids", [])]:
+                  if azure_resource_exists(candidate_resource_id):
+                      existing_resource_id = candidate_resource_id
+                      break
+              if existing_resource_id is None:
                   continue
 
-              adoption_gaps.append(
-                  {
-                      **resource,
-                      "import_command": f'terraform import {resource["address"]} \'{resource["resource_id"]}\'',
-                  }
-              )
+              gap = {**resource, "existing_resource_id": existing_resource_id}
+              if existing_resource_id == resource["resource_id"]:
+                  gap["import_command"] = f'terraform import {resource["address"]} \'{resource["resource_id"]}\''
+              adoption_gaps.append(gap)
 
           if adoption_gaps:
               print(
@@ -327,10 +342,18 @@ jobs:
                   "live in the legacy dev-named stack. Import them into Terraform state before approving any apply."
               )
               for resource in adoption_gaps:
-                  print(
-                      "::notice::"
-                      f"{resource['address']} already exists live. Import with: {resource['import_command']}"
-                  )
+                  if "import_command" in resource:
+                      print(
+                          "::notice::"
+                          f"{resource['address']} already exists live. Import with: {resource['import_command']}"
+                      )
+                  else:
+                      print(
+                          "::notice::"
+                          f"{resource['address']} conflicts with existing live resource "
+                          f"{resource['existing_resource_id']}. "
+                          f"{resource.get('manual_reconciliation', 'Review manually before apply.')}"
+                      )
               print(
                   "::notice::After importing the resources above, rerun Terraform Production with apply=false "
                   "and confirm those create actions are gone before reviewing any apply."
