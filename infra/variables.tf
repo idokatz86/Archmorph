@@ -119,7 +119,7 @@ variable "redis_name_override" {
   default     = null
 
   validation {
-    condition     = var.redis_name_override == null || can(regex("^[a-zA-Z0-9-]{1,63}$", var.redis_name_override))
+    condition     = var.redis_name_override == null || can(regex("^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$", var.redis_name_override))
     error_message = "redis_name_override must be null or a valid Azure Cache for Redis name."
   }
 }

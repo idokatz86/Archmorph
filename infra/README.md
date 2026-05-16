@@ -58,7 +58,7 @@ for resource in state.get("resources", []):
 raise SystemExit("Unable to resolve random_string.suffix.result from Terraform state.")
 PY
 )"
-REDIS_NAME="${TF_VAR_redis_name_override:-archmorph-redis-${NAME_SUFFIX}}"
+REDIS_NAME="archmorph-redis"
 
 terraform import azurerm_container_app_environment.main \
   "/subscriptions/${ARM_SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.App/managedEnvironments/archmorph-cae-${STACK_ENVIRONMENT}"
