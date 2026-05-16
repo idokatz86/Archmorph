@@ -12,9 +12,10 @@ import userEvent from '@testing-library/user-event';
 import React from 'react';
 
 // Mock useAuth so we can control loginWithProvider
+const mockLoginWithProvider = vi.fn();
 vi.mock('../Auth/AuthProvider', () => ({
   useAuth: () => ({
-    loginWithProvider: vi.fn(),
+    loginWithProvider: mockLoginWithProvider,
   }),
 }));
 
@@ -105,6 +106,48 @@ describe('LoginModal', () => {
     expect(screen.getByRole('button', { name: /continue with microsoft/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /continue with google/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /continue with github/i })).toBeInTheDocument();
+  });
+
+  it('warns and blocks provider redirect when selected upload warning is cancelled', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    render(
+      <LoginModal
+        isOpen={true}
+        onClose={vi.fn()}
+        selectedFile={{ name: 'architecture.pdf', size: 1024, type: 'application/pdf' }}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: /continue with github/i }));
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(mockLoginWithProvider).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
+
+  it('persists redirect recovery metadata before provider navigation when warning is accepted', async () => {
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const onBeforeProviderRedirect = vi.fn();
+    render(
+      <LoginModal
+        isOpen={true}
+        onClose={vi.fn()}
+        selectedFile={{ name: 'architecture.pdf', size: 1024, type: 'application/pdf', lastModified: 123 }}
+        onBeforeProviderRedirect={onBeforeProviderRedirect}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: /continue with github/i }));
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(onBeforeProviderRedirect).toHaveBeenCalledWith({
+      name: 'architecture.pdf',
+      size: 1024,
+      type: 'application/pdf',
+      lastModified: 123,
+    });
+    expect(mockLoginWithProvider).toHaveBeenCalledWith('github');
+    confirmSpy.mockRestore();
   });
 
   it('uses app theme tokens instead of Tailwind dark variants', () => {
