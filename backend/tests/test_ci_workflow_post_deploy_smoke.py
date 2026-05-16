@@ -115,6 +115,22 @@ def test_backend_readiness_accepts_azure_provisioned_state():
     assert '[ "$RUNNING_STATE" = "Running" ]' in readiness_script
 
 
+def test_backend_storage_validation_classifies_pending_terraform_migration():
+    workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
+
+    validate_step = next(
+        step
+        for step in workflow["jobs"]["deploy-backend"]["steps"]
+        if step.get("name") == "Validate Terraform-managed metrics storage"
+    )
+    validate_script = validate_step["run"]
+
+    assert 'if [ "$STORAGE_NAME" = "archmorphmetrics" ]; then' in validate_script
+    assert "Terraform storage migration pending" in validate_script
+    assert "Run the Terraform Production workflow" in validate_script
+    assert "grant AZURE_CLIENT_ID Blob data-plane access on the tfstate storage account/container" in validate_script
+
+
 def test_backend_green_revision_healthz_is_retried_before_failure():
     workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
 
