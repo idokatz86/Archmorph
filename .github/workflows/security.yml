@@ -121,8 +121,8 @@ jobs:
           file: ${{ matrix.image.dockerfile }}
           load: true
           tags: ${{ matrix.image.tag }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          pull: true
+          no-cache: true
 
       - name: Container healthcheck smoke (${{ matrix.image.name }})
         run: |
