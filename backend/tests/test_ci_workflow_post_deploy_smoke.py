@@ -5,6 +5,7 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+DEPLOYMENT_SMOKE = REPO_ROOT / "scripts" / "deployment_smoke.sh"
 
 
 def test_post_deploy_smoke_passes_health_api_key_from_service_api_secret():
@@ -14,6 +15,17 @@ def test_post_deploy_smoke_passes_health_api_key_from_service_api_secret():
     smoke_step = next(step for step in steps if step.get("name") == "Run deployed app smoke checks")
 
     assert smoke_step["env"]["HEALTH_API_KEY"] == "${{ secrets.ARCHMORPH_API_KEY || secrets.API_KEY }}"
+
+
+def test_deployment_smoke_checks_frontend_security_headers():
+    smoke_script = DEPLOYMENT_SMOKE.read_text(encoding="utf-8")
+
+    assert "check_frontend_security_headers() {" in smoke_script
+    assert 'curl -sS -D "$headers_file" -o /tmp/archmorph-frontend-shell --max-time 30 "$FRONTEND_URL"' in smoke_script
+    assert "Frontend shell is missing Content-Security-Policy" in smoke_script
+    assert "frame-ancestors 'none'" in smoke_script
+    assert "x-frame-options:[[:space:]]*deny" in smoke_script
+    assert "Frontend shell security headers OK" in smoke_script
 
 
 def test_production_traffic_movement_jobs_are_environment_gated():
