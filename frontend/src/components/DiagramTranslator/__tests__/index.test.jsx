@@ -85,4 +85,24 @@ describe('DiagramTranslator', () => {
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:second-preview')
     expect(screen.queryByAltText('Preview')).not.toBeInTheDocument()
   })
+
+  it('allows selecting the same PDF again after remove', async () => {
+    const user = userEvent.setup()
+    render(<DiagramTranslator />)
+
+    const input = await screen.findByLabelText('Select architecture diagram file')
+    const pdf = new File(['%PDF-1.4'], 'architecture.pdf', { type: 'application/pdf' })
+
+    await user.upload(input, pdf)
+    expect(await screen.findByText('architecture.pdf')).toBeInTheDocument()
+    expect(screen.getByText('File selected')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /Remove/i }))
+    expect(input).toHaveValue('')
+    expect(screen.getByText('Awaiting input')).toBeInTheDocument()
+
+    await user.upload(input, pdf)
+    expect(await screen.findByText('architecture.pdf')).toBeInTheDocument()
+    expect(screen.getByText('File selected')).toBeInTheDocument()
+  })
 })
