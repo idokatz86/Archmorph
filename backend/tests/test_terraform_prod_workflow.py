@@ -94,6 +94,13 @@ def test_prod_workflow_supplies_legacy_openai_secret_variable():
     assert env["TF_VAR_openai_api_key"] == "${{ secrets.AZURE_OPENAI_API_KEY }}"
 
 
+def test_prod_workflow_sets_terraform_environment_to_prod():
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    env = workflow["env"]
+
+    assert env["TF_VAR_environment"] == "prod"
+
+
 def test_prod_apply_downloads_and_applies_reviewed_plan_only():
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     apply_steps = workflow["jobs"]["prod-apply"]["steps"]
