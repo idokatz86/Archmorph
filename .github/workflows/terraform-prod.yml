@@ -68,13 +68,17 @@ jobs:
       - name: Diagnose Azure OIDC principal
         if: github.event_name == 'workflow_dispatch'
         run: |
-          set -euo pipefail
-          SIGNED_IN_APP_ID=$(az account show --query user.name -o tsv)
+          set -uo pipefail
+          SIGNED_IN_APP_ID=$(az account show --query user.name -o tsv 2>/dev/null || true)
+          if [ -z "${SIGNED_IN_APP_ID}" ]; then
+            echo "::notice::Unable to resolve signed-in Azure service principal app id for diagnostics. Continuing to remote-state preflight."
+            exit 0
+          fi
           az ad sp show \
             --id "${SIGNED_IN_APP_ID}" \
             --query '{displayName:displayName, objectId:id, servicePrincipalType:servicePrincipalType}' \
-            -o json
-
+            -o json \
+            || echo "::notice::Unable to resolve signed-in Azure service principal directory object. Continuing to remote-state preflight."
       - name: "Preflight: verify remote-state Blob data-plane RBAC"
         if: github.event_name == 'workflow_dispatch'
         run: |
