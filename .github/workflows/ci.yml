@@ -675,10 +675,11 @@ jobs:
 
       - name: Validate Terraform-managed metrics storage
         run: |
-          ENV_JSON=$(az containerapp show \
+          CONTAINER_APP_JSON=$(az containerapp show \
             --name ${{ env.CONTAINER_APP_NAME }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --query "properties.template.containers[0].env" -o json)
+            -o json)
+          ENV_JSON=$(echo "$CONTAINER_APP_JSON" | jq -c '.properties.template.containers[0].env // []')
 
           STORAGE_ACCOUNT_URL=$(echo "$ENV_JSON" | jq -r '.[] | select(.name == "AZURE_STORAGE_ACCOUNT_URL") | .value // ""')
           if [ -z "$STORAGE_ACCOUNT_URL" ]; then
@@ -754,18 +755,22 @@ jobs:
           fi
 
           CONTAINER_APP_CLIENT_ID=$(echo "$ENV_JSON" | jq -r '.[] | select(.name == "AZURE_CLIENT_ID") | .value // ""')
-          if [ -z "$CONTAINER_APP_CLIENT_ID" ]; then
-            echo "::error::Container App is missing AZURE_CLIENT_ID for its user-assigned managed identity"
-            exit 1
-          fi
-
-          CONTAINER_APP_PRINCIPAL_ID=$(az containerapp show \
-            --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --query "identity.userAssignedIdentities.* | [?clientId=='$CONTAINER_APP_CLIENT_ID'].principalId | [0]" -o tsv)
-          if [ -z "$CONTAINER_APP_PRINCIPAL_ID" ]; then
-            echo "::error::Container App user-assigned identity principal is not available for AZURE_CLIENT_ID=$CONTAINER_APP_CLIENT_ID"
-            exit 1
+          if [ -n "$CONTAINER_APP_CLIENT_ID" ]; then
+            CONTAINER_APP_PRINCIPAL_ID=$(echo "$CONTAINER_APP_JSON" \
+              | jq -r --arg client_id "$CONTAINER_APP_CLIENT_ID" '.identity.userAssignedIdentities // {} | to_entries[] | select(.value.clientId == $client_id) | .value.principalId' \
+              | head -1)
+            if [ -z "$CONTAINER_APP_PRINCIPAL_ID" ]; then
+              echo "::error::Container App user-assigned identity principal is not available for AZURE_CLIENT_ID=$CONTAINER_APP_CLIENT_ID"
+              exit 1
+            fi
+            echo "Using Container App user-assigned managed identity for storage validation"
+          else
+            CONTAINER_APP_PRINCIPAL_ID=$(echo "$CONTAINER_APP_JSON" | jq -r '.identity.principalId // ""')
+            if [ -z "$CONTAINER_APP_PRINCIPAL_ID" ]; then
+              echo "::error::Container App is missing AZURE_CLIENT_ID and has no system-assigned identity principal for storage access"
+              exit 1
+            fi
+            echo "::notice::Container App AZURE_CLIENT_ID is not set; using the system-assigned managed identity for storage validation until Terraform user-assigned identity migration is applied."
           fi
           echo "CONTAINER_APP_PRINCIPAL_ID=$CONTAINER_APP_PRINCIPAL_ID" >> "$GITHUB_ENV"
 
