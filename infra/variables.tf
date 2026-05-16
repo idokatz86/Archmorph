@@ -67,6 +67,19 @@ variable "frontend_url" {
   # Must be set in terraform.tfvars - no default for security
 }
 
+variable "openai_api_key" {
+  description = "Legacy Azure OpenAI API key secret value retained during the production managed identity cutover."
+  type        = string
+  sensitive   = true
+  nullable    = true
+  default     = null
+
+  validation {
+    condition     = var.environment != "prod" || (var.openai_api_key != null && length(var.openai_api_key) > 0)
+    error_message = "openai_api_key must be provided for production to preserve the existing Key Vault secret during apply."
+  }
+}
+
 # ─────────────────────────────────────────────────────────────
 # Azure Cache for Redis
 # ─────────────────────────────────────────────────────────────
