@@ -8,10 +8,11 @@ describe('Static Web App security headers config', () => {
     const csp = config.globalHeaders['Content-Security-Policy'];
 
     expect(config.globalHeaders['X-Frame-Options']).toBe('DENY');
+    expect(config.globalHeaders['Permissions-Policy']).toBe('camera=(), microphone=(), geolocation=()');
     expect(csp).toContain("default-src 'self'");
     expect(csp).toContain("connect-src 'self' https://api.archmorphai.com");
     expect(csp).toContain("img-src 'self' data: blob:");
-    expect(csp).toContain("object-src 'self' blob:");
+    expect(csp).toContain("object-src 'none'");
     expect(csp).toContain("frame-ancestors 'none'");
   });
 });
