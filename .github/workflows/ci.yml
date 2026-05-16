@@ -712,7 +712,13 @@ jobs:
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --query publicNetworkAccess -o tsv)
           if [ "$PUBLIC_NETWORK_ACCESS" != "Disabled" ]; then
-            echo "::error::Production storage account $STORAGE_NAME must have public network access disabled to match Terraform configuration"
+            if [ "$STORAGE_NAME" = "archmorphmetrics" ]; then
+              echo "::error::Terraform storage migration pending: Container App still references legacy storage account $STORAGE_NAME with public network access ${PUBLIC_NETWORK_ACCESS}."
+              echo "::notice::Run the Terraform Production workflow (workflow_dispatch) with apply=true to migrate production to Terraform-managed storage/private endpoints."
+              echo "::notice::If Terraform Production fails during init, grant AZURE_CLIENT_ID Blob data-plane access on the tfstate storage account/container and rerun."
+            else
+              echo "::error::Production storage account $STORAGE_NAME must have public network access disabled to match Terraform configuration"
+            fi
             exit 1
           fi
 
