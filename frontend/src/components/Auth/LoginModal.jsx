@@ -68,7 +68,12 @@ const PROVIDERS = [
   },
 ];
 
-export default function LoginModal({ isOpen, onClose }) {
+export default function LoginModal({
+  isOpen,
+  onClose,
+  selectedFile = null,
+  onBeforeProviderRedirect,
+}) {
   const { loginWithProvider } = useAuth();
   const titleId = useId();
   const trapRef = useFocusTrap(isOpen);
@@ -129,6 +134,18 @@ export default function LoginModal({ isOpen, onClose }) {
             <button
               key={id}
               onClick={() => {
+                if (selectedFile?.name) {
+                  const proceed = window.confirm(
+                    `You are leaving Archmorph to sign in.\n\nFor security, the selected file "${selectedFile.name}" cannot be carried through provider redirects. We'll remember its name and prompt a quick re-upload if you return without completing sign-in.\n\nContinue to ${label.replace('Continue with ', '')}?`,
+                  );
+                  if (!proceed) return;
+                }
+                onBeforeProviderRedirect?.({
+                  name: selectedFile?.name || null,
+                  size: selectedFile?.size || null,
+                  type: selectedFile?.type || null,
+                  lastModified: selectedFile?.lastModified || null,
+                });
                 loginWithProvider(id);
               }}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg border ${border} ${bg} ${text} font-medium text-sm transition-all duration-200 cursor-pointer`}
@@ -138,6 +155,12 @@ export default function LoginModal({ isOpen, onClose }) {
             </button>
           ))}
         </div>
+
+        {selectedFile?.name && (
+          <p className="mt-3 text-[11px] text-warning">
+            Selected upload: <strong>{selectedFile.name}</strong>. If provider redirect returns without auth, you will be prompted to re-upload.
+          </p>
+        )}
 
         {/* Divider */}
         <div className="flex items-center gap-3 my-5">

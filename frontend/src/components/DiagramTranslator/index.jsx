@@ -35,6 +35,45 @@ const DeployPanel = lazy(() => import('./DeployPanel'));
 
 const normalizeIacFormat = (format) => (format === 'bicep' ? 'bicep' : 'terraform');
 const DEFAULT_PROJECT_ID = 'demo-project';
+const AUTH_PENDING_UPLOAD_KEY = 'archmorph_pending_upload_reauth';
+
+function savePendingUploadForAuth(fileMeta) {
+  if (!fileMeta?.name) return;
+  try {
+    sessionStorage.setItem(AUTH_PENDING_UPLOAD_KEY, JSON.stringify({
+      name: fileMeta.name,
+      size: fileMeta.size || 0,
+      type: fileMeta.type || '',
+      ts: Date.now(),
+    }));
+  } catch {
+    // sessionStorage unavailable/non-critical
+  }
+}
+
+function loadPendingUploadForAuth() {
+  try {
+    const raw = sessionStorage.getItem(AUTH_PENDING_UPLOAD_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.name) return null;
+    if (Date.now() - (parsed.ts || 0) > 30 * 60 * 1000) {
+      sessionStorage.removeItem(AUTH_PENDING_UPLOAD_KEY);
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function clearPendingUploadForAuth() {
+  try {
+    sessionStorage.removeItem(AUTH_PENDING_UPLOAD_KEY);
+  } catch {
+    // sessionStorage unavailable/non-critical
+  }
+}
 
 /* ── Wave 2: 3-Phase layout (#512) ──
  * Phase 1 — Input:        upload, analyzing, questions
@@ -245,6 +284,7 @@ export default function DiagramTranslator() {
   // Auth state — used for proactive gate and 401 error differentiation
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const [loginModalOpen, setLoginModalOpen] = useState(false);
+  const [authUploadRecovery, setAuthUploadRecovery] = useState(null);
 
   // Refs for cleanup of async resources
   const activeEsRef = useRef(null);        // current EventSource
@@ -318,6 +358,16 @@ export default function DiagramTranslator() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    setAuthUploadRecovery(loadPendingUploadForAuth());
+  }, []);
+
+  useEffect(() => {
+    if (!state.selectedFile) return;
+    clearPendingUploadForAuth();
+    setAuthUploadRecovery(null);
+  }, [state.selectedFile]);
 
   // ── Resume analysis from Dashboard (#517) ──
   const pendingResumeId = useAppStore(s => s.pendingResumeId);
@@ -425,8 +475,15 @@ export default function DiagramTranslator() {
 
   const clearSelectedUpload = useCallback(() => {
     if (state.filePreviewUrl) URL.revokeObjectURL(state.filePreviewUrl);
+    clearPendingUploadForAuth();
+    setAuthUploadRecovery(null);
     set({ selectedFile: null, filePreviewUrl: null, error: null, authError: null });
   }, [set, state.filePreviewUrl]);
+
+  const handlePrepareAuthRedirect = useCallback((fileMeta) => {
+    if (!fileMeta?.name) return;
+    savePendingUploadForAuth(fileMeta);
+  }, []);
 
   const handleAddProjectDiagram = () => {
     clearSelectedUpload();
@@ -1223,6 +1280,38 @@ export default function DiagramTranslator() {
         </Card>
       )}
 
+      {!state.selectedFile && authUploadRecovery && state.step === 'upload' && (
+        <Card className="p-4 border-warning/30 bg-warning/5 animate-fade-in" role="status">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-text-primary">Re-upload required after sign-in redirect</h3>
+              <p className="text-xs text-text-muted mt-1">
+                We could not safely restore the previous file bytes for <strong>{authUploadRecovery.name}</strong>. Re-upload to continue analysis.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                Re-upload diagram
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  clearPendingUploadForAuth();
+                  setAuthUploadRecovery(null);
+                }}
+              >
+                Dismiss
+              </Button>
+            </div>
+          </div>
+        </Card>
+      )}
+
       {/* Session expiry warning (#261) */}
       {expiryWarning && (
         <Card className="p-3 border-warning/30 bg-warning/5" role="status" aria-live="polite">
@@ -1386,7 +1475,12 @@ export default function DiagramTranslator() {
       {/* Login modal — opened when signed-out user tries to analyze */}
       <Suspense fallback={null}>
         {loginModalOpen && (
-          <LoginModal isOpen={loginModalOpen} onClose={() => setLoginModalOpen(false)} />
+          <LoginModal
+            isOpen={loginModalOpen}
+            onClose={() => setLoginModalOpen(false)}
+            selectedFile={state.selectedFile}
+            onBeforeProviderRedirect={handlePrepareAuthRedirect}
+          />
         )}
       </Suspense>
     </div>

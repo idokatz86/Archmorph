@@ -273,12 +273,15 @@ describe('DiagramTranslator — Data Persistence Gaps', () => {
 //   - selectedFile is preserved after auth error so user can retry after signing in
 // ─────────────────────────────────────────────────────────────
 describe('DiagramTranslator — Signed-out auth recovery', () => {
+  const authPendingUploadKey = 'archmorph_pending_upload_reauth'
+
   beforeEach(() => {
     vi.clearAllMocks()
     mockIsAuthenticated = false // signed-out by default
     mockLoadSession.mockReturnValue(null)
     fetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({}) })
     localStorage.clear()
+    sessionStorage.clear()
   })
 
   it('shows "Sign in to analyze" button (not "Analyze This Diagram") when user is signed out and selects a file', async () => {
@@ -377,5 +380,41 @@ describe('DiagramTranslator — Signed-out auth recovery', () => {
     expect(authErr.isAuthRequired).toBe(true)
     expect(authErr.message).toMatch(/Authentication required/i)
     expect(authErr.message).not.toMatch(/session has expired/i)
+  })
+
+  it('shows re-upload recovery card when provider redirect returns without restorable file bytes', async () => {
+    sessionStorage.setItem(authPendingUploadKey, JSON.stringify({
+      name: 'architecture.pdf',
+      size: 2048,
+      type: 'application/pdf',
+      ts: Date.now(),
+    }))
+
+    render(<DiagramTranslator />)
+
+    expect(await screen.findByText('Re-upload required after sign-in redirect')).toBeInTheDocument()
+    expect(screen.getByText(/architecture\.pdf/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Re-upload diagram/i })).toBeInTheDocument()
+  })
+
+  it('clears pending redirect recovery card after selecting a new file', async () => {
+    sessionStorage.setItem(authPendingUploadKey, JSON.stringify({
+      name: 'architecture.pdf',
+      size: 2048,
+      type: 'application/pdf',
+      ts: Date.now(),
+    }))
+
+    render(<DiagramTranslator />)
+    await screen.findByText('Re-upload required after sign-in redirect')
+
+    const input = document.querySelector('input[type="file"]')
+    const replacementPdf = new File(['%PDF-1.4'], 'replacement.pdf', { type: 'application/pdf' })
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [replacementPdf] } })
+    })
+
+    await waitFor(() => expect(screen.queryByText('Re-upload required after sign-in redirect')).not.toBeInTheDocument())
+    expect(sessionStorage.getItem(authPendingUploadKey)).toBeNull()
   })
 })
