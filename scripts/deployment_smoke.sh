@@ -35,8 +35,45 @@ check_status() {
   echo "$label OK ($status)"
 }
 
+check_frontend_security_headers() {
+  local headers_file=/tmp/archmorph-frontend-headers
+  local header_dump
+  local csp_line
+
+  curl -sSL -D "$headers_file" -o /tmp/archmorph-frontend-shell --max-time 30 "$FRONTEND_URL" >/dev/null
+  header_dump=$(tr '[:upper:]' '[:lower:]' < "$headers_file" | tr -d '\r')
+  csp_line=$(printf '%s\n' "$header_dump" | grep '^content-security-policy:' || true)
+
+  if [[ -z "$csp_line" ]]; then
+    echo "::error::Frontend shell is missing Content-Security-Policy"
+    cat "$headers_file"
+    exit 1
+  fi
+
+  if [[ "$csp_line" != *"frame-ancestors 'none'"* ]] && ! printf '%s\n' "$header_dump" | grep -q '^x-frame-options:[[:space:]]*deny$'; then
+    echo "::error::Frontend shell is missing clickjacking protection"
+    cat "$headers_file"
+    exit 1
+  fi
+
+  if [[ "$csp_line" != *"object-src 'none'"* ]]; then
+    echo "::error::Frontend shell CSP must disable object embedding"
+    cat "$headers_file"
+    exit 1
+  fi
+
+  if ! printf '%s\n' "$header_dump" | grep -q '^permissions-policy:[[:space:]]*camera=(), microphone=(), geolocation=()$'; then
+    echo "::error::Frontend shell is missing expected Permissions-Policy"
+    cat "$headers_file"
+    exit 1
+  fi
+
+  echo "Frontend shell security headers OK"
+}
+
 check_status "Frontend root" "$FRONTEND_URL"
 check_status "Frontend translator route" "$FRONTEND_URL/#translator"
+check_frontend_security_headers
 
 HEALTH_RETRIES=3 HEALTH_RETRY_SECONDS=10 HEALTH_API_KEY="$HEALTH_API_KEY" "$(dirname "$0")/health_gate.sh" "$API_URL/health"
 
