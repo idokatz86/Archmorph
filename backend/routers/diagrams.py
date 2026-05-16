@@ -48,6 +48,7 @@ from project_store import (
     get_project_id_for_diagram,
 )
 import shareable_reports
+from iac_chat import clear_iac_chat
 from analysis_payload_bounds import (
     AnalysisPayloadTooLarge,
     validate_analysis_payload_bounds,
@@ -379,6 +380,7 @@ async def purge_diagram_session(
     share_store_deleted = _purge_store_records_for_diagram(SHARE_STORE, diagram_id)
     share_links_deleted = shareable_reports.purge_diagram_shares(diagram_id)
     jobs_deleted = job_manager.purge_diagram(diagram_id)
+    iac_chat_deleted = clear_iac_chat(diagram_id)
 
     record_event("diagram_data_purged", {
         "diagram_id": diagram_id,
@@ -389,6 +391,7 @@ async def purge_diagram_session(
         "share_store_deleted": share_store_deleted,
         "share_links_deleted": share_links_deleted,
         "jobs_deleted": jobs_deleted,
+        "iac_chat_deleted": iac_chat_deleted,
     })
     return {
         "status": "purged",
@@ -401,6 +404,7 @@ async def purge_diagram_session(
             "share_store": share_store_deleted,
             "share_links": share_links_deleted,
             "jobs": jobs_deleted,
+            "iac_chat": iac_chat_deleted,
         },
     }
 
