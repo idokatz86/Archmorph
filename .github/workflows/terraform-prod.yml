@@ -57,12 +57,60 @@ jobs:
         if: github.event_name == 'push'
         run: terraform validate -no-color
 
-      - name: "Preflight: production remote state RBAC requirements"
+      - name: "Preflight: verify remote-state Blob data-plane RBAC"
         if: github.event_name == 'workflow_dispatch'
         run: |
+          set -euo pipefail
           echo "::notice::Production plan/apply uses Azure Storage remote state."
-          echo "::notice::Grant this workflow identity Blob data-plane access (for example: Storage Blob Data Contributor) on the tfstate storage account/container."
-          echo "::notice::Ensure any required management-plane access is also granted."
+
+          BACKEND_CONFIG_FILE="main.tf"
+          if [ ! -f "$BACKEND_CONFIG_FILE" ]; then
+            echo "::error::Cannot find $BACKEND_CONFIG_FILE in ${PWD} to resolve Terraform backend settings."
+            exit 1
+          fi
+
+          STATE_RESOURCE_GROUP=$(sed -nE 's/^[[:space:]]*resource_group_name[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' "$BACKEND_CONFIG_FILE" | head -1)
+          STATE_STORAGE_ACCOUNT=$(sed -nE 's/^[[:space:]]*storage_account_name[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' "$BACKEND_CONFIG_FILE" | head -1)
+          STATE_CONTAINER=$(sed -nE 's/^[[:space:]]*container_name[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' "$BACKEND_CONFIG_FILE" | head -1)
+          STATE_KEY=$(sed -nE 's/^[[:space:]]*key[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' "$BACKEND_CONFIG_FILE" | head -1)
+
+          for required in STATE_RESOURCE_GROUP STATE_STORAGE_ACCOUNT STATE_CONTAINER STATE_KEY; do
+            if [ -z "${!required:-}" ]; then
+              echo "::error::Unable to resolve Terraform backend ${required} from ${BACKEND_CONFIG_FILE}."
+              exit 1
+            fi
+          done
+
+          STATE_CONTAINER_SCOPE="/subscriptions/${ARM_SUBSCRIPTION_ID}/resourceGroups/${STATE_RESOURCE_GROUP}/providers/Microsoft.Storage/storageAccounts/${STATE_STORAGE_ACCOUNT}/blobServices/default/containers/${STATE_CONTAINER}"
+          STATE_STORAGE_SCOPE="/subscriptions/${ARM_SUBSCRIPTION_ID}/resourceGroups/${STATE_RESOURCE_GROUP}/providers/Microsoft.Storage/storageAccounts/${STATE_STORAGE_ACCOUNT}"
+
+          echo "Terraform remote state scope: account=${STATE_STORAGE_ACCOUNT}, container=${STATE_CONTAINER}, key=${STATE_KEY}"
+
+          TFSTATE_ACCESS_ERROR="$(mktemp)"
+          set +e
+          az storage blob list \
+            --only-show-errors \
+            --auth-mode login \
+            --account-name "${STATE_STORAGE_ACCOUNT}" \
+            --container-name "${STATE_CONTAINER}" \
+            --prefix "${STATE_KEY}" \
+            --num-results 1 >/dev/null 2>"${TFSTATE_ACCESS_ERROR}"
+          TFSTATE_ACCESS_STATUS=$?
+          set -e
+
+          if [ "${TFSTATE_ACCESS_STATUS}" -ne 0 ]; then
+            echo "::error::Terraform remote-state preflight failed: this workflow identity cannot list blobs in ${STATE_STORAGE_ACCOUNT}/${STATE_CONTAINER}."
+            echo "::notice::Grant Blob data-plane access (for example: Storage Blob Data Contributor) to AZURE_CLIENT_ID=${ARM_CLIENT_ID}."
+            echo "::notice::Least-privilege scope (container): ${STATE_CONTAINER_SCOPE}"
+            echo "::notice::Alternative scope (storage account): ${STATE_STORAGE_SCOPE}"
+            echo "::notice::After RBAC propagates, rerun this Terraform Production workflow and then rerun CI/CD."
+            sed 's/^/az storage blob list: /' "${TFSTATE_ACCESS_ERROR}" >&2
+            rm -f "${TFSTATE_ACCESS_ERROR}"
+            exit 1
+          fi
+
+          rm -f "${TFSTATE_ACCESS_ERROR}"
+          echo "Terraform remote-state Blob data-plane preflight succeeded."
 
       - name: Azure Login (OIDC)
         if: github.event_name == 'workflow_dispatch'
