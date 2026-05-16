@@ -30,6 +30,61 @@ Before any state-changing operation:
 5. Keep the East US account alive until at least 24 hours of zero traffic is verified.
 6. Apply only from an approved operator session with rollback notes and smoke checks ready.
 
+### Legacy live-stack import reconciliation runbook (`archmorph-rg-dev`)
+
+Issue #1079 tracks the next state-sync gap after the remote-state RBAC and stack-contract fixes: the `Terraform Production` plan can now read the live state, but it must not approve or apply a plan that still wants to create resources which already exist in the legacy dev-named production stack.
+
+Use this runbook from an approved operator shell only. It is intentionally manual and should be completed before re-running `Terraform Production` with `apply=false`.
+
+```bash
+cd infra
+terraform init -input=false -lockfile=readonly
+terraform state pull > backup.tfstate
+
+STACK_ENVIRONMENT="${TF_VAR_resource_group_environment:-${TF_VAR_environment}}"
+RESOURCE_GROUP="archmorph-rg-${STACK_ENVIRONMENT}"
+NAME_SUFFIX="$(python3 - <<'PY'
+import json
+import subprocess
+
+state = json.loads(subprocess.check_output(["terraform", "state", "pull"], text=True))
+for resource in state.get("resources", []):
+    if resource.get("type") == "random_string" and resource.get("name") == "suffix":
+        for instance in resource.get("instances", []):
+            result = instance.get("attributes", {}).get("result")
+            if result:
+                print(result)
+                raise SystemExit(0)
+raise SystemExit("Unable to resolve random_string.suffix.result from Terraform state.")
+PY
+)"
+
+terraform import azurerm_container_app_environment.main \
+  "/subscriptions/${ARM_SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.App/managedEnvironments/archmorph-cae-${STACK_ENVIRONMENT}"
+terraform import azurerm_container_app.backend \
+  "/subscriptions/${ARM_SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.App/containerApps/archmorph-api"
+terraform import azurerm_user_assigned_identity.container_app \
+  "/subscriptions/${ARM_SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/archmorph-api-identity"
+terraform import azurerm_storage_account.main \
+  "/subscriptions/${ARM_SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.Storage/storageAccounts/archmorph${NAME_SUFFIX}"
+terraform import azurerm_redis_cache.main \
+  "/subscriptions/${ARM_SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.Cache/Redis/archmorph-redis-${NAME_SUFFIX}"
+```
+
+Then re-run the plan-only workflow and confirm the resources above no longer appear as creates. `azurerm_static_web_app.frontend` is already in state when the plan shows an in-place update only, so it should stay a drift review item rather than an import gap.
+
+If the plan still wants to destroy `azurerm_postgresql_flexible_server_firewall_rule.allow_azure[0]`, verify Azure still reports `publicNetworkAccess = Disabled` on the live PostgreSQL Flexible Server before approving any future apply:
+
+```bash
+az postgres flexible-server show \
+  --resource-group "${RESOURCE_GROUP}" \
+  --name "archmorph-db-${NAME_SUFFIX}" \
+  --query 'network.publicNetworkAccess' \
+  -o tsv
+```
+
+The legacy `AllowAzureServices` firewall rule is redundant only while public PostgreSQL access stays disabled. Do not approve an apply that removes that rule unless the server-level setting remains disabled and the reviewed plan no longer includes existing-resource creates.
+
 ## Sweden Central One-Region Migration Guardrails
 
 Issue #783 tracks the plan to move Archmorph toward a single `swedencentral` regional footprint. This is a parallel-build migration, not an in-place edit of `location` or `openai_location` against the current state.

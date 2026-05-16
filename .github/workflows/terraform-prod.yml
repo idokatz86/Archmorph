@@ -199,6 +199,196 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         run: terraform show -no-color tfplan | tee tfplan.txt
 
+      - name: "Preflight: block unsafe live-resource creates and review PostgreSQL firewall-rule destroy"
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          set -euo pipefail
+          terraform show -json tfplan > tfplan.json
+          terraform state pull > tfstate.snapshot.json
+          STACK_ENVIRONMENT="${TF_VAR_resource_group_environment:-${TF_VAR_environment}}"
+          STACK_ENVIRONMENT="${STACK_ENVIRONMENT}" ARM_SUBSCRIPTION_ID="${ARM_SUBSCRIPTION_ID}" python - <<'PY'
+          import json
+          import os
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          def fail(message: str) -> None:
+              print(f"::error::{message}")
+              sys.exit(1)
+
+          def state_instance_attr(state: dict, resource_type: str, resource_name: str, attr: str) -> str | None:
+              for resource in state.get("resources", []):
+                  if resource.get("type") != resource_type or resource.get("name") != resource_name:
+                      continue
+                  for instance in resource.get("instances", []):
+                      value = instance.get("attributes", {}).get(attr)
+                      if value not in (None, ""):
+                          return value
+              return None
+
+          def azure_resource_exists(resource_id: str) -> bool:
+              result = subprocess.run(
+                  [
+                      "az",
+                      "resource",
+                      "show",
+                      "--only-show-errors",
+                      "--ids",
+                      resource_id,
+                      "-o",
+                      "json",
+                  ],
+                  capture_output=True,
+                  text=True,
+              )
+              return result.returncode == 0
+
+          state = json.loads(Path("tfstate.snapshot.json").read_text(encoding="utf-8"))
+          plan = json.loads(Path("tfplan.json").read_text(encoding="utf-8"))
+
+          stack_environment = os.environ["STACK_ENVIRONMENT"]
+          subscription_id = os.environ["ARM_SUBSCRIPTION_ID"]
+          resource_group = f"archmorph-rg-{stack_environment}"
+
+          name_suffix = state_instance_attr(state, "random_string", "suffix", "result")
+          if not name_suffix:
+              fail(
+                  "Terraform state is missing random_string.suffix.result, so the workflow cannot derive "
+                  "the legacy live resource IDs that must be imported before any reviewed apply."
+              )
+
+          live_resources = [
+              {
+                  "address": "azurerm_container_app_environment.main",
+                  "resource_id": (
+                      f"/subscriptions/{subscription_id}/resourceGroups/{resource_group}"
+                      f"/providers/Microsoft.App/managedEnvironments/archmorph-cae-{stack_environment}"
+                  ),
+              },
+              {
+                  "address": "azurerm_container_app.backend",
+                  "resource_id": (
+                      f"/subscriptions/{subscription_id}/resourceGroups/{resource_group}"
+                      "/providers/Microsoft.App/containerApps/archmorph-api"
+                  ),
+              },
+              {
+                  "address": "azurerm_user_assigned_identity.container_app",
+                  "resource_id": (
+                      f"/subscriptions/{subscription_id}/resourceGroups/{resource_group}"
+                      "/providers/Microsoft.ManagedIdentity/userAssignedIdentities/archmorph-api-identity"
+                  ),
+              },
+              {
+                  "address": "azurerm_storage_account.main",
+                  "resource_id": (
+                      f"/subscriptions/{subscription_id}/resourceGroups/{resource_group}"
+                      f"/providers/Microsoft.Storage/storageAccounts/archmorph{name_suffix}"
+                  ),
+              },
+              {
+                  "address": "azurerm_redis_cache.main",
+                  "resource_id": (
+                      f"/subscriptions/{subscription_id}/resourceGroups/{resource_group}"
+                      f"/providers/Microsoft.Cache/Redis/archmorph-redis-{name_suffix}"
+                  ),
+              },
+              {
+                  "address": "azurerm_static_web_app.frontend",
+                  "resource_id": (
+                      f"/subscriptions/{subscription_id}/resourceGroups/{resource_group}"
+                      "/providers/Microsoft.Web/staticSites/archmorph-frontend"
+                  ),
+              },
+          ]
+
+          resource_changes = {change.get("address"): change for change in plan.get("resource_changes", [])}
+          adoption_gaps: list[dict[str, str]] = []
+
+          for resource in live_resources:
+              change = resource_changes.get(resource["address"])
+              actions = change.get("change", {}).get("actions", []) if change else []
+              if "create" not in actions:
+                  continue
+              if not azure_resource_exists(resource["resource_id"]):
+                  continue
+
+              adoption_gaps.append(
+                  {
+                      **resource,
+                      "import_command": f'terraform import {resource["address"]} \'{resource["resource_id"]}\'',
+                  }
+              )
+
+          if adoption_gaps:
+              print(
+                  "::error::Terraform plan still wants to create Azure resources that already exist "
+                  "live in the legacy dev-named stack. Import them into Terraform state before approving any apply."
+              )
+              for resource in adoption_gaps:
+                  print(
+                      "::notice::"
+                      f"{resource['address']} already exists live. Import with: {resource['import_command']}"
+                  )
+              print(
+                  "::notice::After importing the resources above, rerun Terraform Production with apply=false "
+                  "and confirm those create actions are gone before reviewing any apply."
+              )
+              sys.exit(1)
+
+          print("Terraform live-resource adoption preflight found no known existing resources planned as creates.")
+
+          firewall_change = resource_changes.get("azurerm_postgresql_flexible_server_firewall_rule.allow_azure[0]")
+          if firewall_change and "delete" in firewall_change.get("change", {}).get("actions", []):
+              server_name = state_instance_attr(state, "azurerm_postgresql_flexible_server", "main", "name")
+              if not server_name:
+                  fail(
+                      "Terraform plans to remove azurerm_postgresql_flexible_server_firewall_rule.allow_azure[0], "
+                      "but the workflow could not resolve the live PostgreSQL server name from state."
+                  )
+
+              network_access = subprocess.run(
+                  [
+                      "az",
+                      "postgres",
+                      "flexible-server",
+                      "show",
+                      "--only-show-errors",
+                      "--resource-group",
+                      resource_group,
+                      "--name",
+                      server_name,
+                      "--query",
+                      "network.publicNetworkAccess",
+                      "-o",
+                      "tsv",
+                  ],
+                  capture_output=True,
+                  text=True,
+              )
+              if network_access.returncode != 0:
+                  fail(
+                      "Terraform plans to remove the legacy AllowAzureServices firewall rule, but Azure CLI "
+                      "could not verify the current PostgreSQL publicNetworkAccess setting."
+                  )
+
+              public_network_access = network_access.stdout.strip()
+              if public_network_access.lower() != "disabled":
+                  fail(
+                      "Terraform plans to remove the legacy AllowAzureServices firewall rule while "
+                      f"publicNetworkAccess is {public_network_access!r}. Review that destroy manually before any apply."
+                  )
+
+              print(
+                  "Legacy AllowAzureServices firewall rule is planned for removal and PostgreSQL "
+                  "publicNetworkAccess is Disabled, so the rule is redundant while public access stays off."
+              )
+          else:
+              print("Terraform plan does not include an AllowAzureServices firewall-rule destroy.")
+          PY
+          rm -f tfplan.json tfstate.snapshot.json
+
       - name: Collect plan integrity metadata
         if: github.event_name == 'workflow_dispatch'
         run: |
