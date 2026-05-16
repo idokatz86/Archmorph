@@ -62,7 +62,9 @@ def test_prod_plan_preflights_remote_state_blob_rbac_before_init():
     assert "AZURE_CLIENT_ID=${ARM_CLIENT_ID}" in preflight_script
 
     preflight_index = plan_steps.index(preflight_step)
+    login_index = plan_steps.index(_step_by_name(plan_steps, "Azure Login (OIDC)"))
     init_index = plan_steps.index(_step_by_name(plan_steps, "Terraform Init"))
+    assert login_index < preflight_index
     assert preflight_index < init_index
 
 
