@@ -126,6 +126,7 @@ const ACCESSIBLE_LANDING_ZONE_SVG = `
 </svg>`;
 
 const SAMPLE_UPLOAD_PATH = path.resolve(process.cwd(), 'frontend/public/favicon.svg');
+const SAMPLE_PDF_BUFFER = Buffer.from('%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n');
 const MOCK_COST_ESTIMATE = {
   services: [
     { service: 'Azure Virtual Machines', monthly_low: 120, monthly_high: 180 },
@@ -323,6 +324,24 @@ async function stubAuthenticatedUser(page: Page) {
   });
 }
 
+async function stubSignedOutUser(page: Page) {
+  await page.route('**/.auth/me', async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ clientPrincipal: null }),
+    });
+  });
+
+  await page.route('**/api/auth/me', async route => {
+    await route.fulfill({
+      status: 401,
+      contentType: 'application/json',
+      body: JSON.stringify({ detail: 'Not authenticated' }),
+    });
+  });
+}
+
 // ─── Test Suite ──────────────────────────────────────────────
 
 test.describe('Core Funnel: Home & Navigation', () => {
@@ -371,6 +390,87 @@ test.describe('Core Funnel: Diagram Upload', () => {
     if (visible) {
       await expect(samples).toBeVisible();
     }
+  });
+});
+
+test.describe('Core Funnel: Signed-out upload auth transition recovery', () => {
+  test.beforeEach(async ({ page }) => {
+    await stubSignedOutUser(page);
+    await page.goto('/#translator');
+    await expect(page.locator('#root')).toBeVisible({ timeout: 15000 });
+    await page.evaluate(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
+    await page.reload();
+    await expect(page.locator('#root')).toBeVisible({ timeout: 15000 });
+  });
+
+  test('keeps selected PDF when login modal is opened then cancelled', async ({ page }) => {
+    await page.locator('input[type="file"]').setInputFiles({
+      name: 'architecture.pdf',
+      mimeType: 'application/pdf',
+      buffer: SAMPLE_PDF_BUFFER,
+    });
+    await expect(page.getByText('architecture.pdf')).toBeVisible();
+
+    await page.getByRole('button', { name: 'Sign in to analyze' }).click();
+    const dialog = page.getByRole('dialog', { name: /sign in to archmorph/i });
+    await expect(dialog).toBeVisible();
+
+    await dialog.getByRole('button', { name: /continue browsing/i }).click();
+    await expect(dialog).toBeHidden();
+    await expect(page.getByText('architecture.pdf')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Sign in to analyze' })).toBeVisible();
+  });
+
+  test('shows re-upload recovery after provider redirect returns without completed auth', async ({ page }) => {
+    await page.route('**/.auth/login/github**', async route => {
+      await route.fulfill({
+        status: 302,
+        headers: { location: '/#translator' },
+        body: '',
+      });
+    });
+
+    await page.locator('input[type="file"]').setInputFiles({
+      name: 'architecture.pdf',
+      mimeType: 'application/pdf',
+      buffer: SAMPLE_PDF_BUFFER,
+    });
+    await expect(page.getByText('architecture.pdf')).toBeVisible();
+
+    page.once('dialog', dialog => dialog.accept());
+
+    await page.getByRole('button', { name: 'Sign in to analyze' }).click();
+    const dialog = page.getByRole('dialog', { name: /sign in to archmorph/i });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('button', { name: /continue with github/i }).click();
+
+    await expect(page.getByRole('heading', { name: 'Re-upload required after sign-in redirect' })).toBeVisible();
+    await expect(page.getByText('architecture.pdf')).toBeVisible();
+    await expect(page.getByRole('button', { name: /Re-upload diagram/i })).toBeVisible();
+  });
+});
+
+test.describe('Core Funnel: Authenticated PDF continuation fixture', () => {
+  test('authenticated fixture can analyze selected PDF without re-upload', async ({ page }) => {
+    await page.addInitScript(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
+    await stubAuthenticatedUser(page);
+    await stubDeterministicDeliverables(page);
+    await page.goto('/#translator');
+    await expect(page.locator('#root')).toBeVisible({ timeout: 15000 });
+
+    await page.locator('input[type="file"]').setInputFiles({
+      name: 'architecture.pdf',
+      mimeType: 'application/pdf',
+      buffer: SAMPLE_PDF_BUFFER,
+    });
+    await expect(page.getByText('architecture.pdf')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Analyze This Diagram' })).toBeVisible();
   });
 });
 
