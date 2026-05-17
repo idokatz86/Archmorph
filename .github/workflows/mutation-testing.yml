@@ -42,6 +42,7 @@ jobs:
             [job_queue]="tests/test_job_queue.py"
             [diagram_export]="tests/test_diagram_export.py"
             [export_capabilities]="tests/test_export_capabilities.py"
+            [auth]="tests/test_auth.py tests/test_auth_multitenant_hardening.py"
             [iac_generator]="tests/test_iac_generator.py"
             [services/azure_pricing]="tests/test_pricing_blob.py"
             [vision_analyzer]="tests/test_vision_analyzer.py"

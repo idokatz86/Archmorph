@@ -26,6 +26,12 @@
       "minimum_score": 60
     },
     {
+      "name": "auth",
+      "path": "backend/auth.py",
+      "report": "auth.txt",
+      "minimum_score": 60
+    },
+    {
       "name": "iac_generator",
       "path": "backend/iac_generator.py",
       "report": "iac_generator.txt",

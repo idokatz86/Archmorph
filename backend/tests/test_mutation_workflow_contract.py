@@ -12,6 +12,7 @@ def test_mutation_workflow_targets_live_risk_modules():
     assert '[job_queue]="tests/test_job_queue.py"' in workflow
     assert '[diagram_export]="tests/test_diagram_export.py"' in workflow
     assert '[export_capabilities]="tests/test_export_capabilities.py"' in workflow
+    assert '[auth]="tests/test_auth.py tests/test_auth_multitenant_hardening.py"' in workflow
     assert '[iac_generator]="tests/test_iac_generator.py"' in workflow
     assert '[services/azure_pricing]="tests/test_pricing_blob.py"' in workflow
     assert '[vision_analyzer]="tests/test_vision_analyzer.py"' in workflow
@@ -26,5 +27,6 @@ def test_mutation_baseline_tracks_live_risk_modules():
     assert '"name": "job_queue"' in baseline
     assert '"name": "diagram_export"' in baseline
     assert '"name": "export_capabilities"' in baseline
+    assert '"name": "auth"' in baseline
     assert '"name": "iac_generator"' in baseline
     assert '"name": "services_azure_pricing"' in baseline
