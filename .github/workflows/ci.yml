@@ -1093,13 +1093,34 @@ jobs:
           SHORT_SHA="${{ github.sha }}"
           SHORT_SHA="${SHORT_SHA:0:8}"
           REVISION_SUFFIX="sha-${SHORT_SHA}-run-${{ github.run_attempt }}"
-          az containerapp update \
-            --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --image "${IMAGE_REF}" \
-            --set-env-vars "${SET_ENV_VARS[@]}" \
-            --revision-suffix "$REVISION_SUFFIX" \
-            --no-wait
+          UPDATE_ERROR=$(mktemp)
+          for update_attempt in 1 2 3 4; do
+            : > "$UPDATE_ERROR"
+            set +e
+            az containerapp update \
+              --name ${{ env.CONTAINER_APP_NAME }} \
+              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --image "${IMAGE_REF}" \
+              --set-env-vars "${SET_ENV_VARS[@]}" \
+              --revision-suffix "$REVISION_SUFFIX" \
+              --no-wait \
+              2>"$UPDATE_ERROR"
+            UPDATE_STATUS=$?
+            set -e
+            if [ "$UPDATE_STATUS" -eq 0 ]; then
+              break
+            fi
+            if grep -q "ConflictingConcurrentWriteNotAllowed" "$UPDATE_ERROR" && [ "$update_attempt" -lt 4 ]; then
+              echo "::warning::Container App update hit a concurrent write on attempt ${update_attempt}; retrying"
+              sleep $((update_attempt * 20))
+              continue
+            fi
+            echo "::error::Container App update failed on attempt ${update_attempt}"
+            sed 's/^/az containerapp update: /' "$UPDATE_ERROR" >&2
+            rm -f "$UPDATE_ERROR"
+            exit "$UPDATE_STATUS"
+          done
+          rm -f "$UPDATE_ERROR"
 
           echo "Waiting for green revision to provision..."
           sleep 45
