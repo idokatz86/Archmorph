@@ -29,6 +29,7 @@ from openai_client import OpenAIServiceError
 from export_capabilities import issue_export_capability
 from job_queue import job_manager
 import shareable_reports
+from iac_chat import IAC_CHAT_SESSIONS
 
 
 # ====================================================================
@@ -47,9 +48,11 @@ def clean_session():
     """Clear SESSION_STORE and IMAGE_STORE before/after each test that needs it."""
     SESSION_STORE.clear()
     IMAGE_STORE.clear()
+    IAC_CHAT_SESSIONS.clear()
     yield SESSION_STORE
     SESSION_STORE.clear()
     IMAGE_STORE.clear()
+    IAC_CHAT_SESSIONS.clear()
 
 
 # Mock analysis result used when we don't want to call Azure OpenAI
@@ -276,6 +279,7 @@ class TestPurge:
         SHARE_STORE.set("share-test", {"diagram_id": did, "kind": "legacy"})
         share = shareable_reports.create_share({"diagram_id": did, "mappings": []})
         job = job_manager.submit("analyze", diagram_id=did)
+        IAC_CHAT_SESSIONS[f"{did}:iac"] = [{"role": "user", "content": "test"}]
         assert job_manager.get(job.job_id) is not None
         assert shareable_reports.get_share_stats(share["share_id"]) is not None
 
@@ -287,11 +291,13 @@ class TestPurge:
         assert payload["purged"]["image"] is True
         assert payload["purged"]["session"] is True
         assert payload["purged"]["jobs"] >= 1
+        assert payload["purged"]["iac_chat"] is True
 
         assert did not in IMAGE_STORE
         assert did not in SESSION_STORE
         assert job_manager.get(job.job_id) is None
         assert shareable_reports.get_share_stats(share["share_id"]) is None
+        assert f"{did}:iac" not in IAC_CHAT_SESSIONS
         assert not any(
             (EXPORT_CAPABILITY_STORE.get(key) or {}).get("diagram_id") == did
             for key in EXPORT_CAPABILITY_STORE.keys("*")
@@ -300,6 +306,21 @@ class TestPurge:
             (SHARE_STORE.get(key) or {}).get("diagram_id") == did
             for key in SHARE_STORE.keys("*")
         )
+
+    def test_purge_rejects_cross_tenant_access(
+        self,
+        client,
+        clean_session,
+        tenant_a_auth_headers,
+        tenant_b_auth_headers,
+    ):
+        did = self._upload(client)
+        with patch("routers.diagrams.analyze_image", return_value=copy.deepcopy(MOCK_ANALYSIS)):
+            analyzed = client.post(f"/api/diagrams/{did}/analyze", headers=tenant_a_auth_headers)
+        assert analyzed.status_code == 200
+
+        forbidden = client.delete(f"/api/diagrams/{did}/purge", headers=tenant_b_auth_headers)
+        assert forbidden.status_code in (403, 404)
 
 
 # ====================================================================
