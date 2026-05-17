@@ -28,7 +28,7 @@
     "@axe-core/playwright": "^4.11.1",
     "@playwright/test": "^1.58.2",
     "playwright": "^1.58.2",
-    "puppeteer": "^24.39.1"
+    "puppeteer": "^25.0.2"
   },
   "overrides": {
     "yauzl": "^3.2.1"
