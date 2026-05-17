@@ -62,6 +62,18 @@ check_frontend_security_headers() {
     exit 1
   fi
 
+  if [[ "$csp_line" != *"fonts.googleapis.com"* ]]; then
+    echo "::error::Frontend shell CSP must allow Google Fonts stylesheet (fonts.googleapis.com in style-src)"
+    cat "$headers_file"
+    exit 1
+  fi
+
+  if [[ "$csp_line" != *"fonts.gstatic.com"* ]]; then
+    echo "::error::Frontend shell CSP must allow Google Fonts files (fonts.gstatic.com in font-src)"
+    cat "$headers_file"
+    exit 1
+  fi
+
   if ! printf '%s\n' "$header_dump" | grep -q '^permissions-policy:[[:space:]]*camera=(), microphone=(), geolocation=()$'; then
     echo "::error::Frontend shell is missing expected Permissions-Policy"
     cat "$headers_file"

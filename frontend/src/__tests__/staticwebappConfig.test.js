@@ -27,6 +27,8 @@ describe('Static Web App security headers config', () => {
       expect(csp).toContain("img-src 'self' data: blob:");
       expect(csp).toContain("object-src 'none'");
       expect(csp).toContain("frame-ancestors 'none'");
+      expect(csp).toContain("https://fonts.googleapis.com");
+      expect(csp).toContain("font-src 'self' https://fonts.gstatic.com");
     }
   });
 });
