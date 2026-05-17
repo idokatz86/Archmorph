@@ -5,6 +5,8 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SECURITY_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "security.yml"
+BACKEND_DOCKERFILE = REPO_ROOT / "backend" / "Dockerfile"
+MCP_GATEWAY_DOCKERFILE = REPO_ROOT / "mcp-gateway" / "Dockerfile"
 
 
 def _load() -> dict:
@@ -55,3 +57,12 @@ def test_security_workflow_keeps_required_trivy_status_context():
 
     assert required_job["name"] == "Container Scan — Trivy"
     assert required_job["needs"] == "trivy-container"
+
+
+def test_runtime_images_upgrade_pip_before_dependency_install():
+    for dockerfile in (BACKEND_DOCKERFILE, MCP_GATEWAY_DOCKERFILE):
+        content = dockerfile.read_text(encoding="utf-8")
+        assert 'pip install --no-cache-dir --upgrade "pip>=26.0"' in content
+        assert content.index('pip install --no-cache-dir --upgrade "pip>=26.0"') < content.index(
+            "pip install --no-cache-dir -r requirements.txt"
+        )
