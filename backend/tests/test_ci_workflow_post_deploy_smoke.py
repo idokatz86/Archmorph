@@ -141,7 +141,10 @@ def test_backend_storage_validation_requires_private_endpoint_when_public_access
 
     assert 'if [ "$PUBLIC_NETWORK_ACCESS" = "Disabled" ]; then' in validate_script
     assert "APPROVED_PRIVATE_ENDPOINT_COUNT=$(az network private-endpoint-connection list" in validate_script
+    assert "PRIVATE_ENDPOINT_STATUS=$?" in validate_script
+    assert "Unable to query private endpoint connections" in validate_script
     assert "has public network access disabled but no approved private endpoint connection" in validate_script
+    assert "ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER" in validate_script
     assert "managed-identity blob preflight will prove RBAC data-plane access" in validate_script
     assert "Container App still references legacy storage account" in validate_script
 

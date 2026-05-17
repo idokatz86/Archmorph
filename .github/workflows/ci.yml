@@ -15,6 +15,9 @@ permissions:
 env:
   API_URL: ${{ secrets.API_URL }}
   FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+  # Temporary cutover flag while production hardening is disabled and the live app
+  # still uses managed-identity RBAC over the public Blob endpoint.
+  ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER: "true"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -723,17 +726,33 @@ jobs:
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --query publicNetworkAccess -o tsv)
           if [ "$PUBLIC_NETWORK_ACCESS" = "Disabled" ]; then
+            PRIVATE_ENDPOINT_ERROR=$(mktemp)
+            set +e
             APPROVED_PRIVATE_ENDPOINT_COUNT=$(az network private-endpoint-connection list \
               --id "$STORAGE_ID" \
               --query "[?properties.privateLinkServiceConnectionState.status=='Approved'] | length(@)" \
-              -o tsv 2>/dev/null || echo "0")
+              -o tsv 2>"$PRIVATE_ENDPOINT_ERROR")
+            PRIVATE_ENDPOINT_STATUS=$?
+            set -e
+            if [ "$PRIVATE_ENDPOINT_STATUS" -ne 0 ]; then
+              echo "::error::Unable to query private endpoint connections for storage account $STORAGE_NAME"
+              sed 's/^/az network private-endpoint-connection list: /' "$PRIVATE_ENDPOINT_ERROR" >&2
+              rm -f "$PRIVATE_ENDPOINT_ERROR"
+              exit 1
+            fi
+            rm -f "$PRIVATE_ENDPOINT_ERROR"
             if [ "${APPROVED_PRIVATE_ENDPOINT_COUNT:-0}" = "0" ]; then
               echo "::error::Storage account $STORAGE_NAME has public network access disabled but no approved private endpoint connection. Enable public access for the hardening-disabled cutover or apply Terraform private endpoint networking before CI deploy."
               exit 1
             fi
             echo "Storage account $STORAGE_NAME uses disabled public network access with approved private endpoint connectivity"
           else
-            echo "::notice::Storage account $STORAGE_NAME has public network access ${PUBLIC_NETWORK_ACCESS}; managed-identity blob preflight will prove RBAC data-plane access before traffic shift."
+            ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER=$(echo "${ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER:-false}" | tr '[:upper:]' '[:lower:]')
+            if [ "$ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER" != "true" ]; then
+              echo "::error::Storage account $STORAGE_NAME has public network access ${PUBLIC_NETWORK_ACCESS}. Set ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER=true only for the reviewed hardening-disabled cutover, or apply Terraform private endpoint networking before CI deploy."
+              exit 1
+            fi
+            echo "::notice::Storage account $STORAGE_NAME has public network access ${PUBLIC_NETWORK_ACCESS} under ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER=true; managed-identity blob preflight will prove RBAC data-plane access before traffic shift."
             if [ "$STORAGE_NAME" = "archmorphmetrics" ]; then
               echo "::notice::Container App still references legacy storage account $STORAGE_NAME until Terraform storage migration is applied."
             fi
