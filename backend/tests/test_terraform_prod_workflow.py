@@ -68,6 +68,79 @@ def test_prod_plan_preflights_remote_state_blob_rbac_before_init():
     assert preflight_index < init_index
 
 
+def test_prod_plan_preflights_state_stack_contract_before_plan():
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    plan_steps = workflow["jobs"]["prod-plan"]["steps"]
+
+    stack_preflight_step = _step_by_name(plan_steps, "Preflight: verify Terraform state stack contract")
+    stack_preflight_script = stack_preflight_step["run"]
+    assert "STACK_ENVIRONMENT=\"${TF_VAR_resource_group_environment:-${TF_VAR_environment}}\"" in stack_preflight_script
+    assert "EXPECTED_RESOURCE_GROUP=\"archmorph-rg-${STACK_ENVIRONMENT}\"" in stack_preflight_script
+    assert "az group exists" in stack_preflight_script
+    assert "terraform state pull" in stack_preflight_script
+    assert "azurerm_resource_group" in stack_preflight_script
+    assert "Refusing to plan because this would replace the stack" in stack_preflight_script
+
+    init_index = plan_steps.index(_step_by_name(plan_steps, "Terraform Init"))
+    stack_preflight_index = plan_steps.index(stack_preflight_step)
+    plan_index = plan_steps.index(_step_by_name(plan_steps, "Terraform Plan (production)"))
+    assert init_index < stack_preflight_index < plan_index
+
+
+def test_prod_plan_blocks_existing_live_resource_creates_until_imported():
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    plan_steps = workflow["jobs"]["prod-plan"]["steps"]
+
+    adoption_step = _step_by_name(
+        plan_steps,
+        "Preflight: block unsafe live-resource creates and review PostgreSQL firewall-rule destroy",
+    )
+    adoption_script = adoption_step["run"]
+    assert "terraform show -json tfplan > tfplan.json" in adoption_script
+    assert "terraform state pull > tfstate.snapshot.json" in adoption_script
+    assert 'STACK_ENVIRONMENT="${TF_VAR_resource_group_environment:-${TF_VAR_environment}}"' in adoption_script
+    assert '"azurerm_container_app_environment.main"' in adoption_script
+    assert '"azurerm_container_app.backend"' in adoption_script
+    assert '"azurerm_user_assigned_identity.container_app"' in adoption_script
+    assert '"azurerm_storage_account.main"' in adoption_script
+    assert '"azurerm_redis_cache.main"' in adoption_script
+    assert 'redis_name = os.environ.get("TF_VAR_redis_name_override") or f"archmorph-redis-{name_suffix}"' in adoption_script
+    assert '"legacy_resource_ids"' in adoption_script
+    assert "/providers/Microsoft.Cache/Redis/archmorph-redis" in adoption_script
+    assert "Do not import blindly" in adoption_script
+    assert '"azurerm_static_web_app.frontend"' in adoption_script
+    assert '"resource"' in adoption_script
+    assert '"show"' in adoption_script
+    assert "Import with:" in adoption_script
+    assert "conflicts with existing live resource" in adoption_script
+    assert 'terraform import {resource["address"]}' in adoption_script
+    assert "Terraform live-resource adoption preflight found no known existing resources planned as creates." in adoption_script
+    assert "After importing the resources above, rerun Terraform Production with apply=false" in adoption_script
+
+    show_plan_index = plan_steps.index(_step_by_name(plan_steps, "Show plan"))
+    adoption_index = plan_steps.index(adoption_step)
+    collect_index = plan_steps.index(_step_by_name(plan_steps, "Collect plan integrity metadata"))
+    assert show_plan_index < adoption_index < collect_index
+
+
+def test_prod_plan_reviews_legacy_postgresql_firewall_rule_destroy_before_artifact_upload():
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    plan_steps = workflow["jobs"]["prod-plan"]["steps"]
+
+    adoption_step = _step_by_name(
+        plan_steps,
+        "Preflight: block unsafe live-resource creates and review PostgreSQL firewall-rule destroy",
+    )
+    adoption_script = adoption_step["run"]
+    assert '"azurerm_postgresql_flexible_server_firewall_rule.allow_azure[0]"' in adoption_script
+    assert '"postgres"' in adoption_script
+    assert '"flexible-server"' in adoption_script
+    assert '"show"' in adoption_script
+    assert '"network.publicNetworkAccess"' in adoption_script
+    assert "AllowAzureServices firewall rule" in adoption_script
+    assert "publicNetworkAccess is Disabled" in adoption_script
+
+
 def test_prod_plan_diagnoses_oidc_principal_without_blocking_init():
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     plan_steps = workflow["jobs"]["prod-plan"]["steps"]
@@ -85,6 +158,24 @@ def test_prod_plan_diagnoses_oidc_principal_without_blocking_init():
     preflight_index = plan_steps.index(_step_by_name(plan_steps, "Preflight: verify remote-state Blob data-plane RBAC"))
     init_index = plan_steps.index(_step_by_name(plan_steps, "Terraform Init"))
     assert login_index < diagnostic_index < preflight_index < init_index
+
+
+def test_prod_workflow_supplies_legacy_openai_secret_variable():
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    env = workflow["env"]
+
+    assert env["TF_VAR_preserve_legacy_openai_key"] is True
+    assert env["TF_VAR_openai_api_key"] == "${{ secrets.AZURE_OPENAI_API_KEY }}"
+
+
+def test_prod_workflow_uses_prod_runtime_with_legacy_live_stack_names():
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    env = workflow["env"]
+
+    assert env["TF_VAR_environment"] == "prod"
+    assert env["TF_VAR_resource_group_environment"] == "dev"
+    assert env["TF_VAR_enable_production_infra_hardening"] is False
+    assert env["TF_VAR_redis_name_override"] == "archmorph-redis"
 
 
 def test_prod_apply_downloads_and_applies_reviewed_plan_only():

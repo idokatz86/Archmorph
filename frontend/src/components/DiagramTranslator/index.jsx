@@ -364,10 +364,15 @@ export default function DiagramTranslator() {
   }, []);
 
   useEffect(() => {
-    if (!state.selectedFile) return;
+    if (!state.selectedFile || !authUploadRecovery) return;
     clearPendingUploadForAuth();
     setAuthUploadRecovery(null);
-  }, [state.selectedFile]);
+  }, [authUploadRecovery, state.selectedFile]);
+
+  useEffect(() => {
+    if (!loginModalOpen || !state.selectedFile) return;
+    savePendingUploadForAuth(state.selectedFile);
+  }, [loginModalOpen, state.selectedFile]);
 
   // ── Resume analysis from Dashboard (#517) ──
   const pendingResumeId = useAppStore(s => s.pendingResumeId);
@@ -475,6 +480,7 @@ export default function DiagramTranslator() {
 
   const clearSelectedUpload = useCallback(() => {
     if (state.filePreviewUrl) URL.revokeObjectURL(state.filePreviewUrl);
+    if (fileInputRef.current) fileInputRef.current.value = '';
     clearPendingUploadForAuth();
     setAuthUploadRecovery(null);
     set({ selectedFile: null, filePreviewUrl: null, error: null, authError: null });

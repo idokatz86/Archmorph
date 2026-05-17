@@ -780,14 +780,19 @@ class TestServiceUpdates:
     def test_storage_preflight_failure(self, client):
         with patch("routers.services.verify_service_catalog_blob_access", return_value={
             "ok": False,
+            "account_url_configured": True,
+            "container": "service-catalog",
+            "error_type": "ServiceRequestError",
             "error": "AZURE_STORAGE_ACCOUNT_URL is not configured",
         }):
             resp = client.post("/api/service-updates/storage-preflight")
         assert resp.status_code == 503
         body = resp.json()
         assert body["error"]["message"] == "Managed identity Blob Storage preflight failed"
-        assert body["error"]["details"]["account_url_configured"] is False
-        assert "AZURE_STORAGE_ACCOUNT_URL is not configured" not in str(body)
+        assert body["error"]["details"]["account_url_configured"] is True
+        assert body["error"]["details"]["container"] == "service-catalog"
+        assert body["error"]["details"]["error_type"] == "ServiceRequestError"
+        assert body["error"]["details"]["error"] == "AZURE_STORAGE_ACCOUNT_URL is not configured"
 
 
 # ====================================================================

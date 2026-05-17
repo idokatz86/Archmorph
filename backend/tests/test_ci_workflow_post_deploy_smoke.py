@@ -5,6 +5,7 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+DEPLOYMENT_SMOKE = REPO_ROOT / "scripts" / "deployment_smoke.sh"
 
 
 def test_post_deploy_smoke_passes_health_api_key_from_service_api_secret():
@@ -14,6 +15,22 @@ def test_post_deploy_smoke_passes_health_api_key_from_service_api_secret():
     smoke_step = next(step for step in steps if step.get("name") == "Run deployed app smoke checks")
 
     assert smoke_step["env"]["HEALTH_API_KEY"] == "${{ secrets.ARCHMORPH_API_KEY || secrets.API_KEY }}"
+
+
+def test_deployment_smoke_checks_frontend_security_headers():
+    smoke_script = DEPLOYMENT_SMOKE.read_text(encoding="utf-8")
+
+    assert "check_frontend_security_headers() {" in smoke_script
+    assert 'curl -sSL -D "$headers_file" -o /tmp/archmorph-frontend-shell --max-time 30 "$FRONTEND_URL"' in smoke_script
+    assert "Frontend shell is missing Content-Security-Policy" in smoke_script
+    assert "csp_directive_has_source()" in smoke_script
+    assert 'csp_directive_has_source "$csp_value" "frame-ancestors" "\'none\'"' in smoke_script
+    assert "x-frame-options:[[:space:]]*deny" in smoke_script
+    assert 'csp_directive_has_source "$csp_value" "object-src" "\'none\'"' in smoke_script
+    assert 'csp_directive_has_source "$csp_value" "style-src" "https://fonts.googleapis.com"' in smoke_script
+    assert 'csp_directive_has_source "$csp_value" "font-src" "https://fonts.gstatic.com"' in smoke_script
+    assert "permissions-policy:[[:space:]]*camera=(), microphone=(), geolocation=()" in smoke_script
+    assert "Frontend shell security headers OK" in smoke_script
 
 
 def test_production_traffic_movement_jobs_are_environment_gated():
@@ -100,6 +117,23 @@ def test_backend_deploy_limits_workers_for_fast_container_app_activation():
     assert 'WEB_CONCURRENCY="1"' in deploy_script
 
 
+def test_backend_deploy_retries_transient_container_app_update_conflicts():
+    workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
+
+    deploy_step = next(
+        step
+        for step in workflow["jobs"]["deploy-backend"]["steps"]
+        if step.get("name") == "Deploy green revision"
+    )
+    deploy_script = deploy_step["run"]
+
+    assert "for update_attempt in 1 2 3 4; do" in deploy_script
+    assert "ConflictingConcurrentWriteNotAllowed" in deploy_script
+    assert "Container App update hit a concurrent write" in deploy_script
+    assert "Container App update failed on attempt" in deploy_script
+    assert "sed 's/^/az containerapp update: /'" in deploy_script
+
+
 def test_backend_readiness_accepts_azure_provisioned_state():
     workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
 
@@ -115,7 +149,7 @@ def test_backend_readiness_accepts_azure_provisioned_state():
     assert '[ "$RUNNING_STATE" = "Running" ]' in readiness_script
 
 
-def test_backend_storage_validation_classifies_pending_terraform_migration():
+def test_backend_storage_validation_requires_private_endpoint_when_public_access_disabled():
     workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
 
     validate_step = next(
@@ -125,10 +159,32 @@ def test_backend_storage_validation_classifies_pending_terraform_migration():
     )
     validate_script = validate_step["run"]
 
-    assert 'if [ "$STORAGE_NAME" = "archmorphmetrics" ]; then' in validate_script
-    assert "Terraform storage migration pending" in validate_script
-    assert "Run the Terraform Production workflow" in validate_script
-    assert "grant AZURE_CLIENT_ID Blob data-plane access on the tfstate storage account/container" in validate_script
+    assert 'if [ "$PUBLIC_NETWORK_ACCESS" = "Disabled" ]; then' in validate_script
+    assert "APPROVED_PRIVATE_ENDPOINT_COUNT=$(az network private-endpoint-connection list" in validate_script
+    assert "PRIVATE_ENDPOINT_STATUS=$?" in validate_script
+    assert "Unable to query private endpoint connections" in validate_script
+    assert "has public network access disabled but no approved private endpoint connection" in validate_script
+    assert "ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER" in validate_script
+    assert "managed-identity blob preflight will prove RBAC data-plane access" in validate_script
+    assert "Container App still references legacy storage account" in validate_script
+
+
+def test_backend_storage_validation_accepts_system_identity_until_user_identity_migration():
+    workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
+
+    validate_step = next(
+        step
+        for step in workflow["jobs"]["deploy-backend"]["steps"]
+        if step.get("name") == "Validate Terraform-managed metrics storage"
+    )
+    validate_script = validate_step["run"]
+
+    assert "CONTAINER_APP_JSON=$(az containerapp show" in validate_script
+    assert "Using Container App user-assigned managed identity for storage validation" in validate_script
+    assert "Container App AZURE_CLIENT_ID is not set; using the system-assigned managed identity" in validate_script
+    assert "Container App is missing AZURE_CLIENT_ID and has no system-assigned identity principal" in validate_script
+    assert 'jq -r \'.identity.principalId // ""\'' in validate_script
+    assert "Container App identity is missing Storage Blob Data Contributor" in validate_script
 
 
 def test_backend_green_revision_healthz_is_retried_before_failure():

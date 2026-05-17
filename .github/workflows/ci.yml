@@ -15,6 +15,9 @@ permissions:
 env:
   API_URL: ${{ secrets.API_URL }}
   FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+  # Temporary cutover flag while production hardening is disabled and the live app
+  # still uses managed-identity RBAC over the public Blob endpoint.
+  ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER: "true"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -675,10 +678,11 @@ jobs:
 
       - name: Validate Terraform-managed metrics storage
         run: |
-          ENV_JSON=$(az containerapp show \
+          CONTAINER_APP_JSON=$(az containerapp show \
             --name ${{ env.CONTAINER_APP_NAME }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --query "properties.template.containers[0].env" -o json)
+            -o json)
+          ENV_JSON=$(echo "$CONTAINER_APP_JSON" | jq -c '.properties.template.containers[0].env // []')
 
           STORAGE_ACCOUNT_URL=$(echo "$ENV_JSON" | jq -r '.[] | select(.name == "AZURE_STORAGE_ACCOUNT_URL") | .value // ""')
           if [ -z "$STORAGE_ACCOUNT_URL" ]; then
@@ -698,6 +702,16 @@ jobs:
             exit 1
           fi
 
+          STORAGE_ID=$(az storage account show \
+            --name "$STORAGE_NAME" \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --query id -o tsv)
+          if [ -z "$STORAGE_ID" ]; then
+            echo "::error::Unable to resolve storage account resource ID for $STORAGE_NAME"
+            exit 1
+          fi
+          echo "STORAGE_ID=$STORAGE_ID" >> "$GITHUB_ENV"
+
           ALLOW_SHARED_KEY=$(az storage account show \
             --name "$STORAGE_NAME" \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
@@ -711,26 +725,38 @@ jobs:
             --name "$STORAGE_NAME" \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --query publicNetworkAccess -o tsv)
-          if [ "$PUBLIC_NETWORK_ACCESS" != "Disabled" ]; then
-            if [ "$STORAGE_NAME" = "archmorphmetrics" ]; then
-              echo "::error::Terraform storage migration pending: Container App still references legacy storage account $STORAGE_NAME with public network access ${PUBLIC_NETWORK_ACCESS}."
-              echo "::notice::Run the Terraform Production workflow (workflow_dispatch) with apply=true to migrate production to Terraform-managed storage/private endpoints."
-              echo "::notice::If Terraform Production fails during init, grant AZURE_CLIENT_ID Blob data-plane access on the tfstate storage account/container and rerun."
-            else
-              echo "::error::Production storage account $STORAGE_NAME must have public network access disabled to match Terraform configuration"
+          if [ "$PUBLIC_NETWORK_ACCESS" = "Disabled" ]; then
+            PRIVATE_ENDPOINT_ERROR=$(mktemp)
+            set +e
+            APPROVED_PRIVATE_ENDPOINT_COUNT=$(az network private-endpoint-connection list \
+              --id "$STORAGE_ID" \
+              --query "[?properties.privateLinkServiceConnectionState.status=='Approved'] | length(@)" \
+              -o tsv 2>"$PRIVATE_ENDPOINT_ERROR")
+            PRIVATE_ENDPOINT_STATUS=$?
+            set -e
+            if [ "$PRIVATE_ENDPOINT_STATUS" -ne 0 ]; then
+              echo "::error::Unable to query private endpoint connections for storage account $STORAGE_NAME"
+              sed 's/^/az network private-endpoint-connection list: /' "$PRIVATE_ENDPOINT_ERROR" >&2
+              rm -f "$PRIVATE_ENDPOINT_ERROR"
+              exit 1
             fi
-            exit 1
+            rm -f "$PRIVATE_ENDPOINT_ERROR"
+            if [ "${APPROVED_PRIVATE_ENDPOINT_COUNT:-0}" = "0" ]; then
+              echo "::error::Storage account $STORAGE_NAME has public network access disabled but no approved private endpoint connection. Enable public access for the hardening-disabled cutover or apply Terraform private endpoint networking before CI deploy."
+              exit 1
+            fi
+            echo "Storage account $STORAGE_NAME uses disabled public network access with approved private endpoint connectivity"
+          else
+            ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER=$(echo "${ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER:-false}" | tr '[:upper:]' '[:lower:]')
+            if [ "$ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER" != "true" ]; then
+              echo "::error::Storage account $STORAGE_NAME has public network access ${PUBLIC_NETWORK_ACCESS}. Set ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER=true only for the reviewed hardening-disabled cutover, or apply Terraform private endpoint networking before CI deploy."
+              exit 1
+            fi
+            echo "::notice::Storage account $STORAGE_NAME has public network access ${PUBLIC_NETWORK_ACCESS} under ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER=true; managed-identity blob preflight will prove RBAC data-plane access before traffic shift."
+            if [ "$STORAGE_NAME" = "archmorphmetrics" ]; then
+              echo "::notice::Container App still references legacy storage account $STORAGE_NAME until Terraform storage migration is applied."
+            fi
           fi
-
-          STORAGE_ID=$(az storage account show \
-            --name "$STORAGE_NAME" \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --query id -o tsv)
-          if [ -z "$STORAGE_ID" ]; then
-            echo "::error::Unable to resolve storage account resource ID for $STORAGE_NAME"
-            exit 1
-          fi
-          echo "STORAGE_ID=$STORAGE_ID" >> "$GITHUB_ENV"
 
           METRICS_CONTAINER_ID="$STORAGE_ID/blobServices/default/containers/metrics"
           METRICS_CONTAINER_ERROR=$(mktemp)
@@ -754,18 +780,22 @@ jobs:
           fi
 
           CONTAINER_APP_CLIENT_ID=$(echo "$ENV_JSON" | jq -r '.[] | select(.name == "AZURE_CLIENT_ID") | .value // ""')
-          if [ -z "$CONTAINER_APP_CLIENT_ID" ]; then
-            echo "::error::Container App is missing AZURE_CLIENT_ID for its user-assigned managed identity"
-            exit 1
-          fi
-
-          CONTAINER_APP_PRINCIPAL_ID=$(az containerapp show \
-            --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --query "identity.userAssignedIdentities.* | [?clientId=='$CONTAINER_APP_CLIENT_ID'].principalId | [0]" -o tsv)
-          if [ -z "$CONTAINER_APP_PRINCIPAL_ID" ]; then
-            echo "::error::Container App user-assigned identity principal is not available for AZURE_CLIENT_ID=$CONTAINER_APP_CLIENT_ID"
-            exit 1
+          if [ -n "$CONTAINER_APP_CLIENT_ID" ]; then
+            CONTAINER_APP_PRINCIPAL_ID=$(echo "$CONTAINER_APP_JSON" \
+              | jq -r --arg client_id "$CONTAINER_APP_CLIENT_ID" '.identity.userAssignedIdentities // {} | to_entries[] | select(.value.clientId == $client_id) | .value.principalId' \
+              | head -1)
+            if [ -z "$CONTAINER_APP_PRINCIPAL_ID" ]; then
+              echo "::error::Container App user-assigned identity principal is not available for AZURE_CLIENT_ID=$CONTAINER_APP_CLIENT_ID"
+              exit 1
+            fi
+            echo "Using Container App user-assigned managed identity for storage validation"
+          else
+            CONTAINER_APP_PRINCIPAL_ID=$(echo "$CONTAINER_APP_JSON" | jq -r '.identity.principalId // ""')
+            if [ -z "$CONTAINER_APP_PRINCIPAL_ID" ]; then
+              echo "::error::Container App is missing AZURE_CLIENT_ID and has no system-assigned identity principal for storage access"
+              exit 1
+            fi
+            echo "::notice::Container App AZURE_CLIENT_ID is not set; using the system-assigned managed identity for storage validation until Terraform user-assigned identity migration is applied."
           fi
           echo "CONTAINER_APP_PRINCIPAL_ID=$CONTAINER_APP_PRINCIPAL_ID" >> "$GITHUB_ENV"
 
@@ -1063,13 +1093,34 @@ jobs:
           SHORT_SHA="${{ github.sha }}"
           SHORT_SHA="${SHORT_SHA:0:8}"
           REVISION_SUFFIX="sha-${SHORT_SHA}-run-${{ github.run_attempt }}"
-          az containerapp update \
-            --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --image "${IMAGE_REF}" \
-            --set-env-vars "${SET_ENV_VARS[@]}" \
-            --revision-suffix "$REVISION_SUFFIX" \
-            --no-wait
+          UPDATE_ERROR=$(mktemp)
+          for update_attempt in 1 2 3 4; do
+            : > "$UPDATE_ERROR"
+            set +e
+            az containerapp update \
+              --name ${{ env.CONTAINER_APP_NAME }} \
+              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --image "${IMAGE_REF}" \
+              --set-env-vars "${SET_ENV_VARS[@]}" \
+              --revision-suffix "$REVISION_SUFFIX" \
+              --no-wait \
+              2>"$UPDATE_ERROR"
+            UPDATE_STATUS=$?
+            set -e
+            if [ "$UPDATE_STATUS" -eq 0 ]; then
+              break
+            fi
+            if grep -q "ConflictingConcurrentWriteNotAllowed" "$UPDATE_ERROR" && [ "$update_attempt" -lt 4 ]; then
+              echo "::warning::Container App update hit a concurrent write on attempt ${update_attempt}; retrying"
+              sleep $((update_attempt * 20))
+              continue
+            fi
+            echo "::error::Container App update failed on attempt ${update_attempt}"
+            sed 's/^/az containerapp update: /' "$UPDATE_ERROR" >&2
+            rm -f "$UPDATE_ERROR"
+            exit "$UPDATE_STATUS"
+          done
+          rm -f "$UPDATE_ERROR"
 
           echo "Waiting for green revision to provision..."
           sleep 45
