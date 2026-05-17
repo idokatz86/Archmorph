@@ -425,6 +425,7 @@ export default function DiagramTranslator() {
 
   const clearSelectedUpload = useCallback(() => {
     if (state.filePreviewUrl) URL.revokeObjectURL(state.filePreviewUrl);
+    if (fileInputRef.current) fileInputRef.current.value = '';
     set({ selectedFile: null, filePreviewUrl: null, error: null, authError: null });
   }, [set, state.filePreviewUrl]);
 
