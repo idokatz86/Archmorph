@@ -369,11 +369,6 @@ export default function DiagramTranslator() {
     setAuthUploadRecovery(null);
   }, [authUploadRecovery, state.selectedFile]);
 
-  useEffect(() => {
-    if (!loginModalOpen || !state.selectedFile) return;
-    savePendingUploadForAuth(state.selectedFile);
-  }, [loginModalOpen, state.selectedFile]);
-
   // ── Resume analysis from Dashboard (#517) ──
   const pendingResumeId = useAppStore(s => s.pendingResumeId);
   const setPendingResumeId = useAppStore(s => s.setPendingResumeId);
