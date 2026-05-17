@@ -249,6 +249,8 @@ describe('UploadStep', () => {
 
     expect(await screen.findByText(/Inline PDF preview is not supported/)).toBeInTheDocument()
     expect(await screen.findByRole('link', { name: 'Open PDF in a new tab' })).toBeInTheDocument()
+    const downloadLink = await screen.findByRole('link', { name: 'Download PDF for inspection' })
+    expect(downloadLink).toHaveAttribute('download', 'diagram.pdf')
   })
 
   it('shows encrypted PDF preview failure message', async () => {
