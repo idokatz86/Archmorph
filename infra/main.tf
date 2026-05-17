@@ -56,7 +56,10 @@ resource "random_string" "suffix" {
 }
 
 locals {
-  name_suffix = random_string.suffix.result
+  name_suffix                        = random_string.suffix.result
+  stack_environment                  = coalesce(var.resource_group_environment, var.environment)
+  production_infra_hardening_enabled = var.environment == "prod" && var.enable_production_infra_hardening
+  redis_cache_name                   = coalesce(var.redis_name_override, "archmorph-redis-${local.name_suffix}")
   paired_region_defaults = {
     westeurope    = "northeurope"
     northeurope   = "westeurope"
@@ -81,7 +84,7 @@ locals {
 # Resource Group
 # ─────────────────────────────────────────────────────────────
 resource "azurerm_resource_group" "main" {
-  name     = "archmorph-rg-${var.environment}"
+  name     = "archmorph-rg-${local.stack_environment}"
   location = var.location
   tags     = local.tags
 }
@@ -262,7 +265,7 @@ resource "azurerm_log_analytics_workspace" "main" {
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
   sku                 = "PerGB2018"
-  retention_in_days   = var.environment == "prod" ? 90 : 30 # 90 days for compliance (#105 — I-011)
+  retention_in_days   = local.production_infra_hardening_enabled ? 90 : 30 # 90 days for compliance (#105 — I-011)
   tags                = local.tags
 }
 
@@ -274,11 +277,11 @@ resource "azurerm_storage_account" "main" {
   resource_group_name               = azurerm_resource_group.main.name
   location                          = azurerm_resource_group.main.location
   account_tier                      = "Standard"
-  account_replication_type          = var.environment == "prod" ? "GRS" : "LRS" # Geo-redundant in prod (#105 — I-012)
+  account_replication_type          = local.production_infra_hardening_enabled ? "GRS" : "LRS" # Geo-redundant in prod (#105 — I-012)
   min_tls_version                   = "TLS1_2"
   shared_access_key_enabled         = false # Use RBAC instead of shared keys
   allow_nested_items_to_be_public   = false
-  public_network_access_enabled     = var.environment == "prod" ? false : true # Private endpoint / VNet service endpoint in prod
+  public_network_access_enabled     = local.production_infra_hardening_enabled ? false : true # Private endpoint / VNet service endpoint in prod
   https_traffic_only_enabled        = true
   infrastructure_encryption_enabled = true # Double encryption at rest
 
@@ -306,16 +309,16 @@ resource "azurerm_storage_account" "main" {
   # In prod: deny-by-default with VNet service endpoint path from Container Apps subnet.
   # A private endpoint is also required (enable_storage_private_endpoint must be true).
   network_rules {
-    default_action             = var.environment == "prod" ? "Deny" : "Allow"
+    default_action             = local.production_infra_hardening_enabled ? "Deny" : "Allow"
     bypass                     = ["AzureServices"]
     ip_rules                   = []
-    virtual_network_subnet_ids = var.environment == "prod" ? [azurerm_subnet.container_apps.id] : []
+    virtual_network_subnet_ids = local.production_infra_hardening_enabled ? [azurerm_subnet.container_apps.id] : []
   }
 
   lifecycle {
     prevent_destroy = true
     precondition {
-      condition     = !(var.environment == "prod" && !var.enable_storage_private_endpoint)
+      condition     = !(local.production_infra_hardening_enabled && !var.enable_storage_private_endpoint)
       error_message = "Production Storage uses a deny-by-default firewall but enable_storage_private_endpoint is false. Set enable_storage_private_endpoint = true to guarantee private endpoint connectivity from the Container Apps runtime."
     }
   }
@@ -361,15 +364,15 @@ resource "azurerm_container_registry" "main" {
   name                          = "archmorph${local.name_suffix}"
   resource_group_name           = azurerm_resource_group.main.name
   location                      = azurerm_resource_group.main.location
-  sku                           = var.environment == "prod" ? var.acr_prod_sku : "Basic"
-  admin_enabled                 = false                                    # Use managed identity — never admin credentials (#98 — I-002)
-  public_network_access_enabled = var.environment == "prod" ? false : true # Disable public access in prod (#289)
-  zone_redundancy_enabled       = var.environment == "prod"
+  sku                           = local.production_infra_hardening_enabled ? var.acr_prod_sku : "Basic"
+  admin_enabled                 = false                                                   # Use managed identity — never admin credentials (#98 — I-002)
+  public_network_access_enabled = local.production_infra_hardening_enabled ? false : true # Disable public access in prod (#289)
+  zone_redundancy_enabled       = local.production_infra_hardening_enabled
   anonymous_pull_enabled        = false
-  data_endpoint_enabled         = var.environment == "prod"
+  data_endpoint_enabled         = local.production_infra_hardening_enabled
 
   # Enable content trust in production
-  trust_policy_enabled = var.environment == "prod"
+  trust_policy_enabled = local.production_infra_hardening_enabled
 
   tags = local.tags
 }
@@ -385,15 +388,15 @@ resource "azurerm_postgresql_flexible_server" "main" {
   administrator_login           = var.db_admin_username
   administrator_password        = var.db_admin_password
   storage_mb                    = 32768
-  sku_name                      = var.environment == "prod" ? "GP_Standard_D2s_v3" : "B_Standard_B1ms"
+  sku_name                      = local.production_infra_hardening_enabled ? "GP_Standard_D2s_v3" : "B_Standard_B1ms"
   zone                          = "1"
-  backup_retention_days         = var.environment == "prod" ? 35 : 7
-  geo_redundant_backup_enabled  = var.environment == "prod"
+  backup_retention_days         = local.production_infra_hardening_enabled ? 35 : 7
+  geo_redundant_backup_enabled  = local.production_infra_hardening_enabled
   public_network_access_enabled = false
 
   authentication {
     password_auth_enabled         = true
-    active_directory_auth_enabled = var.environment == "prod" # Enable AAD auth in prod
+    active_directory_auth_enabled = local.production_infra_hardening_enabled # Enable AAD auth in prod
   }
 
   # Require SSL/TLS for all connections
@@ -425,15 +428,15 @@ resource "azurerm_postgresql_flexible_server_firewall_rule" "allow_azure" {
 # Azure Cache for Redis — session store & caching layer
 # ─────────────────────────────────────────────────────────────
 resource "azurerm_redis_cache" "main" {
-  name                          = "archmorph-redis-${local.name_suffix}"
+  name                          = local.redis_cache_name
   resource_group_name           = azurerm_resource_group.main.name
   location                      = azurerm_resource_group.main.location
   capacity                      = var.redis_capacity
-  family                        = var.environment == "prod" ? "C" : "C"
-  sku_name                      = var.environment == "prod" ? "Standard" : "Basic"
+  family                        = local.production_infra_hardening_enabled ? "C" : "C"
+  sku_name                      = local.production_infra_hardening_enabled ? "Standard" : "Basic"
   non_ssl_port_enabled          = false # TLS-only (port 6380)
   minimum_tls_version           = "1.2"
-  public_network_access_enabled = var.environment == "prod" ? false : true
+  public_network_access_enabled = local.production_infra_hardening_enabled ? false : true
   # access_key_authentication_disabled = false # Required for REDIS_URL access key auth (#320)
 
   redis_configuration {
@@ -450,7 +453,7 @@ resource "azurerm_redis_cache" "main" {
 
   lifecycle {
     precondition {
-      condition     = !(var.environment == "prod" && !var.enable_redis_private_endpoint)
+      condition     = !(local.production_infra_hardening_enabled && !var.enable_redis_private_endpoint)
       error_message = "Production Redis disables public network access but enable_redis_private_endpoint is false. Set enable_redis_private_endpoint = true to guarantee private endpoint connectivity from the Container Apps runtime."
     }
   }
@@ -467,14 +470,14 @@ resource "azurerm_key_vault" "main" {
   location                   = azurerm_resource_group.main.location
   tenant_id                  = data.azurerm_client_config.current.tenant_id
   sku_name                   = "standard"
-  soft_delete_retention_days = var.environment == "prod" ? 90 : 7
-  purge_protection_enabled   = var.environment == "prod" # Enable in production
-  rbac_authorization_enabled = var.environment == "prod" # Use RBAC in production
+  soft_delete_retention_days = local.production_infra_hardening_enabled ? 90 : 7
+  purge_protection_enabled   = local.production_infra_hardening_enabled # Enable in production
+  rbac_authorization_enabled = local.production_infra_hardening_enabled # Use RBAC in production
 
   # Network ACLs - restrict in production
   network_acls {
     bypass                     = "AzureServices"
-    default_action             = var.environment == "prod" ? "Deny" : "Allow"
+    default_action             = local.production_infra_hardening_enabled ? "Deny" : "Allow"
     ip_rules                   = []
     virtual_network_subnet_ids = []
   }
@@ -514,6 +517,23 @@ resource "azurerm_key_vault_secret" "appinsights_connection" {
   name         = "appinsights-connection-string"
   value        = azurerm_application_insights.main.connection_string
   key_vault_id = azurerm_key_vault.main.id
+}
+
+moved {
+  from = azurerm_key_vault_secret.openai_key
+  to   = azurerm_key_vault_secret.openai_key["legacy"]
+}
+
+resource "azurerm_key_vault_secret" "openai_key" {
+  for_each = var.preserve_legacy_openai_key ? toset(["legacy"]) : toset([])
+
+  name         = "openai-api-key"
+  value        = var.openai_api_key
+  key_vault_id = azurerm_key_vault.main.id
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 # ─────────────────────────────────────────────────────────────
@@ -569,7 +589,7 @@ resource "azurerm_cognitive_deployment" "gpt4_vision" {
 # Container Apps Environment
 # ─────────────────────────────────────────────────────────────
 resource "azurerm_container_app_environment" "main" {
-  name                       = "archmorph-cae-${var.environment}"
+  name                       = "archmorph-cae-${local.stack_environment}"
   resource_group_name        = azurerm_resource_group.main.name
   location                   = var.location # West Europe (same as other resources)
   log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
@@ -655,14 +675,14 @@ resource "azurerm_container_app" "backend" {
 
   template {
     min_replicas = 1
-    max_replicas = var.environment == "prod" ? var.prod_max_replicas : 3
+    max_replicas = local.production_infra_hardening_enabled ? var.prod_max_replicas : 3
 
     # ── Scaling rules (#180) ──
     # HTTP concurrency: GPT vision calls block ~5-30s each, so keep
     # concurrent_requests low to trigger scale-out before thread exhaustion.
     http_scale_rule {
       name                = "http-concurrency"
-      concurrent_requests = var.environment == "prod" ? tostring(var.prod_http_concurrent_requests) : "15"
+      concurrent_requests = local.production_infra_hardening_enabled ? tostring(var.prod_http_concurrent_requests) : "15"
     }
 
     # CPU-based scaling: scale out when sustained CPU > 70%
@@ -678,8 +698,8 @@ resource "azurerm_container_app" "backend" {
     container {
       name   = "api"
       image  = local.backend_image
-      cpu    = var.environment == "prod" ? 1.0 : 0.5
-      memory = var.environment == "prod" ? "2Gi" : "1Gi"
+      cpu    = local.production_infra_hardening_enabled ? 1.0 : 0.5
+      memory = local.production_infra_hardening_enabled ? "2Gi" : "1Gi"
 
       env {
         name        = "DATABASE_URL"
@@ -753,12 +773,12 @@ resource "azurerm_container_app" "backend" {
 
       env {
         name  = "OTEL_TRACES_SAMPLER"
-        value = var.environment == "prod" ? "traceidratio" : "always_on"
+        value = local.production_infra_hardening_enabled ? "traceidratio" : "always_on"
       }
 
       env {
         name  = "OTEL_TRACES_SAMPLER_ARG"
-        value = var.environment == "prod" ? tostring(var.app_insights_sampling_percentage_prod / 100) : "1.0"
+        value = local.production_infra_hardening_enabled ? tostring(var.app_insights_sampling_percentage_prod / 100) : "1.0"
       }
 
       env {
@@ -807,8 +827,8 @@ resource "azurerm_static_web_app" "frontend" {
   name                = "archmorph-frontend"
   resource_group_name = azurerm_resource_group.main.name
   location            = "westeurope"
-  sku_tier            = var.environment == "prod" ? "Standard" : "Free"
-  sku_size            = var.environment == "prod" ? "Standard" : "Free"
+  sku_tier            = local.production_infra_hardening_enabled ? "Standard" : "Free"
+  sku_size            = local.production_infra_hardening_enabled ? "Standard" : "Free"
   tags                = local.tags
 }
 
@@ -971,8 +991,8 @@ resource "azurerm_application_insights" "main" {
   location            = azurerm_resource_group.main.location
   workspace_id        = azurerm_log_analytics_workspace.main.id
   application_type    = "web"
-  retention_in_days   = var.environment == "prod" ? 90 : 30 # 90 days in prod for compliance (#105 — I-011)
-  sampling_percentage = var.environment == "prod" ? var.app_insights_sampling_percentage_prod : 100
+  retention_in_days   = local.production_infra_hardening_enabled ? 90 : 30 # 90 days in prod for compliance (#105 — I-011)
+  sampling_percentage = local.production_infra_hardening_enabled ? var.app_insights_sampling_percentage_prod : 100
 
   # Enable distributed tracing
   disable_ip_masking = false # GDPR compliance
@@ -2271,51 +2291,51 @@ resource "azurerm_application_insights_workbook" "dashboard" {
 # ─────────────────────────────────────────────────────────────
 # Uncomment to enable Defender for key resources in production
 resource "azurerm_security_center_subscription_pricing" "storage" {
-  count         = var.environment == "prod" ? 1 : 0
+  count         = local.production_infra_hardening_enabled ? 1 : 0
   tier          = "Standard"
   resource_type = "StorageAccounts"
 }
 
 resource "azurerm_security_center_subscription_pricing" "keyvault" {
-  count         = var.environment == "prod" ? 1 : 0
+  count         = local.production_infra_hardening_enabled ? 1 : 0
   tier          = "Standard"
   resource_type = "KeyVaults"
 }
 
 resource "azurerm_security_center_subscription_pricing" "containers" {
-  count         = var.environment == "prod" ? 1 : 0
+  count         = local.production_infra_hardening_enabled ? 1 : 0
   tier          = "Standard"
   resource_type = "Containers"
 }
 
 resource "azurerm_security_center_subscription_pricing" "container_registry" {
-  count         = var.environment == "prod" ? 1 : 0
+  count         = local.production_infra_hardening_enabled ? 1 : 0
   tier          = "Standard"
   resource_type = "ContainerRegistry"
 }
 
 resource "azurerm_security_center_subscription_pricing" "databases" {
-  count         = var.environment == "prod" ? 1 : 0
+  count         = local.production_infra_hardening_enabled ? 1 : 0
   tier          = "Standard"
   resource_type = "OpenSourceRelationalDatabases"
 }
 
 resource "azurerm_security_center_subscription_pricing" "app_service" {
-  count         = var.environment == "prod" ? 1 : 0
+  count         = local.production_infra_hardening_enabled ? 1 : 0
   tier          = "Standard"
   resource_type = "AppServices"
 }
 
 # Defender for Azure Resource Manager — detects suspicious management operations (#289)
 resource "azurerm_security_center_subscription_pricing" "arm" {
-  count         = var.environment == "prod" ? 1 : 0
+  count         = local.production_infra_hardening_enabled ? 1 : 0
   tier          = "Standard"
   resource_type = "Arm"
 }
 
 # Defender for DNS — detects malicious DNS queries (#289)
 resource "azurerm_security_center_subscription_pricing" "dns" {
-  count         = var.environment == "prod" ? 1 : 0
+  count         = local.production_infra_hardening_enabled ? 1 : 0
   tier          = "Standard"
   resource_type = "Dns"
 }
@@ -2324,14 +2344,14 @@ resource "azurerm_security_center_subscription_pricing" "dns" {
 # PostgreSQL Private Endpoint (Issue #110 — CISO-003)
 # ─────────────────────────────────────────────────────────────
 resource "azurerm_private_dns_zone" "postgresql" {
-  count               = var.environment == "prod" ? 1 : 0
+  count               = local.production_infra_hardening_enabled ? 1 : 0
   name                = "privatelink.postgres.database.azure.com"
   resource_group_name = azurerm_resource_group.main.name
   tags                = local.tags
 }
 
 resource "azurerm_private_dns_zone_virtual_network_link" "postgresql" {
-  count                 = var.environment == "prod" ? 1 : 0
+  count                 = local.production_infra_hardening_enabled ? 1 : 0
   name                  = "archmorph-pg-dns-link"
   resource_group_name   = azurerm_resource_group.main.name
   private_dns_zone_name = azurerm_private_dns_zone.postgresql[0].name
@@ -2341,7 +2361,7 @@ resource "azurerm_private_dns_zone_virtual_network_link" "postgresql" {
 }
 
 resource "azurerm_private_endpoint" "postgresql" {
-  count               = var.environment == "prod" ? 1 : 0
+  count               = local.production_infra_hardening_enabled ? 1 : 0
   name                = "archmorph-pg-pe-${local.name_suffix}"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
@@ -2362,14 +2382,14 @@ resource "azurerm_private_endpoint" "postgresql" {
 }
 
 resource "azurerm_private_dns_zone" "redis" {
-  count               = var.environment == "prod" && var.enable_redis_private_endpoint ? 1 : 0
+  count               = local.production_infra_hardening_enabled && var.enable_redis_private_endpoint ? 1 : 0
   name                = "privatelink.redis.cache.windows.net"
   resource_group_name = azurerm_resource_group.main.name
   tags                = local.tags
 }
 
 resource "azurerm_private_dns_zone_virtual_network_link" "redis" {
-  count                 = var.environment == "prod" && var.enable_redis_private_endpoint ? 1 : 0
+  count                 = local.production_infra_hardening_enabled && var.enable_redis_private_endpoint ? 1 : 0
   name                  = "archmorph-redis-dns-link"
   resource_group_name   = azurerm_resource_group.main.name
   private_dns_zone_name = azurerm_private_dns_zone.redis[0].name
@@ -2379,7 +2399,7 @@ resource "azurerm_private_dns_zone_virtual_network_link" "redis" {
 }
 
 resource "azurerm_private_endpoint" "redis" {
-  count               = var.environment == "prod" && var.enable_redis_private_endpoint ? 1 : 0
+  count               = local.production_infra_hardening_enabled && var.enable_redis_private_endpoint ? 1 : 0
   name                = "archmorph-redis-pe-${local.name_suffix}"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
@@ -2403,14 +2423,14 @@ resource "azurerm_private_endpoint" "redis" {
 # Blob Storage Private Endpoint — deterministic private connectivity
 # ─────────────────────────────────────────────────────────────
 resource "azurerm_private_dns_zone" "storage" {
-  count               = var.environment == "prod" && var.enable_storage_private_endpoint ? 1 : 0
+  count               = local.production_infra_hardening_enabled && var.enable_storage_private_endpoint ? 1 : 0
   name                = "privatelink.blob.core.windows.net"
   resource_group_name = azurerm_resource_group.main.name
   tags                = local.tags
 }
 
 resource "azurerm_private_dns_zone_virtual_network_link" "storage" {
-  count                 = var.environment == "prod" && var.enable_storage_private_endpoint ? 1 : 0
+  count                 = local.production_infra_hardening_enabled && var.enable_storage_private_endpoint ? 1 : 0
   name                  = "archmorph-storage-dns-link"
   resource_group_name   = azurerm_resource_group.main.name
   private_dns_zone_name = azurerm_private_dns_zone.storage[0].name
@@ -2420,7 +2440,7 @@ resource "azurerm_private_dns_zone_virtual_network_link" "storage" {
 }
 
 resource "azurerm_private_endpoint" "storage" {
-  count               = var.environment == "prod" && var.enable_storage_private_endpoint ? 1 : 0
+  count               = local.production_infra_hardening_enabled && var.enable_storage_private_endpoint ? 1 : 0
   name                = "archmorph-storage-pe-${local.name_suffix}"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
@@ -2451,14 +2471,14 @@ resource "azurerm_subnet" "private_endpoints" {
 }
 
 resource "azurerm_private_dns_zone" "keyvault" {
-  count               = var.environment == "prod" ? 1 : 0
+  count               = local.production_infra_hardening_enabled ? 1 : 0
   name                = "privatelink.vaultcore.azure.net"
   resource_group_name = azurerm_resource_group.main.name
   tags                = local.tags
 }
 
 resource "azurerm_private_dns_zone_virtual_network_link" "keyvault" {
-  count                 = var.environment == "prod" ? 1 : 0
+  count                 = local.production_infra_hardening_enabled ? 1 : 0
   name                  = "archmorph-kv-dns-link"
   resource_group_name   = azurerm_resource_group.main.name
   private_dns_zone_name = azurerm_private_dns_zone.keyvault[0].name
@@ -2468,7 +2488,7 @@ resource "azurerm_private_dns_zone_virtual_network_link" "keyvault" {
 }
 
 resource "azurerm_private_endpoint" "keyvault" {
-  count               = var.environment == "prod" ? 1 : 0
+  count               = local.production_infra_hardening_enabled ? 1 : 0
   name                = "archmorph-kv-pe-${local.name_suffix}"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
@@ -2492,7 +2512,7 @@ resource "azurerm_private_endpoint" "keyvault" {
 # OpenAI Network Restrictions (Issue #110 — CISO-005)
 # ─────────────────────────────────────────────────────────────
 resource "azurerm_cognitive_account_customer_managed_key" "openai" {
-  count                = var.environment == "prod" ? 0 : 0 # Enable when CMK key is provisioned
+  count                = local.production_infra_hardening_enabled ? 0 : 0 # Enable when CMK key is provisioned
   cognitive_account_id = azurerm_cognitive_account.openai.id
   key_vault_key_id     = "https://test/keys/dummy/001" # Populate with CMK key ID
 }
@@ -2501,7 +2521,7 @@ resource "azurerm_cognitive_account_customer_managed_key" "openai" {
 # Resource Locks (Issue #110 — CISO-006, prevent accidental deletion)
 # ─────────────────────────────────────────────────────────────
 resource "azurerm_management_lock" "database" {
-  count      = var.environment == "prod" ? 1 : 0
+  count      = local.production_infra_hardening_enabled ? 1 : 0
   name       = "archmorph-db-lock"
   scope      = azurerm_postgresql_flexible_server.main.id
   lock_level = "CanNotDelete"
@@ -2509,7 +2529,7 @@ resource "azurerm_management_lock" "database" {
 }
 
 resource "azurerm_management_lock" "keyvault" {
-  count      = var.environment == "prod" ? 1 : 0
+  count      = local.production_infra_hardening_enabled ? 1 : 0
   name       = "archmorph-kv-lock"
   scope      = azurerm_key_vault.main.id
   lock_level = "CanNotDelete"
@@ -2517,7 +2537,7 @@ resource "azurerm_management_lock" "keyvault" {
 }
 
 resource "azurerm_management_lock" "storage" {
-  count      = var.environment == "prod" ? 1 : 0
+  count      = local.production_infra_hardening_enabled ? 1 : 0
   name       = "archmorph-storage-lock"
   scope      = azurerm_storage_account.main.id
   lock_level = "CanNotDelete"
@@ -2536,7 +2556,7 @@ resource "azurerm_cdn_frontdoor_firewall_policy" "waf" {
   resource_group_name               = azurerm_resource_group.main.name
   sku_name                          = "Premium_AzureFrontDoor"
   enabled                           = true
-  mode                              = var.environment == "prod" ? "Prevention" : "Detection"
+  mode                              = local.production_infra_hardening_enabled ? "Prevention" : "Detection"
   custom_block_response_status_code = 403
   custom_block_response_body        = base64encode("{\"error\":\"Request blocked by WAF policy\"}")
 

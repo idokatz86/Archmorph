@@ -38,6 +38,24 @@ variable "environment" {
   }
 }
 
+variable "resource_group_environment" {
+  description = "Optional legacy environment suffix used for Azure resource names/resource group while runtime environment remains production."
+  type        = string
+  nullable    = true
+  default     = null
+
+  validation {
+    condition     = var.resource_group_environment == null || contains(["dev", "staging", "prod"], var.resource_group_environment)
+    error_message = "resource_group_environment must be null, dev, staging, or prod."
+  }
+}
+
+variable "enable_production_infra_hardening" {
+  description = "Enable production SKU, network, DR, and private endpoint hardening. Keep false for the legacy live-stack identity cutover until the migration plan is reviewed."
+  type        = bool
+  default     = true
+}
+
 variable "db_admin_username" {
   description = "PostgreSQL administrator username"
   type        = string
@@ -67,9 +85,45 @@ variable "frontend_url" {
   # Must be set in terraform.tfvars - no default for security
 }
 
+variable "openai_api_key" {
+  description = "Legacy Azure OpenAI API key secret value retained during the production managed identity cutover."
+  type        = string
+  sensitive   = true
+  nullable    = true
+  default     = null
+
+  validation {
+    condition     = var.openai_api_key == null || length(var.openai_api_key) > 0
+    error_message = "openai_api_key must be null or a non-empty string."
+  }
+}
+
+variable "preserve_legacy_openai_key" {
+  description = "Manage the existing legacy openai-api-key Key Vault secret during the production managed identity cutover."
+  type        = bool
+  default     = false
+
+  validation {
+    condition     = !var.preserve_legacy_openai_key || (var.openai_api_key != null && length(var.openai_api_key) > 0)
+    error_message = "openai_api_key must be provided when preserve_legacy_openai_key is true."
+  }
+}
+
 # ─────────────────────────────────────────────────────────────
 # Azure Cache for Redis
 # ─────────────────────────────────────────────────────────────
+variable "redis_name_override" {
+  description = "Optional existing Redis cache name to preserve during legacy live-stack import reconciliation. Leave null for suffix-based names on new stacks."
+  type        = string
+  nullable    = true
+  default     = null
+
+  validation {
+    condition     = var.redis_name_override == null || can(regex("^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$", var.redis_name_override))
+    error_message = "redis_name_override must be null or a valid Azure Cache for Redis name."
+  }
+}
+
 variable "redis_capacity" {
   description = "Redis cache capacity (0 = 250MB, 1 = 1GB, 2 = 2.5GB). Basic C0 ~$16/mo, Standard C0 ~$40/mo."
   type        = number
