@@ -114,6 +114,23 @@ def test_backend_deploy_limits_workers_for_fast_container_app_activation():
     assert 'WEB_CONCURRENCY="1"' in deploy_script
 
 
+def test_backend_deploy_retries_transient_container_app_update_conflicts():
+    workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
+
+    deploy_step = next(
+        step
+        for step in workflow["jobs"]["deploy-backend"]["steps"]
+        if step.get("name") == "Deploy green revision"
+    )
+    deploy_script = deploy_step["run"]
+
+    assert "for update_attempt in 1 2 3 4; do" in deploy_script
+    assert "ConflictingConcurrentWriteNotAllowed" in deploy_script
+    assert "Container App update hit a concurrent write" in deploy_script
+    assert "Container App update failed on attempt" in deploy_script
+    assert "sed 's/^/az containerapp update: /'" in deploy_script
+
+
 def test_backend_readiness_accepts_azure_provisioned_state():
     workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
 
