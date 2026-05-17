@@ -265,15 +265,19 @@ async def service_update_storage_preflight(_auth=Depends(verify_api_key)):
             },
         ) from exc
     if not result.get("ok"):
+        details = {
+            "ok": False,
+            "account_url_configured": bool(result.get("account_url_configured")),
+            "container": result.get("container", "service-catalog"),
+            "reason": "preflight_failed",
+        }
+        for key in ("error_type", "error"):
+            if result.get(key):
+                details[key] = result[key]
         raise ArchmorphException(
             503,
             "Managed identity Blob Storage preflight failed",
-            details={
-                "ok": False,
-                "account_url_configured": False,
-                "container": "service-catalog",
-                "reason": "preflight_failed",
-            },
+            details=details,
         )
     return {
         "ok": True,
