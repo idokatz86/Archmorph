@@ -129,7 +129,7 @@ def test_backend_readiness_accepts_azure_provisioned_state():
     assert '[ "$RUNNING_STATE" = "Running" ]' in readiness_script
 
 
-def test_backend_storage_validation_classifies_pending_terraform_migration():
+def test_backend_storage_validation_requires_private_endpoint_when_public_access_disabled():
     workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
 
     validate_step = next(
@@ -139,10 +139,11 @@ def test_backend_storage_validation_classifies_pending_terraform_migration():
     )
     validate_script = validate_step["run"]
 
-    assert 'if [ "$STORAGE_NAME" = "archmorphmetrics" ]; then' in validate_script
-    assert "Terraform storage migration pending" in validate_script
-    assert "Run the Terraform Production workflow" in validate_script
-    assert "grant AZURE_CLIENT_ID Blob data-plane access on the tfstate storage account/container" in validate_script
+    assert 'if [ "$PUBLIC_NETWORK_ACCESS" = "Disabled" ]; then' in validate_script
+    assert "APPROVED_PRIVATE_ENDPOINT_COUNT=$(az network private-endpoint-connection list" in validate_script
+    assert "has public network access disabled but no approved private endpoint connection" in validate_script
+    assert "managed-identity blob preflight will prove RBAC data-plane access" in validate_script
+    assert "Container App still references legacy storage account" in validate_script
 
 
 def test_backend_storage_validation_accepts_system_identity_until_user_identity_migration():

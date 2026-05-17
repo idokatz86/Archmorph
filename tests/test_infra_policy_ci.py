@@ -270,7 +270,9 @@ def test_ci_and_prod_workflows_enforce_readonly_terraform_lockfiles():
 def test_ci_validates_prod_storage_network_and_user_assigned_identity_role():
     ci_workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
 
-    assert '[ "$PUBLIC_NETWORK_ACCESS" != "Disabled" ]' in ci_workflow
+    assert '[ "$PUBLIC_NETWORK_ACCESS" = "Disabled" ]' in ci_workflow
+    assert "APPROVED_PRIVATE_ENDPOINT_COUNT=$(az network private-endpoint-connection list" in ci_workflow
+    assert "managed-identity blob preflight will prove RBAC data-plane access" in ci_workflow
     assert 'select(.name == "AZURE_CLIENT_ID")' in ci_workflow
     assert "identity.userAssignedIdentities" in ci_workflow
     assert "Storage Blob Data Contributor" in ci_workflow
