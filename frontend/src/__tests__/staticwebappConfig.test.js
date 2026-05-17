@@ -3,6 +3,16 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 
+function parseCspDirectives(csp) {
+  return Object.fromEntries(
+    csp
+      .split(';')
+      .map((directive) => directive.trim().split(/\s+/))
+      .filter(([name]) => Boolean(name))
+      .map(([name, ...sources]) => [name, sources]),
+  );
+}
+
 describe('Static Web App security headers config', () => {
   it('ships CSP and frame protection for the app shell', () => {
     execFileSync('npm', ['run', 'build'], {
@@ -19,16 +29,17 @@ describe('Static Web App security headers config', () => {
     for (const configPath of configPaths) {
       const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
       const csp = config.globalHeaders['Content-Security-Policy'];
+      const directives = parseCspDirectives(csp);
 
       expect(config.globalHeaders['X-Frame-Options']).toBe('DENY');
       expect(config.globalHeaders['Permissions-Policy']).toBe('camera=(), microphone=(), geolocation=()');
-      expect(csp).toContain("default-src 'self'");
-      expect(csp).toContain("connect-src 'self' https://api.archmorphai.com");
-      expect(csp).toContain("img-src 'self' data: blob:");
-      expect(csp).toContain("object-src 'none'");
-      expect(csp).toContain("frame-ancestors 'none'");
-      expect(csp).toContain("https://fonts.googleapis.com");
-      expect(csp).toContain("font-src 'self' https://fonts.gstatic.com");
+      expect(directives['default-src']).toContain("'self'");
+      expect(directives['connect-src']).toEqual(expect.arrayContaining(["'self'", 'https://api.archmorphai.com']));
+      expect(directives['img-src']).toEqual(expect.arrayContaining(["'self'", 'data:', 'blob:']));
+      expect(directives['object-src']).toContain("'none'");
+      expect(directives['frame-ancestors']).toContain("'none'");
+      expect(directives['style-src']).toContain('https://fonts.googleapis.com');
+      expect(directives['font-src']).toEqual(expect.arrayContaining(["'self'", 'https://fonts.gstatic.com']));
     }
   });
 });
