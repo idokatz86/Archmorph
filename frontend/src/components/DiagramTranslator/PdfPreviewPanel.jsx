@@ -162,9 +162,14 @@ export default function PdfPreviewPanel({ file }) {
       )}
 
       {previewUrl && (
-        <a className="mt-2 inline-flex text-xs text-cta underline-offset-2 hover:underline" href={previewUrl} target="_blank" rel="noreferrer">
-          Open PDF in a new tab
-        </a>
+        <div className="mt-2 flex flex-wrap gap-3 text-xs">
+          <a className="inline-flex text-cta underline-offset-2 hover:underline" href={previewUrl} target="_blank" rel="noreferrer">
+            Open PDF in a new tab
+          </a>
+          <a className="inline-flex text-cta underline-offset-2 hover:underline" href={previewUrl} download={file.name || 'diagram.pdf'}>
+            Download PDF for inspection
+          </a>
+        </div>
       )}
 
       <Modal open={open} onClose={() => setOpen(false)} title="PDF Preview (First Page)" className="max-w-5xl">
