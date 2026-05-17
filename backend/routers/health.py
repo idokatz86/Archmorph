@@ -111,19 +111,37 @@ def _run_dependency_checks() -> tuple[dict[str, str], bool, bool]:
 
     # ── Blob storage ──────────────────────────────────────
     try:
-        from usage_metrics import AZURE_STORAGE_ACCOUNT_URL, AZURE_STORAGE_CONNECTION_STRING
+        from usage_metrics import (
+            AZURE_STORAGE_ACCOUNT_URL,
+            AZURE_STORAGE_CONNECTION_STRING,
+            AZURE_STORAGE_MANAGED_IDENTITY_CLIENT_ID,
+            METRICS_BLOB_CONTAINER,
+        )
         if AZURE_STORAGE_ACCOUNT_URL or AZURE_STORAGE_CONNECTION_STRING:
-            # Probe actual reachability — catch private-network misconfiguration early.
+            # Probe the actual container-level data path used by the app.
+            # Storage Blob Data Contributor can read/write blobs but may not read
+            # account-level service properties, so account-wide probes can fail
+            # even when the required runtime path is healthy.
             _bsc = None
             try:
                 from azure.storage.blob import BlobServiceClient
                 if AZURE_STORAGE_ACCOUNT_URL:
                     from azure.identity import DefaultAzureCredential
-                    _cred = DefaultAzureCredential()
-                    _bsc = BlobServiceClient(AZURE_STORAGE_ACCOUNT_URL, credential=_cred)
+                    _cred = DefaultAzureCredential(
+                        managed_identity_client_id=(
+                            AZURE_STORAGE_MANAGED_IDENTITY_CLIENT_ID or None
+                        )
+                    )
+                    _bsc = BlobServiceClient(
+                        AZURE_STORAGE_ACCOUNT_URL,
+                        credential=_cred,
+                    )
                 else:
-                    _bsc = BlobServiceClient.from_connection_string(AZURE_STORAGE_CONNECTION_STRING)
-                _bsc.get_service_properties(timeout=4)
+                    _bsc = BlobServiceClient.from_connection_string(
+                        AZURE_STORAGE_CONNECTION_STRING
+                    )
+                container = _bsc.get_container_client(METRICS_BLOB_CONTAINER)
+                container.get_container_properties(timeout=4)
                 checks["storage"] = "ok"
             except Exception as exc:
                 logger.warning(

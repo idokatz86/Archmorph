@@ -14,7 +14,7 @@ import copy
 import io
 import os
 import sys
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -143,6 +143,42 @@ class TestHealthContract:
     def test_health_checks_schema(self, client):
         checks = client.get("/api/health").json()["checks"]
         assert_fields(checks, {"openai": str, "storage": str})
+
+    def test_storage_health_probe_uses_metrics_container_path(self, monkeypatch):
+        import routers.health as health_router
+        import usage_metrics
+
+        monkeypatch.setattr(health_router, "_dep_checks_cache", None)
+        monkeypatch.setattr(health_router, "_dep_checks_ts", 0)
+        monkeypatch.setattr(
+            usage_metrics,
+            "AZURE_STORAGE_ACCOUNT_URL",
+            "https://example.blob.core.windows.net",
+        )
+        monkeypatch.setattr(usage_metrics, "AZURE_STORAGE_CONNECTION_STRING", "")
+        monkeypatch.setattr(
+            usage_metrics,
+            "AZURE_STORAGE_MANAGED_IDENTITY_CLIENT_ID",
+            "",
+        )
+        monkeypatch.setattr(usage_metrics, "METRICS_BLOB_CONTAINER", "metrics")
+
+        mock_container = MagicMock()
+        mock_blob_service = MagicMock()
+        mock_blob_service.get_container_client.return_value = mock_container
+        mock_blob_service.get_service_properties.side_effect = AssertionError(
+            "account-level service properties should not be probed"
+        )
+
+        with patch("azure.identity.DefaultAzureCredential"), patch(
+            "azure.storage.blob.BlobServiceClient", return_value=mock_blob_service
+        ):
+            checks, _, _ = health_router._run_dependency_checks()
+
+        assert checks["storage"] == "ok"
+        mock_blob_service.get_container_client.assert_called_once_with("metrics")
+        mock_container.get_container_properties.assert_called_once_with(timeout=4)
+        mock_blob_service.get_service_properties.assert_not_called()
 
     def test_optional_redis_is_explicitly_classified(self, client, monkeypatch):
         import routers.health as health_router
