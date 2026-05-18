@@ -104,10 +104,16 @@ const useAuthStore = create((set, get) => ({
             credentials: 'include',
           });
           if (apiRes.ok) {
-            const user = await apiRes.json();
-            if (user && user.id) {
-              set({ user, isAuthenticated: true, isLoading: false });
-              return;
+            try {
+              const contentType = apiRes.headers?.get?.('content-type') || '';
+              const shouldParseJson = !contentType || contentType.includes('application/json');
+              const user = shouldParseJson ? await apiRes.json() : null;
+              if (user && user.id) {
+                set({ user, isAuthenticated: true, isLoading: false });
+                return;
+              }
+            } catch {
+              // Fall back to SWA principal-derived profile when API auth route is misconfigured.
             }
           }
           if (swaUser) {
