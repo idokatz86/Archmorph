@@ -15,9 +15,11 @@ export default function UploadStep({
   dragOver, selectedFile, filePreviewUrl, fileInputRef,
   onDragOver, onDragLeave, onDrop, onFileSelect, onUpload, onRemoveFile, onLoadSample,
   isAuthenticated = true,
+  hasBackendSession = true,
   onSignIn,
 }) {
   const isPdf = !!selectedFile && (selectedFile.type === 'application/pdf' || /\.pdf$/i.test(selectedFile.name));
+  const canAnalyze = isAuthenticated && hasBackendSession;
 
   return (
     <Card className="p-6 pb-24 sm:p-12 sm:pb-12">
@@ -77,14 +79,23 @@ export default function UploadStep({
                   <p className="text-xs text-text-muted">{(selectedFile.size / 1024).toFixed(0)} KB</p>
                 </div>
                 <div className="flex flex-wrap items-center justify-center gap-2" data-testid="file-action-buttons">
-                  {isAuthenticated ? (
+                  {canAnalyze ? (
                     <Button onClick={(e) => { e.stopPropagation(); onUpload(selectedFile); }} variant="primary" size="md" icon={Upload}>
                       Analyze This Diagram
                     </Button>
-                  ) : (
+                  ) : !isAuthenticated ? (
                     <Button onClick={(e) => { e.stopPropagation(); onSignIn?.(); }} variant="primary" size="md" icon={LogIn}>
                       Sign in to analyze
                     </Button>
+                  ) : (
+                    <div className="flex flex-col items-center gap-2">
+                      <Button onClick={(e) => { e.stopPropagation(); }} variant="secondary" size="md" icon={LogIn} disabled>
+                        Analysis unavailable
+                      </Button>
+                      <p className="max-w-xs text-xs text-text-muted">
+                        Signed in, but the backend analysis session is not available yet.
+                      </p>
+                    </div>
                   )}
                   <Button onClick={(e) => { e.stopPropagation(); onRemoveFile(); }} variant="ghost" size="sm" icon={X}>
                     Remove
