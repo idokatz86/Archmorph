@@ -69,6 +69,30 @@ describe('useAuthStore', () => {
     expect(state.user).toMatchObject({ id: 'backend-user', name: 'Backend User' });
   });
 
+  it('falls back to SWA principal profile when /api/auth/me responds with HTML', async () => {
+    fetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ clientPrincipal: principal }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        headers: { get: () => 'text/html' },
+        text: () => Promise.resolve('<!DOCTYPE html><html></html>'),
+      });
+
+    await useAuthStore.getState().initialize();
+
+    const state = useAuthStore.getState();
+    expect(state.isAuthenticated).toBe(true);
+    expect(state.user).toMatchObject({
+      id: 'aad_user-123',
+      name: 'Ido Katz',
+      email: 'ido@example.com',
+      provider: 'microsoft',
+    });
+  });
+
   it('preserves path, query string, and hash in SWA login redirects', () => {
     expect(buildPostLoginRedirectUri({
       pathname: '/workspace',
