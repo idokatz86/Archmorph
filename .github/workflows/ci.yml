@@ -711,31 +711,49 @@ jobs:
           fi
 
           MATCHED_STORAGE_NAMES=()
+          CANDIDATE_STORAGE_NAMES=()
+          NOT_FOUND_STORAGE_NAMES=()
           for CANDIDATE_STORAGE_NAME in $TERRAFORM_STORAGE_CANDIDATES; do
+            CANDIDATE_STORAGE_NAMES+=("$CANDIDATE_STORAGE_NAME")
             CANDIDATE_STORAGE_ID=$(az storage account show \
               --name "$CANDIDATE_STORAGE_NAME" \
               --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
               --query id -o tsv)
             CANDIDATE_METRICS_CONTAINER_ID="$CANDIDATE_STORAGE_ID/blobServices/default/containers/metrics"
+            CANDIDATE_METRICS_CONTAINER_ERROR=$(mktemp)
             set +e
             CANDIDATE_METRICS_CONTAINER_RESOURCE=$(az rest \
               --method get \
               --uri "https://management.azure.com${CANDIDATE_METRICS_CONTAINER_ID}?api-version=2023-01-01" \
-              --query id -o tsv 2>/dev/null)
+              --query id -o tsv 2>"$CANDIDATE_METRICS_CONTAINER_ERROR")
             CANDIDATE_METRICS_CONTAINER_STATUS=$?
             set -e
             if [ "$CANDIDATE_METRICS_CONTAINER_STATUS" -eq 0 ] && [ "$CANDIDATE_METRICS_CONTAINER_RESOURCE" = "$CANDIDATE_METRICS_CONTAINER_ID" ]; then
               MATCHED_STORAGE_NAMES+=("$CANDIDATE_STORAGE_NAME")
+            elif grep -Eiq 'StatusCode=404|ResourceNotFound|ContainerNotFound|NotFound' "$CANDIDATE_METRICS_CONTAINER_ERROR"; then
+              NOT_FOUND_STORAGE_NAMES+=("$CANDIDATE_STORAGE_NAME")
+            else
+              echo "::error::Unable to query metrics container for storage account $CANDIDATE_STORAGE_NAME through Azure Resource Manager"
+              sed 's/^/az rest: /' "$CANDIDATE_METRICS_CONTAINER_ERROR" >&2
+              rm -f "$CANDIDATE_METRICS_CONTAINER_ERROR"
+              exit 1
             fi
+            rm -f "$CANDIDATE_METRICS_CONTAINER_ERROR"
           done
 
-          if [ "${#MATCHED_STORAGE_NAMES[@]}" -ne 1 ]; then
+          CREATE_METRICS_CONTAINER=false
+          if [ "${#MATCHED_STORAGE_NAMES[@]}" -eq 1 ]; then
+            STORAGE_NAME="${MATCHED_STORAGE_NAMES[0]}"
+          elif [ "${#MATCHED_STORAGE_NAMES[@]}" -eq 0 ] && [ "${#CANDIDATE_STORAGE_NAMES[@]}" -eq 1 ] && [ "${#NOT_FOUND_STORAGE_NAMES[@]}" -eq 1 ]; then
+            STORAGE_NAME="${CANDIDATE_STORAGE_NAMES[0]}"
+            CREATE_METRICS_CONTAINER=true
+            echo "::notice::Metrics container was not found on storage account $STORAGE_NAME; creating it through Azure Resource Manager before validation."
+          else
             echo "::error::Expected exactly one Terraform-managed Archmorph storage account with a metrics container, found ${#MATCHED_STORAGE_NAMES[@]}"
             printf 'Candidates: %s\n' $TERRAFORM_STORAGE_CANDIDATES
             exit 1
           fi
 
-          STORAGE_NAME="${MATCHED_STORAGE_NAMES[0]}"
           STORAGE_ACCOUNT_URL="https://${STORAGE_NAME}.blob.core.windows.net"
           if [ "$CONTAINER_APP_STORAGE_NAME" != "$STORAGE_NAME" ]; then
             echo "::notice::Container App still references legacy storage account ${CONTAINER_APP_STORAGE_NAME}; deploying Terraform-managed storage account ${STORAGE_NAME} for metrics cutover."
@@ -805,6 +823,14 @@ jobs:
           fi
 
           METRICS_CONTAINER_ID="$STORAGE_ID/blobServices/default/containers/metrics"
+          if [ "$CREATE_METRICS_CONTAINER" = "true" ]; then
+            az rest \
+              --method put \
+              --uri "https://management.azure.com${METRICS_CONTAINER_ID}?api-version=2023-01-01" \
+              --body '{"properties":{"publicAccess":"None"}}' \
+              --only-show-errors >/dev/null
+          fi
+
           METRICS_CONTAINER_ERROR=$(mktemp)
           set +e
           METRICS_CONTAINER_RESOURCE=$(az rest \
