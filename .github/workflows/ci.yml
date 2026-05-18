@@ -680,7 +680,7 @@ jobs:
         run: |
           CONTAINER_APP_JSON=$(az containerapp show \
             --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
             -o json)
           ENV_JSON=$(echo "$CONTAINER_APP_JSON" | jq -c '.properties.template.containers[0].env // []')
 
@@ -695,13 +695,13 @@ jobs:
             exit 1
           fi
           TERRAFORM_STORAGE_CANDIDATES=$(az storage account list \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
             --query "[?tags.project=='archmorph' && tags.managed_by=='terraform' && tags.environment=='prod' && starts_with(name, 'archmorph')].name" \
             -o tsv)
           if [ -z "$TERRAFORM_STORAGE_CANDIDATES" ]; then
             echo "::notice::No tagged Terraform-managed Archmorph storage accounts were found; falling back to Archmorph storage name discovery."
             TERRAFORM_STORAGE_CANDIDATES=$(az storage account list \
-              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
               --query "[?starts_with(name, 'archmorph') && name!='archmorphmetrics'].name" \
               -o tsv)
           fi
@@ -717,7 +717,7 @@ jobs:
             CANDIDATE_STORAGE_NAMES+=("$CANDIDATE_STORAGE_NAME")
             CANDIDATE_STORAGE_ID=$(az storage account show \
               --name "$CANDIDATE_STORAGE_NAME" \
-              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
               --query id -o tsv)
             CANDIDATE_METRICS_CONTAINER_ID="$CANDIDATE_STORAGE_ID/blobServices/default/containers/metrics"
             CANDIDATE_METRICS_CONTAINER_ERROR=$(mktemp)
@@ -761,14 +761,14 @@ jobs:
           echo "STORAGE_NAME=$STORAGE_NAME" >> "$GITHUB_ENV"
           echo "STORAGE_ACCOUNT_URL=$STORAGE_ACCOUNT_URL" >> "$GITHUB_ENV"
 
-          if ! az storage account show --name "$STORAGE_NAME" --resource-group ${{ env.AZURE_RESOURCE_GROUP }} &>/dev/null; then
+          if ! az storage account show --name "$STORAGE_NAME" --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" &>/dev/null; then
             echo "::error::Storage account $STORAGE_NAME was not found in resource group ${{ env.AZURE_RESOURCE_GROUP }}"
             exit 1
           fi
 
           STORAGE_ID=$(az storage account show \
             --name "$STORAGE_NAME" \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
             --query id -o tsv)
           if [ -z "$STORAGE_ID" ]; then
             echo "::error::Unable to resolve storage account resource ID for $STORAGE_NAME"
@@ -778,7 +778,7 @@ jobs:
 
           ALLOW_SHARED_KEY=$(az storage account show \
             --name "$STORAGE_NAME" \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
             --query allowSharedKeyAccess -o tsv | tr '[:upper:]' '[:lower:]')
           if [ "$ALLOW_SHARED_KEY" != "false" ]; then
             echo "::error::Storage account $STORAGE_NAME must have shared-key access disabled"
@@ -787,7 +787,8 @@ jobs:
 
           PUBLIC_NETWORK_ACCESS=$(az storage account show \
             --name "$STORAGE_NAME" \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+            --only-show-errors \
             --query publicNetworkAccess -o tsv)
           if [ "$PUBLIC_NETWORK_ACCESS" = "Disabled" ]; then
             PRIVATE_ENDPOINT_ERROR=$(mktemp)
@@ -806,10 +807,57 @@ jobs:
             fi
             rm -f "$PRIVATE_ENDPOINT_ERROR"
             if [ "${APPROVED_PRIVATE_ENDPOINT_COUNT:-0}" = "0" ]; then
-              echo "::error::Storage account $STORAGE_NAME has public network access disabled but no approved private endpoint connection. Enable public access for the hardening-disabled cutover or apply Terraform private endpoint networking before CI deploy."
-              exit 1
+              ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER=$(echo "${ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER:-false}" | tr '[:upper:]' '[:lower:]')
+              if [ "$ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER" != "true" ]; then
+                echo "::error::Storage account $STORAGE_NAME has public network access disabled but no approved private endpoint connection. Set ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER=true only for the reviewed hardening-disabled cutover, or apply Terraform private endpoint networking before CI deploy."
+                exit 1
+              fi
+              STORAGE_NETWORK_RULES=$(az storage account network-rule list \
+                --account-name "$STORAGE_NAME" \
+                --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+                --only-show-errors \
+                -o json)
+              NETWORK_DEFAULT_ACTION=$(echo "$STORAGE_NETWORK_RULES" | jq -r '.defaultAction // ""')
+              NETWORK_IP_RULE_COUNT=$(echo "$STORAGE_NETWORK_RULES" | jq '.ipRules // [] | length')
+              CONTAINER_APPS_VNET_RULE_COUNT=$(echo "$STORAGE_NETWORK_RULES" | jq '[.virtualNetworkRules // [] | .[] | select(((.id // .virtualNetworkResourceId // "") | endswith("/subnets/container-apps-subnet")) and (.state == "Succeeded"))] | length')
+              if [ "$NETWORK_DEFAULT_ACTION" != "Deny" ]; then
+                echo "::error::Storage account $STORAGE_NAME network rules must keep defaultAction=Deny before public network cutover; found ${NETWORK_DEFAULT_ACTION:-unset}"
+                exit 1
+              fi
+              if [ "$NETWORK_IP_RULE_COUNT" != "0" ]; then
+                echo "::error::Storage account $STORAGE_NAME must not have IP firewall allow rules before public network cutover; found $NETWORK_IP_RULE_COUNT"
+                exit 1
+              fi
+              if [ "$CONTAINER_APPS_VNET_RULE_COUNT" != "1" ]; then
+                echo "::error::Storage account $STORAGE_NAME must have exactly one succeeded container-apps-subnet virtual network rule before public network cutover; found $CONTAINER_APPS_VNET_RULE_COUNT"
+                exit 1
+              fi
+              echo "::notice::Storage account $STORAGE_NAME has public network access disabled and no approved private endpoint; enabling public network access under ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER=true for this deploy cutover."
+              az storage account update \
+                --name "$STORAGE_NAME" \
+                --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+                --public-network-access Enabled \
+                --only-show-errors >/dev/null
+              for public_access_attempt in 1 2 3 4 5; do
+                PUBLIC_NETWORK_ACCESS=$(az storage account show \
+                  --name "$STORAGE_NAME" \
+                  --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+                  --only-show-errors \
+                  --query publicNetworkAccess -o tsv)
+                if [ "$PUBLIC_NETWORK_ACCESS" = "Enabled" ]; then
+                  break
+                fi
+                echo "Storage account $STORAGE_NAME public network access is ${PUBLIC_NETWORK_ACCESS:-unset}; waiting for update propagation (attempt $public_access_attempt/5)"
+                sleep 5
+              done
+              if [ "$PUBLIC_NETWORK_ACCESS" != "Enabled" ]; then
+                echo "::error::Storage account $STORAGE_NAME public network access update did not reach Enabled; found ${PUBLIC_NETWORK_ACCESS:-unset}"
+                exit 1
+              fi
+              echo "Storage account $STORAGE_NAME public network access is enabled for cutover"
+            else
+              echo "Storage account $STORAGE_NAME uses disabled public network access with approved private endpoint connectivity"
             fi
-            echo "Storage account $STORAGE_NAME uses disabled public network access with approved private endpoint connectivity"
           else
             ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER=$(echo "${ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER:-false}" | tr '[:upper:]' '[:lower:]')
             if [ "$ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER" != "true" ]; then
@@ -887,7 +935,7 @@ jobs:
         run: |
           az containerapp revision set-mode \
             --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
             --mode multiple
 
       - name: Deploy green revision
@@ -913,7 +961,7 @@ jobs:
 
           EXISTING_ENV_JSON=$(az containerapp show \
             --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
             --query "properties.template.containers[0].env" -o json 2>/dev/null || echo "[]")
           if [ -z "$TRUSTED_FRONT_DOOR_FDID" ] || [ -z "$TRUSTED_FRONT_DOOR_HOSTS" ]; then
             EXISTING_FRONT_DOOR_FDID=$(echo "$EXISTING_ENV_JSON" | jq -r '.[] | select(.name == "TRUSTED_FRONT_DOOR_FDID") | .value // ""' | head -1)
@@ -927,7 +975,7 @@ jobs:
           fi
           CONTAINER_APP_FQDN=$(az containerapp show \
             --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
             --query "properties.configuration.ingress.fqdn" -o tsv 2>/dev/null || echo "")
 
           if ! az extension show --name front-door &>/dev/null; then
@@ -1133,7 +1181,7 @@ jobs:
 
           az containerapp secret set \
             --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
             --secrets \
               admin-key="${{ env.ADMIN_KEY }}" \
               api-key="${{ env.ARCHMORPH_API_KEY }}" \
@@ -1157,7 +1205,7 @@ jobs:
           if [ -n "${{ secrets.ACS_CONNECTION_STRING }}" ]; then
             az containerapp secret set \
               --name ${{ env.CONTAINER_APP_NAME }} \
-              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
               --secrets acs-connection-string="${{ secrets.ACS_CONNECTION_STRING }}"
             SET_ENV_VARS+=(ACS_CONNECTION_STRING=secretref:acs-connection-string)
           fi
@@ -1171,7 +1219,7 @@ jobs:
             set +e
             az containerapp update \
               --name ${{ env.CONTAINER_APP_NAME }} \
-              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
               --image "${IMAGE_REF}" \
               --set-env-vars "${SET_ENV_VARS[@]}" \
               --revision-suffix "$REVISION_SUFFIX" \
@@ -1199,7 +1247,7 @@ jobs:
 
           GREEN_REV=$(az containerapp revision list \
             --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
             --query "[?contains(name, '$REVISION_SUFFIX')].name" -o tsv | head -1)
 
           echo "green_revision=$GREEN_REV" >> $GITHUB_OUTPUT
@@ -1216,7 +1264,7 @@ jobs:
           for attempt in $(seq 1 24); do
             if ! REVISION_JSON=$(az containerapp revision show \
               --name ${{ env.CONTAINER_APP_NAME }} \
-              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
               --revision "$GREEN_REV" \
               -o json 2>revision-show.err); then
               echo "Green revision readiness attempt ${attempt}: revision show failed"
@@ -1241,13 +1289,13 @@ jobs:
           echo "::error::Green revision did not become ready before smoke tests"
           az containerapp revision show \
             --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
             --revision "$GREEN_REV" \
             --query '{name:name,provisioningState:properties.provisioningState,runningState:properties.runningState,healthState:properties.healthState,replicas:properties.replicas,createdTime:properties.createdTime}' \
             -o json || true
           az containerapp logs show \
             --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
             --revision "$GREEN_REV" \
             --tail 100 || true
           exit 1
@@ -1262,7 +1310,7 @@ jobs:
 
           ENV_JSON=$(az containerapp revision show \
             --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
             --revision "$GREEN_REV" \
             --query "properties.template.containers[0].env" -o json)
 
@@ -1308,7 +1356,7 @@ jobs:
         run: |
           GREEN_FQDN=$(az containerapp revision show \
             --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
             --revision "${{ steps.green.outputs.green_revision }}" \
             --query "properties.fqdn" -o tsv 2>/dev/null || echo "")
 
@@ -1329,12 +1377,12 @@ jobs:
           if [ -n "$GREEN_FQDN" ]; then
             TRUSTED_FRONT_DOOR_FDID=$(az containerapp show \
               --name ${{ env.CONTAINER_APP_NAME }} \
-              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
               --query "properties.template.containers[0].env[?name=='TRUSTED_FRONT_DOOR_FDID'].value | [0]" \
               -o tsv 2>/dev/null || echo "")
             TRUSTED_FRONT_DOOR_HOST=$(az containerapp show \
               --name ${{ env.CONTAINER_APP_NAME }} \
-              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
               --query "properties.template.containers[0].env[?name=='TRUSTED_FRONT_DOOR_HOSTS'].value | [0]" \
               -o tsv 2>/dev/null || echo "")
             TRUSTED_FRONT_DOOR_HOST="${TRUSTED_FRONT_DOOR_HOST%%,*}"
@@ -1354,13 +1402,13 @@ jobs:
             echo "::group::Green revision diagnostics (${reason})"
             az containerapp revision show \
               --name ${{ env.CONTAINER_APP_NAME }} \
-              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
               --revision "${{ steps.green.outputs.green_revision }}" \
               --query '{name:name,provisioningState:properties.provisioningState,runningState:properties.runningState,healthState:properties.healthState,replicas:properties.replicas,createdTime:properties.createdTime,fqdn:properties.fqdn}' \
               -o json || true
             az containerapp logs show \
               --name ${{ env.CONTAINER_APP_NAME }} \
-              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
               --revision "${{ steps.green.outputs.green_revision }}" \
               --tail 100 || true
             echo "::endgroup::"
@@ -1513,14 +1561,14 @@ jobs:
         run: |
           az containerapp ingress traffic set \
             --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
             --revision-weight "${{ steps.green.outputs.green_revision }}=100"
 
       - name: Deactivate old revisions (keep blue for rollback)
         run: |
           OLD_REVS=$(az containerapp revision list \
             --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
             --query "[?properties.active && name != '${{ steps.green.outputs.green_revision }}'].name" -o tsv)
 
           KEEP_BLUE=$(echo "$OLD_REVS" | head -1)
@@ -1532,7 +1580,7 @@ jobs:
             echo "Deactivating old revision: $rev"
             az containerapp revision deactivate \
               --name ${{ env.CONTAINER_APP_NAME }} \
-              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
               --revision "$rev" || true
           done
 
