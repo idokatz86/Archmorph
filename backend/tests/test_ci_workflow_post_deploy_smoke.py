@@ -170,6 +170,14 @@ def test_backend_storage_validation_requires_private_endpoint_when_public_access
     assert "name!='archmorphmetrics'" in validate_script
     assert "No Terraform-managed Archmorph storage account candidates were found" in validate_script
     assert "CANDIDATE_METRICS_CONTAINER_ID" in validate_script
+    assert "NOT_FOUND_STORAGE_NAMES=()" in validate_script
+    assert "StatusCode=404|ResourceNotFound|ContainerNotFound|NotFound" in validate_script
+    assert "Unable to query metrics container for storage account" in validate_script
+    assert "CREATE_METRICS_CONTAINER=true" in validate_script
+    assert '[ "${#CANDIDATE_STORAGE_NAMES[@]}" -eq 1 ]' in validate_script
+    assert '[ "${#NOT_FOUND_STORAGE_NAMES[@]}" -eq 1 ]' in validate_script
+    assert "Metrics container was not found on storage account" in validate_script
+    assert "publicAccess\":\"None" in validate_script
     assert "Expected exactly one Terraform-managed Archmorph storage account with a metrics container" in validate_script
     assert "Container App still references legacy storage account" in validate_script
     assert "deploying Terraform-managed storage account" in validate_script

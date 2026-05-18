@@ -281,6 +281,14 @@ def test_ci_validates_prod_storage_network_and_user_assigned_identity_role():
     assert "name!='archmorphmetrics'" in ci_workflow
     assert "No Terraform-managed Archmorph storage account candidates were found" in ci_workflow
     assert "CANDIDATE_METRICS_CONTAINER_ID" in ci_workflow
+    assert "NOT_FOUND_STORAGE_NAMES=()" in ci_workflow
+    assert "StatusCode=404|ResourceNotFound|ContainerNotFound|NotFound" in ci_workflow
+    assert "Unable to query metrics container for storage account" in ci_workflow
+    assert "CREATE_METRICS_CONTAINER=true" in ci_workflow
+    assert '[ "${#CANDIDATE_STORAGE_NAMES[@]}" -eq 1 ]' in ci_workflow
+    assert '[ "${#NOT_FOUND_STORAGE_NAMES[@]}" -eq 1 ]' in ci_workflow
+    assert "Metrics container was not found on storage account" in ci_workflow
+    assert "publicAccess\":\"None" in ci_workflow
     assert "Expected exactly one Terraform-managed Archmorph storage account with a metrics container" in ci_workflow
     assert "deploying Terraform-managed storage account" in ci_workflow
     assert "managed-identity blob preflight will prove RBAC data-plane access" in ci_workflow
