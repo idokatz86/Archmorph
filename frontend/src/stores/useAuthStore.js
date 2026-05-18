@@ -83,6 +83,7 @@ const useAuthStore = create((set, get) => ({
   // ── State ──
   user: null,
   isAuthenticated: false,
+  hasBackendSession: false,
   isLoading: true,
   sessionToken: getStoredToken(),
 
@@ -109,15 +110,45 @@ const useAuthStore = create((set, get) => ({
               const shouldParseJson = !contentType || contentType.includes('application/json');
               const user = shouldParseJson ? await apiRes.json() : null;
               if (user && user.id) {
-                set({ user, isAuthenticated: true, isLoading: false });
+                set({ user, isAuthenticated: true, hasBackendSession: true, isLoading: false });
                 return;
               }
             } catch {
               // Fall back to SWA principal-derived profile when API auth route is misconfigured.
             }
           }
+          const token = getStoredToken();
+          if (token) {
+            let shouldClearStoredToken = false;
+            try {
+              const tokenRes = await fetch(`${API_BASE}/auth/me`, {
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                  'Content-Type': 'application/json',
+                },
+              });
+              if (tokenRes.ok) {
+                const user = await tokenRes.json();
+                if (user && user.id) {
+                  set({ user, isAuthenticated: true, hasBackendSession: true, sessionToken: token, isLoading: false });
+                  return;
+                }
+                const refreshed = await get()._tryRefresh();
+                if (refreshed) return;
+                shouldClearStoredToken = true;
+              }
+              else if (tokenRes.status >= 400 && tokenRes.status < 500) {
+                const refreshed = await get()._tryRefresh();
+                if (refreshed) return;
+                shouldClearStoredToken = true;
+              }
+            } catch {
+              // Preserve the token when validation failed for an indeterminate reason.
+            }
+            if (shouldClearStoredToken) clearTokens();
+          }
           if (swaUser) {
-            set({ user: swaUser, isAuthenticated: true, isLoading: false, sessionToken: null });
+            set({ user: swaUser, isAuthenticated: true, hasBackendSession: false, isLoading: false, sessionToken: null });
             return;
           }
         }
@@ -139,7 +170,7 @@ const useAuthStore = create((set, get) => ({
         if (res.ok) {
           const user = await res.json();
           if (user && user.id) {
-            set({ user, isAuthenticated: true, sessionToken: token, isLoading: false });
+            set({ user, isAuthenticated: true, hasBackendSession: true, sessionToken: token, isLoading: false });
             return;
           }
         }
@@ -152,7 +183,7 @@ const useAuthStore = create((set, get) => ({
     }
 
     // 3. Anonymous
-    set({ user: null, isAuthenticated: false, isLoading: false, sessionToken: null });
+    set({ user: null, isAuthenticated: false, hasBackendSession: false, isLoading: false, sessionToken: null });
   },
 
   // ── Login via provider (Azure SWA redirect) ──
@@ -183,6 +214,7 @@ const useAuthStore = create((set, get) => ({
       set({
         user: data.user,
         isAuthenticated: true,
+        hasBackendSession: true,
         sessionToken: data.session_token,
       });
       return true;
@@ -203,7 +235,7 @@ const useAuthStore = create((set, get) => ({
     } catch { /* best-effort */ }
 
     clearTokens();
-    set({ user: null, isAuthenticated: false, sessionToken: null });
+    set({ user: null, isAuthenticated: false, hasBackendSession: false, sessionToken: null });
 
     // Also try SWA logout
     try {
@@ -242,6 +274,7 @@ const useAuthStore = create((set, get) => ({
           set({
             user,
             isAuthenticated: true,
+            hasBackendSession: true,
             sessionToken: data.session_token,
             isLoading: false,
           });

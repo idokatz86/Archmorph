@@ -283,6 +283,7 @@ export default function DiagramTranslator() {
 
   // Auth state — used for proactive gate and 401 error differentiation
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const hasBackendSession = useAuthStore((s) => s.hasBackendSession);
   const [loginModalOpen, setLoginModalOpen] = useState(false);
   const [authUploadRecovery, setAuthUploadRecovery] = useState(null);
 
@@ -1367,6 +1368,7 @@ export default function DiagramTranslator() {
           onRemoveFile={clearSelectedUpload}
           onLoadSample={handleLoadSample}
           isAuthenticated={isAuthenticated}
+          hasBackendSession={hasBackendSession}
           onSignIn={() => setLoginModalOpen(true)}
         />
       )}

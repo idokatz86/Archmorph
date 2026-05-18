@@ -16,6 +16,7 @@ function resetAuthStore() {
   useAuthStore.setState({
     user: null,
     isAuthenticated: false,
+    hasBackendSession: false,
     isLoading: true,
     sessionToken: null,
   });
@@ -43,6 +44,7 @@ describe('useAuthStore', () => {
 
     const state = useAuthStore.getState();
     expect(state.isAuthenticated).toBe(true);
+    expect(state.hasBackendSession).toBe(false);
     expect(state.user).toMatchObject({
       id: 'aad_user-123',
       name: 'Ido Katz',
@@ -66,6 +68,7 @@ describe('useAuthStore', () => {
 
     const state = useAuthStore.getState();
     expect(state.isAuthenticated).toBe(true);
+    expect(state.hasBackendSession).toBe(true);
     expect(state.user).toMatchObject({ id: 'backend-user', name: 'Backend User' });
   });
 
@@ -85,12 +88,88 @@ describe('useAuthStore', () => {
 
     const state = useAuthStore.getState();
     expect(state.isAuthenticated).toBe(true);
+    expect(state.hasBackendSession).toBe(false);
     expect(state.user).toMatchObject({
       id: 'aad_user-123',
       name: 'Ido Katz',
       email: 'ido@example.com',
       provider: 'microsoft',
     });
+  });
+
+  it('uses a stored backend session before falling back to SWA-only auth', async () => {
+    localStorage.setItem('archmorph_session_token', 'valid-backend-token');
+    fetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ clientPrincipal: principal }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ authenticated: false, tier: 'free' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ id: 'token-user', name: 'Token User', provider: 'microsoft' }),
+      });
+
+    await useAuthStore.getState().initialize();
+
+    const state = useAuthStore.getState();
+    expect(state.isAuthenticated).toBe(true);
+    expect(state.hasBackendSession).toBe(true);
+    expect(state.sessionToken).toBe('valid-backend-token');
+    expect(state.user).toMatchObject({ id: 'token-user', name: 'Token User' });
+  });
+
+  it('clears a rejected stored backend token before falling back to SWA-only auth', async () => {
+    localStorage.setItem('archmorph_session_token', 'stale-backend-token');
+    fetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ clientPrincipal: principal }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ authenticated: false, tier: 'free' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({ authenticated: false, tier: 'free' }),
+      });
+
+    await useAuthStore.getState().initialize();
+
+    const state = useAuthStore.getState();
+    expect(state.isAuthenticated).toBe(true);
+    expect(state.hasBackendSession).toBe(false);
+    expect(state.sessionToken).toBeNull();
+    expect(localStorage.getItem('archmorph_session_token')).toBeNull();
+    expect(state.user).toMatchObject({ id: 'aad_user-123' });
+  });
+
+  it('preserves a stored backend token when backend validation is indeterminate', async () => {
+    localStorage.setItem('archmorph_session_token', 'recoverable-backend-token');
+    fetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ clientPrincipal: principal }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ authenticated: false, tier: 'free' }),
+      })
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'));
+
+    await useAuthStore.getState().initialize();
+
+    const state = useAuthStore.getState();
+    expect(state.isAuthenticated).toBe(true);
+    expect(state.hasBackendSession).toBe(false);
+    expect(state.sessionToken).toBeNull();
+    expect(localStorage.getItem('archmorph_session_token')).toBe('recoverable-backend-token');
+    expect(state.user).toMatchObject({ id: 'aad_user-123' });
   });
 
   it('preserves path, query string, and hash in SWA login redirects', () => {

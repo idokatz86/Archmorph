@@ -71,9 +71,11 @@ vi.mock('../../../services/apiClient', () => ({
 
 // Mock useAuthStore so we can control isAuthenticated per test
 let mockIsAuthenticated = false
+let mockHasBackendSession = false
 vi.mock('../../../stores/useAuthStore', () => ({
   default: vi.fn((selector) => selector({
     isAuthenticated: mockIsAuthenticated,
+    hasBackendSession: mockHasBackendSession,
     isLoading: false,
     user: null,
     sessionToken: null,
@@ -84,6 +86,7 @@ describe('DiagramTranslator — Session UX Tests', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockIsAuthenticated = false // signed-out by default for these tests
+    mockHasBackendSession = false
     mockLoadSession.mockReturnValue(null)
     fetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({}) })
   })
@@ -278,6 +281,7 @@ describe('DiagramTranslator — Signed-out auth recovery', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockIsAuthenticated = false // signed-out by default
+    mockHasBackendSession = false
     mockLoadSession.mockReturnValue(null)
     fetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({}) })
     localStorage.clear()
@@ -306,6 +310,7 @@ describe('DiagramTranslator — Signed-out auth recovery', () => {
   it('shows "Authentication required" card (not "Analysis Error") when upload returns 401 without token', async () => {
     // Set user as authenticated so the upload button is visible and upload can be triggered
     mockIsAuthenticated = true
+    mockHasBackendSession = true
 
     const { ApiError } = await import('../../../services/apiClient')
     const authErr = new ApiError(401, { detail: 'Not authenticated' }, { hadToken: false })
@@ -344,6 +349,7 @@ describe('DiagramTranslator — Signed-out auth recovery', () => {
 
   it('preserves selectedFile after 401 so user can retry after signing in', async () => {
     mockIsAuthenticated = true
+    mockHasBackendSession = true
 
     const { ApiError } = await import('../../../services/apiClient')
     const authErr = new ApiError(401, { detail: 'Not authenticated' }, { hadToken: false })
@@ -362,6 +368,24 @@ describe('DiagramTranslator — Signed-out auth recovery', () => {
 
     // After 401, the file should still be shown (not cleared)
     await waitFor(() => expect(screen.getByText('my-diagram.pdf')).toBeInTheDocument())
+  })
+
+  it('does not upload or analyze when user is SWA-only without a backend session', async () => {
+    mockIsAuthenticated = true
+    mockHasBackendSession = false
+
+    render(<DiagramTranslator />)
+    await screen.findByText('Upload Architecture Diagram')
+
+    const input = document.querySelector('input[type="file"]')
+    const pdfFile = new File(['%PDF-1.4'], 'swa-only.pdf', { type: 'application/pdf' })
+    await act(async () => { fireEvent.change(input, { target: { files: [pdfFile] } }) })
+    await waitFor(() => expect(screen.getByText('swa-only.pdf')).toBeInTheDocument())
+
+    expect(screen.getByRole('button', { name: /Analysis unavailable/i })).toBeDisabled()
+    expect(screen.getByText(/backend analysis session is not available/i)).toBeInTheDocument()
+    expect(screen.queryByText('Analyze This Diagram')).not.toBeInTheDocument()
+    expect(mockApi.post).not.toHaveBeenCalled()
   })
 
   it('uses "session has expired" copy when 401 had a token (expiry case)', async () => {
