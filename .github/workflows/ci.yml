@@ -694,27 +694,41 @@ jobs:
             echo "::error::Unable to parse storage account name from AZURE_STORAGE_ACCOUNT_URL=$CONTAINER_APP_STORAGE_ACCOUNT_URL"
             exit 1
           fi
-          TERRAFORM_STORAGE_NAME=""
-          if ! terraform -chdir=infra init -input=false -lockfile=readonly >/tmp/terraform-init-storage.log 2>&1; then
-            echo "::error::Unable to initialize Terraform remote state for storage output discovery"
-            tail -n 40 /tmp/terraform-init-storage.log || true
+          TERRAFORM_STORAGE_CANDIDATES=$(az storage account list \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --query "[?tags.project=='archmorph' && tags.managed_by=='terraform' && tags.environment=='prod' && starts_with(name, 'archmorph')].name" \
+            -o tsv)
+          if [ -z "$TERRAFORM_STORAGE_CANDIDATES" ]; then
+            echo "::error::No Terraform-managed Archmorph storage accounts were found in resource group ${{ env.AZURE_RESOURCE_GROUP }}"
             exit 1
           fi
 
-          TERRAFORM_OUTPUT_ERROR=$(mktemp)
-          set +e
-          TERRAFORM_STORAGE_NAME=$(terraform -chdir=infra output -raw storage_account_name 2>"$TERRAFORM_OUTPUT_ERROR")
-          TERRAFORM_OUTPUT_STATUS=$?
-          set -e
-          if [ "$TERRAFORM_OUTPUT_STATUS" -ne 0 ] || [ -z "$TERRAFORM_STORAGE_NAME" ]; then
-            echo "::error::Unable to read Terraform storage_account_name output for deploy storage validation"
-            sed 's/^/terraform output: /' "$TERRAFORM_OUTPUT_ERROR" >&2
-            rm -f "$TERRAFORM_OUTPUT_ERROR"
+          MATCHED_STORAGE_NAMES=()
+          for CANDIDATE_STORAGE_NAME in $TERRAFORM_STORAGE_CANDIDATES; do
+            CANDIDATE_STORAGE_ID=$(az storage account show \
+              --name "$CANDIDATE_STORAGE_NAME" \
+              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --query id -o tsv)
+            CANDIDATE_METRICS_CONTAINER_ID="$CANDIDATE_STORAGE_ID/blobServices/default/containers/metrics"
+            set +e
+            CANDIDATE_METRICS_CONTAINER_RESOURCE=$(az rest \
+              --method get \
+              --uri "https://management.azure.com${CANDIDATE_METRICS_CONTAINER_ID}?api-version=2023-01-01" \
+              --query id -o tsv 2>/dev/null)
+            CANDIDATE_METRICS_CONTAINER_STATUS=$?
+            set -e
+            if [ "$CANDIDATE_METRICS_CONTAINER_STATUS" -eq 0 ] && [ "$CANDIDATE_METRICS_CONTAINER_RESOURCE" = "$CANDIDATE_METRICS_CONTAINER_ID" ]; then
+              MATCHED_STORAGE_NAMES+=("$CANDIDATE_STORAGE_NAME")
+            fi
+          done
+
+          if [ "${#MATCHED_STORAGE_NAMES[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly one Terraform-managed Archmorph storage account with a metrics container, found ${#MATCHED_STORAGE_NAMES[@]}"
+            printf 'Candidates: %s\n' $TERRAFORM_STORAGE_CANDIDATES
             exit 1
           fi
-          rm -f "$TERRAFORM_OUTPUT_ERROR"
 
-          STORAGE_NAME="$TERRAFORM_STORAGE_NAME"
+          STORAGE_NAME="${MATCHED_STORAGE_NAMES[0]}"
           STORAGE_ACCOUNT_URL="https://${STORAGE_NAME}.blob.core.windows.net"
           if [ "$CONTAINER_APP_STORAGE_NAME" != "$STORAGE_NAME" ]; then
             echo "::notice::Container App still references legacy storage account ${CONTAINER_APP_STORAGE_NAME}; deploying Terraform-managed storage account ${STORAGE_NAME} for metrics cutover."

@@ -163,9 +163,11 @@ def test_backend_storage_validation_requires_private_endpoint_when_public_access
     assert "APPROVED_PRIVATE_ENDPOINT_COUNT=$(az network private-endpoint-connection list" in validate_script
     assert "PRIVATE_ENDPOINT_STATUS=$?" in validate_script
     assert "Unable to query private endpoint connections" in validate_script
-    assert "terraform -chdir=infra output -raw storage_account_name" in validate_script
-    assert "Unable to initialize Terraform remote state for storage output discovery" in validate_script
-    assert "Unable to read Terraform storage_account_name output for deploy storage validation" in validate_script
+    assert "TERRAFORM_STORAGE_CANDIDATES=$(az storage account list" in validate_script
+    assert "tags.project=='archmorph'" in validate_script
+    assert "tags.managed_by=='terraform'" in validate_script
+    assert "CANDIDATE_METRICS_CONTAINER_ID" in validate_script
+    assert "Expected exactly one Terraform-managed Archmorph storage account with a metrics container" in validate_script
     assert "Container App still references legacy storage account" in validate_script
     assert "deploying Terraform-managed storage account" in validate_script
     assert "has public network access disabled but no approved private endpoint connection" in validate_script

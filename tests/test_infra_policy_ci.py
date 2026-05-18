@@ -274,8 +274,11 @@ def test_ci_validates_prod_storage_network_and_user_assigned_identity_role():
     assert "APPROVED_PRIVATE_ENDPOINT_COUNT=$(az network private-endpoint-connection list" in ci_workflow
     assert "PRIVATE_ENDPOINT_STATUS=$?" in ci_workflow
     assert 'ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER: "true"' in ci_workflow
-    assert "terraform -chdir=infra output -raw storage_account_name" in ci_workflow
-    assert "Unable to read Terraform storage_account_name output for deploy storage validation" in ci_workflow
+    assert "TERRAFORM_STORAGE_CANDIDATES=$(az storage account list" in ci_workflow
+    assert "tags.project=='archmorph'" in ci_workflow
+    assert "tags.managed_by=='terraform'" in ci_workflow
+    assert "CANDIDATE_METRICS_CONTAINER_ID" in ci_workflow
+    assert "Expected exactly one Terraform-managed Archmorph storage account with a metrics container" in ci_workflow
     assert "deploying Terraform-managed storage account" in ci_workflow
     assert "managed-identity blob preflight will prove RBAC data-plane access" in ci_workflow
     assert 'select(.name == "AZURE_CLIENT_ID")' in ci_workflow
