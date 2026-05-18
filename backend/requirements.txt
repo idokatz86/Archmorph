@@ -42,7 +42,7 @@ PyYAML>=6.0.3  # architecture limitations rule library (Issue #610)
 # Security-pinned dependencies
 cryptography>=48.0.0
 langchain-core>=1.4.0  # CVE-2026-34070 path traversal fix
-langsmith>=0.8.3
+langsmith>=0.8.5
 lxml>=6.1.1
 pyasn1>=0.6.3
 pygments>=2.20.0
