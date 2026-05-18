@@ -277,6 +277,9 @@ def test_ci_validates_prod_storage_network_and_user_assigned_identity_role():
     assert "TERRAFORM_STORAGE_CANDIDATES=$(az storage account list" in ci_workflow
     assert "tags.project=='archmorph'" in ci_workflow
     assert "tags.managed_by=='terraform'" in ci_workflow
+    assert "No tagged Terraform-managed Archmorph storage accounts were found" in ci_workflow
+    assert "name!='archmorphmetrics'" in ci_workflow
+    assert "No Terraform-managed Archmorph storage account candidates were found" in ci_workflow
     assert "CANDIDATE_METRICS_CONTAINER_ID" in ci_workflow
     assert "Expected exactly one Terraform-managed Archmorph storage account with a metrics container" in ci_workflow
     assert "deploying Terraform-managed storage account" in ci_workflow

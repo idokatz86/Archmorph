@@ -699,7 +699,14 @@ jobs:
             --query "[?tags.project=='archmorph' && tags.managed_by=='terraform' && tags.environment=='prod' && starts_with(name, 'archmorph')].name" \
             -o tsv)
           if [ -z "$TERRAFORM_STORAGE_CANDIDATES" ]; then
-            echo "::error::No Terraform-managed Archmorph storage accounts were found in resource group ${{ env.AZURE_RESOURCE_GROUP }}"
+            echo "::notice::No tagged Terraform-managed Archmorph storage accounts were found; falling back to Archmorph storage name discovery."
+            TERRAFORM_STORAGE_CANDIDATES=$(az storage account list \
+              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --query "[?starts_with(name, 'archmorph') && name!='archmorphmetrics'].name" \
+              -o tsv)
+          fi
+          if [ -z "$TERRAFORM_STORAGE_CANDIDATES" ]; then
+            echo "::error::No Terraform-managed Archmorph storage account candidates were found in resource group ${{ env.AZURE_RESOURCE_GROUP }}"
             exit 1
           fi
 

@@ -166,6 +166,9 @@ def test_backend_storage_validation_requires_private_endpoint_when_public_access
     assert "TERRAFORM_STORAGE_CANDIDATES=$(az storage account list" in validate_script
     assert "tags.project=='archmorph'" in validate_script
     assert "tags.managed_by=='terraform'" in validate_script
+    assert "No tagged Terraform-managed Archmorph storage accounts were found" in validate_script
+    assert "name!='archmorphmetrics'" in validate_script
+    assert "No Terraform-managed Archmorph storage account candidates were found" in validate_script
     assert "CANDIDATE_METRICS_CONTAINER_ID" in validate_script
     assert "Expected exactly one Terraform-managed Archmorph storage account with a metrics container" in validate_script
     assert "Container App still references legacy storage account" in validate_script
