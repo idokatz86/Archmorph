@@ -30,9 +30,11 @@ describe('Static Web App security headers config', () => {
       const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
       const csp = config.globalHeaders['Content-Security-Policy'];
       const directives = parseCspDirectives(csp);
+      const fallbackExcludes = config.navigationFallback?.exclude || [];
 
       expect(config.globalHeaders['X-Frame-Options']).toBe('DENY');
       expect(config.globalHeaders['Permissions-Policy']).toBe('camera=(), microphone=(), geolocation=()');
+      expect(fallbackExcludes).toEqual(expect.arrayContaining(['/api/*', '/.auth/*']));
       expect(directives['default-src']).toContain("'self'");
       expect(directives['connect-src']).toEqual(expect.arrayContaining(["'self'", 'https://api.archmorphai.com']));
       expect(directives['img-src']).toEqual(expect.arrayContaining(["'self'", 'data:', 'blob:']));
