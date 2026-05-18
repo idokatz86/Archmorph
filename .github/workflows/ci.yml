@@ -684,15 +684,30 @@ jobs:
             -o json)
           ENV_JSON=$(echo "$CONTAINER_APP_JSON" | jq -c '.properties.template.containers[0].env // []')
 
-          STORAGE_ACCOUNT_URL=$(echo "$ENV_JSON" | jq -r '.[] | select(.name == "AZURE_STORAGE_ACCOUNT_URL") | .value // ""')
-          if [ -z "$STORAGE_ACCOUNT_URL" ]; then
+          CONTAINER_APP_STORAGE_ACCOUNT_URL=$(echo "$ENV_JSON" | jq -r '.[] | select(.name == "AZURE_STORAGE_ACCOUNT_URL") | .value // ""')
+          if [ -z "$CONTAINER_APP_STORAGE_ACCOUNT_URL" ]; then
             echo "::error::Container App is missing AZURE_STORAGE_ACCOUNT_URL. Configure it via Terraform-managed env vars before CI deploy."
             exit 1
           fi
-          STORAGE_NAME=$(echo "$STORAGE_ACCOUNT_URL" | sed -E 's#^https://([^.]+)\.blob\.core\.windows\.net/?$#\1#')
-          if [ -z "$STORAGE_NAME" ] || [ "$STORAGE_NAME" = "$STORAGE_ACCOUNT_URL" ]; then
-            echo "::error::Unable to parse storage account name from AZURE_STORAGE_ACCOUNT_URL=$STORAGE_ACCOUNT_URL"
+          CONTAINER_APP_STORAGE_NAME=$(echo "$CONTAINER_APP_STORAGE_ACCOUNT_URL" | sed -E 's#^https://([^.]+)\.blob\.core\.windows\.net/?$#\1#')
+          if [ -z "$CONTAINER_APP_STORAGE_NAME" ] || [ "$CONTAINER_APP_STORAGE_NAME" = "$CONTAINER_APP_STORAGE_ACCOUNT_URL" ]; then
+            echo "::error::Unable to parse storage account name from AZURE_STORAGE_ACCOUNT_URL=$CONTAINER_APP_STORAGE_ACCOUNT_URL"
             exit 1
+          fi
+          TERRAFORM_STORAGE_NAME=""
+          if terraform -chdir=infra init -input=false -lockfile=readonly >/tmp/terraform-init-storage.log 2>&1; then
+            TERRAFORM_STORAGE_NAME=$(terraform -chdir=infra output -raw storage_account_name 2>/dev/null || echo "")
+          else
+            echo "::warning::Unable to initialize Terraform remote state for storage output discovery"
+            tail -n 40 /tmp/terraform-init-storage.log || true
+          fi
+          STORAGE_NAME="$CONTAINER_APP_STORAGE_NAME"
+          if [ -n "$TERRAFORM_STORAGE_NAME" ]; then
+            STORAGE_NAME="$TERRAFORM_STORAGE_NAME"
+          fi
+          STORAGE_ACCOUNT_URL="https://${STORAGE_NAME}.blob.core.windows.net"
+          if [ "$CONTAINER_APP_STORAGE_NAME" != "$STORAGE_NAME" ]; then
+            echo "::notice::Container App still references legacy storage account ${CONTAINER_APP_STORAGE_NAME}; deploying Terraform-managed storage account ${STORAGE_NAME} for metrics cutover."
           fi
           echo "STORAGE_NAME=$STORAGE_NAME" >> "$GITHUB_ENV"
           echo "STORAGE_ACCOUNT_URL=$STORAGE_ACCOUNT_URL" >> "$GITHUB_ENV"
@@ -753,8 +768,8 @@ jobs:
               exit 1
             fi
             echo "::notice::Storage account $STORAGE_NAME has public network access ${PUBLIC_NETWORK_ACCESS} under ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER=true; managed-identity blob preflight will prove RBAC data-plane access before traffic shift."
-            if [ "$STORAGE_NAME" = "archmorphmetrics" ]; then
-              echo "::notice::Container App still references legacy storage account $STORAGE_NAME until Terraform storage migration is applied."
+            if [ "$CONTAINER_APP_STORAGE_NAME" != "$STORAGE_NAME" ]; then
+              echo "::notice::Container App still references legacy storage account ${CONTAINER_APP_STORAGE_NAME} until Terraform storage migration is applied."
             fi
           fi
 
