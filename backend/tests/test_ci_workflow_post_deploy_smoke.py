@@ -178,12 +178,26 @@ def test_backend_storage_validation_requires_private_endpoint_when_public_access
     assert '[ "${#NOT_FOUND_STORAGE_NAMES[@]}" -eq 1 ]' in validate_script
     assert "Metrics container was not found on storage account" in validate_script
     assert "publicAccess\":\"None" in validate_script
+    assert "az storage account network-rule list" in validate_script
+    assert 'NETWORK_DEFAULT_ACTION" != "Deny"' in validate_script
+    assert 'NETWORK_IP_RULE_COUNT" != "0"' in validate_script
+    assert 'endswith("/subnets/container-apps-subnet")' in validate_script
+    assert '.state == "Succeeded"' in validate_script
+    assert "--resource-group \"${{ env.AZURE_RESOURCE_GROUP }}\"" in validate_script
+    assert "for public_access_attempt in" in validate_script
+    assert "waiting for update propagation" in validate_script
+    assert "attempt $public_access_attempt/" in validate_script
+    assert "public network access update did not reach Enabled" in validate_script
+    assert "public network access disabled and no approved private endpoint; enabling public network access" in validate_script
+    assert "az storage account update" in validate_script
+    assert "--public-network-access Enabled" in validate_script
     assert "Expected exactly one Terraform-managed Archmorph storage account with a metrics container" in validate_script
     assert "Container App still references legacy storage account" in validate_script
     assert "deploying Terraform-managed storage account" in validate_script
     assert "has public network access disabled but no approved private endpoint connection" in validate_script
     assert "ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER" in validate_script
     assert "managed-identity blob preflight will prove RBAC data-plane access" in validate_script
+    assert '--resource-group ${{ env.AZURE_RESOURCE_GROUP }}' not in validate_script
 
 
 def test_backend_storage_validation_accepts_system_identity_until_user_identity_migration():

@@ -289,6 +289,19 @@ def test_ci_validates_prod_storage_network_and_user_assigned_identity_role():
     assert '[ "${#NOT_FOUND_STORAGE_NAMES[@]}" -eq 1 ]' in ci_workflow
     assert "Metrics container was not found on storage account" in ci_workflow
     assert "publicAccess\":\"None" in ci_workflow
+    assert "az storage account network-rule list" in ci_workflow
+    assert 'NETWORK_DEFAULT_ACTION" != "Deny"' in ci_workflow
+    assert 'NETWORK_IP_RULE_COUNT" != "0"' in ci_workflow
+    assert 'endswith("/subnets/container-apps-subnet")' in ci_workflow
+    assert '.state == "Succeeded"' in ci_workflow
+    assert "--resource-group \"${{ env.AZURE_RESOURCE_GROUP }}\"" in ci_workflow
+    assert "for public_access_attempt in" in ci_workflow
+    assert "waiting for update propagation" in ci_workflow
+    assert "attempt $public_access_attempt/" in ci_workflow
+    assert "public network access update did not reach Enabled" in ci_workflow
+    assert "public network access disabled and no approved private endpoint; enabling public network access" in ci_workflow
+    assert "az storage account update" in ci_workflow
+    assert "--public-network-access Enabled" in ci_workflow
     assert "Expected exactly one Terraform-managed Archmorph storage account with a metrics container" in ci_workflow
     assert "deploying Terraform-managed storage account" in ci_workflow
     assert "managed-identity blob preflight will prove RBAC data-plane access" in ci_workflow
