@@ -306,6 +306,9 @@ def test_ci_validates_prod_storage_network_and_user_assigned_identity_role():
     assert "Unable to discover Container Apps managed environment ID" in ci_workflow
     assert "CONTAINER_APPS_SUBNET_ID=$(az resource show" in ci_workflow
     assert "--query properties.vnetConfiguration.infrastructureSubnetId" in ci_workflow
+    assert "terraform -chdir=infra init -input=false -lockfile=readonly" in ci_workflow
+    assert "terraform -chdir=infra state show -no-color azurerm_subnet.container_apps" in ci_workflow
+    assert "Discovered container-apps-subnet ID from Terraform state" in ci_workflow
     assert "CONTAINER_APPS_SUBNET_IDS=$(az network vnet list" in ci_workflow
     assert "--query \"[].subnets[?name=='container-apps-subnet'].id[]\"" in ci_workflow
     assert "CONTAINER_APPS_SUBNET_ID_COUNT" in ci_workflow
