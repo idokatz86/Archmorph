@@ -299,6 +299,11 @@ def test_ci_validates_prod_storage_network_and_user_assigned_identity_role():
     assert '.virtualNetworkRules // .virtual_network_rules // []' in ci_workflow
     assert '.virtualNetworkResourceId // .virtual_network_resource_id // ""' in ci_workflow
     assert '.state == "Succeeded"' in ci_workflow
+    assert "has defaultAction=Allow; hardening to Deny before enabling public network access" in ci_workflow
+    assert "--default-action Deny" in ci_workflow
+    assert "for default_action_attempt in" in ci_workflow
+    assert "waiting for Deny propagation" in ci_workflow
+    assert "defaultAction hardening did not reach Deny" in ci_workflow
     assert "--resource-group \"${{ env.AZURE_RESOURCE_GROUP }}\"" in ci_workflow
     assert "for public_access_attempt in" in ci_workflow
     assert "waiting for update propagation" in ci_workflow

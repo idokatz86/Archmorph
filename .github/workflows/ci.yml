@@ -821,10 +821,6 @@ jobs:
               NETWORK_DEFAULT_ACTION=$(echo "$STORAGE_NETWORK_RULES" | jq -r '.defaultAction // .default_action // ""')
               NETWORK_IP_RULE_COUNT=$(echo "$STORAGE_NETWORK_RULES" | jq '.ipRules // .ip_rules // [] | length')
               CONTAINER_APPS_VNET_RULE_COUNT=$(echo "$STORAGE_NETWORK_RULES" | jq '[.virtualNetworkRules // .virtual_network_rules // [] | .[] | select(((.id // .virtualNetworkResourceId // .virtual_network_resource_id // "") | endswith("/subnets/container-apps-subnet")) and (.state == "Succeeded"))] | length')
-              if [ "$NETWORK_DEFAULT_ACTION" != "Deny" ]; then
-                echo "::error::Storage account $STORAGE_NAME network rules must keep defaultAction=Deny before public network cutover; found ${NETWORK_DEFAULT_ACTION:-unset}"
-                exit 1
-              fi
               if [ "$NETWORK_IP_RULE_COUNT" != "0" ]; then
                 echo "::error::Storage account $STORAGE_NAME must not have IP firewall allow rules before public network cutover; found $NETWORK_IP_RULE_COUNT"
                 exit 1
@@ -832,6 +828,34 @@ jobs:
               if [ "$CONTAINER_APPS_VNET_RULE_COUNT" != "1" ]; then
                 echo "::error::Storage account $STORAGE_NAME must have exactly one succeeded container-apps-subnet virtual network rule before public network cutover; found $CONTAINER_APPS_VNET_RULE_COUNT"
                 exit 1
+              fi
+              if [ "$NETWORK_DEFAULT_ACTION" != "Deny" ]; then
+                if [ "$NETWORK_DEFAULT_ACTION" != "Allow" ]; then
+                  echo "::error::Storage account $STORAGE_NAME network rules must keep defaultAction=Deny before public network cutover; found ${NETWORK_DEFAULT_ACTION:-unset}"
+                  exit 1
+                fi
+                echo "::notice::Storage account $STORAGE_NAME has defaultAction=Allow; hardening to Deny before enabling public network access."
+                az storage account update \
+                  --name "$STORAGE_NAME" \
+                  --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+                  --default-action Deny \
+                  --only-show-errors >/dev/null
+                for default_action_attempt in 1 2 3 4 5; do
+                  NETWORK_DEFAULT_ACTION=$(az storage account show \
+                    --name "$STORAGE_NAME" \
+                    --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+                    --only-show-errors \
+                    --query "networkRuleSet.defaultAction" -o tsv)
+                  if [ "$NETWORK_DEFAULT_ACTION" = "Deny" ]; then
+                    break
+                  fi
+                  echo "Storage account $STORAGE_NAME network defaultAction is ${NETWORK_DEFAULT_ACTION:-unset}; waiting for Deny propagation (attempt $default_action_attempt/5)"
+                  sleep 5
+                done
+                if [ "$NETWORK_DEFAULT_ACTION" != "Deny" ]; then
+                  echo "::error::Storage account $STORAGE_NAME defaultAction hardening did not reach Deny; found ${NETWORK_DEFAULT_ACTION:-unset}"
+                  exit 1
+                fi
               fi
               echo "::notice::Storage account $STORAGE_NAME has public network access disabled and no approved private endpoint; enabling public network access under ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER=true for this deploy cutover."
               az storage account update \
