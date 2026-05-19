@@ -188,6 +188,20 @@ def test_backend_storage_validation_requires_private_endpoint_when_public_access
     assert '.virtualNetworkRules // .virtual_network_rules // []' in validate_script
     assert '.virtualNetworkResourceId // .virtual_network_resource_id // ""' in validate_script
     assert '.state == "Succeeded"' in validate_script
+    assert "CONTAINER_APPS_VNET_RULE_TOTAL_COUNT" in validate_script
+    assert "must not have duplicate container-apps-subnet virtual network rules" in validate_script
+    assert "CONTAINER_APP_ENV_ID=$(az containerapp show" in validate_script
+    assert "--query properties.managedEnvironmentId" in validate_script
+    assert "Unable to discover Container Apps managed environment ID" in validate_script
+    assert "CONTAINER_APPS_SUBNET_ID=$(az resource show" in validate_script
+    assert "--query properties.vnetConfiguration.infrastructureSubnetId" in validate_script
+    assert "Unable to discover Container Apps environment infrastructure subnet ID" in validate_script
+    assert "must be container-apps-subnet before storage network rule cutover" in validate_script
+    assert "az storage account network-rule add" in validate_script
+    assert "--subnet \"$CONTAINER_APPS_SUBNET_ID\"" in validate_script
+    assert "for vnet_rule_attempt in" in validate_script
+    assert "succeeded of $CONTAINER_APPS_VNET_RULE_TOTAL_COUNT total" in validate_script
+    assert "waiting for VNet rule propagation" in validate_script
     assert "has defaultAction=Allow; hardening to Deny before enabling public network access" in validate_script
     assert "--default-action Deny" in validate_script
     assert "for default_action_attempt in" in validate_script

@@ -299,6 +299,20 @@ def test_ci_validates_prod_storage_network_and_user_assigned_identity_role():
     assert '.virtualNetworkRules // .virtual_network_rules // []' in ci_workflow
     assert '.virtualNetworkResourceId // .virtual_network_resource_id // ""' in ci_workflow
     assert '.state == "Succeeded"' in ci_workflow
+    assert "CONTAINER_APPS_VNET_RULE_TOTAL_COUNT" in ci_workflow
+    assert "must not have duplicate container-apps-subnet virtual network rules" in ci_workflow
+    assert "CONTAINER_APP_ENV_ID=$(az containerapp show" in ci_workflow
+    assert "--query properties.managedEnvironmentId" in ci_workflow
+    assert "Unable to discover Container Apps managed environment ID" in ci_workflow
+    assert "CONTAINER_APPS_SUBNET_ID=$(az resource show" in ci_workflow
+    assert "--query properties.vnetConfiguration.infrastructureSubnetId" in ci_workflow
+    assert "Unable to discover Container Apps environment infrastructure subnet ID" in ci_workflow
+    assert "must be container-apps-subnet before storage network rule cutover" in ci_workflow
+    assert "az storage account network-rule add" in ci_workflow
+    assert "--subnet \"$CONTAINER_APPS_SUBNET_ID\"" in ci_workflow
+    assert "for vnet_rule_attempt in" in ci_workflow
+    assert "succeeded of $CONTAINER_APPS_VNET_RULE_TOTAL_COUNT total" in ci_workflow
+    assert "waiting for VNet rule propagation" in ci_workflow
     assert "has defaultAction=Allow; hardening to Deny before enabling public network access" in ci_workflow
     assert "--default-action Deny" in ci_workflow
     assert "for default_action_attempt in" in ci_workflow

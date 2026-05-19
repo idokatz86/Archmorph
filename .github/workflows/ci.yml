@@ -820,13 +820,69 @@ jobs:
                 -o json)
               NETWORK_DEFAULT_ACTION=$(echo "$STORAGE_NETWORK_RULES" | jq -r '.defaultAction // .default_action // ""')
               NETWORK_IP_RULE_COUNT=$(echo "$STORAGE_NETWORK_RULES" | jq '.ipRules // .ip_rules // [] | length')
+              CONTAINER_APPS_VNET_RULE_TOTAL_COUNT=$(echo "$STORAGE_NETWORK_RULES" | jq '[.virtualNetworkRules // .virtual_network_rules // [] | .[] | select(((.id // .virtualNetworkResourceId // .virtual_network_resource_id // "") | endswith("/subnets/container-apps-subnet")))] | length')
               CONTAINER_APPS_VNET_RULE_COUNT=$(echo "$STORAGE_NETWORK_RULES" | jq '[.virtualNetworkRules // .virtual_network_rules // [] | .[] | select(((.id // .virtualNetworkResourceId // .virtual_network_resource_id // "") | endswith("/subnets/container-apps-subnet")) and (.state == "Succeeded"))] | length')
               if [ "$NETWORK_IP_RULE_COUNT" != "0" ]; then
                 echo "::error::Storage account $STORAGE_NAME must not have IP firewall allow rules before public network cutover; found $NETWORK_IP_RULE_COUNT"
                 exit 1
               fi
-              if [ "$CONTAINER_APPS_VNET_RULE_COUNT" != "1" ]; then
-                echo "::error::Storage account $STORAGE_NAME must have exactly one succeeded container-apps-subnet virtual network rule before public network cutover; found $CONTAINER_APPS_VNET_RULE_COUNT"
+              if [ "$CONTAINER_APPS_VNET_RULE_TOTAL_COUNT" -gt "1" ]; then
+                echo "::error::Storage account $STORAGE_NAME must not have duplicate container-apps-subnet virtual network rules; found $CONTAINER_APPS_VNET_RULE_TOTAL_COUNT"
+                exit 1
+              fi
+              if [ "$CONTAINER_APPS_VNET_RULE_TOTAL_COUNT" = "0" ]; then
+                CONTAINER_APP_ENV_ID=$(az containerapp show \
+                  --name "${{ env.CONTAINER_APP_NAME }}" \
+                  --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+                  --only-show-errors \
+                  --query properties.managedEnvironmentId -o tsv)
+                if [ -z "$CONTAINER_APP_ENV_ID" ]; then
+                  echo "::error::Unable to discover Container Apps managed environment ID for storage network rule cutover"
+                  exit 1
+                fi
+                CONTAINER_APPS_SUBNET_ID=$(az resource show \
+                  --ids "$CONTAINER_APP_ENV_ID" \
+                  --api-version 2023-05-01 \
+                  --only-show-errors \
+                  --query properties.vnetConfiguration.infrastructureSubnetId -o tsv)
+                if [ -z "$CONTAINER_APPS_SUBNET_ID" ]; then
+                  echo "::error::Unable to discover Container Apps environment infrastructure subnet ID for storage network rule cutover"
+                  exit 1
+                fi
+                if [[ "$CONTAINER_APPS_SUBNET_ID" != */subnets/container-apps-subnet ]]; then
+                  echo "::error::Container Apps environment infrastructure subnet must be container-apps-subnet before storage network rule cutover; found $CONTAINER_APPS_SUBNET_ID"
+                  exit 1
+                fi
+                echo "::notice::Storage account $STORAGE_NAME is missing the container-apps-subnet rule; adding it before public network cutover."
+                az storage account network-rule add \
+                  --account-name "$STORAGE_NAME" \
+                  --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+                  --subnet "$CONTAINER_APPS_SUBNET_ID" \
+                  --only-show-errors >/dev/null
+              fi
+              if [ "$CONTAINER_APPS_VNET_RULE_TOTAL_COUNT" != "1" ] || [ "$CONTAINER_APPS_VNET_RULE_COUNT" != "1" ]; then
+                for vnet_rule_attempt in 1 2 3 4 5; do
+                  STORAGE_NETWORK_RULES=$(az storage account show \
+                    --name "$STORAGE_NAME" \
+                    --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+                    --only-show-errors \
+                    --query networkRuleSet \
+                    -o json)
+                  CONTAINER_APPS_VNET_RULE_TOTAL_COUNT=$(echo "$STORAGE_NETWORK_RULES" | jq '[.virtualNetworkRules // .virtual_network_rules // [] | .[] | select(((.id // .virtualNetworkResourceId // .virtual_network_resource_id // "") | endswith("/subnets/container-apps-subnet")))] | length')
+                  CONTAINER_APPS_VNET_RULE_COUNT=$(echo "$STORAGE_NETWORK_RULES" | jq '[.virtualNetworkRules // .virtual_network_rules // [] | .[] | select(((.id // .virtualNetworkResourceId // .virtual_network_resource_id // "") | endswith("/subnets/container-apps-subnet")) and (.state == "Succeeded"))] | length')
+                  if [ "$CONTAINER_APPS_VNET_RULE_TOTAL_COUNT" -gt "1" ]; then
+                    echo "::error::Storage account $STORAGE_NAME must not have duplicate container-apps-subnet virtual network rules; found $CONTAINER_APPS_VNET_RULE_TOTAL_COUNT"
+                    exit 1
+                  fi
+                  if [ "$CONTAINER_APPS_VNET_RULE_TOTAL_COUNT" = "1" ] && [ "$CONTAINER_APPS_VNET_RULE_COUNT" = "1" ]; then
+                    break
+                  fi
+                  echo "Storage account $STORAGE_NAME container-apps-subnet rule count is $CONTAINER_APPS_VNET_RULE_COUNT succeeded of $CONTAINER_APPS_VNET_RULE_TOTAL_COUNT total; waiting for VNet rule propagation (attempt $vnet_rule_attempt/5)"
+                  sleep 5
+                done
+              fi
+              if [ "$CONTAINER_APPS_VNET_RULE_TOTAL_COUNT" != "1" ] || [ "$CONTAINER_APPS_VNET_RULE_COUNT" != "1" ]; then
+                echo "::error::Storage account $STORAGE_NAME must have exactly one succeeded container-apps-subnet virtual network rule before public network cutover; found $CONTAINER_APPS_VNET_RULE_COUNT succeeded of $CONTAINER_APPS_VNET_RULE_TOTAL_COUNT total"
                 exit 1
               fi
               if [ "$NETWORK_DEFAULT_ACTION" != "Deny" ]; then
