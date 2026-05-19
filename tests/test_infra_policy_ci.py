@@ -306,13 +306,17 @@ def test_ci_validates_prod_storage_network_and_user_assigned_identity_role():
     assert "Unable to discover Container Apps managed environment ID" in ci_workflow
     assert "CONTAINER_APPS_SUBNET_ID=$(az resource show" in ci_workflow
     assert "--query properties.vnetConfiguration.infrastructureSubnetId" in ci_workflow
+    assert "az network vnet list" in ci_workflow
+    assert "--resource-group \"${{ env.AZURE_RESOURCE_GROUP }}\"" in ci_workflow
+    assert "Unable to uniquely discover container-apps-subnet ID in resource group" in ci_workflow
+    assert "Unable to uniquely discover container-apps-subnet ID in subscription" in ci_workflow
     assert "terraform -chdir=infra init -input=false -lockfile=readonly" in ci_workflow
     assert "terraform -chdir=infra state show -no-color azurerm_subnet.container_apps" in ci_workflow
     assert "Discovered container-apps-subnet ID from Terraform state" in ci_workflow
     assert "CONTAINER_APPS_SUBNET_IDS=$(az network vnet list" in ci_workflow
-    assert "--query \"[].subnets[?name=='container-apps-subnet'].id[]\"" in ci_workflow
+    assert 'jq -r \'.[] | (.subnets // [])[] | select(.name == "container-apps-subnet") | .id\'' in ci_workflow
     assert "CONTAINER_APPS_SUBNET_ID_COUNT" in ci_workflow
-    assert "Unable to uniquely discover container-apps-subnet ID" in ci_workflow
+    assert "Unable to discover container-apps-subnet ID for storage network rule cutover" in ci_workflow
     assert "must be container-apps-subnet before storage network rule cutover" in ci_workflow
     assert "az storage account network-rule add" in ci_workflow
     assert "--subnet \"$CONTAINER_APPS_SUBNET_ID\"" in ci_workflow
