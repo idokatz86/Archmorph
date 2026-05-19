@@ -188,6 +188,11 @@ def test_backend_storage_validation_requires_private_endpoint_when_public_access
     assert '.virtualNetworkRules // .virtual_network_rules // []' in validate_script
     assert '.virtualNetworkResourceId // .virtual_network_resource_id // ""' in validate_script
     assert '.state == "Succeeded"' in validate_script
+    assert "has defaultAction=Allow; hardening to Deny before enabling public network access" in validate_script
+    assert "--default-action Deny" in validate_script
+    assert "for default_action_attempt in" in validate_script
+    assert "waiting for Deny propagation" in validate_script
+    assert "defaultAction hardening did not reach Deny" in validate_script
     assert "--resource-group \"${{ env.AZURE_RESOURCE_GROUP }}\"" in validate_script
     assert "for public_access_attempt in" in validate_script
     assert "waiting for update propagation" in validate_script
