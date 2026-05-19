@@ -812,14 +812,15 @@ jobs:
                 echo "::error::Storage account $STORAGE_NAME has public network access disabled but no approved private endpoint connection. Set ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER=true only for the reviewed hardening-disabled cutover, or apply Terraform private endpoint networking before CI deploy."
                 exit 1
               fi
-              STORAGE_NETWORK_RULES=$(az storage account network-rule list \
-                --account-name "$STORAGE_NAME" \
+              STORAGE_NETWORK_RULES=$(az storage account show \
+                --name "$STORAGE_NAME" \
                 --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
                 --only-show-errors \
+                --query networkRuleSet \
                 -o json)
-              NETWORK_DEFAULT_ACTION=$(echo "$STORAGE_NETWORK_RULES" | jq -r '.defaultAction // ""')
-              NETWORK_IP_RULE_COUNT=$(echo "$STORAGE_NETWORK_RULES" | jq '.ipRules // [] | length')
-              CONTAINER_APPS_VNET_RULE_COUNT=$(echo "$STORAGE_NETWORK_RULES" | jq '[.virtualNetworkRules // [] | .[] | select(((.id // .virtualNetworkResourceId // "") | endswith("/subnets/container-apps-subnet")) and (.state == "Succeeded"))] | length')
+              NETWORK_DEFAULT_ACTION=$(echo "$STORAGE_NETWORK_RULES" | jq -r '.defaultAction // .default_action // ""')
+              NETWORK_IP_RULE_COUNT=$(echo "$STORAGE_NETWORK_RULES" | jq '.ipRules // .ip_rules // [] | length')
+              CONTAINER_APPS_VNET_RULE_COUNT=$(echo "$STORAGE_NETWORK_RULES" | jq '[.virtualNetworkRules // .virtual_network_rules // [] | .[] | select(((.id // .virtualNetworkResourceId // .virtual_network_resource_id // "") | endswith("/subnets/container-apps-subnet")) and (.state == "Succeeded"))] | length')
               if [ "$NETWORK_DEFAULT_ACTION" != "Deny" ]; then
                 echo "::error::Storage account $STORAGE_NAME network rules must keep defaultAction=Deny before public network cutover; found ${NETWORK_DEFAULT_ACTION:-unset}"
                 exit 1

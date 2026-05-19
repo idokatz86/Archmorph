@@ -289,10 +289,15 @@ def test_ci_validates_prod_storage_network_and_user_assigned_identity_role():
     assert '[ "${#NOT_FOUND_STORAGE_NAMES[@]}" -eq 1 ]' in ci_workflow
     assert "Metrics container was not found on storage account" in ci_workflow
     assert "publicAccess\":\"None" in ci_workflow
-    assert "az storage account network-rule list" in ci_workflow
+    assert "STORAGE_NETWORK_RULES=$(az storage account show" in ci_workflow
+    assert "--query networkRuleSet" in ci_workflow
     assert 'NETWORK_DEFAULT_ACTION" != "Deny"' in ci_workflow
+    assert '.defaultAction // .default_action // ""' in ci_workflow
     assert 'NETWORK_IP_RULE_COUNT" != "0"' in ci_workflow
+    assert '.ipRules // .ip_rules // [] | length' in ci_workflow
     assert 'endswith("/subnets/container-apps-subnet")' in ci_workflow
+    assert '.virtualNetworkRules // .virtual_network_rules // []' in ci_workflow
+    assert '.virtualNetworkResourceId // .virtual_network_resource_id // ""' in ci_workflow
     assert '.state == "Succeeded"' in ci_workflow
     assert "--resource-group \"${{ env.AZURE_RESOURCE_GROUP }}\"" in ci_workflow
     assert "for public_access_attempt in" in ci_workflow

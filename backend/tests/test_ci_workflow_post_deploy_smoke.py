@@ -178,10 +178,15 @@ def test_backend_storage_validation_requires_private_endpoint_when_public_access
     assert '[ "${#NOT_FOUND_STORAGE_NAMES[@]}" -eq 1 ]' in validate_script
     assert "Metrics container was not found on storage account" in validate_script
     assert "publicAccess\":\"None" in validate_script
-    assert "az storage account network-rule list" in validate_script
+    assert "STORAGE_NETWORK_RULES=$(az storage account show" in validate_script
+    assert "--query networkRuleSet" in validate_script
     assert 'NETWORK_DEFAULT_ACTION" != "Deny"' in validate_script
+    assert '.defaultAction // .default_action // ""' in validate_script
     assert 'NETWORK_IP_RULE_COUNT" != "0"' in validate_script
+    assert '.ipRules // .ip_rules // [] | length' in validate_script
     assert 'endswith("/subnets/container-apps-subnet")' in validate_script
+    assert '.virtualNetworkRules // .virtual_network_rules // []' in validate_script
+    assert '.virtualNetworkResourceId // .virtual_network_resource_id // ""' in validate_script
     assert '.state == "Succeeded"' in validate_script
     assert "--resource-group \"${{ env.AZURE_RESOURCE_GROUP }}\"" in validate_script
     assert "for public_access_attempt in" in validate_script
