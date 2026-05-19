@@ -195,13 +195,17 @@ def test_backend_storage_validation_requires_private_endpoint_when_public_access
     assert "Unable to discover Container Apps managed environment ID" in validate_script
     assert "CONTAINER_APPS_SUBNET_ID=$(az resource show" in validate_script
     assert "--query properties.vnetConfiguration.infrastructureSubnetId" in validate_script
+    assert "az network vnet list" in validate_script
+    assert "--resource-group \"${{ env.AZURE_RESOURCE_GROUP }}\"" in validate_script
+    assert "Unable to uniquely discover container-apps-subnet ID in resource group" in validate_script
+    assert "Unable to uniquely discover container-apps-subnet ID in subscription" in validate_script
     assert "terraform -chdir=infra init -input=false -lockfile=readonly" in validate_script
     assert "terraform -chdir=infra state show -no-color azurerm_subnet.container_apps" in validate_script
     assert "Discovered container-apps-subnet ID from Terraform state" in validate_script
     assert "CONTAINER_APPS_SUBNET_IDS=$(az network vnet list" in validate_script
     assert "--query \"[].subnets[?name=='container-apps-subnet'].id[]\"" in validate_script
     assert "CONTAINER_APPS_SUBNET_ID_COUNT" in validate_script
-    assert "Unable to uniquely discover container-apps-subnet ID" in validate_script
+    assert "Unable to discover container-apps-subnet ID for storage network rule cutover" in validate_script
     assert "must be container-apps-subnet before storage network rule cutover" in validate_script
     assert "az storage account network-rule add" in validate_script
     assert "--subnet \"$CONTAINER_APPS_SUBNET_ID\"" in validate_script
