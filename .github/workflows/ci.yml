@@ -846,16 +846,31 @@ jobs:
                   --only-show-errors \
                   --query properties.vnetConfiguration.infrastructureSubnetId -o tsv 2>/dev/null || true)
                 if [ -z "$CONTAINER_APPS_SUBNET_ID" ]; then
-                  CONTAINER_APPS_SUBNET_IDS=$(az network vnet list \
-                    --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
-                    --only-show-errors \
-                    --query "[].subnets[?name=='container-apps-subnet'].id[]" -o tsv)
-                  CONTAINER_APPS_SUBNET_ID_COUNT=$(printf '%s\n' "$CONTAINER_APPS_SUBNET_IDS" | sed '/^$/d' | wc -l | tr -d ' ')
-                  if [ "$CONTAINER_APPS_SUBNET_ID_COUNT" != "1" ]; then
-                    echo "::error::Unable to uniquely discover container-apps-subnet ID for storage network rule cutover; found $CONTAINER_APPS_SUBNET_ID_COUNT candidates"
-                    exit 1
+                  TERRAFORM_SUBNET_ERROR=$(mktemp)
+                  if terraform -chdir=infra init -input=false -lockfile=readonly >/tmp/terraform-init-container-apps-subnet.log 2>&1; then
+                    CONTAINER_APPS_SUBNET_ID=$(terraform -chdir=infra state show -no-color azurerm_subnet.container_apps 2>"$TERRAFORM_SUBNET_ERROR" \
+                      | awk -F'= ' '/^[[:space:]]*id[[:space:]]*=/{gsub(/"/, "", $2); print $2; exit}')
+                  else
+                    echo "::warning::Unable to initialize Terraform remote state for container-apps-subnet discovery"
+                    sed 's/^/terraform init: /' /tmp/terraform-init-container-apps-subnet.log >&2
                   fi
-                  CONTAINER_APPS_SUBNET_ID=$(printf '%s\n' "$CONTAINER_APPS_SUBNET_IDS" | sed '/^$/d' | head -1)
+                  if [ -n "$CONTAINER_APPS_SUBNET_ID" ]; then
+                    echo "::notice::Discovered container-apps-subnet ID from Terraform state for storage network rule cutover."
+                  else
+                    sed 's/^/terraform state show: /' "$TERRAFORM_SUBNET_ERROR" >&2
+                    CONTAINER_APPS_SUBNET_IDS=$(az network vnet list \
+                      --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+                      --only-show-errors \
+                      --query "[].subnets[?name=='container-apps-subnet'].id[]" -o tsv)
+                    CONTAINER_APPS_SUBNET_ID_COUNT=$(printf '%s\n' "$CONTAINER_APPS_SUBNET_IDS" | sed '/^$/d' | wc -l | tr -d ' ')
+                    if [ "$CONTAINER_APPS_SUBNET_ID_COUNT" != "1" ]; then
+                      echo "::error::Unable to uniquely discover container-apps-subnet ID for storage network rule cutover; found $CONTAINER_APPS_SUBNET_ID_COUNT candidates"
+                      rm -f "$TERRAFORM_SUBNET_ERROR"
+                      exit 1
+                    fi
+                    CONTAINER_APPS_SUBNET_ID=$(printf '%s\n' "$CONTAINER_APPS_SUBNET_IDS" | sed '/^$/d' | head -1)
+                  fi
+                  rm -f "$TERRAFORM_SUBNET_ERROR"
                 fi
                 if [[ "$CONTAINER_APPS_SUBNET_ID" != */subnets/container-apps-subnet ]]; then
                   echo "::error::Container Apps environment infrastructure subnet must be container-apps-subnet before storage network rule cutover; found $CONTAINER_APPS_SUBNET_ID"
