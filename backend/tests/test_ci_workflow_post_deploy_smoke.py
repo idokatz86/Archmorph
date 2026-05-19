@@ -205,6 +205,13 @@ def test_backend_storage_validation_requires_private_endpoint_when_public_access
     assert "--resource-group \"${{ env.AZURE_RESOURCE_GROUP }}\"" in discover_script
     assert "Unable to uniquely discover container-apps-subnet ID in resource group" in discover_script
     assert "Unable to uniquely discover container-apps-subnet ID in subscription" in discover_script
+    assert "https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2021-03-01" in discover_script
+    assert "microsoft.network/virtualnetworks/subnets" in discover_script
+    assert "Unable to query Azure Resource Graph for container-apps-subnet in resource group" in discover_script
+    assert "Unable to uniquely discover container-apps-subnet ID through Azure Resource Graph in resource group" in discover_script
+    assert "Unable to query Azure Resource Graph for container-apps-subnet in subscription" in discover_script
+    assert "Unable to uniquely discover container-apps-subnet ID through Azure Resource Graph in subscription" in discover_script
+    assert "Discovered container-apps-subnet ID through Azure Resource Graph" in discover_script
     assert "terraform -chdir=infra init -input=false -lockfile=readonly" in discover_script
     assert "terraform -chdir=infra state show -no-color azurerm_subnet.container_apps" in discover_script
     assert "Discovered container-apps-subnet ID from Terraform state" in discover_script

@@ -726,6 +726,72 @@ jobs:
           fi
 
           if [ -z "$CONTAINER_APPS_SUBNET_ID" ]; then
+            RESOURCE_GROUP_SUBNET_QUERY="Resources | where type =~ 'microsoft.network/virtualnetworks/subnets' | where name == 'container-apps-subnet' | where resourceGroup =~ '${{ env.AZURE_RESOURCE_GROUP }}' | project id"
+            RESOURCE_GRAPH_BODY=$(jq -n \
+              --arg subscription "${{ env.AZURE_SUBSCRIPTION_ID }}" \
+              --arg query "$RESOURCE_GROUP_SUBNET_QUERY" \
+              '{subscriptions: [$subscription], query: $query}')
+            RESOURCE_GRAPH_ERROR=$(mktemp)
+            set +e
+            CONTAINER_APPS_SUBNET_IDS=$(az rest \
+              --method post \
+              --uri "https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2021-03-01" \
+              --body "$RESOURCE_GRAPH_BODY" \
+              --query "data[].id" -o tsv 2>"$RESOURCE_GRAPH_ERROR")
+            RESOURCE_GRAPH_STATUS=$?
+            set -e
+            if [ "$RESOURCE_GRAPH_STATUS" -ne 0 ]; then
+              echo "::warning::Unable to query Azure Resource Graph for container-apps-subnet in resource group ${{ env.AZURE_RESOURCE_GROUP }}"
+              sed 's/^/az rest resource graph: /' "$RESOURCE_GRAPH_ERROR" >&2
+            else
+              CONTAINER_APPS_SUBNET_ID_COUNT=$(printf '%s\n' "$CONTAINER_APPS_SUBNET_IDS" | sed '/^$/d' | wc -l | tr -d ' ')
+              if [ "$CONTAINER_APPS_SUBNET_ID_COUNT" -gt "1" ]; then
+                echo "::error::Unable to uniquely discover container-apps-subnet ID through Azure Resource Graph in resource group ${{ env.AZURE_RESOURCE_GROUP }}; found $CONTAINER_APPS_SUBNET_ID_COUNT candidates"
+                rm -f "$RESOURCE_GRAPH_ERROR"
+                exit 1
+              fi
+              if [ "$CONTAINER_APPS_SUBNET_ID_COUNT" = "1" ]; then
+                CONTAINER_APPS_SUBNET_ID=$(printf '%s\n' "$CONTAINER_APPS_SUBNET_IDS" | sed '/^$/d' | head -1)
+                echo "::notice::Discovered container-apps-subnet ID through Azure Resource Graph in resource group ${{ env.AZURE_RESOURCE_GROUP }}."
+              fi
+            fi
+            rm -f "$RESOURCE_GRAPH_ERROR"
+          fi
+
+          if [ -z "$CONTAINER_APPS_SUBNET_ID" ]; then
+            SUBSCRIPTION_SUBNET_QUERY="Resources | where type =~ 'microsoft.network/virtualnetworks/subnets' | where name == 'container-apps-subnet' | project id"
+            RESOURCE_GRAPH_BODY=$(jq -n \
+              --arg subscription "${{ env.AZURE_SUBSCRIPTION_ID }}" \
+              --arg query "$SUBSCRIPTION_SUBNET_QUERY" \
+              '{subscriptions: [$subscription], query: $query}')
+            RESOURCE_GRAPH_ERROR=$(mktemp)
+            set +e
+            CONTAINER_APPS_SUBNET_IDS=$(az rest \
+              --method post \
+              --uri "https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2021-03-01" \
+              --body "$RESOURCE_GRAPH_BODY" \
+              --query "data[].id" -o tsv 2>"$RESOURCE_GRAPH_ERROR")
+            RESOURCE_GRAPH_STATUS=$?
+            set -e
+            if [ "$RESOURCE_GRAPH_STATUS" -ne 0 ]; then
+              echo "::warning::Unable to query Azure Resource Graph for container-apps-subnet in subscription"
+              sed 's/^/az rest resource graph: /' "$RESOURCE_GRAPH_ERROR" >&2
+            else
+              CONTAINER_APPS_SUBNET_ID_COUNT=$(printf '%s\n' "$CONTAINER_APPS_SUBNET_IDS" | sed '/^$/d' | wc -l | tr -d ' ')
+              if [ "$CONTAINER_APPS_SUBNET_ID_COUNT" -gt "1" ]; then
+                echo "::error::Unable to uniquely discover container-apps-subnet ID through Azure Resource Graph in subscription; found $CONTAINER_APPS_SUBNET_ID_COUNT candidates"
+                rm -f "$RESOURCE_GRAPH_ERROR"
+                exit 1
+              fi
+              if [ "$CONTAINER_APPS_SUBNET_ID_COUNT" = "1" ]; then
+                CONTAINER_APPS_SUBNET_ID=$(printf '%s\n' "$CONTAINER_APPS_SUBNET_IDS" | sed '/^$/d' | head -1)
+                echo "::notice::Discovered container-apps-subnet ID through Azure Resource Graph in subscription."
+              fi
+            fi
+            rm -f "$RESOURCE_GRAPH_ERROR"
+          fi
+
+          if [ -z "$CONTAINER_APPS_SUBNET_ID" ]; then
             TERRAFORM_SUBNET_ERROR=$(mktemp)
             if terraform -chdir=infra init -input=false -lockfile=readonly >/tmp/terraform-init-container-apps-subnet.log 2>&1; then
               CONTAINER_APPS_SUBNET_ID=$(terraform -chdir=infra state show -no-color azurerm_subnet.container_apps 2>"$TERRAFORM_SUBNET_ERROR" \

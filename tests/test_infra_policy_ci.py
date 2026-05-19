@@ -310,6 +310,13 @@ def test_ci_validates_prod_storage_network_and_user_assigned_identity_role():
     assert "--resource-group \"${{ env.AZURE_RESOURCE_GROUP }}\"" in ci_workflow
     assert "Unable to uniquely discover container-apps-subnet ID in resource group" in ci_workflow
     assert "Unable to uniquely discover container-apps-subnet ID in subscription" in ci_workflow
+    assert "https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2021-03-01" in ci_workflow
+    assert "microsoft.network/virtualnetworks/subnets" in ci_workflow
+    assert "Unable to query Azure Resource Graph for container-apps-subnet in resource group" in ci_workflow
+    assert "Unable to uniquely discover container-apps-subnet ID through Azure Resource Graph in resource group" in ci_workflow
+    assert "Unable to query Azure Resource Graph for container-apps-subnet in subscription" in ci_workflow
+    assert "Unable to uniquely discover container-apps-subnet ID through Azure Resource Graph in subscription" in ci_workflow
+    assert "Discovered container-apps-subnet ID through Azure Resource Graph" in ci_workflow
     assert "terraform -chdir=infra init -input=false -lockfile=readonly" in ci_workflow
     assert "terraform -chdir=infra state show -no-color azurerm_subnet.container_apps" in ci_workflow
     assert "Discovered container-apps-subnet ID from Terraform state" in ci_workflow
