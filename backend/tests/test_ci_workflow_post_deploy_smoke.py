@@ -157,7 +157,13 @@ def test_backend_storage_validation_requires_private_endpoint_when_public_access
         for step in workflow["jobs"]["deploy-backend"]["steps"]
         if step.get("name") == "Validate Terraform-managed metrics storage"
     )
+    discover_step = next(
+        step
+        for step in workflow["jobs"]["deploy-backend"]["steps"]
+        if step.get("name") == "Discover Container Apps subnet for storage cutover"
+    )
     validate_script = validate_step["run"]
+    discover_script = discover_step["run"]
 
     assert 'if [ "$PUBLIC_NETWORK_ACCESS" = "Disabled" ]; then' in validate_script
     assert "APPROVED_PRIVATE_ENDPOINT_COUNT=$(az network private-endpoint-connection list" in validate_script
@@ -190,23 +196,24 @@ def test_backend_storage_validation_requires_private_endpoint_when_public_access
     assert '.state == "Succeeded"' in validate_script
     assert "CONTAINER_APPS_VNET_RULE_TOTAL_COUNT" in validate_script
     assert "must not have duplicate container-apps-subnet virtual network rules" in validate_script
-    assert "CONTAINER_APP_ENV_ID=$(az containerapp show" in validate_script
-    assert "--query properties.managedEnvironmentId" in validate_script
-    assert "Unable to discover Container Apps managed environment ID" in validate_script
-    assert "CONTAINER_APPS_SUBNET_ID=$(az resource show" in validate_script
-    assert "--query properties.vnetConfiguration.infrastructureSubnetId" in validate_script
-    assert "az network vnet list" in validate_script
-    assert "--resource-group \"${{ env.AZURE_RESOURCE_GROUP }}\"" in validate_script
-    assert "Unable to uniquely discover container-apps-subnet ID in resource group" in validate_script
-    assert "Unable to uniquely discover container-apps-subnet ID in subscription" in validate_script
-    assert "terraform -chdir=infra init -input=false -lockfile=readonly" in validate_script
-    assert "terraform -chdir=infra state show -no-color azurerm_subnet.container_apps" in validate_script
-    assert "Discovered container-apps-subnet ID from Terraform state" in validate_script
-    assert "CONTAINER_APPS_SUBNET_IDS=$(az network vnet list" in validate_script
-    assert "--query \"[].subnets[?name=='container-apps-subnet'].id[]\"" in validate_script
-    assert "CONTAINER_APPS_SUBNET_ID_COUNT" in validate_script
+    assert "CONTAINER_APP_ENV_ID=$(az containerapp show" in discover_script
+    assert "--query properties.managedEnvironmentId" in discover_script
+    assert "Unable to discover Container Apps managed environment ID" in discover_script
+    assert "CONTAINER_APPS_SUBNET_ID=$(az resource show" in discover_script
+    assert "--query properties.vnetConfiguration.infrastructureSubnetId" in discover_script
+    assert "az network vnet list" in discover_script
+    assert "--resource-group \"${{ env.AZURE_RESOURCE_GROUP }}\"" in discover_script
+    assert "Unable to uniquely discover container-apps-subnet ID in resource group" in discover_script
+    assert "Unable to uniquely discover container-apps-subnet ID in subscription" in discover_script
+    assert "terraform -chdir=infra init -input=false -lockfile=readonly" in discover_script
+    assert "terraform -chdir=infra state show -no-color azurerm_subnet.container_apps" in discover_script
+    assert "Discovered container-apps-subnet ID from Terraform state" in discover_script
+    assert "CONTAINER_APPS_SUBNET_IDS=$(az network vnet list" in discover_script
+    assert 'jq -r \'.[] | (.subnets // [])[] | select(.name == "container-apps-subnet") | .id\'' in discover_script
+    assert "CONTAINER_APPS_SUBNET_ID_COUNT" in discover_script
+    assert "CONTAINER_APPS_SUBNET_ID=$CONTAINER_APPS_SUBNET_ID" in discover_script
     assert "Unable to discover container-apps-subnet ID for storage network rule cutover" in validate_script
-    assert "must be container-apps-subnet before storage network rule cutover" in validate_script
+    assert "must be container-apps-subnet before storage network rule cutover" in discover_script
     assert "az storage account network-rule add" in validate_script
     assert "--subnet \"$CONTAINER_APPS_SUBNET_ID\"" in validate_script
     assert "for vnet_rule_attempt in" in validate_script
