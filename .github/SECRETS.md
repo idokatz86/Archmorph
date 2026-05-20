@@ -14,13 +14,13 @@ These secrets are required in `.github/workflows/ci.yml`:
 | `AZURE_RESOURCE_GROUP` | Azure resource group name | `archmorph-rg-dev` |
 | `ACR_NAME` | Azure Container Registry name | `myacrname` |
 | `ACR_LOGIN_SERVER` | ACR login server URL | `myacrname.azurecr.io` |
-| `CONTAINER_APP_NAME` | Azure Container Apps name | `archmorph-api` |
-| `CONTAINER_APP_ENV` | Container Apps Environment name | `archmorph-cae-dev` |
+| `CONTAINER_APP_NAME` | Azure Container Apps name | `archmorph-api-vnet-ne` |
+| `CONTAINER_APP_ENV` | Container Apps Environment name | `archmorph-cae-vnet-acm7pd-ne` |
 | `ARCHMORPH_API_KEY` | Backend API key used by authenticated API health checks and service catalog refresh triggers | (strong random secret) |
 | `ADMIN_KEY` | Backend admin key mapped to `ARCHMORPH_ADMIN_KEY` for admin-only operations and sessions | (strong random secret) |
 | `JWT_SECRET` | Recommended dedicated backend JWT signing secret for production user/session tokens. If omitted, deploy falls back to `ADMIN_KEY`; a distinct strong random value is strongly recommended. | (strong random secret) |
 | `SWA_NAME` | Static Web App name | `archmorph-frontend` |
-| `API_URL` | Backend API URL (with `/api` suffix) | `https://your-app.azurecontainerapps.io/api` |
+| `API_URL` | Backend API URL (with `/api` suffix) | `https://api.archmorphai.com/api` |
 | `SWA_DEPLOYMENT_TOKEN` | Static Web App deployment token | (from Azure Portal) |
 
 ## Monitoring Workflow Secrets
@@ -29,7 +29,7 @@ These secrets are required in `.github/workflows/monitoring.yml`:
 
 | Secret Name | Description | Example Value |
 |-------------|-------------|---------------|
-| `API_URL` | Backend API URL | `https://your-app.azurecontainerapps.io/api` |
+| `API_URL` | Backend API URL | `https://api.archmorphai.com/api` |
 | `FRONTEND_URL` | Frontend Static Web App URL | `https://your-swa.azurestaticapps.net` |
 
 ## Production Terraform Workflow Secrets
