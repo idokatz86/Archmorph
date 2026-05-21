@@ -1768,6 +1768,15 @@ jobs:
             --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
             --revision-weight "${{ steps.green.outputs.green_revision }}=100"
 
+      - name: Verify production deployment
+        run: |
+          sleep 30
+          HEALTH_RETRIES=12 HEALTH_RETRY_SECONDS=15 HEALTH_API_KEY="$ARCHMORPH_API_KEY" ./scripts/health_gate.sh "${{ env.API_URL }}/health"
+          HEALTH_BODY=$(curl -s --max-time 30 -H "X-API-Key: $ARCHMORPH_API_KEY" "${{ env.API_URL }}/health")
+          HEALTH=$(printf '%s' "$HEALTH_BODY" | jq -r '.status')
+          VERSION=$(printf '%s' "$HEALTH_BODY" | jq -r '.version')
+          echo "Deployed version: $VERSION — status: $HEALTH (blue-green complete)"
+
       - name: Deactivate old revisions (keep blue for rollback)
         run: |
           OLD_REVS=$(az containerapp revision list \
@@ -1787,15 +1796,6 @@ jobs:
               --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
               --revision "$rev" || true
           done
-
-      - name: Verify production deployment
-        run: |
-          sleep 10
-          HEALTH_RETRIES=3 HEALTH_RETRY_SECONDS=10 HEALTH_API_KEY="$ARCHMORPH_API_KEY" ./scripts/health_gate.sh "${{ env.API_URL }}/health"
-          HEALTH_BODY=$(curl -s --max-time 30 -H "X-API-Key: $ARCHMORPH_API_KEY" "${{ env.API_URL }}/health")
-          HEALTH=$(printf '%s' "$HEALTH_BODY" | jq -r '.status')
-          VERSION=$(printf '%s' "$HEALTH_BODY" | jq -r '.version')
-          echo "Deployed version: $VERSION — status: $HEALTH (blue-green complete)"
 
   # ============================================
   # FRONTEND DEPLOY (Azure Static Web Apps)
