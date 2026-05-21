@@ -1772,9 +1772,9 @@ jobs:
         run: |
           sleep 30
           HEALTH_RETRIES=12 HEALTH_RETRY_SECONDS=15 HEALTH_API_KEY="$ARCHMORPH_API_KEY" ./scripts/health_gate.sh "${{ env.API_URL }}/health"
-          HEALTH_BODY=$(curl -s --max-time 30 -H "X-API-Key: $ARCHMORPH_API_KEY" "${{ env.API_URL }}/health")
-          HEALTH=$(printf '%s' "$HEALTH_BODY" | jq -r '.status')
-          VERSION=$(printf '%s' "$HEALTH_BODY" | jq -r '.version')
+          HEALTH_BODY=$(curl -sS --max-time 30 -H "X-API-Key: $ARCHMORPH_API_KEY" "${{ env.API_URL }}/health" || true)
+          HEALTH=$(printf '%s' "$HEALTH_BODY" | jq -r '.status // "unknown"' 2>/dev/null || echo "unknown")
+          VERSION=$(printf '%s' "$HEALTH_BODY" | jq -r '.version // "unknown"' 2>/dev/null || echo "unknown")
           echo "Deployed version: $VERSION — status: $HEALTH (blue-green complete)"
 
       - name: Deactivate old revisions (keep blue for rollback)
