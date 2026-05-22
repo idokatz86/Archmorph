@@ -20,10 +20,11 @@ def _step_by_name(steps: list[dict], name: str) -> dict:
 
 def test_workflow_runs_on_schedule_dispatch_and_workflow_call():
     workflow = _load()
+    on_section = workflow.get("on", workflow.get(True))
 
-    assert "workflow_call" in workflow["on"]
-    assert "workflow_dispatch" in workflow["on"]
-    assert workflow["on"]["schedule"] == [{"cron": "0 */4 * * *"}]
+    assert "workflow_call" in on_section
+    assert "workflow_dispatch" in on_section
+    assert on_section["schedule"] == [{"cron": "0 */4 * * *"}]
 
 
 def test_workflow_executes_production_playwright_synthetic_and_collects_evidence():
