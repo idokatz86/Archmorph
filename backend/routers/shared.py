@@ -93,7 +93,7 @@ async def verify_api_key_or_user_session(
 
         if get_user_from_request_headers(dict(request.headers)):
             return
-        raise
+        raise ArchmorphException(status_code=401, detail="Invalid or missing API key or user session") from exc
 
 
 def get_api_key_service_principal(headers: dict) -> Optional[str]:
