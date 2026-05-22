@@ -4,12 +4,13 @@ Authentication & User Management routes (v2.9.0).
 Social Authentication — Microsoft, Google, GitHub (Issue #246).
 """
 
-from fastapi import APIRouter, Request, Response, Header, Query
+from fastapi import APIRouter, Request, Response, Header, Query, Depends
 from pydantic import Field, EmailStr
 from strict_models import StrictBaseModel
 from typing import Optional
 
 from routers.shared import limiter
+from routers.shared import verify_api_key_required
 from csrf import generate_csrf_token, set_csrf_cookie
 from auth import (
     get_auth_config as _get_auth_config,
@@ -33,6 +34,10 @@ class LoginRequest(StrictBaseModel):
     provider: str = Field(..., description="azure_ad_b2c or github")
     token: Optional[str] = None
     code: Optional[str] = None
+
+
+class SwaSessionRequest(StrictBaseModel):
+    client_principal: str = Field(..., description="Base64-encoded SWA client principal from a trusted SWA API function")
 
 
 class LeadCaptureRequest(StrictBaseModel):
@@ -94,6 +99,29 @@ async def login(request: Request, body: LoginRequest):
         }
     except ValueError as e:
         raise ArchmorphException(401, str(e))
+
+
+@router.post("/api/auth/swa-session")
+@limiter.limit("20/minute")
+async def create_swa_session(request: Request, body: SwaSessionRequest, _auth=Depends(verify_api_key_required)):
+    """Mint a backend bearer session from a trusted SWA API bridge.
+
+    Browsers cannot call this endpoint directly because it requires the backend
+    API key. The Static Web Apps managed function receives the trusted
+    x-ms-client-principal header from SWA and forwards it server-to-server.
+    """
+    user = parse_swa_client_principal(body.client_principal)
+    if not user:
+        raise ArchmorphException(401, "Invalid SWA client principal")
+
+    session_token = generate_session_token(user)
+    refresh_token = generate_refresh_token(user)
+
+    return {
+        "user": user.to_dict(),
+        "session_token": session_token,
+        "refresh_token": refresh_token,
+    }
 
 
 @router.get("/api/auth/me")
