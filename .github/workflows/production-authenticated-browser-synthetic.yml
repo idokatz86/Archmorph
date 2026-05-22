@@ -1,0 +1,122 @@
+name: Production Authenticated Browser Synthetic
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 */4 * * *'
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: production-authenticated-browser-synthetic-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  production-browser-synthetic:
+    name: Production browser auth gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: production
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+
+      - name: Install dependencies
+        run: npm ci --no-fund --no-audit || npm ci --no-fund --no-audit
+
+      - name: Install Playwright browser
+        run: npx playwright install chromium --with-deps
+
+      - name: Run production authenticated browser synthetic
+        env:
+          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          API_BASE: ${{ secrets.API_URL }}
+          HEALTH_API_KEY: ${{ secrets.ARCHMORPH_API_KEY || secrets.API_KEY }}
+          PRODUCTION_BROWSER_SYNTHETIC: '1'
+          PRODUCTION_SYNTHETIC_ARTIFACT_ROOT: smoke-artifacts/production-browser/${{ github.run_id }}
+          SYNTHETIC_PRINCIPAL_USER_ID: prod-synthetic-user
+          SYNTHETIC_PRINCIPAL_EMAIL: prod-synthetic@archmorph.test
+          SYNTHETIC_PRINCIPAL_NAME: Production Synthetic
+        run: |
+          if [ -z "${FRONTEND_URL:-}" ]; then
+            echo "::error::FRONTEND_URL secret is required"
+            exit 1
+          fi
+          if [ -z "${API_BASE:-}" ]; then
+            echo "::error::API_URL secret is required"
+            exit 1
+          fi
+          npx playwright test e2e/production-authenticated-synthetic.spec.ts --project=chromium
+
+      - name: Add synthetic summary
+        if: always()
+        run: |
+          SUMMARY_PATH="smoke-artifacts/production-browser/${{ github.run_id }}/summary.json"
+          if [ -f "$SUMMARY_PATH" ]; then
+            echo "## Production authenticated browser synthetic" >> "$GITHUB_STEP_SUMMARY"
+            echo '' >> "$GITHUB_STEP_SUMMARY"
+            jq '.' "$SUMMARY_PATH" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload production browser synthetic artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: production-browser-synthetic-${{ github.run_id }}
+          path: |
+            smoke-artifacts/production-browser/${{ github.run_id }}/
+            playwright-report/
+            test-results/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Open P0 triage issue on failure
+        if: failure()
+        uses: actions/github-script@v8
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SUMMARY_PATH: smoke-artifacts/production-browser/${{ github.run_id }}/summary.json
+        with:
+          script: |
+            const fs = require('fs');
+            const title = `[P0] Production authenticated browser synthetic failed (${new Date().toISOString().slice(0, 10)})`;
+            let summary = {};
+            if (fs.existsSync(process.env.SUMMARY_PATH)) {
+              try {
+                summary = JSON.parse(fs.readFileSync(process.env.SUMMARY_PATH, 'utf8'));
+              } catch (_) {}
+            }
+            const revision = summary?.summary?.revision_sha || context.sha;
+            const correlation = summary?.correlation_ids || {};
+            const body = [
+              '## Production authenticated browser synthetic failure',
+              '',
+              `- Run URL: ${process.env.RUN_URL}`,
+              `- Revision SHA: \`${revision}\``,
+              `- Workflow: \`${context.workflow}\``,
+              `- Frontend URL: \`${summary?.summary?.frontend_url || 'unknown'}\``,
+              `- API base: \`${summary?.summary?.api_base || 'unknown'}\``,
+              '',
+              '### Correlation IDs',
+              '```json',
+              JSON.stringify(correlation, null, 2),
+              '```',
+              '',
+              '### Artifacts',
+              `- production-browser-synthetic-${context.runId}`,
+              '- Includes summary JSON, response summaries, and screenshots.',
+            ].join('\n');
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: ['bug', 'production', 'critical', 'priority:P0'],
+            });

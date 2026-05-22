@@ -1877,3 +1877,9 @@ jobs:
           API_URL: ${{ env.API_URL }}
           FRONTEND_URL: ${{ env.FRONTEND_URL }}
           HEALTH_API_KEY: ${{ secrets.ARCHMORPH_API_KEY || secrets.API_KEY }}
+
+  production-browser-synthetic-gate:
+    needs: [post-deploy-smoke]
+    if: github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/production-authenticated-browser-synthetic.yml
+    secrets: inherit
