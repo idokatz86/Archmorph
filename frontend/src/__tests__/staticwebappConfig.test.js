@@ -34,6 +34,7 @@ describe('Static Web App security headers config', () => {
 
       expect(config.globalHeaders['X-Frame-Options']).toBe('DENY');
       expect(config.globalHeaders['Permissions-Policy']).toBe('camera=(), microphone=(), geolocation=()');
+      expect(config.platform?.apiRuntime).toBe('node:20');
       expect(fallbackExcludes).toEqual(expect.arrayContaining(['/api/*', '/.auth/*']));
       expect(directives['default-src']).toContain("'self'");
       expect(directives['connect-src']).toEqual(expect.arrayContaining(["'self'", 'https://api.archmorphai.com']));
