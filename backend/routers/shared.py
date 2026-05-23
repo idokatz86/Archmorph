@@ -70,6 +70,32 @@ async def verify_api_key(api_key: Optional[str] = Security(API_KEY_HEADER)):
         raise ArchmorphException(status_code=401, detail="Invalid or missing API key")
 
 
+async def verify_api_key_required(api_key: Optional[str] = Security(API_KEY_HEADER)):
+    """Verify API key for server-to-server routes, even in dev/test mode."""
+    if not API_KEY:
+        raise ArchmorphException(status_code=500, detail="Server misconfiguration: API key not set")
+    if not secrets.compare_digest(api_key or "", API_KEY):
+        raise ArchmorphException(status_code=401, detail="Invalid or missing API key")
+
+
+async def verify_api_key_or_user_session(
+    request: Request,
+    api_key: Optional[str] = Security(API_KEY_HEADER),
+):
+    """Allow either the service API key or a signed-in user bearer session."""
+    try:
+        return await verify_api_key(api_key)
+    except ArchmorphException as exc:
+        if exc.status_code != 401:
+            raise
+
+        from auth import get_user_from_request_headers
+
+        if get_user_from_request_headers(dict(request.headers)):
+            return
+        raise ArchmorphException(status_code=401, detail="Invalid or missing API key or user session") from exc
+
+
 def get_api_key_service_principal(headers: dict) -> Optional[str]:
     """Return a stable API-key service principal ID for a verified key."""
     api_key = headers.get("x-api-key")
