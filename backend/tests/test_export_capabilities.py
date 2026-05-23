@@ -136,6 +136,26 @@ def test_rotated_capability_allows_next_valid_export(test_client, diagram_id, au
     assert second.json()["export_capability"] != next_token
 
 
+def test_diagram_export_accepts_bearer_session_with_capability_when_api_key_configured(
+    test_client,
+    diagram_id,
+    auth_headers,
+    monkeypatch,
+):
+    monkeypatch.setattr(shared_router, "API_KEY", "configured-api-key")
+    token = issue_export_capability(diagram_id)
+    headers = {**auth_headers, "X-Export-Capability": token}
+
+    response = test_client.post(
+        f"/api/diagrams/{diagram_id}/export-diagram?format=drawio",
+        headers=headers,
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["format"] == "drawio"
+    assert response.json()["content"]
+
+
 def test_valid_capability_survives_route_failure_before_export_success(test_client, diagram_id, auth_headers):
     token = issue_export_capability(diagram_id)
     SESSION_STORE.delete(diagram_id)

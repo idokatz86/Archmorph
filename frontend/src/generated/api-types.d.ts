@@ -870,6 +870,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/swa-session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Swa Session
+         * @description Mint a backend bearer session from a trusted SWA API bridge.
+         *
+         *     Browsers cannot call this endpoint directly because it requires the backend
+         *     API key. The Static Web Apps managed function receives the trusted
+         *     x-ms-client-principal header from SWA and forwards it server-to-server.
+         */
+        post: operations["create_swa_session_api_auth_swa_session_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/chat": {
         parameters: {
             query?: never;
@@ -5155,6 +5179,30 @@ export interface paths {
          * @description Refresh session token using a refresh token.
          */
         post: operations["refresh_token_endpoint_v1_api_v1_auth_refresh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/swa-session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Swa Session V1
+         * @description Mint a backend bearer session from a trusted SWA API bridge.
+         *
+         *     Browsers cannot call this endpoint directly because it requires the backend
+         *     API key. The Static Web Apps managed function receives the trusted
+         *     x-ms-client-principal header from SWA and forwards it server-to-server.
+         */
+        post: operations["create_swa_session_v1_api_v1_auth_swa_session_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -10387,6 +10435,14 @@ export interface components {
             /** Source Service */
             source_service: string;
         };
+        /** SwaSessionRequest */
+        SwaSessionRequest: {
+            /**
+             * Client Principal
+             * @description Base64-encoded SWA client principal from a trusted SWA API function
+             */
+            client_principal: string;
+        };
         /** TeamsNotifyRequest */
         TeamsNotifyRequest: {
             /**
@@ -11795,6 +11851,39 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["RefreshRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_swa_session_api_auth_swa_session_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SwaSessionRequest"];
             };
         };
         responses: {
@@ -18453,6 +18542,39 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["RefreshRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_swa_session_v1_api_v1_auth_swa_session_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SwaSessionRequest"];
             };
         };
         responses: {
