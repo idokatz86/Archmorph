@@ -157,7 +157,13 @@ def test_backend_storage_validation_requires_private_endpoint_when_public_access
         for step in workflow["jobs"]["deploy-backend"]["steps"]
         if step.get("name") == "Validate Terraform-managed metrics storage"
     )
+    discover_step = next(
+        step
+        for step in workflow["jobs"]["deploy-backend"]["steps"]
+        if step.get("name") == "Discover Container Apps subnet for storage cutover"
+    )
     validate_script = validate_step["run"]
+    discover_script = discover_step["run"]
 
     assert 'if [ "$PUBLIC_NETWORK_ACCESS" = "Disabled" ]; then' in validate_script
     assert "APPROVED_PRIVATE_ENDPOINT_COUNT=$(az network private-endpoint-connection list" in validate_script
@@ -178,12 +184,68 @@ def test_backend_storage_validation_requires_private_endpoint_when_public_access
     assert '[ "${#NOT_FOUND_STORAGE_NAMES[@]}" -eq 1 ]' in validate_script
     assert "Metrics container was not found on storage account" in validate_script
     assert "publicAccess\":\"None" in validate_script
+    assert "STORAGE_NETWORK_RULES=$(az storage account show" in validate_script
+    assert "--query networkRuleSet" in validate_script
+    assert 'NETWORK_DEFAULT_ACTION" != "Deny"' in validate_script
+    assert '.defaultAction // .default_action // ""' in validate_script
+    assert 'NETWORK_IP_RULE_COUNT" != "0"' in validate_script
+    assert '.ipRules // .ip_rules // [] | length' in validate_script
+    assert 'endswith("/subnets/container-apps-subnet")' in validate_script
+    assert '.virtualNetworkRules // .virtual_network_rules // []' in validate_script
+    assert '.virtualNetworkResourceId // .virtual_network_resource_id // ""' in validate_script
+    assert '.state == "Succeeded"' in validate_script
+    assert "CONTAINER_APPS_VNET_RULE_TOTAL_COUNT" in validate_script
+    assert "must not have duplicate container-apps-subnet virtual network rules" in validate_script
+    assert "CONTAINER_APP_ENV_ID=$(az containerapp show" in discover_script
+    assert "--query properties.managedEnvironmentId" in discover_script
+    assert "Unable to discover Container Apps managed environment ID" in discover_script
+    assert "CONTAINER_APPS_SUBNET_ID=$(az resource show" in discover_script
+    assert "--query properties.vnetConfiguration.infrastructureSubnetId" in discover_script
+    assert "az network vnet list" in discover_script
+    assert "--resource-group \"${{ env.AZURE_RESOURCE_GROUP }}\"" in discover_script
+    assert "Unable to uniquely discover container-apps-subnet ID in resource group" in discover_script
+    assert "Unable to uniquely discover container-apps-subnet ID in subscription" in discover_script
+    assert "https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2021-03-01" in discover_script
+    assert "microsoft.network/virtualnetworks/subnets" in discover_script
+    assert "Unable to query Azure Resource Graph for container-apps-subnet in resource group" in discover_script
+    assert "Unable to uniquely discover container-apps-subnet ID through Azure Resource Graph in resource group" in discover_script
+    assert "Unable to query Azure Resource Graph for container-apps-subnet in subscription" in discover_script
+    assert "Unable to uniquely discover container-apps-subnet ID through Azure Resource Graph in subscription" in discover_script
+    assert "Discovered container-apps-subnet ID through Azure Resource Graph" in discover_script
+    assert "terraform -chdir=infra init -input=false -lockfile=readonly" in discover_script
+    assert "terraform -chdir=infra state show -no-color azurerm_subnet.container_apps" in discover_script
+    assert "Discovered container-apps-subnet ID from Terraform state" in discover_script
+    assert "CONTAINER_APPS_SUBNET_IDS=$(az network vnet list" in discover_script
+    assert 'jq -r \'.[] | (.subnets // [])[] | select(.name == "container-apps-subnet") | .id\'' in discover_script
+    assert "CONTAINER_APPS_SUBNET_ID_COUNT" in discover_script
+    assert "CONTAINER_APPS_SUBNET_ID=$CONTAINER_APPS_SUBNET_ID" in discover_script
+    assert "Unable to discover container-apps-subnet ID for storage network rule cutover" in validate_script
+    assert "must be container-apps-subnet before storage network rule cutover" in discover_script
+    assert "az storage account network-rule add" in validate_script
+    assert "--subnet \"$CONTAINER_APPS_SUBNET_ID\"" in validate_script
+    assert "for vnet_rule_attempt in" in validate_script
+    assert "succeeded of $CONTAINER_APPS_VNET_RULE_TOTAL_COUNT total" in validate_script
+    assert "waiting for VNet rule propagation" in validate_script
+    assert "has defaultAction=Allow; hardening to Deny before enabling public network access" in validate_script
+    assert "--default-action Deny" in validate_script
+    assert "for default_action_attempt in" in validate_script
+    assert "waiting for Deny propagation" in validate_script
+    assert "defaultAction hardening did not reach Deny" in validate_script
+    assert "--resource-group \"${{ env.AZURE_RESOURCE_GROUP }}\"" in validate_script
+    assert "for public_access_attempt in" in validate_script
+    assert "waiting for update propagation" in validate_script
+    assert "attempt $public_access_attempt/" in validate_script
+    assert "public network access update did not reach Enabled" in validate_script
+    assert "public network access disabled and no approved private endpoint; enabling public network access" in validate_script
+    assert "az storage account update" in validate_script
+    assert "--public-network-access Enabled" in validate_script
     assert "Expected exactly one Terraform-managed Archmorph storage account with a metrics container" in validate_script
     assert "Container App still references legacy storage account" in validate_script
     assert "deploying Terraform-managed storage account" in validate_script
     assert "has public network access disabled but no approved private endpoint connection" in validate_script
     assert "ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER" in validate_script
     assert "managed-identity blob preflight will prove RBAC data-plane access" in validate_script
+    assert '--resource-group ${{ env.AZURE_RESOURCE_GROUP }}' not in validate_script
 
 
 def test_backend_storage_validation_accepts_system_identity_until_user_identity_migration():
