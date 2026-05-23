@@ -10,7 +10,14 @@ from typing import Dict, Any
 import asyncio
 import logging
 
-from routers.shared import SESSION_STORE, authorize_diagram_access, limiter, verify_api_key, require_diagram_access
+from routers.shared import (
+    SESSION_STORE,
+    authorize_diagram_access,
+    limiter,
+    require_diagram_access,
+    verify_api_key,
+    verify_api_key_or_user_session,
+)
 from usage_metrics import record_event, record_funnel_step
 from guided_questions import generate_questions, apply_answers, get_question_constraints, build_adaptive_question_set
 from mcp_diagram_generator import mcp_client
@@ -164,7 +171,7 @@ async def export_architecture_diagram(
     format: str = "excalidraw",
     multi_page: bool = False,
     dr_variant: str = "primary",
-    _auth=Depends(verify_api_key),
+    _auth=Depends(verify_api_key_or_user_session),
     capability=Depends(verify_export_capability),
 ):
     """Generate an architecture diagram in Excalidraw, Draw.io, Visio, or

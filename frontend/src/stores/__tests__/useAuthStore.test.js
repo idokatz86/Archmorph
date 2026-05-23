@@ -38,7 +38,8 @@ describe('useAuthStore', () => {
       .mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve({ authenticated: false, tier: 'free' }),
-      });
+      })
+      .mockResolvedValueOnce({ ok: false, status: 401 });
 
     await useAuthStore.getState().initialize();
 
@@ -51,6 +52,40 @@ describe('useAuthStore', () => {
       email: 'ido@example.com',
       provider: 'microsoft',
     });
+  });
+
+  it('exchanges SWA consent for a backend session when the API profile is anonymous', async () => {
+    fetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ clientPrincipal: principal }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ authenticated: false, tier: 'free' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          user: { id: 'aad_user-123', name: 'Ido Katz', provider: 'microsoft' },
+          session_token: 'backend-session-token',
+          refresh_token: 'backend-refresh-token',
+        }),
+      });
+
+    await useAuthStore.getState().initialize();
+
+    const state = useAuthStore.getState();
+    expect(fetch).toHaveBeenNthCalledWith(3, '/api/auth/swa-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+    });
+    expect(state.isAuthenticated).toBe(true);
+    expect(state.hasBackendSession).toBe(true);
+    expect(state.sessionToken).toBe('backend-session-token');
+    expect(localStorage.getItem('archmorph_session_token')).toBe('backend-session-token');
+    expect(localStorage.getItem('archmorph_refresh_token')).toBe('backend-refresh-token');
   });
 
   it('prefers the backend user profile when SWA headers reach the API', async () => {
@@ -137,7 +172,8 @@ describe('useAuthStore', () => {
         ok: true,
         status: 200,
         json: () => Promise.resolve({ authenticated: false, tier: 'free' }),
-      });
+      })
+      .mockResolvedValueOnce({ ok: false, status: 401 });
 
     await useAuthStore.getState().initialize();
 
@@ -160,7 +196,8 @@ describe('useAuthStore', () => {
         ok: true,
         json: () => Promise.resolve({ authenticated: false, tier: 'free' }),
       })
-      .mockRejectedValueOnce(new TypeError('Failed to fetch'));
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce({ ok: false, status: 401 });
 
     await useAuthStore.getState().initialize();
 

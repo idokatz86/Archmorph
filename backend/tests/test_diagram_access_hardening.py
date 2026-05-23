@@ -12,7 +12,12 @@ from export_capabilities import verify_export_capability  # noqa: E402
 from main import SESSION_STORE, app  # noqa: E402
 from routers.replay_routes import _replay_store, require_replay_access, require_replay_body_access  # noqa: E402
 from routers.share_routes import require_share_access  # noqa: E402
-from routers.shared import get_api_key_service_principal, require_diagram_access, verify_api_key  # noqa: E402
+from routers.shared import (  # noqa: E402
+    get_api_key_service_principal,
+    require_diagram_access,
+    verify_api_key,
+    verify_api_key_or_user_session,
+)
 from shareable_reports import _shares  # noqa: E402
 from tests.conftest import SAMPLE_ANALYSIS, assert_cross_tenant_denied  # noqa: E402
 
@@ -133,7 +138,7 @@ def test_replay_get_denies_cross_tenant_access(test_client, tenant_a_auth_header
     assert_cross_tenant_denied(intruder)
 
 
-def test_diagram_artifact_routes_require_api_key_access_dependency_and_export_capability():
+def test_diagram_artifact_routes_require_api_key_or_user_session_dependency_and_export_capability():
     exempt_paths = {
         "/api/diagrams/{diagram_id}/restore-session",
         "/api/diagrams/{diagram_id}/analyze",
@@ -156,8 +161,8 @@ def test_diagram_artifact_routes_require_api_key_access_dependency_and_export_ca
             continue
         dependency_callables = {dep.call for dep in route.dependant.dependencies}
         methods = sorted(set(route.methods or ()) - {"HEAD", "OPTIONS"})
-        if verify_api_key not in dependency_callables:
-            missing.append(f"{methods} {route.path} missing verify_api_key")
+        if verify_api_key not in dependency_callables and verify_api_key_or_user_session not in dependency_callables:
+            missing.append(f"{methods} {route.path} missing API-key-or-user-session auth dependency")
         if require_diagram_access not in dependency_callables:
             missing.append(f"{methods} {route.path} missing require_diagram_access")
         if route.path in capability_paths and verify_export_capability not in dependency_callables:

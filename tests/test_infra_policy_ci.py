@@ -289,6 +289,60 @@ def test_ci_validates_prod_storage_network_and_user_assigned_identity_role():
     assert '[ "${#NOT_FOUND_STORAGE_NAMES[@]}" -eq 1 ]' in ci_workflow
     assert "Metrics container was not found on storage account" in ci_workflow
     assert "publicAccess\":\"None" in ci_workflow
+    assert "STORAGE_NETWORK_RULES=$(az storage account show" in ci_workflow
+    assert "--query networkRuleSet" in ci_workflow
+    assert 'NETWORK_DEFAULT_ACTION" != "Deny"' in ci_workflow
+    assert '.defaultAction // .default_action // ""' in ci_workflow
+    assert 'NETWORK_IP_RULE_COUNT" != "0"' in ci_workflow
+    assert '.ipRules // .ip_rules // [] | length' in ci_workflow
+    assert 'endswith("/subnets/container-apps-subnet")' in ci_workflow
+    assert '.virtualNetworkRules // .virtual_network_rules // []' in ci_workflow
+    assert '.virtualNetworkResourceId // .virtual_network_resource_id // ""' in ci_workflow
+    assert '.state == "Succeeded"' in ci_workflow
+    assert "CONTAINER_APPS_VNET_RULE_TOTAL_COUNT" in ci_workflow
+    assert "must not have duplicate container-apps-subnet virtual network rules" in ci_workflow
+    assert "CONTAINER_APP_ENV_ID=$(az containerapp show" in ci_workflow
+    assert "--query properties.managedEnvironmentId" in ci_workflow
+    assert "Unable to discover Container Apps managed environment ID" in ci_workflow
+    assert "CONTAINER_APPS_SUBNET_ID=$(az resource show" in ci_workflow
+    assert "--query properties.vnetConfiguration.infrastructureSubnetId" in ci_workflow
+    assert "az network vnet list" in ci_workflow
+    assert "--resource-group \"${{ env.AZURE_RESOURCE_GROUP }}\"" in ci_workflow
+    assert "Unable to uniquely discover container-apps-subnet ID in resource group" in ci_workflow
+    assert "Unable to uniquely discover container-apps-subnet ID in subscription" in ci_workflow
+    assert "https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2021-03-01" in ci_workflow
+    assert "microsoft.network/virtualnetworks/subnets" in ci_workflow
+    assert "Unable to query Azure Resource Graph for container-apps-subnet in resource group" in ci_workflow
+    assert "Unable to uniquely discover container-apps-subnet ID through Azure Resource Graph in resource group" in ci_workflow
+    assert "Unable to query Azure Resource Graph for container-apps-subnet in subscription" in ci_workflow
+    assert "Unable to uniquely discover container-apps-subnet ID through Azure Resource Graph in subscription" in ci_workflow
+    assert "Discovered container-apps-subnet ID through Azure Resource Graph" in ci_workflow
+    assert "terraform -chdir=infra init -input=false -lockfile=readonly" in ci_workflow
+    assert "terraform -chdir=infra state show -no-color azurerm_subnet.container_apps" in ci_workflow
+    assert "Discovered container-apps-subnet ID from Terraform state" in ci_workflow
+    assert "CONTAINER_APPS_SUBNET_IDS=$(az network vnet list" in ci_workflow
+    assert 'jq -r \'.[] | (.subnets // [])[] | select(.name == "container-apps-subnet") | .id\'' in ci_workflow
+    assert "CONTAINER_APPS_SUBNET_ID_COUNT" in ci_workflow
+    assert "Unable to discover container-apps-subnet ID for storage network rule cutover" in ci_workflow
+    assert "must be container-apps-subnet before storage network rule cutover" in ci_workflow
+    assert "az storage account network-rule add" in ci_workflow
+    assert "--subnet \"$CONTAINER_APPS_SUBNET_ID\"" in ci_workflow
+    assert "for vnet_rule_attempt in" in ci_workflow
+    assert "succeeded of $CONTAINER_APPS_VNET_RULE_TOTAL_COUNT total" in ci_workflow
+    assert "waiting for VNet rule propagation" in ci_workflow
+    assert "has defaultAction=Allow; hardening to Deny before enabling public network access" in ci_workflow
+    assert "--default-action Deny" in ci_workflow
+    assert "for default_action_attempt in" in ci_workflow
+    assert "waiting for Deny propagation" in ci_workflow
+    assert "defaultAction hardening did not reach Deny" in ci_workflow
+    assert "--resource-group \"${{ env.AZURE_RESOURCE_GROUP }}\"" in ci_workflow
+    assert "for public_access_attempt in" in ci_workflow
+    assert "waiting for update propagation" in ci_workflow
+    assert "attempt $public_access_attempt/" in ci_workflow
+    assert "public network access update did not reach Enabled" in ci_workflow
+    assert "public network access disabled and no approved private endpoint; enabling public network access" in ci_workflow
+    assert "az storage account update" in ci_workflow
+    assert "--public-network-access Enabled" in ci_workflow
     assert "Expected exactly one Terraform-managed Archmorph storage account with a metrics container" in ci_workflow
     assert "deploying Terraform-managed storage account" in ci_workflow
     assert "managed-identity blob preflight will prove RBAC data-plane access" in ci_workflow
