@@ -20,7 +20,7 @@ import logging
 
 from routers.shared import (
     SESSION_STORE, IMAGE_STORE, SHARE_STORE, EXPORT_CAPABILITY_STORE,
-    limiter, verify_api_key, MAX_UPLOAD_SIZE, generate_session_id,
+    limiter, verify_api_key, verify_api_key_or_user_session, MAX_UPLOAD_SIZE, generate_session_id,
     require_authenticated_user, get_api_key_service_principal,
     require_diagram_access,
 )
@@ -190,7 +190,7 @@ def _purge_store_records_for_diagram(store, diagram_id: str) -> int:
 # ─────────────────────────────────────────────────────────────
 @router.post("/api/projects/{project_id}/diagrams")
 @limiter.limit("10/minute")
-async def upload_diagram(request: Request, project_id: str, file: UploadFile = File(...), _auth=Depends(verify_api_key)):
+async def upload_diagram(request: Request, project_id: str, file: UploadFile = File(...), _auth=Depends(verify_api_key_or_user_session)):
     """Upload an architecture diagram image for analysis.
 
     Accepts PNG, JPEG, SVG, PDF, and Visio (.vsdx) files up to the
@@ -446,7 +446,7 @@ def _raise_analysis_service_failure(exc: Exception) -> None:
 
 @router.post("/api/diagrams/{diagram_id}/analyze")
 @limiter.limit("5/minute")
-async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
+async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verify_api_key_or_user_session)):
     """Analyze an uploaded architecture diagram using GPT-4o vision.
 
     Detects cloud services and maps them to Azure equivalents using the catalog.
@@ -549,7 +549,7 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
 async def analyze_diagram_async(
     request: Request,
     diagram_id: str,
-    _auth=Depends(verify_api_key),
+    _auth=Depends(verify_api_key_or_user_session),
 ):
     """Start an async analysis of an uploaded diagram.
 

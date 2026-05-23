@@ -23,5 +23,8 @@
     "X-Frame-Options": "DENY",
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
     "Referrer-Policy": "same-origin"
+  },
+  "platform": {
+    "apiRuntime": "node:20"
   }
 }

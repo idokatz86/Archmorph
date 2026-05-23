@@ -1806,8 +1806,41 @@ jobs:
     timeout-minutes: 15
     if: github.ref == 'refs/heads/main'
     environment: production
+    env:
+      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+      STATIC_WEB_APP_NAME: ${{ vars.STATIC_WEB_APP_NAME || 'archmorph-frontend' }}
+      ARCHMORPH_API_KEY: ${{ secrets.ARCHMORPH_API_KEY || secrets.API_KEY }}
+      ARCHMORPH_BACKEND_API_BASE: ${{ secrets.API_URL }}
     steps:
       - uses: actions/checkout@v6
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Configure Static Web Apps API bridge settings
+        run: |
+          if [ -z "${ARCHMORPH_API_KEY:-}" ]; then
+            echo "::error::ARCHMORPH_API_KEY or API_KEY secret is required for the SWA auth bridge"
+            exit 1
+          fi
+          if [ -z "${ARCHMORPH_BACKEND_API_BASE:-}" ]; then
+            echo "::error::API_URL secret is required for the SWA auth bridge"
+            exit 1
+          fi
+          az staticwebapp appsettings set \
+            --name "$STATIC_WEB_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --setting-names \
+              ARCHMORPH_API_KEY="$ARCHMORPH_API_KEY" \
+              ARCHMORPH_BACKEND_API_BASE="$ARCHMORPH_BACKEND_API_BASE" \
+            >/dev/null
 
       - name: Download frontend dist
         uses: actions/download-artifact@v8
@@ -1822,6 +1855,7 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           action: upload
           app_location: frontend/dist
+          api_location: frontend/api
           output_location: ''
           skip_app_build: true
 

@@ -33,6 +33,16 @@ function clearTokens() {
   } catch { /* private mode */ }
 }
 
+async function exchangeSwaSession() {
+  const response = await fetch('/api/auth/swa-session', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+  });
+  if (!response.ok) return null;
+  return response.json();
+}
+
 const SWA_PROVIDER_MAP = {
   aad: 'microsoft',
   microsoft: 'microsoft',
@@ -146,6 +156,18 @@ const useAuthStore = create((set, get) => ({
               // Preserve the token when validation failed for an indeterminate reason.
             }
             if (shouldClearStoredToken) clearTokens();
+          }
+          const exchanged = await exchangeSwaSession().catch(() => null);
+          if (exchanged?.user?.id && exchanged.session_token) {
+            storeTokens(exchanged.session_token, exchanged.refresh_token);
+            set({
+              user: exchanged.user,
+              isAuthenticated: true,
+              hasBackendSession: true,
+              sessionToken: exchanged.session_token,
+              isLoading: false,
+            });
+            return;
           }
           if (swaUser) {
             set({ user: swaUser, isAuthenticated: true, hasBackendSession: false, isLoading: false, sessionToken: null });
