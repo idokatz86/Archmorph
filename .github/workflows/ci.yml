@@ -676,11 +676,152 @@ jobs:
           vuln-type: library
           scanners: vuln  # Skip secret/misconfig scanning, focus on dependency CVEs
 
+      - name: Discover Container Apps subnet for storage cutover
+        run: |
+          CONTAINER_APP_ENV_ID=$(az containerapp show \
+            --name "${{ env.CONTAINER_APP_NAME }}" \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+            --only-show-errors \
+            --query properties.managedEnvironmentId -o tsv)
+          if [ -z "$CONTAINER_APP_ENV_ID" ]; then
+            echo "::error::Unable to discover Container Apps managed environment ID for storage network rule cutover"
+            exit 1
+          fi
+
+          CONTAINER_APPS_SUBNET_ID=$(az resource show \
+            --ids "$CONTAINER_APP_ENV_ID" \
+            --api-version 2023-05-01 \
+            --only-show-errors \
+            --query properties.vnetConfiguration.infrastructureSubnetId -o tsv 2>/dev/null || true)
+
+          if [ -z "$CONTAINER_APPS_SUBNET_ID" ]; then
+            CONTAINER_APPS_SUBNET_IDS=$(az network vnet list \
+              --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+              --only-show-errors \
+              -o json \
+              | jq -r '.[] | (.subnets // [])[] | select(.name == "container-apps-subnet") | .id')
+            CONTAINER_APPS_SUBNET_ID_COUNT=$(printf '%s\n' "$CONTAINER_APPS_SUBNET_IDS" | sed '/^$/d' | wc -l | tr -d ' ')
+            if [ "$CONTAINER_APPS_SUBNET_ID_COUNT" -gt "1" ]; then
+              echo "::error::Unable to uniquely discover container-apps-subnet ID in resource group ${{ env.AZURE_RESOURCE_GROUP }}; found $CONTAINER_APPS_SUBNET_ID_COUNT candidates"
+              exit 1
+            fi
+            if [ "$CONTAINER_APPS_SUBNET_ID_COUNT" = "1" ]; then
+              CONTAINER_APPS_SUBNET_ID=$(printf '%s\n' "$CONTAINER_APPS_SUBNET_IDS" | sed '/^$/d' | head -1)
+            fi
+          fi
+
+          if [ -z "$CONTAINER_APPS_SUBNET_ID" ]; then
+            CONTAINER_APPS_SUBNET_IDS=$(az network vnet list \
+              --only-show-errors \
+              -o json \
+              | jq -r '.[] | (.subnets // [])[] | select(.name == "container-apps-subnet") | .id')
+            CONTAINER_APPS_SUBNET_ID_COUNT=$(printf '%s\n' "$CONTAINER_APPS_SUBNET_IDS" | sed '/^$/d' | wc -l | tr -d ' ')
+            if [ "$CONTAINER_APPS_SUBNET_ID_COUNT" -gt "1" ]; then
+              echo "::error::Unable to uniquely discover container-apps-subnet ID in subscription; found $CONTAINER_APPS_SUBNET_ID_COUNT candidates"
+              exit 1
+            fi
+            if [ "$CONTAINER_APPS_SUBNET_ID_COUNT" = "1" ]; then
+              CONTAINER_APPS_SUBNET_ID=$(printf '%s\n' "$CONTAINER_APPS_SUBNET_IDS" | sed '/^$/d' | head -1)
+            fi
+          fi
+
+          if [ -z "$CONTAINER_APPS_SUBNET_ID" ]; then
+            RESOURCE_GROUP_SUBNET_QUERY="Resources | where type =~ 'microsoft.network/virtualnetworks/subnets' | where name == 'container-apps-subnet' | where resourceGroup =~ '${{ env.AZURE_RESOURCE_GROUP }}' | project id"
+            RESOURCE_GRAPH_BODY=$(jq -n \
+              --arg subscription "${{ env.AZURE_SUBSCRIPTION_ID }}" \
+              --arg query "$RESOURCE_GROUP_SUBNET_QUERY" \
+              '{subscriptions: [$subscription], query: $query}')
+            RESOURCE_GRAPH_ERROR=$(mktemp)
+            set +e
+            CONTAINER_APPS_SUBNET_IDS=$(az rest \
+              --method post \
+              --uri "https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2021-03-01" \
+              --body "$RESOURCE_GRAPH_BODY" \
+              --query "data[].id" -o tsv 2>"$RESOURCE_GRAPH_ERROR")
+            RESOURCE_GRAPH_STATUS=$?
+            set -e
+            if [ "$RESOURCE_GRAPH_STATUS" -ne 0 ]; then
+              echo "::warning::Unable to query Azure Resource Graph for container-apps-subnet in resource group ${{ env.AZURE_RESOURCE_GROUP }}"
+              sed 's/^/az rest resource graph: /' "$RESOURCE_GRAPH_ERROR" >&2
+            else
+              CONTAINER_APPS_SUBNET_ID_COUNT=$(printf '%s\n' "$CONTAINER_APPS_SUBNET_IDS" | sed '/^$/d' | wc -l | tr -d ' ')
+              if [ "$CONTAINER_APPS_SUBNET_ID_COUNT" -gt "1" ]; then
+                echo "::error::Unable to uniquely discover container-apps-subnet ID through Azure Resource Graph in resource group ${{ env.AZURE_RESOURCE_GROUP }}; found $CONTAINER_APPS_SUBNET_ID_COUNT candidates"
+                rm -f "$RESOURCE_GRAPH_ERROR"
+                exit 1
+              fi
+              if [ "$CONTAINER_APPS_SUBNET_ID_COUNT" = "1" ]; then
+                CONTAINER_APPS_SUBNET_ID=$(printf '%s\n' "$CONTAINER_APPS_SUBNET_IDS" | sed '/^$/d' | head -1)
+                echo "::notice::Discovered container-apps-subnet ID through Azure Resource Graph in resource group ${{ env.AZURE_RESOURCE_GROUP }}."
+              fi
+            fi
+            rm -f "$RESOURCE_GRAPH_ERROR"
+          fi
+
+          if [ -z "$CONTAINER_APPS_SUBNET_ID" ]; then
+            SUBSCRIPTION_SUBNET_QUERY="Resources | where type =~ 'microsoft.network/virtualnetworks/subnets' | where name == 'container-apps-subnet' | project id"
+            RESOURCE_GRAPH_BODY=$(jq -n \
+              --arg subscription "${{ env.AZURE_SUBSCRIPTION_ID }}" \
+              --arg query "$SUBSCRIPTION_SUBNET_QUERY" \
+              '{subscriptions: [$subscription], query: $query}')
+            RESOURCE_GRAPH_ERROR=$(mktemp)
+            set +e
+            CONTAINER_APPS_SUBNET_IDS=$(az rest \
+              --method post \
+              --uri "https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2021-03-01" \
+              --body "$RESOURCE_GRAPH_BODY" \
+              --query "data[].id" -o tsv 2>"$RESOURCE_GRAPH_ERROR")
+            RESOURCE_GRAPH_STATUS=$?
+            set -e
+            if [ "$RESOURCE_GRAPH_STATUS" -ne 0 ]; then
+              echo "::warning::Unable to query Azure Resource Graph for container-apps-subnet in subscription"
+              sed 's/^/az rest resource graph: /' "$RESOURCE_GRAPH_ERROR" >&2
+            else
+              CONTAINER_APPS_SUBNET_ID_COUNT=$(printf '%s\n' "$CONTAINER_APPS_SUBNET_IDS" | sed '/^$/d' | wc -l | tr -d ' ')
+              if [ "$CONTAINER_APPS_SUBNET_ID_COUNT" -gt "1" ]; then
+                echo "::error::Unable to uniquely discover container-apps-subnet ID through Azure Resource Graph in subscription; found $CONTAINER_APPS_SUBNET_ID_COUNT candidates"
+                rm -f "$RESOURCE_GRAPH_ERROR"
+                exit 1
+              fi
+              if [ "$CONTAINER_APPS_SUBNET_ID_COUNT" = "1" ]; then
+                CONTAINER_APPS_SUBNET_ID=$(printf '%s\n' "$CONTAINER_APPS_SUBNET_IDS" | sed '/^$/d' | head -1)
+                echo "::notice::Discovered container-apps-subnet ID through Azure Resource Graph in subscription."
+              fi
+            fi
+            rm -f "$RESOURCE_GRAPH_ERROR"
+          fi
+
+          if [ -z "$CONTAINER_APPS_SUBNET_ID" ]; then
+            TERRAFORM_SUBNET_ERROR=$(mktemp)
+            if terraform -chdir=infra init -input=false -lockfile=readonly >/tmp/terraform-init-container-apps-subnet.log 2>&1; then
+              CONTAINER_APPS_SUBNET_ID=$(terraform -chdir=infra state show -no-color azurerm_subnet.container_apps 2>"$TERRAFORM_SUBNET_ERROR" \
+                | awk -F'= ' '/^[[:space:]]*id[[:space:]]*=/{gsub(/"/, "", $2); print $2; exit}')
+            else
+              echo "::warning::Unable to initialize Terraform remote state for container-apps-subnet discovery"
+              sed 's/^/terraform init: /' /tmp/terraform-init-container-apps-subnet.log >&2
+            fi
+            if [ -n "$CONTAINER_APPS_SUBNET_ID" ]; then
+              echo "::notice::Discovered container-apps-subnet ID from Terraform state for storage network rule cutover."
+            else
+              sed 's/^/terraform state show: /' "$TERRAFORM_SUBNET_ERROR" >&2
+              echo "::warning::Unable to discover container-apps-subnet ID for storage network rule cutover"
+            fi
+            rm -f "$TERRAFORM_SUBNET_ERROR"
+          fi
+
+          if [ -n "$CONTAINER_APPS_SUBNET_ID" ]; then
+            if [[ "$CONTAINER_APPS_SUBNET_ID" != */subnets/container-apps-subnet ]]; then
+              echo "::error::Container Apps environment infrastructure subnet must be container-apps-subnet before storage network rule cutover; found $CONTAINER_APPS_SUBNET_ID"
+              exit 1
+            fi
+            echo "CONTAINER_APPS_SUBNET_ID=$CONTAINER_APPS_SUBNET_ID" >> "$GITHUB_ENV"
+          fi
+
       - name: Validate Terraform-managed metrics storage
         run: |
           CONTAINER_APP_JSON=$(az containerapp show \
             --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
             -o json)
           ENV_JSON=$(echo "$CONTAINER_APP_JSON" | jq -c '.properties.template.containers[0].env // []')
 
@@ -695,13 +836,13 @@ jobs:
             exit 1
           fi
           TERRAFORM_STORAGE_CANDIDATES=$(az storage account list \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
             --query "[?tags.project=='archmorph' && tags.managed_by=='terraform' && tags.environment=='prod' && starts_with(name, 'archmorph')].name" \
             -o tsv)
           if [ -z "$TERRAFORM_STORAGE_CANDIDATES" ]; then
             echo "::notice::No tagged Terraform-managed Archmorph storage accounts were found; falling back to Archmorph storage name discovery."
             TERRAFORM_STORAGE_CANDIDATES=$(az storage account list \
-              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
               --query "[?starts_with(name, 'archmorph') && name!='archmorphmetrics'].name" \
               -o tsv)
           fi
@@ -717,7 +858,7 @@ jobs:
             CANDIDATE_STORAGE_NAMES+=("$CANDIDATE_STORAGE_NAME")
             CANDIDATE_STORAGE_ID=$(az storage account show \
               --name "$CANDIDATE_STORAGE_NAME" \
-              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
               --query id -o tsv)
             CANDIDATE_METRICS_CONTAINER_ID="$CANDIDATE_STORAGE_ID/blobServices/default/containers/metrics"
             CANDIDATE_METRICS_CONTAINER_ERROR=$(mktemp)
@@ -761,14 +902,14 @@ jobs:
           echo "STORAGE_NAME=$STORAGE_NAME" >> "$GITHUB_ENV"
           echo "STORAGE_ACCOUNT_URL=$STORAGE_ACCOUNT_URL" >> "$GITHUB_ENV"
 
-          if ! az storage account show --name "$STORAGE_NAME" --resource-group ${{ env.AZURE_RESOURCE_GROUP }} &>/dev/null; then
+          if ! az storage account show --name "$STORAGE_NAME" --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" &>/dev/null; then
             echo "::error::Storage account $STORAGE_NAME was not found in resource group ${{ env.AZURE_RESOURCE_GROUP }}"
             exit 1
           fi
 
           STORAGE_ID=$(az storage account show \
             --name "$STORAGE_NAME" \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
             --query id -o tsv)
           if [ -z "$STORAGE_ID" ]; then
             echo "::error::Unable to resolve storage account resource ID for $STORAGE_NAME"
@@ -778,7 +919,7 @@ jobs:
 
           ALLOW_SHARED_KEY=$(az storage account show \
             --name "$STORAGE_NAME" \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
             --query allowSharedKeyAccess -o tsv | tr '[:upper:]' '[:lower:]')
           if [ "$ALLOW_SHARED_KEY" != "false" ]; then
             echo "::error::Storage account $STORAGE_NAME must have shared-key access disabled"
@@ -787,7 +928,8 @@ jobs:
 
           PUBLIC_NETWORK_ACCESS=$(az storage account show \
             --name "$STORAGE_NAME" \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+            --only-show-errors \
             --query publicNetworkAccess -o tsv)
           if [ "$PUBLIC_NETWORK_ACCESS" = "Disabled" ]; then
             PRIVATE_ENDPOINT_ERROR=$(mktemp)
@@ -806,10 +948,120 @@ jobs:
             fi
             rm -f "$PRIVATE_ENDPOINT_ERROR"
             if [ "${APPROVED_PRIVATE_ENDPOINT_COUNT:-0}" = "0" ]; then
-              echo "::error::Storage account $STORAGE_NAME has public network access disabled but no approved private endpoint connection. Enable public access for the hardening-disabled cutover or apply Terraform private endpoint networking before CI deploy."
-              exit 1
+              ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER=$(echo "${ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER:-false}" | tr '[:upper:]' '[:lower:]')
+              if [ "$ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER" != "true" ]; then
+                echo "::error::Storage account $STORAGE_NAME has public network access disabled but no approved private endpoint connection. Set ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER=true only for the reviewed hardening-disabled cutover, or apply Terraform private endpoint networking before CI deploy."
+                exit 1
+              fi
+              STORAGE_NETWORK_RULES=$(az storage account show \
+                --name "$STORAGE_NAME" \
+                --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+                --only-show-errors \
+                --query networkRuleSet \
+                -o json)
+              NETWORK_DEFAULT_ACTION=$(echo "$STORAGE_NETWORK_RULES" | jq -r '.defaultAction // .default_action // ""')
+              NETWORK_IP_RULE_COUNT=$(echo "$STORAGE_NETWORK_RULES" | jq '.ipRules // .ip_rules // [] | length')
+              CONTAINER_APPS_VNET_RULE_TOTAL_COUNT=$(echo "$STORAGE_NETWORK_RULES" | jq '[.virtualNetworkRules // .virtual_network_rules // [] | .[] | select(((.id // .virtualNetworkResourceId // .virtual_network_resource_id // "") | endswith("/subnets/container-apps-subnet")))] | length')
+              CONTAINER_APPS_VNET_RULE_COUNT=$(echo "$STORAGE_NETWORK_RULES" | jq '[.virtualNetworkRules // .virtual_network_rules // [] | .[] | select(((.id // .virtualNetworkResourceId // .virtual_network_resource_id // "") | endswith("/subnets/container-apps-subnet")) and (.state == "Succeeded"))] | length')
+              if [ "$NETWORK_IP_RULE_COUNT" != "0" ]; then
+                echo "::error::Storage account $STORAGE_NAME must not have IP firewall allow rules before public network cutover; found $NETWORK_IP_RULE_COUNT"
+                exit 1
+              fi
+              if [ "$CONTAINER_APPS_VNET_RULE_TOTAL_COUNT" -gt "1" ]; then
+                echo "::error::Storage account $STORAGE_NAME must not have duplicate container-apps-subnet virtual network rules; found $CONTAINER_APPS_VNET_RULE_TOTAL_COUNT"
+                exit 1
+              fi
+              if [ "$CONTAINER_APPS_VNET_RULE_TOTAL_COUNT" = "0" ]; then
+                if [ -z "$CONTAINER_APPS_SUBNET_ID" ]; then
+                  echo "::error::Unable to discover container-apps-subnet ID for storage network rule cutover"
+                  exit 1
+                fi
+                echo "::notice::Storage account $STORAGE_NAME is missing the container-apps-subnet rule; adding it before public network cutover."
+                az storage account network-rule add \
+                  --account-name "$STORAGE_NAME" \
+                  --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+                  --subnet "$CONTAINER_APPS_SUBNET_ID" \
+                  --only-show-errors >/dev/null
+              fi
+              if [ "$CONTAINER_APPS_VNET_RULE_TOTAL_COUNT" != "1" ] || [ "$CONTAINER_APPS_VNET_RULE_COUNT" != "1" ]; then
+                for vnet_rule_attempt in 1 2 3 4 5; do
+                  STORAGE_NETWORK_RULES=$(az storage account show \
+                    --name "$STORAGE_NAME" \
+                    --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+                    --only-show-errors \
+                    --query networkRuleSet \
+                    -o json)
+                  CONTAINER_APPS_VNET_RULE_TOTAL_COUNT=$(echo "$STORAGE_NETWORK_RULES" | jq '[.virtualNetworkRules // .virtual_network_rules // [] | .[] | select(((.id // .virtualNetworkResourceId // .virtual_network_resource_id // "") | endswith("/subnets/container-apps-subnet")))] | length')
+                  CONTAINER_APPS_VNET_RULE_COUNT=$(echo "$STORAGE_NETWORK_RULES" | jq '[.virtualNetworkRules // .virtual_network_rules // [] | .[] | select(((.id // .virtualNetworkResourceId // .virtual_network_resource_id // "") | endswith("/subnets/container-apps-subnet")) and (.state == "Succeeded"))] | length')
+                  if [ "$CONTAINER_APPS_VNET_RULE_TOTAL_COUNT" -gt "1" ]; then
+                    echo "::error::Storage account $STORAGE_NAME must not have duplicate container-apps-subnet virtual network rules; found $CONTAINER_APPS_VNET_RULE_TOTAL_COUNT"
+                    exit 1
+                  fi
+                  if [ "$CONTAINER_APPS_VNET_RULE_TOTAL_COUNT" = "1" ] && [ "$CONTAINER_APPS_VNET_RULE_COUNT" = "1" ]; then
+                    break
+                  fi
+                  echo "Storage account $STORAGE_NAME container-apps-subnet rule count is $CONTAINER_APPS_VNET_RULE_COUNT succeeded of $CONTAINER_APPS_VNET_RULE_TOTAL_COUNT total; waiting for VNet rule propagation (attempt $vnet_rule_attempt/5)"
+                  sleep 5
+                done
+              fi
+              if [ "$CONTAINER_APPS_VNET_RULE_TOTAL_COUNT" != "1" ] || [ "$CONTAINER_APPS_VNET_RULE_COUNT" != "1" ]; then
+                echo "::error::Storage account $STORAGE_NAME must have exactly one succeeded container-apps-subnet virtual network rule before public network cutover; found $CONTAINER_APPS_VNET_RULE_COUNT succeeded of $CONTAINER_APPS_VNET_RULE_TOTAL_COUNT total"
+                exit 1
+              fi
+              if [ "$NETWORK_DEFAULT_ACTION" != "Deny" ]; then
+                if [ "$NETWORK_DEFAULT_ACTION" != "Allow" ]; then
+                  echo "::error::Storage account $STORAGE_NAME network rules must keep defaultAction=Deny before public network cutover; found ${NETWORK_DEFAULT_ACTION:-unset}"
+                  exit 1
+                fi
+                echo "::notice::Storage account $STORAGE_NAME has defaultAction=Allow; hardening to Deny before enabling public network access."
+                az storage account update \
+                  --name "$STORAGE_NAME" \
+                  --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+                  --default-action Deny \
+                  --only-show-errors >/dev/null
+                for default_action_attempt in 1 2 3 4 5; do
+                  NETWORK_DEFAULT_ACTION=$(az storage account show \
+                    --name "$STORAGE_NAME" \
+                    --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+                    --only-show-errors \
+                    --query "networkRuleSet.defaultAction" -o tsv)
+                  if [ "$NETWORK_DEFAULT_ACTION" = "Deny" ]; then
+                    break
+                  fi
+                  echo "Storage account $STORAGE_NAME network defaultAction is ${NETWORK_DEFAULT_ACTION:-unset}; waiting for Deny propagation (attempt $default_action_attempt/5)"
+                  sleep 5
+                done
+                if [ "$NETWORK_DEFAULT_ACTION" != "Deny" ]; then
+                  echo "::error::Storage account $STORAGE_NAME defaultAction hardening did not reach Deny; found ${NETWORK_DEFAULT_ACTION:-unset}"
+                  exit 1
+                fi
+              fi
+              echo "::notice::Storage account $STORAGE_NAME has public network access disabled and no approved private endpoint; enabling public network access under ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER=true for this deploy cutover."
+              az storage account update \
+                --name "$STORAGE_NAME" \
+                --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+                --public-network-access Enabled \
+                --only-show-errors >/dev/null
+              for public_access_attempt in 1 2 3 4 5; do
+                PUBLIC_NETWORK_ACCESS=$(az storage account show \
+                  --name "$STORAGE_NAME" \
+                  --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+                  --only-show-errors \
+                  --query publicNetworkAccess -o tsv)
+                if [ "$PUBLIC_NETWORK_ACCESS" = "Enabled" ]; then
+                  break
+                fi
+                echo "Storage account $STORAGE_NAME public network access is ${PUBLIC_NETWORK_ACCESS:-unset}; waiting for update propagation (attempt $public_access_attempt/5)"
+                sleep 5
+              done
+              if [ "$PUBLIC_NETWORK_ACCESS" != "Enabled" ]; then
+                echo "::error::Storage account $STORAGE_NAME public network access update did not reach Enabled; found ${PUBLIC_NETWORK_ACCESS:-unset}"
+                exit 1
+              fi
+              echo "Storage account $STORAGE_NAME public network access is enabled for cutover"
+            else
+              echo "Storage account $STORAGE_NAME uses disabled public network access with approved private endpoint connectivity"
             fi
-            echo "Storage account $STORAGE_NAME uses disabled public network access with approved private endpoint connectivity"
           else
             ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER=$(echo "${ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER:-false}" | tr '[:upper:]' '[:lower:]')
             if [ "$ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER" != "true" ]; then
@@ -887,7 +1139,7 @@ jobs:
         run: |
           az containerapp revision set-mode \
             --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
             --mode multiple
 
       - name: Deploy green revision
@@ -913,7 +1165,7 @@ jobs:
 
           EXISTING_ENV_JSON=$(az containerapp show \
             --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
             --query "properties.template.containers[0].env" -o json 2>/dev/null || echo "[]")
           if [ -z "$TRUSTED_FRONT_DOOR_FDID" ] || [ -z "$TRUSTED_FRONT_DOOR_HOSTS" ]; then
             EXISTING_FRONT_DOOR_FDID=$(echo "$EXISTING_ENV_JSON" | jq -r '.[] | select(.name == "TRUSTED_FRONT_DOOR_FDID") | .value // ""' | head -1)
@@ -927,7 +1179,7 @@ jobs:
           fi
           CONTAINER_APP_FQDN=$(az containerapp show \
             --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
             --query "properties.configuration.ingress.fqdn" -o tsv 2>/dev/null || echo "")
 
           if ! az extension show --name front-door &>/dev/null; then
@@ -1133,7 +1385,7 @@ jobs:
 
           az containerapp secret set \
             --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
             --secrets \
               admin-key="${{ env.ADMIN_KEY }}" \
               api-key="${{ env.ARCHMORPH_API_KEY }}" \
@@ -1157,7 +1409,7 @@ jobs:
           if [ -n "${{ secrets.ACS_CONNECTION_STRING }}" ]; then
             az containerapp secret set \
               --name ${{ env.CONTAINER_APP_NAME }} \
-              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
               --secrets acs-connection-string="${{ secrets.ACS_CONNECTION_STRING }}"
             SET_ENV_VARS+=(ACS_CONNECTION_STRING=secretref:acs-connection-string)
           fi
@@ -1171,7 +1423,7 @@ jobs:
             set +e
             az containerapp update \
               --name ${{ env.CONTAINER_APP_NAME }} \
-              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
               --image "${IMAGE_REF}" \
               --set-env-vars "${SET_ENV_VARS[@]}" \
               --revision-suffix "$REVISION_SUFFIX" \
@@ -1199,7 +1451,7 @@ jobs:
 
           GREEN_REV=$(az containerapp revision list \
             --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
             --query "[?contains(name, '$REVISION_SUFFIX')].name" -o tsv | head -1)
 
           echo "green_revision=$GREEN_REV" >> $GITHUB_OUTPUT
@@ -1216,7 +1468,7 @@ jobs:
           for attempt in $(seq 1 24); do
             if ! REVISION_JSON=$(az containerapp revision show \
               --name ${{ env.CONTAINER_APP_NAME }} \
-              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
               --revision "$GREEN_REV" \
               -o json 2>revision-show.err); then
               echo "Green revision readiness attempt ${attempt}: revision show failed"
@@ -1241,13 +1493,13 @@ jobs:
           echo "::error::Green revision did not become ready before smoke tests"
           az containerapp revision show \
             --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
             --revision "$GREEN_REV" \
             --query '{name:name,provisioningState:properties.provisioningState,runningState:properties.runningState,healthState:properties.healthState,replicas:properties.replicas,createdTime:properties.createdTime}' \
             -o json || true
           az containerapp logs show \
             --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
             --revision "$GREEN_REV" \
             --tail 100 || true
           exit 1
@@ -1262,7 +1514,7 @@ jobs:
 
           ENV_JSON=$(az containerapp revision show \
             --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
             --revision "$GREEN_REV" \
             --query "properties.template.containers[0].env" -o json)
 
@@ -1308,7 +1560,7 @@ jobs:
         run: |
           GREEN_FQDN=$(az containerapp revision show \
             --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
             --revision "${{ steps.green.outputs.green_revision }}" \
             --query "properties.fqdn" -o tsv 2>/dev/null || echo "")
 
@@ -1329,12 +1581,12 @@ jobs:
           if [ -n "$GREEN_FQDN" ]; then
             TRUSTED_FRONT_DOOR_FDID=$(az containerapp show \
               --name ${{ env.CONTAINER_APP_NAME }} \
-              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
               --query "properties.template.containers[0].env[?name=='TRUSTED_FRONT_DOOR_FDID'].value | [0]" \
               -o tsv 2>/dev/null || echo "")
             TRUSTED_FRONT_DOOR_HOST=$(az containerapp show \
               --name ${{ env.CONTAINER_APP_NAME }} \
-              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
               --query "properties.template.containers[0].env[?name=='TRUSTED_FRONT_DOOR_HOSTS'].value | [0]" \
               -o tsv 2>/dev/null || echo "")
             TRUSTED_FRONT_DOOR_HOST="${TRUSTED_FRONT_DOOR_HOST%%,*}"
@@ -1354,13 +1606,13 @@ jobs:
             echo "::group::Green revision diagnostics (${reason})"
             az containerapp revision show \
               --name ${{ env.CONTAINER_APP_NAME }} \
-              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
               --revision "${{ steps.green.outputs.green_revision }}" \
               --query '{name:name,provisioningState:properties.provisioningState,runningState:properties.runningState,healthState:properties.healthState,replicas:properties.replicas,createdTime:properties.createdTime,fqdn:properties.fqdn}' \
               -o json || true
             az containerapp logs show \
               --name ${{ env.CONTAINER_APP_NAME }} \
-              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
               --revision "${{ steps.green.outputs.green_revision }}" \
               --tail 100 || true
             echo "::endgroup::"
@@ -1513,14 +1765,23 @@ jobs:
         run: |
           az containerapp ingress traffic set \
             --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
             --revision-weight "${{ steps.green.outputs.green_revision }}=100"
+
+      - name: Verify production deployment
+        run: |
+          sleep 30
+          HEALTH_RETRIES=12 HEALTH_RETRY_SECONDS=15 HEALTH_API_KEY="$ARCHMORPH_API_KEY" ./scripts/health_gate.sh "${{ env.API_URL }}/health"
+          HEALTH_BODY=$(curl -sS --max-time 30 -H "X-API-Key: $ARCHMORPH_API_KEY" "${{ env.API_URL }}/health" || true)
+          HEALTH=$(printf '%s' "$HEALTH_BODY" | jq -r '.status // "unknown"' 2>/dev/null || echo "unknown")
+          VERSION=$(printf '%s' "$HEALTH_BODY" | jq -r '.version // "unknown"' 2>/dev/null || echo "unknown")
+          echo "Deployed version: $VERSION — status: $HEALTH (blue-green complete)"
 
       - name: Deactivate old revisions (keep blue for rollback)
         run: |
           OLD_REVS=$(az containerapp revision list \
             --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
             --query "[?properties.active && name != '${{ steps.green.outputs.green_revision }}'].name" -o tsv)
 
           KEEP_BLUE=$(echo "$OLD_REVS" | head -1)
@@ -1532,18 +1793,9 @@ jobs:
             echo "Deactivating old revision: $rev"
             az containerapp revision deactivate \
               --name ${{ env.CONTAINER_APP_NAME }} \
-              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
               --revision "$rev" || true
           done
-
-      - name: Verify production deployment
-        run: |
-          sleep 10
-          HEALTH_RETRIES=3 HEALTH_RETRY_SECONDS=10 HEALTH_API_KEY="$ARCHMORPH_API_KEY" ./scripts/health_gate.sh "${{ env.API_URL }}/health"
-          HEALTH_BODY=$(curl -s --max-time 30 -H "X-API-Key: $ARCHMORPH_API_KEY" "${{ env.API_URL }}/health")
-          HEALTH=$(printf '%s' "$HEALTH_BODY" | jq -r '.status')
-          VERSION=$(printf '%s' "$HEALTH_BODY" | jq -r '.version')
-          echo "Deployed version: $VERSION — status: $HEALTH (blue-green complete)"
 
   # ============================================
   # FRONTEND DEPLOY (Azure Static Web Apps)
@@ -1554,8 +1806,41 @@ jobs:
     timeout-minutes: 15
     if: github.ref == 'refs/heads/main'
     environment: production
+    env:
+      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+      STATIC_WEB_APP_NAME: ${{ vars.STATIC_WEB_APP_NAME || 'archmorph-frontend' }}
+      ARCHMORPH_API_KEY: ${{ secrets.ARCHMORPH_API_KEY || secrets.API_KEY }}
+      ARCHMORPH_BACKEND_API_BASE: ${{ secrets.API_URL }}
     steps:
       - uses: actions/checkout@v6
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Configure Static Web Apps API bridge settings
+        run: |
+          if [ -z "${ARCHMORPH_API_KEY:-}" ]; then
+            echo "::error::ARCHMORPH_API_KEY or API_KEY secret is required for the SWA auth bridge"
+            exit 1
+          fi
+          if [ -z "${ARCHMORPH_BACKEND_API_BASE:-}" ]; then
+            echo "::error::API_URL secret is required for the SWA auth bridge"
+            exit 1
+          fi
+          az staticwebapp appsettings set \
+            --name "$STATIC_WEB_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --setting-names \
+              ARCHMORPH_API_KEY="$ARCHMORPH_API_KEY" \
+              ARCHMORPH_BACKEND_API_BASE="$ARCHMORPH_BACKEND_API_BASE" \
+            >/dev/null
 
       - name: Download frontend dist
         uses: actions/download-artifact@v8
@@ -1570,6 +1855,7 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           action: upload
           app_location: frontend/dist
+          api_location: frontend/api
           output_location: ''
           skip_app_build: true
 

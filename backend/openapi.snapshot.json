@@ -3634,6 +3634,21 @@
         "title": "SuggestMappingRequest",
         "type": "object"
       },
+      "SwaSessionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "client_principal": {
+            "description": "Base64-encoded SWA client principal from a trusted SWA API function",
+            "title": "Client Principal",
+            "type": "string"
+          }
+        },
+        "required": [
+          "client_principal"
+        ],
+        "title": "SwaSessionRequest",
+        "type": "object"
+      },
       "TeamsNotifyRequest": {
         "additionalProperties": false,
         "properties": {
@@ -5753,6 +5768,48 @@
           }
         },
         "summary": "Refresh Token Endpoint"
+      }
+    },
+    "/api/auth/swa-session": {
+      "post": {
+        "description": "Mint a backend bearer session from a trusted SWA API bridge.\n\nBrowsers cannot call this endpoint directly because it requires the backend\nAPI key. The Static Web Apps managed function receives the trusted\nx-ms-client-principal header from SWA and forwards it server-to-server.",
+        "operationId": "create_swa_session_api_auth_swa_session_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SwaSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Create Swa Session"
       }
     },
     "/api/chat": {
@@ -15903,6 +15960,51 @@
           }
         },
         "summary": "Refresh Token Endpoint V1",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/auth/swa-session": {
+      "post": {
+        "description": "Mint a backend bearer session from a trusted SWA API bridge.\n\nBrowsers cannot call this endpoint directly because it requires the backend\nAPI key. The Static Web Apps managed function receives the trusted\nx-ms-client-principal header from SWA and forwards it server-to-server.",
+        "operationId": "create_swa_session_v1_api_v1_auth_swa_session_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SwaSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Create Swa Session V1",
         "tags": [
           "v1"
         ]
