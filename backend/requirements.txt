@@ -2,7 +2,7 @@ fastapi
 uvicorn[standard]
 gunicorn  # Production process manager with worker recycling (#301)
 pydantic
-python-multipart>=0.0.28
+python-multipart>=0.0.29
 httpx
 azure-storage-blob
 azure-identity
@@ -42,8 +42,8 @@ PyYAML>=6.0.3  # architecture limitations rule library (Issue #610)
 # Security-pinned dependencies
 cryptography>=48.0.0
 langchain-core>=1.4.0  # CVE-2026-34070 path traversal fix
-langsmith>=0.8.3
-lxml>=6.1.0
+langsmith>=0.8.5
+lxml>=6.1.1
 pyasn1>=0.6.3
 pygments>=2.20.0
 pypdf>=6.11.0
@@ -56,7 +56,7 @@ pytest-asyncio
 pytest-cov
 pytest-xdist
 hypothesis
-jsonschema>=4.25.1
+jsonschema>=4.26.0
 polyfactory
 azure-mgmt-resourcegraph
 azure-mgmt-subscription
