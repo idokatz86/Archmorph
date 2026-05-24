@@ -29,7 +29,7 @@ tenacity
 pybreaker
 psutil
 python-json-logger
-PyJWT[crypto]>=2.12.1
+PyJWT[crypto]>=2.13.0
 email-validator
 redis
 
@@ -46,7 +46,7 @@ langsmith>=0.8.5
 lxml>=6.1.1
 pyasn1>=0.6.3
 pygments>=2.20.0
-pypdf>=6.11.0
+pypdf>=6.12.1
 pypdfium2>=5.8.0  # PDF rasterization for vision analyzer (PDF uploads → PNG)
 requests>=2.34.2
 
