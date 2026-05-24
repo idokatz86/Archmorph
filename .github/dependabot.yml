@@ -75,10 +75,10 @@ updates:
           - "patch"
     ignore:
       # eslint-plugin-react@7.37.5 does not support ESLint 10 yet.
-      # Keep ESLint major updates parked until the React lint stack supports it.
+      # Keep only ESLint 10 parked until the React lint stack supports it.
       - dependency-name: "eslint"
-        update-types:
-          - "version-update:semver-major"
+        versions:
+          - "10.x"
     reviewers:
       - idokatz86
     assignees:
