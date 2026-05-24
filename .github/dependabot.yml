@@ -1,12 +1,5 @@
 version: 2
 
-registries:
-  # Add private registry if needed in the future
-  # npm-private:
-  #   type: npm-registry
-  #   url: https://npm.pkg.github.com
-  #   token: ${{secrets.NPM_TOKEN}}
-
 updates:
   # Python backend dependencies
   - package-ecosystem: pip
@@ -35,6 +28,8 @@ updates:
           - "patch"
       security:
         applies-to: security-updates
+        patterns:
+          - "*"
     reviewers:
       - idokatz86
     assignees:
@@ -73,6 +68,12 @@ updates:
         update-types:
           - "minor"
           - "patch"
+    ignore:
+      # eslint-plugin-react@7.37.5 does not support ESLint 10 yet.
+      # Keep only ESLint 10 parked until the React lint stack supports it.
+      - dependency-name: "eslint"
+        versions:
+          - "10.x"
     reviewers:
       - idokatz86
     assignees:
