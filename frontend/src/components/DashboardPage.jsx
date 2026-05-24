@@ -76,7 +76,7 @@ export default function DashboardPage() {
     const controller = new AbortController();
     loadAnalyses(controller.signal);
     return () => controller.abort();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   const loadAnalyses = async (signal) => {
     setLoading(true);
