@@ -118,7 +118,7 @@ export default function GuidedQuestions({
         }
       }
     }
-  }, [constrainedQuestions]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [constrainedQuestions]);
 
   const categories = useMemo(() => [...new Set(constrainedQuestions.map(q => q.category || 'General'))], [constrainedQuestions]);
   const [activeCatIdx, setActiveCatIdx] = useState(0);
