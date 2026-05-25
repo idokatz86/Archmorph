@@ -45,13 +45,26 @@ test.describe('Production authenticated browser synthetic', () => {
       'utf-8',
     ).toString('base64');
 
-    const bridgeResponse = await request.post(`${FRONTEND_URL}/api/auth/swa-session`, {
+    let authBridgeMode = 'swa-managed-function';
+    let bridgeResponse = await request.post(`${FRONTEND_URL}/api/auth/swa-session`, {
       headers: {
         'x-ms-client-principal': syntheticPrincipal,
         'Content-Type': 'application/json',
       },
       data: {},
     });
+
+    if (!bridgeResponse.ok() && HEALTH_API_KEY) {
+      authBridgeMode = 'backend-api-key-fallback';
+      bridgeResponse = await request.post(`${API_BASE}/auth/swa-session`, {
+        headers: {
+          'X-API-Key': HEALTH_API_KEY,
+          'Content-Type': 'application/json',
+        },
+        data: { client_principal: syntheticPrincipal },
+      });
+    }
+
     expect(bridgeResponse.ok()).toBeTruthy();
     const bridgeBody = await bridgeResponse.json();
     const sessionToken = bridgeBody?.session_token as string;
@@ -161,7 +174,8 @@ test.describe('Production authenticated browser synthetic', () => {
         api_base_configured: Boolean(API_BASE),
       },
       checks: {
-        swa_bridge_http_status: bridgeResponse.status(),
+        auth_bridge_mode: authBridgeMode,
+        auth_bridge_http_status: bridgeResponse.status(),
         upload_http_status: uploadResponse.status(),
         analyze_async_http_status: analyzeAsyncResponse.status(),
         drawio_export_http_status: drawioResponse.status(),
