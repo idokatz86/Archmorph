@@ -179,7 +179,6 @@ test.describe('Production authenticated browser synthetic', () => {
     expect(analyzeBody?._owner_api_key_id).toBeFalsy();
     expect(latestExportCapability).toBeTruthy();
 
-    await expect(page.getByRole('button', { name: 'Export All' })).toBeVisible({ timeout: 60_000 });
     await mkdir(path.resolve(process.cwd(), ARTIFACT_ROOT, 'screenshots'), { recursive: true });
     await page.screenshot({ path: path.resolve(process.cwd(), ARTIFACT_ROOT, 'screenshots', 'translator-results.png'), fullPage: true });
 

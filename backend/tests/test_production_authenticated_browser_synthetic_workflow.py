@@ -89,3 +89,12 @@ def test_synthetic_uploads_generated_png_not_svg_favicon():
     assert "production-synthetic-diagram.png" in spec
     assert "frontend/public/favicon.svg" not in spec
     assert "favicon.svg" not in spec
+
+
+def test_synthetic_does_not_block_bearer_export_on_export_all_button_visibility():
+    spec = SYNTHETIC_SPEC.read_text(encoding="utf-8")
+
+    assert "Export All" not in spec
+    assert not ("Export All" in spec and "toBeVisible" in spec)
+    assert "/export-diagram?format=drawio" in spec
+    assert "Authorization: `Bearer ${sessionToken}`" in spec
