@@ -13,6 +13,7 @@ const initialState = {
   projectStatus: null,
   diagramId: null,
   exportCapability: null,
+  purgeReceipt: null,
   jobId: null,
   analysis: null,
   questions: [],
