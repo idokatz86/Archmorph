@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import path from 'node:path';
 import { mkdir, writeFile } from 'node:fs/promises';
 
@@ -25,6 +25,45 @@ async function saveJson(relativePath: string, payload: unknown) {
   const fullPath = path.resolve(process.cwd(), ARTIFACT_ROOT, relativePath);
   await mkdir(path.dirname(fullPath), { recursive: true });
   await writeFile(fullPath, JSON.stringify(payload, null, 2), 'utf-8');
+}
+
+async function createSyntheticDiagramPng(page: Page, relativePath: string) {
+  const fullPath = path.resolve(process.cwd(), ARTIFACT_ROOT, relativePath);
+  await mkdir(path.dirname(fullPath), { recursive: true });
+  await page.setViewportSize({ width: 900, height: 520 });
+  await page.setContent(`
+    <html>
+      <body style="margin:0;background:#f8fafc;font-family:Arial,sans-serif;">
+        <main style="width:900px;height:520px;display:grid;place-items:center;">
+          <svg width="820" height="430" viewBox="0 0 820 430" xmlns="http://www.w3.org/2000/svg">
+            <rect width="820" height="430" rx="18" fill="#ffffff" stroke="#0f172a" stroke-width="3"/>
+            <text x="410" y="52" text-anchor="middle" font-size="28" font-weight="700" fill="#0f172a">Production Synthetic Architecture</text>
+            <rect x="70" y="130" width="160" height="88" rx="12" fill="#dbeafe" stroke="#2563eb" stroke-width="3"/>
+            <text x="150" y="168" text-anchor="middle" font-size="18" font-weight="700" fill="#1e3a8a">Browser</text>
+            <text x="150" y="194" text-anchor="middle" font-size="14" fill="#1e40af">Bearer session</text>
+            <rect x="330" y="130" width="160" height="88" rx="12" fill="#dcfce7" stroke="#16a34a" stroke-width="3"/>
+            <text x="410" y="168" text-anchor="middle" font-size="18" font-weight="700" fill="#14532d">SWA</text>
+            <text x="410" y="194" text-anchor="middle" font-size="14" fill="#166534">Managed API</text>
+            <rect x="590" y="130" width="160" height="88" rx="12" fill="#fef3c7" stroke="#d97706" stroke-width="3"/>
+            <text x="670" y="168" text-anchor="middle" font-size="18" font-weight="700" fill="#78350f">Backend</text>
+            <text x="670" y="194" text-anchor="middle" font-size="14" fill="#92400e">Analyze + export</text>
+            <path d="M230 174 H330" stroke="#334155" stroke-width="4" marker-end="url(#arrow)"/>
+            <path d="M490 174 H590" stroke="#334155" stroke-width="4" marker-end="url(#arrow)"/>
+            <rect x="200" y="285" width="420" height="70" rx="12" fill="#f1f5f9" stroke="#64748b" stroke-width="2"/>
+            <text x="410" y="315" text-anchor="middle" font-size="17" font-weight="700" fill="#334155">Authenticated upload -> analysis -> Draw.io export</text>
+            <text x="410" y="340" text-anchor="middle" font-size="14" fill="#475569">Owner attribution must be user session, not API key</text>
+            <defs>
+              <marker id="arrow" markerWidth="10" markerHeight="10" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+                <path d="M0,0 L0,6 L8,3 z" fill="#334155"/>
+              </marker>
+            </defs>
+          </svg>
+        </main>
+      </body>
+    </html>
+  `);
+  await page.screenshot({ path: fullPath, fullPage: true });
+  return fullPath;
 }
 
 test.describe('Production authenticated browser synthetic', () => {
@@ -74,12 +113,13 @@ test.describe('Production authenticated browser synthetic', () => {
       localStorage.setItem('archmorph_session_token', token);
     }, sessionToken);
 
+    const sampleUploadPath = await createSyntheticDiagramPng(page, 'fixtures/production-synthetic-diagram.png');
+
     await page.goto(`${FRONTEND_URL}/#translator`);
     await expect(page.locator('#root')).toBeVisible({ timeout: 30_000 });
 
-    const sampleUploadPath = path.resolve(process.cwd(), 'frontend/public/favicon.svg');
     await page.locator('input[type="file"]').setInputFiles(sampleUploadPath);
-    await expect(page.getByText('favicon.svg')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText('production-synthetic-diagram.png')).toBeVisible({ timeout: 15_000 });
 
     const uploadResponsePromise = page.waitForResponse((response) =>
       response.request().method() === 'POST'
