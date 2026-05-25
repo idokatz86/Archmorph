@@ -51,8 +51,8 @@ class Job:
 
     __slots__ = (
         "job_id", "job_type", "diagram_id", "status",
-        "progress", "progress_message", "result", "error",
-        "created_at", "started_at", "completed_at",
+        "phase", "progress", "progress_message", "result", "error",
+        "created_at", "started_at", "completed_at", "updated_at",
         "owner_user_id", "tenant_id", "owner_api_key_id",
         "_events", "_waiters",
     )
@@ -72,6 +72,7 @@ class Job:
         self.tenant_id: Optional[str] = tenant_id
         self.owner_api_key_id: Optional[str] = owner_api_key_id
         self.status: JobStatus = JobStatus.QUEUED
+        self.phase: str = "queued"
         self.progress: int = 0
         self.progress_message: str = "Queued"
         self.result: Optional[Dict[str, Any]] = None
@@ -79,10 +80,12 @@ class Job:
         self.created_at: str = datetime.now(timezone.utc).isoformat()
         self.started_at: Optional[str] = None
         self.completed_at: Optional[str] = None
+        self.updated_at: str = self.created_at
         self._events: List[Dict[str, Any]] = []
         self._waiters: List[asyncio.Event] = []
 
     def to_dict(self) -> Dict[str, Any]:
+        timing = _job_timing(self)
         return {
             "job_id": self.job_id,
             "job_type": self.job_type,
@@ -91,6 +94,7 @@ class Job:
             "tenant_id": self.tenant_id,
             "owner_api_key_id": self.owner_api_key_id,
             "status": self.status.value,
+            "phase": self.phase,
             "progress": self.progress,
             "progress_message": self.progress_message,
             "result": self.result,
@@ -98,6 +102,8 @@ class Job:
             "created_at": self.created_at,
             "started_at": self.started_at,
             "completed_at": self.completed_at,
+            "updated_at": self.updated_at,
+            **timing,
         }
 
     @classmethod
@@ -115,6 +121,7 @@ class Job:
             job.status = JobStatus(status)
         except ValueError:
             job.status = JobStatus.QUEUED
+        job.phase = payload.get("phase") or _phase_for_status(job.status)
         job.progress = int(payload.get("progress", 0))
         job.progress_message = payload.get("progress_message", "Queued")
         job.result = payload.get("result")
@@ -122,6 +129,7 @@ class Job:
         job.created_at = payload.get("created_at", job.created_at)
         job.started_at = payload.get("started_at")
         job.completed_at = payload.get("completed_at")
+        job.updated_at = payload.get("updated_at") or job.completed_at or job.started_at or job.created_at
         return job
 
 
@@ -180,34 +188,38 @@ class JobManager:
         if not job:
             self._jobs[job_id] = loaded
             return loaded
-        for field in loaded.to_dict():
+        for field in Job.__slots__:
+            if field.startswith("_"):
+                continue
             setattr(job, field, getattr(loaded, field))
         return job
 
-    def start(self, job_id: str) -> None:
+    def start(self, job_id: str, phase: str = "running") -> None:
         """Mark a job as running."""
         job = self.get(job_id)
         if not job:
             return
         job.status = JobStatus.RUNNING
+        job.phase = phase
         job.started_at = datetime.now(timezone.utc).isoformat()
         job.progress_message = "Starting..."
+        job.updated_at = job.started_at
         self._jobs_store.set(job.job_id, job.to_dict())
-        self._emit(job, "status", {"status": "running"})
+        self._emit(job, "status", job.to_dict())
 
-    def update_progress(self, job_id: str, progress: int, message: str = "") -> None:
+    def update_progress(self, job_id: str, progress: int, message: str = "", phase: Optional[str] = None) -> None:
         """Update job progress (0-100) and emit SSE event."""
         job = self.get(job_id)
         if not job or job.status in (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED):
             return
-        job.progress = min(progress, 100)
+        if phase:
+            job.phase = phase
+        job.progress = max(0, min(progress, 100))
         if message:
             job.progress_message = message
+        job.updated_at = datetime.now(timezone.utc).isoformat()
         self._jobs_store.set(job.job_id, job.to_dict())
-        self._emit(job, "progress", {
-            "progress": job.progress,
-            "message": job.progress_message,
-        })
+        self._emit(job, "progress", _progress_payload(job))
 
     def complete(self, job_id: str, result: Optional[Dict[str, Any]] = None) -> None:
         """Mark a job as completed with optional result."""
@@ -215,10 +227,12 @@ class JobManager:
         if not job or job.status == JobStatus.CANCELLED:
             return
         job.status = JobStatus.COMPLETED
+        job.phase = "completed"
         job.progress = 100
         job.progress_message = "Complete"
         job.result = result
         job.completed_at = datetime.now(timezone.utc).isoformat()
+        job.updated_at = job.completed_at
         self._jobs_store.set(job.job_id, job.to_dict())
         self._emit(job, "complete", {"result": result})
         logger.info("Job completed: %s", job_id)
@@ -229,8 +243,10 @@ class JobManager:
         if not job or job.status == JobStatus.CANCELLED:
             return
         job.status = JobStatus.FAILED
+        job.phase = "failed"
         job.error = error
         job.completed_at = datetime.now(timezone.utc).isoformat()
+        job.updated_at = job.completed_at
         self._jobs_store.set(job.job_id, job.to_dict())
         self._emit(job, "error", {"error": error})
         logger.error("Job failed: %s — %s", job_id, error)
@@ -243,7 +259,9 @@ class JobManager:
         if job.status in (JobStatus.COMPLETED, JobStatus.FAILED):
             return False
         job.status = JobStatus.CANCELLED
+        job.phase = "cancelled"
         job.completed_at = datetime.now(timezone.utc).isoformat()
+        job.updated_at = job.completed_at
         self._jobs_store.set(job.job_id, job.to_dict())
         self._emit(job, "cancelled", {})
         logger.info("Job cancelled: %s", job_id)
@@ -345,6 +363,11 @@ class JobManager:
                 # Send heartbeat every 5s when idle
                 if time.monotonic() >= heartbeat_at:
                     yield ": heartbeat\n\n"
+                    latest = self.get(job_id)
+                    if latest and latest.status not in (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED):
+                        heartbeat_payload = {**_progress_payload(latest), "heartbeat": True}
+                        heartbeat_payload["message"] = ""
+                        yield _sse_format("progress", heartbeat_payload)
                     heartbeat_at = time.monotonic() + 5.0
 
                 # Check if job is done
@@ -414,11 +437,14 @@ class JobManager:
         """Return queue/event observability metrics."""
         jobs_payload = self.list_jobs(limit=max(1, self._max_jobs))
         by_status: Dict[str, int] = {}
+        queue_ages: List[int] = []
         total_events_buffered = 0
         total_events_dropped = 0
         for item in jobs_payload:
             status = item.get("status", JobStatus.QUEUED.value)
             by_status[status] = by_status.get(status, 0) + 1
+            if status == JobStatus.QUEUED.value:
+                queue_ages.append(int(item.get("queue_wait_seconds") or 0))
             event_state = self._events_store.get(item["job_id"], {"events": [], "dropped_events": 0})
             total_events_buffered += len(event_state.get("events", []))
             total_events_dropped += int(event_state.get("dropped_events", 0))
@@ -429,6 +455,10 @@ class JobManager:
             "max_events_per_job": self._max_events_per_job,
             "jobs_total": len(jobs_payload),
             "jobs_by_status": by_status,
+            "queued_jobs": by_status.get(JobStatus.QUEUED.value, 0),
+            "active_workers": by_status.get(JobStatus.RUNNING.value, 0),
+            "oldest_queued_age_seconds": max(queue_ages) if queue_ages else 0,
+            "queued_age_p95_seconds": _percentile(queue_ages, 95),
             "events_buffered_total": total_events_buffered,
             "events_dropped_total": total_events_dropped,
         }
@@ -452,6 +482,61 @@ def _sse_format(event: str, data: Any) -> str:
     """Format a Server-Sent Event."""
     payload = json.dumps(data, default=str)
     return f"event: {event}\ndata: {payload}\n\n"
+
+
+def _phase_for_status(status: JobStatus) -> str:
+    return {
+        JobStatus.QUEUED: "queued",
+        JobStatus.RUNNING: "running",
+        JobStatus.COMPLETED: "completed",
+        JobStatus.FAILED: "failed",
+        JobStatus.CANCELLED: "cancelled",
+    }.get(status, "queued")
+
+
+def _parse_iso(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _seconds_between(start: Optional[datetime], end: Optional[datetime]) -> int:
+    if not start or not end:
+        return 0
+    return max(0, int((end - start).total_seconds()))
+
+
+def _job_timing(job: Job) -> Dict[str, int]:
+    now = datetime.now(timezone.utc)
+    created_at = _parse_iso(job.created_at)
+    started_at = _parse_iso(job.started_at)
+    completed_at = _parse_iso(job.completed_at)
+    terminal_at = completed_at or now
+    return {
+        "elapsed_seconds": _seconds_between(created_at, terminal_at),
+        "queue_wait_seconds": _seconds_between(created_at, started_at or terminal_at),
+        "running_seconds": _seconds_between(started_at, terminal_at),
+    }
+
+
+def _progress_payload(job: Job) -> Dict[str, Any]:
+    return {
+        "progress": job.progress,
+        "message": job.progress_message,
+        "phase": job.phase,
+        **_job_timing(job),
+    }
+
+
+def _percentile(values: List[int], percentile: int) -> int:
+    if not values:
+        return 0
+    ordered = sorted(values)
+    index = min(len(ordered) - 1, max(0, int(round((percentile / 100) * (len(ordered) - 1)))))
+    return ordered[index]
 
 
 # ─────────────────────────────────────────────────────────────

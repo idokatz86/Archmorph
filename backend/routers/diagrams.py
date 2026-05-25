@@ -592,7 +592,7 @@ async def _run_analysis_job(job_id: str, diagram_id: str) -> None:
 
         image_b64, content_type = IMAGE_STORE[diagram_id]
         image_bytes = base64.b64decode(image_b64) if isinstance(image_b64, str) else image_b64
-        job_manager.update_progress(job_id, 5, "Pre-compressing image...")
+        job_manager.update_progress(job_id, 5, "Preprocessing image...", phase="preprocessing")
 
         if job_manager.is_cancelled(job_id):
             return
@@ -600,7 +600,7 @@ async def _run_analysis_job(job_id: str, diagram_id: str) -> None:
         # Forward raw bytes directly
         compressed_bytes, compressed_type = image_bytes, content_type
 
-        job_manager.update_progress(job_id, 15, "Classifying image type...")
+        job_manager.update_progress(job_id, 15, "Classifying image type...", phase="classifying")
 
         if job_manager.is_cancelled(job_id):
             return
@@ -619,22 +619,24 @@ async def _run_analysis_job(job_id: str, diagram_id: str) -> None:
             )
             return
 
-        job_manager.update_progress(job_id, 30, "Analyzing architecture with GPT-4o Vision...")
+        job_manager.update_progress(job_id, 30, "Waiting for model capacity...", phase="waiting_for_model")
 
         if job_manager.is_cancelled(job_id):
             return
 
-        job_manager.update_progress(job_id, 40, "Detecting cloud services and topology...")
+        job_manager.update_progress(job_id, 40, "Analyzing cloud services and topology...", phase="analyzing")
         result = await asyncio.to_thread(analyze_image, compressed_bytes, compressed_type)
 
         if job_manager.is_cancelled(job_id):
             return
 
-        job_manager.update_progress(job_id, 70, "Mapping services to Azure equivalents...")
+        job_manager.update_progress(job_id, 65, "Validating analysis output...", phase="validating")
 
         result = _normalize_analysis(result)
         result["diagram_id"] = diagram_id
         result["image_classification"] = classification
+
+        job_manager.update_progress(job_id, 70, "Mapping services to Azure equivalents...", phase="mapping")
 
         job_record = job_manager.get(job_id)
         job_user_id = getattr(job_record, "owner_user_id", None)
@@ -646,11 +648,11 @@ async def _run_analysis_job(job_id: str, diagram_id: str) -> None:
         elif job_api_principal_id:
             result["_owner_api_key_id"] = job_api_principal_id
 
-        job_manager.update_progress(job_id, 80, "Storing analysis results...")
+        job_manager.update_progress(job_id, 80, "Saving analysis results...", phase="saving")
         SESSION_STORE[diagram_id] = result
         mark_diagram_analyzed(diagram_id, result)
 
-        job_manager.update_progress(job_id, 90, "Generating guided questions...")
+        job_manager.update_progress(job_id, 90, "Saving guided questions and evidence...", phase="saving")
 
         record_event("analyses_run", {"diagram_id": diagram_id, "services": result.get("services_detected", 0)})
         record_funnel_step(diagram_id, "analyze")
@@ -664,7 +666,7 @@ async def _run_analysis_job(job_id: str, diagram_id: str) -> None:
                 str(diagram_id).replace('\n', '').replace('\r', ''),
             )
 
-        job_manager.update_progress(job_id, 95, "Finalizing...")
+        job_manager.update_progress(job_id, 95, "Finalizing...", phase="saving")
         job_manager.complete(job_id, result=attach_export_capability(result, diagram_id))
 
     except Exception as exc:

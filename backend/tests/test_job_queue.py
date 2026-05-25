@@ -67,6 +67,7 @@ class TestJobManager:
         mgr = self._make_manager()
         job = mgr.submit("analyze", diagram_id="d1")
         assert job.status == "queued"
+        assert job.phase == "queued"
         assert job.job_type == "analyze"
         assert job.diagram_id == "d1"
         assert job.job_id is not None
@@ -76,15 +77,26 @@ class TestJobManager:
         job = mgr.submit("analyze")
         mgr.start(job.job_id)
         assert job.status == "running"
+        assert job.phase == "running"
         assert job.started_at is not None
 
     def test_update_progress(self):
         mgr = self._make_manager()
         job = mgr.submit("analyze")
         mgr.start(job.job_id)
-        mgr.update_progress(job.job_id, 50, "Halfway done")
+        mgr.update_progress(job.job_id, 50, "Halfway done", phase="analyzing")
         assert job.progress == 50
+        assert job.phase == "analyzing"
         assert job.progress_message == "Halfway done"
+
+    def test_update_progress_clamps_to_full_range(self):
+        mgr = self._make_manager()
+        job = mgr.submit("analyze")
+        mgr.start(job.job_id)
+        mgr.update_progress(job.job_id, -1, "negative")
+        assert job.progress == 0
+        mgr.update_progress(job.job_id, 101, "too high")
+        assert job.progress == 100
 
     def test_complete_sets_result(self):
         mgr = self._make_manager()
@@ -247,10 +259,16 @@ class TestJobSerialization:
         d = job.to_dict()
         assert "job_id" in d
         assert "status" in d
+        assert "phase" in d
         assert "job_type" in d
         assert "progress" in d
         assert "created_at" in d
+        assert "updated_at" in d
+        assert "elapsed_seconds" in d
+        assert "queue_wait_seconds" in d
+        assert "running_seconds" in d
         assert d["status"] == "queued"
+        assert d["phase"] == "queued"
         assert d["job_type"] == "analyze"
         assert d["diagram_id"] == "d1"
 
@@ -369,6 +387,10 @@ class TestJobsRouter:
         assert "backend" in payload
         assert "events_dropped_total" in payload
         assert "max_events_per_job" in payload
+        assert "active_workers" in payload
+        assert "queued_jobs" in payload
+        assert "oldest_queued_age_seconds" in payload
+        assert "queued_age_p95_seconds" in payload
 
     def test_job_owner_mismatch_returns_not_found(self, test_client, auth_headers):
         from job_queue import job_manager
