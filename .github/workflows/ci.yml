@@ -1881,5 +1881,8 @@ jobs:
   production-browser-synthetic-gate:
     needs: [post-deploy-smoke]
     if: github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      issues: write
     uses: ./.github/workflows/production-authenticated-browser-synthetic.yml
     secrets: inherit

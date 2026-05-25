@@ -47,6 +47,7 @@ def test_ci_wires_post_shift_browser_synthetic_release_gate():
     gate_job = workflow["jobs"]["production-browser-synthetic-gate"]
     assert gate_job["needs"] == ["post-deploy-smoke"]
     assert gate_job["if"] == "github.ref == 'refs/heads/main'"
+    assert gate_job["permissions"] == {"contents": "read", "issues": "write"}
     assert gate_job["uses"] == "./.github/workflows/production-authenticated-browser-synthetic.yml"
     assert gate_job["secrets"] == "inherit"
 
