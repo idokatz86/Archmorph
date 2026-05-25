@@ -45,6 +45,19 @@ The post-merge CTO end-to-end review of `landing-zone-svg` (May 1, 2026) flagged
 
 **GA gate ([#604](https://github.com/idokatz86/Archmorph/issues/604))**: re-run the same PDF that produced the original demo-ware verdict. Pass requires icon hit rate ≥ 95%, all 8 tiers populated, ≥ 3 `service_connections` rendered, golden-file pixel diff < 2%, SLO budgets met, CISO sign-off, and `gpt-5-pro` judge returning `production-ready`. Anything less and Sprint 4 absorbs fix-forward — we don't ship.
 
+### Product Roadmap — Trusted Azure Migration Decision Workbench (epic [#1128](https://github.com/idokatz86/Archmorph/issues/1128))
+
+The strategic north star is to turn an imperfect AWS/GCP architecture artifact into a **review-ready Azure migration decision package in under 15 minutes**. The full delivery plan is tracked in [docs/ROADMAP_TRUSTED_AZURE_WORKBENCH.md](docs/ROADMAP_TRUSTED_AZURE_WORKBENCH.md).
+
+| Wave | Theme | Issues | Status |
+|------|-------|--------|--------|
+| **0 — Release Gate** | Authenticated production browser E2E as release gate | [#1132](https://github.com/idokatz86/Archmorph/issues/1132) | ✅ Completed |
+| **1 — Progress + Admission** | Queue/admission controls and richer progress semantics | [#988](https://github.com/idokatz86/Archmorph/issues/988), [#1136](https://github.com/idokatz86/Archmorph/issues/1136) | 🔄 In progress — [PR #1156](https://github.com/idokatz86/Archmorph/pull/1156) shipped phases/timing |
+| **2 — Workspaces + Trust** | Durable workspaces, versions, artifacts; trust/evidence layer for AI mappings | [#1133](https://github.com/idokatz86/Archmorph/issues/1133), [#1130](https://github.com/idokatz86/Archmorph/issues/1130) | 🔜 Planned — requires Wave 1 |
+| **3 — Review + Package** | Architect review queue; Migration Package as hero outcome | [#1131](https://github.com/idokatz86/Archmorph/issues/1131), [#1129](https://github.com/idokatz86/Archmorph/issues/1129) | 🔜 Planned — requires Wave 2 |
+| **4 — Lifecycle + Sharing** | Visible data lifecycle and trust receipts; role-based shareable snapshots | [#1135](https://github.com/idokatz86/Archmorph/issues/1135), [#1134](https://github.com/idokatz86/Archmorph/issues/1134) | 🔄 In progress — [PR #1157](https://github.com/idokatz86/Archmorph/pull/1157) shipped trust receipts |
+| **5 — Enterprise** | Private ingress, DR posture, tenant isolation, compliance evidence pack | [#1137](https://github.com/idokatz86/Archmorph/issues/1137) | 🔜 Planned — requires Wave 4 |
+
 **Key Capabilities:**
 - Upload architecture diagrams (PNG, JPG, SVG, PDF, Draw.io, Visio) or import existing IaC (Terraform/ARM/CloudFormation)
 - **Cloud Scanner scaffold** — AWS/Azure/GCP scan routes and wizard are present; production credential flow and provider validation still need hardening
