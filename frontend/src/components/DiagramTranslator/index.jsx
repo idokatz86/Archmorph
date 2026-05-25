@@ -357,7 +357,6 @@ export default function DiagramTranslator() {
         step: cached.iacCode ? 'iac' : 'results',
       });
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -436,7 +435,6 @@ export default function DiagramTranslator() {
     if (state.step === 'hld' && !state.hldData && !state.hldLoading && state.diagramId) {
       handleGenerateHld();
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.step]);
 
   // ── Auto-fetch cost breakdown when entering Pricing tab (#401) ──
@@ -447,7 +445,6 @@ export default function DiagramTranslator() {
         .then(data => set({ costBreakdown: data, costBreakdownLoading: false }))
         .catch(() => set({ costBreakdownLoading: false }));
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.step]);
 
   // ── Drag & drop ──
