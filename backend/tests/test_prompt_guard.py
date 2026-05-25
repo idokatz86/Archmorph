@@ -219,7 +219,7 @@ class TestSanitizeMessage:
 # ─────────────────────────────────────────────────────────────
 class TestSanitizeResponse:
     def test_redacts_openai_key_pattern(self):
-        response = "Here is the key: sk-abc123def456ghi789jkl012mno345"
+        response = "Here is the key: " + "sk-" + ("x" * 48)
         result = sanitize_response(response)
         assert "sk-" not in result
         assert "[REDACTED]" in result
