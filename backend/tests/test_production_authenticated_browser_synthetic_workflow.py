@@ -94,6 +94,7 @@ def test_synthetic_uploads_generated_png_not_svg_favicon():
 def test_synthetic_does_not_block_bearer_export_on_export_all_button_visibility():
     spec = SYNTHETIC_SPEC.read_text(encoding="utf-8")
 
-    assert "getByRole('button', { name: 'Export All' })" not in spec
+    assert "Export All" not in spec
+    assert not ("Export All" in spec and "toBeVisible" in spec)
     assert "/export-diagram?format=drawio" in spec
     assert "Authorization: `Bearer ${sessionToken}`" in spec
