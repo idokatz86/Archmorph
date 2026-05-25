@@ -173,7 +173,10 @@ def test_architecture_package_html_manifest_contains_traceability_fields():
     assert manifest["renderer"] == {"name": "architecture_package", "version": "1"}
     assert len(manifest["customer_intent_profile_hash"]) == 64
     assert result["filename"] in manifest["artifact_filenames"]
-    assert {"source_service": "ALB", "azure_service": "Application Gateway", "category": "Networking", "confidence": 0.96} in manifest["mapping_references"]
+    assert any(
+        ref["source_service"] == "ALB" and ref["azure_service"] == "Application Gateway"
+        for ref in manifest["mapping_references"]
+    )
     assert manifest["dr_readiness"]["schema_version"] == "dr-readiness-rubric/v1"
     assert len(manifest["dr_readiness"]["dimensions"]) == 7
     assert manifest["cost_assumptions"]["schema_version"] == "cost-assumptions/v1"
@@ -183,7 +186,7 @@ def test_architecture_package_html_manifest_contains_traceability_fields():
     assert "cost-assumptions/v1" in result["artifact_contents"]["archmorph-web-tier-cost-assumptions.json"]
     assert "archmorph-artifact-manifest" in result["content"]
     assert "archmorph-cost-assumptions" in result["content"]
-    assert "five review outputs" in result["content"]
+    assert "six review outputs" in result["content"]
     assert "E · Cost Assumptions JSON" in result["content"]
     assert "E — Cost Assumptions" in result["content"]
     assert "id=\"download-cost-assumptions\"" in result["content"]
@@ -441,3 +444,191 @@ def test_export_architecture_package_rejects_oversized_analysis_with_413(test_cl
         "count": MAX_ANALYSIS_LIST_ITEMS + 1,
         "limit": MAX_ANALYSIS_LIST_ITEMS,
     }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Trust/evidence layer tests (#1130)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_html_package_includes_methodology_tab():
+    """The HTML package must include the F — Evidence & Methodology tab."""
+    result = generate_architecture_package(SAMPLE_ANALYSIS, format="html")
+    content = result["content"]
+    assert "F — Evidence" in content or "F &mdash; Evidence" in content or "methodology" in content.lower()
+    assert "Evidence" in content and "Methodology" in content
+
+
+def test_html_package_methodology_tab_data_tab_attribute():
+    """The methodology tab button must carry data-tab='methodology'."""
+    result = generate_architecture_package(SAMPLE_ANALYSIS, format="html")
+    assert 'data-tab="methodology"' in result["content"]
+
+
+def test_html_package_methodology_section_present():
+    """The methodology panel must be present in the HTML body."""
+    result = generate_architecture_package(SAMPLE_ANALYSIS, format="html")
+    assert 'id="methodology"' in result["content"]
+
+
+def test_html_package_run_details_present():
+    """Run details (Run ID, Analysis Timestamp, Source/Target Provider) must appear in the methodology panel."""
+    result = generate_architecture_package(SAMPLE_ANALYSIS, format="html", analysis_id="pkg-run-test")
+    content = result["content"]
+    assert "Run / Correlation ID" in content
+    assert "Analysis Timestamp" in content
+    assert "Source Provider" in content
+    assert "Target Provider" in content
+
+
+def test_html_package_mapping_evidence_rendered():
+    """Per-mapping evidence rows must appear in the methodology panel."""
+    analysis_with_evidence = {
+        **SAMPLE_ANALYSIS,
+        "mappings": [
+            {
+                "source_service": "EC2",
+                "azure_service": "Virtual Machines",
+                "confidence": 0.95,
+                "source": "catalogue",
+                "evidence": {
+                    "detection_source": "catalogue",
+                    "detection_confidence": 0.95,
+                    "rationale": "Virtual Machines is the recommended Azure equivalent for EC2.",
+                    "alternatives_considered": [],
+                    "known_gaps": [],
+                    "catalog_freshness": "2026-05-03",
+                    "user_override": False,
+                    "user_confirmed": True,
+                    "needs_review": False,
+                    "run_id": "test-run",
+                    "generated_at": "2026-05-25T12:00:00Z",
+                },
+                "needs_review": False,
+            },
+            {
+                "source_service": "UnknownSvc",
+                "azure_service": "Some Azure Service",
+                "confidence": 0.55,
+                "source": "ai",
+                "evidence": {
+                    "detection_source": "ai",
+                    "detection_confidence": 0.55,
+                    "rationale": "Some Azure Service was selected by AI analysis.",
+                    "alternatives_considered": [],
+                    "known_gaps": ["Feature gap: limited native support"],
+                    "catalog_freshness": None,
+                    "user_override": False,
+                    "user_confirmed": False,
+                    "needs_review": True,
+                    "run_id": "test-run",
+                    "generated_at": "2026-05-25T12:00:00Z",
+                },
+                "needs_review": True,
+            },
+        ],
+    }
+    result = generate_architecture_package(analysis_with_evidence, format="html")
+    content = result["content"]
+    assert "EC2" in content
+    assert "Virtual Machines" in content
+    assert "Needs review" in content  # for low-confidence mapping
+    assert "Feature gap" in content or "feature gap" in content.lower() or "known_gaps" in content.lower() or "limited native support" in content
+
+
+def test_manifest_includes_run_metadata():
+    """The manifest must include a run_metadata block with required fields."""
+    result = generate_architecture_package(SAMPLE_ANALYSIS, format="html", analysis_id="meta-test")
+    manifest = result["manifest"]
+    assert "run_metadata" in manifest
+    run_meta = manifest["run_metadata"]
+    assert run_meta["schema_version"] == "run-metadata/v1"
+    assert "analysis_timestamp" in run_meta
+    assert "source_provider" in run_meta
+    assert "target_provider" in run_meta
+    assert "catalog_freshness" in run_meta
+    assert "methodology" in run_meta
+    assert "limitations" in run_meta
+
+
+def test_manifest_run_metadata_analysis_id_in_run_id():
+    """run_metadata.run_id must equal the analysis_id passed."""
+    result = generate_architecture_package(SAMPLE_ANALYSIS, format="html", analysis_id="specific-run-id")
+    run_meta = result["manifest"]["run_metadata"]
+    assert run_meta["run_id"] == "specific-run-id"
+
+
+def test_manifest_mapping_references_include_evidence_when_present():
+    """mapping_references must include evidence fields when evidence is on the mapping."""
+    analysis_with_evidence = {
+        **SAMPLE_ANALYSIS,
+        "mappings": [
+            {
+                "source_service": "ALB",
+                "azure_service": "Application Gateway",
+                "category": "Networking",
+                "confidence": 0.96,
+                "evidence": {
+                    "detection_source": "catalogue",
+                    "detection_confidence": 0.96,
+                    "rationale": "Application Gateway is the recommended Azure equivalent.",
+                    "alternatives_considered": [{"azure_service": "Front Door", "confidence": 0.8, "rationale": "Global option"}],
+                    "known_gaps": [],
+                    "catalog_freshness": "2026-05-03",
+                    "user_override": False,
+                    "user_confirmed": True,
+                    "needs_review": False,
+                    "run_id": "",
+                    "generated_at": "2026-05-25T12:00:00Z",
+                },
+                "needs_review": False,
+            },
+        ],
+    }
+    result = generate_architecture_package(analysis_with_evidence, format="html")
+    refs = result["manifest"]["mapping_references"]
+    assert len(refs) >= 1
+    ref = refs[0]
+    assert ref["source_service"] == "ALB"
+    assert "evidence" in ref
+    assert ref["evidence"]["detection_source"] == "catalogue"
+    assert ref["evidence"]["rationale"]
+    assert ref["needs_review"] is False
+
+
+def test_manifest_mapping_references_low_confidence_needs_review_flag():
+    """mapping_references must propagate needs_review=True for low-confidence mappings."""
+    analysis = {
+        **SAMPLE_ANALYSIS,
+        "mappings": [
+            {
+                "source_service": "ObscureSvc",
+                "azure_service": "SomeAzureSvc",
+                "confidence": 0.55,
+                "needs_review": True,
+            },
+        ],
+    }
+    result = generate_architecture_package(analysis, format="html")
+    refs = result["manifest"]["mapping_references"]
+    assert refs[0]["needs_review"] is True
+
+
+def test_html_package_six_tabs_in_nav():
+    """The HTML package nav must contain exactly 6 tab buttons."""
+    result = generate_architecture_package(SAMPLE_ANALYSIS, format="html")
+    content = result["content"]
+    tab_count = content.count('class="tab"')
+    assert tab_count == 6
+
+
+def test_html_package_story_mentions_six_outputs():
+    """The story bar must mention six review outputs (including F)."""
+    result = generate_architecture_package(SAMPLE_ANALYSIS, format="html")
+    content = result["content"]
+    assert "six review outputs" in content
+
+
+def test_svg_package_run_metadata_in_manifest():
+    """SVG format package must also include run_metadata in the manifest."""
+    result = generate_architecture_package(SAMPLE_ANALYSIS, format="svg", diagram="primary")
+    assert "run_metadata" in result["manifest"]
+    assert result["manifest"]["run_metadata"]["schema_version"] == "run-metadata/v1"

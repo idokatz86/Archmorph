@@ -6,14 +6,16 @@
       "B — DR Topology",
       "C — Talking Points",
       "D — Services Limitations",
-      "E — Cost Assumptions"
+      "E — Cost Assumptions",
+      "F — Evidence &amp; Methodology"
     ],
     "panel_ids": [
       "as-is",
       "dr",
       "talking",
       "limits",
-      "cost"
+      "cost",
+      "methodology"
     ],
     "css_vars": "color-scheme: light; --ink:#111827; --muted:#526178; --line:#d9e0ea; --azure:#0078d4; --brand:#0078d4; --brand-2:#5c2d91; --bg:#f6f8fb; --card:#ffffff; --soft:#edf4ff;",
     "required_text": [

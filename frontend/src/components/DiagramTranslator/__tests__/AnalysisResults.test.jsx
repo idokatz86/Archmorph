@@ -11,6 +11,15 @@ vi.mock('../../DiagramTranslator/HLDPanel', () => ({
   default: (props) => <div data-testid="hld-panel">HLDPanel</div>,
 }))
 
+// Prevent lazy-loaded xyflow components from causing ResizeObserver errors in JSDOM
+vi.mock('../../DiagramTranslator/ArchitectureFlow', () => ({
+  default: (props) => <div data-testid="architecture-flow">ArchitectureFlow</div>,
+}))
+
+vi.mock('../../DiagramTranslator/DependencyGraph', () => ({
+  default: (props) => <div data-testid="dependency-graph">DependencyGraph</div>,
+}))
+
 describe('AnalysisResults', () => {
   const mockAnalysis = {
     diagram_type: 'AWS Architecture',
@@ -190,5 +199,227 @@ describe('AnalysisResults', () => {
     expect(screen.getByText(/Event triggers/)).toBeInTheDocument()
     expect(screen.getByText(/Runtime limit differs/)).toBeInTheDocument()
     expect(screen.getByText('Rewrite deployment package')).toBeInTheDocument()
+  })
+})
+
+describe('AnalysisResults — trust/evidence layer (#1130)', () => {
+  const baseProps = {
+    analysis: {
+      diagram_type: 'AWS Architecture',
+      services_detected: 3,
+      source_provider: 'aws',
+      zones: [{ id: 1, name: 'Web', services: ['EC2'] }],
+      mappings: [],
+      confidence_summary: { high: 2, medium: 1, low: 0, average: 0.88 },
+      warnings: [],
+    },
+    loading: false,
+    iacFormat: 'terraform',
+    exportLoading: {},
+    copyFeedback: {},
+    onSetStep: vi.fn(),
+    onGenerateIac: vi.fn(),
+    onExportDiagram: vi.fn(),
+    onCopyWithFeedback: vi.fn(),
+    onReviewAssumptions: vi.fn(),
+  }
+
+  it('shows needs-review banner when mappings have needs_review=true', () => {
+    const analysis = {
+      ...baseProps.analysis,
+      mappings: [
+        { source_service: 'ObscureSvc', azure_service: 'SomeSvc', confidence: 0.55, needs_review: true },
+        { source_service: 'EC2', azure_service: 'Virtual Machines', confidence: 0.95, needs_review: false },
+      ],
+      confidence_summary: { high: 1, medium: 0, low: 1, average: 0.75 },
+    }
+    const { getByText } = render(<AnalysisResults {...baseProps} analysis={analysis} />)
+    expect(getByText(/flagged for review/i)).toBeInTheDocument()
+  })
+
+  it('does not show needs-review banner when all mappings are high confidence', () => {
+    const analysis = {
+      ...baseProps.analysis,
+      mappings: [
+        { source_service: 'EC2', azure_service: 'Virtual Machines', confidence: 0.95, needs_review: false },
+        { source_service: 'S3', azure_service: 'Blob Storage', confidence: 0.92, needs_review: false },
+      ],
+      confidence_summary: { high: 2, medium: 0, low: 0, average: 0.93 },
+    }
+    const { queryByText } = render(<AnalysisResults {...baseProps} analysis={analysis} />)
+    expect(queryByText(/flagged for review/i)).not.toBeInTheDocument()
+  })
+
+  it('shows "Needs review" badge in mapping row when needs_review is true', async () => {
+    const user = userEvent.setup()
+    const analysis = {
+      ...baseProps.analysis,
+      zones: [{ id: 1, name: 'Web', services: ['ObscureSvc'] }],
+      mappings: [
+        {
+          source_service: 'ObscureSvc',
+          azure_service: 'SomeSvc',
+          confidence: 0.55,
+          needs_review: true,
+          notes: 'Zone 1',
+        },
+      ],
+      confidence_summary: { high: 0, medium: 0, low: 1, average: 0.55 },
+    }
+    render(<AnalysisResults {...baseProps} analysis={analysis} />)
+    await user.click(screen.getByText('Map'))
+    expect(screen.getByText('Needs review')).toBeInTheDocument()
+  })
+
+  it('shows evidence panel when mapping has evidence with rationale', async () => {
+    const user = userEvent.setup()
+    const analysis = {
+      ...baseProps.analysis,
+      zones: [{ id: 1, name: 'Web', services: ['Lambda'] }],
+      mappings: [
+        {
+          source_service: 'Lambda',
+          azure_service: 'Azure Functions',
+          confidence: 0.95,
+          needs_review: false,
+          notes: 'Zone 1',
+          evidence: {
+            detection_source: 'catalogue',
+            detection_confidence: 0.95,
+            rationale: 'Azure Functions is the recommended Azure equivalent for Lambda.',
+            alternatives_considered: [
+              { azure_service: 'Container Apps', confidence: 0.80, rationale: 'Alternative option' },
+            ],
+            known_gaps: ['Provisioned Concurrency requires Premium plan'],
+            catalog_freshness: '2026-05-03',
+            user_override: false,
+            user_confirmed: true,
+            needs_review: false,
+            run_id: 'test-run',
+            generated_at: '2026-05-25T12:00:00Z',
+          },
+        },
+      ],
+      confidence_summary: { high: 1, medium: 0, low: 0, average: 0.93 },
+    }
+    render(<AnalysisResults {...baseProps} analysis={analysis} />)
+    await user.click(screen.getByText('Map'))
+    // Click the confidence badge (getAllByText handles the confidence summary + badge)
+    const badges = screen.getAllByText('95%')
+    await user.click(badges[badges.length - 1])
+    expect(screen.getByText('Mapping Evidence & Rationale')).toBeInTheDocument()
+    expect(screen.getByText(/Azure Functions is the recommended/)).toBeInTheDocument()
+  })
+
+  it('shows alternatives considered in evidence panel', async () => {
+    const user = userEvent.setup()
+    const analysis = {
+      ...baseProps.analysis,
+      zones: [{ id: 1, name: 'Web', services: ['Lambda'] }],
+      mappings: [
+        {
+          source_service: 'Lambda',
+          azure_service: 'Azure Functions',
+          confidence: 0.95,
+          needs_review: false,
+          notes: 'Zone 1',
+          evidence: {
+            detection_source: 'catalogue',
+            detection_confidence: 0.95,
+            rationale: 'Azure Functions is the recommended Azure equivalent for Lambda.',
+            alternatives_considered: [
+              { azure_service: 'Container Apps', confidence: 0.80, rationale: 'Containerized option' },
+            ],
+            known_gaps: [],
+            catalog_freshness: '2026-05-03',
+            user_override: false,
+            user_confirmed: true,
+            needs_review: false,
+            run_id: '',
+            generated_at: '2026-05-25T12:00:00Z',
+          },
+        },
+      ],
+      confidence_summary: { high: 1, medium: 0, low: 0, average: 0.93 },
+    }
+    render(<AnalysisResults {...baseProps} analysis={analysis} />)
+    await user.click(screen.getByText('Map'))
+    const badges = screen.getAllByText('95%')
+    await user.click(badges[badges.length - 1])
+    expect(screen.getByText('Alternatives considered')).toBeInTheDocument()
+    expect(screen.getByText('Container Apps')).toBeInTheDocument()
+  })
+
+  it('shows known gaps in evidence panel', async () => {
+    const user = userEvent.setup()
+    const analysis = {
+      ...baseProps.analysis,
+      zones: [{ id: 1, name: 'Web', services: ['Lambda'] }],
+      mappings: [
+        {
+          source_service: 'Lambda',
+          azure_service: 'Azure Functions',
+          confidence: 0.88,
+          needs_review: false,
+          notes: 'Zone 1',
+          evidence: {
+            detection_source: 'ai',
+            detection_confidence: 0.88,
+            rationale: 'Azure Functions mapped via AI analysis.',
+            alternatives_considered: [],
+            known_gaps: ['Provisioned Concurrency requires Premium plan'],
+            catalog_freshness: null,
+            user_override: false,
+            user_confirmed: false,
+            needs_review: false,
+            run_id: '',
+            generated_at: '2026-05-25T12:00:00Z',
+          },
+        },
+      ],
+      confidence_summary: { high: 0, medium: 1, low: 0, average: 0.85 },
+    }
+    render(<AnalysisResults {...baseProps} analysis={analysis} />)
+    await user.click(screen.getByText('Map'))
+    const badges = screen.getAllByText('88%')
+    await user.click(badges[badges.length - 1])
+    expect(screen.getByText('Known gaps')).toBeInTheDocument()
+    expect(screen.getByText('Provisioned Concurrency requires Premium plan')).toBeInTheDocument()
+  })
+
+  it('shows user-confirmed status in evidence panel', async () => {
+    const user = userEvent.setup()
+    const analysis = {
+      ...baseProps.analysis,
+      zones: [{ id: 1, name: 'Web', services: ['EC2'] }],
+      mappings: [
+        {
+          source_service: 'EC2',
+          azure_service: 'Virtual Machines',
+          confidence: 0.95,
+          needs_review: false,
+          notes: 'Zone 1',
+          evidence: {
+            detection_source: 'user',
+            detection_confidence: 1.0,
+            rationale: 'Virtual Machines was manually specified by the user.',
+            alternatives_considered: [],
+            known_gaps: [],
+            catalog_freshness: '2026-05-03',
+            user_override: true,
+            user_confirmed: true,
+            needs_review: false,
+            run_id: '',
+            generated_at: '2026-05-25T12:00:00Z',
+          },
+        },
+      ],
+      confidence_summary: { high: 1, medium: 0, low: 0, average: 0.93 },
+    }
+    render(<AnalysisResults {...baseProps} analysis={analysis} />)
+    await user.click(screen.getByText('Map'))
+    const badges = screen.getAllByText('95%')
+    await user.click(badges[badges.length - 1])
+    expect(screen.getByText('User confirmed')).toBeInTheDocument()
   })
 })

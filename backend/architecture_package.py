@@ -139,6 +139,7 @@ def _render_html_package(
     )
     cost_filename = _cost_assumptions_filename(manifest)
     cost_panel = _render_cost_assumptions_panel(manifest.get("cost_assumptions", {}), cost_filename)
+    methodology_panel = _render_methodology_panel(analysis, manifest)
 
     manifest_json = _manifest_json(manifest)
     cost_assumptions_json = _manifest_json(manifest.get("cost_assumptions", {}))
@@ -162,7 +163,7 @@ def _render_html_package(
     .brand-pill {{ display: inline-flex; align-items: center; min-height: 28px; border-radius: 8px; padding: 5px 9px; background: var(--soft); color: #155f9f; font-size: 12px; font-weight: 700; }}
     .story {{ display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 14px 0; padding: 12px 14px; background: #fff; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); font-size: 13px; }}
     .story strong {{ color: var(--ink); }}
-    nav {{ display: grid; grid-template-columns: repeat(5, minmax(160px, 1fr)); gap: 10px; margin-bottom: 14px; position: sticky; top: 0; z-index: 2; background: rgba(246, 248, 251, 0.94); padding: 8px 0; backdrop-filter: blur(8px); }}
+    nav {{ display: grid; grid-template-columns: repeat(6, minmax(140px, 1fr)); gap: 10px; margin-bottom: 14px; position: sticky; top: 0; z-index: 2; background: rgba(246, 248, 251, 0.94); padding: 8px 0; backdrop-filter: blur(8px); }}
     button.tab {{ border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 8px; padding: 11px 12px; font: inherit; font-size: 13px; font-weight: 750; cursor: pointer; text-align: left; box-shadow: 0 4px 14px rgba(17, 24, 39, 0.04); }}
     button.tab span {{ display: block; margin-top: 4px; color: var(--muted); font-size: 11px; font-weight: 650; }}
     button.tab[aria-selected="true"] {{ border-color: #b8d8f5; background: #edf4ff; color: #074f87; }}
@@ -207,6 +208,16 @@ def _render_html_package(
         .insight-b {{ font-size: 13px; line-height: 1.5; color: #314158; }}
         .cost-actions {{ display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 12px; }}
         .download-link {{ display: inline-flex; align-items: center; min-height: 34px; border: 1px solid #b8d8f5; border-radius: 8px; padding: 7px 10px; background: #edf4ff; color: #074f87; font-size: 12px; font-weight: 800; text-decoration: none; }}
+        .review-flag {{ display: inline-flex; align-items: center; gap: 5px; border-radius: 6px; padding: 4px 9px; background: #fff3cd; border: 1px solid #fbbf24; color: #92400e; font-size: 11px; font-weight: 800; }}
+        .mapping-ev {{ border: 1px solid #e7edf5; border-radius: 8px; padding: 10px; margin: 4px 0; background: #fbfdff; }}
+        .mapping-ev-h {{ font-size: 12px; font-weight: 800; color: var(--ink); margin-bottom: 4px; }}
+        .mapping-ev-svc {{ display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; }}
+        .mapping-ev-conf {{ font-size: 11px; padding: 2px 7px; border-radius: 6px; font-weight: 800; }}
+        .conf-high {{ background: #dcfce7; color: #15803d; }}
+        .conf-med {{ background: #fef3c7; color: #92400e; }}
+        .conf-low {{ background: #fee2e2; color: #b91c1c; }}
+        .mapping-ev-rationale {{ font-size: 12px; color: #314158; line-height: 1.5; margin: 6px 0; }}
+        .mapping-ev-gaps {{ font-size: 11px; color: #92400e; margin-top: 4px; padding-left: 14px; }}
         footer {{ margin-top: 16px; color: var(--muted); font-size: 12px; }}
         @media (max-width: 900px) {{ .shell {{ padding: 12px; }} header {{ flex-direction: column; }} .meta-pills {{ justify-content: flex-start; }} .grid {{ grid-template-columns: 1fr; }} .dr-layout {{ grid-template-columns: 1fr; }} nav {{ grid-template-columns: 1fr; position: static; }} }}
   </style>
@@ -217,13 +228,14 @@ def _render_html_package(
         <div class="brand"><div class="mark">A↻</div><div><h1>{title}</h1><p>Cross-cloud architecture translation and Azure hardening package</p></div></div>
         <div class="meta-pills"><span class="brand-pill">Customer / workload: {display_name}</span><span class="brand-pill">Source: {source}</span><span class="brand-pill">Target: Azure</span><span class="brand-pill">Region: {target_region}</span></div>
     </header>
-    <div class="story"><strong>{source_file}</strong><span>→</span><span>Archmorph produced five review outputs:</span><span class="brand-pill">A · Target</span><span class="brand-pill">B · DR</span><span class="brand-pill">C · Talking Points</span><span class="brand-pill">D · Limitations</span><span class="brand-pill">E · Cost Assumptions JSON</span></div>
+    <div class="story"><strong>{source_file}</strong><span>→</span><span>Archmorph produced six review outputs:</span><span class="brand-pill">A · Target</span><span class="brand-pill">B · DR</span><span class="brand-pill">C · Talking Points</span><span class="brand-pill">D · Limitations</span><span class="brand-pill">E · Cost Assumptions JSON</span><span class="brand-pill">F · Evidence &amp; Methodology</span></div>
     <nav aria-label="Architecture package sections">
         <button class="tab" type="button" data-tab="as-is" aria-selected="true">A — Target Azure Topology<span>customer-ready package</span></button>
         <button class="tab" type="button" data-tab="dr" aria-selected="false">B — DR Topology<span>resilience review</span></button>
         <button class="tab" type="button" data-tab="talking" aria-selected="false">C — Talking Points<span>customer-facing narrative</span></button>
         <button class="tab" type="button" data-tab="limits" aria-selected="false">D — Services Limitations<span>technical gotchas</span></button>
         <button class="tab" type="button" data-tab="cost" aria-selected="false">E — Cost Assumptions<span>reviewable JSON artifact</span></button>
+        <button class="tab" type="button" data-tab="methodology" aria-selected="false">F — Evidence &amp; Methodology<span>trust provenance</span></button>
     </nav>
     <main>
     <section id="as-is" class="panel active"><div class="diagram">{primary_svg}</div></section>
@@ -231,6 +243,7 @@ def _render_html_package(
         <section id="talking" class="panel"><div class="grid"><div class="block"><h2>Customer Intent</h2><div class="intent">{intent_rows}</div></div><div class="block"><h2>Recommended Narrative</h2><div class="insight-list">{talking_points}</div></div></div></section>
         <section id="limits" class="panel"><div class="grid"><div class="block"><h2>Service Tiers</h2><ul class="tiers">{tier_summary}</ul></div><div class="block"><h2>Assumptions And Constraints</h2><div class="insight-list">{limitations}</div></div></div></section>
           <section id="cost" class="panel">{cost_panel}</section>
+          <section id="methodology" class="panel">{methodology_panel}</section>
   </main>
     <footer>Archmorph · {display_name} · {source} → Azure · generated from the customer-uploaded architecture diagram.</footer>
     </div>
@@ -292,6 +305,110 @@ def _cost_assumptions_filename(manifest: dict[str, Any]) -> str:
     return "archmorph-cost-assumptions.json"
 
 
+def _render_methodology_panel(analysis: dict[str, Any], manifest: dict[str, Any]) -> str:
+    """Render the customer-safe Evidence & Methodology HTML panel (#1130)."""
+    run_meta = manifest.get("run_metadata") or {}
+    mappings = [m for m in analysis.get("mappings", []) if isinstance(m, dict)]
+
+    # Run details row
+    run_id = html.escape(str(run_meta.get("run_id") or manifest.get("analysis_id") or "N/A"))
+    generated_at = html.escape(str(run_meta.get("analysis_timestamp") or manifest.get("generated_at") or "N/A"))
+    source_provider = html.escape(str(run_meta.get("source_provider") or manifest.get("source_provider") or "N/A"))
+    target_provider = html.escape(str(run_meta.get("target_provider") or "Azure"))
+    total_mappings = html.escape(str(run_meta.get("total_mappings") or len(mappings)))
+    low_conf_count = html.escape(str(run_meta.get("low_confidence_count") or sum(
+        1 for m in mappings if float(m.get("confidence") or 0) < 0.70
+    )))
+    needs_review_count = html.escape(str(run_meta.get("needs_review_count") or sum(
+        1 for m in mappings if m.get("needs_review")
+    )))
+
+    freshness = run_meta.get("catalog_freshness") or {}
+    catalog_last_success = html.escape(str(freshness.get("last_success") or "N/A"))
+    catalog_stale = freshness.get("stale", False)
+    catalog_stale_note = " ⚠ Catalog refresh overdue" if catalog_stale else ""
+
+    methodology = html.escape(str(run_meta.get("methodology") or ""))
+    limitation_items = run_meta.get("limitations") or []
+    limitation_html = "\n".join(
+        f"<li>{html.escape(str(item))}</li>" for item in limitation_items
+    )
+
+    # Per-mapping evidence rows (up to 50)
+    mapping_rows = []
+    for m in mappings[:50]:
+        src = html.escape(str(m.get("source_service") or ""))
+        tgt = html.escape(str(m.get("azure_service") or ""))
+        conf_raw = float(m.get("confidence") or 0)
+        conf_pct = f"{conf_raw * 100:.0f}%"
+        conf_cls = "conf-high" if conf_raw >= 0.9 else ("conf-med" if conf_raw >= 0.7 else "conf-low")
+        evidence = m.get("evidence") or {}
+        rationale = html.escape(str(evidence.get("rationale") or m.get("notes") or ""))
+        detection_source = html.escape(str(evidence.get("detection_source") or m.get("source") or "unknown"))
+        gaps = evidence.get("known_gaps") or []
+        gaps_html = ""
+        if gaps:
+            items = "".join(f"<li>{html.escape(str(g))}</li>" for g in gaps[:3])
+            gaps_html = f'<ul class="mapping-ev-gaps">{items}</ul>'
+        needs_review = m.get("needs_review") or evidence.get("needs_review")
+        review_flag = '<span class="review-flag">⚠ Needs review</span>' if needs_review else ""
+        alts = evidence.get("alternatives_considered") or []
+        alts_text = ""
+        if alts:
+            alt_names = html.escape(", ".join(
+                str(a.get("azure_service") or a) for a in alts[:3] if a
+            ))
+            alts_text = f'<div class="mapping-ev-rationale" style="font-style:italic;color:#526178">Alternatives: {alt_names}</div>'
+        freshness_date = html.escape(str(evidence.get("catalog_freshness") or ""))
+        freshness_note = f'<div style="font-size:11px;color:#526178">Catalog: {freshness_date}</div>' if freshness_date else ""
+        mapping_rows.append(
+            f'<div class="mapping-ev">'
+            f'<div class="mapping-ev-h"><span class="mapping-ev-svc">'
+            f'<strong>{src}</strong>'
+            f'<span style="color:#526178">→</span>'
+            f'<span style="color:#0078d4">{tgt}</span>'
+            f'<span class="mapping-ev-conf {conf_cls}">{conf_pct}</span>'
+            f'<span style="font-size:11px;color:#526178">via {detection_source}</span>'
+            f'</span>{review_flag}</div>'
+            f'<div class="mapping-ev-rationale">{rationale}</div>'
+            f'{alts_text}'
+            f'{freshness_note}'
+            f'{gaps_html}'
+            f'</div>'
+        )
+
+    mapping_section = "\n".join(mapping_rows) if mapping_rows else (
+        '<div class="insight-row"><div class="insight-b">No mapping evidence available for this package.</div></div>'
+    )
+
+    return (
+        f'<div class="grid">'
+        f'<div class="block">'
+        f'<h2>Run Details</h2>'
+        f'<div class="intent">'
+        f'<div><span>Run / Correlation ID</span><strong style="font-family:monospace;font-size:11px">{run_id}</strong></div>'
+        f'<div><span>Analysis Timestamp</span><strong>{generated_at}</strong></div>'
+        f'<div><span>Source Provider</span><strong>{source_provider}</strong></div>'
+        f'<div><span>Target Provider</span><strong>{target_provider}</strong></div>'
+        f'<div><span>Total Mappings</span><strong>{total_mappings}</strong></div>'
+        f'<div><span>Low Confidence (&lt;70%)</span><strong>{low_conf_count}</strong></div>'
+        f'<div><span>Needs Review</span><strong>{needs_review_count}</strong></div>'
+        f'<div><span>Catalog Last Refreshed</span><strong>{catalog_last_success}{html.escape(catalog_stale_note)}</strong></div>'
+        f'</div>'
+        f'<h2 style="margin-top:16px">Methodology &amp; Limitations</h2>'
+        f'<div class="insight-b" style="margin-bottom:10px">{methodology}</div>'
+        f'<ul>{limitation_html}</ul>'
+        f'</div>'
+        f'<div class="block">'
+        f'<h2>Mapping Evidence</h2>'
+        f'<p class="insight-b" style="margin-bottom:10px">Per-service evidence and rationale for each Azure target mapping. '
+        f'Mappings flagged <em>Needs review</em> have confidence below 70&#37; and must be confirmed by the architecture owner.</p>'
+        f'{mapping_section}'
+        f'</div>'
+        f'</div>'
+    )
+
+
 def _build_manifest(
     analysis: dict[str, Any],
     *,
@@ -309,6 +426,9 @@ def _build_manifest(
     unsupported = analysis.get("unsupported_assumptions") or analysis.get("unsupported") or []
     if not isinstance(unsupported, list):
         unsupported = [unsupported]
+
+    # ── Run metadata / trust provenance (#1130) ──
+    run_metadata = _build_run_metadata(analysis, analysis_id=analysis_id)
 
     manifest = {
         "schema_version": "architecture-package-manifest/v1",
@@ -337,6 +457,7 @@ def _build_manifest(
             for title, detail in limitations
         ],
         "unsupported_assumptions": [str(item) for item in unsupported if item][:10],
+        "run_metadata": run_metadata,
     }
     return _sanitize_manifest(manifest)
 
@@ -379,8 +500,47 @@ def _mapping_references(analysis: dict[str, Any]) -> list[dict[str, Any]]:
             ref["category"] = str(mapping["category"])
         if mapping.get("confidence") is not None:
             ref["confidence"] = mapping["confidence"]
+        # ── Trust/evidence layer (#1130) ──
+        if mapping.get("needs_review") is not None:
+            ref["needs_review"] = bool(mapping["needs_review"])
+        evidence = mapping.get("evidence")
+        if isinstance(evidence, dict):
+            ref["evidence"] = {
+                "detection_source": str(evidence.get("detection_source") or "unknown"),
+                "rationale": str(evidence.get("rationale") or ""),
+                "alternatives_considered": evidence.get("alternatives_considered") or [],
+                "known_gaps": evidence.get("known_gaps") or [],
+                "catalog_freshness": evidence.get("catalog_freshness"),
+                "user_override": bool(evidence.get("user_override")),
+                "user_confirmed": bool(evidence.get("user_confirmed")),
+                "needs_review": bool(evidence.get("needs_review")),
+            }
         references.append(ref)
     return references[:200]
+
+
+def _build_run_metadata(
+    analysis: dict[str, Any],
+    *,
+    analysis_id: str | None,
+) -> dict[str, Any]:
+    """Build customer-safe run metadata for the manifest (#1130)."""
+    try:
+        from mapping_evidence import build_run_metadata  # type: ignore[import]
+        meta = build_run_metadata(
+            {**analysis, "analysis_id": analysis_id or analysis.get("analysis_id")},
+            run_id=str(analysis_id or ""),
+        )
+        return meta
+    except Exception:  # noqa: BLE001
+        pass
+    return {
+        "schema_version": "run-metadata/v1",
+        "run_id": str(analysis_id or ""),
+        "analysis_timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "source_provider": str(analysis.get("source_provider") or "aws").lower(),
+        "target_provider": "azure",
+    }
 
 
 def _manifest_json(manifest: dict[str, Any]) -> str:

@@ -28,6 +28,17 @@ from openai_client import (
 
 logger = logging.getLogger(__name__)
 
+
+def _attach_evidence(mapping: Dict[str, Any]) -> None:
+    """Attach evidence block and needs_review flag to a mapping in-place (#1130)."""
+    try:
+        from mapping_evidence import build_mapping_evidence  # type: ignore[import]
+        evidence = build_mapping_evidence(mapping)
+        mapping["evidence"] = evidence
+        mapping.setdefault("needs_review", evidence["needs_review"])
+    except Exception:  # noqa: BLE001 — non-fatal, evidence is additive
+        pass
+
 # ─────────────────────────────────────────────────────────
 # In-memory admin review queue (replaced by DB in prod)
 # ─────────────────────────────────────────────────────────
@@ -684,6 +695,8 @@ def suggest_mapping(
         # Add deep-dive data for catalogue matches too (#404)
         result["confidence_factors"] = _build_confidence_factors(result, source_service)
         result.update(build_mapping_deep_dive(result, source_service))
+        # ── Trust/evidence layer (#1130) ──
+        _attach_evidence(result)
         return result
 
     # Slow path — GPT-4o
@@ -721,6 +734,9 @@ def suggest_mapping(
         # ── Deep-dive strengths/limitations/migration notes (#404) ──
         **build_mapping_deep_dive(suggestion, source_service),
     }
+
+    # ── Trust/evidence layer (#1130) ──
+    _attach_evidence(result)
 
     # Queue for review unless auto-approved (confidence >= 0.9)
     if auto_queue_review and result["confidence"] < _AUTO_APPROVE_THRESHOLD:

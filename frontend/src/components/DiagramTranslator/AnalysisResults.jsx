@@ -158,12 +158,89 @@ function DeepDivePanel({ m }) {
   );
 }
 
+
+/* ── Evidence Panel for a mapping (#1130) ───────────────── */
+function EvidencePanel({ m }) {
+  const evidence = m.evidence;
+  if (!evidence) return null;
+
+  const rationale = evidence.rationale;
+  const alternatives = (evidence.alternatives_considered || []).filter(a => a?.azure_service);
+  const gaps = (evidence.known_gaps || []).filter(Boolean);
+  const catalogFreshness = evidence.catalog_freshness;
+  const detectionSource = evidence.detection_source;
+  const userConfirmed = evidence.user_confirmed;
+  const userOverride = evidence.user_override;
+
+  const hasContent = rationale || alternatives.length > 0 || gaps.length > 0 || detectionSource;
+  if (!hasContent) return null;
+
+  return (
+    <div className="mt-2 ml-1 pl-3 border-l-2 border-warning/30 space-y-2 animate-in fade-in slide-in-from-top-1">
+      <p className="text-xs font-semibold text-text-secondary flex items-center gap-1.5">
+        <ShieldCheck className="w-3.5 h-3.5 text-warning" />
+        Mapping Evidence &amp; Rationale
+      </p>
+
+      {/* Detection source + status */}
+      {detectionSource && (
+        <div className="flex items-center gap-2 text-xs text-text-muted">
+          <span className="font-medium text-text-primary">Source:</span>
+          <span className="px-1.5 py-0.5 rounded bg-surface text-text-secondary font-mono text-[10px]">{detectionSource}</span>
+          {userConfirmed && <span className="px-1.5 py-0.5 rounded bg-success/10 text-success text-[10px] font-medium">User confirmed</span>}
+          {userOverride && <span className="px-1.5 py-0.5 rounded bg-info/10 text-info text-[10px] font-medium">User override</span>}
+          {catalogFreshness && <span className="text-text-muted text-[10px]">Catalog: {catalogFreshness}</span>}
+        </div>
+      )}
+
+      {/* Rationale */}
+      {rationale && (
+        <div className="flex items-start gap-2 text-xs text-text-secondary">
+          <span className="text-warning/60 mt-0.5 shrink-0">•</span>
+          <span>{rationale}</span>
+        </div>
+      )}
+
+      {/* Alternatives */}
+      {alternatives.length > 0 && (
+        <div className="space-y-0.5">
+          <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wide">Alternatives considered</p>
+          {alternatives.map((alt, i) => (
+            <div key={i} className="flex items-start gap-2 text-xs text-text-muted">
+              <span className="text-text-muted/60 mt-0.5 shrink-0">◦</span>
+              <span>
+                <span className="font-medium text-text-secondary">{alt.azure_service}</span>
+                {alt.rationale && <span className="text-text-muted"> — {alt.rationale}</span>}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Known gaps */}
+      {gaps.length > 0 && (
+        <div className="space-y-0.5">
+          <p className="text-[10px] font-semibold text-text-muted uppercase tracking-wide">Known gaps</p>
+          {gaps.slice(0, 3).map((gap, i) => (
+            <div key={i} className="flex items-start gap-2 text-xs text-text-muted">
+              <AlertTriangle className="w-3 h-3 text-warning/70 shrink-0 mt-0.5" />
+              <span>{gap}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ── Confidence Explanation Row ──────────────────────────── */
 function MappingRow({ m, sourceProvider }) {
   const [open, setOpen] = useState(false);
   const hasExplanation = m.confidence_explanation?.length > 0;
   const hasDeepDive = (m.strengths?.length > 0 || m.limitations?.length > 0 || m.migration_notes?.length > 0);
-  const expandable = hasExplanation || hasDeepDive;
+  const hasEvidence = !!(m.evidence && (m.evidence.rationale || m.evidence.alternatives_considered?.length || m.evidence.known_gaps?.length));
+  const expandable = hasExplanation || hasDeepDive || hasEvidence;
+  const needsReview = m.needs_review || m.evidence?.needs_review;
 
   return (
     <div className="px-4 py-3">
@@ -173,6 +250,12 @@ function MappingRow({ m, sourceProvider }) {
             <span className={`text-sm font-medium ${sourceProvider === 'gcp' ? 'text-[#EA4335]' : 'text-[#FF9900]'}`}>{typeof m.source_service === 'object' ? m.source_service.name : m.source_service}</span>
             <ArrowRight className="w-3.5 h-3.5 text-text-muted shrink-0" />
             <span className="text-sm text-info font-medium">{m.azure_service}</span>
+            {needsReview && (
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-warning/15 text-warning border border-warning/30" title="Low confidence — requires architecture owner review before export">
+                <AlertTriangle className="w-2.5 h-2.5" />
+                Needs review
+              </span>
+            )}
           </div>
         </div>
         <button
@@ -192,7 +275,7 @@ function MappingRow({ m, sourceProvider }) {
         </button>
       </div>
 
-      {/* Expanded: Confidence Explanation + Deep Dive */}
+      {/* Expanded: Confidence Explanation + Deep Dive + Evidence */}
       {open && (
         <>
           {hasExplanation && (
@@ -210,6 +293,7 @@ function MappingRow({ m, sourceProvider }) {
             </div>
           )}
           <DeepDivePanel m={m} />
+          <EvidencePanel m={m} />
         </>
       )}
     </div>
@@ -280,6 +364,28 @@ export default function AnalysisResults({
                 </div>
               </div>
             )}
+
+            {/* Low-confidence / needs-review alert (#1130) */}
+            {(() => {
+              const needsReviewCount = (analysis.mappings || []).filter(m => m.needs_review || m.evidence?.needs_review).length;
+              if (!needsReviewCount) return null;
+              return (
+                <div className="mt-3 px-3.5 py-2.5 rounded-lg bg-warning/8 border border-warning/30">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-warning shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-xs font-semibold text-warning mb-1">
+                        {needsReviewCount} mapping{needsReviewCount === 1 ? '' : 's'} flagged for review
+                      </p>
+                      <p className="text-xs text-text-secondary leading-relaxed">
+                        These mappings have confidence below 70% and must be confirmed or overridden by the architecture owner before export.
+                        Expand each flagged mapping to see the rationale and alternatives.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
           </>
         )}
       </Card>
