@@ -221,6 +221,45 @@ async def healthz():
     return JSONResponse(content={"status": "alive"})
 
 
+@router.get("/readyz")
+async def readyz():
+    """Anonymous production readiness probe — checks critical dependencies.
+
+    Distinguishes process liveness (``/healthz``) from dependency readiness.
+    Returns HTTP 200 when all critical dependencies are ready, 503 when any
+    critical dependency is unhealthy or missing.  Degraded (non-critical
+    dependency issues) still returns HTTP 200 so the instance continues to
+    receive traffic, but includes ``"status": "degraded"`` in the body for
+    monitoring dashboards.
+
+    Safe to call without credentials; used by infrastructure readiness gates.
+    Contains no sensitive dependency details.
+    """
+    checks, degraded, unhealthy = _run_dependency_checks()
+
+    # Service catalog must be non-empty for any useful work.
+    from services import AWS_SERVICES, AZURE_SERVICES
+
+    catalog_ok = len(AWS_SERVICES) > 0 and len(AZURE_SERVICES) > 0
+    if not catalog_ok:
+        unhealthy = True
+
+    if unhealthy:
+        status = "not_ready"
+        http_status = 503
+    elif degraded:
+        status = "degraded"
+        http_status = 200
+    else:
+        status = "ready"
+        http_status = 200
+
+    return JSONResponse(
+        content={"status": status},
+        status_code=http_status,
+    )
+
+
 @router.get("/api/health")
 async def health(_auth=Depends(verify_api_key)):
     update_status, freshness = await _catalog_health()
