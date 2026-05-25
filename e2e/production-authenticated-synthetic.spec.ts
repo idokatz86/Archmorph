@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import path from 'node:path';
 import { mkdir, writeFile } from 'node:fs/promises';
 
@@ -27,7 +27,7 @@ async function saveJson(relativePath: string, payload: unknown) {
   await writeFile(fullPath, JSON.stringify(payload, null, 2), 'utf-8');
 }
 
-async function createSyntheticDiagramPng(page: any, relativePath: string) {
+async function createSyntheticDiagramPng(page: Page, relativePath: string) {
   const fullPath = path.resolve(process.cwd(), ARTIFACT_ROOT, relativePath);
   await mkdir(path.dirname(fullPath), { recursive: true });
   await page.setViewportSize({ width: 900, height: 520 });
