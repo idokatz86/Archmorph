@@ -80,3 +80,12 @@ def test_synthetic_can_fall_back_to_trusted_backend_auth_bridge_without_leaking_
     assert "auth_bridge_mode: authBridgeMode" in spec
     assert "auth_bridge_http_status: bridgeResponse.status()" in spec
     assert "HEALTH_API_KEY:" not in spec
+
+
+def test_synthetic_uploads_generated_png_not_svg_favicon():
+    spec = SYNTHETIC_SPEC.read_text(encoding="utf-8")
+
+    assert "createSyntheticDiagramPng" in spec
+    assert "production-synthetic-diagram.png" in spec
+    assert "frontend/public/favicon.svg" not in spec
+    assert "favicon.svg" not in spec
