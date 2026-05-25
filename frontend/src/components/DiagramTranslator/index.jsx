@@ -163,13 +163,14 @@ function getInputStatusLabel({ inputAuthRequired, inputFailed, analysis, selecte
   return { status: 'notGenerated', label: 'Awaiting input' };
 }
 
-function getWorkbenchSpine(state) {
+function getWorkbenchSpine(state, reviewSummary = {}) {
   const hasQuestions = (state.questions || []).length > 0 || (state.questionAssumptions || []).length > 0;
   const inputAuthRequired = state.step === 'upload' && !!state.authError;
   const inputFailed = state.step === 'upload' && !!state.error;
   const analysisFailed = ['analyzing', 'results'].includes(state.step) && !!state.error;
   const deliverablesGenerating = state.generatingIac || state.hldLoading || state.costBreakdownLoading;
   const deliverablesFailed = ['iac', 'hld', 'pricing', 'deploy'].includes(state.step) && !!state.error;
+  const reviewGated = !!reviewSummary.gated;
 
   const { status: inputStatus, label: inputLabel } = getInputStatusLabel({
     inputAuthRequired,
@@ -182,7 +183,11 @@ function getWorkbenchSpine(state) {
     { id: 'input', status: inputStatus, label: inputLabel },
     { id: 'analysis', status: analysisFailed ? 'failed' : state.step === 'analyzing' ? 'generating' : state.analysis ? 'ready' : 'notGenerated', label: analysisFailed ? 'Failed' : state.step === 'analyzing' ? 'Analyzing' : state.analysis ? 'Ready' : 'Not started' },
     { id: 'decisions', status: hasQuestions && state.step === 'questions' ? 'needsReview' : hasQuestions ? 'ready' : 'notGenerated', label: hasQuestions && state.step === 'questions' ? 'Needs review' : hasQuestions ? 'Captured' : 'Not started' },
-    { id: 'deliverables', status: deliverablesFailed ? 'failed' : deliverablesGenerating ? 'generating' : state.iacCode ? 'ready' : 'notGenerated', label: deliverablesFailed ? 'Failed' : deliverablesGenerating ? 'Generating' : state.iacCode ? 'Ready' : 'Not generated' },
+    {
+      id: 'deliverables',
+      status: deliverablesFailed ? 'failed' : deliverablesGenerating ? 'generating' : state.iacCode ? 'ready' : reviewGated ? 'needsReview' : 'notGenerated',
+      label: deliverablesFailed ? 'Failed' : deliverablesGenerating ? 'Generating' : state.iacCode ? 'Ready' : reviewGated ? 'Review required' : 'Not generated',
+    },
     { id: 'share', status: state.exportCapability ? 'ready' : state.iacCode ? 'needsReview' : 'notGenerated', label: state.exportCapability ? 'Ready' : state.iacCode ? 'Needs review' : 'Not generated' },
   ];
 }
@@ -196,8 +201,8 @@ function getDeliverableStatuses(state) {
   ];
 }
 
-function WorkbenchSpineHeader({ state }) {
-  const statusByStep = new Map(getWorkbenchSpine(state).map(item => [item.id, item]));
+function WorkbenchSpineHeader({ state, reviewSummary = {} }) {
+  const statusByStep = new Map(getWorkbenchSpine(state, reviewSummary).map(item => [item.id, item]));
   return (
     <Card className="p-4">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -313,6 +318,12 @@ export default function DiagramTranslator() {
   const hasBackendSession = useAuthStore((s) => s.hasBackendSession);
   const [loginModalOpen, setLoginModalOpen] = useState(false);
   const [authUploadRecovery, setAuthUploadRecovery] = useState(null);
+
+  // ── Architect Review Queue — Issue #1137 ──────────────────────────────────
+  const [reviewItems, setReviewItems] = useState([]);
+  const [reviewDispositions, setReviewDispositions] = useState({});
+  const [reviewSummary, setReviewSummary] = useState({});
+  const [reviewLoading, setReviewLoading] = useState(false);
 
   // Refs for cleanup of async resources
   const activeEsRef = useRef(null);        // current EventSource
@@ -476,6 +487,57 @@ export default function DiagramTranslator() {
         .catch(() => set({ costBreakdownLoading: false }));
     }
   }, [state.step]);
+
+  // ── Review Queue — fetch when analysis results become available (#1137) ──
+  useEffect(() => {
+    if (!state.diagramId || state.step !== 'results') return;
+    setReviewLoading(true);
+    api.get(`/diagrams/${state.diagramId}/review-queue`)
+      .then(data => {
+        const items = data.items || [];
+        setReviewItems(items);
+        // Restore dispositions from server-persisted state
+        const serverDispositions = {};
+        for (const item of items) {
+          if (item.disposition) serverDispositions[item.id] = item.disposition;
+        }
+        setReviewDispositions(serverDispositions);
+        setReviewSummary(data.summary || {});
+      })
+      .catch(() => { /* Non-blocking — queue is best-effort */ })
+      .finally(() => setReviewLoading(false));
+  }, [state.diagramId, state.step]);
+
+  const handleReviewDispose = useCallback(async (itemId, action, editedText) => {
+    // Optimistic update
+    setReviewDispositions(prev => ({ ...prev, [itemId]: { action, edited_text: editedText } }));
+    // Recompute summary optimistically
+    setReviewSummary(prev => {
+      const wasResolved = !!(reviewDispositions[itemId]?.action);
+      const wasBlocking = !wasResolved && (reviewItems.find(i => i.id === itemId)?.severity === 'high');
+      const nowResolved = true;
+      const nowRisk = action === 'mark_risk';
+      return {
+        ...prev,
+        resolved: (prev.resolved || 0) + (wasResolved ? 0 : 1),
+        unresolved: Math.max(0, (prev.unresolved || 0) - (wasResolved ? 0 : 1)),
+        blocking: Math.max(0, (prev.blocking || 0) - (wasBlocking ? 1 : 0)),
+        risks_accepted: (prev.risks_accepted || 0) + (nowRisk ? 1 : 0),
+        gated: Math.max(0, (prev.blocking || 0) - (wasBlocking ? 1 : 0)) > 0,
+      };
+    });
+    // Persist to backend
+    if (!state.diagramId) return;
+    try {
+      const result = await api.post(
+        `/diagrams/${state.diagramId}/review-queue/${itemId}/disposition`,
+        { action, edited_text: editedText ?? null },
+      );
+      if (result?.summary) setReviewSummary(result.summary);
+    } catch {
+      // Best-effort — optimistic update already applied
+    }
+  }, [state.diagramId, reviewItems, reviewDispositions]);
 
   // ── Drag & drop ──
   const refreshProjectStatus = useCallback(async (projectId) => {
@@ -1274,7 +1336,7 @@ export default function DiagramTranslator() {
 
   return (
     <div className="space-y-6">
-      <WorkbenchSpineHeader state={state} />
+      <WorkbenchSpineHeader state={state} reviewSummary={reviewSummary} />
 
       {/* Phase Bar (#512 — 3-phase progress) */}
       <div className="flex items-center justify-center gap-3 text-sm font-medium">
@@ -1549,6 +1611,11 @@ export default function DiagramTranslator() {
           onExportCapability={(token) => {
             set({ exportCapability: token });
           }}
+          reviewItems={reviewItems}
+          reviewDispositions={reviewDispositions}
+          reviewSummary={reviewSummary}
+          onDispose={handleReviewDispose}
+          reviewLoading={reviewLoading}
         />
       )}
 
