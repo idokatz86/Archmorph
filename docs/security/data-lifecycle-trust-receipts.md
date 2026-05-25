@@ -29,7 +29,21 @@ Every receipt uses `schema_version: 2026-05-25` and includes:
 
 The purge endpoint deletes server-side customer content for the current diagram: uploaded bytes, analysis session payload, project index membership, share records, export capabilities, async jobs/events, and IaC chat state. The response includes a purge receipt that confirms which artifact groups were deleted.
 
-The browser must clear the current diagram session cache after a successful purge. The frontend does this before resetting the workbench and keeps the purge receipt visible so the user can download it as JSON.
+The purge receipt also reports `orphaned_artifact_count` and emits purge success/orphan detection metrics (`diagram_purge_succeeded` or `diagram_purge_with_orphans`) so support and security teams can monitor data-deletion outcomes.
+
+The browser must clear the current diagram session cache after a successful purge. The required client cache targets are:
+
+- `sessionStorage:archmorph_session_<diagram_id>`
+- `sessionStorage:archmorph_img_<diagram_id>`
+- `sessionStorage:archmorph_session`
+- `sessionStorage:archmorph_active_diagram`
+- `sessionStorage:archmorph_pending_upload_reauth`
+
+The frontend keeps the purge receipt visible so the user can download it as JSON.
+
+## Migration Package
+
+`POST /api/diagrams/{diagram_id}/export-package` now includes `analysis/trust-receipt.json` so lifecycle disclosures can travel with exported migration handoff artifacts.
 
 ## Non-Goals For This Slice
 
