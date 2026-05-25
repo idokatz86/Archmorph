@@ -157,8 +157,8 @@ test.describe('Production authenticated browser synthetic', () => {
       summary: {
         run_url: runUrl(),
         revision_sha: process.env.GITHUB_SHA || null,
-        frontend_url: FRONTEND_URL,
-        api_base: API_BASE,
+        frontend_url_configured: Boolean(FRONTEND_URL),
+        api_base_configured: Boolean(API_BASE),
       },
       checks: {
         swa_bridge_http_status: bridgeResponse.status(),

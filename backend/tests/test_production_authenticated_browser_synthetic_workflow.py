@@ -5,6 +5,7 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "production-authenticated-browser-synthetic.yml"
+SYNTHETIC_SPEC = REPO_ROOT / "e2e" / "production-authenticated-synthetic.spec.ts"
 
 
 def _load() -> dict:
@@ -53,4 +54,16 @@ def test_workflow_opens_p0_issue_when_synthetic_fails():
     assert "[P0] Production authenticated browser synthetic failed" in script
     assert "Run URL" in script
     assert "Revision SHA" in script
+    assert "Production endpoints: configured via GitHub secrets (redacted)" in script
+    assert "Frontend URL" not in script
+    assert "API base" not in script
     assert "labels: ['bug', 'production', 'critical', 'priority:P0']" in script
+
+
+def test_synthetic_evidence_does_not_persist_live_endpoint_urls():
+    spec = SYNTHETIC_SPEC.read_text(encoding="utf-8")
+
+    assert "frontend_url: FRONTEND_URL" not in spec
+    assert "api_base: API_BASE" not in spec
+    assert "frontend_url_configured: Boolean(FRONTEND_URL)" in spec
+    assert "api_base_configured: Boolean(API_BASE)" in spec
