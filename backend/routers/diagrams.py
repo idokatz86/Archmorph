@@ -19,7 +19,7 @@ import base64
 import logging
 
 from routers.shared import (
-    SESSION_STORE, IMAGE_STORE, SHARE_STORE, EXPORT_CAPABILITY_STORE,
+    SESSION_STORE, IMAGE_STORE, PROJECT_STORE, SHARE_STORE, EXPORT_CAPABILITY_STORE,
     limiter, verify_api_key, verify_api_key_or_user_session, MAX_UPLOAD_SIZE, generate_session_id,
     require_authenticated_user, get_api_key_service_principal,
     require_diagram_access,
@@ -28,6 +28,7 @@ import ci_smoke
 from job_queue import job_manager
 from usage_metrics import record_event, record_funnel_step
 from export_capabilities import attach_export_capability
+from data_lifecycle import attach_trust_receipt, build_trust_receipt
 from image_classifier import classify_image
 from vision_analyzer import analyze_image
 from openai_client import OpenAIServiceError, handle_openai_error
@@ -185,6 +186,36 @@ def _purge_store_records_for_diagram(store, diagram_id: str) -> int:
     return purged
 
 
+def _diagram_project_metadata(diagram_id: str) -> tuple[Optional[str], Dict[str, Any]]:
+    project_id = get_project_id_for_diagram(diagram_id)
+    if not project_id:
+        return None, {}
+    project = PROJECT_STORE.get(project_id) or {}
+    for diagram in project.get("diagrams", []):
+        if diagram.get("diagram_id") == diagram_id:
+            return project_id, diagram
+    return project_id, {}
+
+
+def _attach_lifecycle_receipt(
+    payload: Dict[str, Any],
+    diagram_id: str,
+    *,
+    image_present: Optional[bool] = None,
+    session_present: Optional[bool] = None,
+) -> Dict[str, Any]:
+    project_id, diagram_meta = _diagram_project_metadata(diagram_id)
+    return attach_trust_receipt(
+        payload,
+        diagram_id,
+        project_id=project_id,
+        uploaded_at=diagram_meta.get("created_at"),
+        image_present=(diagram_id in IMAGE_STORE) if image_present is None else image_present,
+        session_present=(diagram_id in SESSION_STORE) if session_present is None else session_present,
+        export_capability_expires_in=payload.get("export_capability_expires_in"),
+    )
+
+
 # ─────────────────────────────────────────────────────────────
 # Diagrams — Upload
 # ─────────────────────────────────────────────────────────────
@@ -248,13 +279,13 @@ async def upload_diagram(request: Request, project_id: str, file: UploadFile = F
 
     record_event("diagrams_uploaded", {"filename": file.filename})
     record_funnel_step(diagram_id, "upload")
-    return attach_export_capability({
+    return _attach_lifecycle_receipt(attach_export_capability({
         "diagram_id": diagram_id,
         "project_id": project_id,
         "filename": file.filename,
         "size": len(image_bytes),
         "status": "uploaded"
-    }, diagram_id)
+    }, diagram_id), diagram_id, image_present=True, session_present=False)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -339,10 +370,10 @@ async def restore_session(
         restored_parts.append("image")
     logger.info("Session restored for %s via client cache (%s)", str(diagram_id).replace('\n', '').replace('\r', ''), str(", ".join(restored_parts)).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
     record_event("sessions_restored", {"diagram_id": diagram_id, "parts": restored_parts})
-    return attach_export_capability(
+    return _attach_lifecycle_receipt(attach_export_capability(
         {"status": "restored", "diagram_id": diagram_id, "restored": restored_parts},
         diagram_id,
-    )
+    ), diagram_id, image_present=diagram_id in IMAGE_STORE, session_present=True)
 
 
 @router.delete("/api/diagrams/{diagram_id}/purge", dependencies=[Depends(require_diagram_access)])
@@ -368,12 +399,14 @@ async def purge_diagram_session(
     session_record = SESSION_STORE.get(diagram_id)
     image_deleted = image_record is not None
     session_deleted = session_record is not None
+    project_id = get_project_id_for_diagram(diagram_id)
+    _, diagram_meta = _diagram_project_metadata(diagram_id)
     if image_record is not None:
         IMAGE_STORE.delete(diagram_id)
     if session_record is not None:
         SESSION_STORE.delete(diagram_id)
 
-    project_id = get_project_id_for_diagram(diagram_id)
+    project_index_deleted = project_id is not None
     remove_diagram(diagram_id)
 
     export_capabilities_deleted = _purge_store_records_for_diagram(EXPORT_CAPABILITY_STORE, diagram_id)
@@ -393,10 +426,45 @@ async def purge_diagram_session(
         "jobs_deleted": jobs_deleted,
         "iac_chat_deleted": iac_chat_deleted,
     })
+    purge_confirmation = {
+        "status": "purged",
+        "server_content_deleted": bool(
+            image_deleted
+            or session_deleted
+            or project_index_deleted
+            or export_capabilities_deleted
+            or share_store_deleted
+            or share_links_deleted
+            or jobs_deleted
+            or iac_chat_deleted
+        ),
+        "client_cache_action": "clear_session_storage_after_successful_purge",
+        "audit_security_logs_retained": True,
+    }
+    artifact_status = {
+        "uploaded_content": "purged" if image_deleted else "not_present",
+        "analysis_session": "purged" if session_deleted else "not_present",
+        "project_index": "purged" if project_index_deleted else "not_present",
+        "share_links": share_links_deleted,
+        "share_store": share_store_deleted,
+        "export_capabilities": export_capabilities_deleted,
+        "async_jobs": jobs_deleted,
+        "iac_chat": bool(iac_chat_deleted),
+    }
+    trust_receipt = build_trust_receipt(
+        diagram_id,
+        project_id=project_id,
+        uploaded_at=diagram_meta.get("created_at"),
+        image_present=False,
+        session_present=False,
+        artifact_status=artifact_status,
+        purge=purge_confirmation,
+    )
     return {
         "status": "purged",
         "diagram_id": diagram_id,
         "project_id": project_id,
+        "trust_receipt": trust_receipt,
         "purged": {
             "image": image_deleted,
             "session": session_deleted,
@@ -476,7 +544,7 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
         record_funnel_step(diagram_id, "analyze")
         if user:
             maybe_save_from_session(user.id, result, diagram_id)
-        return attach_export_capability(result, diagram_id)
+        return _attach_lifecycle_receipt(attach_export_capability(result, diagram_id), diagram_id, image_present=True, session_present=True)
 
     # No need to pre-compress, vision analyzer and classifier handle it internally
     compressed_bytes, compressed_type = image_bytes, content_type
@@ -538,7 +606,7 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
     if user:
         maybe_save_from_session(user.id, result, diagram_id)
 
-    return attach_export_capability(result, diagram_id)
+    return _attach_lifecycle_receipt(attach_export_capability(result, diagram_id), diagram_id, image_present=True, session_present=True)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -667,7 +735,12 @@ async def _run_analysis_job(job_id: str, diagram_id: str) -> None:
             )
 
         job_manager.update_progress(job_id, 95, "Finalizing...", phase="saving")
-        job_manager.complete(job_id, result=attach_export_capability(result, diagram_id))
+        job_manager.complete(job_id, result=_attach_lifecycle_receipt(
+            attach_export_capability(result, diagram_id),
+            diagram_id,
+            image_present=diagram_id in IMAGE_STORE,
+            session_present=True,
+        ))
 
     except Exception as exc:
         logger.error("Async analysis failed for %s: %s", str(diagram_id).replace('\n', '').replace('\r', ''), str(exc).replace('\n', '').replace('\r', ''), exc_info=True)  # codeql[py/log-injection] Handled by custom

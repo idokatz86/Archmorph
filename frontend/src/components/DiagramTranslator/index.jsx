@@ -1,6 +1,6 @@
 import React, { useRef, useCallback, useEffect, Suspense, lazy, useState } from 'react';
 import {
-  Upload, ChevronRight, CheckCircle, XCircle, X, Trash2,
+  Upload, ChevronRight, CheckCircle, XCircle, X,
   Loader2, Eye, Clock, FileCode, FileText, DollarSign, Rocket, Layers3, GitMerge, LogIn,
 } from 'lucide-react';
 import { Button, Card, ErrorCard, Tabs } from '../ui';
@@ -32,6 +32,7 @@ const HLDTab = lazy(() => import('./HLDTab'));
 const PricingTab = lazy(() => import('./PricingTab'));
 const MigrationChat = lazy(() => import('./MigrationChat'));
 const DeployPanel = lazy(() => import('./DeployPanel'));
+const DataLifecyclePanel = lazy(() => import('./DataLifecyclePanel'));
 
 const normalizeIacFormat = (format) => (format === 'bicep' ? 'bicep' : 'terraform');
 const DEFAULT_PROJECT_ID = 'demo-project';
@@ -385,6 +386,7 @@ export default function DiagramTranslator() {
           set({
             diagramId: data.diagram_id,
             analysis: data.analysis || null,
+            purgeReceipt: null,
             questions: data.questions || [],
             allQuestions: data.all_questions || data.questions || [],
             questionAssumptions: data.question_assumptions || [],
@@ -411,6 +413,7 @@ export default function DiagramTranslator() {
       step: 'analyzing',
       diagramId: analysis.diagram_id,
       analysis,
+      purgeReceipt: null,
       exportCapability: analysis.export_capability || null,
       analyzeProgress: [`Loading ${analysis.template_title || analysis.diagram_type} template...`],
     });
@@ -486,11 +489,13 @@ export default function DiagramTranslator() {
 
   const handleAddProjectDiagram = () => {
     clearSelectedUpload();
-    set({ step: 'upload', iacCode: null, error: null, analysis: null });
+    set({ step: 'upload', iacCode: null, error: null, analysis: null, purgeReceipt: null });
   };
 
   const handlePurgeCurrentAnalysis = async () => {
     if (!state.diagramId) return;
+    const diagramId = state.diagramId;
+    const projectId = state.projectId;
     const confirmed = window.confirm(
       'Purge this analysis now? This deletes uploaded bytes and generated server-side artifacts for the current diagram.',
     );
@@ -498,10 +503,12 @@ export default function DiagramTranslator() {
 
     set({ loading: true, error: null });
     try {
-      await api.delete(`/diagrams/${state.diagramId}/purge`);
-      clearSession(state.diagramId);
+      const purgeResult = await api.delete(`/diagrams/${diagramId}/purge`);
+      clearSession(diagramId);
+      clearPendingUploadForAuth();
       reset();
-      if (state.projectId) await refreshProjectStatus(state.projectId);
+      set({ loading: false, purgeReceipt: purgeResult?.trust_receipt || null });
+      if (projectId) await refreshProjectStatus(projectId);
     } catch (err) {
       set({
         loading: false,
@@ -509,7 +516,6 @@ export default function DiagramTranslator() {
       });
       return;
     }
-    set({ loading: false });
   };
 
   // ── Session auto-recovery: push cached analysis back to backend on 404 ──
@@ -583,6 +589,7 @@ export default function DiagramTranslator() {
       set({
         selectedFile: file,
         filePreviewUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : null,
+        purgeReceipt: null,
       });
     }
   }, [set, state.filePreviewUrl]);
@@ -601,12 +608,13 @@ export default function DiagramTranslator() {
       filePreviewUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : null,
       error: null,
       authError: null,
+      purgeReceipt: null,
     });
   }, [set, state.filePreviewUrl]);
 
   // ── Upload & Analyze ──
   const handleUpload = async (file) => {
-    set({ error: null, authError: null, step: 'analyzing', analyzeProgress: [] });
+    set({ error: null, authError: null, step: 'analyzing', analyzeProgress: [], purgeReceipt: null });
     // Create a new AbortController for this upload flow
     if (abortRef.current) abortRef.current.abort();
     const controller = new AbortController();
@@ -623,7 +631,7 @@ export default function DiagramTranslator() {
       const projectId = state.projectId || DEFAULT_PROJECT_ID;
       const uploadData = await api.post(`/projects/${projectId}/diagrams`, formData, signal);
       const { diagram_id } = uploadData;
-      set({ projectId: uploadData.project_id || projectId, diagramId: diagram_id, exportCapability: uploadData.export_capability || null });
+      set({ projectId: uploadData.project_id || projectId, diagramId: diagram_id, exportCapability: uploadData.export_capability || null, purgeReceipt: null });
       await refreshProjectStatus(uploadData.project_id || projectId);
 
       // Cache uploaded image for session restore (#333)
@@ -724,7 +732,7 @@ export default function DiagramTranslator() {
         addProgress('Analysis complete. ✓');
         await new Promise(r => setTimeout(r, 400));
 
-        set({ analysis: result, exportCapability: result.export_capability || state.exportCapability || null });
+        set({ analysis: result, exportCapability: result.export_capability || state.exportCapability || null, purgeReceipt: null });
         await refreshProjectStatus(uploadData.project_id || projectId);
         const qData = await api.post(`/diagrams/${diagram_id}/questions`, undefined, signal);
         const questionState = buildQuestionState(qData);
@@ -782,7 +790,7 @@ export default function DiagramTranslator() {
         addProgress('Analysis complete. ✓');
         await new Promise(r => setTimeout(r, 800));
 
-        set({ analysis: result, exportCapability: result.export_capability || uploadData.export_capability || null });
+        set({ analysis: result, exportCapability: result.export_capability || uploadData.export_capability || null, purgeReceipt: null });
         await refreshProjectStatus(uploadData.project_id || projectId);
         const qData = await api.post(`/diagrams/${diagram_id}/questions`, undefined, signal);
         const questionState = buildQuestionState(qData);
@@ -829,7 +837,7 @@ export default function DiagramTranslator() {
     set({ step: 'analyzing', analyzeProgress: ['Loading sample diagram...'] });
     try {
       const result = await api.post(`/samples/${sample.id}/analyze`);
-      set({ diagramId: result.diagram_id, analysis: result, exportCapability: result.export_capability || null });
+      set({ diagramId: result.diagram_id, analysis: result, exportCapability: result.export_capability || null, purgeReceipt: null });
       for (const zone of (result.zones || [])) {
         const svcNames = (zone.services || []).map(s => s.source || s.name || '').filter(Boolean).slice(0, 3);
         addProgress(`Zone ${zone.id}: ${zone.name} (${svcNames.join(', ')})...`);
@@ -1322,22 +1330,17 @@ export default function DiagramTranslator() {
         </Card>
       )}
 
-      {state.diagramId && (
-        <Card className="p-3 border-danger/25 bg-danger/5">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm text-text-secondary">
-              Need to remove sensitive data now? Purge the current analysis to clear uploaded bytes, session analysis, project indexes, export capabilities, and queued jobs.
-            </p>
-            <Button
-              variant="ghost"
-              size="sm"
-              icon={Trash2}
-              onClick={handlePurgeCurrentAnalysis}
-            >
-              Purge Current Analysis
-            </Button>
-          </div>
-        </Card>
+      {(state.diagramId || state.purgeReceipt) && (
+        <Suspense fallback={null}>
+          <DataLifecyclePanel
+            diagramId={state.diagramId}
+            analysis={state.analysis}
+            exportCapability={state.exportCapability}
+            purgeReceipt={state.purgeReceipt}
+            purgeLoading={state.loading && !!state.diagramId}
+            onPurge={handlePurgeCurrentAnalysis}
+          />
+        </Suspense>
       )}
 
       <ProjectPanel

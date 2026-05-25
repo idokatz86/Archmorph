@@ -272,6 +272,18 @@ class TestPurge:
         with patch("routers.diagrams.analyze_image", return_value=copy.deepcopy(MOCK_ANALYSIS)):
             analyzed = client.post(f"/api/diagrams/{did}/analyze", headers=tenant_a_auth_headers)
         assert analyzed.status_code == 200
+        analysis_payload = analyzed.json()
+        receipt = analysis_payload["trust_receipt"]
+        assert receipt["schema_version"] == "2026-05-25"
+        assert receipt["correlation_id"] == did
+        assert receipt["retention"]["class"] == "ephemeral-analysis"
+        assert receipt["retention"]["customer_content_ttl_seconds"] == 7200
+        assert receipt["retention"]["uploaded_at"] is not None
+        assert receipt["retention"]["expires_at"] is not None
+        assert receipt["export_capability"]["status"] == "issued"
+        assert receipt["ai_processing"]["training_use"] == "not_used_by_archmorph_for_model_training"
+        assert receipt["audit_security_logs"]["retained"] is True
+        assert receipt["audit_security_logs"]["contains_customer_content"] is False
         assert did in SESSION_STORE
         assert did in IMAGE_STORE
 
@@ -292,6 +304,17 @@ class TestPurge:
         assert payload["purged"]["session"] is True
         assert payload["purged"]["jobs"] >= 1
         assert payload["purged"]["iac_chat"] is True
+        purge_receipt = payload["trust_receipt"]
+        assert purge_receipt["status"] == "purged"
+        assert purge_receipt["purge"]["status"] == "purged"
+        assert purge_receipt["purge"]["client_cache_action"] == "clear_session_storage_after_successful_purge"
+        assert purge_receipt["purge"]["audit_security_logs_retained"] is True
+        assert purge_receipt["audit_security_logs"]["retained"] is True
+        assert purge_receipt["audit_security_logs"]["contains_customer_content"] is False
+        assert purge_receipt["purge"]["server_content_deleted"] is True
+        assert purge_receipt["artifacts"]["uploaded_content"] == "purged"
+        assert purge_receipt["artifacts"]["analysis_session"] == "purged"
+        assert purge_receipt["artifacts"]["project_index"] == "purged"
 
         assert did not in IMAGE_STORE
         assert did not in SESSION_STORE
