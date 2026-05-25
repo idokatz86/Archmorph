@@ -806,7 +806,160 @@ test.describe('Core Funnel: Chatbot', () => {
   });
 });
 
-test.describe('Accessibility: axe-core scan', () => {
+test.describe('Core Funnel: Migration Package primary CTA', () => {
+  test('migration package CTA appears on analysis results screen after analyze', async ({ page }) => {
+    test.setTimeout(60_000);
+    await page.addInitScript(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
+    await stubAuthenticatedUser(page);
+    await stubDeterministicDeliverables(page);
+
+    // Stub migration package export endpoint
+    await page.route('**/api/diagrams/*/export-package', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          filename: 'archmorph-migration-package.zip',
+          content_type: 'application/zip',
+          content_b64: Buffer.from('PK\x03\x04mock-zip').toString('base64'),
+          size_bytes: 512,
+          export_capability: 'stub-capability-package',
+        }),
+      });
+    });
+
+    await page.goto('/#translator');
+    await expect(page.locator('#root')).toBeVisible({ timeout: 15000 });
+
+    await page.locator('input[type="file"]').setInputFiles(SAMPLE_UPLOAD_PATH);
+    await expect(page.getByText('favicon.svg')).toBeVisible();
+
+    const analyzeRequest = page.waitForResponse(response => {
+      const requestUrl = new URL(response.url());
+      return response.request().method() === 'POST' &&
+        /\/api\/diagrams\/[^/]+\/analyze$/.test(requestUrl.pathname) &&
+        response.status() === 200;
+    });
+    await page.getByRole('button', { name: 'Analyze This Diagram' }).click();
+    await analyzeRequest;
+
+    // Primary migration package CTA should appear on results screen
+    const packageCta = page.getByTestId('migration-package-cta');
+    await expect(packageCta).toBeVisible({ timeout: 15000 });
+
+    // The primary CTA button should be present
+    const packageButton = page.getByRole('button', { name: /download migration package/i });
+    await expect(packageButton).toBeVisible();
+
+    // Classic export panel (secondary) should also still be present
+    await expect(page.getByRole('button', { name: 'Export All' })).toBeVisible();
+  });
+
+  test('migration package CTA button is present and the package export is triggered', async ({ page }) => {
+    test.setTimeout(60_000);
+    await page.addInitScript(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
+    await stubAuthenticatedUser(page);
+    await stubDeterministicDeliverables(page);
+
+    let packageExportCalled = false;
+    await page.route('**/api/diagrams/*/export-package', async route => {
+      packageExportCalled = true;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          filename: 'archmorph-migration-package.zip',
+          content_type: 'application/zip',
+          content_b64: Buffer.from('PK\x03\x04mock-zip').toString('base64'),
+          size_bytes: 512,
+          export_capability: 'stub-capability-package',
+        }),
+      });
+    });
+
+    await page.goto('/#translator');
+    await expect(page.locator('#root')).toBeVisible({ timeout: 15000 });
+
+    await page.locator('input[type="file"]').setInputFiles(SAMPLE_UPLOAD_PATH);
+    const analyzeRequest = page.waitForResponse(response => {
+      const requestUrl = new URL(response.url());
+      return response.request().method() === 'POST' &&
+        /\/api\/diagrams\/[^/]+\/analyze$/.test(requestUrl.pathname) &&
+        response.status() === 200;
+    });
+    await page.getByRole('button', { name: 'Analyze This Diagram' }).click();
+    await analyzeRequest;
+
+    const packageButton = page.getByRole('button', { name: /download migration package/i });
+    await expect(packageButton).toBeVisible({ timeout: 15000 });
+    await packageButton.click();
+
+    // The export-package API call should have been made
+    // Give it a moment for the async call to resolve
+    await page.waitForTimeout(1000);
+    expect(packageExportCalled).toBe(true);
+  });
+
+  test('classic diagram exports (HTML/SVG) remain available as secondary actions alongside the primary package CTA', async ({ page }) => {
+    test.setTimeout(60_000);
+    await page.addInitScript(() => {
+      localStorage.clear();
+      sessionStorage.clear();
+    });
+    await stubAuthenticatedUser(page);
+    await stubDeterministicDeliverables(page);
+
+    await page.route('**/api/diagrams/*/export-package', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          filename: 'archmorph-migration-package.zip',
+          content_type: 'application/zip',
+          content_b64: Buffer.from('PK\x03\x04mock-zip').toString('base64'),
+          size_bytes: 512,
+          export_capability: 'stub-capability-package',
+        }),
+      });
+    });
+
+    await page.goto('/#translator');
+    await expect(page.locator('#root')).toBeVisible({ timeout: 15000 });
+
+    await page.locator('input[type="file"]').setInputFiles(SAMPLE_UPLOAD_PATH);
+    const analyzeRequest = page.waitForResponse(response => {
+      const requestUrl = new URL(response.url());
+      return response.request().method() === 'POST' &&
+        /\/api\/diagrams\/[^/]+\/analyze$/.test(requestUrl.pathname) &&
+        response.status() === 200;
+    });
+    await page.getByRole('button', { name: 'Analyze This Diagram' }).click();
+    await analyzeRequest;
+
+    // Both primary package CTA and secondary export panel should be visible
+    await expect(page.getByTestId('migration-package-cta')).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole('button', { name: 'Export All' })).toBeVisible();
+
+    // The primary CTA must come before the "Export All" secondary in the DOM
+    const cta = page.getByTestId('migration-package-cta');
+    const exportAll = page.getByRole('button', { name: 'Export All' });
+    const [ctaBox, exportAllBox] = await Promise.all([
+      cta.boundingBox(),
+      exportAll.boundingBox(),
+    ]);
+    if (ctaBox && exportAllBox) {
+      expect(ctaBox.y).toBeLessThan(exportAllBox.y);
+    }
+  });
+});
+
+
   test('home page has no critical accessibility violations', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('#root')).toBeVisible({ timeout: 15000 });

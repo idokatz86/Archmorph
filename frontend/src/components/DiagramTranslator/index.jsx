@@ -1633,6 +1633,8 @@ export default function DiagramTranslator() {
           reviewSummary={reviewSummary}
           onDispose={handleReviewDispose}
           reviewLoading={reviewLoading}
+          onExportPackage={state.diagramId ? handleExportPackage : undefined}
+          exportingPackage={state.exportingPackage}
         />
       )}
 

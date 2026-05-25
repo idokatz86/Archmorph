@@ -313,6 +313,7 @@ export default function AnalysisResults({
   diagramId, exportCapability, onExportCapability,
   assumptions = [], questionsCount = 0, onReviewAssumptions,
   reviewItems = [], reviewDispositions = {}, reviewSummary = {}, onDispose, reviewLoading = false,
+  onExportPackage, exportingPackage,
 }) {
   const [resultsView, setResultsView] = useState('card');
 
@@ -405,6 +406,60 @@ export default function AnalysisResults({
         onDispose={onDispose}
         loading={reviewLoading}
       />
+
+      {/* ── Primary CTA: Migration Package ── */}
+      {onExportPackage && (
+        <div data-testid="migration-package-cta">
+          <Card className="p-6 border-cta/30 bg-cta/5">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-cta/15 flex items-center justify-center shrink-0">
+                  <Package className="w-5 h-5 text-cta" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-text-primary">Azure Migration Package</h3>
+                  <p className="text-sm text-text-secondary mt-0.5">
+                    Your review-ready package — executive summary, source inventory, Azure target mappings,
+                    architecture diagrams, assumptions, risks, cost estimates, and IaC/HLD appendix.
+                  </p>
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {[
+                      'Executive summary',
+                      'Source inventory',
+                      'Azure mappings',
+                      'Assumptions & risks',
+                      'Cost estimates',
+                      'IaC + HLD',
+                    ].map(label => (
+                      <span key={label} className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-cta/10 text-cta font-medium">
+                        <CheckCircle2 className="w-3 h-3" /> {label}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <Button
+                onClick={onExportPackage}
+                variant="primary"
+                icon={Package}
+                loading={exportingPackage}
+                disabled={!!reviewSummary.gated}
+                title={reviewSummary.gated ? 'Resolve all high-severity review items before exporting the migration package' : undefined}
+                className="shrink-0"
+              >
+                Download Migration Package
+              </Button>
+            </div>
+            <p className="mt-3 text-[11px] text-text-muted border-t border-cta/10 pt-3">
+              <Sparkles className="w-3 h-3 inline mr-1 text-cta/60" />
+              {reviewSummary.gated
+                ? 'Resolve high-severity review items before exporting customer deliverables.'
+                : 'Generated recommendations are AI-assisted. Items marked as confirmed reflect your review decisions.'}
+              Classic diagram exports remain available below.
+            </p>
+          </Card>
+        </div>
+      )}
 
       {assumptions.length > 0 && (
         <Card className="p-4 border-info/20 bg-info/5">
@@ -514,10 +569,10 @@ export default function AnalysisResults({
         </Card>
       )}
 
-      {/* Export Diagram + Export Hub */}
+      {/* Export Diagram + Export Hub (secondary classic exports) */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
         <div className="flex-1">
-          <ExportPanel exportLoading={exportLoading} onExportDiagram={onExportDiagram} />
+          <ExportPanel exportLoading={exportLoading} onExportDiagram={onExportDiagram} secondary />
         </div>
         <Button onClick={() => document.dispatchEvent(new CustomEvent('archmorph:command', { detail: 'export-hub' }))} variant="secondary" icon={Package}>
           Export All

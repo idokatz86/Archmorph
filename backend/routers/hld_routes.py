@@ -393,26 +393,92 @@ async def export_migration_package(
             ext = {"terraform": "tf", "bicep": "bicep"}[iac_format]
             zf.writestr(f"infrastructure/main.{ext}", iac_code)
 
-        # 2. Analysis summary
+        # 2. Analysis summary — includes executive summary, decisions vs recommendations,
+        #    methodology/confidence, and risks/gaps/limitations.
+        mappings = session.get("mappings", [])
+        assumptions_raw = session.get("assumptions", []) or []
+        answers_raw = session.get("answers", {}) or {}
+
+        # Separate confirmed (user-reviewed) from AI-generated recommendations
+        confirmed_decisions = [
+            {
+                "id": a.get("id"),
+                "question": a.get("question", ""),
+                "confirmed_answer": answers_raw.get(a.get("id")) if a.get("id") in answers_raw else a.get("assumed_answer"),
+                "source": "user_confirmed" if a.get("id") in answers_raw else "ai_assumed",
+            }
+            for a in assumptions_raw
+        ]
+
+        # Collect risks/gaps from mapping limitations
+        risks_and_gaps = []
+        for m in mappings:
+            for lim in (m.get("limitations") or []):
+                factor = lim if isinstance(lim, str) else lim.get("factor", "")
+                detail = "" if isinstance(lim, str) else lim.get("detail", "")
+                severity = "medium" if isinstance(lim, str) else lim.get("severity", "medium")
+                if factor and factor.lower() not in {"none", "n/a", "none.", "none identified"}:
+                    risks_and_gaps.append({
+                        "service": m.get("source_service", ""),
+                        "azure_target": m.get("azure_service", ""),
+                        "risk": factor,
+                        "detail": detail,
+                        "severity": severity,
+                    })
+
+        confidence_summary = session.get("confidence_summary") or {}
+        services_detected = session.get("services_detected", len(mappings))
+        zones = session.get("zones", [])
+
+        executive_summary = (
+            f"This Azure Migration Package covers {services_detected} services "
+            f"across {len(zones)} zone(s) migrating from "
+            f"{session.get('source_provider', 'the source environment').upper()} to Azure. "
+            f"Average mapping confidence: "
+            f"{round(confidence_summary.get('average', 0) * 100)}%. "
+            f"{confidence_summary.get('high', 0)} mappings are high confidence, "
+            f"{confidence_summary.get('medium', 0)} medium, "
+            f"{confidence_summary.get('low', 0)} low. "
+            f"{'IaC code has been generated. ' if iac_code else ''}"
+            "Review confirmed decisions and open risks before committing to Azure."
+        )
+
         analysis_summary = {
+            "executive_summary": executive_summary,
             "source_provider": session.get("source_provider", "unknown"),
             "diagram_type": session.get("diagram_type", "unknown"),
-            "services_detected": session.get("services_detected", 0),
-            "zones": [{"id": z.get("id"), "name": z.get("name")} for z in session.get("zones", [])],
+            "services_detected": services_detected,
+            "zones": [{"id": z.get("id"), "name": z.get("name")} for z in zones],
             "mappings": [
                 {
                     "source": m.get("source_service", ""),
                     "azure": m.get("azure_service", ""),
                     "confidence": m.get("confidence", 0),
                     "category": m.get("category", ""),
+                    "recommendation_source": "ai_generated",
                 }
-                for m in session.get("mappings", [])
+                for m in mappings
             ],
+            "decisions": confirmed_decisions,
+            "risks_and_gaps": risks_and_gaps,
+            "methodology": {
+                "note": (
+                    confidence_summary.get("methodology")
+                    or "Service mappings are AI-generated based on architectural pattern recognition. "
+                    "Confidence scores reflect feature parity, migration guidance availability, "
+                    "and known limitations. Items marked 'user_confirmed' reflect explicit reviewer decisions."
+                ),
+                "confidence_scoring": "0.0–1.0 scale; ≥0.85 = high, 0.65–0.84 = medium, <0.65 = low",
+                "limitations": [
+                    "Mappings are recommendations only — not a guarantee of full feature parity.",
+                    "Cost estimates are indicative ranges based on standard pricing; actual costs will vary.",
+                    "IaC code requires review and adaptation to your specific environment and security policies.",
+                ],
+            },
         }
         zf.writestr("analysis/analysis-summary.json", json.dumps(analysis_summary, indent=2))
 
         # 3. Cost estimate
-        mappings = session.get("mappings", [])
         if mappings:
             cost_data = estimate_services_cost(mappings)
             zf.writestr("analysis/cost-estimate.json", json.dumps(cost_data, indent=2, default=str))
@@ -432,19 +498,41 @@ async def export_migration_package(
                 logger.warning("DOCX export failed in package: %s", str(exc).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
 
         # 6. README
-        readme = f"""# Migration Package — {session.get('diagram_type', 'Architecture')}
-Generated by Archmorph v{session.get('_version', '3.6.0')}
+        diagram_type = session.get('diagram_type', 'Architecture')
+        version = session.get('_version', '3.6.0')
+        readme = f"""# Azure Migration Package — {diagram_type}
+Generated by Archmorph v{version}
+
+## Executive Summary
+{executive_summary}
 
 ## Contents
-- `infrastructure/` — Generated {iac_format.title()} code
-- `analysis/` — Analysis summary and cost estimate
+- `infrastructure/` — Generated {iac_format.title()} IaC code
+- `analysis/analysis-summary.json` — Source inventory, Azure target mappings, confirmed decisions, risks/gaps, and methodology
+- `analysis/cost-estimate.json` — Indicative monthly cost ranges by service
 - `documents/` — High-Level Design document (Markdown + DOCX)
 
+## Package Sections
+- **Source architecture inventory** — services and zones discovered from the uploaded diagram
+- **Azure target mappings** — AI-generated recommendations (marked `ai_generated`)
+- **Confirmed decisions** — reviewer-confirmed answers (marked `user_confirmed`) vs AI assumptions
+- **Risks and gaps** — per-service limitations and migration blockers with severity ratings
+- **Cost assumptions** — indicative Azure pricing with low/mid/high monthly ranges
+- **IaC / HLD appendix** — Terraform or Bicep code and the High-Level Design document
+- **Methodology and confidence notes** — how confidence scores are calculated and package limitations
+
+## Important Notes
+- Generated recommendations are AI-assisted and require human review before deployment.
+- Confirmed decisions (source: user_confirmed) reflect explicit reviewer choices.
+- Cost estimates are indicative ranges; consult the Azure Pricing Calculator for exact figures.
+- IaC code must be reviewed and adapted to your environment and security policies.
+
 ## Next Steps
-1. Review the IaC code in `infrastructure/`
-2. Read the HLD document for architecture decisions
-3. Check the cost estimate for budget planning
-4. Apply the IaC code to your Azure subscription
+1. Review `analysis/analysis-summary.json` — confirm or override AI-generated mappings
+2. Address open risks in the `risks_and_gaps` section
+3. Read the HLD document for architecture decisions and CAF alignment
+4. Review the cost estimate and adjust SKUs/regions as needed
+5. Apply IaC code to your Azure subscription after thorough review
 
 ## Links
 - Live app: https://archmorphai.com
