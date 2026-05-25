@@ -34,6 +34,12 @@ This keeps the gate stable by using the same mocked/smoke analysis path as the C
 - Production IaC alerts split Terraform and Bicep with the `format` metric dimension emitted by request telemetry; route matching covers both `/api/...` and `/api/v1/...` clients.
 - Full-spine burn-rate alerts evaluate both 5-minute and 1-hour windows.
 
+## Production Browser Synthetic Gate
+
+Production deploys now include a post-traffic-shift authenticated browser synthetic gate that runs against the live Static Web App + API path. It validates SWA session bridge minting, browser upload/analyze flow, user-owned analysis attribution, and Draw.io export with bearer + `X-Export-Capability`.
+
+A scheduled copy of the same synthetic runs every 4 hours (`.github/workflows/production-authenticated-browser-synthetic.yml`). Failures are release-blocking in main deploy and automatically create a P0 triage issue with run URL, revision SHA, correlation IDs, and artifact references.
+
 Burn-rate alerts treat requests as bad when the request exceeds the operation latency SLO or returns HTTP 5xx. They alert when both windows burn faster than 2x a 99% latency/error budget. Low-sample windows are suppressed to avoid paging on empty traffic.
 
 ## Response Guidance

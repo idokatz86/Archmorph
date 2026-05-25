@@ -41,6 +41,17 @@ def test_production_traffic_movement_jobs_are_environment_gated():
     assert workflow["jobs"]["post-deploy-smoke"]["environment"] == "production"
 
 
+def test_ci_wires_post_shift_browser_synthetic_release_gate():
+    workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
+
+    gate_job = workflow["jobs"]["production-browser-synthetic-gate"]
+    assert gate_job["needs"] == ["post-deploy-smoke"]
+    assert gate_job["if"] == "github.ref == 'refs/heads/main'"
+    assert gate_job["permissions"] == {"contents": "read", "issues": "write"}
+    assert gate_job["uses"] == "./.github/workflows/production-authenticated-browser-synthetic.yml"
+    assert gate_job["secrets"] == "inherit"
+
+
 def test_backend_deploy_wires_jwt_secret_to_container_app_revision():
     workflow_text = CI_WORKFLOW.read_text(encoding="utf-8")
     workflow = yaml.safe_load(workflow_text)
