@@ -133,10 +133,31 @@ class Job:
         return job
 
 
+class AdmissionRejected(Exception):
+    """Raised when per-user or per-tenant active-job limit is exceeded."""
+
+    def __init__(self, message: str):
+        super().__init__(message)
+
+
+def _env_int_default(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
 class JobManager:
     """Async job queue manager with shared-store persistence and bounded event ring."""
 
-    def __init__(self, max_jobs: int = 10000, max_events_per_job: Optional[int] = None, ttl_seconds: int = 7200):
+    def __init__(
+        self,
+        max_jobs: int = 10000,
+        max_events_per_job: Optional[int] = None,
+        ttl_seconds: int = 7200,
+        max_active_jobs_per_user: Optional[int] = None,
+        max_active_jobs_per_tenant: Optional[int] = None,
+    ):
         self._jobs: Dict[str, Job] = {}
         self._max_jobs = max_jobs
         self._lock = asyncio.Lock()
@@ -146,6 +167,79 @@ class JobManager:
         self._jobs_store = get_store("jobs", maxsize=max_jobs, ttl=ttl_seconds)
         # One key per job_id: {next_seq, dropped_events, events:[{id,event,data,ts}]}
         self._events_store = get_store("job_events", maxsize=max_jobs, ttl=ttl_seconds)
+        # Per-user and per-tenant active-job limits (queued + running).
+        # Defaults are read from environment variables so operators can tune them.
+        self._max_active_per_user: int = (
+            max_active_jobs_per_user
+            if max_active_jobs_per_user is not None
+            else _env_int_default("MAX_ACTIVE_JOBS_PER_USER", 5)
+        )
+        self._max_active_per_tenant: int = (
+            max_active_jobs_per_tenant
+            if max_active_jobs_per_tenant is not None
+            else _env_int_default("MAX_ACTIVE_JOBS_PER_TENANT", 20)
+        )
+
+    def count_active_jobs(
+        self,
+        *,
+        user_id: Optional[str] = None,
+        tenant_id: Optional[str] = None,
+        api_key_id: Optional[str] = None,
+    ) -> int:
+        """Count jobs in queued or running state for a given principal.
+
+        Exactly one of ``user_id``, ``tenant_id``, or ``api_key_id`` should
+        be provided; the first non-None value is used.
+        """
+        active_statuses = {JobStatus.QUEUED.value, JobStatus.RUNNING.value}
+        count = 0
+        for job_id in self._jobs_store.keys("*"):
+            payload = self._jobs_store.get(job_id)
+            if not payload:
+                continue
+            if payload.get("status") not in active_statuses:
+                continue
+            if user_id and payload.get("owner_user_id") == user_id:
+                count += 1
+            elif tenant_id and payload.get("tenant_id") == tenant_id:
+                count += 1
+            elif api_key_id and payload.get("owner_api_key_id") == api_key_id:
+                count += 1
+        return count
+
+    def check_admission(
+        self,
+        *,
+        owner_user_id: Optional[str] = None,
+        tenant_id: Optional[str] = None,
+        owner_api_key_id: Optional[str] = None,
+    ) -> None:
+        """Raise :class:`AdmissionRejected` if the caller is over their active-job quota.
+
+        Checks are skipped when the respective limit is <= 0 (disabled).
+        """
+        if owner_user_id and self._max_active_per_user > 0:
+            active = self.count_active_jobs(user_id=owner_user_id)
+            if active >= self._max_active_per_user:
+                raise AdmissionRejected(
+                    f"User {owner_user_id!r} already has {active} active job(s). "
+                    f"Limit is {self._max_active_per_user}."
+                )
+        if tenant_id and self._max_active_per_tenant > 0:
+            active = self.count_active_jobs(tenant_id=tenant_id)
+            if active >= self._max_active_per_tenant:
+                raise AdmissionRejected(
+                    f"Tenant {tenant_id!r} already has {active} active job(s). "
+                    f"Limit is {self._max_active_per_tenant}."
+                )
+        if owner_api_key_id and self._max_active_per_user > 0:
+            active = self.count_active_jobs(api_key_id=owner_api_key_id)
+            if active >= self._max_active_per_user:
+                raise AdmissionRejected(
+                    f"API key {owner_api_key_id!r} already has {active} active job(s). "
+                    f"Limit is {self._max_active_per_user}."
+                )
 
     def submit(
         self,

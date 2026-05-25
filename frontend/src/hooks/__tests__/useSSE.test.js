@@ -227,4 +227,45 @@ describe('useJobStatus', () => {
     );
     expect(result.current.status).toBe('cancelled');
   });
+
+  it('exposes phase and timing fields from job status response', async () => {
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: () =>
+        Promise.resolve({
+          status: 'completed',
+          progress: 100,
+          progress_message: 'Done',
+          phase: 'saving',
+          elapsed_seconds: 42,
+          queue_wait_seconds: 5,
+          running_seconds: 37,
+          result: { ok: true },
+        }),
+    });
+
+    const { result } = renderHook(() => useJobStatus());
+
+    await act(async () => {
+      result.current.poll('job-phase-1');
+      await vi.advanceTimersByTimeAsync(100);
+    });
+
+    expect(result.current.phase).toBe('saving');
+    expect(result.current.elapsedSeconds).toBe(42);
+    expect(result.current.queueWaitSeconds).toBe(5);
+    expect(result.current.runningSeconds).toBe(37);
+    expect(result.current.status).toBe('completed');
+  });
+
+  it('initialises phase to queued when poll starts', () => {
+    const { result } = renderHook(() => useJobStatus());
+    // Before poll, phase is null.
+    expect(result.current.phase).toBeNull();
+    // Immediately after calling poll the phase is set to 'queued'.
+    act(() => { result.current.poll('job-init-phase'); });
+    expect(result.current.phase).toBe('queued');
+  });
 });

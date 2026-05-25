@@ -29,6 +29,10 @@ const initialState = {
   error: null,
   authError: null, // 'auth_required' | 'session_expired' | null — set on 401 to drive auth-specific UX
   analyzeProgress: [],
+  analyzePhase: null,       // current backend phase string (e.g. "classifying", "analyzing")
+  analyzeProgress_pct: 0,   // numeric 0-100 progress
+  analyzeElapsed: 0,        // elapsed_seconds from backend
+  analyzeQueueWait: 0,      // queue_wait_seconds from backend
   // UX
   dragOver: false,
   selectedFile: null,

@@ -159,4 +159,11 @@ async def list_jobs(
 async def get_queue_metrics(request: Request):
     """Return async queue and event-buffer metrics for observability."""
     _job_principal_from_request(request)
-    return job_manager.metrics()
+    metrics = job_manager.metrics()
+    # Merge OpenAI error/rate-limit counters into the metrics payload.
+    try:
+        from openai_client import get_openai_error_metrics
+        metrics["openai"] = get_openai_error_metrics()
+    except Exception:
+        pass
+    return metrics

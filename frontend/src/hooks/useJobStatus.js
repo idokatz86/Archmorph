@@ -9,12 +9,16 @@ import api from '../services/apiClient';
  *   // After starting a job:
  *   poll(jobId);
  *
- * @returns {{ status, progress, message, result, error, loading, poll, cancel, stop }}
+ * @returns {{ status, progress, message, phase, elapsedSeconds, queueWaitSeconds, runningSeconds, result, error, loading, poll, cancel, stop }}
  */
 export default function useJobStatus() {
   const [status, setStatus] = useState(null);
   const [progress, setProgress] = useState(0);
   const [message, setMessage] = useState('');
+  const [phase, setPhase] = useState(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [queueWaitSeconds, setQueueWaitSeconds] = useState(0);
+  const [runningSeconds, setRunningSeconds] = useState(0);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -50,6 +54,10 @@ export default function useJobStatus() {
     setError(null);
     setResult(null);
     setStatus('queued');
+    setPhase('queued');
+    setElapsedSeconds(0);
+    setQueueWaitSeconds(0);
+    setRunningSeconds(0);
 
     const tick = async () => {
       if (stoppedRef.current) return;
@@ -60,6 +68,10 @@ export default function useJobStatus() {
         setStatus(data.status);
         setProgress(data.progress ?? 0);
         setMessage(data.progress_message ?? '');
+        setPhase(data.phase ?? data.status ?? null);
+        setElapsedSeconds(data.elapsed_seconds ?? 0);
+        setQueueWaitSeconds(data.queue_wait_seconds ?? 0);
+        setRunningSeconds(data.running_seconds ?? 0);
 
         if (data.status === 'completed') {
           setResult(data.result);
@@ -104,5 +116,5 @@ export default function useJobStatus() {
     }
   }, [stop]);
 
-  return { status, progress, message, result, error, loading, poll, cancel, stop };
+  return { status, progress, message, phase, elapsedSeconds, queueWaitSeconds, runningSeconds, result, error, loading, poll, cancel, stop };
 }

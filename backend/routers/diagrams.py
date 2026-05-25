@@ -25,7 +25,7 @@ from routers.shared import (
     require_diagram_access,
 )
 import ci_smoke
-from job_queue import job_manager
+from job_queue import job_manager, AdmissionRejected
 from usage_metrics import record_event, record_funnel_step
 from export_capabilities import attach_export_capability
 from data_lifecycle import attach_trust_receipt, build_trust_receipt
@@ -631,12 +631,26 @@ async def analyze_diagram_async(
     headers = dict(request.headers)
     user = get_user_from_request_headers(headers)
     api_key_principal_id = get_api_key_service_principal(headers)
+
+    # Admission control: enforce per-user/per-tenant active-job limits.
+    owner_user_id = user.id if user else None
+    tenant_id = user.tenant_id if user else None
+    owner_api_key_id = api_key_principal_id if not user else None
+    try:
+        job_manager.check_admission(
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+            owner_api_key_id=owner_api_key_id,
+        )
+    except AdmissionRejected as exc:
+        raise ArchmorphException(429, str(exc))
+
     job = job_manager.submit(
         "analyze",
         diagram_id=diagram_id,
-        owner_user_id=user.id if user else None,
-        tenant_id=user.tenant_id if user else None,
-        owner_api_key_id=api_key_principal_id if not user else None,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+        owner_api_key_id=owner_api_key_id,
     )
     asyncio.create_task(_run_analysis_job(job.job_id, diagram_id))
 

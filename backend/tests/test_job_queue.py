@@ -461,3 +461,148 @@ class TestAsyncAnalyzeEndpoint:
             assert stream_res.status_code == 200
         finally:
             SESSION_STORE.delete(diagram_id)
+
+
+# ─────────────────────────────────────────────────────────────
+# Admission control (per-user / per-tenant limits)
+# ─────────────────────────────────────────────────────────────
+
+class TestAdmissionControl:
+    """Tests for per-user and per-tenant active-job limits."""
+
+    def _make_manager(self, max_per_user=2, max_per_tenant=5):
+        from job_queue import JobManager
+        from session_store import reset_stores
+
+        reset_stores()
+        return JobManager(max_jobs=50, max_active_jobs_per_user=max_per_user, max_active_jobs_per_tenant=max_per_tenant)
+
+    def test_count_active_jobs_empty(self):
+        mgr = self._make_manager()
+        assert mgr.count_active_jobs(user_id="u1") == 0
+
+    def test_count_active_jobs_by_user(self):
+        mgr = self._make_manager()
+        j1 = mgr.submit("analyze", owner_user_id="u1", tenant_id="t1")
+        j2 = mgr.submit("analyze", owner_user_id="u1", tenant_id="t1")
+        mgr.submit("analyze", owner_user_id="u2", tenant_id="t1")
+        assert mgr.count_active_jobs(user_id="u1") == 2
+        assert mgr.count_active_jobs(user_id="u2") == 1
+        # Completing a job should reduce the count.
+        mgr.start(j1.job_id)
+        mgr.complete(j1.job_id, result={})
+        assert mgr.count_active_jobs(user_id="u1") == 1
+
+    def test_count_active_jobs_by_tenant(self):
+        mgr = self._make_manager()
+        for _ in range(3):
+            mgr.submit("analyze", owner_user_id="u1", tenant_id="tenant-a")
+        mgr.submit("analyze", owner_user_id="u2", tenant_id="tenant-b")
+        assert mgr.count_active_jobs(tenant_id="tenant-a") == 3
+        assert mgr.count_active_jobs(tenant_id="tenant-b") == 1
+
+    def test_check_admission_passes_within_limit(self):
+        mgr = self._make_manager(max_per_user=3)
+        mgr.submit("analyze", owner_user_id="u1", tenant_id="t1")
+        # Should not raise — 1 < 3
+        mgr.check_admission(owner_user_id="u1", tenant_id="t1")
+
+    def test_check_admission_raises_at_user_limit(self):
+        from job_queue import AdmissionRejected
+        mgr = self._make_manager(max_per_user=2)
+        mgr.submit("analyze", owner_user_id="u1", tenant_id="t1")
+        mgr.submit("analyze", owner_user_id="u1", tenant_id="t1")
+        with pytest.raises(AdmissionRejected):
+            mgr.check_admission(owner_user_id="u1", tenant_id="t1")
+
+    def test_check_admission_raises_at_tenant_limit(self):
+        from job_queue import AdmissionRejected
+        mgr = self._make_manager(max_per_user=10, max_per_tenant=2)
+        mgr.submit("analyze", owner_user_id="u1", tenant_id="tenant-x")
+        mgr.submit("analyze", owner_user_id="u2", tenant_id="tenant-x")
+        with pytest.raises(AdmissionRejected):
+            mgr.check_admission(owner_user_id="u3", tenant_id="tenant-x")
+
+    def test_check_admission_disabled_when_limit_is_zero(self):
+        mgr = self._make_manager(max_per_user=0, max_per_tenant=0)
+        # Fill with many jobs
+        for _ in range(10):
+            mgr.submit("analyze", owner_user_id="u1", tenant_id="t1")
+        # Should never raise when limits are 0 (disabled)
+        mgr.check_admission(owner_user_id="u1", tenant_id="t1")
+
+    def test_check_admission_api_key_uses_user_limit(self):
+        from job_queue import AdmissionRejected
+        mgr = self._make_manager(max_per_user=2)
+        mgr.submit("analyze", owner_api_key_id="api-key:svc")
+        mgr.submit("analyze", owner_api_key_id="api-key:svc")
+        with pytest.raises(AdmissionRejected):
+            mgr.check_admission(owner_api_key_id="api-key:svc")
+
+    def test_analyze_async_returns_429_when_user_at_limit(self, test_client, auth_headers, monkeypatch):
+        """analyze-async endpoint enforces per-user admission limit."""
+        from job_queue import job_manager, AdmissionRejected
+
+        # Simulate the user being over their limit
+        def _always_reject(**kwargs):
+            raise AdmissionRejected("Test limit exceeded")
+
+        monkeypatch.setattr(job_manager, "check_admission", _always_reject)
+
+        from routers.shared import IMAGE_STORE
+        IMAGE_STORE["adm-diagram"] = (b"fake", "image/png")
+        try:
+            res = test_client.post("/api/diagrams/adm-diagram/analyze-async", headers=auth_headers)
+            assert res.status_code == 429
+        finally:
+            IMAGE_STORE.delete("adm-diagram")
+
+
+# ─────────────────────────────────────────────────────────────
+# OpenAI metrics
+# ─────────────────────────────────────────────────────────────
+
+class TestOpenAIMetrics:
+    """Tests for OpenAI timeout/429 metric tracking."""
+
+    def test_handle_openai_error_tracks_rate_limit(self, monkeypatch):
+        from openai_client import handle_openai_error, get_openai_error_metrics
+        from unittest.mock import MagicMock
+
+        # Reset counters
+        import openai_client
+        with openai_client._openai_metrics_lock:
+            openai_client._openai_metrics["rate_limit_total"] = 0
+
+        # Build a minimal mock that passes as a RateLimitError
+        from openai import RateLimitError as _RateLimitError
+        mock_request = MagicMock()
+        mock_response = MagicMock()
+        mock_response.request = mock_request
+        exc = _RateLimitError("rate limited", response=mock_response, body=None)
+        handle_openai_error(exc, "test")
+        stats = get_openai_error_metrics()
+        assert stats["rate_limit_total"] >= 1
+
+    def test_handle_openai_error_tracks_timeout(self, monkeypatch):
+        from openai_client import handle_openai_error, get_openai_error_metrics
+        from openai import APITimeoutError as _APITimeoutError
+
+        import openai_client
+        with openai_client._openai_metrics_lock:
+            openai_client._openai_metrics["timeout_total"] = 0
+
+        exc = _APITimeoutError(request=None)
+        handle_openai_error(exc, "test")
+        stats = get_openai_error_metrics()
+        assert stats["timeout_total"] >= 1
+
+    def test_metrics_endpoint_includes_openai_section(self, test_client, api_key_headers):
+        """The /api/jobs/metrics/summary endpoint should include openai sub-section."""
+        res = test_client.get("/api/jobs/metrics/summary", headers=api_key_headers)
+        assert res.status_code == 200
+        payload = res.json()
+        assert "openai" in payload
+        assert "rate_limit_total" in payload["openai"]
+        assert "timeout_total" in payload["openai"]
+
