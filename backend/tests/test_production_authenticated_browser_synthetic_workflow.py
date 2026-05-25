@@ -67,3 +67,16 @@ def test_synthetic_evidence_does_not_persist_live_endpoint_urls():
     assert "api_base: API_BASE" not in spec
     assert "frontend_url_configured: Boolean(FRONTEND_URL)" in spec
     assert "api_base_configured: Boolean(API_BASE)" in spec
+
+
+def test_synthetic_can_fall_back_to_trusted_backend_auth_bridge_without_leaking_secret_values():
+    spec = SYNTHETIC_SPEC.read_text(encoding="utf-8")
+
+    assert "authBridgeMode = 'swa-managed-function'" in spec
+    assert "authBridgeMode = 'backend-api-key-fallback'" in spec
+    assert "`${API_BASE}/auth/swa-session`" in spec
+    assert "'X-API-Key': HEALTH_API_KEY" in spec
+    assert "data: { client_principal: syntheticPrincipal }" in spec
+    assert "auth_bridge_mode: authBridgeMode" in spec
+    assert "auth_bridge_http_status: bridgeResponse.status()" in spec
+    assert "HEALTH_API_KEY:" not in spec
