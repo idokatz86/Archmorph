@@ -77,6 +77,7 @@ class TestJobManager:
         job = mgr.submit("analyze")
         mgr.start(job.job_id)
         assert job.status == "running"
+        assert job.phase == "running"
         assert job.started_at is not None
 
     def test_update_progress(self):
@@ -87,6 +88,15 @@ class TestJobManager:
         assert job.progress == 50
         assert job.phase == "analyzing"
         assert job.progress_message == "Halfway done"
+
+    def test_update_progress_clamps_to_full_range(self):
+        mgr = self._make_manager()
+        job = mgr.submit("analyze")
+        mgr.start(job.job_id)
+        mgr.update_progress(job.job_id, -1, "negative")
+        assert job.progress == 0
+        mgr.update_progress(job.job_id, 101, "too high")
+        assert job.progress == 100
 
     def test_complete_sets_result(self):
         mgr = self._make_manager()

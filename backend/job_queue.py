@@ -194,7 +194,7 @@ class JobManager:
             setattr(job, field, getattr(loaded, field))
         return job
 
-    def start(self, job_id: str, phase: str = "starting") -> None:
+    def start(self, job_id: str, phase: str = "running") -> None:
         """Mark a job as running."""
         job = self.get(job_id)
         if not job:
@@ -214,7 +214,7 @@ class JobManager:
             return
         if phase:
             job.phase = phase
-        job.progress = min(progress, 100)
+        job.progress = max(0, min(progress, 100))
         if message:
             job.progress_message = message
         job.updated_at = datetime.now(timezone.utc).isoformat()
@@ -365,7 +365,9 @@ class JobManager:
                     yield ": heartbeat\n\n"
                     latest = self.get(job_id)
                     if latest and latest.status not in (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED):
-                        yield _sse_format("progress", {**_progress_payload(latest), "heartbeat": True})
+                        heartbeat_payload = {**_progress_payload(latest), "heartbeat": True}
+                        heartbeat_payload["message"] = ""
+                        yield _sse_format("progress", heartbeat_payload)
                     heartbeat_at = time.monotonic() + 5.0
 
                 # Check if job is done
