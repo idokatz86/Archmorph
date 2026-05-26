@@ -492,9 +492,9 @@ export default function DiagramTranslator() {
   useEffect(() => {
     if (!state.diagramId || state.step !== 'results') return;
     setReviewLoading(true);
-    api.get(`/diagrams/${state.diagramId}/review-queue`)
+    Promise.resolve(api.get(`/diagrams/${state.diagramId}/review-queue`))
       .then(data => {
-        const items = data.items || [];
+        const items = data?.items || [];
         setReviewItems(items);
         // Restore dispositions from server-persisted state
         const serverDispositions = {};
