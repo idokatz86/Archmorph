@@ -12,8 +12,7 @@ Dispositions are persisted in the diagram session under the key
 
 from __future__ import annotations
 
-import logging
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, Request
 from strict_models import StrictBaseModel
@@ -28,29 +27,27 @@ from routers.shared import (
 )
 from error_envelope import ArchmorphException
 from review_queue_builder import build_review_queue, queue_summary, apply_risk_annotations
-from log_sanitizer import safe as _safe
-
-logger = logging.getLogger(__name__)
-
 router = APIRouter()
-
-# Valid disposition actions
-_VALID_ACTIONS = frozenset({"accept", "edit", "mark_risk", "exclude"})
-
 
 class DispositionRequest(StrictBaseModel):
     """Body for a disposition decision on one review item."""
 
-    action: str = Field(
+    action: Literal["accept", "edit", "mark_risk", "exclude"] = Field(
         ...,
-        max_length=20,
         description="One of: accept | edit | mark_risk | exclude",
     )
     edited_text: Optional[str] = Field(
         None,
         max_length=2000,
-        description="Replacement text used when action is 'edit'.",
+        description="Replacement text for 'edit', or risk note for 'mark_risk'.",
     )
+
+
+def _session_dispositions(session: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    raw = session.get("review_queue_dispositions")
+    if not isinstance(raw, dict):
+        return {}
+    return {str(item_id): value for item_id, value in raw.items() if isinstance(value, dict)}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # GET /api/diagrams/{diagram_id}/review-queue
@@ -74,7 +71,7 @@ async def get_review_queue(
     """
     session = authorize_diagram_access(request, diagram_id, purpose="view review queue")
     items = build_review_queue(session)
-    dispositions: dict[str, Any] = session.get("review_queue_dispositions") or {}
+    dispositions = _session_dispositions(session)
     summary = queue_summary(items, dispositions)
 
     # Attach disposition state to each item for the client
@@ -113,7 +110,7 @@ async def get_review_queue_summary(
     """
     session = authorize_diagram_access(request, diagram_id, purpose="view review queue summary")
     items = build_review_queue(session)
-    dispositions: dict[str, Any] = session.get("review_queue_dispositions") or {}
+    dispositions = _session_dispositions(session)
     summary = queue_summary(items, dispositions)
     return {"diagram_id": diagram_id, "summary": summary}
 
@@ -139,12 +136,6 @@ async def set_item_disposition(
     Persists the decision to the session store and returns the updated summary
     so the client can immediately refresh gate state.
     """
-    if body.action not in _VALID_ACTIONS:
-        raise ArchmorphException(
-            status_code=422,
-            detail=f"action must be one of {', '.join(sorted(_VALID_ACTIONS))}",
-        )
-
     session = authorize_diagram_access(request, diagram_id, purpose="review queue disposition")
 
     items = build_review_queue(session)
@@ -152,7 +143,7 @@ async def set_item_disposition(
     if item_id not in item_ids:
         raise ArchmorphException(status_code=404, detail="Review item not found")
 
-    dispositions: dict[str, Any] = dict(session.get("review_queue_dispositions") or {})
+    dispositions = dict(_session_dispositions(session))
     dispositions[item_id] = {
         "action": body.action,
         "edited_text": body.edited_text,
@@ -165,13 +156,6 @@ async def set_item_disposition(
         updated_session = apply_risk_annotations(updated_session, dispositions)
 
     SESSION_STORE[diagram_id] = updated_session
-
-    logger.info(
-        "Review disposition set: diagram=%s item=%s action=%s",
-        _safe(diagram_id),
-        _safe(item_id),
-        _safe(body.action),
-    )
 
     summary = queue_summary(items, dispositions)
     return {

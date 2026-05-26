@@ -201,6 +201,33 @@ function getDeliverableStatuses(state) {
   ];
 }
 
+function summarizeReviewQueue(items = [], dispositions = {}) {
+  let resolved = 0;
+  let unresolved = 0;
+  let blocking = 0;
+  let risksAccepted = 0;
+
+  for (const item of items) {
+    const disposition = dispositions[item.id];
+    if (disposition?.action) {
+      resolved += 1;
+      if (disposition.action === 'mark_risk') risksAccepted += 1;
+    } else {
+      unresolved += 1;
+      if (item.severity === 'high') blocking += 1;
+    }
+  }
+
+  return {
+    total: items.length,
+    unresolved,
+    blocking,
+    resolved,
+    risks_accepted: risksAccepted,
+    gated: blocking > 0,
+  };
+}
+
 function WorkbenchSpineHeader({ state, reviewSummary = {} }) {
   const statusByStep = new Map(getWorkbenchSpine(state, reviewSummary).map(item => [item.id, item]));
   return (
@@ -509,22 +536,12 @@ export default function DiagramTranslator() {
   }, [state.diagramId, state.step]);
 
   const handleReviewDispose = useCallback(async (itemId, action, editedText) => {
+    const nextDisposition = { action, edited_text: editedText };
     // Optimistic update
-    setReviewDispositions(prev => ({ ...prev, [itemId]: { action, edited_text: editedText } }));
-    // Recompute summary optimistically
-    setReviewSummary(prev => {
-      const wasResolved = !!(reviewDispositions[itemId]?.action);
-      const wasBlocking = !wasResolved && (reviewItems.find(i => i.id === itemId)?.severity === 'high');
-      const nowResolved = true;
-      const nowRisk = action === 'mark_risk';
-      return {
-        ...prev,
-        resolved: (prev.resolved || 0) + (wasResolved ? 0 : 1),
-        unresolved: Math.max(0, (prev.unresolved || 0) - (wasResolved ? 0 : 1)),
-        blocking: Math.max(0, (prev.blocking || 0) - (wasBlocking ? 1 : 0)),
-        risks_accepted: (prev.risks_accepted || 0) + (nowRisk ? 1 : 0),
-        gated: Math.max(0, (prev.blocking || 0) - (wasBlocking ? 1 : 0)) > 0,
-      };
+    setReviewDispositions(prev => {
+      const next = { ...prev, [itemId]: nextDisposition };
+      setReviewSummary(summarizeReviewQueue(reviewItems, next));
+      return next;
     });
     // Persist to backend
     if (!state.diagramId) return;
@@ -537,7 +554,7 @@ export default function DiagramTranslator() {
     } catch {
       // Best-effort — optimistic update already applied
     }
-  }, [state.diagramId, reviewItems, reviewDispositions]);
+  }, [state.diagramId, reviewItems]);
 
   // ── Drag & drop ──
   const refreshProjectStatus = useCallback(async (projectId) => {

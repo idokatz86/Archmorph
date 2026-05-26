@@ -61,6 +61,18 @@ def test_review_queue_summary_uses_user_session_auth(tenant_a, tenant_a_auth_hea
     assert response.json()["summary"]["gated"] is True
 
 
+def test_review_queue_tolerates_malformed_dispositions(tenant_a, tenant_a_auth_headers):
+    diagram_id = "diag-review-malformed-dispositions"
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        session = _seed_session(diagram_id, owner_user_id=tenant_a["user_id"], tenant_id=tenant_a["tenant_id"])
+        session["review_queue_dispositions"] = ["not", "a", "dict"]
+        response = client.get(f"/api/diagrams/{diagram_id}/review-queue", headers=tenant_a_auth_headers)
+
+    assert response.status_code == 200
+    assert response.json()["summary"]["unresolved"] > 0
+
+
 def test_review_queue_disposition_persists_and_marks_risk(tenant_a, tenant_a_auth_headers):
     diagram_id = "diag-review-disposition"
 
@@ -79,6 +91,25 @@ def test_review_queue_disposition_persists_and_marks_risk(tenant_a, tenant_a_aut
     session = SESSION_STORE[diagram_id]
     assert session["review_queue_dispositions"][item_id]["action"] == "mark_risk"
     assert any(item["id"] == item_id for item in session.get("risk_annotations", []))
+
+
+def test_review_queue_disposition_replaces_malformed_dispositions(tenant_a, tenant_a_auth_headers):
+    diagram_id = "diag-review-replace-malformed-dispositions"
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        session = _seed_session(diagram_id, owner_user_id=tenant_a["user_id"], tenant_id=tenant_a["tenant_id"])
+        session["review_queue_dispositions"] = "not-a-dict"
+        queue_response = client.get(f"/api/diagrams/{diagram_id}/review-queue", headers=tenant_a_auth_headers)
+        assert queue_response.status_code == 200
+        item_id = queue_response.json()["items"][0]["id"]
+        response = client.post(
+            f"/api/diagrams/{diagram_id}/review-queue/{item_id}/disposition",
+            json={"action": "accept"},
+            headers=tenant_a_auth_headers,
+        )
+
+    assert response.status_code == 200
+    assert SESSION_STORE[diagram_id]["review_queue_dispositions"][item_id]["action"] == "accept"
 
 
 def test_review_queue_rejects_cross_tenant_access(tenant_a, tenant_a_auth_headers, tenant_b_auth_headers):

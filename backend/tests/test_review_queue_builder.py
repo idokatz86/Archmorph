@@ -201,6 +201,30 @@ class TestBuildReviewQueue:
         ids = [i["id"] for i in items]
         assert len(ids) == len(set(ids))
 
+    def test_long_warning_common_prefix_keeps_distinct_ids(self):
+        prefix = "A" * 100
+        analysis = _make_analysis(
+            warnings=[
+                f"{prefix} first distinct cost concern",
+                f"{prefix} second distinct cost concern",
+            ]
+        )
+        items = build_review_queue(analysis)
+        assert len(items) == 2
+        assert len({item["id"] for item in items}) == 2
+
+    def test_long_assumption_common_prefix_keeps_distinct_ids(self):
+        prefix = "Is this workload subject to the following very long common review question prefix "
+        analysis = _make_analysis(
+            assumptions=[
+                {"question": f"{prefix}A?", "assumed_answer": "Yes"},
+                {"question": f"{prefix}B?", "assumed_answer": "No"},
+            ]
+        )
+        items = build_review_queue(analysis)
+        assert len(items) == 2
+        assert len({item["id"] for item in items}) == 2
+
     def test_source_service_dict_form(self):
         analysis = _make_analysis(
             mappings=[
@@ -278,6 +302,23 @@ class TestQueueSummary:
         assert summary["risks_accepted"] == 1
         assert summary["resolved"] == 1
         assert summary["blocking"] == 0
+
+
+class TestRiskAnnotations:
+    def test_mark_risk_is_idempotent_for_same_item(self):
+        analysis = _make_analysis(
+            warnings=["Encryption at rest is not configured."],
+            risk_annotations=[{"id": "unrelated", "title": "Existing"}],
+        )
+        item_id = build_review_queue(analysis)[0]["id"]
+        dispositions = {item_id: {"action": "mark_risk", "edited_text": "Accepted risk"}}
+
+        once = apply_risk_annotations(analysis, dispositions)
+        twice = apply_risk_annotations(once, dispositions)
+
+        matching = [item for item in twice["risk_annotations"] if item.get("id") == item_id]
+        assert len(matching) == 1
+        assert any(item.get("id") == "unrelated" for item in twice["risk_annotations"])
 
     def test_empty_queue_not_gated(self):
         summary = queue_summary([], {})

@@ -139,7 +139,7 @@ def build_review_queue(analysis: dict[str, Any]) -> list[dict[str, Any]]:
         if not text:
             continue
         bucket = _classify_warning(text)
-        item_id = _stable_item_id(bucket, text[:80])
+        item_id = _stable_item_id(bucket, text)
         # Cost and security warnings are high severity; generic gaps are medium
         severity = "high" if bucket in ("cost_warning", "security_concern") else "medium"
         bucket_labels = {
@@ -164,7 +164,7 @@ def build_review_queue(analysis: dict[str, Any]) -> list[dict[str, Any]]:
         if not question:
             continue
         assumed_answer = _coerce_text(assumption.get("assumed_answer"))
-        item_id = _stable_item_id("assumptions", question[:80])
+        item_id = _stable_item_id("assumptions", question)
         items.append({
             "id": item_id,
             "bucket": "assumptions",
@@ -245,7 +245,10 @@ def apply_risk_annotations(
     dispositions:
         Map of ``{item_id: {"action": ..., "edited_text": ...}}``.
     """
-    risk_annotations: list[dict[str, Any]] = list(analysis.get("risk_annotations") or [])
+    risk_annotations: list[dict[str, Any]] = [
+        item for item in (analysis.get("risk_annotations") or [])
+        if isinstance(item, dict) and item.get("id") not in dispositions
+    ]
     items = build_review_queue(analysis)
     for item in items:
         disp = dispositions.get(item["id"]) or {}

@@ -1930,7 +1930,12 @@
         "properties": {
           "action": {
             "description": "One of: accept | edit | mark_risk | exclude",
-            "maxLength": 20,
+            "enum": [
+              "accept",
+              "edit",
+              "mark_risk",
+              "exclude"
+            ],
             "title": "Action",
             "type": "string"
           },
@@ -1944,7 +1949,7 @@
                 "type": "null"
               }
             ],
-            "description": "Replacement text used when action is 'edit'.",
+            "description": "Replacement text for 'edit', or risk note for 'mark_risk'.",
             "title": "Edited Text"
           }
         },

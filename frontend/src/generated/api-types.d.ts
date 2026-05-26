@@ -10268,11 +10268,12 @@ export interface components {
             /**
              * Action
              * @description One of: accept | edit | mark_risk | exclude
+             * @enum {string}
              */
-            action: string;
+            action: "accept" | "edit" | "mark_risk" | "exclude";
             /**
              * Edited Text
-             * @description Replacement text used when action is 'edit'.
+             * @description Replacement text for 'edit', or risk note for 'mark_risk'.
              */
             edited_text?: string | null;
         };
