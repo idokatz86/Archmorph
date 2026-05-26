@@ -23,7 +23,6 @@ low    — informational; architect may dismiss at any time
 from __future__ import annotations
 
 import hashlib
-import json
 from typing import Any
 
 # Confidence threshold below which a mapping is flagged for review
@@ -59,6 +58,31 @@ def _classify_warning(text: str) -> str:
     return "architecture_gap"
 
 
+def _coerce_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, (int, float, bool)):
+        return str(value)
+    if isinstance(value, dict):
+        for key in ("message", "text", "name", "label", "value", "description", "question", "assumed_answer"):
+            text = _coerce_text(value.get(key))
+            if text:
+                return text
+        return ""
+    if isinstance(value, list):
+        return ", ".join(text for text in (_coerce_text(item) for item in value) if text)
+    return str(value).strip()
+
+
+def _safe_float(value: Any, *, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def build_review_queue(analysis: dict[str, Any]) -> list[dict[str, Any]]:
     """Build the architect review queue from an analysis result.
 
@@ -89,15 +113,11 @@ def build_review_queue(analysis: dict[str, Any]) -> list[dict[str, Any]]:
     for m in analysis.get("mappings", []):
         if not isinstance(m, dict):
             continue
-        confidence = float(m.get("confidence") or 0)
+        confidence = _safe_float(m.get("confidence"), default=0.0)
         if confidence >= _LOW_CONFIDENCE_THRESHOLD:
             continue
-        source = (
-            m.get("source_service", {}).get("name")
-            if isinstance(m.get("source_service"), dict)
-            else m.get("source_service", "Unknown")
-        ) or "Unknown"
-        target = m.get("azure_service") or m.get("target") or "Unknown"
+        source = _coerce_text(m.get("source_service")) or "Unknown"
+        target = _coerce_text(m.get("azure_service") or m.get("target")) or "Unknown"
         pct = int(confidence * 100)
         item_id = _stable_item_id("low_confidence", f"{source}:{target}")
         severity = "high" if confidence < 0.5 else "medium"
@@ -115,7 +135,7 @@ def build_review_queue(analysis: dict[str, Any]) -> list[dict[str, Any]]:
 
     # ── 2. Warnings (architecture gaps, cost, security) ───────────────────
     for warning in analysis.get("warnings", []):
-        text = warning if isinstance(warning, str) else (warning.get("message") or str(warning))
+        text = _coerce_text(warning)
         if not text:
             continue
         bucket = _classify_warning(text)
@@ -140,10 +160,10 @@ def build_review_queue(analysis: dict[str, Any]) -> list[dict[str, Any]]:
     for assumption in analysis.get("assumptions", []):
         if not isinstance(assumption, dict):
             continue
-        question = assumption.get("question") or assumption.get("text") or ""
+        question = _coerce_text(assumption.get("question") or assumption.get("text"))
         if not question:
             continue
-        assumed_answer = assumption.get("assumed_answer")
+        assumed_answer = _coerce_text(assumption.get("assumed_answer"))
         item_id = _stable_item_id("assumptions", question[:80])
         items.append({
             "id": item_id,
@@ -159,7 +179,7 @@ def build_review_queue(analysis: dict[str, Any]) -> list[dict[str, Any]]:
 
     # ── 4. Compliance / security profile ──────────────────────────────────
     profile = analysis.get("profile") or analysis.get("customer_profile") or {}
-    compliance = profile.get("compliance") if isinstance(profile, dict) else None
+    compliance = _coerce_text(profile.get("compliance")) if isinstance(profile, dict) else ""
     if compliance and compliance.lower() not in ("none", ""):
         item_id = _stable_item_id("security_concern", f"compliance:{compliance}")
         items.append({
@@ -178,13 +198,9 @@ def build_review_queue(analysis: dict[str, Any]) -> list[dict[str, Any]]:
     for m in analysis.get("mappings", []):
         if not isinstance(m, dict):
             continue
-        target = m.get("azure_service") or m.get("target") or ""
+        target = _coerce_text(m.get("azure_service") or m.get("target"))
         if target.lower() in ("unknown", ""):
-            source = (
-                m.get("source_service", {}).get("name")
-                if isinstance(m.get("source_service"), dict)
-                else m.get("source_service", "Unknown")
-            ) or "Unknown"
+            source = _coerce_text(m.get("source_service")) or "Unknown"
             item_id = _stable_item_id("architecture_gap", f"unmatched:{source}")
             items.append({
                 "id": item_id,

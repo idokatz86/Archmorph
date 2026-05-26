@@ -15,6 +15,7 @@ import {
   HelpCircle, DollarSign, Shield, Zap,
 } from 'lucide-react';
 import { Button, Card, Badge } from '../ui';
+import { toRenderableString } from '../../utils/toRenderableString';
 
 // ── Bucket metadata ───────────────────────────────────────────────────────────
 const BUCKET_META = {
@@ -70,8 +71,11 @@ const ACTION_LABELS = {
 
 // ── ReviewItem ────────────────────────────────────────────────────────────────
 function ReviewItem({ item, disposition, onDispose }) {
+  const title = toRenderableString(item.title);
+  const description = toRenderableString(item.description);
+  const editedDescription = toRenderableString(disposition?.edited_text) || description;
   const [editMode, setEditMode] = useState(false);
-  const [editText, setEditText] = useState(item.description);
+  const [editText, setEditText] = useState(description);
   const action = disposition?.action;
   const isResolved = !!action;
 
@@ -104,7 +108,7 @@ function ReviewItem({ item, disposition, onDispose }) {
           {/* Title + severity badge */}
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs font-semibold text-text-primary leading-snug">
-              {item.title}
+              {title}
             </span>
             <span className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-medium ${severityStyle.badge}`}>
               {severityStyle.label}
@@ -120,7 +124,7 @@ function ReviewItem({ item, disposition, onDispose }) {
           {/* Description */}
           {!editMode && (
             <p className="text-xs text-text-muted leading-relaxed">
-              {disposition?.edited_text || item.description}
+              {editedDescription}
             </p>
           )}
 
@@ -145,7 +149,7 @@ function ReviewItem({ item, disposition, onDispose }) {
                 <Button
                   size="sm"
                   variant="ghost"
-                  onClick={() => { setEditMode(false); setEditText(item.description); }}
+                  onClick={() => { setEditMode(false); setEditText(description); }}
                 >
                   Cancel
                 </Button>
@@ -172,7 +176,7 @@ function ReviewItem({ item, disposition, onDispose }) {
 
               <button
                 type="button"
-                onClick={() => { setEditMode(true); setEditText(disposition?.edited_text || item.description); }}
+                onClick={() => { setEditMode(true); setEditText(editedDescription); }}
                 className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[10px] font-medium transition-colors cursor-pointer focus:outline-none focus:ring-1 focus:ring-cta ${
                   action === 'edit'
                     ? 'bg-info/15 border-info/30 text-info'

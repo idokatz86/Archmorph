@@ -24,7 +24,7 @@ from routers.shared import (
     authorize_diagram_access,
     limiter,
     require_diagram_access,
-    verify_api_key,
+    verify_api_key_or_user_session,
 )
 from error_envelope import ArchmorphException
 from review_queue_builder import build_review_queue, queue_summary, apply_risk_annotations
@@ -43,6 +43,7 @@ class DispositionRequest(StrictBaseModel):
 
     action: str = Field(
         ...,
+        max_length=20,
         description="One of: accept | edit | mark_risk | exclude",
     )
     edited_text: Optional[str] = Field(
@@ -50,11 +51,6 @@ class DispositionRequest(StrictBaseModel):
         max_length=2000,
         description="Replacement text used when action is 'edit'.",
     )
-
-    def model_post_init(self, __context: Any) -> None:  # noqa: D401
-        if self.action not in _VALID_ACTIONS:
-            raise ValueError(f"action must be one of {sorted(_VALID_ACTIONS)}")
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # GET /api/diagrams/{diagram_id}/review-queue
@@ -68,7 +64,7 @@ class DispositionRequest(StrictBaseModel):
 async def get_review_queue(
     request: Request,
     diagram_id: str,
-    _auth: Any = Depends(verify_api_key),
+    _auth: Any = Depends(verify_api_key_or_user_session),
 ) -> dict[str, Any]:
     """Return the architect review queue for a diagram.
 
@@ -108,7 +104,7 @@ async def get_review_queue(
 async def get_review_queue_summary(
     request: Request,
     diagram_id: str,
-    _auth: Any = Depends(verify_api_key),
+    _auth: Any = Depends(verify_api_key_or_user_session),
 ) -> dict[str, Any]:
     """Lightweight gate-check endpoint.
 
@@ -136,13 +132,19 @@ async def set_item_disposition(
     diagram_id: str,
     item_id: str,
     body: DispositionRequest,
-    _auth: Any = Depends(verify_api_key),
+    _auth: Any = Depends(verify_api_key_or_user_session),
 ) -> dict[str, Any]:
     """Record an architect disposition on one review queue item.
 
     Persists the decision to the session store and returns the updated summary
     so the client can immediately refresh gate state.
     """
+    if body.action not in _VALID_ACTIONS:
+        raise ArchmorphException(
+            status_code=422,
+            detail=f"action must be one of {', '.join(sorted(_VALID_ACTIONS))}",
+        )
+
     session = authorize_diagram_access(request, diagram_id, purpose="review queue disposition")
 
     items = build_review_queue(session)

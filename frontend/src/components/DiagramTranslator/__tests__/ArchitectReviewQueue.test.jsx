@@ -86,6 +86,15 @@ describe('ArchitectReviewQueue', () => {
     expect(screen.getByText(/The mapping from EC2 to Azure VM has a confidence/i)).toBeInTheDocument()
   })
 
+  it('renders object-shaped item text without crashing', () => {
+    render(<ArchitectReviewQueue {...defaultProps} items={[makeItem({
+      title: { message: 'Object title rendered safely' },
+      description: { description: 'Object description rendered safely' },
+    })]} />)
+    expect(screen.getByText('Object title rendered safely')).toBeInTheDocument()
+    expect(screen.getByText('Object description rendered safely')).toBeInTheDocument()
+  })
+
   it('renders multiple buckets when items span buckets', () => {
     const items = [makeHighItem(), makeGapItem()]
     render(<ArchitectReviewQueue {...defaultProps} items={items} />)

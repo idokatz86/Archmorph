@@ -5,8 +5,6 @@ Unit tests for review_queue_builder — Issue #1137.
 import os
 import sys
 
-import pytest
-
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from review_queue_builder import (
@@ -225,6 +223,23 @@ class TestBuildReviewQueue:
         analysis = _make_analysis(warnings=[{"message": "Security group is too permissive."}])
         items = build_review_queue(analysis)
         assert any("Security group" in i["description"] for i in items)
+
+    def test_non_string_warning_is_coerced(self):
+        analysis = _make_analysis(warnings=[{"description": "NAT gateway cost should be reviewed"}])
+        items = build_review_queue(analysis)
+        assert any(i["bucket"] == "cost_warning" for i in items)
+
+    def test_non_numeric_confidence_is_review_item_not_crash(self):
+        analysis = _make_analysis(
+            mappings=[{"source_service": {"name": "MysterySvc"}, "azure_service": {"name": "ReviewTarget"}, "confidence": "n/a"}]
+        )
+        items = build_review_queue(analysis)
+        assert any("MysterySvc" in i["title"] for i in items)
+
+    def test_list_compliance_is_coerced(self):
+        analysis = _make_analysis(profile={"compliance": ["SOC 2", "GDPR"]})
+        items = build_review_queue(analysis)
+        assert any("SOC 2, GDPR" in i["title"] for i in items)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

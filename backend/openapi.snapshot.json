@@ -1924,6 +1924,36 @@
         "title": "DeploymentRequest",
         "type": "object"
       },
+      "DispositionRequest": {
+        "additionalProperties": false,
+        "description": "Body for a disposition decision on one review item.",
+        "properties": {
+          "action": {
+            "description": "One of: accept | edit | mark_risk | exclude",
+            "maxLength": 20,
+            "title": "Action",
+            "type": "string"
+          },
+          "edited_text": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Replacement text used when action is 'edit'.",
+            "title": "Edited Text"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "title": "DispositionRequest",
+        "type": "object"
+      },
       "DocumentResponseSchema": {
         "additionalProperties": false,
         "properties": {
@@ -10168,6 +10198,175 @@
           }
         },
         "summary": "Restore Session"
+      }
+    },
+    "/api/diagrams/{diagram_id}/review-queue": {
+      "get": {
+        "description": "Return the architect review queue for a diagram.\n\nItems are built from the analysis result (low-confidence mappings,\nwarnings, assumptions, compliance flags).  Saved dispositions are\nmerged in so the client can restore UI state.",
+        "operationId": "get_review_queue_api_diagrams__diagram_id__review_queue_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "diagram_id",
+            "required": true,
+            "schema": {
+              "title": "Diagram Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Review Queue Api Diagrams  Diagram Id  Review Queue Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Review Queue",
+        "tags": [
+          "review-queue"
+        ]
+      }
+    },
+    "/api/diagrams/{diagram_id}/review-queue/summary": {
+      "get": {
+        "description": "Lightweight gate-check endpoint.\n\nReturns the queue summary only (no item details) so the UI can decide\nwhether to show a deliverables gate without fetching the full queue.",
+        "operationId": "get_review_queue_summary_api_diagrams__diagram_id__review_queue_summary_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "diagram_id",
+            "required": true,
+            "schema": {
+              "title": "Diagram Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Review Queue Summary Api Diagrams  Diagram Id  Review Queue Summary Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Review Queue Summary",
+        "tags": [
+          "review-queue"
+        ]
+      }
+    },
+    "/api/diagrams/{diagram_id}/review-queue/{item_id}/disposition": {
+      "post": {
+        "description": "Record an architect disposition on one review queue item.\n\nPersists the decision to the session store and returns the updated summary\nso the client can immediately refresh gate state.",
+        "operationId": "set_item_disposition_api_diagrams__diagram_id__review_queue__item_id__disposition_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "diagram_id",
+            "required": true,
+            "schema": {
+              "title": "Diagram Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "title": "Item Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DispositionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Set Item Disposition Api Diagrams  Diagram Id  Review Queue  Item Id  Disposition Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Set Item Disposition",
+        "tags": [
+          "review-queue"
+        ]
       }
     },
     "/api/diagrams/{diagram_id}/share": {
@@ -21010,6 +21209,178 @@
         },
         "summary": "Restore Session V1",
         "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/diagrams/{diagram_id}/review-queue": {
+      "get": {
+        "description": "Return the architect review queue for a diagram.\n\nItems are built from the analysis result (low-confidence mappings,\nwarnings, assumptions, compliance flags).  Saved dispositions are\nmerged in so the client can restore UI state.",
+        "operationId": "get_review_queue_v1_api_v1_diagrams__diagram_id__review_queue_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "diagram_id",
+            "required": true,
+            "schema": {
+              "title": "Diagram Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Review Queue V1 Api V1 Diagrams  Diagram Id  Review Queue Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Review Queue V1",
+        "tags": [
+          "review-queue",
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/diagrams/{diagram_id}/review-queue/summary": {
+      "get": {
+        "description": "Lightweight gate-check endpoint.\n\nReturns the queue summary only (no item details) so the UI can decide\nwhether to show a deliverables gate without fetching the full queue.",
+        "operationId": "get_review_queue_summary_v1_api_v1_diagrams__diagram_id__review_queue_summary_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "diagram_id",
+            "required": true,
+            "schema": {
+              "title": "Diagram Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Review Queue Summary V1 Api V1 Diagrams  Diagram Id  Review Queue Summary Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Get Review Queue Summary V1",
+        "tags": [
+          "review-queue",
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/diagrams/{diagram_id}/review-queue/{item_id}/disposition": {
+      "post": {
+        "description": "Record an architect disposition on one review queue item.\n\nPersists the decision to the session store and returns the updated summary\nso the client can immediately refresh gate state.",
+        "operationId": "set_item_disposition_v1_api_v1_diagrams__diagram_id__review_queue__item_id__disposition_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "diagram_id",
+            "required": true,
+            "schema": {
+              "title": "Diagram Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "title": "Item Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DispositionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Set Item Disposition V1 Api V1 Diagrams  Diagram Id  Review Queue  Item Id  Disposition Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Set Item Disposition V1",
+        "tags": [
+          "review-queue",
           "v1"
         ]
       }
