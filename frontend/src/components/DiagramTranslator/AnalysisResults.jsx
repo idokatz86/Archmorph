@@ -9,6 +9,7 @@ import { Badge, Button, Card } from '../ui';
 import ExportPanel from './ExportPanel';
 import ResultsTable from './ResultsTable';
 import ExportHub from './ExportHub';
+import ArchitectReviewQueue from './ArchitectReviewQueue';
 import { HelpTooltip, HELP_CONTENT } from '../HelpTooltip';
 import { toRenderableString } from '../../utils/toRenderableString';
 
@@ -311,6 +312,7 @@ export default function AnalysisResults({
   onSetStep, onGenerateIac, onExportDiagram, onCopyWithFeedback,
   diagramId, exportCapability, onExportCapability,
   assumptions = [], questionsCount = 0, onReviewAssumptions,
+  reviewItems = [], reviewDispositions = {}, reviewSummary = {}, onDispose, reviewLoading = false,
 }) {
   const [resultsView, setResultsView] = useState('card');
 
@@ -394,6 +396,15 @@ export default function AnalysisResults({
           </>
         )}
       </Card>
+
+      {/* Architect Review Queue — Issue #1137 */}
+      <ArchitectReviewQueue
+        items={reviewItems}
+        dispositions={reviewDispositions}
+        summary={reviewSummary}
+        onDispose={onDispose}
+        loading={reviewLoading}
+      />
 
       {assumptions.length > 0 && (
         <Card className="p-4 border-info/20 bg-info/5">
@@ -576,8 +587,31 @@ export default function AnalysisResults({
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
         <Button onClick={() => onSetStep('questions')} variant="ghost" icon={HelpCircle}>Back to Questions</Button>
         <div className="flex flex-wrap items-center gap-2 justify-end">
-          <Button onClick={() => onGenerateIac('terraform')} loading={loading && iacFormat === 'terraform'} icon={FileCode}>Terraform</Button>
-          <Button onClick={() => onGenerateIac('bicep')} variant="secondary" loading={loading && iacFormat === 'bicep'} icon={FileCode}>Bicep</Button>
+          {reviewSummary.gated && (
+            <span className="inline-flex items-center gap-1.5 rounded-md border border-danger/30 bg-danger/10 px-2.5 py-1.5 text-xs font-medium text-danger">
+              <svg className="w-3.5 h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m0 0v2m0-2h2m-2 0H10m2-6V7m0 0a4 4 0 00-4 4v1H5l-1 4h16l-1-4h-3v-1a4 4 0 00-4-4z" /></svg>
+              Review queue has blockers
+            </span>
+          )}
+          <Button
+            onClick={() => onGenerateIac('terraform')}
+            loading={loading && iacFormat === 'terraform'}
+            icon={FileCode}
+            disabled={!!reviewSummary.gated}
+            title={reviewSummary.gated ? 'Resolve all high-severity review items before generating' : undefined}
+          >
+            Terraform
+          </Button>
+          <Button
+            onClick={() => onGenerateIac('bicep')}
+            variant="secondary"
+            loading={loading && iacFormat === 'bicep'}
+            icon={FileCode}
+            disabled={!!reviewSummary.gated}
+            title={reviewSummary.gated ? 'Resolve all high-severity review items before generating' : undefined}
+          >
+            Bicep
+          </Button>
         </div>
       </div>
     </div>

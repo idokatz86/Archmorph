@@ -2508,6 +2508,76 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/diagrams/{diagram_id}/review-queue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Review Queue
+         * @description Return the architect review queue for a diagram.
+         *
+         *     Items are built from the analysis result (low-confidence mappings,
+         *     warnings, assumptions, compliance flags).  Saved dispositions are
+         *     merged in so the client can restore UI state.
+         */
+        get: operations["get_review_queue_api_diagrams__diagram_id__review_queue_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/diagrams/{diagram_id}/review-queue/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Review Queue Summary
+         * @description Lightweight gate-check endpoint.
+         *
+         *     Returns the queue summary only (no item details) so the UI can decide
+         *     whether to show a deliverables gate without fetching the full queue.
+         */
+        get: operations["get_review_queue_summary_api_diagrams__diagram_id__review_queue_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/diagrams/{diagram_id}/review-queue/{item_id}/disposition": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set Item Disposition
+         * @description Record an architect disposition on one review queue item.
+         *
+         *     Persists the decision to the session store and returns the updated summary
+         *     so the client can immediately refresh gate state.
+         */
+        post: operations["set_item_disposition_api_diagrams__diagram_id__review_queue__item_id__disposition_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/diagrams/{diagram_id}/share": {
         parameters: {
             query?: never;
@@ -6967,6 +7037,76 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/diagrams/{diagram_id}/review-queue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Review Queue V1
+         * @description Return the architect review queue for a diagram.
+         *
+         *     Items are built from the analysis result (low-confidence mappings,
+         *     warnings, assumptions, compliance flags).  Saved dispositions are
+         *     merged in so the client can restore UI state.
+         */
+        get: operations["get_review_queue_v1_api_v1_diagrams__diagram_id__review_queue_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/diagrams/{diagram_id}/review-queue/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Review Queue Summary V1
+         * @description Lightweight gate-check endpoint.
+         *
+         *     Returns the queue summary only (no item details) so the UI can decide
+         *     whether to show a deliverables gate without fetching the full queue.
+         */
+        get: operations["get_review_queue_summary_v1_api_v1_diagrams__diagram_id__review_queue_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/diagrams/{diagram_id}/review-queue/{item_id}/disposition": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set Item Disposition V1
+         * @description Record an architect disposition on one review queue item.
+         *
+         *     Persists the decision to the session store and returns the updated summary
+         *     so the client can immediately refresh gate state.
+         */
+        post: operations["set_item_disposition_v1_api_v1_diagrams__diagram_id__review_queue__item_id__disposition_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/diagrams/{diagram_id}/share": {
         parameters: {
             query?: never;
@@ -10119,6 +10259,23 @@ export interface components {
             iac_code?: string | null;
             /** Project Id */
             project_id: string;
+        };
+        /**
+         * DispositionRequest
+         * @description Body for a disposition decision on one review item.
+         */
+        DispositionRequest: {
+            /**
+             * Action
+             * @description One of: accept | edit | mark_risk | exclude
+             * @enum {string}
+             */
+            action: "accept" | "edit" | "mark_risk" | "exclude";
+            /**
+             * Edited Text
+             * @description Replacement text for 'edit', or risk note for 'mark_risk'.
+             */
+            edited_text?: string | null;
         };
         /** DocumentResponseSchema */
         DocumentResponseSchema: {
@@ -14975,6 +15132,110 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_review_queue_api_diagrams__diagram_id__review_queue_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                diagram_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_review_queue_summary_api_diagrams__diagram_id__review_queue_summary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                diagram_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_item_disposition_api_diagrams__diagram_id__review_queue__item_id__disposition_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                diagram_id: string;
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DispositionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */
@@ -21929,6 +22190,110 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_review_queue_v1_api_v1_diagrams__diagram_id__review_queue_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                diagram_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_review_queue_summary_v1_api_v1_diagrams__diagram_id__review_queue_summary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                diagram_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_item_disposition_v1_api_v1_diagrams__diagram_id__review_queue__item_id__disposition_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                diagram_id: string;
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DispositionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */
