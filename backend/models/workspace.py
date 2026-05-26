@@ -31,6 +31,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    false,
 )
 from sqlalchemy.sql import func
 
@@ -58,7 +59,7 @@ class Workspace(Base):
     source_cloud = Column(String(20), nullable=False, server_default="aws")
     target_cloud = Column(String(20), nullable=False, server_default="azure")
     status = Column(String(20), nullable=False, server_default="active")  # active | archived
-    is_public = Column(Boolean, nullable=False, server_default="0")
+    is_public = Column(Boolean, nullable=False, server_default=false())
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

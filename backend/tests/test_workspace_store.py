@@ -22,7 +22,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from database import Base
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 import models  # noqa: F401 — register all ORM models with Base.metadata
@@ -61,6 +61,13 @@ def db():
         "sqlite:///:memory:",
         connect_args={"check_same_thread": False},
     )
+
+    @event.listens_for(engine, "connect")
+    def _enable_sqlite_foreign_keys(dbapi_connection, _connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
     Base.metadata.create_all(bind=engine)
     Session = sessionmaker(bind=engine)
     session = Session()
@@ -163,6 +170,17 @@ class TestSourceAsset:
         assert asset.workspace_id == ws.id
         assert asset.filename == "diagram.png"
 
+    def test_create_source_asset_rejects_foreign_workspace(self, db):
+        ws = create_workspace(db, owner_user_id="u1", tenant_id="t1", name="WS")
+        with pytest.raises(ValueError):
+            create_source_asset(
+                db,
+                workspace_id=ws.id,
+                owner_user_id="u2",
+                tenant_id="t2",
+                filename="diagram.png",
+            )
+
     def test_list_source_assets(self, db):
         ws = create_workspace(db, owner_user_id="u1", name="WS")
         create_source_asset(db, workspace_id=ws.id, owner_user_id="u1", filename="a.png")
@@ -202,6 +220,24 @@ class TestAnalysisCRUD:
         assert analysis.workspace_id == ws.id
         assert analysis.diagram_id == "diag-001"
 
+    def test_create_analysis_rejects_foreign_workspace(self, db):
+        ws = create_workspace(db, owner_user_id="u1", tenant_id="t1", name="WS")
+        with pytest.raises(ValueError):
+            create_analysis(db, workspace_id=ws.id, owner_user_id="u2", tenant_id="t2", diagram_id="d1")
+
+    def test_create_analysis_rejects_asset_from_other_workspace(self, db):
+        ws_a = create_workspace(db, owner_user_id="u1", name="WS-A")
+        ws_b = create_workspace(db, owner_user_id="u1", name="WS-B")
+        asset = create_source_asset(db, workspace_id=ws_a.id, owner_user_id="u1", filename="diagram.png")
+        with pytest.raises(ValueError):
+            create_analysis(
+                db,
+                workspace_id=ws_b.id,
+                owner_user_id="u1",
+                source_asset_id=asset.id,
+                diagram_id="d1",
+            )
+
     def test_get_analysis_ownership(self, db):
         ws = create_workspace(db, owner_user_id="u1", name="WS")
         a = create_analysis(db, workspace_id=ws.id, owner_user_id="u1", diagram_id="d1")
@@ -220,10 +256,10 @@ class TestAnalysisCRUD:
     def test_list_analyses_tenant_boundary(self, db):
         ws_a = create_workspace(db, owner_user_id="u1", tenant_id="t1", name="WS-A")
         ws_b = create_workspace(db, owner_user_id="u2", tenant_id="t2", name="WS-B")
-        create_analysis(db, workspace_id=ws_a.id, owner_user_id="u1", diagram_id="da")
-        create_analysis(db, workspace_id=ws_b.id, owner_user_id="u2", diagram_id="db")
-        result_a = list_analyses_in_workspace(db, workspace_id=ws_a.id, owner_user_id="u1")
-        result_b = list_analyses_in_workspace(db, workspace_id=ws_b.id, owner_user_id="u1")
+        create_analysis(db, workspace_id=ws_a.id, owner_user_id="u1", tenant_id="t1", diagram_id="da")
+        create_analysis(db, workspace_id=ws_b.id, owner_user_id="u2", tenant_id="t2", diagram_id="db")
+        result_a = list_analyses_in_workspace(db, workspace_id=ws_a.id, owner_user_id="u1", tenant_id="t1")
+        result_b = list_analyses_in_workspace(db, workspace_id=ws_b.id, owner_user_id="u1", tenant_id="t1")
         assert result_a["total"] == 1
         # u1 cannot list ws_b's analyses
         assert result_b["total"] == 0
@@ -607,6 +643,18 @@ class TestMaybeLinkSession:
         from models.workspace import Analysis as _Analysis
         analysis = db.query(_Analysis).filter_by(diagram_id="diag-linked").first()
         assert analysis.workspace_id == ws.id
+
+    def test_rejects_foreign_workspace_id(self, db):
+        ws = create_workspace(db, owner_user_id="owner", tenant_id="t1", name="Private WS")
+        result = maybe_link_session(
+            db,
+            owner_user_id="other",
+            tenant_id="t2",
+            diagram_id="diag-foreign",
+            session=self._sample_session,
+            workspace_id=ws.id,
+        )
+        assert result is None
 
     def test_maybe_link_session_is_tenant_scoped(self, db):
         v1 = maybe_link_session(

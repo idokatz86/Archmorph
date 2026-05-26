@@ -41,9 +41,10 @@ import json as _json
 import logging
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
+from log_sanitizer import safe
 from models.workspace import (
     Analysis,
     AnalysisVersion,
@@ -211,6 +212,10 @@ def create_source_asset(
     source_cloud: Optional[str] = None,
 ) -> SourceAsset:
     """Record metadata for an uploaded source asset."""
+    workspace = get_workspace(db, workspace_id, owner_user_id=owner_user_id, tenant_id=tenant_id)
+    if workspace is None:
+        raise ValueError(f"Workspace {workspace_id!r} not found or access denied")
+
     asset = SourceAsset(
         workspace_id=workspace_id,
         owner_user_id=owner_user_id,
@@ -293,6 +298,15 @@ def create_analysis(
     confidence_avg: Optional[float] = None,
 ) -> Analysis:
     """Create and persist an Analysis record."""
+    workspace = get_workspace(db, workspace_id, owner_user_id=owner_user_id, tenant_id=tenant_id)
+    if workspace is None:
+        raise ValueError(f"Workspace {workspace_id!r} not found or access denied")
+
+    if source_asset_id is not None:
+        source_asset = get_source_asset(db, source_asset_id, owner_user_id=owner_user_id, tenant_id=tenant_id)
+        if source_asset is None or source_asset.workspace_id != workspace_id:
+            raise ValueError(f"Source asset {source_asset_id!r} not found or access denied")
+
     analysis = Analysis(
         workspace_id=workspace_id,
         owner_user_id=owner_user_id,
@@ -312,9 +326,9 @@ def create_analysis(
     db.refresh(analysis)
     logger.info(
         "analysis_created analysis_id=%s workspace=%s diagram=%s",
-        analysis.id,
-        workspace_id,
-        diagram_id,
+        safe(analysis.id),
+        safe(workspace_id),
+        safe(diagram_id or ""),
     )
     return analysis
 
@@ -439,7 +453,7 @@ def save_analysis_version(
 
 
 def _trim_old_versions(db: Session, analysis_id: str) -> None:
-    """Delete oldest versions beyond MAX_VERSIONS_PER_ANALYSIS."""
+    """Delete oldest unreferenced versions beyond MAX_VERSIONS_PER_ANALYSIS."""
     versions = (
         db.query(AnalysisVersion)
         .filter(AnalysisVersion.analysis_id == analysis_id)
@@ -565,20 +579,20 @@ def restore_analysis_version(
                 existing = session_store.get(analysis.diagram_id) if hasattr(session_store, "get") else None
                 if isinstance(existing, dict):
                     if existing.get("_owner_user_id") not in (None, owner_user_id):
-                        logger.warning("session_restore_owner_mismatch diagram_id=%s", analysis.diagram_id)
+                        logger.warning("session_restore_owner_mismatch diagram_id=%s", safe(analysis.diagram_id))
                         return new_version
                     if existing.get("_tenant_id") not in (None, tenant_id):
-                        logger.warning("session_restore_tenant_mismatch diagram_id=%s", analysis.diagram_id)
+                        logger.warning("session_restore_tenant_mismatch diagram_id=%s", safe(analysis.diagram_id))
                         return new_version
                 restored_snapshot = {**snapshot, "_owner_user_id": owner_user_id, "_tenant_id": tenant_id}
                 session_store.set(analysis.diagram_id, restored_snapshot)
                 logger.info(
                     "session_restored_from_version diagram_id=%s version=%d",
-                    analysis.diagram_id,
+                    safe(analysis.diagram_id),
                     version_number,
                 )
             except Exception as exc:  # nosec B110 — session store is best-effort
-                logger.warning("session_store_restore_failed: %s", exc)
+                logger.warning("session_store_restore_failed: %s", safe(str(exc)))
 
     return new_version
 
@@ -789,7 +803,7 @@ def maybe_link_session(
             workspace_id=workspace_id,
         )
     except Exception as exc:
-        logger.warning("maybe_link_session_failed diagram_id=%s error=%s", diagram_id, exc)
+        logger.warning("maybe_link_session_failed diagram_id=%s error=%s", safe(diagram_id), safe(str(exc)))
         return None
 
 
@@ -815,7 +829,11 @@ def _do_link_session(
 
     if analysis is None:
         # Auto-create default workspace when not supplied
-        if workspace_id is None:
+        if workspace_id is not None:
+            workspace = get_workspace(db, workspace_id, owner_user_id=owner_user_id, tenant_id=tenant_id)
+            if workspace is None:
+                raise ValueError(f"Workspace {workspace_id!r} not found or access denied")
+        else:
             existing_ws = (
                 db.query(Workspace)
                 .filter(
