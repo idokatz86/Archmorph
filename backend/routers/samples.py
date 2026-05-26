@@ -366,6 +366,7 @@ def build_sample_analysis(sample_id: str, diagram_id: str) -> dict:
                 "azure_service": azure_svc,
                 "confidence": confidence,
                 "confidence_explanation": conf_explanation,
+                "source": "sample",
                 "notes": f"Zone {zone_idx} \u2013 {zone_def['name']}: {role}. {notes_text}".strip()
             }
             deep_dive = build_mapping_deep_dive(mapping_entry, svc_name)
@@ -377,7 +378,20 @@ def build_sample_analysis(sample_id: str, diagram_id: str) -> dict:
                 mapping_entry["limitations"] = [f"Feature parity mismatch: Azure {azure_svc} may lack some specific integrations available natively in {sample['provider'].upper()}. Refer to https://learn.microsoft.com/en-us/azure/architecture/aws-professional/services for a detailed feature comparison."]
             if not mapping_entry.get("migration_notes"):
                 mapping_entry["migration_notes"] = [f"AWS usually migrates to Azure {azure_svc} with minimal refactoring." if sample['provider'] == 'aws' else f"GCP has differing networking topologies, test {azure_svc} routes."]
-            
+
+            # ── Trust/evidence layer (#1130) ──
+            try:
+                from mapping_evidence import build_mapping_evidence  # type: ignore[import]
+                # Use a deterministic timestamp derived from the catalog's last_reviewed
+                # date so repeated calls to build_sample_analysis produce identical output.
+                catalog_freshness = mapping.get("last_reviewed") if mapping else None
+                _sample_ts = f"{catalog_freshness}T00:00:00Z" if catalog_freshness else "2026-05-03T00:00:00Z"
+                evidence = build_mapping_evidence(mapping_entry, run_id=diagram_id, analysis_timestamp=_sample_ts)
+                mapping_entry["evidence"] = evidence
+                mapping_entry.setdefault("needs_review", evidence["needs_review"])
+            except Exception:  # noqa: BLE001
+                pass
+
             mappings.append(mapping_entry)
 
             zone_services.append({
