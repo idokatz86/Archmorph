@@ -45,6 +45,42 @@ class OpenAIAdmissionTimeout(TimeoutError):
     """Raised when local admission capacity is exhausted before an API attempt starts."""
 
 
+# ─────────────────────────────────────────────────────────────
+# OpenAI error/rate-limit metric counters
+# ─────────────────────────────────────────────────────────────
+_openai_metrics_lock = threading.Lock()
+_openai_metrics: Dict[str, int] = {
+    "rate_limit_total": 0,
+    "timeout_total": 0,
+    "rate_limit_retry_total": 0,
+    "timeout_retry_total": 0,
+    "admission_timeout_total": 0,
+    "error_total": 0,
+}
+
+
+def _increment_openai_metric(key: str) -> None:
+    """Thread-safe increment of an OpenAI metric counter."""
+    with _openai_metrics_lock:
+        _openai_metrics[key] = _openai_metrics.get(key, 0) + 1
+    # Also push to the shared observability system if available.
+    try:
+        from observability import increment_counter
+        increment_counter(f"openai.{key}", tags={"component": "openai_client"})
+    except Exception:
+        pass  # nosec B110 — metrics must never break request handling
+
+
+def get_openai_error_metrics() -> Dict[str, Any]:
+    """Return a snapshot of OpenAI error/rate-limit counters."""
+    with _openai_metrics_lock:
+        return {
+            **_openai_metrics,
+            "scope": "process",
+            "process_id": os.getpid(),
+        }
+
+
 def handle_openai_error(exc: Exception, context: str = "OpenAI call") -> OpenAIServiceError:
     """Map raw OpenAI exceptions to a unified OpenAIServiceError.
 
@@ -62,36 +98,42 @@ def handle_openai_error(exc: Exception, context: str = "OpenAI call") -> OpenAIS
     """
     if isinstance(exc, OpenAIAdmissionTimeout):
         logger.warning("%s admission queue exhausted: %s", context, exc)
+        _increment_openai_metric("admission_timeout_total")
         return OpenAIServiceError(
             f"{context} is temporarily at capacity. Please retry shortly.",
             retryable=True, status_code=429,
         )
     if isinstance(exc, RateLimitError):
         logger.warning("%s rate-limited: %s", context, exc)
+        _increment_openai_metric("rate_limit_total")
         return OpenAIServiceError(
             f"{context} is temporarily rate-limited. Please retry shortly.",
             retryable=True, status_code=429,
         )
     if isinstance(exc, (APITimeoutError, APIConnectionError, TimeoutError)):
         logger.error("%s connection failure: %s", context, exc)
+        _increment_openai_metric("timeout_total")
         return OpenAIServiceError(
             f"{context} timed out or lost connectivity. Please retry.",
             retryable=True, status_code=504,
         )
     if isinstance(exc, AuthenticationError):
         logger.error("%s authentication failed: %s", context, exc)
+        _increment_openai_metric("error_total")
         return OpenAIServiceError(
             f"{context} authentication error. Contact support.",
             retryable=False, status_code=502,
         )
     if isinstance(exc, BadRequestError):
         logger.warning("%s bad request: %s", context, exc)
+        _increment_openai_metric("error_total")
         return OpenAIServiceError(
             f"{context} received an invalid request. Check your input.",
             retryable=False, status_code=400,
         )
     # Fallback for unexpected errors
     logger.error("%s unexpected error: %s", context, exc, exc_info=True)
+    _increment_openai_metric("error_total")
     return OpenAIServiceError(
         f"{context} failed unexpectedly. Please try again.",
         retryable=True, status_code=502,
@@ -201,10 +243,16 @@ def _retry_wait_seconds(retry_state) -> float:
     base = min(30.0, float(2 ** safe_attempt))
     delay = base + random.uniform(0, 0.5)
     exc = retry_state.outcome.exception() if retry_state.outcome else None
-    if exc is not None and _retryable_status(exc):
-        provider_delay = _parse_retry_after_seconds(exc)
-        if provider_delay is not None:
-            return max(delay, provider_delay)
+    if exc is not None:
+        # Track each 429 / timeout that causes a retry.
+        if isinstance(exc, RateLimitError):
+            _increment_openai_metric("rate_limit_retry_total")
+        elif isinstance(exc, (APITimeoutError, APIConnectionError, TimeoutError)):
+            _increment_openai_metric("timeout_retry_total")
+        if _retryable_status(exc):
+            provider_delay = _parse_retry_after_seconds(exc)
+            if provider_delay is not None:
+                return max(delay, provider_delay)
     return min(120.0, delay)
 
 

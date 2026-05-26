@@ -159,4 +159,23 @@ async def list_jobs(
 async def get_queue_metrics(request: Request):
     """Return async queue and event-buffer metrics for observability."""
     _job_principal_from_request(request)
-    return job_manager.metrics()
+    metrics = job_manager.metrics()
+    openai_defaults = {
+        "rate_limit_total": 0,
+        "timeout_total": 0,
+        "rate_limit_retry_total": 0,
+        "timeout_retry_total": 0,
+        "admission_timeout_total": 0,
+        "error_total": 0,
+        "scope": "process",
+        "process_id": None,
+        "available": False,
+    }
+    # Merge OpenAI error/rate-limit counters into the metrics payload.
+    try:
+        from openai_client import get_openai_error_metrics
+        metrics["openai"] = {**openai_defaults, **get_openai_error_metrics(), "available": True}
+    except Exception:
+        logger.debug("OpenAI metrics unavailable for jobs summary", exc_info=True)
+        metrics["openai"] = openai_defaults
+    return metrics

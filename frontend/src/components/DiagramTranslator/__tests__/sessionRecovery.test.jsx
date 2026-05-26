@@ -370,6 +370,65 @@ describe('DiagramTranslator — Signed-out auth recovery', () => {
     await waitFor(() => expect(screen.getByText('my-diagram.pdf')).toBeInTheDocument())
   })
 
+  it('does not fall back to sync analysis when async admission is rejected', async () => {
+    mockIsAuthenticated = true
+    mockHasBackendSession = true
+
+    const admissionErr = new Error('Active analysis job limit reached (5/5). Wait for current analysis jobs to finish and try again.')
+    admissionErr.status = 429
+    admissionErr.body = {
+      error: {
+        message: 'Active analysis job limit reached (5/5). Wait for current analysis jobs to finish and try again.',
+        details: { error: 'analysis_admission_rejected', scope: 'user', active_jobs: 5, limit: 5 },
+      },
+    }
+
+    mockApi.post
+      .mockResolvedValueOnce({ diagram_id: 'diag-admission', project_id: 'demo-project', export_capability: 'cap-token' })
+      .mockRejectedValueOnce(admissionErr)
+    mockApi.get.mockResolvedValue({ diagrams: [] })
+
+    render(<DiagramTranslator />)
+    await screen.findByText('Upload Architecture Diagram')
+
+    const input = document.querySelector('input[type="file"]')
+    const file = new File(['image'], 'architecture.png', { type: 'image/png' })
+    await act(async () => { fireEvent.change(input, { target: { files: [file] } }) })
+    await waitFor(() => expect(screen.getByText('architecture.png')).toBeInTheDocument())
+
+    await act(async () => { fireEvent.click(screen.getByText('Analyze This Diagram')) })
+
+    await waitFor(() => expect(screen.getByText(/Active analysis job limit reached/i)).toBeInTheDocument())
+    expect(mockApi.post).toHaveBeenCalledWith('/diagrams/diag-admission/analyze-async', undefined, expect.any(AbortSignal))
+    expect(mockApi.post).not.toHaveBeenCalledWith('/diagrams/diag-admission/analyze', undefined, expect.any(AbortSignal))
+  })
+
+  it('does not fall back to sync analysis when async analysis is aborted', async () => {
+    mockIsAuthenticated = true
+    mockHasBackendSession = true
+
+    const abortErr = new Error('Aborted')
+    abortErr.name = 'AbortError'
+
+    mockApi.post
+      .mockResolvedValueOnce({ diagram_id: 'diag-abort', project_id: 'demo-project', export_capability: 'cap-token' })
+      .mockRejectedValueOnce(abortErr)
+    mockApi.get.mockResolvedValue({ diagrams: [] })
+
+    render(<DiagramTranslator />)
+    await screen.findByText('Upload Architecture Diagram')
+
+    const input = document.querySelector('input[type="file"]')
+    const file = new File(['image'], 'architecture.png', { type: 'image/png' })
+    await act(async () => { fireEvent.change(input, { target: { files: [file] } }) })
+    await waitFor(() => expect(screen.getByText('architecture.png')).toBeInTheDocument())
+
+    await act(async () => { fireEvent.click(screen.getByText('Analyze This Diagram')) })
+
+    await waitFor(() => expect(mockApi.post).toHaveBeenCalledWith('/diagrams/diag-abort/analyze-async', undefined, expect.any(AbortSignal)))
+    expect(mockApi.post).not.toHaveBeenCalledWith('/diagrams/diag-abort/analyze', undefined, expect.any(AbortSignal))
+  })
+
   it('does not upload or analyze when user is SWA-only without a backend session', async () => {
     mockIsAuthenticated = true
     mockHasBackendSession = false
