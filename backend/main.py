@@ -152,6 +152,7 @@ from routers.terraform_import_routes import router as terraform_import_router  #
 from routers.cost_comparison_routes import router as cost_comparison_router  # noqa: E402
 from routers.collaboration_routes import router as collaboration_router  # noqa: E402
 from routers.replay_routes import router as replay_router  # noqa: E402
+from routers.release_annotations import router as release_annotations_router  # noqa: E402
 from routers.v1 import build_v1_router  # noqa: E402
 from api_versioning import VersionMiddleware  # noqa: E402
 from auth import get_user_from_request_headers, request_has_untrusted_swa_principal  # noqa: E402
@@ -208,6 +209,22 @@ def _origin_lock_enabled() -> bool:
         os.getenv("ENVIRONMENT", "production").lower() == "production"
         and bool(_trusted_front_door_fdid())
     )
+
+
+def _emit_direct_origin_blocked() -> None:
+    """Increment the direct-origin-blocked observability counter.
+
+    Emits a metric so Azure Monitor (and the admin dashboard) can track
+    direct-access attempts that bypassed the Front Door origin contract.
+    """
+    try:
+        from observability import increment_counter
+        increment_counter(
+            "security.direct_origin_blocked",
+            tags={"environment": os.getenv("ENVIRONMENT", "production")},
+        )
+    except Exception:
+        pass  # Never let telemetry failures affect request handling
 
 
 @asynccontextmanager
@@ -336,6 +353,7 @@ class ArchmorphMiddleware(BaseHTTPMiddleware):
     })
     _ORIGIN_LOCK_SKIP = frozenset({
         "/healthz",
+        "/readyz",
     })
 
     @staticmethod
@@ -374,6 +392,7 @@ class ArchmorphMiddleware(BaseHTTPMiddleware):
         expected_fdid = _trusted_front_door_fdid()
         request_fdid = request.headers.get("X-Azure-FDID", "").strip().lower()
         if request_fdid != expected_fdid:
+            _emit_direct_origin_blocked()
             return cls._trusted_origin_error(correlation_id)
 
         trusted_hosts = _trusted_front_door_hosts()
@@ -388,6 +407,7 @@ class ArchmorphMiddleware(BaseHTTPMiddleware):
         if host_candidates.intersection(trusted_hosts):
             return None
 
+        _emit_direct_origin_blocked()
         return cls._trusted_origin_error(correlation_id)
 
     @classmethod
@@ -590,6 +610,7 @@ app.include_router(terraform_import_router)
 app.include_router(cost_comparison_router)
 app.include_router(collaboration_router)
 app.include_router(replay_router)
+app.include_router(release_annotations_router)
 
 # ─────────────────────────────────────────────────────────────
 # API v1 Versioned Routes (/api/v1/* mirrors the stable public API subset)
