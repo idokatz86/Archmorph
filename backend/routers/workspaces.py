@@ -344,11 +344,11 @@ async def restore_version_endpoint(
     if new_version is None:
         raise ArchmorphException(404, f"Version {version_number} not found")
     logger.info(
-        "analysis_version_restored analysis_id=%s from_version=%d new_version=%d",
+        "analysis_version_restored analysis_id=%s from_version=%s new_version=%s",
         safe(analysis_id),
-        version_number,
-        new_version.version_number,
-    )
+        safe(str(version_number)),
+        safe(str(new_version.version_number)),
+    )  # codeql[py/log-injection] Handled by custom sanitizer
     return {
         "restored_from": version_number,
         "new_version": new_version.to_dict(include_snapshot=False),
