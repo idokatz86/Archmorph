@@ -152,6 +152,7 @@ from routers.terraform_import_routes import router as terraform_import_router  #
 from routers.cost_comparison_routes import router as cost_comparison_router  # noqa: E402
 from routers.collaboration_routes import router as collaboration_router  # noqa: E402
 from routers.replay_routes import router as replay_router  # noqa: E402
+from routers.workspaces import router as workspaces_router  # noqa: E402
 from routers.v1 import build_v1_router  # noqa: E402
 from api_versioning import VersionMiddleware  # noqa: E402
 from auth import get_user_from_request_headers, request_has_untrusted_swa_principal  # noqa: E402
@@ -590,6 +591,7 @@ app.include_router(terraform_import_router)
 app.include_router(cost_comparison_router)
 app.include_router(collaboration_router)
 app.include_router(replay_router)
+app.include_router(workspaces_router)
 
 # ─────────────────────────────────────────────────────────────
 # API v1 Versioned Routes (/api/v1/* mirrors the stable public API subset)
@@ -645,6 +647,7 @@ _all_routers = [
     (cost_comparison_router, ""),
     (collaboration_router, ""),
     (replay_router, ""),
+    (workspaces_router, ""),
 ]
 v1_router = build_v1_router(_all_routers)
 app.include_router(v1_router)

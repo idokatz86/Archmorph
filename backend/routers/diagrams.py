@@ -18,6 +18,7 @@ import asyncio
 import base64
 import logging
 
+from database import get_db, SessionLocal
 from routers.shared import (
     SESSION_STORE, IMAGE_STORE, PROJECT_STORE, SHARE_STORE, EXPORT_CAPABILITY_STORE,
     limiter, verify_api_key, verify_api_key_or_user_session, MAX_UPLOAD_SIZE, generate_session_id,
@@ -54,6 +55,7 @@ from analysis_payload_bounds import (
     AnalysisPayloadTooLarge,
     validate_analysis_payload_bounds,
 )
+from workspace_store import maybe_link_session
 
 logger = logging.getLogger(__name__)
 
@@ -216,6 +218,16 @@ def _attach_lifecycle_receipt(
     )
 
 
+def _persist_workspace_snapshot(db, *, user_id: str, tenant_id: Optional[str], diagram_id: str, session: Dict[str, Any]) -> None:
+    maybe_link_session(
+        db,
+        owner_user_id=user_id,
+        tenant_id=tenant_id,
+        diagram_id=diagram_id,
+        session=session,
+    )
+
+
 # ─────────────────────────────────────────────────────────────
 # Diagrams — Upload
 # ─────────────────────────────────────────────────────────────
@@ -298,6 +310,7 @@ async def restore_session(
     diagram_id: str,
     body: RestoreSessionRequest,
     user=Depends(require_authenticated_user),
+    db=Depends(get_db),
 ):
     """Re-inject a cached analysis result into the session store.
 
@@ -370,6 +383,13 @@ async def restore_session(
         restored_parts.append("image")
     logger.info("Session restored for %s via client cache (%s)", str(diagram_id).replace('\n', '').replace('\r', ''), str(", ".join(restored_parts)).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
     record_event("sessions_restored", {"diagram_id": diagram_id, "parts": restored_parts})
+    _persist_workspace_snapshot(
+        db,
+        user_id=user.id,
+        tenant_id=user.tenant_id,
+        diagram_id=diagram_id,
+        session=analysis,
+    )
     return _attach_lifecycle_receipt(attach_export_capability(
         {"status": "restored", "diagram_id": diagram_id, "restored": restored_parts},
         diagram_id,
@@ -544,6 +564,17 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
         record_funnel_step(diagram_id, "analyze")
         if user:
             maybe_save_from_session(user.id, result, diagram_id)
+            db = SessionLocal()
+            try:
+                _persist_workspace_snapshot(
+                    db,
+                    user_id=user.id,
+                    tenant_id=user.tenant_id,
+                    diagram_id=diagram_id,
+                    session=result,
+                )
+            finally:
+                db.close()
         return _attach_lifecycle_receipt(attach_export_capability(result, diagram_id), diagram_id, image_present=True, session_present=True)
 
     # No need to pre-compress, vision analyzer and classifier handle it internally
@@ -605,6 +636,17 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
 
     if user:
         maybe_save_from_session(user.id, result, diagram_id)
+        db = SessionLocal()
+        try:
+            _persist_workspace_snapshot(
+                db,
+                user_id=user.id,
+                tenant_id=user.tenant_id,
+                diagram_id=diagram_id,
+                session=result,
+            )
+        finally:
+            db.close()
 
     return _attach_lifecycle_receipt(attach_export_capability(result, diagram_id), diagram_id, image_present=True, session_present=True)
 
@@ -754,6 +796,17 @@ async def _run_analysis_job(job_id: str, diagram_id: str) -> None:
         # Save to user history if job carries an authenticated owner.
         if job_user_id:
             maybe_save_from_session(job_user_id, result, diagram_id)
+            db = SessionLocal()
+            try:
+                _persist_workspace_snapshot(
+                    db,
+                    user_id=job_user_id,
+                    tenant_id=job_tenant_id,
+                    diagram_id=diagram_id,
+                    session=result,
+                )
+            finally:
+                db.close()
         elif job_api_principal_id:
             logger.debug(
                 "Skipping user history persistence for API principal-owned async analysis %s",
