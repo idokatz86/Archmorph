@@ -1,7 +1,7 @@
 """Add durable workspace, analysis-version, and artifact tables (Issue #1129).
 
 Revision ID: 013
-Revises: 012
+Revises: 012_deployment_state_owner
 Create Date: 2026-05-25
 """
 
@@ -9,7 +9,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = "013"
-down_revision = "012"
+down_revision = "012_deployment_state_owner"
 branch_labels = None
 depends_on = None
 
@@ -42,6 +42,7 @@ def upgrade() -> None:
         sa.Column("workspace_id", sa.String(36),
                   sa.ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False),
         sa.Column("owner_user_id", sa.String(100), nullable=False),
+        sa.Column("tenant_id", sa.String(36), nullable=True),
         sa.Column("filename", sa.String(500), nullable=False),
         sa.Column("content_type", sa.String(100), nullable=True),
         sa.Column("file_size_bytes", sa.Integer(), nullable=True),
@@ -52,6 +53,7 @@ def upgrade() -> None:
     )
     op.create_index("ix_source_assets_workspace_id", "source_assets", ["workspace_id"])
     op.create_index("ix_source_assets_owner_user_id", "source_assets", ["owner_user_id"])
+    op.create_index("ix_source_assets_owner_tenant", "source_assets", ["owner_user_id", "tenant_id"])
     op.create_index("ix_source_assets_content_hash", "source_assets", ["content_hash"])
     op.create_index("ix_source_assets_diagram_id", "source_assets", ["diagram_id"])
     op.create_index("ix_source_assets_workspace_hash", "source_assets", ["workspace_id", "content_hash"])
@@ -106,6 +108,7 @@ def upgrade() -> None:
         "ix_analysis_versions_analysis_num",
         "analysis_versions",
         ["analysis_id", "version_number"],
+        unique=True,
     )
 
     # ── Artifacts ─────────────────────────────────────────────────
@@ -119,6 +122,7 @@ def upgrade() -> None:
         sa.Column("source_asset_id", sa.String(36),
                   sa.ForeignKey("source_assets.id", ondelete="SET NULL"), nullable=True),
         sa.Column("owner_user_id", sa.String(100), nullable=False),
+        sa.Column("tenant_id", sa.String(36), nullable=True),
         sa.Column("artifact_type", sa.String(50), nullable=False),
         sa.Column("format", sa.String(20), nullable=True),
         sa.Column("content", sa.Text(), nullable=True),
@@ -130,6 +134,7 @@ def upgrade() -> None:
     op.create_index("ix_artifacts_analysis_id", "artifacts", ["analysis_id"])
     op.create_index("ix_artifacts_version_id", "artifacts", ["version_id"])
     op.create_index("ix_artifacts_owner_user_id", "artifacts", ["owner_user_id"])
+    op.create_index("ix_artifacts_owner_tenant", "artifacts", ["owner_user_id", "tenant_id"])
     op.create_index("ix_artifacts_artifact_type", "artifacts", ["artifact_type"])
     op.create_index("ix_artifacts_content_hash", "artifacts", ["content_hash"])
     op.create_index("ix_artifacts_created_at", "artifacts", ["created_at"])
@@ -144,6 +149,7 @@ def upgrade() -> None:
         sa.Column("version_id", sa.String(36),
                   sa.ForeignKey("analysis_versions.id", ondelete="SET NULL"), nullable=True),
         sa.Column("owner_user_id", sa.String(100), nullable=False),
+        sa.Column("tenant_id", sa.String(36), nullable=True),
         sa.Column("decision_type", sa.String(50), nullable=False),
         sa.Column("title", sa.String(300), nullable=False),
         sa.Column("description", sa.Text(), nullable=True),
@@ -155,6 +161,7 @@ def upgrade() -> None:
     )
     op.create_index("ix_decisions_analysis_id", "decisions", ["analysis_id"])
     op.create_index("ix_decisions_owner_user_id", "decisions", ["owner_user_id"])
+    op.create_index("ix_decisions_owner_tenant", "decisions", ["owner_user_id", "tenant_id"])
     op.create_index("ix_decisions_created_at", "decisions", ["created_at"])
     op.create_index("ix_decisions_analysis_type", "decisions", ["analysis_id", "decision_type"])
 

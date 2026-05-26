@@ -29,7 +29,7 @@ Route map
 """
 
 import logging
-from typing import List, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import Field
@@ -38,6 +38,7 @@ from database import get_db
 from error_envelope import ArchmorphException
 from log_sanitizer import safe
 from routers.shared import SESSION_STORE, limiter, require_authenticated_user, verify_api_key
+from routers.shared import authorize_diagram_access
 from strict_models import StrictBaseModel
 from workspace_store import (
     create_analysis,
@@ -95,6 +96,10 @@ class CreateDecisionRequest(StrictBaseModel):
     description: Optional[str] = Field(default=None, max_length=5000)
     severity: Optional[str] = Field(default=None, max_length=20)
     version_id: Optional[str] = Field(default=None, max_length=36)
+
+
+def _tenant_id(user) -> Optional[str]:
+    return getattr(user, "tenant_id", None)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -156,7 +161,7 @@ async def get_workspace_endpoint(
     db=Depends(get_db),
 ):
     """Get a single workspace."""
-    ws = get_workspace(db, workspace_id, owner_user_id=user.id)
+    ws = get_workspace(db, workspace_id, owner_user_id=user.id, tenant_id=_tenant_id(user))
     if ws is None:
         raise ArchmorphException(404, "Workspace not found")
     return ws.to_dict()
@@ -174,7 +179,7 @@ async def update_workspace_endpoint(
 ):
     """Update workspace metadata."""
     fields = {k: v for k, v in body.model_dump().items() if v is not None}
-    ws = update_workspace(db, workspace_id, owner_user_id=user.id, **fields)
+    ws = update_workspace(db, workspace_id, owner_user_id=user.id, tenant_id=_tenant_id(user), **fields)
     if ws is None:
         raise ArchmorphException(404, "Workspace not found")
     return ws.to_dict()
@@ -190,7 +195,7 @@ async def delete_workspace_endpoint(
     db=Depends(get_db),
 ):
     """Delete a workspace and its analyses/versions/artifacts."""
-    deleted = delete_workspace(db, workspace_id, owner_user_id=user.id)
+    deleted = delete_workspace(db, workspace_id, owner_user_id=user.id, tenant_id=_tenant_id(user))
     if not deleted:
         raise ArchmorphException(404, "Workspace not found")
     logger.info("workspace_deleted_via_api workspace_id=%s", safe(workspace_id))
@@ -213,15 +218,17 @@ async def create_analysis_endpoint(
 ):
     """Create a new analysis in a workspace."""
     # Verify workspace ownership first
-    ws = get_workspace(db, workspace_id, owner_user_id=user.id)
+    ws = get_workspace(db, workspace_id, owner_user_id=user.id, tenant_id=_tenant_id(user))
     if ws is None:
         raise ArchmorphException(404, "Workspace not found")
+    if body.diagram_id:
+        authorize_diagram_access(request, body.diagram_id, purpose="link durable analysis")
 
     analysis = create_analysis(
         db,
         workspace_id=workspace_id,
         owner_user_id=user.id,
-        tenant_id=getattr(user, "tenant_id", None),
+        tenant_id=_tenant_id(user),
         diagram_id=body.diagram_id,
         source_asset_id=body.source_asset_id,
         title=body.title,
@@ -243,13 +250,14 @@ async def list_analyses_endpoint(
     db=Depends(get_db),
 ):
     """List analyses in a workspace."""
-    ws = get_workspace(db, workspace_id, owner_user_id=user.id)
+    ws = get_workspace(db, workspace_id, owner_user_id=user.id, tenant_id=_tenant_id(user))
     if ws is None:
         raise ArchmorphException(404, "Workspace not found")
     return list_analyses_in_workspace(
         db,
         workspace_id=workspace_id,
         owner_user_id=user.id,
+        tenant_id=_tenant_id(user),
         limit=limit,
         offset=offset,
     )
@@ -269,7 +277,7 @@ async def get_analysis_endpoint(
     db=Depends(get_db),
 ):
     """Get a single analysis record."""
-    analysis = get_analysis_record(db, analysis_id, owner_user_id=user.id)
+    analysis = get_analysis_record(db, analysis_id, owner_user_id=user.id, tenant_id=_tenant_id(user))
     if analysis is None:
         raise ArchmorphException(404, "Analysis not found")
     return analysis.to_dict()
@@ -285,10 +293,10 @@ async def list_versions_endpoint(
     db=Depends(get_db),
 ):
     """List version metadata for an analysis (snapshots excluded)."""
-    analysis = get_analysis_record(db, analysis_id, owner_user_id=user.id)
+    analysis = get_analysis_record(db, analysis_id, owner_user_id=user.id, tenant_id=_tenant_id(user))
     if analysis is None:
         raise ArchmorphException(404, "Analysis not found")
-    return {"versions": list_analysis_versions(db, analysis_id=analysis_id, owner_user_id=user.id)}
+    return {"versions": list_analysis_versions(db, analysis_id=analysis_id, owner_user_id=user.id, tenant_id=_tenant_id(user))}
 
 
 @router.get("/analyses/{analysis_id}/versions/{version_number}")
@@ -307,6 +315,7 @@ async def get_version_endpoint(
         analysis_id=analysis_id,
         version_number=version_number,
         owner_user_id=user.id,
+        tenant_id=_tenant_id(user),
     )
     if version is None:
         raise ArchmorphException(404, f"Version {version_number} not found")
@@ -329,6 +338,7 @@ async def restore_version_endpoint(
         analysis_id=analysis_id,
         version_number=version_number,
         owner_user_id=user.id,
+        tenant_id=_tenant_id(user),
         session_store=SESSION_STORE,
     )
     if new_version is None:
@@ -362,13 +372,14 @@ async def list_artifacts_endpoint(
     db=Depends(get_db),
 ):
     """List artifacts linked to an analysis."""
-    analysis = get_analysis_record(db, analysis_id, owner_user_id=user.id)
+    analysis = get_analysis_record(db, analysis_id, owner_user_id=user.id, tenant_id=_tenant_id(user))
     if analysis is None:
         raise ArchmorphException(404, "Analysis not found")
     return list_artifacts(
         db,
         analysis_id=analysis_id,
         owner_user_id=user.id,
+        tenant_id=_tenant_id(user),
         artifact_type=artifact_type,
         limit=limit,
         offset=offset,
@@ -387,10 +398,10 @@ async def get_artifact_endpoint(
     db=Depends(get_db),
 ):
     """Get a single artifact, optionally including inline content."""
-    analysis = get_analysis_record(db, analysis_id, owner_user_id=user.id)
+    analysis = get_analysis_record(db, analysis_id, owner_user_id=user.id, tenant_id=_tenant_id(user))
     if analysis is None:
         raise ArchmorphException(404, "Analysis not found")
-    artifact = get_artifact(db, artifact_id, owner_user_id=user.id)
+    artifact = get_artifact(db, artifact_id, owner_user_id=user.id, tenant_id=_tenant_id(user))
     if artifact is None or artifact.analysis_id != analysis_id:
         raise ArchmorphException(404, "Artifact not found")
     return artifact.to_dict(include_content=include_content)
@@ -411,7 +422,7 @@ async def list_decisions_endpoint(
     db=Depends(get_db),
 ):
     """List decisions/risks for an analysis."""
-    analysis = get_analysis_record(db, analysis_id, owner_user_id=user.id)
+    analysis = get_analysis_record(db, analysis_id, owner_user_id=user.id, tenant_id=_tenant_id(user))
     if analysis is None:
         raise ArchmorphException(404, "Analysis not found")
     return {
@@ -419,6 +430,7 @@ async def list_decisions_endpoint(
             db,
             analysis_id=analysis_id,
             owner_user_id=user.id,
+            tenant_id=_tenant_id(user),
             decision_type=decision_type,
         )
     }
@@ -435,13 +447,14 @@ async def create_decision_endpoint(
     db=Depends(get_db),
 ):
     """Record a risk or architectural decision for an analysis."""
-    analysis = get_analysis_record(db, analysis_id, owner_user_id=user.id)
+    analysis = get_analysis_record(db, analysis_id, owner_user_id=user.id, tenant_id=_tenant_id(user))
     if analysis is None:
         raise ArchmorphException(404, "Analysis not found")
     decision = create_decision(
         db,
         analysis_id=analysis_id,
         owner_user_id=user.id,
+        tenant_id=_tenant_id(user),
         decision_type=body.decision_type,
         title=body.title,
         description=body.description,

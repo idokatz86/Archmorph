@@ -42,6 +42,7 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
 from models.workspace import (
     Analysis,
@@ -70,6 +71,19 @@ def _short_hash(data: str) -> str:
 def _full_hash(data: bytes) -> str:
     """Return full 64-char SHA-256 hex digest."""
     return hashlib.sha256(data).hexdigest()
+
+
+def _tenant_matches(column, tenant_id: Optional[str]):
+    return column.is_(None) if tenant_id is None else column == tenant_id
+
+
+def _redact_snapshot(snapshot: Dict[str, Any]) -> Dict[str, Any]:
+    """Remove internal ownership/session fields before durable storage or API return."""
+    redacted = dict(snapshot or {})
+    for key in list(redacted):
+        if key.startswith("_owner_") or key in {"_tenant_id", "export_capability", "exportCapability"}:
+            redacted.pop(key, None)
+    return redacted
 
 
 # ─────────────────────────────────────────────────────────────
@@ -114,8 +128,7 @@ def get_workspace(
         Workspace.id == workspace_id,
         Workspace.owner_user_id == owner_user_id,
     )
-    if tenant_id:
-        q = q.filter(Workspace.tenant_id == tenant_id)
+    q = q.filter(_tenant_matches(Workspace.tenant_id, tenant_id))
     return q.first()
 
 
@@ -130,8 +143,7 @@ def list_workspaces(
 ) -> Dict[str, Any]:
     """List workspaces for a user with optional tenant/status filters."""
     q = db.query(Workspace).filter(Workspace.owner_user_id == owner_user_id)
-    if tenant_id:
-        q = q.filter(Workspace.tenant_id == tenant_id)
+    q = q.filter(_tenant_matches(Workspace.tenant_id, tenant_id))
     if status:
         q = q.filter(Workspace.status == status)
     total = q.count()
@@ -149,10 +161,11 @@ def update_workspace(
     workspace_id: str,
     *,
     owner_user_id: str,
+    tenant_id: Optional[str] = None,
     **fields: Any,
 ) -> Optional[Workspace]:
     """Update allowed fields on a workspace. Returns None when not found/forbidden."""
-    ws = get_workspace(db, workspace_id, owner_user_id=owner_user_id)
+    ws = get_workspace(db, workspace_id, owner_user_id=owner_user_id, tenant_id=tenant_id)
     if ws is None:
         return None
     allowed = {"name", "description", "status", "source_cloud", "target_cloud"}
@@ -169,9 +182,10 @@ def delete_workspace(
     workspace_id: str,
     *,
     owner_user_id: str,
+    tenant_id: Optional[str] = None,
 ) -> bool:
     """Delete a workspace and its cascaded records. Returns True when deleted."""
-    ws = get_workspace(db, workspace_id, owner_user_id=owner_user_id)
+    ws = get_workspace(db, workspace_id, owner_user_id=owner_user_id, tenant_id=tenant_id)
     if ws is None:
         return False
     db.delete(ws)
@@ -188,6 +202,7 @@ def create_source_asset(
     *,
     workspace_id: str,
     owner_user_id: str,
+    tenant_id: Optional[str] = None,
     filename: str,
     content_type: Optional[str] = None,
     file_size_bytes: Optional[int] = None,
@@ -199,6 +214,7 @@ def create_source_asset(
     asset = SourceAsset(
         workspace_id=workspace_id,
         owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
         filename=filename,
         content_type=content_type,
         file_size_bytes=file_size_bytes,
@@ -218,6 +234,7 @@ def get_source_asset(
     asset_id: str,
     *,
     owner_user_id: str,
+    tenant_id: Optional[str] = None,
 ) -> Optional[SourceAsset]:
     """Return a source asset owned by *owner_user_id*."""
     return (
@@ -225,6 +242,7 @@ def get_source_asset(
         .filter(
             SourceAsset.id == asset_id,
             SourceAsset.owner_user_id == owner_user_id,
+            _tenant_matches(SourceAsset.tenant_id, tenant_id),
         )
         .first()
     )
@@ -235,6 +253,7 @@ def list_source_assets(
     *,
     workspace_id: str,
     owner_user_id: str,
+    tenant_id: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
 ) -> Dict[str, Any]:
@@ -242,6 +261,7 @@ def list_source_assets(
     q = db.query(SourceAsset).filter(
         SourceAsset.workspace_id == workspace_id,
         SourceAsset.owner_user_id == owner_user_id,
+        _tenant_matches(SourceAsset.tenant_id, tenant_id),
     )
     total = q.count()
     items = q.order_by(SourceAsset.created_at.desc()).offset(offset).limit(limit).all()
@@ -311,8 +331,7 @@ def get_analysis_record(
         Analysis.id == analysis_id,
         Analysis.owner_user_id == owner_user_id,
     )
-    if tenant_id:
-        q = q.filter(Analysis.tenant_id == tenant_id)
+    q = q.filter(_tenant_matches(Analysis.tenant_id, tenant_id))
     return q.first()
 
 
@@ -321,6 +340,7 @@ def list_analyses_in_workspace(
     *,
     workspace_id: str,
     owner_user_id: str,
+    tenant_id: Optional[str] = None,
     limit: int = 20,
     offset: int = 0,
 ) -> Dict[str, Any]:
@@ -328,6 +348,7 @@ def list_analyses_in_workspace(
     q = db.query(Analysis).filter(
         Analysis.workspace_id == workspace_id,
         Analysis.owner_user_id == owner_user_id,
+        _tenant_matches(Analysis.tenant_id, tenant_id),
     )
     total = q.count()
     items = q.order_by(Analysis.updated_at.desc()).offset(offset).limit(limit).all()
@@ -348,6 +369,7 @@ def save_analysis_version(
     *,
     analysis_id: str,
     owner_user_id: str,
+    tenant_id: Optional[str] = None,
     snapshot: Dict[str, Any],
     label: Optional[str] = None,
     restored_from: Optional[int] = None,
@@ -357,51 +379,63 @@ def save_analysis_version(
     Also updates ``Analysis.current_version`` and trims old versions when the
     per-analysis cap is exceeded.
     """
-    analysis = (
-        db.query(Analysis)
-        .filter(Analysis.id == analysis_id, Analysis.owner_user_id == owner_user_id)
-        .first()
-    )
-    if analysis is None:
-        raise ValueError(f"Analysis {analysis_id!r} not found or access denied")
-
+    snapshot = _redact_snapshot(snapshot)
     snapshot_json = _json.dumps(snapshot, default=str)
     content_hash = _short_hash(snapshot_json)
-    new_version_number = analysis.current_version + 1
-
-    version = AnalysisVersion(
-        analysis_id=analysis_id,
-        version_number=new_version_number,
-        label=label or f"v{new_version_number}",
-        snapshot=snapshot_json,
-        content_hash=content_hash,
-        created_by=owner_user_id,
-        restored_from=restored_from,
-    )
-    db.add(version)
-
-    # Update parent analysis
-    analysis.current_version = new_version_number
-    # Also update summary stats from snapshot
     mappings = snapshot.get("mappings", [])
-    analysis.services_detected = snapshot.get("services_detected", len(mappings))
     confidences = [m.get("confidence") for m in mappings if m.get("confidence") is not None]
-    if confidences:
-        analysis.confidence_avg = round(sum(confidences) / len(confidences), 4)
+    services_detected = snapshot.get("services_detected", len(mappings))
+    confidence_avg = round(sum(confidences) / len(confidences), 4) if confidences else None
 
-    db.commit()
-    db.refresh(version)
+    last_integrity_error: Optional[IntegrityError] = None
+    for _attempt in range(3):
+        analysis = (
+            db.query(Analysis)
+            .filter(
+                Analysis.id == analysis_id,
+                Analysis.owner_user_id == owner_user_id,
+                _tenant_matches(Analysis.tenant_id, tenant_id),
+            )
+            .first()
+        )
+        if analysis is None:
+            raise ValueError(f"Analysis {analysis_id!r} not found or access denied")
 
-    # Trim oldest versions when cap exceeded
-    _trim_old_versions(db, analysis_id)
+        new_version_number = analysis.current_version + 1
+        version = AnalysisVersion(
+            analysis_id=analysis_id,
+            version_number=new_version_number,
+            label=label or f"v{new_version_number}",
+            snapshot=snapshot_json,
+            content_hash=content_hash,
+            created_by=owner_user_id,
+            restored_from=restored_from,
+        )
+        db.add(version)
+        analysis.current_version = new_version_number
+        analysis.services_detected = services_detected
+        if confidence_avg is not None:
+            analysis.confidence_avg = confidence_avg
 
-    logger.debug(
-        "analysis_version_saved analysis_id=%s version=%d hash=%s",
-        analysis_id,
-        new_version_number,
-        content_hash,
-    )
-    return version
+        try:
+            db.commit()
+        except IntegrityError as exc:
+            db.rollback()
+            last_integrity_error = exc
+            continue
+
+        db.refresh(version)
+        _trim_old_versions(db, analysis_id)
+        logger.debug(
+            "analysis_version_saved analysis_id=%s version=%d hash=%s",
+            analysis_id,
+            new_version_number,
+            content_hash,
+        )
+        return version
+
+    assert last_integrity_error is not None
+    raise last_integrity_error
 
 
 def _trim_old_versions(db: Session, analysis_id: str) -> None:
@@ -415,6 +449,14 @@ def _trim_old_versions(db: Session, analysis_id: str) -> None:
     excess = len(versions) - MAX_VERSIONS_PER_ANALYSIS
     if excess > 0:
         for v in versions[:excess]:
+            referenced = (
+                db.query(Artifact.id)
+                .filter(Artifact.version_id == v.id)
+                .first()
+                or db.query(Decision.id).filter(Decision.version_id == v.id).first()
+            )
+            if referenced:
+                continue
             db.delete(v)
         db.commit()
 
@@ -424,12 +466,17 @@ def list_analysis_versions(
     *,
     analysis_id: str,
     owner_user_id: str,
+    tenant_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """List version metadata (no snapshot) for an analysis."""
     # Ownership check
     analysis = (
         db.query(Analysis)
-        .filter(Analysis.id == analysis_id, Analysis.owner_user_id == owner_user_id)
+        .filter(
+            Analysis.id == analysis_id,
+            Analysis.owner_user_id == owner_user_id,
+            _tenant_matches(Analysis.tenant_id, tenant_id),
+        )
         .first()
     )
     if analysis is None:
@@ -449,11 +496,16 @@ def get_analysis_version(
     analysis_id: str,
     version_number: int,
     owner_user_id: str,
+    tenant_id: Optional[str] = None,
 ) -> Optional[AnalysisVersion]:
     """Return a version including snapshot; returns None when not found/forbidden."""
     analysis = (
         db.query(Analysis)
-        .filter(Analysis.id == analysis_id, Analysis.owner_user_id == owner_user_id)
+        .filter(
+            Analysis.id == analysis_id,
+            Analysis.owner_user_id == owner_user_id,
+            _tenant_matches(Analysis.tenant_id, tenant_id),
+        )
         .first()
     )
     if analysis is None:
@@ -474,6 +526,7 @@ def restore_analysis_version(
     analysis_id: str,
     version_number: int,
     owner_user_id: str,
+    tenant_id: Optional[str] = None,
     session_store: Any = None,
 ) -> Optional[AnalysisVersion]:
     """Restore a previous version by creating a new version from it.
@@ -488,6 +541,7 @@ def restore_analysis_version(
         analysis_id=analysis_id,
         version_number=version_number,
         owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
     )
     if source is None:
         return None
@@ -497,6 +551,7 @@ def restore_analysis_version(
         db,
         analysis_id=analysis_id,
         owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
         snapshot=snapshot,
         label=f"restored-from-v{version_number}",
         restored_from=version_number,
@@ -504,10 +559,19 @@ def restore_analysis_version(
 
     # Dual-write: update live session if store is provided and analysis has a diagram_id
     if session_store is not None:
-        analysis = db.query(Analysis).filter(Analysis.id == analysis_id).first()
+        analysis = get_analysis_record(db, analysis_id, owner_user_id=owner_user_id, tenant_id=tenant_id)
         if analysis and analysis.diagram_id:
             try:
-                session_store.set(analysis.diagram_id, snapshot)
+                existing = session_store.get(analysis.diagram_id) if hasattr(session_store, "get") else None
+                if isinstance(existing, dict):
+                    if existing.get("_owner_user_id") not in (None, owner_user_id):
+                        logger.warning("session_restore_owner_mismatch diagram_id=%s", analysis.diagram_id)
+                        return new_version
+                    if existing.get("_tenant_id") not in (None, tenant_id):
+                        logger.warning("session_restore_tenant_mismatch diagram_id=%s", analysis.diagram_id)
+                        return new_version
+                restored_snapshot = {**snapshot, "_owner_user_id": owner_user_id, "_tenant_id": tenant_id}
+                session_store.set(analysis.diagram_id, restored_snapshot)
                 logger.info(
                     "session_restored_from_version diagram_id=%s version=%d",
                     analysis.diagram_id,
@@ -528,6 +592,7 @@ def create_artifact(
     *,
     analysis_id: str,
     owner_user_id: str,
+    tenant_id: Optional[str] = None,
     artifact_type: str,
     version_id: Optional[str] = None,
     source_asset_id: Optional[str] = None,
@@ -547,6 +612,7 @@ def create_artifact(
         version_id=version_id,
         source_asset_id=source_asset_id,
         owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
         artifact_type=artifact_type,
         format=format,
         content=content,
@@ -571,6 +637,7 @@ def get_artifact(
     artifact_id: str,
     *,
     owner_user_id: str,
+    tenant_id: Optional[str] = None,
 ) -> Optional[Artifact]:
     """Return an artifact owned by *owner_user_id*."""
     return (
@@ -578,6 +645,7 @@ def get_artifact(
         .filter(
             Artifact.id == artifact_id,
             Artifact.owner_user_id == owner_user_id,
+            _tenant_matches(Artifact.tenant_id, tenant_id),
         )
         .first()
     )
@@ -588,6 +656,7 @@ def list_artifacts(
     *,
     analysis_id: str,
     owner_user_id: str,
+    tenant_id: Optional[str] = None,
     artifact_type: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
@@ -596,13 +665,21 @@ def list_artifacts(
     # Ownership check
     analysis = (
         db.query(Analysis)
-        .filter(Analysis.id == analysis_id, Analysis.owner_user_id == owner_user_id)
+        .filter(
+            Analysis.id == analysis_id,
+            Analysis.owner_user_id == owner_user_id,
+            _tenant_matches(Analysis.tenant_id, tenant_id),
+        )
         .first()
     )
     if analysis is None:
         return {"artifacts": [], "total": 0, "limit": limit, "offset": offset}
 
-    q = db.query(Artifact).filter(Artifact.analysis_id == analysis_id)
+    q = db.query(Artifact).filter(
+        Artifact.analysis_id == analysis_id,
+        Artifact.owner_user_id == owner_user_id,
+        _tenant_matches(Artifact.tenant_id, tenant_id),
+    )
     if artifact_type:
         q = q.filter(Artifact.artifact_type == artifact_type)
     total = q.count()
@@ -624,6 +701,7 @@ def create_decision(
     *,
     analysis_id: str,
     owner_user_id: str,
+    tenant_id: Optional[str] = None,
     decision_type: str,
     title: str,
     description: Optional[str] = None,
@@ -636,6 +714,7 @@ def create_decision(
         analysis_id=analysis_id,
         version_id=version_id,
         owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
         decision_type=decision_type,
         title=title,
         description=description,
@@ -653,17 +732,26 @@ def list_decisions(
     *,
     analysis_id: str,
     owner_user_id: str,
+    tenant_id: Optional[str] = None,
     decision_type: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """List decisions for an analysis."""
     analysis = (
         db.query(Analysis)
-        .filter(Analysis.id == analysis_id, Analysis.owner_user_id == owner_user_id)
+        .filter(
+            Analysis.id == analysis_id,
+            Analysis.owner_user_id == owner_user_id,
+            _tenant_matches(Analysis.tenant_id, tenant_id),
+        )
         .first()
     )
     if analysis is None:
         return []
-    q = db.query(Decision).filter(Decision.analysis_id == analysis_id)
+    q = db.query(Decision).filter(
+        Decision.analysis_id == analysis_id,
+        Decision.owner_user_id == owner_user_id,
+        _tenant_matches(Decision.tenant_id, tenant_id),
+    )
     if decision_type:
         q = q.filter(Decision.decision_type == decision_type)
     return [d.to_dict() for d in q.order_by(Decision.created_at.desc()).all()]
@@ -677,6 +765,7 @@ def maybe_link_session(
     db: Session,
     *,
     owner_user_id: str,
+    tenant_id: Optional[str] = None,
     diagram_id: str,
     session: Dict[str, Any],
     workspace_id: Optional[str] = None,
@@ -694,6 +783,7 @@ def maybe_link_session(
         return _do_link_session(
             db,
             owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
             diagram_id=diagram_id,
             session=session,
             workspace_id=workspace_id,
@@ -707,6 +797,7 @@ def _do_link_session(
     db: Session,
     *,
     owner_user_id: str,
+    tenant_id: Optional[str],
     diagram_id: str,
     session: Dict[str, Any],
     workspace_id: Optional[str],
@@ -717,6 +808,7 @@ def _do_link_session(
         .filter(
             Analysis.diagram_id == diagram_id,
             Analysis.owner_user_id == owner_user_id,
+            _tenant_matches(Analysis.tenant_id, tenant_id),
         )
         .first()
     )
@@ -728,6 +820,7 @@ def _do_link_session(
                 db.query(Workspace)
                 .filter(
                     Workspace.owner_user_id == owner_user_id,
+                    _tenant_matches(Workspace.tenant_id, tenant_id),
                     Workspace.name == "Default Workspace",
                     Workspace.status == "active",
                 )
@@ -739,6 +832,7 @@ def _do_link_session(
                 new_ws = create_workspace(
                     db,
                     owner_user_id=owner_user_id,
+                    tenant_id=tenant_id,
                     name="Default Workspace",
                     source_cloud=session.get("source_provider", "aws"),
                     target_cloud=session.get("target_provider", "azure"),
@@ -754,6 +848,7 @@ def _do_link_session(
             db,
             workspace_id=workspace_id,
             owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
             diagram_id=diagram_id,
             source_cloud=session.get("source_provider", "aws"),
             target_cloud=session.get("target_provider", "azure"),
@@ -766,5 +861,6 @@ def _do_link_session(
         db,
         analysis_id=analysis.id,
         owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
         snapshot=session,
     )

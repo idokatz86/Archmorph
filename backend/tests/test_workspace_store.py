@@ -289,6 +289,25 @@ class TestAnalysisVersions:
         d = v.to_dict(include_snapshot=True)
         assert d["snapshot"]["key"] == "val"
 
+    def test_save_version_redacts_internal_session_metadata(self, db):
+        a = self._make_analysis(db)
+        save_analysis_version(
+            db,
+            analysis_id=a.id,
+            owner_user_id="u1",
+            snapshot={
+                "services_detected": 1,
+                "_owner_user_id": "u1",
+                "_tenant_id": "t1",
+                "export_capability": {"token": "opaque"},
+            },
+        )
+        v = get_analysis_version(db, analysis_id=a.id, version_number=1, owner_user_id="u1")
+        snap = json.loads(v.snapshot)
+        assert "_owner_user_id" not in snap
+        assert "_tenant_id" not in snap
+        assert "export_capability" not in snap
+
     def test_get_version_not_found(self, db):
         a = self._make_analysis(db)
         v = get_analysis_version(db, analysis_id=a.id, version_number=99, owner_user_id="u1")
@@ -340,6 +359,31 @@ class TestAnalysisVersions:
         )
         assert "diag-v" in store.data
         assert store.data["diag-v"]["v"] == 1
+
+    def test_restore_does_not_overwrite_foreign_session_owner(self, db):
+        a = self._make_analysis(db)
+        save_analysis_version(db, analysis_id=a.id, owner_user_id="u1", snapshot={"v": 1})
+
+        class _FakeStore:
+            def __init__(self):
+                self.data = {"diag-v": {"_owner_user_id": "attacker", "_tenant_id": None}}
+
+            def get(self, key):
+                return self.data.get(key)
+
+            def set(self, key, value):
+                self.data[key] = value
+
+        store = _FakeStore()
+        new_v = restore_analysis_version(
+            db,
+            analysis_id=a.id,
+            version_number=1,
+            owner_user_id="u1",
+            session_store=store,
+        )
+        assert new_v is not None
+        assert store.data["diag-v"]["_owner_user_id"] == "attacker"
 
 
 # ─────────────────────────────────────────────────────────────
@@ -563,3 +607,25 @@ class TestMaybeLinkSession:
         from models.workspace import Analysis as _Analysis
         analysis = db.query(_Analysis).filter_by(diagram_id="diag-linked").first()
         assert analysis.workspace_id == ws.id
+
+    def test_maybe_link_session_is_tenant_scoped(self, db):
+        v1 = maybe_link_session(
+            db,
+            owner_user_id="u1",
+            tenant_id="tenant-a",
+            diagram_id="diag-shared",
+            session={"mappings": []},
+        )
+        v2 = maybe_link_session(
+            db,
+            owner_user_id="u1",
+            tenant_id="tenant-b",
+            diagram_id="diag-shared",
+            session={"mappings": []},
+        )
+
+        assert v1 is not None
+        assert v2 is not None
+        assert v1.analysis_id != v2.analysis_id
+        assert list_workspaces(db, owner_user_id="u1", tenant_id="tenant-a")["total"] == 1
+        assert list_workspaces(db, owner_user_id="u1", tenant_id="tenant-b")["total"] == 1

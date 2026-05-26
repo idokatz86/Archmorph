@@ -103,6 +103,7 @@ class SourceAsset(Base):
         index=True,
     )
     owner_user_id = Column(String(100), nullable=False, index=True)
+    tenant_id = Column(String(36), nullable=True, index=True)
     filename = Column(String(500), nullable=False)
     content_type = Column(String(100), nullable=True)
     file_size_bytes = Column(Integer, nullable=True)
@@ -113,6 +114,7 @@ class SourceAsset(Base):
 
     __table_args__ = (
         Index("ix_source_assets_workspace_hash", "workspace_id", "content_hash"),
+        Index("ix_source_assets_owner_tenant", "owner_user_id", "tenant_id"),
     )
 
     def to_dict(self) -> dict:
@@ -120,6 +122,7 @@ class SourceAsset(Base):
             "id": self.id,
             "workspace_id": self.workspace_id,
             "owner_user_id": self.owner_user_id,
+            "tenant_id": self.tenant_id,
             "filename": self.filename,
             "content_type": self.content_type,
             "file_size_bytes": self.file_size_bytes,
@@ -222,7 +225,7 @@ class AnalysisVersion(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
     __table_args__ = (
-        Index("ix_analysis_versions_analysis_num", "analysis_id", "version_number"),
+        Index("ix_analysis_versions_analysis_num", "analysis_id", "version_number", unique=True),
     )
 
     def to_dict(self, *, include_snapshot: bool = False) -> dict:
@@ -275,6 +278,7 @@ class Artifact(Base):
         index=True,
     )
     owner_user_id = Column(String(100), nullable=False, index=True)
+    tenant_id = Column(String(36), nullable=True, index=True)
     artifact_type = Column(String(50), nullable=False, index=True)  # terraform|bicep|hld|cost_report|…
     format = Column(String(20), nullable=True)                       # terraform|bicep|json|markdown
     content = Column(Text, nullable=True)                            # inline text content
@@ -285,6 +289,7 @@ class Artifact(Base):
 
     __table_args__ = (
         Index("ix_artifacts_analysis_type", "analysis_id", "artifact_type"),
+        Index("ix_artifacts_owner_tenant", "owner_user_id", "tenant_id"),
     )
 
     def to_dict(self, *, include_content: bool = False) -> dict:
@@ -294,15 +299,17 @@ class Artifact(Base):
             "version_id": self.version_id,
             "source_asset_id": self.source_asset_id,
             "owner_user_id": self.owner_user_id,
+            "tenant_id": self.tenant_id,
             "artifact_type": self.artifact_type,
             "format": self.format,
-            "storage_url": self.storage_url,
+            "has_external_storage": bool(self.storage_url),
             "content_hash": self.content_hash,
             "size_bytes": self.size_bytes,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
         if include_content:
             result["content"] = self.content
+            result["storage_url"] = self.storage_url
         return result
 
 
@@ -329,6 +336,7 @@ class Decision(Base):
         index=True,
     )
     owner_user_id = Column(String(100), nullable=False, index=True)
+    tenant_id = Column(String(36), nullable=True, index=True)
     decision_type = Column(String(50), nullable=False)  # risk | decision | note
     title = Column(String(300), nullable=False)
     description = Column(Text, nullable=True)
@@ -340,6 +348,7 @@ class Decision(Base):
 
     __table_args__ = (
         Index("ix_decisions_analysis_type", "analysis_id", "decision_type"),
+        Index("ix_decisions_owner_tenant", "owner_user_id", "tenant_id"),
     )
 
     def to_dict(self) -> dict:
@@ -348,6 +357,7 @@ class Decision(Base):
             "analysis_id": self.analysis_id,
             "version_id": self.version_id,
             "owner_user_id": self.owner_user_id,
+            "tenant_id": self.tenant_id,
             "decision_type": self.decision_type,
             "title": self.title,
             "description": self.description,
