@@ -260,12 +260,14 @@ describe('useJobStatus', () => {
     expect(result.current.status).toBe('completed');
   });
 
-  it('initialises phase to queued when poll starts', () => {
+  it('initialises phase to queued when poll starts', async () => {
+    fetch.mockImplementationOnce(() => new Promise(() => {}));
     const { result } = renderHook(() => useJobStatus());
     // Before poll, phase is null.
     expect(result.current.phase).toBeNull();
     // Immediately after calling poll the phase is set to 'queued'.
-    act(() => { result.current.poll('job-init-phase'); });
+    await act(async () => { result.current.poll('job-init-phase'); });
     expect(result.current.phase).toBe('queued');
+    act(() => { result.current.stop(); });
   });
 });

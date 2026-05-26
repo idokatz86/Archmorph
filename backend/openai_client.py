@@ -52,6 +52,8 @@ _openai_metrics_lock = threading.Lock()
 _openai_metrics: Dict[str, int] = {
     "rate_limit_total": 0,
     "timeout_total": 0,
+    "rate_limit_retry_total": 0,
+    "timeout_retry_total": 0,
     "admission_timeout_total": 0,
     "error_total": 0,
 }
@@ -69,10 +71,14 @@ def _increment_openai_metric(key: str) -> None:
         pass  # nosec B110 — metrics must never break request handling
 
 
-def get_openai_error_metrics() -> Dict[str, int]:
+def get_openai_error_metrics() -> Dict[str, Any]:
     """Return a snapshot of OpenAI error/rate-limit counters."""
     with _openai_metrics_lock:
-        return dict(_openai_metrics)
+        return {
+            **_openai_metrics,
+            "scope": "process",
+            "process_id": os.getpid(),
+        }
 
 
 def handle_openai_error(exc: Exception, context: str = "OpenAI call") -> OpenAIServiceError:
@@ -240,9 +246,9 @@ def _retry_wait_seconds(retry_state) -> float:
     if exc is not None:
         # Track each 429 / timeout that causes a retry.
         if isinstance(exc, RateLimitError):
-            _increment_openai_metric("rate_limit_total")
+            _increment_openai_metric("rate_limit_retry_total")
         elif isinstance(exc, (APITimeoutError, APIConnectionError, TimeoutError)):
-            _increment_openai_metric("timeout_total")
+            _increment_openai_metric("timeout_retry_total")
         if _retryable_status(exc):
             provider_delay = _parse_retry_after_seconds(exc)
             if provider_delay is not None:

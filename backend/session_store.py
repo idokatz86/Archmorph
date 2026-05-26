@@ -48,6 +48,9 @@ class SessionStore:
     def get(self, key: str, default: Any = None) -> Any:
         raise NotImplementedError
 
+    def peek(self, key: str, default: Any = None) -> Any:
+        return self.get(key, default)
+
     def set(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
         raise NotImplementedError
 
@@ -145,6 +148,10 @@ class InMemoryStore(SessionStore):
             # Refresh TTL by re-inserting the value (Issue #260)
             self._cache[key] = val
             return val
+
+    def peek(self, key: str, default: Any = None) -> Any:
+        with self._lock:
+            return self._cache.get(key, default)
 
     def set(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
         with self._lock:
@@ -307,6 +314,10 @@ class FileStore(SessionStore):
         # Refresh TTL on read to keep active sessions alive (Issue #260)
         self._touch_ttl(path)
         return val
+
+    def peek(self, key: str, default: Any = None) -> Any:
+        val = self._read(self._path(key))
+        return default if val is None else val
 
     def _touch_ttl(self, path: Path) -> None:
         """Refresh the expiry timestamp of a file-backed entry."""
@@ -529,6 +540,23 @@ class RedisStore(SessionStore):
             self._redis.expire(self._key(key), self._ttl)
         except Exception:
             pass  # nosec B110 — Non-critical TTL refresh is best-effort
+        try:
+            return self._json.loads(raw)
+        except (self._json.JSONDecodeError, TypeError):
+            return raw
+
+    def peek(self, key: str, default: Any = None) -> Any:
+        from circuit_breakers import redis_breaker
+        try:
+            raw = redis_breaker.call(self._redis.get, self._key(key))
+        except Exception as exc:
+            logger.warning(
+                "Redis PEEK failed; returning default (error_type=%s)",
+                type(exc).__name__,
+            )
+            return default
+        if raw is None:
+            return default
         try:
             return self._json.loads(raw)
         except (self._json.JSONDecodeError, TypeError):

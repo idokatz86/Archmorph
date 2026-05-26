@@ -25,7 +25,7 @@ from routers.shared import (
     require_diagram_access,
 )
 import ci_smoke
-from job_queue import job_manager, AdmissionRejected
+from job_queue import job_manager, AdmissionRejected, AdmissionStoreError
 from usage_metrics import record_event, record_funnel_step
 from export_capabilities import attach_export_capability
 from data_lifecycle import attach_trust_receipt, build_trust_receipt
@@ -637,21 +637,33 @@ async def analyze_diagram_async(
     tenant_id = user.tenant_id if user else None
     owner_api_key_id = api_key_principal_id if not user else None
     try:
-        job_manager.check_admission(
+        job = job_manager.submit(
+            "analyze",
+            diagram_id=diagram_id,
             owner_user_id=owner_user_id,
             tenant_id=tenant_id,
             owner_api_key_id=owner_api_key_id,
+            enforce_admission=True,
         )
     except AdmissionRejected as exc:
-        raise ArchmorphException(429, str(exc))
-
-    job = job_manager.submit(
-        "analyze",
-        diagram_id=diagram_id,
-        owner_user_id=owner_user_id,
-        tenant_id=tenant_id,
-        owner_api_key_id=owner_api_key_id,
-    )
+        raise ArchmorphException(
+            429,
+            str(exc),
+            details={
+                "error": "analysis_admission_rejected",
+                "scope": exc.scope,
+                "active_jobs": exc.active,
+                "limit": exc.limit,
+            },
+            headers={"Retry-After": "30"},
+        )
+    except AdmissionStoreError:
+        raise ArchmorphException(
+            503,
+            "Analysis admission is temporarily unavailable. Please retry shortly.",
+            details={"error": "analysis_admission_unavailable"},
+            headers={"Retry-After": "30"},
+        )
     asyncio.create_task(_run_analysis_job(job.job_id, diagram_id))
 
     from starlette.responses import JSONResponse

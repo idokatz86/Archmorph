@@ -136,8 +136,15 @@ class Job:
 class AdmissionRejected(Exception):
     """Raised when per-user or per-tenant active-job limit is exceeded."""
 
-    def __init__(self, message: str):
+    def __init__(self, message: str, *, scope: str, active: int, limit: int):
         super().__init__(message)
+        self.scope = scope
+        self.active = active
+        self.limit = limit
+
+
+class AdmissionStoreError(Exception):
+    """Raised when the shared admission counter cannot be updated reliably."""
 
 
 def _env_int_default(name: str, default: int) -> int:
@@ -167,6 +174,8 @@ class JobManager:
         self._jobs_store = get_store("jobs", maxsize=max_jobs, ttl=ttl_seconds)
         # One key per job_id: {next_seq, dropped_events, events:[{id,event,data,ts}]}
         self._events_store = get_store("job_events", maxsize=max_jobs, ttl=ttl_seconds)
+        # O(1) per-principal active counters for admission checks.
+        self._active_counts_store = get_store("job_active_counts", maxsize=max_jobs * 3, ttl=ttl_seconds)
         # Per-user and per-tenant active-job limits (queued + running).
         # Defaults are read from environment variables so operators can tune them.
         self._max_active_per_user: int = (
@@ -180,6 +189,104 @@ class JobManager:
             else _env_int_default("MAX_ACTIVE_JOBS_PER_TENANT", 20)
         )
 
+    def _active_counter_specs(
+        self,
+        *,
+        owner_user_id: Optional[str] = None,
+        tenant_id: Optional[str] = None,
+        owner_api_key_id: Optional[str] = None,
+    ) -> List[Tuple[str, str, int]]:
+        specs: List[Tuple[str, str, int]] = []
+        if owner_user_id:
+            specs.append(("user", f"user:{owner_user_id}", self._max_active_per_user))
+        if tenant_id:
+            specs.append(("tenant", f"tenant:{tenant_id}", self._max_active_per_tenant))
+        if owner_api_key_id:
+            specs.append(("api_key", f"api_key:{owner_api_key_id}", self._max_active_per_user))
+        return specs
+
+    @staticmethod
+    def _counter_active(value: Any) -> int:
+        if isinstance(value, dict):
+            value = value.get("active", 0)
+        try:
+            return max(0, int(value or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    @staticmethod
+    def _counter_payload(active: int) -> Dict[str, Any]:
+        return {"active": max(0, active), "updated_at": datetime.now(timezone.utc).isoformat()}
+
+    def _increment_counter(self, key: str, *, limit: int, enforce_limit: bool) -> Tuple[bool, int]:
+        def predicate(current: Any) -> bool:
+            return (not enforce_limit) or self._counter_active(current) < limit
+
+        def updater(current: Any) -> Dict[str, Any]:
+            return self._counter_payload(self._counter_active(current) + 1)
+
+        updated, value = self._active_counts_store.update_if(
+            key,
+            predicate,
+            updater,
+            ttl=self._ttl_seconds,
+        )
+        return updated, self._counter_active(value)
+
+    def _release_counter(self, key: str) -> None:
+        def predicate(current: Any) -> bool:
+            return self._counter_active(current) > 0
+
+        def updater(current: Any) -> Dict[str, Any]:
+            return self._counter_payload(self._counter_active(current) - 1)
+
+        self._active_counts_store.update_if(key, predicate, updater, ttl=self._ttl_seconds)
+
+    def _reserve_active_counters(
+        self,
+        *,
+        owner_user_id: Optional[str] = None,
+        tenant_id: Optional[str] = None,
+        owner_api_key_id: Optional[str] = None,
+        enforce_limit: bool = False,
+    ) -> List[str]:
+        reserved: List[str] = []
+        for scope, key, limit in self._active_counter_specs(
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+            owner_api_key_id=owner_api_key_id,
+        ):
+            if limit <= 0:
+                continue
+            updated, active = self._increment_counter(key, limit=limit, enforce_limit=enforce_limit)
+            if not updated:
+                for reserved_key in reserved:
+                    self._release_counter(reserved_key)
+                if active < limit:
+                    raise AdmissionStoreError("Admission counter update failed")
+                label = {
+                    "user": "Active analysis job limit",
+                    "tenant": "Tenant active analysis job limit",
+                    "api_key": "API key active analysis job limit",
+                }.get(scope, "Active analysis job limit")
+                raise AdmissionRejected(
+                    f"{label} reached ({active}/{limit}). Wait for current analysis jobs to finish and try again.",
+                    scope=scope,
+                    active=active,
+                    limit=limit,
+                )
+            reserved.append(key)
+        return reserved
+
+    def _release_active_counters(self, job: Job) -> None:
+        for _, key, limit in self._active_counter_specs(
+            owner_user_id=job.owner_user_id,
+            tenant_id=job.tenant_id,
+            owner_api_key_id=job.owner_api_key_id,
+        ):
+            if limit > 0:
+                self._release_counter(key)
+
     def count_active_jobs(
         self,
         *,
@@ -192,21 +299,13 @@ class JobManager:
         Exactly one of ``user_id``, ``tenant_id``, or ``api_key_id`` should
         be provided; the first non-None value is used.
         """
-        active_statuses = {JobStatus.QUEUED.value, JobStatus.RUNNING.value}
-        count = 0
-        for job_id in self._jobs_store.keys("*"):
-            payload = self._jobs_store.get(job_id)
-            if not payload:
-                continue
-            if payload.get("status") not in active_statuses:
-                continue
-            if user_id and payload.get("owner_user_id") == user_id:
-                count += 1
-            elif tenant_id and payload.get("tenant_id") == tenant_id:
-                count += 1
-            elif api_key_id and payload.get("owner_api_key_id") == api_key_id:
-                count += 1
-        return count
+        if user_id:
+            return self._counter_active(self._active_counts_store.peek(f"user:{user_id}"))
+        if tenant_id:
+            return self._counter_active(self._active_counts_store.peek(f"tenant:{tenant_id}"))
+        if api_key_id:
+            return self._counter_active(self._active_counts_store.peek(f"api_key:{api_key_id}"))
+        return 0
 
     def check_admission(
         self,
@@ -223,22 +322,31 @@ class JobManager:
             active = self.count_active_jobs(user_id=owner_user_id)
             if active >= self._max_active_per_user:
                 raise AdmissionRejected(
-                    f"User {owner_user_id!r} already has {active} active job(s). "
-                    f"Limit is {self._max_active_per_user}."
+                    f"Active analysis job limit reached ({active}/{self._max_active_per_user}). "
+                    "Wait for current analysis jobs to finish and try again.",
+                    scope="user",
+                    active=active,
+                    limit=self._max_active_per_user,
                 )
         if tenant_id and self._max_active_per_tenant > 0:
             active = self.count_active_jobs(tenant_id=tenant_id)
             if active >= self._max_active_per_tenant:
                 raise AdmissionRejected(
-                    f"Tenant {tenant_id!r} already has {active} active job(s). "
-                    f"Limit is {self._max_active_per_tenant}."
+                    f"Tenant active analysis job limit reached ({active}/{self._max_active_per_tenant}). "
+                    "Wait for current analysis jobs to finish and try again.",
+                    scope="tenant",
+                    active=active,
+                    limit=self._max_active_per_tenant,
                 )
         if owner_api_key_id and self._max_active_per_user > 0:
             active = self.count_active_jobs(api_key_id=owner_api_key_id)
             if active >= self._max_active_per_user:
                 raise AdmissionRejected(
-                    f"API key {owner_api_key_id!r} already has {active} active job(s). "
-                    f"Limit is {self._max_active_per_user}."
+                    f"API key active analysis job limit reached ({active}/{self._max_active_per_user}). "
+                    "Wait for current analysis jobs to finish and try again.",
+                    scope="api_key",
+                    active=active,
+                    limit=self._max_active_per_user,
                 )
 
     def submit(
@@ -248,8 +356,16 @@ class JobManager:
         owner_user_id: Optional[str] = None,
         tenant_id: Optional[str] = None,
         owner_api_key_id: Optional[str] = None,
+        enforce_admission: bool = False,
     ) -> Job:
         """Create and register a new job. Returns immediately."""
+        track_active_counters = enforce_admission or job_type == "analyze"
+        reserved_keys = self._reserve_active_counters(
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+            owner_api_key_id=owner_api_key_id,
+            enforce_limit=enforce_admission,
+        ) if track_active_counters else []
         job = Job(
             job_type=job_type,
             diagram_id=diagram_id,
@@ -258,15 +374,20 @@ class JobManager:
             owner_api_key_id=owner_api_key_id,
         )
 
-        # Evict oldest completed jobs if at capacity
-        if len(self._jobs) >= self._max_jobs:
-            self._evict_completed()
+        try:
+            # Evict oldest completed jobs if at capacity
+            if len(self._jobs) >= self._max_jobs:
+                self._evict_completed()
 
-        self._jobs[job.job_id] = job
-        self._jobs_store.set(job.job_id, job.to_dict())
-        self._events_store.set(job.job_id, {"next_seq": 0, "dropped_events": 0, "events": []})
-        logger.info("Job submitted: %s (type=%s, diagram=%s)", job.job_id, job_type, diagram_id)
-        return job
+            self._jobs[job.job_id] = job
+            self._jobs_store.set(job.job_id, job.to_dict())
+            self._events_store.set(job.job_id, {"next_seq": 0, "dropped_events": 0, "events": []})
+            logger.info("Job submitted: %s (type=%s, diagram=%s)", job.job_id, job_type, diagram_id)
+            return job
+        except Exception:
+            for key in reserved_keys:
+                self._release_counter(key)
+            raise
 
     def get(self, job_id: str) -> Optional[Job]:
         """Get a job by ID."""
@@ -318,9 +439,10 @@ class JobManager:
     def complete(self, job_id: str, result: Optional[Dict[str, Any]] = None) -> None:
         """Mark a job as completed with optional result."""
         job = self.get(job_id)
-        if not job or job.status == JobStatus.CANCELLED:
+        if not job or job.status in (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED):
             return
         job.status = JobStatus.COMPLETED
+        self._release_active_counters(job)
         job.phase = "completed"
         job.progress = 100
         job.progress_message = "Complete"
@@ -334,9 +456,10 @@ class JobManager:
     def fail(self, job_id: str, error: str) -> None:
         """Mark a job as failed."""
         job = self.get(job_id)
-        if not job or job.status == JobStatus.CANCELLED:
+        if not job or job.status in (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED):
             return
         job.status = JobStatus.FAILED
+        self._release_active_counters(job)
         job.phase = "failed"
         job.error = error
         job.completed_at = datetime.now(timezone.utc).isoformat()
@@ -350,9 +473,10 @@ class JobManager:
         job = self.get(job_id)
         if not job:
             return False
-        if job.status in (JobStatus.COMPLETED, JobStatus.FAILED):
+        if job.status in (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED):
             return False
         job.status = JobStatus.CANCELLED
+        self._release_active_counters(job)
         job.phase = "cancelled"
         job.completed_at = datetime.now(timezone.utc).isoformat()
         job.updated_at = job.completed_at
@@ -563,6 +687,11 @@ class JobManager:
         for job_id in list(self._jobs_store.keys("*")):
             payload = self._jobs_store.get(job_id) or {}
             if payload.get("diagram_id") != diagram_id:
+                continue
+            job = Job.from_dict(payload)
+            if job.status in (JobStatus.QUEUED, JobStatus.RUNNING):
+                self.cancel(job_id)
+                deleted += 1
                 continue
             self._jobs.pop(job_id, None)
             self._jobs_store.delete(job_id)

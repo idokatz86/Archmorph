@@ -484,7 +484,7 @@ class TestAdmissionControl:
     def test_count_active_jobs_by_user(self):
         mgr = self._make_manager()
         j1 = mgr.submit("analyze", owner_user_id="u1", tenant_id="t1")
-        j2 = mgr.submit("analyze", owner_user_id="u1", tenant_id="t1")
+        mgr.submit("analyze", owner_user_id="u1", tenant_id="t1")
         mgr.submit("analyze", owner_user_id="u2", tenant_id="t1")
         assert mgr.count_active_jobs(user_id="u1") == 2
         assert mgr.count_active_jobs(user_id="u2") == 1
@@ -539,21 +539,66 @@ class TestAdmissionControl:
         with pytest.raises(AdmissionRejected):
             mgr.check_admission(owner_api_key_id="api-key:svc")
 
+    def test_submit_enforce_admission_rejects_at_limit(self):
+        from job_queue import AdmissionRejected
+        mgr = self._make_manager(max_per_user=2)
+        mgr.submit("analyze", owner_user_id="u1", tenant_id="t1")
+        mgr.submit("analyze", owner_user_id="u1", tenant_id="t1")
+        with pytest.raises(AdmissionRejected):
+            mgr.submit("analyze", owner_user_id="u1", tenant_id="t1", enforce_admission=True)
+
+    def test_submit_enforce_admission_surfaces_counter_store_failure(self, monkeypatch):
+        from job_queue import AdmissionStoreError
+        mgr = self._make_manager(max_per_user=2)
+        monkeypatch.setattr(mgr._active_counts_store, "update_if", lambda *args, **kwargs: (False, {"active": 0}))
+        with pytest.raises(AdmissionStoreError):
+            mgr.submit("analyze", owner_user_id="u1", tenant_id="t1", enforce_admission=True)
+
+    def test_non_analysis_jobs_do_not_consume_analysis_quota(self):
+        mgr = self._make_manager(max_per_user=2)
+        mgr.submit("generate_iac", owner_user_id="u1", tenant_id="t1")
+        mgr.submit("generate_hld", owner_user_id="u1", tenant_id="t1")
+        assert mgr.count_active_jobs(user_id="u1") == 0
+        mgr.submit("analyze", owner_user_id="u1", tenant_id="t1", enforce_admission=True)
+        assert mgr.count_active_jobs(user_id="u1") == 1
+
+    def test_active_counters_release_only_once_for_terminal_jobs(self):
+        mgr = self._make_manager(max_per_user=2)
+        job = mgr.submit("analyze", owner_user_id="u1", tenant_id="t1")
+        assert mgr.count_active_jobs(user_id="u1") == 1
+        mgr.complete(job.job_id, result={})
+        mgr.complete(job.job_id, result={"duplicate": True})
+        assert mgr.count_active_jobs(user_id="u1") == 0
+
+        cancel_job = mgr.submit("analyze", owner_user_id="u1", tenant_id="t1")
+        assert mgr.cancel(cancel_job.job_id) is True
+        assert mgr.cancel(cancel_job.job_id) is False
+        assert mgr.count_active_jobs(user_id="u1") == 0
+
     def test_analyze_async_returns_429_when_user_at_limit(self, test_client, auth_headers, monkeypatch):
         """analyze-async endpoint enforces per-user admission limit."""
         from job_queue import job_manager, AdmissionRejected
 
-        # Simulate the user being over their limit
-        def _always_reject(**kwargs):
-            raise AdmissionRejected("Test limit exceeded")
+        # Simulate the user being over their limit at submission time.
+        def _always_reject(*args, **kwargs):
+            raise AdmissionRejected(
+                "Active analysis job limit reached (5/5). Wait for current analysis jobs to finish and try again.",
+                scope="user",
+                active=5,
+                limit=5,
+            )
 
-        monkeypatch.setattr(job_manager, "check_admission", _always_reject)
+        monkeypatch.setattr(job_manager, "submit", _always_reject)
 
         from routers.shared import IMAGE_STORE
         IMAGE_STORE["adm-diagram"] = (b"fake", "image/png")
         try:
             res = test_client.post("/api/diagrams/adm-diagram/analyze-async", headers=auth_headers)
             assert res.status_code == 429
+            body = res.json()
+            assert body["error"]["details"]["error"] == "analysis_admission_rejected"
+            assert body["error"]["details"]["scope"] == "user"
+            assert "jobs-test-user" not in body["error"]["message"]
         finally:
             IMAGE_STORE.delete("adm-diagram")
 
@@ -579,7 +624,7 @@ class TestOpenAIMetrics:
         mock_request = MagicMock()
         mock_response = MagicMock()
         mock_response.request = mock_request
-        exc = _RateLimitError("rate limited", response=mock_response, body=None)
+        exc = _RateLimitError(message="rate limited", response=mock_response, body=None)
         handle_openai_error(exc, "test")
         stats = get_openai_error_metrics()
         assert stats["rate_limit_total"] >= 1
@@ -587,12 +632,13 @@ class TestOpenAIMetrics:
     def test_handle_openai_error_tracks_timeout(self, monkeypatch):
         from openai_client import handle_openai_error, get_openai_error_metrics
         from openai import APITimeoutError as _APITimeoutError
+        from unittest.mock import MagicMock
 
         import openai_client
         with openai_client._openai_metrics_lock:
             openai_client._openai_metrics["timeout_total"] = 0
 
-        exc = _APITimeoutError(request=None)
+        exc = _APITimeoutError(request=MagicMock())
         handle_openai_error(exc, "test")
         stats = get_openai_error_metrics()
         assert stats["timeout_total"] >= 1
@@ -605,4 +651,8 @@ class TestOpenAIMetrics:
         assert "openai" in payload
         assert "rate_limit_total" in payload["openai"]
         assert "timeout_total" in payload["openai"]
+        assert "rate_limit_retry_total" in payload["openai"]
+        assert "timeout_retry_total" in payload["openai"]
+        assert payload["openai"]["scope"] == "process"
+        assert "available" in payload["openai"]
 

@@ -106,9 +106,17 @@ const ANALYSIS_PHASE_LABELS = {
   completed: 'Complete',
 };
 
-function getAnalysisPhasLabel(phase) {
+function getAnalysisPhaseLabel(phase) {
   return ANALYSIS_PHASE_LABELS[phase] || phase || 'Processing…';
 }
+
+const analysisProgressState = (updates = {}) => ({
+  analyzePhase: 'queued',
+  analyzeProgressPct: 0,
+  analyzeElapsed: 0,
+  analyzeQueueWait: 0,
+  ...updates,
+});
 
 const DELIVERABLE_TABS = [
   { id: 'iac', label: 'IaC Code', icon: FileCode },
@@ -429,6 +437,7 @@ export default function DiagramTranslator() {
     reset();
     set({
       step: 'analyzing',
+      ...analysisProgressState(),
       diagramId: analysis.diagram_id,
       analysis,
       purgeReceipt: null,
@@ -632,7 +641,14 @@ export default function DiagramTranslator() {
 
   // ── Upload & Analyze ──
   const handleUpload = async (file) => {
-    set({ error: null, authError: null, step: 'analyzing', analyzeProgress: [], purgeReceipt: null });
+    set({
+      error: null,
+      authError: null,
+      step: 'analyzing',
+      analyzeProgress: [],
+      ...analysisProgressState(),
+      purgeReceipt: null,
+    });
     // Create a new AbortController for this upload flow
     if (abortRef.current) abortRef.current.abort();
     const controller = new AbortController();
@@ -671,14 +687,20 @@ export default function DiagramTranslator() {
         asyncData = await api.post(`/diagrams/${diagram_id}/analyze-async`, undefined, signal);
         // apiClient throws on non-2xx, so if we get here it's ok
         // But we still need to check for 202-specific behavior; apiClient resolves JSON body
-      } catch {
+      } catch (err) {
+        if (err.name === 'AbortError') {
+          throw err;
+        }
+        if (err.status === 401 || err.status === 403 || err.status === 429) {
+          throw err;
+        }
         useAsyncEndpoint = false;
       }
 
       if (useAsyncEndpoint) {
         // ── SSE real-time progress path ──
         const { job_id } = asyncData;
-        set({ jobId: job_id });
+        set({ jobId: job_id, ...analysisProgressState() });
 
         // Wait for SSE completion via a promise (with ref-tracked cleanup)
         const result = await new Promise((resolve, reject) => {
@@ -698,7 +720,7 @@ export default function DiagramTranslator() {
               // Track richer phase/timing state from each progress event.
               set({
                 analyzePhase: data.phase ?? null,
-                analyzeProgress_pct: data.progress ?? 0,
+                analyzeProgressPct: data.progress ?? 0,
                 analyzeElapsed: data.elapsed_seconds ?? 0,
                 analyzeQueueWait: data.queue_wait_seconds ?? 0,
               });
@@ -711,7 +733,7 @@ export default function DiagramTranslator() {
               const data = JSON.parse(e.data);
               set({
                 analyzePhase: data.phase ?? null,
-                analyzeProgress_pct: data.progress ?? 0,
+                analyzeProgressPct: data.progress ?? 0,
                 analyzeElapsed: data.elapsed_seconds ?? 0,
                 analyzeQueueWait: data.queue_wait_seconds ?? 0,
               });
@@ -856,6 +878,11 @@ export default function DiagramTranslator() {
         set({ error: `${err.body.error.message}${retryCopy}`, step: 'upload' });
         return;
       }
+      if (err.status === 429 && err.body?.error?.details?.error === 'analysis_admission_rejected') {
+        const message = err.body.error.message || err.message || 'Active analysis job limit reached. Please retry shortly.';
+        set({ error: message, step: 'upload' });
+        return;
+      }
       if (err.name === 'AbortError') return; // Component unmounted
       // 401 — authentication failure: distinguish "no auth" from "session expired"
       if (err.status === 401) {
@@ -872,7 +899,7 @@ export default function DiagramTranslator() {
   };
 
   const handleLoadSample = async (sample) => {
-    set({ step: 'analyzing', analyzeProgress: ['Loading sample diagram...'] });
+    set({ step: 'analyzing', analyzeProgress: ['Loading sample diagram...'], ...analysisProgressState({ analyzePhase: 'preprocessing' }) });
     try {
       const result = await api.post(`/samples/${sample.id}/analyze`);
       set({ diagramId: result.diagram_id, analysis: result, exportCapability: result.export_capability || null, purgeReceipt: null });
@@ -1424,10 +1451,10 @@ export default function DiagramTranslator() {
               <div className="mb-4" aria-live="polite" aria-atomic="true">
                 <div className="flex items-center justify-between mb-1.5">
                   <span className="text-xs font-medium text-text-secondary">
-                    {getAnalysisPhasLabel(state.analyzePhase)}
+                    {getAnalysisPhaseLabel(state.analyzePhase)}
                   </span>
                   <span className="text-xs text-text-muted tabular-nums">
-                    {state.analyzeProgress_pct}%
+                    {state.analyzeProgressPct}%
                     {state.analyzeElapsed > 0 && (
                       <span className="ml-2 text-text-muted/70">
                         {state.analyzeQueueWait > 0
@@ -1438,10 +1465,17 @@ export default function DiagramTranslator() {
                     )}
                   </span>
                 </div>
-                <div className="w-full h-1.5 rounded-full bg-border overflow-hidden" role="progressbar" aria-valuenow={state.analyzeProgress_pct} aria-valuemin={0} aria-valuemax={100}>
+                <div
+                  className="w-full h-1.5 rounded-full bg-border overflow-hidden"
+                  role="progressbar"
+                  aria-label="Analysis progress"
+                  aria-valuenow={state.analyzeProgressPct}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                >
                   <div
                     className="h-full rounded-full bg-cta transition-all duration-500"
-                    style={{ width: `${state.analyzeProgress_pct}%` }}
+                    style={{ width: `${state.analyzeProgressPct}%` }}
                   />
                 </div>
               </div>
@@ -1463,7 +1497,7 @@ export default function DiagramTranslator() {
                 onClick={() => {
                   if (abortRef.current) { abortRef.current.abort(); abortRef.current = null; }
                   if (activeEsRef.current) { activeEsRef.current.close(); activeEsRef.current = null; }
-                  set({ step: 'upload', error: null, analyzeProgress: [], analyzePhase: null, analyzeProgress_pct: 0, analyzeElapsed: 0, analyzeQueueWait: 0 });
+                  set({ step: 'upload', error: null, analyzeProgress: [], analyzePhase: null, analyzeProgressPct: 0, analyzeElapsed: 0, analyzeQueueWait: 0 });
                 }}
               >
                 Cancel Analysis

@@ -55,6 +55,8 @@ export default function useJobStatus() {
     setResult(null);
     setStatus('queued');
     setPhase('queued');
+    setProgress(0);
+    setMessage('');
     setElapsedSeconds(0);
     setQueueWaitSeconds(0);
     setRunningSeconds(0);
