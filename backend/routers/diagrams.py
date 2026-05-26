@@ -534,7 +534,7 @@ def _raise_analysis_service_failure(exc: Exception) -> None:
 
 @router.post("/api/diagrams/{diagram_id}/analyze")
 @limiter.limit("5/minute")
-async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verify_api_key_or_user_session), db=Depends(get_db)):
+async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verify_api_key_or_user_session)):
     """Analyze an uploaded architecture diagram using GPT-4o vision.
 
     Detects cloud services and maps them to Azure equivalents using the catalog.
@@ -564,13 +564,17 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
         record_funnel_step(diagram_id, "analyze")
         if user:
             maybe_save_from_session(user.id, result, diagram_id)
-            _persist_workspace_snapshot(
-                db,
-                user_id=user.id,
-                tenant_id=user.tenant_id,
-                diagram_id=diagram_id,
-                session=result,
-            )
+            db = SessionLocal()
+            try:
+                _persist_workspace_snapshot(
+                    db,
+                    user_id=user.id,
+                    tenant_id=user.tenant_id,
+                    diagram_id=diagram_id,
+                    session=result,
+                )
+            finally:
+                db.close()
         return _attach_lifecycle_receipt(attach_export_capability(result, diagram_id), diagram_id, image_present=True, session_present=True)
 
     # No need to pre-compress, vision analyzer and classifier handle it internally
@@ -632,13 +636,17 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
 
     if user:
         maybe_save_from_session(user.id, result, diagram_id)
-        _persist_workspace_snapshot(
-            db,
-            user_id=user.id,
-            tenant_id=user.tenant_id,
-            diagram_id=diagram_id,
-            session=result,
-        )
+        db = SessionLocal()
+        try:
+            _persist_workspace_snapshot(
+                db,
+                user_id=user.id,
+                tenant_id=user.tenant_id,
+                diagram_id=diagram_id,
+                session=result,
+            )
+        finally:
+            db.close()
 
     return _attach_lifecycle_receipt(attach_export_capability(result, diagram_id), diagram_id, image_present=True, session_present=True)
 
