@@ -28,7 +28,6 @@ Route map
   POST   /api/analyses/{analysis_id}/decisions     — create decision
 """
 
-import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -36,7 +35,6 @@ from pydantic import Field
 
 from database import get_db
 from error_envelope import ArchmorphException
-from log_sanitizer import safe
 from routers.shared import SESSION_STORE, limiter, require_authenticated_user, verify_api_key
 from routers.shared import authorize_diagram_access
 from strict_models import StrictBaseModel
@@ -57,8 +55,6 @@ from workspace_store import (
     restore_analysis_version,
     update_workspace,
 )
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["Workspaces"])
 
@@ -125,7 +121,6 @@ async def create_workspace_endpoint(
         source_cloud=body.source_cloud,
         target_cloud=body.target_cloud,
     )
-    logger.info("workspace_created_via_api workspace_id=%s", safe(ws.id))
     return ws.to_dict()
 
 
@@ -198,7 +193,6 @@ async def delete_workspace_endpoint(
     deleted = delete_workspace(db, workspace_id, owner_user_id=user.id, tenant_id=_tenant_id(user))
     if not deleted:
         raise ArchmorphException(404, "Workspace not found")
-    logger.info("workspace_deleted_via_api workspace_id=%s", safe(workspace_id))
     return {"deleted": True}
 
 
@@ -343,12 +337,6 @@ async def restore_version_endpoint(
     )
     if new_version is None:
         raise ArchmorphException(404, f"Version {version_number} not found")
-    logger.info(
-        "analysis_version_restored analysis_id=%s from_version=%s new_version=%s",
-        safe(analysis_id),
-        safe(str(version_number)),
-        safe(str(new_version.version_number)),
-    )  # codeql[py/log-injection] Handled by custom sanitizer
     return {
         "restored_from": version_number,
         "new_version": new_version.to_dict(include_snapshot=False),
