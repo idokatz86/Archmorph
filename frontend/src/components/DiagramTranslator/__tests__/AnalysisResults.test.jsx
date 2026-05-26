@@ -422,4 +422,39 @@ describe('AnalysisResults — trust/evidence layer (#1130)', () => {
     await user.click(badges[badges.length - 1])
     expect(screen.getByText('User confirmed')).toBeInTheDocument()
   })
+
+  it('renders object-shaped evidence fields without crashing', async () => {
+    const user = userEvent.setup()
+    const analysis = {
+      ...baseProps.analysis,
+      zones: [{ id: 1, name: 'Web', services: ['Lambda'] }],
+      mappings: [
+        {
+          source_service: 'Lambda',
+          azure_service: 'Azure Functions',
+          confidence: 0.95,
+          notes: 'Zone 1',
+          evidence: {
+            detection_source: { label: 'catalogue' },
+            rationale: { message: 'Object rationale rendered safely' },
+            alternatives_considered: [
+              { azure_service: { name: 'Container Apps' }, notes: { message: 'Object note rendered safely' } },
+            ],
+            known_gaps: [{ message: 'Object gap rendered safely' }],
+            catalog_freshness: { value: '2026-05-03' },
+            user_confirmed: true,
+            needs_review: false,
+          },
+        },
+      ],
+      confidence_summary: { high: 1, medium: 0, low: 0, average: 0.95 },
+    }
+    render(<AnalysisResults {...baseProps} analysis={analysis} />)
+    await user.click(screen.getByText('Map'))
+    const badges = screen.getAllByText('95%')
+    await user.click(badges[badges.length - 1])
+    expect(screen.getByText('Object rationale rendered safely')).toBeInTheDocument()
+    expect(screen.getByText(/Object note rendered safely/)).toBeInTheDocument()
+    expect(screen.getByText('Object gap rendered safely')).toBeInTheDocument()
+  })
 })

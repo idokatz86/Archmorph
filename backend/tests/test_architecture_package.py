@@ -612,6 +612,27 @@ def test_manifest_mapping_references_low_confidence_needs_review_flag():
     assert refs[0]["needs_review"] is True
 
 
+def test_html_package_tolerates_non_numeric_mapping_confidence():
+    analysis = {
+        **SAMPLE_ANALYSIS,
+        "mappings": [
+            {
+                "source_service": "UnknownService",
+                "azure_service": "Review Required",
+                "category": "Other",
+                "confidence": "n/a",
+                "needs_review": True,
+                "evidence": {"rationale": "Manual review required", "needs_review": True},
+            }
+        ],
+    }
+
+    result = generate_architecture_package(analysis, format="html")
+
+    assert "Manual review required" in result["content"]
+    assert "Needs review" in result["content"]
+
+
 def test_html_package_six_tabs_in_nav():
     """The HTML package nav must contain exactly 6 tab buttons."""
     result = generate_architecture_package(SAMPLE_ANALYSIS, format="html")

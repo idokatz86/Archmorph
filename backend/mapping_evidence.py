@@ -75,11 +75,11 @@ def build_mapping_evidence(
     dict
         Evidence block suitable for embedding directly in the mapping dict.
     """
-    source_service = str(mapping.get("source_service") or "")
-    azure_service = str(mapping.get("azure_service") or mapping.get("target_service") or "")
-    confidence = float(mapping.get("confidence") or 0)
-    source = str(mapping.get("source") or "unknown")
-    source_provider = str(mapping.get("source_provider") or "aws").lower()
+    source_service = _coerce_text(mapping.get("source_service"))
+    azure_service = _coerce_text(mapping.get("azure_service") or mapping.get("target_service"))
+    confidence = _safe_float(mapping.get("confidence"), default=0.0)
+    source = _coerce_text(mapping.get("source") or "unknown").lower()
+    source_provider = _coerce_text(mapping.get("source_provider") or "aws").lower()
 
     # --- rationale ---
     rationale = _build_rationale(mapping, source_service, azure_service, source)
@@ -160,9 +160,9 @@ def build_run_metadata(
 
     # Confidence summary from mappings
     mappings = [m for m in analysis.get("mappings", []) if isinstance(m, dict)]
-    low_conf = sum(1 for m in mappings if float(m.get("confidence") or 0) < NEEDS_REVIEW_THRESHOLD)
+    low_conf = sum(1 for m in mappings if _safe_float(m.get("confidence"), default=0.0) < NEEDS_REVIEW_THRESHOLD)
     needs_review_count = sum(1 for m in mappings if m.get("evidence", {}).get("needs_review") or
-                             (float(m.get("confidence") or 0) < NEEDS_REVIEW_THRESHOLD and
+                             (_safe_float(m.get("confidence"), default=0.0) < NEEDS_REVIEW_THRESHOLD and
                               not m.get("evidence", {}).get("user_confirmed")))
 
     return {
@@ -208,6 +208,31 @@ def attach_evidence_to_mappings(
 # ─────────────────────────────────────────────────────────
 # Internal helpers
 # ─────────────────────────────────────────────────────────
+
+def _coerce_text(value: Any) -> str:
+    """Return a compact customer-safe text representation for arbitrary mapping fields."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, (int, float, bool)):
+        return str(value)
+    if isinstance(value, dict):
+        for key in ("name", "source", "source_service", "azure_service", "target_service", "label", "message", "description"):
+            text = _coerce_text(value.get(key))
+            if text:
+                return text
+        return ""
+    if isinstance(value, list):
+        return ", ".join(text for text in (_coerce_text(item) for item in value) if text)
+    return str(value).strip()
+
+
+def _safe_float(value: Any, *, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 def _build_rationale(
     mapping: Dict[str, Any],
@@ -257,9 +282,9 @@ def _build_alternatives(mapping: Dict[str, Any]) -> List[Dict[str, Any]]:
     for alt in raw:
         if isinstance(alt, dict):
             result.append({
-                "azure_service": str(alt.get("name") or alt.get("azure_service") or ""),
-                "confidence": float(alt.get("confidence") or 0),
-                "rationale": str(alt.get("rationale") or alt.get("notes") or ""),
+                "azure_service": _coerce_text(alt.get("name") or alt.get("azure_service")),
+                "confidence": _safe_float(alt.get("confidence"), default=0.0),
+                "rationale": _coerce_text(alt.get("rationale") or alt.get("notes")),
             })
         elif isinstance(alt, str) and alt.strip():
             result.append({"azure_service": alt.strip(), "confidence": 0.0, "rationale": ""})

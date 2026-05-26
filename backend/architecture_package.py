@@ -278,7 +278,7 @@ def _render_cost_assumptions_panel(cost_assumptions: Any, cost_filename: str) ->
         f"<div class=\"insight-h\">{html.escape(str(service.get('service') or 'Unknown service'))}</div>"
         f"<div class=\"insight-b\">{html.escape(str(service.get('quantity_assumption') or 'Quantity not specified.'))} "
         f"{html.escape(str(service.get('reservation_assumption') or 'Reservation not specified.'))} "
-        f"Monthly range: ${float(service.get('monthly_low') or 0):,.2f} to ${float(service.get('monthly_high') or 0):,.2f}. "
+        f"Monthly range: ${_safe_float(service.get('monthly_low')):,.2f} to ${_safe_float(service.get('monthly_high')):,.2f}. "
         f"Source: {html.escape(', '.join(str(item) for item in service.get('source_services', []) if item) or str(service.get('source_service') or 'Not mapped'))}.</div>"
         "</div>"
         for service in services[:12]
@@ -292,7 +292,7 @@ def _render_cost_assumptions_panel(cost_assumptions: Any, cost_filename: str) ->
         f"<p class=\"insight-b\">{html.escape(str(cost_assumptions.get('directional_notice') or DIRECTIONAL_COST_NOTICE))}</p>"
         f"<div class=\"intent\"><div><span>Region</span><strong>{html.escape(str(cost_assumptions.get('region') or 'Not generated'))}</strong></div>"
         f"<div><span>SKU Strategy</span><strong>{html.escape(str(cost_assumptions.get('sku_strategy') or 'Not generated'))}</strong></div>"
-        f"<div><span>Monthly Range</span><strong>${float(total.get('low') or 0):,.2f} to ${float(total.get('high') or 0):,.2f}</strong></div></div>"
+        f"<div><span>Monthly Range</span><strong>${_safe_float(total.get('low')):,.2f} to ${_safe_float(total.get('high')):,.2f}</strong></div></div>"
         f"<div class=\"insight-list\" style=\"margin-top:12px\">{rows}</div>"
         "</div>"
     )
@@ -317,7 +317,7 @@ def _render_methodology_panel(analysis: dict[str, Any], manifest: dict[str, Any]
     target_provider = html.escape(str(run_meta.get("target_provider") or "Azure"))
     total_mappings = html.escape(str(run_meta.get("total_mappings") or len(mappings)))
     low_conf_count = html.escape(str(run_meta.get("low_confidence_count") or sum(
-        1 for m in mappings if float(m.get("confidence") or 0) < 0.70
+        1 for m in mappings if _safe_float(m.get("confidence")) < 0.70
     )))
     needs_review_count = html.escape(str(run_meta.get("needs_review_count") or sum(
         1 for m in mappings if m.get("needs_review")
@@ -339,7 +339,7 @@ def _render_methodology_panel(analysis: dict[str, Any], manifest: dict[str, Any]
     for m in mappings[:50]:
         src = html.escape(str(m.get("source_service") or ""))
         tgt = html.escape(str(m.get("azure_service") or ""))
-        conf_raw = float(m.get("confidence") or 0)
+        conf_raw = _safe_float(m.get("confidence"))
         conf_pct = f"{conf_raw * 100:.0f}%"
         conf_cls = "conf-high" if conf_raw >= 0.9 else ("conf-med" if conf_raw >= 0.7 else "conf-low")
         evidence = m.get("evidence") or {}
@@ -552,6 +552,13 @@ def _manifest_json(manifest: dict[str, Any]) -> str:
     )
 
 
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _embed_svg_manifest(svg: str, manifest: dict[str, Any]) -> str:
     manifest_json = _manifest_json(manifest)
     metadata = (
@@ -644,7 +651,7 @@ def _talking_points(analysis: dict[str, Any], profile: dict[str, str]) -> list[t
     regions = infer_regions(analysis, dr_variant="primary")
     dr_mode = infer_dr_mode({**analysis, "regions": regions})
     mappings = [m for m in analysis.get("mappings", []) if isinstance(m, dict)]
-    high_conf = sum(1 for m in mappings if float(m.get("confidence") or 0) >= 0.9)
+    high_conf = sum(1 for m in mappings if _safe_float(m.get("confidence")) >= 0.9)
     source = _source_label(analysis)
     target_region = profile.get("region") or regions[0].get("name", "the selected Azure region")
 
@@ -909,7 +916,7 @@ def _source_label(analysis: dict[str, Any]) -> str:
 def _limitations(analysis: dict[str, Any], profile: dict[str, str]) -> list[tuple[str, str]]:
     warnings = [str(_sanitize_manifest(str(w))) for w in analysis.get("warnings", []) if w]
     mappings = [m for m in analysis.get("mappings", []) if isinstance(m, dict)]
-    low_conf = [m for m in mappings if float(m.get("confidence") or 0) < 0.8]
+    low_conf = [m for m in mappings if _safe_float(m.get("confidence")) < 0.8]
     limits = [("Review warning", warning) for warning in warnings[:5]]
     if low_conf:
         names = ", ".join(str(m.get("azure_service") or m.get("target") or "Unknown") for m in low_conf[:4])

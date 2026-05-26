@@ -164,11 +164,16 @@ function EvidencePanel({ m }) {
   const evidence = m.evidence;
   if (!evidence) return null;
 
-  const rationale = evidence.rationale;
-  const alternatives = (evidence.alternatives_considered || []).filter(a => a?.azure_service);
-  const gaps = (evidence.known_gaps || []).filter(Boolean);
-  const catalogFreshness = evidence.catalog_freshness;
-  const detectionSource = evidence.detection_source;
+  const rationale = toRenderableString(evidence.rationale);
+  const alternatives = (evidence.alternatives_considered || [])
+    .map(a => ({
+      azure_service: toRenderableString(a?.azure_service ?? a?.name ?? a),
+      rationale: toRenderableString(a?.rationale || a?.notes),
+    }))
+    .filter(a => a.azure_service);
+  const gaps = (evidence.known_gaps || []).map(toRenderableString).filter(Boolean);
+  const catalogFreshness = toRenderableString(evidence.catalog_freshness);
+  const detectionSource = toRenderableString(evidence.detection_source);
   const userConfirmed = evidence.user_confirmed;
   const userOverride = evidence.user_override;
 

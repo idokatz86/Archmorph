@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime
 
 import pytest
 
@@ -189,6 +189,29 @@ class TestBuildMappingEvidence:
         ev = me.build_mapping_evidence(CATALOGUE_MAPPING, analysis_timestamp=ts)
         assert ev["generated_at"] == ts
 
+    def test_non_numeric_confidence_falls_back_to_zero(self):
+        ev = me.build_mapping_evidence({**LOW_CONFIDENCE_MAPPING, "confidence": "not-a-number"})
+        assert ev["detection_confidence"] == 0
+        assert ev["needs_review"] is True
+
+    def test_object_shaped_services_are_coerced_to_names(self):
+        ev = me.build_mapping_evidence({
+            "source_service": {"name": "EC2"},
+            "azure_service": {"name": "Virtual Machines"},
+            "confidence": 0.95,
+            "source": "catalogue",
+        })
+        assert "EC2" in ev["rationale"]
+        assert "Virtual Machines" in ev["rationale"]
+
+    def test_alternative_confidence_accepts_non_numeric_values(self):
+        ev = me.build_mapping_evidence({
+            **AI_MAPPING_WITH_ALTERNATIVES,
+            "alternatives": [{"name": "AKS", "confidence": "n/a", "rationale": {"message": "Full control"}}],
+        })
+        assert ev["alternatives_considered"][0]["confidence"] == 0
+        assert ev["alternatives_considered"][0]["rationale"] == "Full control"
+
 
 # ─────────────────────────────────────────────────────────
 # build_run_metadata
@@ -259,6 +282,13 @@ class TestBuildRunMetadata:
         assert isinstance(cf, dict)
         assert "last_success" in cf
         assert "stale" in cf
+
+    def test_non_numeric_confidence_does_not_break_run_metadata(self):
+        meta = me.build_run_metadata({
+            **self.ANALYSIS,
+            "mappings": [{"source_service": "X", "azure_service": "Y", "confidence": "n/a"}],
+        })
+        assert meta["low_confidence_count"] == 1
 
     def test_model_version_not_empty(self):
         meta = me.build_run_metadata(self.ANALYSIS)
