@@ -78,7 +78,7 @@ jobs:
 
       - name: Open P0 triage issue on failure
         if: failure()
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         env:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           SUMMARY_PATH: smoke-artifacts/production-browser/${{ github.run_id }}/summary.json
