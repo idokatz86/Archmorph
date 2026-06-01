@@ -118,6 +118,32 @@ describe('useAuthStore', () => {
     expect(localStorage.getItem('archmorph_session_token')).toBe('on-demand-session-token');
   });
 
+  it('preserves stored tokens when on-demand backend session validation is indeterminate', async () => {
+    localStorage.setItem('archmorph_session_token', 'recoverable-backend-token');
+    localStorage.setItem('archmorph_refresh_token', 'recoverable-refresh-token');
+    useAuthStore.setState({
+      user: { id: 'aad_user-123', name: 'Ido Katz', provider: 'microsoft' },
+      isAuthenticated: true,
+      hasBackendSession: false,
+      isLoading: false,
+      sessionToken: null,
+    });
+    fetch
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockResolvedValueOnce({ ok: false, status: 504 });
+
+    await expect(useAuthStore.getState().ensureBackendSession()).resolves.toBe(false);
+
+    expect(localStorage.getItem('archmorph_session_token')).toBe('recoverable-backend-token');
+    expect(localStorage.getItem('archmorph_refresh_token')).toBe('recoverable-refresh-token');
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch).toHaveBeenNthCalledWith(2, '/api/auth/swa-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+    });
+  });
+
   it('prefers the backend user profile when SWA headers reach the API', async () => {
     fetch
       .mockResolvedValueOnce({

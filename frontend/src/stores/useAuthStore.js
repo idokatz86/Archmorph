@@ -115,6 +115,7 @@ const useAuthStore = create((set, get) => ({
     if (current.hasBackendSession && current.sessionToken) return true;
 
     const storedToken = getStoredToken();
+    let tokenValidationIndeterminate = false;
     if (storedToken) {
       try {
         const user = await validateStoredToken(storedToken);
@@ -123,12 +124,14 @@ const useAuthStore = create((set, get) => ({
           return true;
         }
       } catch {
-        // Try refresh/exchange below; validation can fail transiently through SWA/Front Door.
+        tokenValidationIndeterminate = true;
       }
     }
 
-    const refreshed = await current._tryRefresh();
-    if (refreshed) return true;
+    if (!tokenValidationIndeterminate) {
+      const refreshed = await current._tryRefresh();
+      if (refreshed) return true;
+    }
 
     const exchanged = await exchangeSwaSession().catch(() => null);
     if (exchanged?.user?.id && exchanged.session_token) {
