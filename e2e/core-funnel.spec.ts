@@ -962,7 +962,7 @@ test.describe('Core Funnel: Migration Package primary CTA', () => {
   });
 });
 
-
+test.describe('Core Funnel: Accessibility', () => {
   test('home page has no critical accessibility violations', async ({ page }) => {
     await page.goto('/');
     await expect(page.locator('#root')).toBeVisible({ timeout: 15000 });

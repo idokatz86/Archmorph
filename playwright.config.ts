@@ -2,6 +2,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const FRONTEND_URL = process.env.FRONTEND_URL || "https://archmorphai.com";
+const CI_BROWSER_CHANNEL = process.env.CI ? "chrome" : undefined;
 
 export default defineConfig({
   testDir: "./e2e",
@@ -22,12 +23,12 @@ export default defineConfig({
     {
       name: "chromium",
       grepInvert: /@mobile/,
-      use: { ...devices["Desktop Chrome"] },
+      use: { ...devices["Desktop Chrome"], channel: CI_BROWSER_CHANNEL },
     },
     {
       name: "mobile-chrome",
       grep: /@mobile/,
-      use: { ...devices["Pixel 5"] },
+      use: { ...devices["Pixel 5"], channel: CI_BROWSER_CHANNEL },
     },
   ],
 });
