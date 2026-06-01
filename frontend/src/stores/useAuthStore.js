@@ -51,7 +51,12 @@ async function validateStoredToken(token) {
       'Content-Type': 'application/json',
     },
   });
-  if (!response.ok) return null;
+  if (!response.ok) {
+    if (response.status >= 500 || response.status === 0) {
+      throw new Error('Token validation indeterminate');
+    }
+    return null;
+  }
   const user = await response.json();
   return user?.id ? user : null;
 }
@@ -110,17 +115,27 @@ const useAuthStore = create((set, get) => ({
   isLoading: true,
   sessionToken: getStoredToken(),
 
-  ensureBackendSession: async () => {
+  ensureBackendSession: async ({ forceRefresh = false } = {}) => {
     const current = get();
-    if (current.hasBackendSession && current.sessionToken) return true;
-
     const storedToken = getStoredToken();
+    const activeToken = storedToken || current.sessionToken;
+    if (!forceRefresh && current.hasBackendSession && activeToken) {
+      if (!storedToken && current.sessionToken) {
+        storeTokens(current.sessionToken);
+      }
+      if (current.sessionToken !== activeToken) {
+        set({ sessionToken: activeToken });
+      }
+      return true;
+    }
+
     let tokenValidationIndeterminate = false;
-    if (storedToken) {
+    if (activeToken) {
       try {
-        const user = await validateStoredToken(storedToken);
+        const user = await validateStoredToken(activeToken);
         if (user) {
-          set({ user, isAuthenticated: true, hasBackendSession: true, sessionToken: storedToken, isLoading: false });
+          if (!storedToken) storeTokens(activeToken);
+          set({ user, isAuthenticated: true, hasBackendSession: true, sessionToken: activeToken, isLoading: false });
           return true;
         }
       } catch {

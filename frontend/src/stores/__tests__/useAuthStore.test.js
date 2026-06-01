@@ -118,6 +118,62 @@ describe('useAuthStore', () => {
     expect(localStorage.getItem('archmorph_session_token')).toBe('on-demand-session-token');
   });
 
+  it('force-refreshes a stale claimed backend session by reminting from SWA', async () => {
+    localStorage.setItem('archmorph_session_token', 'stale-backend-token');
+    useAuthStore.setState({
+      user: { id: 'aad_user-123', name: 'Ido Katz', provider: 'microsoft' },
+      isAuthenticated: true,
+      hasBackendSession: true,
+      isLoading: false,
+      sessionToken: 'stale-backend-token',
+    });
+    fetch
+      .mockResolvedValueOnce({ ok: false, status: 401 })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({
+          user: { id: 'aad_user-123', name: 'Ido Katz', provider: 'microsoft' },
+          session_token: 'fresh-backend-token',
+          refresh_token: 'fresh-refresh-token',
+        }),
+      });
+
+    await expect(useAuthStore.getState().ensureBackendSession({ forceRefresh: true })).resolves.toBe(true);
+
+    const state = useAuthStore.getState();
+    expect(fetch).toHaveBeenNthCalledWith(1, '/api/auth/me', {
+      headers: {
+        'Authorization': 'Bearer stale-backend-token',
+        'Content-Type': 'application/json',
+      },
+    });
+    expect(fetch).toHaveBeenNthCalledWith(2, '/api/auth/swa-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+    });
+    expect(state.hasBackendSession).toBe(true);
+    expect(state.sessionToken).toBe('fresh-backend-token');
+    expect(localStorage.getItem('archmorph_session_token')).toBe('fresh-backend-token');
+  });
+
+  it('prefers a newer stored token over a stale in-memory backend token', async () => {
+    localStorage.setItem('archmorph_session_token', 'newer-stored-token');
+    useAuthStore.setState({
+      user: { id: 'aad_user-123', name: 'Ido Katz', provider: 'microsoft' },
+      isAuthenticated: true,
+      hasBackendSession: true,
+      isLoading: false,
+      sessionToken: 'stale-memory-token',
+    });
+
+    await expect(useAuthStore.getState().ensureBackendSession()).resolves.toBe(true);
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(localStorage.getItem('archmorph_session_token')).toBe('newer-stored-token');
+    expect(useAuthStore.getState().sessionToken).toBe('newer-stored-token');
+  });
+
   it('preserves stored tokens when on-demand backend session validation is indeterminate', async () => {
     localStorage.setItem('archmorph_session_token', 'recoverable-backend-token');
     localStorage.setItem('archmorph_refresh_token', 'recoverable-refresh-token');

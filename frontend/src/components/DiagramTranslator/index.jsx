@@ -625,6 +625,38 @@ export default function DiagramTranslator() {
     }
   };
 
+  const recoverBackendSession = useCallback(async () => {
+    if (!isAuthenticated || !ensureBackendSession) return false;
+    try {
+      const ready = await ensureBackendSession({ forceRefresh: true });
+      if (ready) {
+        set({ authError: null, error: null });
+        return true;
+      }
+    } catch {
+      // Keep the auth card visible so the user can retry or complete sign-in.
+    }
+    return false;
+  }, [ensureBackendSession, isAuthenticated, set]);
+
+  useEffect(() => {
+    if (!state.authError || !isAuthenticated) return undefined;
+    let cancelled = false;
+    (async () => {
+      const ready = await recoverBackendSession();
+      if (!cancelled && ready) set({ authError: null, error: null });
+    })();
+    return () => { cancelled = true; };
+  }, [isAuthenticated, recoverBackendSession, set, state.authError]);
+
+  const handleAuthCardAction = useCallback(async () => {
+    if (isAuthenticated) {
+      const ready = await recoverBackendSession();
+      if (ready) return;
+    }
+    setLoginModalOpen(true);
+  }, [isAuthenticated, recoverBackendSession]);
+
   const handleAuthenticatedUpload = async (file) => {
     if (!isAuthenticated) {
       setLoginModalOpen(true);
@@ -632,10 +664,9 @@ export default function DiagramTranslator() {
     }
     if (!hasBackendSession) {
       set({ authError: null, error: null });
-      const ready = await ensureBackendSession?.();
+      const ready = await ensureBackendSession?.({ forceRefresh: true });
       if (!ready) {
         set({ authError: 'auth_required', error: null, step: 'upload' });
-        setLoginModalOpen(true);
         return;
       }
     }
@@ -673,6 +704,17 @@ export default function DiagramTranslator() {
     }
   };
 
+  const withAuthRecovery = async (action) => {
+    try {
+      return await action();
+    } catch (err) {
+      if (err.status === 401 && await recoverBackendSession()) {
+        return action();
+      }
+      throw err;
+    }
+  };
+
   /**
    * Execute an async action with automatic session-restore-and-retry on 404.
    * Collapses the duplicated try/restore/retry pattern used across handlers (#327).
@@ -681,12 +723,12 @@ export default function DiagramTranslator() {
    */
   const withRestore = async (action, opts = {}) => {
     try {
-      return await action();
+      return await withAuthRecovery(action);
     } catch (err) {
       if (err.status === 404 && state.diagramId) {
         const restored = await tryRestoreSession(state.diagramId);
         if (restored) {
-          try { return await action(); } catch { /* fall through */ }
+          try { return await withAuthRecovery(action); } catch { /* fall through */ }
         }
         set({ error: 'Your session has expired. Please re-upload your diagram to continue.', step: 'upload' });
         clearSession();
@@ -760,7 +802,7 @@ export default function DiagramTranslator() {
 
       addProgress('Uploading diagram...');
       const projectId = state.projectId || DEFAULT_PROJECT_ID;
-      const uploadData = await api.post(`/projects/${projectId}/diagrams`, formData, signal);
+      const uploadData = await withAuthRecovery(() => api.post(`/projects/${projectId}/diagrams`, formData, signal));
       const { diagram_id } = uploadData;
       set({ projectId: uploadData.project_id || projectId, diagramId: diagram_id, exportCapability: uploadData.export_capability || null, purgeReceipt: null });
       await refreshProjectStatus(uploadData.project_id || projectId);
@@ -781,7 +823,7 @@ export default function DiagramTranslator() {
       let useAsyncEndpoint = true;
       let asyncData;
       try {
-        asyncData = await api.post(`/diagrams/${diagram_id}/analyze-async`, undefined, signal);
+        asyncData = await withAuthRecovery(() => api.post(`/diagrams/${diagram_id}/analyze-async`, undefined, signal));
         // apiClient throws on non-2xx, so if we get here it's ok
         // But we still need to check for 202-specific behavior; apiClient resolves JSON body
       } catch (err) {
@@ -891,7 +933,7 @@ export default function DiagramTranslator() {
 
         set({ analysis: result, exportCapability: result.export_capability || state.exportCapability || null, purgeReceipt: null });
         await refreshProjectStatus(uploadData.project_id || projectId);
-        const qData = await api.post(`/diagrams/${diagram_id}/questions`, undefined, signal);
+        const qData = await withAuthRecovery(() => api.post(`/diagrams/${diagram_id}/questions`, undefined, signal));
         const questionState = buildQuestionState(qData);
         saveSession(diagram_id, result, questionState.questions, questionState.answers, {
           persistSensitive: persistSensitiveCache,
@@ -925,7 +967,7 @@ export default function DiagramTranslator() {
         }, 2500 + Math.random() * 1500);
         activeIntervalRef.current = progressInterval;
 
-        const result = await api.post(`/diagrams/${diagram_id}/analyze`, undefined, signal);
+        const result = await withAuthRecovery(() => api.post(`/diagrams/${diagram_id}/analyze`, undefined, signal));
         clearInterval(progressInterval);
         if (activeIntervalRef.current === progressInterval) activeIntervalRef.current = null;
 
@@ -949,7 +991,7 @@ export default function DiagramTranslator() {
 
         set({ analysis: result, exportCapability: result.export_capability || uploadData.export_capability || null, purgeReceipt: null });
         await refreshProjectStatus(uploadData.project_id || projectId);
-        const qData = await api.post(`/diagrams/${diagram_id}/questions`, undefined, signal);
+        const qData = await withAuthRecovery(() => api.post(`/diagrams/${diagram_id}/questions`, undefined, signal));
         const questionState = buildQuestionState(qData);
         saveSession(diagram_id, result, questionState.questions, questionState.answers, {
           persistSensitive: persistSensitiveCache,
@@ -1441,17 +1483,23 @@ export default function DiagramTranslator() {
               <LogIn className="w-5 h-5 text-warning" aria-hidden="true" />
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-text-primary">Authentication required</h3>
+              <h3 className="text-sm font-semibold text-text-primary">
+                {isAuthenticated ? 'Analysis session needs refresh' : 'Authentication required'}
+              </h3>
               <p className="text-xs text-text-muted mt-1">
-                {state.authError === 'session_expired'
-                  ? 'Your session has expired. Sign in to continue.'
-                  : 'Sign in to analyze your diagram.'}
-                {state.selectedFile && ' Your selected file is ready to analyze once you sign in.'}
+                {isAuthenticated
+                  ? 'You are signed in, but the analysis API session needs to be refreshed.'
+                  : state.authError === 'session_expired'
+                    ? 'Your session has expired. Sign in to continue.'
+                    : 'Sign in to analyze your diagram.'}
+                {state.selectedFile && (isAuthenticated
+                  ? ' Your selected file is ready to analyze once the session refreshes.'
+                  : ' Your selected file is ready to analyze once you sign in.')}
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="primary" size="sm" icon={LogIn} onClick={() => setLoginModalOpen(true)}>
-                {state.authError === 'session_expired' ? 'Sign in again' : 'Sign in to analyze'}
+              <Button variant="primary" size="sm" icon={LogIn} onClick={handleAuthCardAction}>
+                {isAuthenticated ? 'Refresh session' : state.authError === 'session_expired' ? 'Sign in again' : 'Sign in to analyze'}
               </Button>
               <Button variant="ghost" size="sm" onClick={() => set({ authError: null })}>
                 Dismiss

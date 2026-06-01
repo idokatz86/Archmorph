@@ -310,10 +310,11 @@ describe('DiagramTranslator — Signed-out auth recovery', () => {
     expect(screen.queryByText('Analyze This Diagram')).not.toBeInTheDocument()
   })
 
-  it('shows "Authentication required" card (not "Analysis Error") when upload returns 401 without token', async () => {
+  it('shows a backend session refresh card (not "Analysis Error") when signed-in recovery fails', async () => {
     // Set user as authenticated so the upload button is visible and upload can be triggered
     mockIsAuthenticated = true
     mockHasBackendSession = true
+    mockEnsureBackendSession.mockResolvedValue(false)
 
     const { ApiError } = await import('../../../services/apiClient')
     const authErr = new ApiError(401, { detail: 'Not authenticated' }, { hadToken: false })
@@ -338,7 +339,7 @@ describe('DiagramTranslator — Signed-out auth recovery', () => {
     await act(async () => { fireEvent.click(analyzeBtn) })
 
     // Should show auth-specific card heading — use role query to avoid matching spine status pill
-    await waitFor(() => expect(screen.getByRole('heading', { name: 'Authentication required' })).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Analysis session needs refresh' })).toBeInTheDocument())
 
     // "Re-upload Diagram" should NOT be the primary CTA for auth failures
     expect(screen.queryByText('Re-upload Diagram')).not.toBeInTheDocument()
@@ -346,13 +347,15 @@ describe('DiagramTranslator — Signed-out auth recovery', () => {
     // Selected file should still be visible (preserved for retry after sign-in)
     expect(screen.getByText('architecture.pdf')).toBeInTheDocument()
 
-    // Sign-in CTA should be present in the auth card
-    expect(screen.getByRole('button', { name: /Sign in to analyze/i })).toBeInTheDocument()
+    // Signed-in users should be offered a session refresh, not another sign-in prompt.
+    expect(screen.getByRole('button', { name: /Refresh session/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Sign in/i })).not.toBeInTheDocument()
   })
 
-  it('preserves selectedFile after 401 so user can retry after signing in', async () => {
+  it('preserves selectedFile after unrecoverable 401 so user can retry after session recovery', async () => {
     mockIsAuthenticated = true
     mockHasBackendSession = true
+    mockEnsureBackendSession.mockResolvedValue(false)
 
     const { ApiError } = await import('../../../services/apiClient')
     const authErr = new ApiError(401, { detail: 'Not authenticated' }, { hadToken: false })
@@ -397,6 +400,40 @@ describe('DiagramTranslator — Signed-out auth recovery', () => {
     await waitFor(() => expect(mockEnsureBackendSession).toHaveBeenCalledTimes(1))
     await waitFor(() => expect(mockApi.post).toHaveBeenCalledTimes(4))
     expect(mockApi.post).toHaveBeenCalledWith('/projects/demo-project/diagrams', expect.any(FormData), expect.any(AbortSignal))
+  })
+
+  it('refreshes the backend session and retries when a signed-in analysis request gets 401', async () => {
+    mockIsAuthenticated = true
+    mockHasBackendSession = true
+    mockEnsureBackendSession.mockResolvedValueOnce(true)
+
+    const { ApiError } = await import('../../../services/apiClient')
+    const expiredErr = new ApiError(401, { detail: 'Token expired' }, { hadToken: true })
+
+    mockApi.post
+      .mockResolvedValueOnce({ project_id: 'project-1', diagram_id: 'diagram-1', export_capability: 'cap-1' })
+      .mockRejectedValueOnce({ status: 404, name: 'ApiError' })
+      .mockResolvedValueOnce({ diagram_id: 'diagram-1', mappings: [], zones: [], diagram_type: 'AWS Architecture', services_detected: 0 })
+      .mockRejectedValueOnce(expiredErr)
+      .mockResolvedValueOnce({ questions: [], all_questions: [], assumptions: [], inferred_answers: {} })
+    mockApi.get.mockResolvedValue({ diagrams: [] })
+
+    render(<DiagramTranslator />)
+    await screen.findByText('Upload Architecture Diagram')
+
+    const input = document.querySelector('input[type="file"]')
+    const file = new File(['diagram'], 'diagram.png', { type: 'image/png' })
+    await act(async () => { fireEvent.change(input, { target: { files: [file] } }) })
+    await waitFor(() => expect(screen.getByText('diagram.png')).toBeInTheDocument())
+
+    await act(async () => { fireEvent.click(screen.getByText('Analyze This Diagram')) })
+
+    await waitFor(() => expect(mockEnsureBackendSession).toHaveBeenCalledWith({ forceRefresh: true }))
+    await waitFor(() => {
+      const questionCalls = mockApi.post.mock.calls.filter(([path]) => path === '/diagrams/diagram-1/questions')
+      expect(questionCalls).toHaveLength(2)
+    })
+    expect(screen.queryByRole('heading', { name: 'Authentication required' })).not.toBeInTheDocument()
   })
 
   it('does not fall back to sync analysis when async admission is rejected', async () => {
@@ -461,7 +498,7 @@ describe('DiagramTranslator — Signed-out auth recovery', () => {
   it('exchanges backend session on upload when user is SWA-only without a backend session', async () => {
     mockIsAuthenticated = true
     mockHasBackendSession = false
-    mockEnsureBackendSession.mockResolvedValueOnce(false)
+    mockEnsureBackendSession.mockResolvedValue(false)
 
     render(<DiagramTranslator />)
     await screen.findByText('Upload Architecture Diagram')
@@ -473,8 +510,8 @@ describe('DiagramTranslator — Signed-out auth recovery', () => {
 
     await act(async () => { fireEvent.click(screen.getByText('Analyze This Diagram')) })
 
-    await waitFor(() => expect(mockEnsureBackendSession).toHaveBeenCalledTimes(1))
-    expect(screen.getByRole('heading', { name: 'Authentication required' })).toBeInTheDocument()
+    await waitFor(() => expect(mockEnsureBackendSession).toHaveBeenCalled())
+    expect(screen.getByRole('heading', { name: 'Analysis session needs refresh' })).toBeInTheDocument()
     expect(mockApi.post).not.toHaveBeenCalled()
   })
 
