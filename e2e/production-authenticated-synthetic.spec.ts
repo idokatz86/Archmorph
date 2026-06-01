@@ -37,7 +37,7 @@ async function createSyntheticDiagramPng(page: Page, relativePath: string) {
         <main style="width:900px;height:520px;display:grid;place-items:center;">
           <svg width="820" height="430" viewBox="0 0 820 430" xmlns="http://www.w3.org/2000/svg">
             <rect width="820" height="430" rx="18" fill="#ffffff" stroke="#0f172a" stroke-width="3"/>
-            <text x="410" y="52" text-anchor="middle" font-size="28" font-weight="700" fill="#0f172a">AWS Production Synthetic Architecture</text>
+            <text x="410" y="52" text-anchor="middle" font-size="28" font-weight="700" fill="#0f172a">AWS Fixture: Production Synthetic Auth Flow</text>
             <rect x="70" y="130" width="160" height="88" rx="12" fill="#dbeafe" stroke="#2563eb" stroke-width="3"/>
             <text x="150" y="162" text-anchor="middle" font-size="18" font-weight="700" fill="#1e3a8a">Amazon CloudFront</text>
             <text x="150" y="190" text-anchor="middle" font-size="14" fill="#1e40af">Browser edge traffic</text>
