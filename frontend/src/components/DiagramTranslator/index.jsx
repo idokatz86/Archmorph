@@ -1266,10 +1266,22 @@ export default function DiagramTranslator() {
     set({ exportingPackage: true });
     try {
       // Build a migration package ZIP with IaC + HLD + cost report
-      const data = await api.post(`/diagrams/${state.diagramId}/export-package`, {
-        iac_format: state.iacFormat,
-        include_diagrams: state.hldIncludeDiagrams,
-      });
+      const data = await withRestore(
+        () => api.post(
+          `/diagrams/${state.diagramId}/export-package`,
+          {
+            iac_format: state.iacFormat,
+            include_diagrams: state.hldIncludeDiagrams,
+          },
+          undefined,
+          undefined,
+          state.exportCapability ? { 'X-Export-Capability': state.exportCapability } : {},
+        ),
+        { cleanup: () => set({ exportingPackage: false }) },
+      );
+      if (data?.export_capability) {
+        set({ exportCapability: data.export_capability });
+      }
       const b64 = data?.content_b64 || data?.data;
       if (b64) {
         const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));

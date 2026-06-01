@@ -868,8 +868,10 @@ test.describe('Core Funnel: Migration Package primary CTA', () => {
     await stubDeterministicDeliverables(page);
 
     let packageExportCalled = false;
+    let packageExportCapability = '';
     await page.route('**/api/diagrams/*/export-package', async route => {
       packageExportCalled = true;
+      packageExportCapability = route.request().headers()['x-export-capability'] || '';
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -904,6 +906,7 @@ test.describe('Core Funnel: Migration Package primary CTA', () => {
     // Give it a moment for the async call to resolve
     await page.waitForTimeout(1000);
     expect(packageExportCalled).toBe(true);
+    expect(packageExportCapability).toBe('stub-capability-initial');
   });
 
   test('classic diagram exports (HTML/SVG) remain available as secondary actions alongside the primary package CTA', async ({ page }) => {
