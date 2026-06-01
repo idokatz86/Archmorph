@@ -224,6 +224,19 @@ describe('AnalysisResults', () => {
     expect(onExportPackage).toHaveBeenCalledTimes(1)
   })
 
+  it('disables migration package export while the review queue is gated', async () => {
+    const user = userEvent.setup()
+    const onExportPackage = vi.fn()
+    render(<AnalysisResults {...defaultProps} onExportPackage={onExportPackage} reviewSummary={{ gated: true }} />)
+
+    const button = screen.getByRole('button', { name: /download migration package/i })
+    expect(button).toBeDisabled()
+    expect(screen.getByText(/resolve high-severity review items before exporting customer deliverables/i)).toBeInTheDocument()
+
+    await user.click(button)
+    expect(onExportPackage).not.toHaveBeenCalled()
+  })
+
   it('shows what is included in the migration package', () => {
     const onExportPackage = vi.fn()
     render(<AnalysisResults {...defaultProps} onExportPackage={onExportPackage} />)
