@@ -29,7 +29,7 @@ import ci_smoke
 from job_queue import job_manager, AdmissionRejected, AdmissionStoreError
 from usage_metrics import record_event, record_funnel_step
 from export_capabilities import attach_export_capability
-from data_lifecycle import attach_trust_receipt, build_trust_receipt
+from data_lifecycle import PURGE_CLIENT_CACHE_TARGETS, attach_trust_receipt, build_trust_receipt
 from image_classifier import classify_image
 from vision_analyzer import analyze_image
 from openai_client import OpenAIServiceError, handle_openai_error
@@ -50,7 +50,7 @@ from project_store import (
     get_project_id_for_diagram,
 )
 import shareable_reports
-from iac_chat import clear_iac_chat
+from iac_chat import IAC_CHAT_SESSIONS, clear_iac_chat
 from analysis_payload_bounds import (
     AnalysisPayloadTooLarge,
     validate_analysis_payload_bounds,
@@ -186,6 +186,15 @@ def _purge_store_records_for_diagram(store, diagram_id: str) -> int:
             store.delete(key)
             purged += 1
     return purged
+
+
+def _count_store_records_for_diagram(store, diagram_id: str) -> int:
+    count = 0
+    for key in list(store.keys("*")):
+        value = store.get(key)
+        if isinstance(value, dict) and value.get("diagram_id") == diagram_id:
+            count += 1
+    return count
 
 
 def _diagram_project_metadata(diagram_id: str) -> tuple[Optional[str], Dict[str, Any]]:
@@ -434,6 +443,16 @@ async def purge_diagram_session(
     share_links_deleted = shareable_reports.purge_diagram_shares(diagram_id)
     jobs_deleted = job_manager.purge_diagram(diagram_id)
     iac_chat_deleted = clear_iac_chat(diagram_id)
+    orphaned_artifact_count = (
+        (1 if diagram_id in IMAGE_STORE else 0)
+        + (1 if diagram_id in SESSION_STORE else 0)
+        + (1 if get_project_id_for_diagram(diagram_id) else 0)
+        + _count_store_records_for_diagram(EXPORT_CAPABILITY_STORE, diagram_id)
+        + _count_store_records_for_diagram(SHARE_STORE, diagram_id)
+        + len(job_manager.list_jobs(diagram_id=diagram_id, limit=1000))
+        + sum(1 for key in IAC_CHAT_SESSIONS if key.startswith(f"{diagram_id}:"))
+    )
+    purge_success = orphaned_artifact_count == 0
 
     record_event("diagram_data_purged", {
         "diagram_id": diagram_id,
@@ -445,6 +464,12 @@ async def purge_diagram_session(
         "share_links_deleted": share_links_deleted,
         "jobs_deleted": jobs_deleted,
         "iac_chat_deleted": iac_chat_deleted,
+        "orphaned_artifact_count": orphaned_artifact_count,
+        "purge_success": purge_success,
+    })
+    record_event("diagram_purge_succeeded" if purge_success else "diagram_purge_with_orphans", {
+        "diagram_id": diagram_id,
+        "orphaned_artifact_count": orphaned_artifact_count,
     })
     purge_confirmation = {
         "status": "purged",
@@ -459,7 +484,9 @@ async def purge_diagram_session(
             or iac_chat_deleted
         ),
         "client_cache_action": "clear_session_storage_after_successful_purge",
+        "client_cache_targets": PURGE_CLIENT_CACHE_TARGETS,
         "audit_security_logs_retained": True,
+        "orphaned_artifact_count": orphaned_artifact_count,
     }
     artifact_status = {
         "uploaded_content": "purged" if image_deleted else "not_present",
@@ -470,6 +497,7 @@ async def purge_diagram_session(
         "export_capabilities": export_capabilities_deleted,
         "async_jobs": jobs_deleted,
         "iac_chat": bool(iac_chat_deleted),
+        "orphaned_artifacts": orphaned_artifact_count,
     }
     trust_receipt = build_trust_receipt(
         diagram_id,

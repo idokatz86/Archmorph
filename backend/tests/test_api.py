@@ -7,6 +7,8 @@ import os
 import sys
 import io
 import copy
+import base64
+import zipfile
 from unittest.mock import patch
 
 import pytest
@@ -308,13 +310,22 @@ class TestPurge:
         assert purge_receipt["status"] == "purged"
         assert purge_receipt["purge"]["status"] == "purged"
         assert purge_receipt["purge"]["client_cache_action"] == "clear_session_storage_after_successful_purge"
+        assert purge_receipt["purge"]["client_cache_targets"] == [
+            "sessionStorage:archmorph_session_<diagram_id>",
+            "sessionStorage:archmorph_img_<diagram_id>",
+            "sessionStorage:archmorph_session",
+            "sessionStorage:archmorph_active_diagram",
+            "sessionStorage:archmorph_pending_upload_reauth",
+        ]
         assert purge_receipt["purge"]["audit_security_logs_retained"] is True
         assert purge_receipt["audit_security_logs"]["retained"] is True
         assert purge_receipt["audit_security_logs"]["contains_customer_content"] is False
         assert purge_receipt["purge"]["server_content_deleted"] is True
+        assert purge_receipt["purge"]["orphaned_artifact_count"] == 0
         assert purge_receipt["artifacts"]["uploaded_content"] == "purged"
         assert purge_receipt["artifacts"]["analysis_session"] == "purged"
         assert purge_receipt["artifacts"]["project_index"] == "purged"
+        assert purge_receipt["artifacts"]["orphaned_artifacts"] == 0
 
         assert did not in IMAGE_STORE
         assert did not in SESSION_STORE
@@ -330,6 +341,13 @@ class TestPurge:
         assert not any(
             (SHARE_STORE.get(key) or {}).get("diagram_id") == did
             for key in SHARE_STORE.keys("*")
+        )
+        recent_events = get_recent_events(limit=25)
+        assert any(
+            event.get("type") == "diagram_purge_succeeded"
+            and event.get("details", {}).get("diagram_id") == did
+            and event.get("details", {}).get("orphaned_artifact_count") == 0
+            for event in recent_events
         )
 
     def test_purge_rejects_cross_tenant_access(
@@ -409,6 +427,37 @@ class TestGuidedQuestions:
             json={"environment": "production"},
         )
         assert resp.status_code == 200
+
+
+class TestMigrationPackage:
+    def _upload(self, client):
+        content = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+        resp = client.post(
+            "/api/projects/proj-001/diagrams",
+            files={"file": ("test.png", io.BytesIO(content), "image/png")},
+        )
+        assert resp.status_code == 200
+        return resp.json()["diagram_id"]
+
+    def test_export_package_includes_trust_receipt(self, client, clean_session, tenant_a_auth_headers):
+        did = self._upload(client)
+        with patch("routers.diagrams.analyze_image", return_value=copy.deepcopy(MOCK_ANALYSIS)):
+            analyzed = client.post(f"/api/diagrams/{did}/analyze", headers=tenant_a_auth_headers)
+        assert analyzed.status_code == 200
+
+        exported = client.post(f"/api/diagrams/{did}/export-package", headers=tenant_a_auth_headers)
+        assert exported.status_code == 200
+        payload = exported.json()
+
+        archive_bytes = base64.b64decode(payload["content_b64"])
+        with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
+            assert "analysis/trust-receipt.json" in archive.namelist()
+            receipt = json.loads(archive.read("analysis/trust-receipt.json").decode("utf-8"))
+
+        assert receipt["diagram_id"] == did
+        assert receipt["correlation_id"] == did
+        assert receipt["retention"]["class"] == "ephemeral-analysis"
+        assert receipt["audit_security_logs"]["retained"] is True
 
 
 # ====================================================================

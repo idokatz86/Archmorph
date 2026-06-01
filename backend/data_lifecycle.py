@@ -20,6 +20,13 @@ def _int_env(name: str, default: int) -> int:
 CONTENT_RETENTION_CLASS = os.getenv("ARCHMORPH_CONTENT_RETENTION_CLASS", "ephemeral-analysis")
 CONTENT_RETENTION_SECONDS = _int_env("ARCHMORPH_CONTENT_RETENTION_SECONDS", 2 * 60 * 60)
 AUDIT_SECURITY_LOG_RETENTION_DAYS = _int_env("ARCHMORPH_AUDIT_SECURITY_LOG_RETENTION_DAYS", 30)
+PURGE_CLIENT_CACHE_TARGETS = [
+    "sessionStorage:archmorph_session_<diagram_id>",
+    "sessionStorage:archmorph_img_<diagram_id>",
+    "sessionStorage:archmorph_session",
+    "sessionStorage:archmorph_active_diagram",
+    "sessionStorage:archmorph_pending_upload_reauth",
+]
 
 
 def _now() -> datetime:
@@ -107,6 +114,7 @@ def build_trust_receipt(
             "status": "not_requested",
             "server_content_deleted": False,
             "client_cache_action": "clear_session_storage_after_successful_purge",
+            "client_cache_targets": PURGE_CLIENT_CACHE_TARGETS,
         },
         "audit_security_logs": {
             "retained": True,
