@@ -2,6 +2,8 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const FRONTEND_URL = process.env.FRONTEND_URL || "https://archmorphai.com";
+const CI_BROWSER_CHANNEL = process.env.CI ? "chrome" : undefined;
+const CI_VIDEO_MODE = process.env.CI ? "off" : "retain-on-failure";
 
 export default defineConfig({
   testDir: "./e2e",
@@ -16,18 +18,18 @@ export default defineConfig({
     baseURL: FRONTEND_URL,
     trace: "on-first-retry",
     screenshot: "only-on-failure",
-    video: "retain-on-failure",
+    video: CI_VIDEO_MODE,
   },
   projects: [
     {
       name: "chromium",
       grepInvert: /@mobile/,
-      use: { ...devices["Desktop Chrome"] },
+      use: { ...devices["Desktop Chrome"], channel: CI_BROWSER_CHANNEL },
     },
     {
       name: "mobile-chrome",
       grep: /@mobile/,
-      use: { ...devices["Pixel 5"] },
+      use: { ...devices["Pixel 5"], channel: CI_BROWSER_CHANNEL },
     },
   ],
 });

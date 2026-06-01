@@ -200,6 +200,72 @@ describe('AnalysisResults', () => {
     expect(screen.getByText(/Runtime limit differs/)).toBeInTheDocument()
     expect(screen.getByText('Rewrite deployment package')).toBeInTheDocument()
   })
+
+  // ── Migration Package primary CTA ──────────────────────────────────────────
+
+  it('does not render migration package CTA when onExportPackage is not provided', () => {
+    render(<AnalysisResults {...defaultProps} />)
+    expect(screen.queryByTestId('migration-package-cta')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /download migration package/i })).not.toBeInTheDocument()
+  })
+
+  it('renders migration package primary CTA when onExportPackage is provided', () => {
+    const onExportPackage = vi.fn()
+    render(<AnalysisResults {...defaultProps} onExportPackage={onExportPackage} />)
+    expect(screen.getByTestId('migration-package-cta')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /download migration package/i })).toBeInTheDocument()
+  })
+
+  it('calls onExportPackage when migration package button is clicked', async () => {
+    const user = userEvent.setup()
+    const onExportPackage = vi.fn()
+    render(<AnalysisResults {...defaultProps} onExportPackage={onExportPackage} />)
+    await user.click(screen.getByRole('button', { name: /download migration package/i }))
+    expect(onExportPackage).toHaveBeenCalledTimes(1)
+  })
+
+  it('disables migration package export while the review queue is gated', async () => {
+    const user = userEvent.setup()
+    const onExportPackage = vi.fn()
+    render(<AnalysisResults {...defaultProps} onExportPackage={onExportPackage} reviewSummary={{ gated: true }} />)
+
+    const button = screen.getByRole('button', { name: /download migration package/i })
+    expect(button).toBeDisabled()
+    expect(screen.getByText(/resolve high-severity review items before exporting customer deliverables/i)).toBeInTheDocument()
+
+    await user.click(button)
+    expect(onExportPackage).not.toHaveBeenCalled()
+  })
+
+  it('shows what is included in the migration package', () => {
+    const onExportPackage = vi.fn()
+    render(<AnalysisResults {...defaultProps} onExportPackage={onExportPackage} />)
+    const cta = screen.getByTestId('migration-package-cta')
+    expect(cta.textContent).toMatch(/executive summary/i)
+    expect(cta.textContent).toMatch(/azure mappings/i)
+    expect(cta.textContent).toMatch(/cost estimates/i)
+  })
+
+  it('shows ai-generated vs confirmed disclaimer in migration package CTA', () => {
+    const onExportPackage = vi.fn()
+    render(<AnalysisResults {...defaultProps} onExportPackage={onExportPackage} />)
+    expect(screen.getByText(/generated recommendations are ai-assisted/i)).toBeInTheDocument()
+    expect(screen.getByText(/confirmed/i)).toBeInTheDocument()
+  })
+
+  it('renders classic export panel as secondary below migration package CTA', () => {
+    const onExportPackage = vi.fn()
+    render(<AnalysisResults {...defaultProps} onExportPackage={onExportPackage} />)
+    // Both should be present — package CTA first (primary), ExportPanel secondary
+    const cta = screen.getByTestId('migration-package-cta')
+    const panel = screen.getByTestId('export-panel')
+    expect(cta).toBeInTheDocument()
+    expect(panel).toBeInTheDocument()
+    // CTA should appear before export panel in the DOM
+    expect(
+      cta.compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+  })
 })
 
 describe('AnalysisResults — trust/evidence layer (#1130)', () => {
