@@ -37,21 +37,21 @@ async function createSyntheticDiagramPng(page: Page, relativePath: string) {
         <main style="width:900px;height:520px;display:grid;place-items:center;">
           <svg width="820" height="430" viewBox="0 0 820 430" xmlns="http://www.w3.org/2000/svg">
             <rect width="820" height="430" rx="18" fill="#ffffff" stroke="#0f172a" stroke-width="3"/>
-            <text x="410" y="52" text-anchor="middle" font-size="28" font-weight="700" fill="#0f172a">Production Synthetic Architecture</text>
+            <text x="410" y="52" text-anchor="middle" font-size="28" font-weight="700" fill="#0f172a">AWS Fixture: Production Synthetic Auth Flow</text>
             <rect x="70" y="130" width="160" height="88" rx="12" fill="#dbeafe" stroke="#2563eb" stroke-width="3"/>
-            <text x="150" y="168" text-anchor="middle" font-size="18" font-weight="700" fill="#1e3a8a">Browser</text>
-            <text x="150" y="194" text-anchor="middle" font-size="14" fill="#1e40af">Bearer session</text>
+            <text x="150" y="162" text-anchor="middle" font-size="18" font-weight="700" fill="#1e3a8a">Amazon CloudFront</text>
+            <text x="150" y="190" text-anchor="middle" font-size="14" fill="#1e40af">Browser edge traffic</text>
             <rect x="330" y="130" width="160" height="88" rx="12" fill="#dcfce7" stroke="#16a34a" stroke-width="3"/>
-            <text x="410" y="168" text-anchor="middle" font-size="18" font-weight="700" fill="#14532d">SWA</text>
-            <text x="410" y="194" text-anchor="middle" font-size="14" fill="#166534">Managed API</text>
+            <text x="410" y="162" text-anchor="middle" font-size="18" font-weight="700" fill="#14532d">Amazon API Gateway</text>
+            <text x="410" y="190" text-anchor="middle" font-size="14" fill="#166534">Authenticated API</text>
             <rect x="590" y="130" width="160" height="88" rx="12" fill="#fef3c7" stroke="#d97706" stroke-width="3"/>
-            <text x="670" y="168" text-anchor="middle" font-size="18" font-weight="700" fill="#78350f">Backend</text>
-            <text x="670" y="194" text-anchor="middle" font-size="14" fill="#92400e">Analyze + export</text>
+            <text x="670" y="162" text-anchor="middle" font-size="18" font-weight="700" fill="#78350f">AWS Lambda</text>
+            <text x="670" y="190" text-anchor="middle" font-size="14" fill="#92400e">Analyze + export</text>
             <path d="M230 174 H330" stroke="#334155" stroke-width="4" marker-end="url(#arrow)"/>
             <path d="M490 174 H590" stroke="#334155" stroke-width="4" marker-end="url(#arrow)"/>
-            <rect x="200" y="285" width="420" height="70" rx="12" fill="#f1f5f9" stroke="#64748b" stroke-width="2"/>
-            <text x="410" y="315" text-anchor="middle" font-size="17" font-weight="700" fill="#334155">Authenticated upload -> analysis -> Draw.io export</text>
-            <text x="410" y="340" text-anchor="middle" font-size="14" fill="#475569">Owner attribution must be user session, not API key</text>
+            <rect x="170" y="285" width="480" height="70" rx="12" fill="#f1f5f9" stroke="#64748b" stroke-width="2"/>
+            <text x="410" y="312" text-anchor="middle" font-size="17" font-weight="700" fill="#334155">Amazon S3 + Amazon RDS data tier</text>
+            <text x="410" y="338" text-anchor="middle" font-size="14" fill="#475569">Authenticated upload -> AWS analysis -> Draw.io export</text>
             <defs>
               <marker id="arrow" markerWidth="10" markerHeight="10" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
                 <path d="M0,0 L0,6 L8,3 z" fill="#334155"/>
