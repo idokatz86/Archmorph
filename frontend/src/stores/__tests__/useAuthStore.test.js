@@ -88,6 +88,36 @@ describe('useAuthStore', () => {
     expect(localStorage.getItem('archmorph_refresh_token')).toBe('backend-refresh-token');
   });
 
+  it('can exchange an SWA-only signed-in user for a backend session on demand', async () => {
+    useAuthStore.setState({
+      user: { id: 'aad_user-123', name: 'Ido Katz', provider: 'microsoft' },
+      isAuthenticated: true,
+      hasBackendSession: false,
+      isLoading: false,
+      sessionToken: null,
+    });
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        user: { id: 'aad_user-123', name: 'Ido Katz', provider: 'microsoft' },
+        session_token: 'on-demand-session-token',
+        refresh_token: 'on-demand-refresh-token',
+      }),
+    });
+
+    await expect(useAuthStore.getState().ensureBackendSession()).resolves.toBe(true);
+
+    const state = useAuthStore.getState();
+    expect(fetch).toHaveBeenCalledWith('/api/auth/swa-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+    });
+    expect(state.hasBackendSession).toBe(true);
+    expect(state.sessionToken).toBe('on-demand-session-token');
+    expect(localStorage.getItem('archmorph_session_token')).toBe('on-demand-session-token');
+  });
+
   it('prefers the backend user profile when SWA headers reach the API', async () => {
     fetch
       .mockResolvedValueOnce({

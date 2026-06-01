@@ -19,7 +19,7 @@ export default function UploadStep({
   onSignIn,
 }) {
   const isPdf = !!selectedFile && (selectedFile.type === 'application/pdf' || /\.pdf$/i.test(selectedFile.name));
-  const canAnalyze = isAuthenticated && hasBackendSession;
+  const canAnalyze = isAuthenticated;
 
   return (
     <Card className="p-6 pb-24 sm:p-12 sm:pb-12">
@@ -87,16 +87,7 @@ export default function UploadStep({
                     <Button onClick={(e) => { e.stopPropagation(); onSignIn?.(); }} variant="primary" size="md" icon={LogIn}>
                       Sign in to analyze
                     </Button>
-                  ) : (
-                    <div className="flex flex-col items-center gap-2">
-                      <Button onClick={(e) => { e.stopPropagation(); }} variant="secondary" size="md" icon={LogIn} disabled>
-                        Analysis unavailable
-                      </Button>
-                      <p className="max-w-xs text-xs text-text-muted">
-                        Signed in, but the backend analysis session is not available yet.
-                      </p>
-                    </div>
-                  )}
+                  ) : null}
                   <Button onClick={(e) => { e.stopPropagation(); onRemoveFile(); }} variant="ghost" size="sm" icon={X}>
                     Remove
                   </Button>

@@ -72,10 +72,12 @@ vi.mock('../../../services/apiClient', () => ({
 // Mock useAuthStore so we can control isAuthenticated per test
 let mockIsAuthenticated = false
 let mockHasBackendSession = false
+const mockEnsureBackendSession = vi.fn()
 vi.mock('../../../stores/useAuthStore', () => ({
   default: vi.fn((selector) => selector({
     isAuthenticated: mockIsAuthenticated,
     hasBackendSession: mockHasBackendSession,
+    ensureBackendSession: mockEnsureBackendSession,
     isLoading: false,
     user: null,
     sessionToken: null,
@@ -87,6 +89,7 @@ describe('DiagramTranslator — Session UX Tests', () => {
     vi.clearAllMocks()
     mockIsAuthenticated = false // signed-out by default for these tests
     mockHasBackendSession = false
+    mockEnsureBackendSession.mockResolvedValue(true)
     mockLoadSession.mockReturnValue(null)
     fetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({}) })
   })
@@ -370,6 +373,32 @@ describe('DiagramTranslator — Signed-out auth recovery', () => {
     await waitFor(() => expect(screen.getByText('my-diagram.pdf')).toBeInTheDocument())
   })
 
+  it('mints a backend session before upload when SWA sign-in succeeded but backend session is missing', async () => {
+    mockIsAuthenticated = true
+    mockHasBackendSession = false
+    mockEnsureBackendSession.mockResolvedValueOnce(true)
+    mockApi.post
+      .mockResolvedValueOnce({ project_id: 'project-1', diagram_id: 'diagram-1', export_capability: 'cap-1' })
+      .mockRejectedValueOnce({ status: 404, name: 'ApiError' })
+      .mockResolvedValueOnce({ diagram_id: 'diagram-1', mappings: [], zones: [], diagram_type: 'AWS Architecture', services_detected: 0 })
+      .mockResolvedValueOnce({ questions: [], all_questions: [], assumptions: [], inferred_answers: {} })
+    mockApi.get.mockResolvedValue({ diagrams: [] })
+
+    render(<DiagramTranslator />)
+    await screen.findByText('Upload Architecture Diagram')
+
+    const input = document.querySelector('input[type="file"]')
+    const file = new File(['diagram'], 'diagram.png', { type: 'image/png' })
+    await act(async () => { fireEvent.change(input, { target: { files: [file] } }) })
+    await waitFor(() => expect(screen.getByText('diagram.png')).toBeInTheDocument())
+
+    await act(async () => { fireEvent.click(screen.getByText('Analyze This Diagram')) })
+
+    await waitFor(() => expect(mockEnsureBackendSession).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(mockApi.post).toHaveBeenCalledTimes(4))
+    expect(mockApi.post).toHaveBeenCalledWith('/projects/demo-project/diagrams', expect.any(FormData), expect.any(AbortSignal))
+  })
+
   it('does not fall back to sync analysis when async admission is rejected', async () => {
     mockIsAuthenticated = true
     mockHasBackendSession = true
@@ -429,9 +458,10 @@ describe('DiagramTranslator — Signed-out auth recovery', () => {
     expect(mockApi.post).not.toHaveBeenCalledWith('/diagrams/diag-abort/analyze', undefined, expect.any(AbortSignal))
   })
 
-  it('does not upload or analyze when user is SWA-only without a backend session', async () => {
+  it('exchanges backend session on upload when user is SWA-only without a backend session', async () => {
     mockIsAuthenticated = true
     mockHasBackendSession = false
+    mockEnsureBackendSession.mockResolvedValueOnce(false)
 
     render(<DiagramTranslator />)
     await screen.findByText('Upload Architecture Diagram')
@@ -441,9 +471,10 @@ describe('DiagramTranslator — Signed-out auth recovery', () => {
     await act(async () => { fireEvent.change(input, { target: { files: [pdfFile] } }) })
     await waitFor(() => expect(screen.getByText('swa-only.pdf')).toBeInTheDocument())
 
-    expect(screen.getByRole('button', { name: /Analysis unavailable/i })).toBeDisabled()
-    expect(screen.getByText(/backend analysis session is not available/i)).toBeInTheDocument()
-    expect(screen.queryByText('Analyze This Diagram')).not.toBeInTheDocument()
+    await act(async () => { fireEvent.click(screen.getByText('Analyze This Diagram')) })
+
+    await waitFor(() => expect(mockEnsureBackendSession).toHaveBeenCalledTimes(1))
+    expect(screen.getByRole('heading', { name: 'Authentication required' })).toBeInTheDocument()
     expect(mockApi.post).not.toHaveBeenCalled()
   })
 
