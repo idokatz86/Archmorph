@@ -15,7 +15,6 @@ from routers.shared import (
     authorize_diagram_access,
     limiter,
     require_diagram_access,
-    verify_api_key,
     verify_api_key_or_user_session,
 )
 from usage_metrics import record_event, record_funnel_step
@@ -42,7 +41,7 @@ class AddServicesRequest(StrictBaseModel):
 # ─────────────────────────────────────────────────────────────
 @router.post("/api/diagrams/{diagram_id}/questions", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("15/minute")
-async def get_guided_questions(request: Request, diagram_id: str, smart_dedup: bool = True, _auth=Depends(verify_api_key)):
+async def get_guided_questions(request: Request, diagram_id: str, smart_dedup: bool = True, _auth=Depends(verify_api_key_or_user_session)):
     """Generate guided questions based on detected AWS services.
 
     If smart_dedup=True, questions that have been implicitly answered
@@ -94,7 +93,7 @@ async def add_services_natural_language(
     request: Request,
     diagram_id: str,
     body: AddServicesRequest,
-    _auth=Depends(verify_api_key),
+    _auth=Depends(verify_api_key_or_user_session),
 ):
     """Add Azure services to an architecture using natural language.
 
@@ -148,7 +147,7 @@ async def apply_guided_answers(
     request: Request,
     diagram_id: str,
     answers: Dict[str, Any],
-    _auth=Depends(verify_api_key),
+    _auth=Depends(verify_api_key_or_user_session),
 ):
     """Apply user answers to refine the Azure architecture analysis."""
     analysis = authorize_diagram_access(request, diagram_id, purpose="apply answers")
@@ -269,7 +268,7 @@ async def export_architecture_package(
     diagram_id: str,
     format: str = "html",
     diagram: str = "primary",
-    _auth=Depends(verify_api_key),
+    _auth=Depends(verify_api_key_or_user_session),
     capability=Depends(verify_export_capability),
 ):
     """Generate the customer-facing Architecture Package.
