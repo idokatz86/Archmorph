@@ -455,7 +455,7 @@ export default function AnalysisResults({
               {reviewSummary.gated
                 ? 'Resolve high-severity review items before exporting customer deliverables.'
                 : 'Generated recommendations are AI-assisted. Items marked as confirmed reflect your review decisions.'}
-              Classic diagram exports remain available below.
+              {' '}Classic diagram exports remain available below.
             </p>
           </Card>
         </div>

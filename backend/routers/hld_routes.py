@@ -387,6 +387,13 @@ async def export_migration_package(
     # Build ZIP in memory
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        def text_value(value, fallback=""):
+            if value is None:
+                return fallback
+            if isinstance(value, str):
+                return value
+            return str(value)
+
         # 1. IaC code
         iac_code = session.get("generated_iac", "")
         if iac_code:
@@ -395,32 +402,44 @@ async def export_migration_package(
 
         # 2. Analysis summary — includes executive summary, decisions vs recommendations,
         #    methodology/confidence, and risks/gaps/limitations.
-        mappings = session.get("mappings", [])
+        mappings = [m for m in (session.get("mappings", []) or []) if isinstance(m, dict)]
         assumptions_raw = session.get("assumptions", []) or []
-        answers_raw = session.get("answers", {}) or {}
+        if not isinstance(assumptions_raw, list):
+            assumptions_raw = []
+        answers_raw = session.get("guided_answers") or session.get("answers") or {}
+        if not isinstance(answers_raw, dict):
+            answers_raw = {}
 
         # Separate confirmed (user-reviewed) from AI-generated recommendations
-        confirmed_decisions = [
-            {
-                "id": a.get("id"),
-                "question": a.get("question", ""),
-                "confirmed_answer": answers_raw.get(a.get("id")) if a.get("id") in answers_raw else a.get("assumed_answer"),
-                "source": "user_confirmed" if a.get("id") in answers_raw else "ai_assumed",
-            }
-            for a in assumptions_raw
-        ]
+        confirmed_decisions = []
+        for assumption in assumptions_raw:
+            if not isinstance(assumption, dict):
+                continue
+            assumption_id = assumption.get("id")
+            has_confirmed_answer = assumption_id in answers_raw
+            confirmed_decisions.append({
+                "id": assumption_id,
+                "question": text_value(assumption.get("question")),
+                "confirmed_answer": answers_raw.get(assumption_id) if has_confirmed_answer else assumption.get("assumed_answer"),
+                "source": "user_confirmed" if has_confirmed_answer else "ai_assumed",
+            })
 
         # Collect risks/gaps from mapping limitations
         risks_and_gaps = []
         for m in mappings:
             for lim in (m.get("limitations") or []):
-                factor = lim if isinstance(lim, str) else lim.get("factor", "")
-                detail = "" if isinstance(lim, str) else lim.get("detail", "")
-                severity = "medium" if isinstance(lim, str) else lim.get("severity", "medium")
+                if isinstance(lim, dict):
+                    factor = text_value(lim.get("factor"))
+                    detail = text_value(lim.get("detail"))
+                    severity = text_value(lim.get("severity"), "medium") or "medium"
+                else:
+                    factor = text_value(lim)
+                    detail = ""
+                    severity = "medium"
                 if factor and factor.lower() not in {"none", "n/a", "none.", "none identified"}:
                     risks_and_gaps.append({
-                        "service": m.get("source_service", ""),
-                        "azure_target": m.get("azure_service", ""),
+                        "service": text_value(m.get("source_service")),
+                        "azure_target": text_value(m.get("azure_service")),
                         "risk": factor,
                         "detail": detail,
                         "severity": severity,
@@ -428,12 +447,13 @@ async def export_migration_package(
 
         confidence_summary = session.get("confidence_summary") or {}
         services_detected = session.get("services_detected", len(mappings))
-        zones = session.get("zones", [])
+        zones = [z for z in (session.get("zones", []) or []) if isinstance(z, dict)]
+        source_provider = text_value(session.get("source_provider"), "the source environment") or "the source environment"
 
         executive_summary = (
             f"This Azure Migration Package covers {services_detected} services "
             f"across {len(zones)} zone(s) migrating from "
-            f"{session.get('source_provider', 'the source environment').upper()} to Azure. "
+            f"{source_provider.upper()} to Azure. "
             f"Average mapping confidence: "
             f"{round(confidence_summary.get('average', 0) * 100)}%. "
             f"{confidence_summary.get('high', 0)} mappings are high confidence, "
@@ -445,8 +465,8 @@ async def export_migration_package(
 
         analysis_summary = {
             "executive_summary": executive_summary,
-            "source_provider": session.get("source_provider", "unknown"),
-            "diagram_type": session.get("diagram_type", "unknown"),
+            "source_provider": text_value(session.get("source_provider"), "unknown") or "unknown",
+            "diagram_type": text_value(session.get("diagram_type"), "unknown") or "unknown",
             "services_detected": services_detected,
             "zones": [{"id": z.get("id"), "name": z.get("name")} for z in zones],
             "mappings": [

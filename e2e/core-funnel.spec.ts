@@ -902,10 +902,7 @@ test.describe('Core Funnel: Migration Package primary CTA', () => {
     await expect(packageButton).toBeVisible({ timeout: 15000 });
     await packageButton.click();
 
-    // The export-package API call should have been made
-    // Give it a moment for the async call to resolve
-    await page.waitForTimeout(1000);
-    expect(packageExportCalled).toBe(true);
+    await expect.poll(() => packageExportCalled, { timeout: 5000 }).toBe(true);
     expect(packageExportCapability).toBe('stub-capability-initial');
   });
 

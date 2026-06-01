@@ -10,7 +10,7 @@ const EXPORT_FORMATS = [
 
 export default function ExportPanel({ exportLoading, onExportDiagram, secondary }) {
   return (
-    <Card className={`p-4 ${secondary ? 'border-border/60 bg-secondary/30' : 'p-6'}`}>
+    <Card className={secondary ? 'p-4 border-border/60 bg-secondary/30' : 'p-6'}>
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div>
           <h3 className={`font-semibold text-text-primary mb-0.5 ${secondary ? 'text-xs' : 'text-sm'}`}>
