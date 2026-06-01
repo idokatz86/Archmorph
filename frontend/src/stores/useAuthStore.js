@@ -43,6 +43,19 @@ async function exchangeSwaSession() {
   return response.json();
 }
 
+async function validateStoredToken(token) {
+  if (!token) return null;
+  const response = await fetch(`${API_BASE}/auth/me`, {
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+  });
+  if (!response.ok) return null;
+  const user = await response.json();
+  return user?.id ? user : null;
+}
+
 const SWA_PROVIDER_MAP = {
   aad: 'microsoft',
   microsoft: 'microsoft',
@@ -97,6 +110,45 @@ const useAuthStore = create((set, get) => ({
   isLoading: true,
   sessionToken: getStoredToken(),
 
+  ensureBackendSession: async () => {
+    const current = get();
+    if (current.hasBackendSession && current.sessionToken) return true;
+
+    const storedToken = getStoredToken();
+    let tokenValidationIndeterminate = false;
+    if (storedToken) {
+      try {
+        const user = await validateStoredToken(storedToken);
+        if (user) {
+          set({ user, isAuthenticated: true, hasBackendSession: true, sessionToken: storedToken, isLoading: false });
+          return true;
+        }
+      } catch {
+        tokenValidationIndeterminate = true;
+      }
+    }
+
+    if (!tokenValidationIndeterminate) {
+      const refreshed = await current._tryRefresh();
+      if (refreshed) return true;
+    }
+
+    const exchanged = await exchangeSwaSession().catch(() => null);
+    if (exchanged?.user?.id && exchanged.session_token) {
+      storeTokens(exchanged.session_token, exchanged.refresh_token);
+      set({
+        user: exchanged.user,
+        isAuthenticated: true,
+        hasBackendSession: true,
+        sessionToken: exchanged.session_token,
+        isLoading: false,
+      });
+      return true;
+    }
+
+    return false;
+  },
+
   // ── Initialize — call on app mount ──
   initialize: async () => {
     set({ isLoading: true });
@@ -131,6 +183,11 @@ const useAuthStore = create((set, get) => ({
           if (token) {
             let shouldClearStoredToken = false;
             try {
+              const user = await validateStoredToken(token);
+              if (user) {
+                set({ user, isAuthenticated: true, hasBackendSession: true, sessionToken: token, isLoading: false });
+                return;
+              }
               const tokenRes = await fetch(`${API_BASE}/auth/me`, {
                 headers: {
                   'Authorization': `Bearer ${token}`,
@@ -138,11 +195,6 @@ const useAuthStore = create((set, get) => ({
                 },
               });
               if (tokenRes.ok) {
-                const user = await tokenRes.json();
-                if (user && user.id) {
-                  set({ user, isAuthenticated: true, hasBackendSession: true, sessionToken: token, isLoading: false });
-                  return;
-                }
                 const refreshed = await get()._tryRefresh();
                 if (refreshed) return;
                 shouldClearStoredToken = true;
@@ -183,18 +235,10 @@ const useAuthStore = create((set, get) => ({
     const token = getStoredToken();
     if (token) {
       try {
-        const res = await fetch(`${API_BASE}/auth/me`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        });
-        if (res.ok) {
-          const user = await res.json();
-          if (user && user.id) {
-            set({ user, isAuthenticated: true, hasBackendSession: true, sessionToken: token, isLoading: false });
-            return;
-          }
+        const user = await validateStoredToken(token);
+        if (user) {
+          set({ user, isAuthenticated: true, hasBackendSession: true, sessionToken: token, isLoading: false });
+          return;
         }
         // Token expired — try refresh
         const refreshed = await get()._tryRefresh();

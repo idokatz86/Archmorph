@@ -343,6 +343,7 @@ export default function DiagramTranslator() {
   // Auth state — used for proactive gate and 401 error differentiation
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const hasBackendSession = useAuthStore((s) => s.hasBackendSession);
+  const ensureBackendSession = useAuthStore((s) => s.ensureBackendSession);
   const [loginModalOpen, setLoginModalOpen] = useState(false);
   const [authUploadRecovery, setAuthUploadRecovery] = useState(null);
 
@@ -622,6 +623,23 @@ export default function DiagramTranslator() {
       });
       return;
     }
+  };
+
+  const handleAuthenticatedUpload = async (file) => {
+    if (!isAuthenticated) {
+      setLoginModalOpen(true);
+      return;
+    }
+    if (!hasBackendSession) {
+      set({ authError: null, error: null });
+      const ready = await ensureBackendSession?.();
+      if (!ready) {
+        set({ authError: 'auth_required', error: null, step: 'upload' });
+        setLoginModalOpen(true);
+        return;
+      }
+    }
+    await handleUpload(file);
   };
 
   // ── Session auto-recovery: push cached analysis back to backend on 404 ──
@@ -1520,7 +1538,7 @@ export default function DiagramTranslator() {
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
           onFileSelect={handleFileSelect}
-          onUpload={handleUpload}
+          onUpload={handleAuthenticatedUpload}
           onRemoveFile={clearSelectedUpload}
           onLoadSample={handleLoadSample}
           isAuthenticated={isAuthenticated}

@@ -155,14 +155,13 @@ describe('UploadStep', () => {
     expect(onUpload).toHaveBeenCalledWith(file)
   })
 
-  it('disables analysis when the frontend has SWA auth but no backend session', async () => {
+  it('allows analysis when the frontend has SWA auth but no backend session', async () => {
     const onUpload = vi.fn()
     const onSignIn = vi.fn()
     const file = new File(['diagram.png'], 'diagram.png', { type: 'image/png' })
     render(<UploadStep {...defaultProps} selectedFile={file} isAuthenticated={true} hasBackendSession={false} onUpload={onUpload} onSignIn={onSignIn} />)
-    expect(screen.getByRole('button', { name: /Analysis unavailable/i })).toBeDisabled()
-    expect(screen.getByText(/backend analysis session is not available/i)).toBeInTheDocument()
-    expect(onUpload).not.toHaveBeenCalled()
+    await userEvent.setup().click(screen.getByRole('button', { name: /Analyze This Diagram/i }))
+    expect(onUpload).toHaveBeenCalledTimes(1)
     expect(onSignIn).not.toHaveBeenCalled()
   })
 
