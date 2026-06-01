@@ -10,7 +10,7 @@ from iac_generator import generate_iac_code
 from project_merge import merge_project_analyses
 from project_store import get_project, list_analyzed_diagrams, set_combined_analysis
 from routers.iac_routes import _check_architecture_blockers
-from routers.shared import SESSION_STORE, limiter, verify_api_key
+from routers.shared import SESSION_STORE, limiter, verify_api_key_or_user_session
 from usage_metrics import record_event, record_funnel_step
 
 router = APIRouter()
@@ -37,7 +37,7 @@ def _combined_analysis_for_project(project_id: str) -> dict:
 
 @router.get("/api/projects/{project_id}")
 @limiter.limit("30/minute")
-async def get_project_status(request: Request, project_id: str, _auth=Depends(verify_api_key)):
+async def get_project_status(request: Request, project_id: str, _auth=Depends(verify_api_key_or_user_session)):
     """Return project metadata and per-diagram analysis status."""
     project = get_project(project_id)
     if not project:
@@ -47,7 +47,7 @@ async def get_project_status(request: Request, project_id: str, _auth=Depends(ve
 
 @router.get("/api/projects/{project_id}/analysis")
 @limiter.limit("15/minute")
-async def get_project_analysis(request: Request, project_id: str, _auth=Depends(verify_api_key)):
+async def get_project_analysis(request: Request, project_id: str, _auth=Depends(verify_api_key_or_user_session)):
     """Return a deterministic combined analysis for all analyzed project diagrams."""
     combined = _combined_analysis_for_project(project_id)
     record_event("project_analysis_merged", {
@@ -65,7 +65,7 @@ async def generate_project_iac(
     project_id: str,
     format: Literal["terraform", "bicep"] = "terraform",
     force: bool = False,
-    _auth=Depends(verify_api_key),
+    _auth=Depends(verify_api_key_or_user_session),
 ):
     """Generate unified Infrastructure as Code from combined project analysis."""
     combined = _combined_analysis_for_project(project_id)
