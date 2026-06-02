@@ -11,7 +11,7 @@
  * - HLD data loss on navigation
  * - Signed-out PDF upload → analyze → auth recovery (#1027)
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import DiagramTranslator from '../../DiagramTranslator'
 
@@ -30,11 +30,17 @@ vi.mock('prismjs/components/prism-json', () => ({}))
 const mockSaveSession = vi.fn()
 const mockLoadSession = vi.fn()
 const mockClearSession = vi.fn()
+const mockUpdateSessionCache = vi.fn()
+const mockCacheImage = vi.fn()
+const mockLoadCachedImage = vi.fn()
 
 vi.mock('../../../services/sessionCache', () => ({
   saveSession: (...args) => mockSaveSession(...args),
   loadSession: (...args) => mockLoadSession(...args),
   clearSession: (...args) => mockClearSession(...args),
+  updateSessionCache: (...args) => mockUpdateSessionCache(...args),
+  cacheImage: (...args) => mockCacheImage(...args),
+  loadCachedImage: (...args) => mockLoadCachedImage(...args),
   shouldPersistSensitiveSessionCache: () => false,
 }))
 
@@ -84,6 +90,38 @@ vi.mock('../../../stores/useAuthStore', () => ({
   })),
 }))
 
+const downloadApiRestorers = []
+
+afterEach(() => {
+  while (downloadApiRestorers.length > 0) {
+    downloadApiRestorers.pop()()
+  }
+})
+
+function stubDownloadApis(blobUrl = 'blob:download') {
+  const originalCreateObjectURL = URL.createObjectURL
+  const originalRevokeObjectURL = URL.revokeObjectURL
+  URL.createObjectURL = vi.fn(() => blobUrl)
+  URL.revokeObjectURL = vi.fn()
+  const anchorClick = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+  let restored = false
+  const restore = () => {
+    if (restored) return
+    restored = true
+    if (originalCreateObjectURL) URL.createObjectURL = originalCreateObjectURL
+    else delete URL.createObjectURL
+    if (originalRevokeObjectURL) URL.revokeObjectURL = originalRevokeObjectURL
+    else delete URL.revokeObjectURL
+    anchorClick.mockRestore()
+  }
+  downloadApiRestorers.push(restore)
+  return {
+    createObjectURL: URL.createObjectURL,
+    anchorClick,
+    restore,
+  }
+}
+
 describe('DiagramTranslator — Session UX Tests', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -91,6 +129,7 @@ describe('DiagramTranslator — Session UX Tests', () => {
     mockHasBackendSession = false
     mockEnsureBackendSession.mockResolvedValue(true)
     mockLoadSession.mockReturnValue(null)
+    mockLoadCachedImage.mockReturnValue(null)
     fetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({}) })
   })
 
@@ -219,38 +258,126 @@ describe('DiagramTranslator — Export Bug Verification', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockLoadSession.mockReturnValue(null)
+    mockLoadCachedImage.mockReturnValue(null)
     fetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({}) })
   })
 
-  it('identifies the export restore bug pattern', () => {
-    // This test documents the bug in handleExportDiagram:
-    // After successful restore, the code still shows the expiry error
-    // instead of retrying the export.
-    //
-    // BUG in index.jsx around line 446-453:
-    //
-    //   if (err.status === 404) {
-    //     const restored = await tryRestoreSession(state.diagramId);
-    //     if (!restored) {
-    //       set({ error: 'Your session has expired...' }); // ← correct
-    //       clearSession();
-    //       return;
-    //     }
-    //     set({ error: 'Your session has expired...' }); // ← BUG: shows error even when restored!
-    //     clearSession();
-    //     return;
-    //   }
-    //
-    // Compare with handleHldExport which correctly retries after restore.
+  it('refreshes a missing export capability and retries architecture package exports', async () => {
+    mockIsAuthenticated = true
+    mockHasBackendSession = true
+    mockEnsureBackendSession.mockResolvedValue(true)
+    mockLoadSession.mockReturnValue({
+      diagramId: 'diag-stale-cap',
+      analysis: {
+        diagram_id: 'diag-stale-cap',
+        diagram_type: 'AWS Architecture',
+        services_detected: 1,
+        source_provider: 'aws',
+        target_provider: 'azure',
+        zones: [{ id: 1, name: 'Web', services: [] }],
+        mappings: [],
+        confidence_summary: { high: 1, medium: 0, low: 0, average: 0.95 },
+      },
+      questions: [],
+      answers: {},
+      ts: Date.now(),
+    })
+    mockApi.get.mockResolvedValue({ items: [], summary: {} })
+    const { ApiError } = await import('../../../services/apiClient')
+    const capabilityErr = new ApiError(401, { detail: 'Missing export capability' }, { hadToken: true })
+    const exportHeaders = []
+    const download = stubDownloadApis('blob:architecture-package')
 
-    // The fix should be:
-    //   if (restored) {
-    //     // Retry the export
-    //     const data = await api.post(`/diagrams/${id}/export-diagram?format=${format}`);
-    //     // ... process response
-    //   }
+    mockApi.post.mockImplementation((path, _body, _signal, _timeout, headers = {}) => {
+      if (path === '/diagrams/diag-stale-cap/restore-session') {
+        return Promise.resolve({ status: 'restored', diagram_id: 'diag-stale-cap', export_capability: 'fresh-capability' })
+      }
+      if (path === '/diagrams/diag-stale-cap/export-architecture-package?format=html') {
+        exportHeaders.push(headers)
+        if (exportHeaders.length < 3) return Promise.reject(capabilityErr)
+        return Promise.resolve({ content: '<html>package</html>', filename: 'package.html', export_capability: 'next-capability' })
+      }
+      return Promise.resolve({})
+    })
 
-    expect(true).toBe(true) // Documenting the bug
+    render(<DiagramTranslator />)
+    await screen.findByText('AWS Architecture')
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /HTML Package/i }))
+    })
+
+    await waitFor(() => expect(exportHeaders).toHaveLength(3))
+    expect(exportHeaders[0]).toEqual({})
+    expect(exportHeaders[1]).toEqual({})
+    expect(exportHeaders[2]).toEqual({ 'X-Export-Capability': 'fresh-capability' })
+    expect(mockApi.post).toHaveBeenCalledWith(
+      '/diagrams/diag-stale-cap/restore-session',
+      expect.objectContaining({ analysis: expect.objectContaining({ diagram_id: 'diag-stale-cap' }) }),
+    )
+    expect(download.createObjectURL).toHaveBeenCalled()
+    expect(download.anchorClick).toHaveBeenCalled()
+
+    download.restore()
+  })
+
+  it('refreshes a missing export capability and retries migration package exports', async () => {
+    mockIsAuthenticated = true
+    mockHasBackendSession = true
+    mockEnsureBackendSession.mockResolvedValue(true)
+    mockLoadSession.mockReturnValue({
+      diagramId: 'diag-stale-package-cap',
+      analysis: {
+        diagram_id: 'diag-stale-package-cap',
+        diagram_type: 'AWS Architecture',
+        services_detected: 1,
+        source_provider: 'aws',
+        target_provider: 'azure',
+        zones: [{ id: 1, name: 'Web', services: [] }],
+        mappings: [],
+        confidence_summary: { high: 1, medium: 0, low: 0, average: 0.95 },
+      },
+      questions: [],
+      answers: {},
+      ts: Date.now(),
+    })
+    mockApi.get.mockResolvedValue({ items: [], summary: {} })
+    const { ApiError } = await import('../../../services/apiClient')
+    const capabilityErr = new ApiError(401, { detail: 'Invalid or replayed export capability' }, { hadToken: true })
+    const exportHeaders = []
+    const download = stubDownloadApis('blob:migration-package')
+
+    mockApi.post.mockImplementation((path, _body, _signal, _timeout, headers = {}) => {
+      if (path === '/diagrams/diag-stale-package-cap/restore-session') {
+        return Promise.resolve({ status: 'restored', diagram_id: 'diag-stale-package-cap', export_capability: 'fresh-package-capability' })
+      }
+      if (path === '/diagrams/diag-stale-package-cap/export-package') {
+        exportHeaders.push(headers)
+        if (exportHeaders.length < 3) return Promise.reject(capabilityErr)
+        return Promise.resolve({ content_b64: btoa('zip bytes'), filename: 'package.zip', export_capability: 'next-package-capability' })
+      }
+      return Promise.resolve({})
+    })
+
+    render(<DiagramTranslator />)
+    await screen.findByText('AWS Architecture')
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Download Migration Package/i }))
+    })
+
+    await waitFor(() => expect(exportHeaders).toHaveLength(3))
+    expect(exportHeaders[0]).toEqual({})
+    expect(exportHeaders[1]).toEqual({})
+    expect(exportHeaders[2]).toEqual({ 'X-Export-Capability': 'fresh-package-capability' })
+    expect(mockApi.post).toHaveBeenCalledWith(
+      '/diagrams/diag-stale-package-cap/restore-session',
+      expect.objectContaining({ analysis: expect.objectContaining({ diagram_id: 'diag-stale-package-cap' }) }),
+    )
+    expect(download.createObjectURL).toHaveBeenCalled()
+    expect(download.anchorClick).toHaveBeenCalled()
+
+    download.restore()
   })
 })
 
@@ -315,6 +442,7 @@ describe('DiagramTranslator — Signed-out auth recovery', () => {
     mockIsAuthenticated = false // signed-out by default
     mockHasBackendSession = false
     mockLoadSession.mockReturnValue(null)
+    mockLoadCachedImage.mockReturnValue(null)
     fetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({}) })
     localStorage.clear()
     sessionStorage.clear()

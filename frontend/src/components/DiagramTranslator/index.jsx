@@ -361,6 +361,30 @@ export default function DiagramTranslator() {
   const filePreviewUrlRef = useRef(null);  // latest blob URL
   const abortRef = useRef(null);           // AbortController for fetch calls
   const persistSensitiveCache = shouldPersistSensitiveSessionCache();
+  const stateRef = useRef(state);
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
+  const rememberExportCapability = useCallback((token) => {
+    if (!token) return null;
+    stateRef.current = { ...stateRef.current, exportCapability: token };
+    set({ exportCapability: token });
+    return token;
+  }, [set]);
+
+  const exportCapabilityHeaders = useCallback((token) => (
+    token ? { 'X-Export-Capability': token } : {}
+  ), []);
+
+  const sanitizeRestoreAnalysis = useCallback((analysis) => {
+    if (!analysis || typeof analysis !== 'object') return analysis;
+    const sanitized = { ...analysis };
+    delete sanitized.export_capability;
+    delete sanitized.exportCapability;
+    return sanitized;
+  }, []);
 
   // Session expiry warning countdown (#261) + auto-reset on expiry (#227)
   const handleSessionExpired = useCallback(() => {
@@ -682,35 +706,64 @@ export default function DiagramTranslator() {
   };
 
   // ── Session auto-recovery: push cached analysis back to backend on 404 ──
+  const buildRestorePayload = useCallback((source, diagramId) => {
+    if (!source?.analysis) return null;
+    const payload = { analysis: sanitizeRestoreAnalysis(source.analysis) };
+    // Include HLD and IaC artefacts so export/download survives a backend restart.
+    if (source.hldData?.hld) {
+      payload.hld = source.hldData.hld;
+      payload.hld_markdown = source.hldData.markdown || null;
+    }
+    if (source.iacCode) {
+      payload.iac_code = source.iacCode;
+      payload.iac_format = source.iacFormat || null;
+    }
+    // Include cached diagram image so IMAGE_STORE is also restored (#333).
+    const cachedImg = loadCachedImage(diagramId, { persistSensitive: persistSensitiveCache });
+    if (cachedImg) {
+      payload.image_base64 = cachedImg.base64;
+      payload.image_content_type = cachedImg.contentType;
+    }
+    return payload;
+  }, [persistSensitiveCache, sanitizeRestoreAnalysis]);
+
+  const restoreSessionFromSource = useCallback(async (diagramId, source) => {
+    const payload = buildRestorePayload(source, diagramId);
+    if (!payload) return null;
+    const restoredData = await api.post(`/diagrams/${diagramId}/restore-session`, payload);
+    rememberExportCapability(restoredData?.export_capability);
+    return restoredData;
+  }, [buildRestorePayload, rememberExportCapability]);
+
   const tryRestoreSession = async (diagramId) => {
     const cached = loadSession();
     if (!cached || cached.diagramId !== diagramId) return false;
     try {
-      const payload = { analysis: cached.analysis };
-      // Include HLD and IaC artefacts so export/download survives a backend restart
-      if (cached.hldData?.hld) {
-        payload.hld = cached.hldData.hld;
-        payload.hld_markdown = cached.hldData.markdown || null;
-      }
-      if (cached.iacCode) {
-        payload.iac_code = cached.iacCode;
-        payload.iac_format = cached.iacFormat || null;
-      }
-      // Include cached diagram image so IMAGE_STORE is also restored (#333)
-      const cachedImg = loadCachedImage(diagramId, { persistSensitive: persistSensitiveCache });
-      if (cachedImg) {
-        payload.image_base64 = cachedImg.base64;
-        payload.image_content_type = cachedImg.contentType;
-      }
-      const restoredData = await api.post(`/diagrams/${diagramId}/restore-session`, payload);
-      if (restoredData?.export_capability) {
-        set({ exportCapability: restoredData.export_capability });
-      }
-      return true;
+      return !!(await restoreSessionFromSource(diagramId, cached));
     } catch {
       return false;
     }
   };
+
+  const refreshExportCapability = useCallback(async (sourceOverride = null) => {
+    const current = sourceOverride || stateRef.current;
+    if (
+      !isAuthenticated ||
+      !current.diagramId ||
+      !current.analysis ||
+      current.analysis?.combined ||
+      String(current.diagramId).startsWith('project-')
+    ) {
+      return null;
+    }
+    try {
+      await recoverBackendSession();
+      const restoredData = await restoreSessionFromSource(current.diagramId, current);
+      return restoredData?.export_capability || null;
+    } catch {
+      return null;
+    }
+  }, [isAuthenticated, recoverBackendSession, restoreSessionFromSource]);
 
   const withAuthRecovery = async (action) => {
     try {
@@ -733,8 +786,9 @@ export default function DiagramTranslator() {
     try {
       return await withAuthRecovery(action);
     } catch (err) {
-      if (err.status === 404 && state.diagramId) {
-        const restored = await tryRestoreSession(state.diagramId);
+      const diagramId = stateRef.current.diagramId;
+      if (err.status === 404 && diagramId) {
+        const restored = await tryRestoreSession(diagramId);
         if (restored) {
           try { return await withAuthRecovery(action); } catch { /* fall through */ }
         }
@@ -744,6 +798,18 @@ export default function DiagramTranslator() {
         return null;
       }
       throw err;
+    }
+  };
+
+  const withExportCapabilityRecovery = async (action, opts = {}) => {
+    const runWithToken = (token) => withRestore(() => action(token), opts);
+    try {
+      return await runWithToken(stateRef.current.exportCapability);
+    } catch (err) {
+      if (err.status !== 401) throw err;
+      const refreshedToken = await refreshExportCapability({ ...stateRef.current, ...state });
+      if (!refreshedToken) throw err;
+      return runWithToken(refreshedToken);
     }
   };
 
@@ -1162,20 +1228,18 @@ export default function DiagramTranslator() {
       if (cachedImg?.base64) {
         exportBody.diagram_image = cachedImg.base64;
       }
-      const data = await withRestore(
-        () => api.post(
+      const data = await withExportCapabilityRecovery(
+        (capabilityToken) => api.post(
           `/diagrams/${state.diagramId}/export-hld?format=${fmt}&include_diagrams=${state.hldIncludeDiagrams}&export_mode=customer`,
           exportBody,
           undefined,
           undefined,
-          state.exportCapability ? { 'X-Export-Capability': state.exportCapability } : {},
+          exportCapabilityHeaders(capabilityToken),
         ),
         { cleanup: () => setHldExportLoading(fmt, false) },
       );
       if (data) {
-        if (data.export_capability) {
-          set({ exportCapability: data.export_capability });
-        }
+        rememberExportCapability(data.export_capability);
         const bytes = Uint8Array.from(atob(data.content_b64), c => c.charCodeAt(0));
         const blob = new Blob([bytes], { type: data.content_type });
         const url = URL.createObjectURL(blob);
@@ -1199,28 +1263,26 @@ export default function DiagramTranslator() {
       const packageSelection = format.replace('architecture-package-', '');
       const packageFormat = packageSelection.startsWith('svg') ? 'svg' : packageSelection;
       const packageDiagram = packageSelection === 'svg-dr' ? '&diagram=dr' : '';
-      const data = await withRestore(
-        () => isArchitecturePackage
+      const data = await withExportCapabilityRecovery(
+        (capabilityToken) => isArchitecturePackage
           ? api.post(
               `/diagrams/${state.diagramId}/export-architecture-package?format=${packageFormat}${packageDiagram}`,
               undefined,
               undefined,
               undefined,
-              state.exportCapability ? { 'X-Export-Capability': state.exportCapability } : {},
+              exportCapabilityHeaders(capabilityToken),
             )
           : api.post(
               `/diagrams/${state.diagramId}/export-diagram?format=${format}`,
               undefined,
               undefined,
               undefined,
-              state.exportCapability ? { 'X-Export-Capability': state.exportCapability } : {},
+              exportCapabilityHeaders(capabilityToken),
             ),
         { cleanup: () => setExportLoading(format, false) },
       );
       if (data) {
-        if (data.export_capability) {
-          set({ exportCapability: data.export_capability });
-        }
+        rememberExportCapability(data.export_capability);
         const content = typeof data.content === 'string' ? data.content : JSON.stringify(data.content, null, 2);
         const exportMime = isArchitecturePackage
           ? (packageFormat === 'html' ? 'text/html' : 'image/svg+xml')
@@ -1334,8 +1396,8 @@ export default function DiagramTranslator() {
     set({ exportingPackage: true });
     try {
       // Build a migration package ZIP with IaC + HLD + cost report
-      const data = await withRestore(
-        () => api.post(
+      const data = await withExportCapabilityRecovery(
+        (capabilityToken) => api.post(
           `/diagrams/${state.diagramId}/export-package`,
           {
             iac_format: state.iacFormat,
@@ -1343,13 +1405,11 @@ export default function DiagramTranslator() {
           },
           undefined,
           undefined,
-          state.exportCapability ? { 'X-Export-Capability': state.exportCapability } : {},
+          exportCapabilityHeaders(capabilityToken),
         ),
         { cleanup: () => set({ exportingPackage: false }) },
       );
-      if (data?.export_capability) {
-        set({ exportCapability: data.export_capability });
-      }
+      rememberExportCapability(data?.export_capability);
       const b64 = data?.content_b64 || data?.data;
       if (b64) {
         const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
@@ -1712,8 +1772,9 @@ export default function DiagramTranslator() {
           assumptions={state.questionAssumptions}
           questionsCount={(state.questions || []).length}
           onExportCapability={(token) => {
-            set({ exportCapability: token });
+            rememberExportCapability(token);
           }}
+          onRefreshExportCapability={refreshExportCapability}
           reviewItems={reviewItems}
           reviewDispositions={reviewDispositions}
           reviewSummary={reviewSummary}
