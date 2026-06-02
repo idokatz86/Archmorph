@@ -232,4 +232,47 @@ describe('ExportHub parallel generation', () => {
     // Second should use the token returned by the first response
     expect(capabilityOrder[1].cap).toBe('token-1')
   })
+
+  it('refreshes a missing capability and retries capability-gated deliverables', async () => {
+    const capabilityOrder = []
+    const capabilityErr = new Error('Missing export capability')
+    capabilityErr.status = 401
+    const onRefreshExportCapability = vi.fn().mockResolvedValue('fresh-capability')
+    const onExportCapability = vi.fn()
+
+    api.post.mockImplementation((url, _body, _signal, _timeout, headers) => {
+      const cap = headers?.['X-Export-Capability'] || null
+      capabilityOrder.push({ url, cap })
+      if (capabilityOrder.length === 1) return Promise.reject(capabilityErr)
+      return Promise.resolve({
+        content: '<html>pkg</html>',
+        filename: 'pkg.html',
+        export_capability: 'rotated-capability',
+      })
+    })
+
+    const user = userEvent.setup()
+    render(
+      <ExportHub
+        diagramId="diag-1"
+        onRefreshExportCapability={onRefreshExportCapability}
+        onExportCapability={onExportCapability}
+      />
+    )
+
+    openExportHub()
+
+    // Keep only Architecture Package selected.
+    for (const label of ['Infrastructure Code', 'High-Level Design', 'Cost Estimate', 'Migration Timeline', 'PDF Analysis Report']) {
+      await user.click(await screen.findByLabelText(`Include ${label}`))
+    }
+
+    await user.click(screen.getByRole('button', { name: /Generate All Selected/i }))
+
+    await waitFor(() => expect(capabilityOrder).toHaveLength(2), { timeout: 3000 })
+    expect(onRefreshExportCapability).toHaveBeenCalledTimes(1)
+    expect(capabilityOrder[0].cap).toBeNull()
+    expect(capabilityOrder[1].cap).toBe('fresh-capability')
+    expect(onExportCapability).toHaveBeenCalledWith('rotated-capability')
+  })
 })
