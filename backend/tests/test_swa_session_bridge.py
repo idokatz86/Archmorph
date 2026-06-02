@@ -44,6 +44,9 @@ def _owned_analysis(diagram_id: str) -> dict:
             {"source_service": "Amazon EC2", "azure_service": "Azure Virtual Machines", "confidence": 0.95},
             {"source_service": "Amazon S3", "azure_service": "Azure Blob Storage", "confidence": 0.92},
         ],
+        "confidence_summary": {"average": 0.94, "high": 2, "medium": 0, "low": 0},
+        "hld": {"title": "Bearer Session HLD", "services": [], "executive_summary": "Test HLD"},
+        "hld_markdown": "# Bearer Session HLD\n",
         "_owner_user_id": OWNER_USER_ID,
         "_tenant_id": OWNER_TENANT_ID,
     }
@@ -133,6 +136,26 @@ def test_architecture_package_accepts_authenticated_user_bearer_session_when_api
 
     assert response.status_code == 200, response.text
     assert response.json()["format"] == "architecture-package-html"
+    shared.SESSION_STORE.delete(diagram_id)
+
+
+def test_migration_package_accepts_authenticated_user_bearer_session_when_api_key_configured(monkeypatch):
+    monkeypatch.setattr(shared, "API_KEY", "test-api-key")
+    monkeypatch.setenv("ARCHMORPH_EXPORT_CAPABILITY_REQUIRED", "false")
+    diagram_id = "diag-bearer-migration-package"
+    shared.SESSION_STORE[diagram_id] = _owned_analysis(diagram_id)
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.post(
+            f"/api/diagrams/{diagram_id}/export-package",
+            headers=_owner_headers(),
+            json={"iac_format": "terraform", "include_diagrams": False},
+        )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["content_type"] == "application/zip"
+    assert payload["content_b64"]
     shared.SESSION_STORE.delete(diagram_id)
 
 

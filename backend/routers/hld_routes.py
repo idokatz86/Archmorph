@@ -17,6 +17,7 @@ from routers.shared import (
     limiter,
     require_diagram_access,
     verify_api_key,
+    verify_api_key_or_user_session,
 )
 from job_queue import job_manager
 from usage_metrics import record_event
@@ -352,7 +353,7 @@ async def _run_hld_job(job_id: str, diagram_id: str) -> None:
 async def export_migration_package(
     request: Request,
     diagram_id: str,
-    _auth=Depends(verify_api_key),
+    _auth=Depends(verify_api_key_or_user_session),
     capability=Depends(verify_export_capability),
 ):
     """Export a complete migration package as a ZIP file.
