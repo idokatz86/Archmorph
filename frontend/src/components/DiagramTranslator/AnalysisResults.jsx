@@ -316,6 +316,7 @@ export default function AnalysisResults({
   onExportPackage, exportingPackage,
 }) {
   const [resultsView, setResultsView] = useState('card');
+  const hasDiagramExports = !!diagramId && !!onExportDiagram;
 
   return (
     <div className="space-y-6">
@@ -570,21 +571,25 @@ export default function AnalysisResults({
       )}
 
       {/* Export Diagram + Export Hub (secondary classic exports) */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-        <div className="flex-1">
-          <ExportPanel exportLoading={exportLoading} onExportDiagram={onExportDiagram} secondary />
+      {hasDiagramExports && (
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          <div className="flex-1">
+            <ExportPanel exportLoading={exportLoading} onExportDiagram={onExportDiagram} secondary />
+          </div>
+          <Button onClick={() => document.dispatchEvent(new CustomEvent('archmorph:command', { detail: 'export-hub' }))} variant="secondary" icon={Package}>
+            Export All
+          </Button>
         </div>
-        <Button onClick={() => document.dispatchEvent(new CustomEvent('archmorph:command', { detail: 'export-hub' }))} variant="secondary" icon={Package}>
-          Export All
-        </Button>
-      </div>
+      )}
 
       {/* Export Hub Modal */}
-      <ExportHub
-        diagramId={diagramId}
-        exportCapability={exportCapability}
-        onExportCapability={onExportCapability}
-      />
+      {hasDiagramExports && (
+        <ExportHub
+          diagramId={diagramId}
+          exportCapability={exportCapability}
+          onExportCapability={onExportCapability}
+        />
+      )}
 
       {/* Generation Progress Indicator (#311) */}
       {generatingIac && (
