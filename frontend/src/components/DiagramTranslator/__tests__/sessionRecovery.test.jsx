@@ -115,6 +115,35 @@ describe('DiagramTranslator — Session UX Tests', () => {
     await waitFor(() => expect(screen.queryByText('Upload Architecture Diagram')).not.toBeInTheDocument());
   })
 
+  it('does not call diagram-only endpoints for combined project pseudo ids', async () => {
+    mockLoadSession.mockReturnValue({
+      diagramId: 'project-demo-project',
+      analysis: {
+        diagram_id: 'project-demo-project',
+        project_id: 'demo-project',
+        combined: true,
+        diagram_type: 'Multi-diagram Architecture',
+        services_detected: 2,
+        source_provider: 'aws',
+        target_provider: 'azure',
+        zones: [],
+        mappings: [],
+        confidence_summary: { high: 2, medium: 0, low: 0, average: 0.9 },
+      },
+      questions: [],
+      answers: {},
+      ts: Date.now(),
+    })
+
+    render(<DiagramTranslator />)
+
+    await waitFor(() => expect(screen.getByText('Multi-diagram Architecture')).toBeInTheDocument())
+    expect(mockApi.get).not.toHaveBeenCalledWith('/diagrams/project-demo-project/review-queue')
+    expect(mockApi.post).not.toHaveBeenCalledWith('/diagrams/project-demo-project/export-package', expect.anything(), expect.anything(), expect.anything(), expect.anything())
+    expect(screen.queryByTestId('migration-package-cta')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /export all/i })).not.toBeInTheDocument()
+  })
+
   // ── Session expiry error display ──
 
   it('shows session expiry message correctly', () => {

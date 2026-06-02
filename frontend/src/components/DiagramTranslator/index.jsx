@@ -346,6 +346,7 @@ export default function DiagramTranslator() {
   const ensureBackendSession = useAuthStore((s) => s.ensureBackendSession);
   const [loginModalOpen, setLoginModalOpen] = useState(false);
   const [authUploadRecovery, setAuthUploadRecovery] = useState(null);
+  const hasDiagramArtifactContext = !!state.diagramId && !state.analysis?.combined && !String(state.diagramId).startsWith('project-');
 
   // ── Architect Review Queue — Issue #1137 ──────────────────────────────────
   const [reviewItems, setReviewItems] = useState([]);
@@ -501,24 +502,31 @@ export default function DiagramTranslator() {
 
   // ── Auto-trigger HLD generation when entering HLD tab (#400) ──
   useEffect(() => {
-    if (state.step === 'hld' && !state.hldData && !state.hldLoading && state.diagramId) {
+    if (state.step === 'hld' && !state.hldData && !state.hldLoading && hasDiagramArtifactContext) {
       handleGenerateHld();
     }
-  }, [state.step]);
+  }, [hasDiagramArtifactContext, state.step]);
 
   // ── Auto-fetch cost breakdown when entering Pricing tab (#401) ──
   useEffect(() => {
-    if (state.step === 'pricing' && !state.costBreakdown && !state.costBreakdownLoading && state.diagramId) {
+    if (state.step === 'pricing' && !state.costBreakdown && !state.costBreakdownLoading && hasDiagramArtifactContext) {
       set({ costBreakdownLoading: true });
       api.get(`/diagrams/${state.diagramId}/cost-breakdown`)
         .then(data => set({ costBreakdown: data, costBreakdownLoading: false }))
         .catch(() => set({ costBreakdownLoading: false }));
     }
-  }, [state.step]);
+  }, [hasDiagramArtifactContext, state.diagramId, state.step]);
 
   // ── Review Queue — fetch when analysis results become available (#1137) ──
   useEffect(() => {
-    if (!state.diagramId || state.step !== 'results') return;
+    if (state.step !== 'results') return;
+    if (!hasDiagramArtifactContext) {
+      setReviewItems([]);
+      setReviewDispositions({});
+      setReviewSummary({});
+      setReviewLoading(false);
+      return;
+    }
     setReviewLoading(true);
     Promise.resolve(api.get(`/diagrams/${state.diagramId}/review-queue`))
       .then(data => {
@@ -534,7 +542,7 @@ export default function DiagramTranslator() {
       })
       .catch(() => { /* Non-blocking — queue is best-effort */ })
       .finally(() => setReviewLoading(false));
-  }, [state.diagramId, state.step]);
+  }, [hasDiagramArtifactContext, state.diagramId, state.step]);
 
   const handleReviewDispose = useCallback(async (itemId, action, editedText) => {
     const nextDisposition = { action, edited_text: editedText };
@@ -545,7 +553,7 @@ export default function DiagramTranslator() {
       return next;
     });
     // Persist to backend
-    if (!state.diagramId) return;
+    if (!hasDiagramArtifactContext) return;
     try {
       const result = await api.post(
         `/diagrams/${state.diagramId}/review-queue/${itemId}/disposition`,
@@ -555,7 +563,7 @@ export default function DiagramTranslator() {
     } catch {
       // Best-effort — optimistic update already applied
     }
-  }, [state.diagramId, reviewItems]);
+  }, [hasDiagramArtifactContext, state.diagramId, reviewItems]);
 
   // ── Drag & drop ──
   const refreshProjectStatus = useCallback(async (projectId) => {
@@ -574,7 +582,7 @@ export default function DiagramTranslator() {
     set({ loading: true, error: null });
     try {
       const combined = await api.get(`/projects/${state.projectId}/analysis`);
-      set({ analysis: combined, step: 'results', loading: false, iacCode: null, diagramId: combined.diagram_id || state.diagramId });
+      set({ analysis: combined, step: 'results', loading: false, iacCode: null, diagramId: null, exportCapability: null });
       await refreshProjectStatus(state.projectId);
     } catch (err) {
       set({ error: err.message, loading: false });
@@ -1552,15 +1560,15 @@ export default function DiagramTranslator() {
         </Card>
       )}
 
-      {(state.diagramId || state.purgeReceipt) && (
+      {(hasDiagramArtifactContext || state.purgeReceipt) && (
         <Suspense fallback={null}>
           <DataLifecyclePanel
-            diagramId={state.diagramId}
+            diagramId={hasDiagramArtifactContext ? state.diagramId : null}
             analysis={state.analysis}
             exportCapability={state.exportCapability}
             purgeReceipt={state.purgeReceipt}
-            purgeLoading={state.loading && !!state.diagramId}
-            onPurge={handlePurgeCurrentAnalysis}
+            purgeLoading={state.loading && hasDiagramArtifactContext}
+            onPurge={hasDiagramArtifactContext ? handlePurgeCurrentAnalysis : undefined}
           />
         </Suspense>
       )}
@@ -1697,9 +1705,9 @@ export default function DiagramTranslator() {
           genProgress={state.genProgress}
           notifyEmail={state.notifyEmail}
           onNotifyEmail={handleNotifyEmail}
-          onExportDiagram={handleExportDiagram}
+          onExportDiagram={hasDiagramArtifactContext ? handleExportDiagram : undefined}
           onCopyWithFeedback={copyWithFeedback}
-          diagramId={state.diagramId}
+          diagramId={hasDiagramArtifactContext ? state.diagramId : null}
           exportCapability={state.exportCapability}
           assumptions={state.questionAssumptions}
           questionsCount={(state.questions || []).length}
@@ -1711,7 +1719,7 @@ export default function DiagramTranslator() {
           reviewSummary={reviewSummary}
           onDispose={handleReviewDispose}
           reviewLoading={reviewLoading}
-          onExportPackage={state.diagramId ? handleExportPackage : undefined}
+          onExportPackage={hasDiagramArtifactContext ? handleExportPackage : undefined}
           exportingPackage={state.exportingPackage}
         />
       )}
