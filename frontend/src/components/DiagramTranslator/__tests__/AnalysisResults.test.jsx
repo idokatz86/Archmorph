@@ -57,6 +57,7 @@ describe('AnalysisResults', () => {
     onHldExport: vi.fn(),
     onCopyWithFeedback: vi.fn(),
     onReviewAssumptions: vi.fn(),
+    diagramId: 'diag-1',
   }
 
   it('renders diagram type title', () => {
@@ -265,6 +266,12 @@ describe('AnalysisResults', () => {
     expect(
       cta.compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy()
+  })
+
+  it('hides diagram-only exports when no real diagram id is available', () => {
+    render(<AnalysisResults {...defaultProps} diagramId={null} />)
+    expect(screen.queryByTestId('export-panel')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /export all/i })).not.toBeInTheDocument()
   })
 })
 

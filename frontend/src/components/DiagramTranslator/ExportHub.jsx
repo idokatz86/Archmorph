@@ -184,7 +184,13 @@ function downloadBlob(blob, filename) {
   URL.revokeObjectURL(url);
 }
 
-export default function ExportHub({ diagramId, hldIncludeDiagrams = true, exportCapability = null, onExportCapability }) {
+export default function ExportHub({
+  diagramId,
+  hldIncludeDiagrams = true,
+  exportCapability = null,
+  onExportCapability,
+  onRefreshExportCapability,
+}) {
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState(() => {
     const init = {};
@@ -279,7 +285,16 @@ export default function ExportHub({ diagramId, hldIncludeDiagrams = true, export
     const runCap = async () => {
       for (const d of capItems) {
         try {
-          const result = await generateDeliverable(diagramId, d, formats[d.id], hldIncludeDiagrams, currentExportCapability);
+          let result;
+          try {
+            result = await generateDeliverable(diagramId, d, formats[d.id], hldIncludeDiagrams, currentExportCapability);
+          } catch (err) {
+            if (err?.status !== 401 || !onRefreshExportCapability) throw err;
+            const refreshedCapability = await onRefreshExportCapability();
+            if (!refreshedCapability) throw err;
+            currentExportCapability = refreshedCapability;
+            result = await generateDeliverable(diagramId, d, formats[d.id], hldIncludeDiagrams, currentExportCapability);
+          }
           if (result.exportCapability) {
             currentExportCapability = result.exportCapability;
             if (onExportCapability) onExportCapability(result.exportCapability);

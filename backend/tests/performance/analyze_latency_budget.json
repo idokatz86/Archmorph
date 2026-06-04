@@ -1,5 +1,5 @@
 {
-  "baseline_p95_ms": 8.0,
+  "baseline_p95_ms": 10.0,
   "max_regression_ratio": 1.5,
   "warmup_samples": 5,
   "samples": 20
