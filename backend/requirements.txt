@@ -1,4 +1,4 @@
-fastapi>=0.136.1,<0.136.3
+fastapi>=0.136.3,<0.136.4
 uvicorn[standard]
 gunicorn  # Production process manager with worker recycling (#301)
 pydantic
