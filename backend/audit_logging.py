@@ -77,6 +77,11 @@ class AuditEventType(str, Enum):
     FEATURE_ROADMAP = "feature.roadmap"
     FEATURE_ISSUE_CREATE = "feature.issue_create"
 
+    # Share / Snapshot Events
+    SHARE_CREATE = "share.create"
+    SHARE_ACCESS = "share.access"
+    SHARE_REVOKE = "share.revoke"
+
 
 class AuditSeverity(str, Enum):
     """Severity levels for audit events."""

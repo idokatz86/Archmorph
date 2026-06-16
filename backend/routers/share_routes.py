@@ -3,7 +3,8 @@ from error_envelope import ArchmorphException
 Stakeholder share routes — role-based shareable report links.
 
 Extends the basic sharing in routers/sharing.py with role-filtered views
-(executive, technical, financial) and share link management.
+(executive, architect, devops, security, finops) and share link management.
+All create/access/revoke actions are written to the audit log.
 """
 
 from fastapi import APIRouter, Depends, Request, Query
@@ -18,11 +19,23 @@ from routers.shared import (
     verify_api_key,
 )
 from auth import get_user_from_request_headers
+from audit_logging import AuditEventType, AuditSeverity, log_audit_event
 import shareable_reports
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# All supported view types, including legacy aliases
+_ALL_VIEW_TYPES = Literal[
+    "executive",
+    "architect",
+    "devops",
+    "security",
+    "finops",
+    "technical",
+    "financial",
+]
 
 
 def require_share_access(request: Request, share_id: str) -> dict:
@@ -80,13 +93,33 @@ async def create_stakeholder_share(
     except Exception:
         pass
 
+    # Detect whether this is a public sample (no private-tenant ownership marker)
+    is_sample = not bool(analysis.get("_owner_user_id") or analysis.get("_owner_api_key_id"))
+
     result = shareable_reports.create_share(
         analysis_snapshot=analysis,
         creator_id=creator_id,
         creator_tenant_id=creator_tenant_id,
         creator_api_principal_id=creator_api_principal_id,
         expiry_days=expiry_days,
+        is_sample=is_sample,
     )
+
+    log_audit_event(
+        event_type=AuditEventType.SHARE_CREATE,
+        user_id=creator_id,
+        endpoint=f"/api/diagrams/{diagram_id}/share",
+        method="POST",
+        status_code=200,
+        details={
+            "share_id": result.get("share_id"),
+            "diagram_id": diagram_id,
+            "expiry_days": expiry_days,
+            "is_sample": is_sample,
+        },
+        severity=AuditSeverity.INFO,
+    )
+
     return result
 
 
@@ -95,21 +128,48 @@ async def create_stakeholder_share(
 async def get_shared_report(
     request: Request,
     share_id: str,
-    view: Optional[Literal["executive", "technical", "financial"]] = None,
+    view: Optional[_ALL_VIEW_TYPES] = None,
 ):
-    """Get shared report (public, no auth). Optionally filter by view type."""
+    """Get shared report (public, no auth). Optionally filter by role view type.
+
+    Supported views: executive, architect, devops, security, finops.
+    Legacy aliases: technical (→ architect), financial (→ finops).
+    """
     record = shareable_reports.get_share(share_id)
     if not record:
+        log_audit_event(
+            event_type=AuditEventType.SHARE_ACCESS,
+            endpoint=f"/api/shared/{share_id}",
+            method="GET",
+            status_code=404,
+            details={"share_id": share_id, "outcome": "expired_or_revoked"},
+            severity=AuditSeverity.WARNING,
+        )
         raise ArchmorphException(404, "Share link expired or invalid")
 
     snapshot = record["analysis_snapshot"]
     rendered = shareable_reports.render_view(snapshot, view_type=view)
+
+    log_audit_event(
+        event_type=AuditEventType.SHARE_ACCESS,
+        endpoint=f"/api/shared/{share_id}",
+        method="GET",
+        status_code=200,
+        details={
+            "share_id": share_id,
+            "view": view,
+            "is_sample": record.get("is_sample", False),
+            "view_count": record.get("view_count"),
+        },
+        severity=AuditSeverity.INFO,
+    )
 
     return {
         "share_id": share_id,
         "shared_at": record["created_at"],
         "expires_at": record["expires_at"],
         "read_only": True,
+        "is_sample": record.get("is_sample", False),
         **rendered,
     }
 
@@ -141,4 +201,26 @@ async def revoke_share(
     deleted = shareable_reports.delete_share(share_id)
     if not deleted:
         raise ArchmorphException(404, "Share link not found")
+
+    # Resolve revoker identity for audit log
+    revoker_id = None
+    try:
+        user = get_user_from_request_headers(dict(request.headers))
+        if user and user.id:
+            revoker_id = user.id
+        else:
+            revoker_id = get_api_key_service_principal(dict(request.headers))
+    except Exception:
+        pass
+
+    log_audit_event(
+        event_type=AuditEventType.SHARE_REVOKE,
+        user_id=revoker_id,
+        endpoint=f"/api/shared/{share_id}",
+        method="DELETE",
+        status_code=200,
+        details={"share_id": share_id},
+        severity=AuditSeverity.INFO,
+    )
+
     return {"status": "revoked", "share_id": share_id}
