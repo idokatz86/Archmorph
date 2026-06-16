@@ -1,5 +1,5 @@
 fastapi>=0.136.3,<0.136.4
-starlette>=1.0.1  # CVE-2026-48710 fixed Host header validation bypass
+starlette>=1.0.1,<2.0  # CVE-2026-48710 fixed Host header validation bypass
 uvicorn[standard]
 gunicorn  # Production process manager with worker recycling (#301)
 pydantic
