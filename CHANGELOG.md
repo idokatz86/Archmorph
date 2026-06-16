@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+#### Trusted Azure Migration Decision Workbench — shipped slices (epic [#1128](https://github.com/idokatz86/Archmorph/issues/1128))
+
+- **[PR #1156](https://github.com/idokatz86/Archmorph/pull/1156) Async job phases and timing** (refs [#1136](https://github.com/idokatz86/Archmorph/issues/1136)) — async analysis jobs now expose explicit phases (`preprocessing → classifying → waiting_for_model → analyzing → validating → mapping → saving`) in job status payloads; `phase`, `updated_at`, elapsed, queue-wait, and running timing fields added; queue observability metrics added for queued job count, active workers, oldest queued age, and queued p95 age; SSE streams emit visible heartbeat progress events while the model is busy so no silent UI gap exceeds 6 seconds.
+
+- **[PR #1157](https://github.com/idokatz86/Archmorph/pull/1157) Data lifecycle trust receipts** (refs [#1135](https://github.com/idokatz86/Archmorph/issues/1135)) — backend trust receipt builder attached to upload, restore, sync/async analysis completion, and purge responses; data lifecycle receipt panel (uploaded-at, retention class, export capability expiry, AI processing disclosure, backend artifact status, purge status, audit/security log boundary) replaces the purge-only workbench banner; purge confirmation visible after workbench reset; receipt downloadable as JSON; retention classes, receipt schema, purge semantics, and audit-log boundary documented.
+
+See [docs/ROADMAP_TRUSTED_AZURE_WORKBENCH.md](docs/ROADMAP_TRUSTED_AZURE_WORKBENCH.md) for the full wave delivery plan, dependency order, open child issues, and success metrics.
+
 ### Removed
 
 - **#661 Compliance/risk/best-practices/living-architecture retirement** — removed off-spine analyzer modules, API routes, generated contract entries, direct tests, and active UI references for the retired compliance, migration-risk, best-practices, and living-architecture surfaces.
