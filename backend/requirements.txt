@@ -52,7 +52,7 @@ pypdfium2>=5.9.0  # PDF rasterization for vision analyzer (PDF uploads → PNG)
 requests>=2.34.2
 
 # Test dependencies
-pytest>=9.0.3
+pytest>=9.1.1
 pytest-asyncio
 pytest-cov
 pytest-xdist
