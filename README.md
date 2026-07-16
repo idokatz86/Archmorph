@@ -63,6 +63,7 @@ The post-merge CTO end-to-end review of `landing-zone-svg` (May 1, 2026) flagged
 - **Cost & Token Observability** — per-execution token metering, budget management with alerts, timeseries analytics, CSV export, and production App Insights sampling controls
 - **Cost comparison** — side-by-side AWS/GCP vs Azure cost analysis with optimization recommendations
 - **Migration Timeline Generator** — 7-phase migration plan with dependency ordering (topological sort), parallel workstreams, export as JSON/Markdown/CSV
+- **Truthful bulk deliverables** — ExportHub downloads canonical backend artifacts with validated filename/MIME/format metadata and one-time capability rotation; unsupported formats are not advertised
 - **Self-updating service catalog** — daily auto-discovery and auto-integration of new cloud services with fuzzy matching, category classification, and authenticated post-refresh freshness verification
 - **AI cross-cloud mapping suggestions** — GPT-powered mapping with few-shot learning, auto-approve at 0.9 confidence, admin review queue
 - **Icon Registry** — 405 normalized cloud service icons with Draw.io, Excalidraw, and Visio library builders; custom pack upload/delete requires an admin bearer session from `/api/admin/login`, is SVG-sanitized, generation-aware, and bounded without evicting built-in provider icons
