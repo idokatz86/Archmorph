@@ -15,7 +15,7 @@ updates:
       - python
       - backend
     commit-message:
-      prefix: "deps(py)"
+      prefix: "chore(deps)"
     groups:
       pip:
         patterns:
@@ -49,7 +49,7 @@ updates:
       - javascript
       - frontend
     commit-message:
-      prefix: "deps(npm)"
+      prefix: "chore(deps)"
     groups:
       npm-dev:
         dependency-type: development
@@ -90,7 +90,7 @@ updates:
       - dependencies
       - docker
     commit-message:
-      prefix: "deps(docker)"
+      prefix: "chore(deps)"
     reviewers:
       - idokatz86
 
@@ -125,7 +125,7 @@ updates:
       - infrastructure
       - terraform
     commit-message:
-      prefix: "deps(tf)"
+      prefix: "chore(deps)"
     groups:
       azurerm:
         patterns:
