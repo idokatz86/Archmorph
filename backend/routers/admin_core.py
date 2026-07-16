@@ -34,7 +34,7 @@ from analytics import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(tags=["admin"])
 
 
 class AdminLoginRequest(StrictBaseModel):

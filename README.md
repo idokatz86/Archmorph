@@ -95,7 +95,7 @@ The post-merge CTO end-to-end review of `landing-zone-svg` (May 1, 2026) flagged
 - **Security hardening** — timing-safe auth, production fail-closed JWT configuration, security headers, XSS protection, export capability replay protection, authenticated artifact/session mutation routes, Dependabot
 - **CI/CD security** — Semgrep SAST, Gitleaks secret detection, Trivy container scanning, CycloneDX SBOM, and Checkov policy-as-code for checked-in Azure Terraform
 - **Multi-stage Docker** — optimized build with ~50% image size reduction, uv for fast installs
-- **API versioning** — all `/api/*` routes mirrored at `/api/v1/*` for stable integrations; CI enforces route mirroring via `backend/tests/test_api_v1_manifest.py` with explicit exemptions tracked in `backend/api_v1_mirror_exemptions.json`
+- **API versioning** — core migration-workbench routes form the explicit stable `/api/v1/*` contract; existing beta, admin, internal, and scaffold aliases are classified compatibility routes with deprecation/sunset headers. CI rejects duplicate runtime routes and unclassified mirrors.
 - **Feature flags system** — percentage rollout + user targeting with audited admin API and runtime dashboard toggles
 - **Comprehensive audit logging** — structured JSON with actor/IP context, risk levels, alerting rules, compliance queries
 - **Session persistence** — pluggable SessionStore with InMemory and Redis backends
@@ -538,7 +538,7 @@ Dynamic pricing powered by the [Azure Retail Prices API](https://prices.azure.co
 
 ### Core Endpoints (200+ total across 59 router modules)
 
-> **Note:** All `/api/*` routes are also available at `/api/v1/*` for versioned API access.
+> **Note:** Core integration routes are stable at `/api/v1/*`. Temporary compatibility aliases advertise `Deprecation` and `Sunset` headers.
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
@@ -637,7 +637,7 @@ Dynamic pricing powered by the [Azure Retail Prices API](https://prices.azure.co
 | `/api/drift/baselines/{id}/findings/{finding_id}` | PATCH | Accept, reject, defer, or reopen a finding |
 | `/api/drift/baselines/{id}/report` | GET | Export the latest audit as Markdown |
 
-> **Note:** All routes also available at `/api/v1/*`
+> **Note:** Stable public routes are available at `/api/v1/*`; compatibility-only aliases are explicitly deprecated.
 
 ### AI & Intelligence
 

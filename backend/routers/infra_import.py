@@ -17,7 +17,7 @@ from infra_import import parse_infrastructure, detect_format, InfraFormat
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(tags=["infra"])
 
 _MAX_IMPORT_CONTENT_CHARS = 10 * 1024 * 1024
 
