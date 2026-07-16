@@ -14781,7 +14781,9 @@ export interface operations {
             query?: {
                 format?: string;
             };
-            header?: never;
+            header?: {
+                "X-Export-Capability"?: string | null;
+            };
             path: {
                 diagram_id: string;
             };
@@ -21807,7 +21809,9 @@ export interface operations {
             query?: {
                 format?: string;
             };
-            header?: never;
+            header?: {
+                "X-Export-Capability"?: string | null;
+            };
             path: {
                 diagram_id: string;
             };

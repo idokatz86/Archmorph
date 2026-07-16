@@ -7,10 +7,15 @@ import {
 import { Button, Card } from '../ui';
 import api from '../../services/apiClient';
 import { loadCachedImage } from '../../services/sessionCache';
+import {
+  artifactFromBase64,
+  artifactFromResponse,
+  artifactFromText,
+} from '../../utils/exportArtifact';
 import useFocusTrap from '../../hooks/useFocusTrap';
 import LandingZoneViewer from './LandingZoneViewer';
 
-const DELIVERABLES = [
+export const DELIVERABLES = [
   {
     id: 'iac',
     label: 'Infrastructure Code',
@@ -49,7 +54,6 @@ const DELIVERABLES = [
     icon: DollarSign,
     formats: [
       { id: 'csv', label: 'CSV' },
-      { id: 'pdf', label: 'PDF' },
     ],
     defaultFormat: 'csv',
   },
@@ -74,14 +78,19 @@ const DELIVERABLES = [
 ];
 
 // Generate a deliverable blob via the appropriate API
-async function generateDeliverable(diagramId, deliverable, format, hldIncludeDiagrams, exportCapability) {
+export async function generateDeliverable(diagramId, deliverable, format, hldIncludeDiagrams, exportCapability) {
   const id = deliverable.id;
 
   if (id === 'iac') {
     const data = await api.post(`/diagrams/${diagramId}/generate?format=${format}`, undefined, undefined, 180_000);
     const content = data.code || JSON.stringify(data, null, 2);
     const ext = format === 'terraform' ? 'tf' : format === 'bicep' ? 'bicep' : format;
-    return { blob: new Blob([content], { type: 'text/plain' }), filename: `archmorph-iac.${ext}` };
+    return artifactFromText(content, {
+      filename: data.filename || `archmorph-iac.${ext}`,
+      format,
+      mimeType: 'text/plain',
+      provenance: { endpoint: `/diagrams/${diagramId}/generate`, source: 'backend' },
+    });
   }
 
   if (id === 'architecture-package') {
@@ -97,10 +106,19 @@ async function generateDeliverable(diagramId, deliverable, format, hldIncludeDia
     const content = typeof data.content === 'string' ? data.content : JSON.stringify(data.content, null, 2);
     const mime = packageFormat === 'html' ? 'text/html' : 'image/svg+xml';
     const filename = data.filename || `archmorph-architecture-package${format === 'svg-dr' ? '-dr' : ''}.${packageFormat}`;
-    return {
-      blob: new Blob([content], { type: mime }),
+    const artifact = artifactFromText(content, {
       filename,
+      format: `architecture-package-${format === 'svg-dr' ? 'svg-dr' : format === 'svg-primary' ? 'svg-primary' : 'html'}`,
+      mimeType: mime,
       exportCapability: data.export_capability || null,
+      checksum: data.manifest?.artifact_sha256 || null,
+      provenance: data.manifest?.run_metadata || {
+        endpoint: `/diagrams/${diagramId}/export-architecture-package`,
+        source: 'backend',
+      },
+    });
+    return {
+      ...artifact,
       svgContent: packageFormat === 'svg' ? content : null,
       svgVariant: format === 'svg-dr' ? 'dr' : 'primary',
     };
@@ -116,60 +134,53 @@ async function generateDeliverable(diagramId, deliverable, format, hldIncludeDia
       undefined,
       exportCapability ? { 'X-Export-Capability': exportCapability } : {},
     );
-    const bytes = Uint8Array.from(atob(data.content_b64), c => c.charCodeAt(0));
-    return { blob: new Blob([bytes], { type: data.content_type }), filename: data.filename, exportCapability: data.export_capability || null };
+    return artifactFromBase64(data.content_b64, {
+      filename: data.filename,
+      format: `hld-${format}`,
+      mimeType: data.content_type,
+      exportCapability: data.export_capability || null,
+      provenance: { endpoint: `/diagrams/${diagramId}/export-hld`, source: 'backend' },
+    });
   }
 
   if (id === 'cost') {
-    if (format === 'csv') {
-      const data = await api.get(`/diagrams/${diagramId}/cost-estimate`);
-      const rows = [['Service', 'Monthly Low ($)', 'Monthly High ($)']];
-      (data.services || []).forEach(s => rows.push([s.service, s.monthly_low, s.monthly_high]));
-      rows.push(['Total', data.total_monthly_estimate?.low, data.total_monthly_estimate?.high]);
-      const csv = rows.map(r => r.join(',')).join('\n');
-      return { blob: new Blob([csv], { type: 'text/csv' }), filename: 'archmorph-cost-estimate.csv' };
-    }
-    // PDF cost — use export-hld with cost-only section as fallback
-    const data = await api.get(`/diagrams/${diagramId}/cost-estimate`);
-    const md = `# Cost Estimate\n\n| Service | Low ($/mo) | High ($/mo) |\n|---|---|---|\n${
-      (data.services || []).map(s => `| ${s.service} | ${s.monthly_low} | ${s.monthly_high} |`).join('\n')
-    }\n\n**Total:** $${data.total_monthly_estimate?.low} – $${data.total_monthly_estimate?.high}/mo`;
-    return { blob: new Blob([md], { type: 'text/markdown' }), filename: 'archmorph-cost-estimate.md' };
+    const endpoint = `/diagrams/${diagramId}/cost-estimate/export`;
+    const response = await api.download(endpoint, {
+      headers: exportCapability ? { 'X-Export-Capability': exportCapability } : {},
+    });
+    return artifactFromResponse(response, {
+      format: 'cost-csv',
+      fallbackFilename: `cost-estimate-${diagramId}.csv`,
+      provenance: { endpoint, source: 'backend' },
+    });
   }
 
   if (id === 'timeline') {
-    const data = await api.get(`/diagrams/${diagramId}/cost-estimate`);
-    const timeline = {
-      generated: new Date().toISOString(),
-      phases: [
-        { phase: 'Assessment', duration: '1-2 weeks', services: (data.services || []).slice(0, 3).map(s => s.service) },
-        { phase: 'Migration', duration: '4-8 weeks', services: (data.services || []).map(s => s.service) },
-        { phase: 'Validation', duration: '1-2 weeks', services: [] },
-      ],
-    };
-    if (format === 'json') {
-      return { blob: new Blob([JSON.stringify(timeline, null, 2)], { type: 'application/json' }), filename: 'archmorph-timeline.json' };
-    }
-    if (format === 'csv') {
-      const rows = [['Phase', 'Duration', 'Services']];
-      timeline.phases.forEach(p => rows.push([p.phase, p.duration, p.services.join('; ')]));
-      return { blob: new Blob([rows.map(r => r.join(',')).join('\n')], { type: 'text/csv' }), filename: 'archmorph-timeline.csv' };
-    }
-    // markdown
-    const md = `# Migration Timeline\n\n${timeline.phases.map(p => `## ${p.phase}\n- **Duration:** ${p.duration}\n- **Services:** ${p.services.join(', ') || 'All'}`).join('\n\n')}`;
-    return { blob: new Blob([md], { type: 'text/markdown' }), filename: 'archmorph-timeline.md' };
+    const generateEndpoint = `/diagrams/${diagramId}/migration-timeline`;
+    await api.post(generateEndpoint);
+    const backendFormat = format === 'markdown' ? 'md' : format;
+    const extension = format === 'markdown' ? 'md' : format;
+    const exportEndpoint = `${generateEndpoint}/export?format=${backendFormat}`;
+    const response = await api.download(exportEndpoint, {
+      headers: exportCapability ? { 'X-Export-Capability': exportCapability } : {},
+    });
+    return artifactFromResponse(response, {
+      format: `timeline-${format}`,
+      fallbackFilename: `timeline-${diagramId}.${extension}`,
+      provenance: { endpoint: exportEndpoint, source: 'backend', generatedBy: generateEndpoint },
+    });
   }
 
   if (id === 'pdf-report') {
-    const data = await api.post(
-      `/diagrams/${diagramId}/export-hld?format=pdf&include_diagrams=true&export_mode=customer`,
-      {},
-      undefined,
-      undefined,
-      exportCapability ? { 'X-Export-Capability': exportCapability } : {},
-    );
-    const bytes = Uint8Array.from(atob(data.content_b64), c => c.charCodeAt(0));
-    return { blob: new Blob([bytes], { type: 'application/pdf' }), filename: data.filename || 'archmorph-report.pdf', exportCapability: data.export_capability || null };
+    const endpoint = `/diagrams/${diagramId}/report?format=pdf`;
+    const response = await api.download(endpoint, {
+      headers: exportCapability ? { 'X-Export-Capability': exportCapability } : {},
+    });
+    return artifactFromResponse(response, {
+      format: 'analysis-report-pdf',
+      fallbackFilename: `archmorph-report-${diagramId.slice(0, 8)}.pdf`,
+      provenance: { endpoint, source: 'backend' },
+    });
   }
 
   throw new Error(`Unknown deliverable: ${id}`);
@@ -257,7 +268,7 @@ export default function ExportHub({
     // Deliverables that consume/produce one-time export-capability tokens must run
     // sequentially so each call receives the latest token from the previous response.
     // All other deliverables are independent and can run in parallel.
-    const CAPABILITY_IDS = new Set(['architecture-package', 'hld', 'pdf-report']);
+    const CAPABILITY_IDS = new Set(['architecture-package', 'hld', 'cost', 'timeline', 'pdf-report']);
     const freeItems = selectedItems.filter(d => !CAPABILITY_IDS.has(d.id));
     const capItems  = selectedItems.filter(d =>  CAPABILITY_IDS.has(d.id));
 

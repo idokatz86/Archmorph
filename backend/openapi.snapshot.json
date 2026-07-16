@@ -9723,6 +9723,22 @@
               "title": "Format",
               "type": "string"
             }
+          },
+          {
+            "in": "header",
+            "name": "X-Export-Capability",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Export-Capability"
+            }
           }
         ],
         "responses": {
@@ -20662,6 +20678,22 @@
               "pattern": "^(json|md|csv)$",
               "title": "Format",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Export-Capability",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Export-Capability"
             }
           }
         ],
