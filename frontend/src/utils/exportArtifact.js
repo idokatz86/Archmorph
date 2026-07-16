@@ -50,6 +50,15 @@ function filenameFromContentDisposition(value) {
     || null;
 }
 
+function isBlobLike(value) {
+  return value !== null
+    && typeof value === 'object'
+    && typeof value.arrayBuffer === 'function'
+    && typeof value.slice === 'function'
+    && typeof value.size === 'number'
+    && typeof value.type === 'string';
+}
+
 export function createArtifactResult({
   blob,
   filename,
@@ -61,7 +70,9 @@ export function createArtifactResult({
 }) {
   const contract = FORMAT_CONTRACTS[format];
   if (!contract) throw new Error(`Unknown artifact format: ${format}`);
-  if (!(blob instanceof Blob)) throw new Error(`Artifact ${format} did not produce a Blob`);
+  // Response.blob() can originate from a different JS realm than window.Blob
+  // in SSR/test runtimes, so instanceof is not a portable contract check.
+  if (!isBlobLike(blob)) throw new Error(`Artifact ${format} did not produce a Blob`);
 
   const normalizedMime = normalizeMimeType(mimeType || blob.type);
   if (normalizedMime !== contract.mimeType) {
