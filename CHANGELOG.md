@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **#1236 dependency security train** — updated DOMPurify and its transitive Undici runtime to patched releases, aligned CI and documented development on Node.js 22.13+, and changed Dependabot commit prefixes to semantic `chore(deps)` titles so generated update PRs no longer fail the repository title gate by construction.
 - **Async IaC canonical state parity + session-store overwrite accounting fix** — async `/generate-async` jobs now persist canonical `iac_code`/`iac_code_hash`/ETag state like sync generation (including job-result hash/ETag), and in-memory session-store byte tracking now correctly subtracts replaced values on key overwrites.
 
 #### Infrastructure and security maintenance

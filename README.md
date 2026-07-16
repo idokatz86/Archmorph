@@ -130,7 +130,7 @@ Artifacts are written as `analysis.json`, `terraform/main.tf`, `bicep/main.bicep
 - Azure subscription
 - Azure CLI installed
 - Terraform 1.5+
-- Node.js 20+
+- Node.js 22.13+
 - Python 3.12+
 
 ### Deploy Infrastructure
