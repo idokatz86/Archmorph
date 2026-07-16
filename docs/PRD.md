@@ -204,8 +204,9 @@ Current infrastructure posture: West Europe remains the active production region
 - **OTel observability rewrite** — consolidated 3 overlapping metrics systems into real OpenTelemetry SDK integration
 
 ### 3.27 API Versioning (v2.12.0)
-- **v1 prefix mirror** — all `/api/*` routes automatically mirrored at `/api/v1/*`
-- **Middleware-based** — transparent routing via `api_versioning.py` middleware
+- **Explicit v1 contract** — core migration-workbench routers are intentionally classified as the stable `/api/v1/*` surface
+- **Compatibility tier** — beta, admin, internal, and scaffold aliases are classified with a rationale and advertise `Deprecation` and `Sunset` response headers
+- **Collision guard** — CI inspects the live FastAPI route table and rejects duplicate method/path pairs and path-parameter aliases
 - **Backward compatible** — existing `/api/*` routes continue to work unchanged
 - **Future-proof** — infrastructure in place for v2 breaking changes without disrupting v1 consumers
 
@@ -732,7 +733,7 @@ Only when 1–7 all green does the README/PRD Capability Status table flip ALZ r
 | Feature Flags | In-process engine (percentage rollout, user targeting, admin API) |
 | Session Store | Pluggable backends (InMemory default, Redis for production) |
 | GPT Response Cache | Content-hash TTLCache for GPT-4o responses, Blob Storage pricing cache |
-| API Versioning | Middleware-based v1 prefix mirror for all routes |
+| API Versioning | Explicit stable v1 router allowlist plus time-bounded compatibility aliases |
 | Router Architecture | 60 FastAPI router modules (main.py as app factory/middleware registration) |
 | NL Service Builder | In-process GPT-4o engine (fuzzy Azure service matching, alias support, confidence scoring) |
 | Smart Question Dedup | In-process engine (implicit answer detection, smart defaults from analysis) |

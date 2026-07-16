@@ -16,7 +16,7 @@ from routers.shared import verify_admin_key
 from feature_flags import get_feature_flags
 from audit_logging import audit_logger, AuditEventType
 
-router = APIRouter()
+router = APIRouter(tags=["admin"])
 
 
 class FlagUpdateRequest(StrictBaseModel):

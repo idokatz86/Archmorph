@@ -56,7 +56,6 @@ def test_sensitive_artifact_and_session_routes_require_api_key_dependency():
         ("/api/diagrams/{diagram_id}/versions", "GET"),
         ("/api/diagrams/{diagram_id}/versions", "POST"),
         ("/api/diagrams/{diagram_id}/versions/save", "POST"),
-        ("/api/diagrams/{diagram_id}/versions/{version}", "GET"),
         ("/api/diagrams/{diagram_id}/versions/{version}/branch", "POST"),
         ("/api/diagrams/{diagram_id}/versions/{version_number}", "GET"),
         ("/api/diagrams/{diagram_id}/versions/{version_number}/restore", "POST"),

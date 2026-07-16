@@ -1,5 +1,5 @@
 {
   "approved_by": "api-contract-maintainers",
-  "review_url": "https://github.com/idokatz86/Archmorph/pull/1018",
-  "reason": "PR #1018 intentionally tightens sensitive route contracts by adding API-key requirements for artifact/session read-write routes and admin bearer requirements for deployment execution and AI suggestion administration."
+  "review_url": "https://github.com/idokatz86/Archmorph/issues/1238",
+  "reason": "Issue #1238 removes the unreachable duplicate /versions/{version} OpenAPI alias. Runtime requests already resolved to the earlier /versions/{version_number} handler; the change aligns the published contract with actual routing and unifies save, branch, diff, and history operations on one version store."
 }

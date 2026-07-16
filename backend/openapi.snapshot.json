@@ -10474,8 +10474,8 @@
     },
     "/api/diagrams/{diagram_id}/versions": {
       "get": {
-        "description": "List all saved versions for a diagram.",
-        "operationId": "list_versions_api_diagrams__diagram_id__versions_get",
+        "description": "Get version history for a diagram.",
+        "operationId": "get_version_history_endpoint_api_diagrams__diagram_id__versions_get",
         "parameters": [
           {
             "in": "path",
@@ -10512,7 +10512,7 @@
             "APIKeyHeader": []
           }
         ],
-        "summary": "List Versions"
+        "summary": "Get Version History Endpoint"
       },
       "post": {
         "description": "Create a new version of an architecture analysis.",
@@ -10799,58 +10799,6 @@
           }
         ],
         "summary": "Restore Version Endpoint"
-      }
-    },
-    "/api/diagrams/{diagram_id}/versions/{version}": {
-      "get": {
-        "description": "Get a specific version snapshot.",
-        "operationId": "get_version_api_diagrams__diagram_id__versions__version__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "diagram_id",
-            "required": true,
-            "schema": {
-              "title": "Diagram Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "version",
-            "required": true,
-            "schema": {
-              "title": "Version",
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Get Version"
       }
     },
     "/api/diagrams/{diagram_id}/versions/{version}/branch": {
@@ -11581,7 +11529,10 @@
             "description": "Successful Response"
           }
         },
-        "summary": "List Flags"
+        "summary": "List Flags",
+        "tags": [
+          "admin"
+        ]
       }
     },
     "/api/flags/{name}": {
@@ -11619,7 +11570,10 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Get Flag"
+        "summary": "Get Flag",
+        "tags": [
+          "admin"
+        ]
       },
       "patch": {
         "description": "Update a feature flag (admin only).",
@@ -11670,7 +11624,10 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Update Flag"
+        "summary": "Update Flag",
+        "tags": [
+          "admin"
+        ]
       }
     },
     "/api/health": {
@@ -21496,8 +21453,8 @@
     },
     "/api/v1/diagrams/{diagram_id}/versions": {
       "get": {
-        "description": "List all saved versions for a diagram.",
-        "operationId": "list_versions_v1_api_v1_diagrams__diagram_id__versions_get",
+        "description": "Get version history for a diagram.",
+        "operationId": "get_version_history_endpoint_v1_api_v1_diagrams__diagram_id__versions_get",
         "parameters": [
           {
             "in": "path",
@@ -21534,7 +21491,7 @@
             "APIKeyHeader": []
           }
         ],
-        "summary": "List Versions V1",
+        "summary": "Get Version History Endpoint V1",
         "tags": [
           "v1"
         ]
@@ -21836,61 +21793,6 @@
           }
         ],
         "summary": "Restore Version Endpoint V1",
-        "tags": [
-          "v1"
-        ]
-      }
-    },
-    "/api/v1/diagrams/{diagram_id}/versions/{version}": {
-      "get": {
-        "description": "Get a specific version snapshot.",
-        "operationId": "get_version_v1_api_v1_diagrams__diagram_id__versions__version__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "diagram_id",
-            "required": true,
-            "schema": {
-              "title": "Diagram Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "version",
-            "required": true,
-            "schema": {
-              "title": "Version",
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Get Version V1",
         "tags": [
           "v1"
         ]
@@ -22649,6 +22551,7 @@
         },
         "summary": "List Flags V1",
         "tags": [
+          "admin",
           "v1"
         ]
       }
@@ -22690,6 +22593,7 @@
         },
         "summary": "Get Flag V1",
         "tags": [
+          "admin",
           "v1"
         ]
       },
@@ -22744,6 +22648,7 @@
         ],
         "summary": "Update Flag V1",
         "tags": [
+          "admin",
           "v1"
         ]
       }

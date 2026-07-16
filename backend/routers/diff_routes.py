@@ -12,7 +12,7 @@ from typing import Optional
 import logging
 
 from routers.shared import limiter, require_diagram_access, verify_api_key
-import architecture_diff
+from versioning import compare_versions, create_version, get_version
 
 logger = logging.getLogger(__name__)
 
@@ -27,39 +27,6 @@ class BranchRequest(StrictBaseModel):
     label: Optional[str] = Field(None, max_length=200)
 
 
-# ─────────────────────────────────────────────────────────────
-# Version Management
-# ─────────────────────────────────────────────────────────────
-
-@router.get("/api/diagrams/{diagram_id}/versions", dependencies=[Depends(require_diagram_access)])
-@limiter.limit("30/minute")
-async def list_versions(
-    request: Request,
-    diagram_id: str,
-    _auth=Depends(verify_api_key),
-    _session=Depends(require_diagram_access),
-):
-    """List all saved versions for a diagram."""
-    versions = architecture_diff.list_versions(diagram_id)
-    return {"diagram_id": diagram_id, "versions": versions, "total": len(versions)}
-
-
-@router.get("/api/diagrams/{diagram_id}/versions/{version}", dependencies=[Depends(require_diagram_access)])
-@limiter.limit("30/minute")
-async def get_version(
-    request: Request,
-    diagram_id: str,
-    version: int,
-    _auth=Depends(verify_api_key),
-    _session=Depends(require_diagram_access),
-):
-    """Get a specific version snapshot."""
-    record = architecture_diff.get_version(diagram_id, version)
-    if record is None:
-        raise ArchmorphException(404, f"Version {version} not found for diagram {diagram_id}")
-    return record
-
-
 @router.post("/api/diagrams/{diagram_id}/versions/save", dependencies=[Depends(require_diagram_access)])
 @limiter.limit("10/minute")
 async def save_version(
@@ -71,8 +38,14 @@ async def save_version(
 ):
     """Save current analysis state as a new version snapshot."""
     label = body.label if body else None
-    result = architecture_diff.save_version(diagram_id, analysis, label=label)
-    return result
+    version = create_version(diagram_id, analysis, message=label)
+    return {
+        "version": version.version_number,
+        "version_number": version.version_number,
+        "diagram_id": diagram_id,
+        "label": version.message,
+        "created_at": version.created_at.isoformat(),
+    }
 
 
 # ─────────────────────────────────────────────────────────────
@@ -93,8 +66,8 @@ async def diff_versions(
     if v1 == v2:
         raise ArchmorphException(400, "Cannot diff a version with itself")
 
-    diff = architecture_diff.compute_diff(diagram_id, v1, v2)
-    if diff is None:
+    diff = compare_versions(diagram_id, v1, v2)
+    if "error" in diff:
         raise ArchmorphException(404, "One or both versions not found")
     return diff
 
@@ -115,7 +88,19 @@ async def branch_version(
 ):
     """Fork a version for what-if analysis."""
     label = body.label if body else None
-    result = architecture_diff.branch_version(diagram_id, version, label=label)
-    if result is None:
+    source = get_version(diagram_id, version)
+    if source is None:
         raise ArchmorphException(404, f"Version {version} not found for diagram {diagram_id}")
-    return result
+    branched = create_version(
+        diagram_id,
+        source.snapshot,
+        message=label or f"Branch from version {version}",
+    )
+    return {
+        "version": branched.version_number,
+        "version_number": branched.version_number,
+        "diagram_id": diagram_id,
+        "label": branched.message,
+        "created_at": branched.created_at.isoformat(),
+        "branched_from": version,
+    }
