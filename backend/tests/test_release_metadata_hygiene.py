@@ -66,6 +66,13 @@ def test_current_tree_passes_public_metadata_lint():
     assert metadata_lint.scan_repository(REPO_ROOT) == []
 
 
+def test_tracked_source_scan_does_not_include_untracked_scratch_files():
+    tracked = set(metadata_lint._source_files(REPO_ROOT))
+    with_untracked = set(metadata_lint._source_files(REPO_ROOT, include_untracked=True))
+    assert "backend/tests/test_release_metadata_hygiene.py" in tracked
+    assert tracked <= with_untracked
+
+
 def test_generated_azure_hostname_is_rejected_without_echoing_value():
     violations = metadata_lint.scan_text(
         "docs/example.md",

@@ -196,10 +196,13 @@ def scan_text(
     return violations
 
 
-def _tracked_files(repo_root: Path) -> list[str]:
+def _source_files(repo_root: Path, *, include_untracked: bool = False) -> list[str]:
     git = shutil.which("git") or "/usr/bin/git"
+    command = [git, "ls-files", "-z", "--cached"]
+    if include_untracked:
+        command.extend(("--others", "--exclude-standard"))
     completed = subprocess.run(
-        [git, "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+        command,
         cwd=repo_root,
         check=True,
         capture_output=True,
@@ -218,8 +221,8 @@ def _should_scan(relative: str) -> bool:
     return True
 
 
-def scan_repository(repo_root: Path = REPO_ROOT) -> list[Violation]:
-    tracked = _tracked_files(repo_root)
+def scan_repository(repo_root: Path = REPO_ROOT, *, include_untracked: bool = False) -> list[Violation]:
+    tracked = _source_files(repo_root, include_untracked=include_untracked)
     tracked_set = set(tracked)
     violations = [
         Violation(path, 1, "forbidden-tracked-artifact", f"remove the {description} from source control")
@@ -257,8 +260,13 @@ def scan_repository(repo_root: Path = REPO_ROOT) -> list[Violation]:
 
 
 def main() -> int:
+    include_untracked = "--include-untracked" in sys.argv[1:]
+    unknown = [argument for argument in sys.argv[1:] if argument != "--include-untracked"]
+    if unknown:
+        print(f"Unknown arguments: {' '.join(unknown)}", file=sys.stderr)
+        return 2
     try:
-        violations = scan_repository()
+        violations = scan_repository(include_untracked=include_untracked)
     except (OSError, ValueError, subprocess.CalledProcessError, json.JSONDecodeError) as exc:
         print(f"Public metadata lint error: {exc}", file=sys.stderr)
         return 1

@@ -38,7 +38,7 @@ Run both checks before opening a pull request:
 
 ```text
 python3 scripts/sync_version.py --check
-python3 scripts/lint_public_metadata.py
+python3 scripts/lint_public_metadata.py --include-untracked
 ```
 
-The metadata lint reports only file, line, category, and remediation guidance; it does not echo matched identifiers into CI logs.
+CI scans tracked source only. Local pre-PR validation should add `--include-untracked` so newly created files are checked before staging. The metadata lint reports only file, line, category, and remediation guidance; it does not echo matched identifiers into CI logs.
