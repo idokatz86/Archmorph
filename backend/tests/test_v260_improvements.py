@@ -219,16 +219,16 @@ class TestCORSTightening:
         with TestClient(app, raise_server_exceptions=False) as c:
             yield c
 
-    def test_cors_allows_production_origin(self, client):
-        """Production origin should be allowed."""
+    def test_cors_allows_configured_origin(self, client):
+        """Only the origin supplied through ALLOWED_ORIGINS should be allowed."""
         r = client.options(
             "/api/health",
             headers={
-                "Origin": "https://archmorphai.com",
+                "Origin": "https://frontend.example.com",
                 "Access-Control-Request-Method": "GET",
             },
         )
-        assert r.headers.get("access-control-allow-origin") == "https://archmorphai.com"
+        assert r.headers.get("access-control-allow-origin") == "https://frontend.example.com"
 
     def test_cors_blocks_unknown_origin(self, client):
         """Unknown origins should not get CORS headers."""

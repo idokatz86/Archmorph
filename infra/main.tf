@@ -16,18 +16,10 @@ terraform {
     }
   }
 
-  # Remote state backend — Azure Storage with locking (#98 — I-001)
-  # Prevents concurrent state corruption, removes secrets from local disk.
-  # Bootstrap: create the storage account + container first, then init.
-  #   az group create -n archmorph-tfstate-rg -l westeurope
-  #   az storage account create -n archmorphtfstate -g archmorph-tfstate-rg -l westeurope --sku Standard_LRS --allow-blob-public-access false
-  #   az storage container create -n tfstate --account-name archmorphtfstate
+  # Remote state backend — Azure Storage with locking (#98 — I-001).
+  # Resource group, account, container, and key are private operator/CI settings;
+  # see docs/PUBLIC_METADATA_POLICY.md for the required partial init contract.
   backend "azurerm" {
-    resource_group_name  = "archmorph-tfstate-rg"
-    storage_account_name = "archmorphtfstate"
-    container_name       = "tfstate"
-    key                  = "archmorph.tfstate"
-    # subscription_id passed via -backend-config or ARM_SUBSCRIPTION_ID env var (#166)
     use_azuread_auth = true
   }
 }
@@ -60,6 +52,7 @@ locals {
   stack_environment                  = coalesce(var.resource_group_environment, var.environment)
   production_infra_hardening_enabled = var.environment == "prod" && var.enable_production_infra_hardening
   redis_cache_name                   = coalesce(var.redis_name_override, "archmorph-redis-${local.name_suffix}")
+  workbook_id                        = coalesce(var.workbook_id_override, uuidv5("dns", "workbook-${local.name_suffix}.example.com"))
   paired_region_defaults = {
     westeurope    = "northeurope"
     northeurope   = "westeurope"
@@ -665,7 +658,7 @@ resource "azurerm_container_app" "backend" {
     # app itself 502s/503s or times out (Container Apps returns its own
     # error page which would otherwise strip application-level CORS).
     cors {
-      allowed_origins    = [var.frontend_url, "https://www.archmorphai.com"]
+      allowed_origins    = [var.frontend_url]
       allowed_methods    = ["GET", "POST", "PATCH", "DELETE", "OPTIONS"]
       allowed_headers    = ["Content-Type", "Authorization", "X-API-Key", "X-CSRF-Token", "X-Correlation-ID"]
       exposed_headers    = ["X-Correlation-ID", "X-Response-Time"]
@@ -1483,7 +1476,7 @@ resource "azurerm_log_analytics_saved_search" "container_errors" {
 # Azure Monitor Workbook (Comprehensive Operations Dashboard)
 # ─────────────────────────────────────────────────────────────
 resource "azurerm_application_insights_workbook" "dashboard" {
-  name                = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+  name                = local.workbook_id
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
   display_name        = "Archmorph Operations Dashboard"

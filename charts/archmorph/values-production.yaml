@@ -10,7 +10,7 @@ image:
 env:
   ENVIRONMENT: "prod"
   RATE_LIMIT_ENABLED: "true"
-  ALLOWED_ORIGINS: "https://archmorphai.com,https://www.archmorphai.com"
+  ALLOWED_ORIGINS: "https://frontend.example.com"
 
 resources:
   limits:
@@ -35,19 +35,19 @@ ingress:
     nginx.ingress.kubernetes.io/rate-limit: "100"
     nginx.ingress.kubernetes.io/rate-limit-window: "1m"
   hosts:
-    - host: api.archmorph.dev
+    - host: api.example.com
       paths:
         - path: /
           pathType: Prefix
   tls:
-    - secretName: archmorph-prod-tls
+    - secretName: example-api-tls
       hosts:
-        - api.archmorph.dev
+        - api.example.com
 
 externalSecrets:
   enabled: true
   secretStoreRef:
-    name: azure-keyvault-prod
+    name: example-secret-store
     kind: SecretStore
 
 podAnnotations:

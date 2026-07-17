@@ -25,6 +25,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
 os.environ.setdefault("ARCHMORPH_EXPORT_CAPABILITY_REQUIRED", "false")
 os.environ.setdefault("ENVIRONMENT", "test")
+os.environ.setdefault("ALLOWED_ORIGINS", "https://frontend.example.com")
 
 from main import app  # noqa: E402
 from routers import shared as shared_router  # noqa: E402

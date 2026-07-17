@@ -12,6 +12,7 @@ import time
 import logging
 
 from routers.shared import limiter, verify_admin_key
+from version import __version__
 from admin_auth import (
     verify_admin_secret, create_session_token,
     revoke_token, is_configured as admin_is_configured,
@@ -263,7 +264,7 @@ async def admin_release_status(request: Request, _admin=Depends(verify_admin_key
     database = database_readiness()
     sessions = session_store_readiness()
     return {
-        "version": os.getenv("APP_VERSION", "unknown"),
+        "version": __version__,
         "environment": os.getenv("ENVIRONMENT", "production"),
         "git_sha": os.getenv("GIT_SHA", os.getenv("GITHUB_SHA", "unknown")),
         "deployed_at": os.getenv("DEPLOYED_AT", "unknown"),

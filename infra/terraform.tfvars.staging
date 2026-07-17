@@ -6,11 +6,11 @@ environment      = "staging"
 location         = "westeurope"
 openai_location  = "eastus"
 
-db_admin_username = "archmorph_staging_admin"
+db_admin_username = "example_admin"
 db_admin_password = "CHANGE_ME_STAGING_PASSWORD_MIN16"
 
-alert_email  = "alerts@archmorph.dev"
-frontend_url = "https://staging.archmorph.dev"
+alert_email  = "alerts@example.com"
+frontend_url = "https://frontend.example.com"
 
 redis_capacity = 0  # Basic C0 for staging
 

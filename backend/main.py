@@ -163,21 +163,23 @@ from error_envelope import register_error_handlers  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
-# Allowed frontend origins (production) — strictly enumerated, no wildcards
-env_origins = [
-    o.strip() for o in os.getenv("ALLOWED_ORIGINS", "").split(",")
-    if o.strip()
-]
-default_origins = [
-    "https://archmorphai.com",
-    "https://www.archmorphai.com",
-    "https://agreeable-ground-01012c003.2.azurestaticapps.net"
-]
-ALLOWED_ORIGINS = list(set(env_origins + default_origins))
+def _configured_cors_origins() -> list[str]:
+    """Return explicit deployment origins plus local-only development origins.
 
-# Add local dev origins only when running locally
-if os.getenv("ENVIRONMENT", "production") == "dev":
-    ALLOWED_ORIGINS.extend(["http://localhost:5173", "http://localhost:3000"])
+    Production and staging intentionally have no source-code hostname fallback:
+    an omitted ``ALLOWED_ORIGINS`` value fails closed with no cross-origin access.
+    """
+    origins = [
+        origin.strip()
+        for origin in os.getenv("ALLOWED_ORIGINS", "").split(",")
+        if origin.strip()
+    ]
+    if os.getenv("ENVIRONMENT", "production").lower() in {"dev", "development"}:
+        origins.extend(["http://localhost:5173", "http://localhost:3000"])
+    return list(dict.fromkeys(origins))
+
+
+ALLOWED_ORIGINS = _configured_cors_origins()
 
 
 def _normalize_host(value: str | None) -> str:
@@ -286,11 +288,16 @@ app = FastAPI(
 # ─────────────────────────────────────────────────────────────
 _CORS_ALLOW_CREDENTIALS = False  # Never enable credentials with wildcard origins
 
-def _validate_cors_config(allow_origins: list, allow_credentials: bool) -> None:
-    """Raise at startup if wildcard origin is combined with allow_credentials=True.
+def _validate_cors_config(
+    allow_origins: list[str],
+    allow_credentials: bool,
+    *,
+    environment: str | None = None,
+) -> None:
+    """Reject unsafe or incomplete CORS configuration before serving traffic.
 
-    Browsers enforce this restriction (CORS spec §3.2.2) but we also validate
-    server-side so misconfigurations are caught before traffic reaches the API (#846).
+    Production and staging accept only explicit HTTPS origins. Development/test
+    can opt into local HTTP origins, but wildcard credentials remain forbidden.
     """
     if allow_credentials and "*" in allow_origins:
         raise RuntimeError(
@@ -299,6 +306,42 @@ def _validate_cors_config(allow_origins: list, allow_credentials: bool) -> None:
             "configuration exposes credentials to any origin.  "
             "Set ALLOWED_ORIGINS to explicit origins or disable credentials."
         )
+
+    runtime_environment = (environment or os.getenv("ENVIRONMENT", "production")).lower()
+    if runtime_environment not in {"prod", "production", "staging"}:
+        return
+    if not allow_origins:
+        raise RuntimeError(
+            "CORS security misconfiguration: ALLOWED_ORIGINS must contain at least one "
+            f"explicit HTTPS origin in {runtime_environment}."
+        )
+
+    for origin in allow_origins:
+        if origin in {"*", "null"}:
+            raise RuntimeError("CORS security misconfiguration: wildcard and null origins are forbidden")
+        try:
+            parsed = urlsplit(origin)
+            port = parsed.port
+        except ValueError as exc:
+            raise RuntimeError("CORS security misconfiguration: malformed origin") from exc
+        hostname = (parsed.hostname or "").lower()
+        if (
+            parsed.scheme != "https"
+            or not parsed.netloc
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.path
+            or parsed.query
+            or parsed.fragment
+            or port not in {None, 443}
+            or hostname in {"localhost", "127.0.0.1", "::1"}
+            or hostname.endswith(".localhost")
+        ):
+            raise RuntimeError(
+                "CORS security misconfiguration: production/staging origins must be "
+                "canonical HTTPS origins without credentials, paths, queries, fragments, "
+                "local hosts, or non-default ports"
+            )
 
 _validate_cors_config(ALLOWED_ORIGINS, _CORS_ALLOW_CREDENTIALS)
 

@@ -4,7 +4,7 @@
 replicaCount: 1
 
 image:
-  repository: archmorphacr.azurecr.io/archmorph-api
+  repository: example.azurecr.io/archmorph-api
   pullPolicy: IfNotPresent
   # Default tag uses Chart.AppVersion via the deployment template.
   # Override with --set image.tag=<sha> in CI/CD.  Never use "latest" (#162).

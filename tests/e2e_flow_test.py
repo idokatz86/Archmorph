@@ -10,41 +10,44 @@ Tests the full 9-step translation flow for each diagram:
 """
 
 import json
+import os
 import re
 import sys
+from pathlib import Path
 import httpx
 
-API = "https://archmorph-api.icyisland-c0dee6ba.northeurope.azurecontainerapps.io"
+API = os.getenv("API_BASE", "http://localhost:8000").rstrip("/")
+DIAGRAM_DIR = Path(os.getenv("E2E_DIAGRAM_DIR", Path(__file__).parent / "fixtures/e2e-diagrams"))
 TIMEOUT = httpx.Timeout(connect=15, read=180, write=30, pool=15)
 
 DIAGRAMS = [
     {
         "label": "D1 — AWS Web Application Architecture",
-        "file": "/Users/idokatz/Desktop/AWS1.png",
+        "file": str(DIAGRAM_DIR / "aws-webapp.png"),
         "project_id": "e2e-aws-webapp",
         "source": "aws",
     },
     {
         "label": "D2 — AWS Data Lake (Kinesis/Athena/Glue)",
-        "file": "/Users/idokatz/Desktop/Samples/AWS2.PNG",
+        "file": str(DIAGRAM_DIR / "aws-data-lake.png"),
         "project_id": "e2e-aws-datalake",
         "source": "aws",
     },
     {
         "label": "D3 — AWS Multi-Component (AppSync/Fargate/Neptune)",
-        "file": "/Users/idokatz/Desktop/AWS3.png",
+        "file": str(DIAGRAM_DIR / "aws-multi-component.png"),
         "project_id": "e2e-aws-multicomp",
         "source": "aws",
     },
     {
         "label": "D4 — GCP Opta Architecture (GKE/Cloud SQL)",
-        "file": "/Users/idokatz/Desktop/GCP1.png",
+        "file": str(DIAGRAM_DIR / "gcp-opta.png"),
         "project_id": "e2e-gcp-opta",
         "source": "gcp",
     },
     {
         "label": "D5 — GCP Digital Marketing (BigQuery/Dataflow)",
-        "file": "/Users/idokatz/Desktop/GCP2.png",
+        "file": str(DIAGRAM_DIR / "gcp-digital-marketing.png"),
         "project_id": "e2e-gcp-digimark",
         "source": "gcp",
     },

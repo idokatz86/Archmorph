@@ -41,8 +41,8 @@ STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
 STRIPE_PRICE_PRO = os.getenv("STRIPE_PRICE_PRO", "price_pro_monthly")
 STRIPE_PRICE_ENTERPRISE = os.getenv("STRIPE_PRICE_ENTERPRISE", "price_enterprise_monthly")
-STRIPE_SUCCESS_URL = os.getenv("STRIPE_SUCCESS_URL", "https://archmorph.io/billing?session_id={CHECKOUT_SESSION_ID}")
-STRIPE_CANCEL_URL = os.getenv("STRIPE_CANCEL_URL", "https://archmorph.io/pricing")
+STRIPE_SUCCESS_URL = os.getenv("STRIPE_SUCCESS_URL", "https://frontend.example.com/billing?session_id={CHECKOUT_SESSION_ID}")
+STRIPE_CANCEL_URL = os.getenv("STRIPE_CANCEL_URL", "https://frontend.example.com/pricing")
 
 # Stripe SDK availability flag
 _stripe_available = False

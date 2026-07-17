@@ -4170,7 +4170,7 @@
   "info": {
     "description": "AI-powered Cloud Architecture Translator to Azure.\n\n## Authentication\n\nAll endpoints require an API key passed via the `X-API-Key` header.\nGenerate keys at `POST /api/keys`.\n\n## Webhooks\n\nSubscribe to real-time events (analysis completed, IaC generated, etc.) via `POST /api/webhooks`. Deliveries include HMAC-SHA256 signatures in the `X-Archmorph-Signature` header.\n\n## Integrations\n\nPush analysis results to Slack, Microsoft Teams, Jira, and GitHub via the `/api/integrations/*` endpoints.\n\n## Rate Limiting\n\nDefault: 200 requests/minute per IP. Per-key limits are configurable at key creation time.",
     "title": "Archmorph API",
-    "version": "4.0.0"
+    "version": "4.3.0"
   },
   "openapi": "3.1.0",
   "paths": {

@@ -76,3 +76,6 @@ frontend/test.py
 # Runtime caches written by tests / startup — should never be committed.
 backend/data/icon_registry.json
 .copilot-session/
+.operator-private/
+backend/coverage_report.txt
+backend/failed_tests.txt

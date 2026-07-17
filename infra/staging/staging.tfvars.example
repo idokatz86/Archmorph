@@ -3,5 +3,5 @@
 
 subscription_id        = "your-subscription-id"
 location               = "westeurope"
-alert_email            = "staging-alerts@archmorph.io"
-staging_frontend_url   = "https://archmorph-staging.azurestaticapps.net"
+alert_email            = "alerts@example.com"
+staging_frontend_url   = "https://frontend.example.com"

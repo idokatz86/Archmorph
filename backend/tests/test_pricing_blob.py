@@ -36,7 +36,7 @@ class TestBlobClientCreation:
             pricing.AZURE_STORAGE_ACCOUNT_URL = old_url
             pricing.AZURE_STORAGE_CONNECTION_STRING = old_cs
 
-    @patch("services.azure_pricing.AZURE_STORAGE_ACCOUNT_URL", "https://test.blob.core.windows.net")
+    @patch("services.azure_pricing.AZURE_STORAGE_ACCOUNT_URL", "https://example.blob.core.windows.net")
     def test_creates_blob_client_with_rbac(self):
         mock_bsc = MagicMock()
         mock_container = MagicMock()
