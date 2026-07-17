@@ -208,6 +208,7 @@ def test_backend_storage_validation_requires_private_endpoint_when_public_access
         "TFSTATE_KEY",
     ):
         assert deploy_env[name] == f"${{{{ secrets.{name} }}}}"
+    assert deploy_env["LEGACY_METRICS_STORAGE_ACCOUNT"] == "${{ secrets.LEGACY_METRICS_STORAGE_ACCOUNT }}"
 
     assert 'if [ "$PUBLIC_NETWORK_ACCESS" = "Disabled" ]; then' in validate_script
     assert "APPROVED_PRIVATE_ENDPOINT_COUNT=$(az network private-endpoint-connection list" in validate_script
@@ -217,16 +218,16 @@ def test_backend_storage_validation_requires_private_endpoint_when_public_access
     assert "tags.project=='archmorph'" in validate_script
     assert "tags.managed_by=='terraform'" in validate_script
     assert "No tagged Terraform-managed Archmorph storage accounts were found" in validate_script
-    assert 'grep -vxF "$CONTAINER_APP_STORAGE_NAME"' in validate_script
+    assert 'grep -vxF "$LEGACY_METRICS_STORAGE_ACCOUNT"' in validate_script
     assert "No Terraform-managed Archmorph storage account candidates were found" in validate_script
     assert "CANDIDATE_METRICS_CONTAINER_ID" in validate_script
     assert "NOT_FOUND_STORAGE_NAMES=()" in validate_script
     assert "StatusCode=404|ResourceNotFound|ContainerNotFound|NotFound" in validate_script
-    assert "Unable to query metrics container for storage account" in validate_script
+    assert "Unable to query a candidate metrics container" in validate_script
     assert "CREATE_METRICS_CONTAINER=true" in validate_script
     assert '[ "${#CANDIDATE_STORAGE_NAMES[@]}" -eq 1 ]' in validate_script
     assert '[ "${#NOT_FOUND_STORAGE_NAMES[@]}" -eq 1 ]' in validate_script
-    assert "Metrics container was not found on storage account" in validate_script
+    assert "Metrics container was not found on the selected storage account" in validate_script
     assert "publicAccess\":\"None" in validate_script
     assert "STORAGE_NETWORK_RULES=$(az storage account show" in validate_script
     assert "--query networkRuleSet" in validate_script
@@ -286,8 +287,8 @@ def test_backend_storage_validation_requires_private_endpoint_when_public_access
     assert "az storage account update" in validate_script
     assert "--public-network-access Enabled" in validate_script
     assert "Expected exactly one Terraform-managed Archmorph storage account with a metrics container" in validate_script
-    assert "Container App still references legacy storage account" in validate_script
-    assert "deploying Terraform-managed storage account" in validate_script
+    assert "Container App storage differs from the selected Terraform-managed account" in validate_script
+    assert "validating the reviewed metrics cutover" in validate_script
     assert "has public network access disabled but no approved private endpoint connection" in validate_script
     assert "ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER" in validate_script
     assert "managed-identity blob preflight will prove RBAC data-plane access" in validate_script

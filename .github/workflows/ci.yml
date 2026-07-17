@@ -593,6 +593,7 @@ jobs:
       TRUSTED_FRONT_DOOR_FDID: ${{ secrets.TRUSTED_FRONT_DOOR_FDID }}
       TRUSTED_FRONT_DOOR_HOSTS: ${{ secrets.TRUSTED_FRONT_DOOR_HOSTS }}
       ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS }}
+      LEGACY_METRICS_STORAGE_ACCOUNT: ${{ secrets.LEGACY_METRICS_STORAGE_ACCOUNT }}
       TFSTATE_RESOURCE_GROUP: ${{ secrets.TFSTATE_RESOURCE_GROUP }}
       TFSTATE_STORAGE_ACCOUNT: ${{ secrets.TFSTATE_STORAGE_ACCOUNT }}
       TFSTATE_CONTAINER: ${{ secrets.TFSTATE_CONTAINER }}
@@ -633,6 +634,7 @@ jobs:
             ARCHMORPH_API_KEY \
             JWT_SECRET \
             ALLOWED_ORIGINS \
+            LEGACY_METRICS_STORAGE_ACCOUNT \
             TFSTATE_RESOURCE_GROUP \
             TFSTATE_STORAGE_ACCOUNT \
             TFSTATE_CONTAINER \
@@ -847,7 +849,7 @@ jobs:
           fi
           CONTAINER_APP_STORAGE_NAME=$(echo "$CONTAINER_APP_STORAGE_ACCOUNT_URL" | sed -E 's#^https://([^.]+)\.blob\.core\.windows\.net/?$#\1#')
           if [ -z "$CONTAINER_APP_STORAGE_NAME" ] || [ "$CONTAINER_APP_STORAGE_NAME" = "$CONTAINER_APP_STORAGE_ACCOUNT_URL" ]; then
-            echo "::error::Unable to parse storage account name from AZURE_STORAGE_ACCOUNT_URL=$CONTAINER_APP_STORAGE_ACCOUNT_URL"
+            echo "::error::Unable to parse storage account name from the configured AZURE_STORAGE_ACCOUNT_URL"
             exit 1
           fi
           TERRAFORM_STORAGE_CANDIDATES=$(az storage account list \
@@ -859,7 +861,7 @@ jobs:
             TERRAFORM_STORAGE_CANDIDATES=$(az storage account list \
               --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
               --query "[?starts_with(name, 'archmorph')].name" \
-              -o tsv | grep -vxF "$CONTAINER_APP_STORAGE_NAME" || true)
+              -o tsv | grep -vxF "$LEGACY_METRICS_STORAGE_ACCOUNT" || true)
           fi
           if [ -z "$TERRAFORM_STORAGE_CANDIDATES" ]; then
             echo "::error::No Terraform-managed Archmorph storage account candidates were found in resource group ${{ env.AZURE_RESOURCE_GROUP }}"
@@ -889,8 +891,7 @@ jobs:
             elif grep -Eiq 'StatusCode=404|ResourceNotFound|ContainerNotFound|NotFound' "$CANDIDATE_METRICS_CONTAINER_ERROR"; then
               NOT_FOUND_STORAGE_NAMES+=("$CANDIDATE_STORAGE_NAME")
             else
-              echo "::error::Unable to query metrics container for storage account $CANDIDATE_STORAGE_NAME through Azure Resource Manager"
-              sed 's/^/az rest: /' "$CANDIDATE_METRICS_CONTAINER_ERROR" >&2
+              echo "::error::Unable to query a candidate metrics container through Azure Resource Manager; inventory details withheld"
               rm -f "$CANDIDATE_METRICS_CONTAINER_ERROR"
               exit 1
             fi
@@ -903,22 +904,21 @@ jobs:
           elif [ "${#MATCHED_STORAGE_NAMES[@]}" -eq 0 ] && [ "${#CANDIDATE_STORAGE_NAMES[@]}" -eq 1 ] && [ "${#NOT_FOUND_STORAGE_NAMES[@]}" -eq 1 ]; then
             STORAGE_NAME="${CANDIDATE_STORAGE_NAMES[0]}"
             CREATE_METRICS_CONTAINER=true
-            echo "::notice::Metrics container was not found on storage account $STORAGE_NAME; creating it through Azure Resource Manager before validation."
+            echo "::notice::Metrics container was not found on the selected storage account; creating it through Azure Resource Manager before validation."
           else
             echo "::error::Expected exactly one Terraform-managed Archmorph storage account with a metrics container, found ${#MATCHED_STORAGE_NAMES[@]}"
-            printf 'Candidates: %s\n' $TERRAFORM_STORAGE_CANDIDATES
             exit 1
           fi
 
           STORAGE_ACCOUNT_URL="https://${STORAGE_NAME}.blob.core.windows.net"
           if [ "$CONTAINER_APP_STORAGE_NAME" != "$STORAGE_NAME" ]; then
-            echo "::notice::Container App still references legacy storage account ${CONTAINER_APP_STORAGE_NAME}; deploying Terraform-managed storage account ${STORAGE_NAME} for metrics cutover."
+            echo "::notice::Container App storage differs from the selected Terraform-managed account; validating the reviewed metrics cutover."
           fi
           echo "STORAGE_NAME=$STORAGE_NAME" >> "$GITHUB_ENV"
           echo "STORAGE_ACCOUNT_URL=$STORAGE_ACCOUNT_URL" >> "$GITHUB_ENV"
 
           if ! az storage account show --name "$STORAGE_NAME" --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" &>/dev/null; then
-            echo "::error::Storage account $STORAGE_NAME was not found in resource group ${{ env.AZURE_RESOURCE_GROUP }}"
+            echo "::error::Selected storage account was not found in the configured resource group"
             exit 1
           fi
 
@@ -927,7 +927,7 @@ jobs:
             --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
             --query id -o tsv)
           if [ -z "$STORAGE_ID" ]; then
-            echo "::error::Unable to resolve storage account resource ID for $STORAGE_NAME"
+            echo "::error::Unable to resolve the selected storage account resource ID"
             exit 1
           fi
           echo "STORAGE_ID=$STORAGE_ID" >> "$GITHUB_ENV"
@@ -937,7 +937,7 @@ jobs:
             --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
             --query allowSharedKeyAccess -o tsv | tr '[:upper:]' '[:lower:]')
           if [ "$ALLOW_SHARED_KEY" != "false" ]; then
-            echo "::error::Storage account $STORAGE_NAME must have shared-key access disabled"
+            echo "::error::Selected storage account must have shared-key access disabled"
             exit 1
           fi
 
@@ -956,7 +956,7 @@ jobs:
             PRIVATE_ENDPOINT_STATUS=$?
             set -e
             if [ "$PRIVATE_ENDPOINT_STATUS" -ne 0 ]; then
-              echo "::error::Unable to query private endpoint connections for storage account $STORAGE_NAME"
+              echo "::error::Unable to query private endpoint connections for the selected storage account"
               sed 's/^/az network private-endpoint-connection list: /' "$PRIVATE_ENDPOINT_ERROR" >&2
               rm -f "$PRIVATE_ENDPOINT_ERROR"
               exit 1
@@ -991,7 +991,7 @@ jobs:
                   echo "::error::Unable to discover container-apps-subnet ID for storage network rule cutover"
                   exit 1
                 fi
-                echo "::notice::Storage account $STORAGE_NAME is missing the container-apps-subnet rule; adding it before public network cutover."
+                echo "::notice::Selected storage account is missing the approved subnet rule; adding it before public network cutover."
                 az storage account network-rule add \
                   --account-name "$STORAGE_NAME" \
                   --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
