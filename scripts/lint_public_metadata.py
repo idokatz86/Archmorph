@@ -97,11 +97,13 @@ class Violation:
 
 def _is_placeholder(value: str) -> bool:
     lowered = value.strip().strip("`\"'").lower()
+    placeholder_host = lowered.split("/", 1)[0].split(":", 1)[0]
     return (
         not lowered
         or lowered.startswith(("<", "${", "{", "example", "sample", "your", "configured"))
         or any(token in lowered for token in ("[^", "[a-", ".*", ".+"))
-        or "example.com" in lowered
+        or placeholder_host == "example.com"
+        or placeholder_host.endswith(".example.com")
         or lowered == "00000000-0000-0000-0000-000000000000"
         or lowered == "000"
     )

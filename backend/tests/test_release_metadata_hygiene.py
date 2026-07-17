@@ -108,6 +108,15 @@ def test_placeholders_and_reviewed_public_domains_are_allowed():
     assert metadata_lint.scan_text("docs/example.md", text, {"archmorphai.com"}) == []
 
 
+def test_example_domain_placeholder_requires_a_real_domain_boundary():
+    violations = metadata_lint.scan_text(
+        "docs/example.md",
+        '"account_name": "live-example.com.attacker.invalid"',
+        {"archmorphai.com"},
+    )
+    assert "concrete-resource-field" in {item.category for item in violations}
+
+
 def test_local_paths_and_concrete_resource_fields_are_rejected():
     violations = metadata_lint.scan_text(
         "docs/example.md",
