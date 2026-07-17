@@ -25,7 +25,7 @@ jobs:
       matrix:
         language: [python, javascript]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
@@ -43,7 +43,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup Python
         uses: actions/setup-python@v6
@@ -59,7 +59,7 @@ jobs:
           pip-audit -r requirements.txt --ignore-vuln PYSEC-2025-183
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: "22.13.0"
           cache: "npm"
@@ -83,7 +83,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Run gitleaks
@@ -117,7 +117,7 @@ jobs:
             port: "8080:8080"
             health_url: http://127.0.0.1:8080/health
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
