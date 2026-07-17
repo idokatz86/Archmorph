@@ -136,7 +136,14 @@ jobs:
         run: |
           set -euo pipefail
           CONTAINER_NAME="${{ matrix.image.name }}-scan-smoke"
-          docker run -d --rm --name "$CONTAINER_NAME" -p ${{ matrix.image.port }} ${{ matrix.image.tag }}
+          RUN_ARGS=()
+          if [ "${{ matrix.image.name }}" = "backend" ]; then
+            RUN_ARGS+=(
+              -e ENVIRONMENT=test
+              -e ALLOWED_ORIGINS=https://frontend.example.com
+            )
+          fi
+          docker run -d --rm --name "$CONTAINER_NAME" -p ${{ matrix.image.port }} "${RUN_ARGS[@]}" ${{ matrix.image.tag }}
           trap 'docker logs "$CONTAINER_NAME" || true; docker stop "$CONTAINER_NAME" || true' EXIT
           for i in {1..30}; do
             if curl -fsS "${{ matrix.image.health_url }}" >/dev/null; then
