@@ -45,7 +45,7 @@ def get_api_versions() -> Dict[str, Any]:
         "supported_versions": SUPPORTED_VERSIONS,
         "deprecated_versions": DEPRECATED_VERSIONS,
         "versions": VERSION_INFO,
-        "migration_guide": "https://archmorph.io/docs/api-migration",
+        "migration_guide": "https://github.com/idokatz86/Archmorph#api-versioning",
     }
 
 

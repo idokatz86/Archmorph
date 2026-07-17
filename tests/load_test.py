@@ -2,16 +2,14 @@
 Archmorph Load Testing Framework (Issue #149).
 
 Locust-based load test scripts for validating SLA targets.
-Run: locust -f tests/load_test.py --host https://api.archmorph.dev
+Run: locust -f tests/load_test.py --host https://api.example.com
 """
 
 import json
 import os
 import random
-import uuid
 
 from locust import HttpUser, task, between, tag, events
-from locust.runners import MasterRunner
 
 
 # ─────────────────────────────────────────────────────────

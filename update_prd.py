@@ -1,7 +1,8 @@
 import re
+from pathlib import Path
 
-file_path = "/Users/idokatz/VSCode/Archmorph/docs/PRD.md"
-with open(file_path, "r") as f:
+file_path = Path(__file__).resolve().parent / "docs/PRD.md"
+with file_path.open("r") as f:
     text = f.read()
 
 text = re.sub(r'\*\*Version:\*\* 3\.\d+\.\d+', '**Version:** 3.8.0', text)
@@ -25,7 +26,7 @@ if "3.16 Community-Driven Roadmap" not in text:
 """
     text = text.replace("## 4. Technical Architecture", roadmap_addition + "## 4. Technical Architecture")
 
-with open(file_path, "w") as f:
+with file_path.open("w") as f:
     f.write(text)
 
 print("Updated PRD.md")

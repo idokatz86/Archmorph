@@ -152,9 +152,9 @@
       }
     },
     "current_account": {
-      "account_name": "archmorph-openai-we-acm7pd",
+      "account_name": "<configured-foundry-account>",
       "region": "westeurope",
-      "resource_group": "archmorph-rg-dev",
+      "resource_group": "<configured-resource-group>",
       "resource_id": "<redacted-foundry-account-resource-id>",
       "subscription_id": "<redacted-subscription-id>",
       "tenant_id": "<redacted-tenant-id>"
@@ -231,7 +231,7 @@
         "current_deployments": [],
         "deployable_candidates": {},
         "quota_notes": "Treat as migration-region validation pending. Do not route Archmorph traffic here until account model list, quota, RBAC, and rollback drills are captured.",
-        "source": "subscription resource inventory found AIServices account agentsecysbz; list-models query was interrupted after hanging, 2026-05-07"
+        "source": "redacted operator inventory found an AIServices account; model-list validation remained incomplete, 2026-05-07"
       },
       "westeurope": {
         "current_deployments": [
@@ -257,7 +257,7 @@
           "o4-mini": "GlobalStandard, version 2025-04-16"
         },
         "quota_notes": "Usage CLI returned no rows in this environment; live run must capture TPM/RPM and throttling before any routed deployment.",
-        "source": "az cognitiveservices account list-models on archmorph-openai-we-acm7pd, 2026-05-07"
+        "source": "redacted operator model-list evidence, 2026-05-07"
       }
     }
   },

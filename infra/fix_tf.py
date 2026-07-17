@@ -1,14 +1,16 @@
 import re
+from pathlib import Path
 
+infra_dir = Path(__file__).resolve().parent
 files_to_fix = [
-    "/Users/idokatz/VSCode/Archmorph/infra/main.tf",
-    "/Users/idokatz/VSCode/Archmorph/infra/staging/main.tf",
-    "/Users/idokatz/VSCode/Archmorph/infra/dr/main.tf"
+    infra_dir / "main.tf",
+    infra_dir / "staging/main.tf",
+    infra_dir / "dr/main.tf",
 ]
 
 for filepath in files_to_fix:
     try:
-        with open(filepath, 'r') as f:
+        with filepath.open('r') as f:
             content = f.read()
 
         # Replace cors_policy { ... } -> cors { ... }
@@ -18,7 +20,7 @@ for filepath in files_to_fix:
         # Replace max_age -> max_age_in_seconds
         content = re.sub(r'max_age\s*=', 'max_age_in_seconds =', content)
 
-        with open(filepath, 'w') as f:
+        with filepath.open('w') as f:
             f.write(content)
         print(f"Fixed {filepath}")
     except FileNotFoundError:

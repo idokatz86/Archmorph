@@ -1,0 +1,12 @@
+{
+  "reviewed_on": "2026-07-16",
+  "public_product_domains": [
+    "archmorphai.com",
+    "www.archmorphai.com",
+    "api.archmorphai.com"
+  ],
+  "public_platform_identifiers": [
+    "00000000-0000-0000-0000-000000000002"
+  ],
+  "rationale": "Domains are intentional customer-facing product endpoints. The identifier is Microsoft's documented Cosmos DB Built-in Data Contributor role definition. Generated Azure hostnames, live resource names, and operator inventory are never allowlisted."
+}

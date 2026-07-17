@@ -99,6 +99,8 @@ jobs:
           uv pip install --system ruff
           uv pip install --system -r requirements.txt
           ruff check .
+          python ../scripts/sync_version.py --check
+          python ../scripts/lint_public_metadata.py
           python ../scripts/lint_pytest_no_reruns.py
           python scripts/lint_fastapi_query_body_tests.py
 
@@ -590,6 +592,11 @@ jobs:
       JWT_SECRET: ${{ secrets.JWT_SECRET }}
       TRUSTED_FRONT_DOOR_FDID: ${{ secrets.TRUSTED_FRONT_DOOR_FDID }}
       TRUSTED_FRONT_DOOR_HOSTS: ${{ secrets.TRUSTED_FRONT_DOOR_HOSTS }}
+      ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS }}
+      TFSTATE_RESOURCE_GROUP: ${{ secrets.TFSTATE_RESOURCE_GROUP }}
+      TFSTATE_STORAGE_ACCOUNT: ${{ secrets.TFSTATE_STORAGE_ACCOUNT }}
+      TFSTATE_CONTAINER: ${{ secrets.TFSTATE_CONTAINER }}
+      TFSTATE_KEY: ${{ secrets.TFSTATE_KEY }}
       REQUIRE_FRONT_DOOR_ORIGIN_LOCK: ${{ vars.REQUIRE_FRONT_DOOR_ORIGIN_LOCK || 'false' }}
       ARM_USE_OIDC: true
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
@@ -624,7 +631,12 @@ jobs:
             CONTAINER_APP_NAME \
             ADMIN_KEY \
             ARCHMORPH_API_KEY \
-            JWT_SECRET; do
+            JWT_SECRET \
+            ALLOWED_ORIGINS \
+            TFSTATE_RESOURCE_GROUP \
+            TFSTATE_STORAGE_ACCOUNT \
+            TFSTATE_CONTAINER \
+            TFSTATE_KEY; do
             value="${!name:-}"
             if [ -z "$value" ]; then
               echo "::error::Required backend deploy input ${name} is not set"
@@ -793,17 +805,20 @@ jobs:
 
           if [ -z "$CONTAINER_APPS_SUBNET_ID" ]; then
             TERRAFORM_SUBNET_ERROR=$(mktemp)
-            if terraform -chdir=infra init -input=false -lockfile=readonly >/tmp/terraform-init-container-apps-subnet.log 2>&1; then
+            if terraform -chdir=infra init -input=false -lockfile=readonly \
+              -backend-config="resource_group_name=${TFSTATE_RESOURCE_GROUP}" \
+              -backend-config="storage_account_name=${TFSTATE_STORAGE_ACCOUNT}" \
+              -backend-config="container_name=${TFSTATE_CONTAINER}" \
+              -backend-config="key=${TFSTATE_KEY}" \
+              >/tmp/terraform-init-container-apps-subnet.log 2>&1; then
               CONTAINER_APPS_SUBNET_ID=$(terraform -chdir=infra state show -no-color azurerm_subnet.container_apps 2>"$TERRAFORM_SUBNET_ERROR" \
                 | awk -F'= ' '/^[[:space:]]*id[[:space:]]*=/{gsub(/"/, "", $2); print $2; exit}')
             else
-              echo "::warning::Unable to initialize Terraform remote state for container-apps-subnet discovery"
-              sed 's/^/terraform init: /' /tmp/terraform-init-container-apps-subnet.log >&2
+              echo "::warning::Unable to initialize Terraform remote state for subnet discovery; backend details are withheld"
             fi
             if [ -n "$CONTAINER_APPS_SUBNET_ID" ]; then
               echo "::notice::Discovered container-apps-subnet ID from Terraform state for storage network rule cutover."
             else
-              sed 's/^/terraform state show: /' "$TERRAFORM_SUBNET_ERROR" >&2
               echo "::warning::Unable to discover container-apps-subnet ID for storage network rule cutover"
             fi
             rm -f "$TERRAFORM_SUBNET_ERROR"
@@ -811,7 +826,7 @@ jobs:
 
           if [ -n "$CONTAINER_APPS_SUBNET_ID" ]; then
             if [[ "$CONTAINER_APPS_SUBNET_ID" != */subnets/container-apps-subnet ]]; then
-              echo "::error::Container Apps environment infrastructure subnet must be container-apps-subnet before storage network rule cutover; found $CONTAINER_APPS_SUBNET_ID"
+              echo "::error::Container Apps environment infrastructure subnet does not match the approved subnet contract"
               exit 1
             fi
             echo "CONTAINER_APPS_SUBNET_ID=$CONTAINER_APPS_SUBNET_ID" >> "$GITHUB_ENV"
@@ -843,8 +858,8 @@ jobs:
             echo "::notice::No tagged Terraform-managed Archmorph storage accounts were found; falling back to Archmorph storage name discovery."
             TERRAFORM_STORAGE_CANDIDATES=$(az storage account list \
               --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
-              --query "[?starts_with(name, 'archmorph') && name!='archmorphmetrics'].name" \
-              -o tsv)
+              --query "[?starts_with(name, 'archmorph')].name" \
+              -o tsv | grep -vxF "$CONTAINER_APP_STORAGE_NAME" || true)
           fi
           if [ -z "$TERRAFORM_STORAGE_CANDIDATES" ]; then
             echo "::error::No Terraform-managed Archmorph storage account candidates were found in resource group ${{ env.AZURE_RESOURCE_GROUP }}"
@@ -1149,7 +1164,12 @@ jobs:
           TRUSTED_FRONT_DOOR_FDID="${TRUSTED_FRONT_DOOR_FDID:-}"
           TRUSTED_FRONT_DOOR_HOSTS="${TRUSTED_FRONT_DOOR_HOSTS:-}"
           REQUIRE_FRONT_DOOR_ORIGIN_LOCK=$(echo "${REQUIRE_FRONT_DOOR_ORIGIN_LOCK:-false}" | tr '[:upper:]' '[:lower:]')
-          if terraform -chdir=infra init -input=false -lockfile=readonly >/tmp/terraform-init-front-door.log 2>&1; then
+          if terraform -chdir=infra init -input=false -lockfile=readonly \
+            -backend-config="resource_group_name=${TFSTATE_RESOURCE_GROUP}" \
+            -backend-config="storage_account_name=${TFSTATE_STORAGE_ACCOUNT}" \
+            -backend-config="container_name=${TFSTATE_CONTAINER}" \
+            -backend-config="key=${TFSTATE_KEY}" \
+            >/tmp/terraform-init-front-door.log 2>&1; then
             TERRAFORM_FRONT_DOOR_FDID=$(terraform -chdir=infra output -raw front_door_profile_resource_guid 2>/dev/null || echo "")
             TERRAFORM_FRONT_DOOR_HOSTS=$(terraform -chdir=infra output -raw front_door_api_hostname 2>/dev/null || echo "")
             if [ -n "$TERRAFORM_FRONT_DOOR_FDID" ]; then
@@ -1159,8 +1179,7 @@ jobs:
               TRUSTED_FRONT_DOOR_HOSTS="$TERRAFORM_FRONT_DOOR_HOSTS"
             fi
           else
-            echo "::warning::Unable to initialize Terraform remote state for Front Door outputs"
-            tail -n 40 /tmp/terraform-init-front-door.log || true
+            echo "::warning::Unable to initialize Terraform remote state for Front Door outputs; backend details are withheld"
           fi
 
           EXISTING_ENV_JSON=$(az containerapp show \
@@ -1395,6 +1414,7 @@ jobs:
             ARCHMORPH_ADMIN_KEY=secretref:admin-key
             ARCHMORPH_API_KEY=secretref:api-key
             JWT_SECRET=secretref:jwt-secret
+            ALLOWED_ORIGINS="$ALLOWED_ORIGINS"
             AZURE_STORAGE_ACCOUNT_URL="$STORAGE_ACCOUNT_URL"
             AZURE_OPENAI_ENDPOINT="${{ secrets.AZURE_OPENAI_ENDPOINT }}"
             AZURE_OPENAI_DEPLOYMENT="gpt-4.1"
@@ -1518,7 +1538,7 @@ jobs:
             --revision "$GREEN_REV" \
             --query "properties.template.containers[0].env" -o json)
 
-          for name in ARCHMORPH_ADMIN_KEY ARCHMORPH_API_KEY AZURE_STORAGE_ACCOUNT_URL; do
+          for name in ARCHMORPH_ADMIN_KEY ARCHMORPH_API_KEY AZURE_STORAGE_ACCOUNT_URL ALLOWED_ORIGINS; do
             if ! echo "$ENV_JSON" | jq -e --arg name "$name" 'any(.[]; .name == $name)' >/dev/null; then
               echo "::error::Green revision is missing required env var ${name}"
               exit 1
@@ -1548,6 +1568,12 @@ jobs:
           STORAGE_URL_VALUE=$(echo "$ENV_JSON" | jq -r '.[] | select(.name == "AZURE_STORAGE_ACCOUNT_URL") | .value // ""')
           if [ "$STORAGE_URL_VALUE" != "$STORAGE_ACCOUNT_URL" ]; then
             echo "::error::AZURE_STORAGE_ACCOUNT_URL mismatch. Expected $STORAGE_ACCOUNT_URL, got $STORAGE_URL_VALUE"
+            exit 1
+          fi
+
+          CORS_ORIGINS_VALUE=$(echo "$ENV_JSON" | jq -r '.[] | select(.name == "ALLOWED_ORIGINS") | .value // ""')
+          if [ "$CORS_ORIGINS_VALUE" != "$ALLOWED_ORIGINS" ]; then
+            echo "::error::ALLOWED_ORIGINS does not match private deployment configuration"
             exit 1
           fi
 
@@ -1655,6 +1681,19 @@ jobs:
             echo "::error::Green revision /healthz returned HTTP ${HEALTHZ_CODE}"
             [ -s healthz-response.json ] && head -c 2000 healthz-response.json || true
             dump_green_revision_diagnostics "healthz-${HEALTHZ_CODE}"
+            exit 1
+          fi
+
+          CORS_ORIGIN="${ALLOWED_ORIGINS%%,*}"
+          : > cors-response-headers.txt
+          CORS_CODE=$(curl -sS -o /dev/null -D cors-response-headers.txt -w "%{http_code}" \
+            --max-time 20 \
+            "${TRUSTED_ORIGIN_CURL_ARGS[@]}" \
+            -X OPTIONS "$TEST_URL/api/health" \
+            -H "Origin: $CORS_ORIGIN" \
+            -H "Access-Control-Request-Method: GET")
+          if [ "$CORS_CODE" != "200" ] || ! grep -Fiq "access-control-allow-origin: $CORS_ORIGIN" cors-response-headers.txt; then
+            echo "::error::Green revision CORS preflight did not allow the configured origin"
             exit 1
           fi
 

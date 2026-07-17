@@ -114,8 +114,8 @@ JUDGE_MODEL = "gpt-5-pro"
 CURRENT_FOUNDRY_ACCOUNT = {
     "subscription_id": "<redacted-subscription-id>",
     "tenant_id": "<redacted-tenant-id>",
-    "resource_group": "archmorph-rg-dev",
-    "account_name": "archmorph-openai-we-acm7pd",
+    "resource_group": "<configured-resource-group>",
+    "account_name": "<configured-foundry-account>",
     "region": "westeurope",
     "resource_id": "<redacted-foundry-account-resource-id>",
 }
@@ -148,7 +148,7 @@ AUTH_REQUIREMENTS = {
 
 REGIONAL_AVAILABILITY = {
     "westeurope": {
-        "source": "az cognitiveservices account list-models on archmorph-openai-we-acm7pd, 2026-05-07",
+        "source": "redacted operator model-list evidence, 2026-05-07",
         "current_deployments": ["gpt-4.1", "gpt-4o"],
         "deployable_candidates": {
             "gpt-4.1": "baseline primary, GlobalStandard, version 2025-04-14",
@@ -171,7 +171,7 @@ REGIONAL_AVAILABILITY = {
         "quota_notes": "Usage CLI returned no rows in this environment; live run must capture TPM/RPM and throttling before any routed deployment.",
     },
     "swedencentral": {
-        "source": "subscription resource inventory found AIServices account agentsecysbz; list-models query was interrupted after hanging, 2026-05-07",
+        "source": "redacted operator inventory found an AIServices account; model-list validation remained incomplete, 2026-05-07",
         "current_deployments": [],
         "deployable_candidates": {},
         "quota_notes": "Treat as migration-region validation pending. Do not route Archmorph traffic here until account model list, quota, RBAC, and rollback drills are captured.",
@@ -403,8 +403,8 @@ CORPUS: Dict[str, List[Dict[str, Any]]] = {
         {
             "task_id": "iac_aks_minimal",
             "system": "You are an Azure infrastructure engineer. Emit a single self-contained Terraform file for the requested resources. Use azurerm provider ~> 4.60. Do not invent resource group names.",
-            "user": "Generate Terraform for: 1 AKS cluster (system pool 3 nodes Standard_D4s_v5), 1 Azure SQL Database (vCore Gen5 GP, 4 vCores), 1 Azure Front Door Standard, all in a resource group called rg-archmorph-prod-eastus2.",
-            "reference": "terraform { required_providers { azurerm = { source = \"hashicorp/azurerm\" version = \"~> 4.60\" } } }\nprovider \"azurerm\" { features {} }\nresource \"azurerm_resource_group\" \"rg\" { name = \"rg-archmorph-prod-eastus2\" location = \"eastus2\" }\nresource \"azurerm_kubernetes_cluster\" \"aks\" { name = \"aks-archmorph\" location = azurerm_resource_group.rg.location resource_group_name = azurerm_resource_group.rg.name dns_prefix = \"aks-archmorph\" default_node_pool { name = \"system\" node_count = 3 vm_size = \"Standard_D4s_v5\" } identity { type = \"SystemAssigned\" } }\n# (azurerm_mssql_server, azurerm_mssql_database, azurerm_cdn_frontdoor_profile follow…)",
+            "user": "Generate Terraform for: 1 AKS cluster (system pool 3 nodes Standard_D4s_v5), 1 Azure SQL Database (vCore Gen5 GP, 4 vCores), 1 Azure Front Door Standard, all in a resource group called rg-example-prod-eastus2.",
+            "reference": "terraform { required_providers { azurerm = { source = \"hashicorp/azurerm\" version = \"~> 4.60\" } } }\nprovider \"azurerm\" { features {} }\nresource \"azurerm_resource_group\" \"rg\" { name = \"rg-example-prod-eastus2\" location = \"eastus2\" }\nresource \"azurerm_kubernetes_cluster\" \"aks\" { name = \"aks-example\" location = azurerm_resource_group.rg.location resource_group_name = azurerm_resource_group.rg.name dns_prefix = \"aks-example\" default_node_pool { name = \"system\" node_count = 3 vm_size = \"Standard_D4s_v5\" } identity { type = \"SystemAssigned\" } }\n# (azurerm_mssql_server, azurerm_mssql_database, azurerm_cdn_frontdoor_profile follow…)",
         },
     ],
     "hld_generator": [

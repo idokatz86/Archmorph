@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 ACS_CONNECTION_STRING = os.getenv("ACS_CONNECTION_STRING", "")
 ACS_SENDER_EMAIL = os.getenv("ACS_SENDER_EMAIL", "")
 
-_SITE_URL = os.getenv("ARCHMORPH_SITE_URL", "https://archmorph.com")
+_SITE_URL = os.getenv("ARCHMORPH_SITE_URL", "https://archmorphai.com")
 
 
 def is_email_configured() -> bool:
