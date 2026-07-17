@@ -30,6 +30,7 @@ These secrets are required in `.github/workflows/ci.yml`:
 | `TF_RESOURCE_GROUP_ENVIRONMENT` | Existing stack suffix used only during reviewed adoption | `configured-stack-suffix` |
 | `TF_REDIS_NAME_OVERRIDE` | Existing Redis name used only during reviewed adoption | `configured-redis-name` |
 | `TF_WORKBOOK_ID` | Existing Azure Monitor Workbook UUID used during state adoption | `00000000-0000-0000-0000-000000000000` |
+| `LEGACY_METRICS_STORAGE_ACCOUNT` | Legacy metrics-only storage account excluded from Terraform-managed app storage discovery | `configured-legacy-storage-name` |
 | `SWA_NAME` | Static Web App name | `your-static-web-app` |
 | `API_URL` | Backend API URL (with `/api` suffix) | `https://your-api.example.com/api` |
 | `SWA_DEPLOYMENT_TOKEN` | Static Web App deployment token | (from Azure Portal) |
