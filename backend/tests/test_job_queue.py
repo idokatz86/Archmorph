@@ -16,6 +16,7 @@ import json
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+import threading
 import pytest
 
 
@@ -354,6 +355,29 @@ class TestDurableJobRecovery:
 
         assert len({job.job_id for job in jobs}) == 1
         assert len(writer.list_jobs()) == 1
+
+    def test_concurrent_duplicate_waits_for_inflight_job_persistence(self, monkeypatch):
+        writer, recovery = self._make_managers()
+        payload = {"diagram_id": "d1", "analysis_hash": "abc"}
+        entered = threading.Event()
+        release = threading.Event()
+        original_set = writer._jobs_store.set
+
+        def delayed_set(key, value, ttl=None):
+            entered.set()
+            release.wait(timeout=1)
+            return original_set(key, value, ttl=ttl)
+
+        monkeypatch.setattr(writer._jobs_store, "set", delayed_set)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first = pool.submit(writer.submit, "generate_hld", execution_payload=payload)
+            assert entered.wait(timeout=1)
+            duplicate = pool.submit(recovery.submit, "generate_hld", execution_payload=payload)
+            release.set()
+            first_job = first.result()
+            duplicate_job = duplicate.result()
+
+        assert duplicate_job.job_id == first_job.job_id
 
     @pytest.mark.chaos
     def test_crash_after_submit_is_claimable(self):

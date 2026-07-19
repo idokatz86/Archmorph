@@ -30,6 +30,7 @@ import hmac
 import json
 import logging
 import os
+import threading
 import time
 import uuid
 from contextlib import contextmanager
@@ -38,7 +39,7 @@ from enum import Enum
 from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
 from session_store import get_store, session_store_backend
-from observability import increment_counter as obs_increment_counter, record_histogram as obs_record_histogram
+from observability import increment_counter as obs_increment_counter, set_gauge as obs_set_gauge
 
 logger = logging.getLogger(__name__)
 
@@ -290,8 +291,6 @@ class JobManager:
         tenant_id: Optional[str],
         owner_api_key_id: Optional[str],
     ) -> str:
-        from auth import JWT_SECRET
-
         principal = {
             "owner_user_id": owner_user_id,
             "tenant_id": tenant_id,
@@ -299,7 +298,7 @@ class JobManager:
         }
         canonical = json.dumps(principal, sort_keys=True, separators=(",", ":"))
         principal_hash = hmac.new(
-            JWT_SECRET.encode("utf-8"),
+            b"archmorph-job-idempotency-v1",
             canonical.encode("utf-8"),
             hashlib.sha256,
         ).hexdigest()
@@ -671,6 +670,16 @@ class JobManager:
                     datetime.now(timezone.utc) - created_at
                 ).total_seconds() >= IDEMPOTENCY_RESERVATION_STALE_SECONDS
                 if not stale:
+                    deadline = time.monotonic() + 0.25
+                    while time.monotonic() < deadline:
+                        existing = self.get(existing_job_id)
+                        if existing and existing.status in {
+                            JobStatus.QUEUED,
+                            JobStatus.RUNNING,
+                            JobStatus.COMPLETED,
+                        }:
+                            return existing
+                        threading.Event().wait(0.01)
                     raise JobStoreError("Durable job idempotency reservation is still being persisted")
                 self._release_idempotency(input_hash, existing_job_id)
                 continue
@@ -1440,7 +1449,7 @@ class JobManager:
             and item.get("retryable")
             and item.get("status") in {JobStatus.QUEUED.value, JobStatus.RUNNING.value}
         )
-        obs_record_histogram("jobs.durable.retryable_jobs", retryable_jobs)
+        obs_set_gauge("jobs.durable.retryable_jobs", retryable_jobs)
         return {
             "backend": session_store_backend(),
             "max_jobs": self._max_jobs,

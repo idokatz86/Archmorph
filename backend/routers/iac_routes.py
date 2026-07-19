@@ -436,7 +436,10 @@ async def _run_iac_job(
     try:
         job_manager.update_progress(job_id, 10, f"Generating {iac_format.title()} code...")
 
-        session = SESSION_STORE.get(diagram_id, {})
+        session = SESSION_STORE.get(diagram_id)
+        if not session:
+            job_manager.fail(job_id, "Analysis not found")
+            return
         job_record = job_manager.get(job_id)
         if job_record:
             job_user_id = getattr(job_record, "owner_user_id", None)
