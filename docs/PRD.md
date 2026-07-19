@@ -1,6 +1,6 @@
 # Archmorph — Cloud Architecture Translator to Azure
 ## Product Requirements Document (PRD)
-**Version:** 4.3.0-main
+**Version:** 4.3.0
 **Date:** May 7, 2026
 **Author:** Ido Katz
 
@@ -25,7 +25,7 @@ Current infrastructure posture: West Europe remains the active production region
 | Maturity | Capabilities |
 |----------|--------------|
 | Live | Diagram upload, sample playground, service mapping, guided questions with accessible mode switches and token-based theme states, IaC/HLD/report export with tokenized risk indicators, Architecture Package HTML/SVG export, cost estimates, authenticated/import-limited infrastructure import, API-key gated artifact/session read-write routes, post-success one-time export capability consumption, service catalog freshness health with authenticated refresh verification, rollback runbook and authenticated rollback health verification, admin health/release evidence, auth shell with SWA CSRF protection and redirect-state preservation, production fail-closed JWT configuration with no admin-key fallback, separated admin/API deployment secrets, secretref-backed ACS connection string deployment, admin-only deployment execution and suggestion review routes, API versioning, CI/security gates including CodeQL, generated IaC validation, checked-in Terraform Checkov policies, Front Door WAF IPv4/IPv6 all-client rate limiting, Alembic migration smoke on PostgreSQL plus pgvector, performance budgets, Vite env exposure lint, Docker Node base-image pinning, pytest no-rerun flake guard, quarterly mutation-score baseline gate, IaC chat history trimming, vision cache sizing, operational trust baseline for throttling, stream heartbeat, frontend error reporting, App Insights sampling, and P2 bug regressions for analysis retry handling, Roadmap modal stability, tab-level ErrorBoundary recovery, token-based dark-mode consistency, LoginModal keyboard focus-order E2E coverage, mobile sign-in accessibility, authenticated user-menu keyboard semantics, guided-question toggle semantics, profile form accessibility, deploy coming-soon accessibility, and focus restoration |
-| Beta | Cost/token observability, collaboration, migration gallery, migration replay, Terraform state import, multi-cloud cost comparison, **Azure Landing Zone target diagram** (multi-source: AWS + GCP; T3 fidelity in progress under epic #586) |
+| Beta | Cost/token observability, collaboration, migration gallery, migration replay, Terraform state import, multi-cloud cost comparison, **Azure Landing Zone target diagram** (multi-source: AWS + GCP; current validation exists, but the superseded GA gate did not produce a tagged release) |
 | Scaffold | Live cloud scanner, credential vault, deploy engine production validation |
 | Beta/Hardening | Living architecture/drift baselines, admin release gates, release evidence, dependency/security remediation workflow |
 | Planned | VS Code extension, PR-based IaC workflows, multi-diagram projects |
@@ -102,7 +102,7 @@ Current infrastructure posture: West Europe remains the active production region
 - **E2E validated:** Real pricing confirmed across 5 diagrams (3 AWS + 2 GCP), ranges $120–$2,100/mo
 
 ### 3.7 Diagram Export (v2.0)
-- **Architecture Package (v4.3.0-main):** Polished customer-facing HTML export with target/as-is topology, hardened/DR topology, talking points, and limitations; SVG-only target and DR exports are available for downstream documentation tools.
+- **Architecture Package (v4.3.0):** Polished customer-facing HTML export with target/as-is topology, hardened/DR topology, talking points, and limitations; SVG-only target and DR exports are available for downstream documentation tools.
 - **Networking Architecture Package fidelity:** Networking-heavy diagrams render a dedicated Azure Network Services rail with bundled Azure icons for services such as Virtual WAN, VPN Gateway, ExpressRoute, Azure Firewall, Front Door, Application Gateway, Azure DNS, and Private Link.
 - **Customer intent profile:** Guided answers are condensed into a lightweight `customer_intent` profile while raw `guided_answers` stay compact and distinguish user choices from defaults.
 - **Excalidraw (.excalidraw):** Interactive JSON format with Azure service stencils
@@ -204,8 +204,9 @@ Current infrastructure posture: West Europe remains the active production region
 - **OTel observability rewrite** — consolidated 3 overlapping metrics systems into real OpenTelemetry SDK integration
 
 ### 3.27 API Versioning (v2.12.0)
-- **v1 prefix mirror** — all `/api/*` routes automatically mirrored at `/api/v1/*`
-- **Middleware-based** — transparent routing via `api_versioning.py` middleware
+- **Explicit v1 contract** — core migration-workbench routers are intentionally classified as the stable `/api/v1/*` surface
+- **Compatibility tier** — beta, admin, internal, and scaffold aliases are classified with a rationale and advertise `Deprecation` and `Sunset` response headers
+- **Collision guard** — CI inspects the live FastAPI route table and rejects duplicate method/path pairs and path-parameter aliases
 - **Backward compatible** — existing `/api/*` routes continue to work unchanged
 - **Future-proof** — infrastructure in place for v2 breaking changes without disrupting v1 consumers
 
@@ -520,59 +521,20 @@ Current infrastructure posture: West Europe remains the active production region
 - **Validation guarantees** — every emitted SVG passes `ET.fromstring`, has a single root `xmlns`, and is capped at 300KB. Invalid `dr_variant` rejected with HTTP 400; `dr_variant` on non-landing-zone formats also rejected.
 - **Test coverage** — 52 tests (29 schema + 13 generator round-trip + 10 GCP source). Asserts on parsed content shape (per #569 guardrail): canvas dimensions, region labels, legend present, no external URLs in `<image>` hrefs, legacy `{zones, mappings}` analyses still supported.
 - **Vendor-neutral schema** — the 5 inference helpers in `azure_landing_zone_schema.py` (`_regions`, `_dr_mode`, `_tiers`, `_actors`, `_replication`) accept legacy and current analysis payloads without provider-specific code paths. Adding a new source provider is ~50 LOC of code + tests.
-- **Known limitations** (tracked under epic #586 — T2→T3 bridge): D1 icon-registry/security hardening is complete for upload/delete auth, SVG sanitization, custom-capacity bounds, built-in catalog preservation, and cache invalidation; D3 static-template debt is addressed by deriving top cards, VNet/subnet/AZ labels, and DR replication strips from tiers, regions, VPC metadata, and data-tier inventory; `_CATEGORY_TO_TIER` still mis-buckets WAF / Sentinel / Defender into `identity` (D2 follow-up); `service_connections` are not yet wired into every non-SVG renderer (D4); five mappings are stale (Aurora wrong-engine, Cognito B2C name retired, CloudFront/CDN retiring, GuardDuty lossy, KMS missing FIPS tier). Remaining follow-up issues (#588–#594) are targeted for Sprint 1 + Sprint 2.
-- **Frontend deferred** (#575) — ExportHub option + LandingZoneViewer to land in a follow-up sprint; backend API is stable and consumable today via `format=landing-zone-svg` and optional `dr_variant=dr`.
+- **Current evidence** — round-trip SVG/HTML contracts, cross-cloud fixtures, accessibility assertions, Landing Zone SLO soak, full-spine export smoke, and production deployment synthetics cover the review path. `LandingZoneViewer` and Architecture Package export are implemented.
+- **Maturity boundary** — the original GA gate (#604) and release promotion (#605) were closed as superseded by Architecture Package convergence, not completed against their binary acceptance criteria. No `v4.3.0` tag or GitHub Release exists, so the capability remains Beta.
 
-#### 3.57.1 Production-Ready Push (epic #586 — v4.3.0 target)
+#### 3.57.1 Evidence required for Live promotion
 
-The post-merge CTO end-to-end review of `landing-zone-svg` (May 1, 2026) returned a verdict of **demo-ware**, not production-ready. The PRD owner (Ido Katz) has lifted the target from "T3 fidelity" to **full production-ready** for the ALZ feature and the surrounding pipeline (icons, mappings, renderers, observability, tests). Eleven additional issues (#595–#605) extend the original 8-issue technical-debt epic; combined backlog ships across Sprints 1–3, Sprint 4 reserved for fix-forward only.
+A future Beta-to-Live decision must be explicit and current. It requires: customer-representative functional fidelity, observable latency/error/icon metrics, security sign-off, performance SLO evidence, frontend accessibility coverage, production smoke evidence, an updated limitations statement, and a tagged release. Closed or superseded planning issues are not release evidence by themselves.
 
-**Production-Ready Definition** — a capability is **Live** for Archmorph when, in this exact order:
-1. **Functional fidelity** — for the same input PDF, ≥ 95% of detected services resolve to a real Azure icon, all 8 tiers populate when input warrants it, and ≥ 3 `service_connections` render as edges in every export format (SVG, drawio, vdx).
-2. **Observability** — p50/p95/p99 latency, error rate, icon-resolution hit rate, and SVG-size distribution shipped to App Insights with one alert per metric.
-3. **Security review** — CISO Master sign-off on data-URI handling, ZIP-slip in icon ingestion, prompt-injection vectors, retention pipeline cross-talk, and OWASP API Top 10.
-4. **Performance SLOs met** — p95 < 1.5 s primary, < 3 s DR, peak 100 RPS for 5 min with no memory ceiling breach.
-5. **Re-test passes** — same CTO-review PDF (redacted, in repo at `backend/tests/fixtures/golden_pdfs/cto_alz_review_2026_05_01.pdf`), `gpt-5-pro` rubric grader returns `production-ready` verdict, golden-file pixel diff < 2%.
-6. **Frontend exposure** — ExportHub option + `LandingZoneViewer` shipped (#601, closes #575).
-7. **Docs + runbook + deprecation policy** signed off by PM Master.
+### 3.58 Restart-Safe Async Execution (#1239)
 
-Only when 1–7 all green does the README/PRD Capability Status table flip ALZ row from **Beta → Live**.
-
-**Sprint allocation**:
-
-| Sprint | Theme | Issues |
-|--------|-------|--------|
-| 1 (in flight) | Stop the bleeding + measure | #587, #588, #589, #590, **#595, #596, #602** |
-| 2 | Rebuild on solid foundation | #591, #592, #593, #594, **#597, #598, #599, #600, #601** |
-| 3 | Ship | **#603, #604, #605** |
-| 4 | Fix-forward headroom (no new work) | reserved |
-
-**Per-agent Foundry model strategy** (May 1, 2026 catalog snapshot, locked pending #602 verification — model freedom granted, agents may swap after their own benchmark except #604 judge which is locked):
-
-| Workload | Recommended Foundry Model | Rationale |
-|----------|---------------------------|-----------|
-| `vision_analyzer` (PDF → services) | `gpt-5.4` (eval `gpt-5.5` + `mistral-document-ai-2512`) | 1 M ctx, GA, multimodal + reasoning; replaces today's `gpt-4.1` |
-| `iac_generator` + `iac_chat` | `gpt-5.3-codex` (fallback `gpt-5.4`) | GA, Codex-tuned, Responses API; better at HCL/Bicep |
-| `hld_generator` | `gpt-5.4` | 1 M in / 128 K out, structured outputs, vision |
-| `mapping_suggester` | `gpt-5.4-mini` | Mid-tier reasoning, cheap, identical capabilities to `gpt-5.4` at ~⅓ cost |
-| `retention_anonymizer` | `gpt-5.4-nano` | Smallest GA, fast, deterministic |
-| **GA judge (#604)** | **`gpt-5-pro`** (locked) | Decoupled from any production model → unbiased verdict |
-
-**Avoid in production**: every `*-chat` Preview tag (`gpt-5.5-chat`, `gpt-5.4-chat`, `gpt-5.3-chat`, `gpt-5.2-chat`, `gpt-5-chat`), `o1-preview`, `gpt-4o-realtime-preview`, anything tagged Preview — Microsoft explicitly says "We don't recommend using preview models in production."
-
-**API-version bump required**: `2025-04-01-preview` → latest GA inference API (Responses API for o-series + gpt-5.x reasoning).
-
-**Risk register (top 5)**:
-
-| # | Risk | Likelihood | Impact | Owner | Mitigation |
-|---|------|------------|--------|-------|------------|
-| R1 | Foundry quota for `gpt-5.5` (Tier 5/6) blocked; regions don't include prod region | M | H | DevOps Master | Fall back to `gpt-5.4` everywhere; quota request filed Day 1 |
-| R2 | CTO-review PDF can't be redacted/checked in for legal reasons | M | H | PM Master | Synthetic equivalent that exercises same D1–D5 defects |
-| R3 | Frontend (#601) lands late, blocking Live promotion | M | M | FE Master | Decouple: backend can flip Beta → Live independently |
-| R4 | `gpt-5.3-codex` Responses API requires SDK bump that breaks `cached_chat_completion` cache key | L | M | Backend Master | Cache-key versioning hook validated in #602 |
-| R5 | CISO review (#596) finds blocker requiring architecture change | L | H | CISO Master | Threat-model session pre-allocated week of May 4–8 |
-
-**Re-test protocol (#604)**: at end of Sprint 3, CI executes `pytest backend/tests/test_cto_e2e_regression.py` against the same PDF that produced the demo-ware verdict, plus an `gpt-5-pro` LLM judge layer that compares before/after primary + DR canvas PNGs against the locked rubric and the original D1–D5 defect list. Output schema: `{"verdict": "production-ready|beta|demo-ware", "rationale": "<200 words>", "remaining_defects": [...]}`. Verdict **must** be `production-ready` for the gate to pass; output is posted as a comment on the GA PR alongside side-by-side before/after PNGs.
+- **Accepted-job contract** — async analysis, IaC, and HLD endpoints persist a versioned, non-secret execution envelope and atomic input/configuration hash before returning `202 Accepted`.
+- **Recovery model** — Redis-backed workers use claim leases and heartbeats. Only the current live lease can publish progress or terminal state; expired work is reconciled on startup and periodically within a bounded retry budget.
+- **State correctness** — authenticated cancellation atomically revokes running leases, analysis admission counters are released once and rebuilt at startup, and owner-scoped SSE streams retain recovery continuity across workers and revisions.
+- **Production dependency** — production sets `REQUIRE_REDIS=true` and fails closed instead of accepting durable work into revision-local storage when Redis is unavailable.
+- **Operations** — [operations/durable-jobs.md](operations/durable-jobs.md) defines the at-least-once guarantee, tuning settings, metrics, alerts, and incident response.
 
 ---
 
@@ -716,7 +678,7 @@ Only when 1–7 all green does the README/PRD Capability Status table flip ALZ r
 | Database | PostgreSQL (Azure Flexible Server) |
 | Storage | Azure Blob Storage |
 | Hosting | Azure Container Apps (API + MCP gateway), Static Web Apps (frontend) |
-| Container Registry | Single Azure Container Registry (`archmorphacm7pd`, Basic, West Europe). Legacy East US `cafd43cfd4deacr` retired May 2026 — see [CHANGELOG](../CHANGELOG.md). |
+| Container Registry | Single configured Azure Container Registry. Legacy duplicate inventory is retained only in private operator evidence. |
 | Scheduler | APScheduler 3.10 (CronTrigger, daily service sync + auto-add) |
 | Guided Questions | In-process engine (32 questions, 8 categories) |
 | Diagram Export | In-process engine (Excalidraw, Draw.io, Visio with 36 Azure stencils + 405-icon registry fallback) |
@@ -732,7 +694,7 @@ Only when 1–7 all green does the README/PRD Capability Status table flip ALZ r
 | Feature Flags | In-process engine (percentage rollout, user targeting, admin API) |
 | Session Store | Pluggable backends (InMemory default, Redis for production) |
 | GPT Response Cache | Content-hash TTLCache for GPT-4o responses, Blob Storage pricing cache |
-| API Versioning | Middleware-based v1 prefix mirror for all routes |
+| API Versioning | Explicit stable v1 router allowlist plus time-bounded compatibility aliases |
 | Router Architecture | 60 FastAPI router modules (main.py as app factory/middleware registration) |
 | NL Service Builder | In-process GPT-4o engine (fuzzy Azure service matching, alias support, confidence scoring) |
 | Smart Question Dedup | In-process engine (implicit answer detection, smart defaults from analysis) |

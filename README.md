@@ -6,7 +6,7 @@ Translate AWS and GCP architecture diagrams into Azure-ready migration artifacts
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Multi-Cloud](https://img.shields.io/badge/cloud-AWS%20%7C%20Azure%20%7C%20GCP-0078D4.svg)
-![Version](https://img.shields.io/badge/version-4.3.0--main-22C55E.svg)
+![Version](https://img.shields.io/badge/version-4.3.0-22C55E.svg)
 ![Status](https://img.shields.io/badge/status-Preview%20Stabilizing-F59E0B.svg)
 ![Tests](https://img.shields.io/badge/tests-CI%20Enforced-22C55E.svg)
 ![Python](https://img.shields.io/badge/python-3.12-3776AB.svg)
@@ -25,25 +25,15 @@ Archmorph is an AI-assisted cloud migration workbench. The live path analyzes up
 | Status | Meaning | Capabilities |
 |--------|---------|--------------|
 | Live | Usable in the current product path | Diagram upload, sample playground, AI service mapping, guided questions with accessible mode switches and token-based theme states, IaC/HLD/report export with tokenized risk indicators, **Architecture Package HTML/SVG export**, cost estimates, authenticated/import-limited infrastructure import, service catalog freshness health with authenticated refresh verification, admin health/release evidence, rollback runbook and authenticated rollback health verification, auth shell with SWA CSRF protection, redirect-state preservation, mobile sign-in accessibility, user-menu keyboard semantics, LoginModal keyboard focus-order E2E coverage, profile form accessibility, CI/security scanning, generated IaC validation, checked-in Terraform Checkov policy gate, Alembic migration smoke on PostgreSQL plus pgvector, production fail-closed JWT configuration with no admin-key fallback, separated admin/API deployment secrets, secretref-backed ACS connection string deployment, API-key gated artifact/session read-write routes, admin-only deployment execution and AI suggestion review routes, IPv4/IPv6 Front Door WAF rate limiting, Vite env exposure guard, Docker Node base-image pin guard, pytest no-rerun flake guard, quarterly mutation-score baseline gate, IaC chat history trimming, vision cache sizing, operational trust baseline for 429 throttling, SSE heartbeats, frontend error reporting, App Insights sampling, and P2 bug regressions for analysis retry handling, tab ErrorBoundary recovery, deploy coming-soon accessibility, and dialog focus restoration |
-| Beta | Implemented but needs hardening, deeper tests, or production validation | Cost/token observability, collaboration, gallery, replay, Terraform state import, multi-cloud cost comparison, **Azure Landing Zone target diagram** (visual scaffold; production-ready push targeted for v4.3.0 under epic #586 — see [Production-Ready Roadmap](#production-ready-roadmap-azure-landing-zone-v430-target) below) |
+| Beta | Implemented but needs hardening, deeper tests, or production validation | Cost/token observability, collaboration, gallery, replay, Terraform state import, multi-cloud cost comparison, **Azure Landing Zone target diagram** (current Architecture Package validation exists, but the original GA gate and release promotion were closed as superseded rather than completed—see [release evidence](#azure-landing-zone-release-evidence)) |
 | Scaffold | UI/routes/models exist, but execution needs integration or operator review | Live cloud scanner, deploy engine, credential vault |
 | Planned | Not production-ready yet | VS Code extension, PR-based IaC workflow, multi-diagram projects |
 
-### Production-Ready Roadmap — Azure Landing Zone (v4.3.0 target)
+### Azure Landing Zone release evidence
 
-The post-merge CTO end-to-end review of `landing-zone-svg` (May 1, 2026) flagged the feature as **demo-ware** rather than production-ready. We're keeping it visibly Beta and shipping a 19-issue production-readiness push under epic [#586](https://github.com/idokatz86/Archmorph/issues/586) to flip it to **Live** at end of Sprint 3:
+The original production-readiness backlog [#586](https://github.com/idokatz86/Archmorph/issues/586) and its child issues are closed, but closure does not mean every original acceptance criterion shipped. The final binary GA gate [#604](https://github.com/idokatz86/Archmorph/issues/604) and Beta-to-Live promotion [#605](https://github.com/idokatz86/Archmorph/issues/605) were explicitly closed as **superseded** by the Architecture Package convergence work; no `v4.3.0` Git tag or GitHub Release was created.
 
-| Track | Issues | Goal |
-|-------|--------|------|
-| **T2→T3 fidelity** (technical debt) | [#587](https://github.com/idokatz86/Archmorph/issues/587)–[#594](https://github.com/idokatz86/Archmorph/issues/594) | Icon registry/security hardening (D1) completed; remaining work covers tier mis-bucketing (D2), data-driven templates (D3), `service_connections` wiring (D4), mappings staleness, test guardrails, golden-file regression, CI freshness lint |
-| **Observability + perf** | [#595](https://github.com/idokatz86/Archmorph/issues/595), [#597](https://github.com/idokatz86/Archmorph/issues/597) | OTel spans + metrics + alerts; SLO p95 < 1.5 s primary / < 3 s DR; Locust soak 100 RPS × 5 min |
-| **Security + a11y + API** | [#596](https://github.com/idokatz86/Archmorph/issues/596), [#598](https://github.com/idokatz86/Archmorph/issues/598), [#599](https://github.com/idokatz86/Archmorph/issues/599) | OWASP API Top 10 pass, WCAG 2.1 AA + screen-reader semantics, locked OpenAPI 3.1 contract + 90-day deprecation policy |
-| **Frontend exposure** | [#601](https://github.com/idokatz86/Archmorph/issues/601) (closes [#575](https://github.com/idokatz86/Archmorph/issues/575)) | ExportHub option + `LandingZoneViewer` with DR toggle, pan/zoom, deep-link state |
-| **Quality assurance** | [#600](https://github.com/idokatz86/Archmorph/issues/600), [#604](https://github.com/idokatz86/Archmorph/issues/604) | Golden PDF regression suite (AWS/GCP/mixed/CTO-redacted); GA gate re-runs CTO E2E with `gpt-5-pro` rubric judge |
-| **Foundry model evaluation** | [#602](https://github.com/idokatz86/Archmorph/issues/602), [#781](https://github.com/idokatz86/Archmorph/issues/781) | Benchmark candidate model lanes against the current `gpt-4.1` primary and `gpt-4o` fallback. #781 delivered a deployment-aware plan and explicitly keeps production routing unchanged until live availability, quota, safety, and quality gates pass. |
-| **Docs + release** | [#603](https://github.com/idokatz86/Archmorph/issues/603), [#605](https://github.com/idokatz86/Archmorph/issues/605) | Customer-facing "What is the ALZ diagram?" doc + sample gallery; Beta → Live promotion + v4.3.0 release |
-
-**GA gate ([#604](https://github.com/idokatz86/Archmorph/issues/604))**: re-run the same PDF that produced the original demo-ware verdict. Pass requires icon hit rate ≥ 95%, all 8 tiers populated, ≥ 3 `service_connections` rendered, golden-file pixel diff < 2%, SLO budgets met, CISO sign-off, and `gpt-5-pro` judge returning `production-ready`. Anything less and Sprint 4 absorbs fix-forward — we don't ship.
+Current evidence includes round-trip SVG/HTML contract tests, cross-cloud fixtures, accessibility checks, a Landing Zone SLO soak, full-spine export smoke, and production deployment synthetics. That evidence supports continued **Beta** use in reviewable migration artifacts, not a retrospective GA claim. Promotion to **Live** requires a new, explicit release decision with current evidence and a tagged release.
 
 **Key Capabilities:**
 - Upload architecture diagrams (PNG, JPG, SVG, PDF, Draw.io, Visio) or import existing IaC (Terraform/ARM/CloudFormation)
@@ -63,6 +53,7 @@ The post-merge CTO end-to-end review of `landing-zone-svg` (May 1, 2026) flagged
 - **Cost & Token Observability** — per-execution token metering, budget management with alerts, timeseries analytics, CSV export, and production App Insights sampling controls
 - **Cost comparison** — side-by-side AWS/GCP vs Azure cost analysis with optimization recommendations
 - **Migration Timeline Generator** — 7-phase migration plan with dependency ordering (topological sort), parallel workstreams, export as JSON/Markdown/CSV
+- **Truthful bulk deliverables** — ExportHub downloads canonical backend artifacts with validated filename/MIME/format metadata and one-time capability rotation; unsupported formats are not advertised
 - **Self-updating service catalog** — daily auto-discovery and auto-integration of new cloud services with fuzzy matching, category classification, and authenticated post-refresh freshness verification
 - **AI cross-cloud mapping suggestions** — GPT-powered mapping with few-shot learning, auto-approve at 0.9 confidence, admin review queue
 - **Icon Registry** — 405 normalized cloud service icons with Draw.io, Excalidraw, and Visio library builders; custom pack upload/delete requires an admin bearer session from `/api/admin/login`, is SVG-sanitized, generation-aware, and bounded without evicting built-in provider icons
@@ -95,7 +86,7 @@ The post-merge CTO end-to-end review of `landing-zone-svg` (May 1, 2026) flagged
 - **Security hardening** — timing-safe auth, production fail-closed JWT configuration, security headers, XSS protection, export capability replay protection, authenticated artifact/session mutation routes, Dependabot
 - **CI/CD security** — Semgrep SAST, Gitleaks secret detection, Trivy container scanning, CycloneDX SBOM, and Checkov policy-as-code for checked-in Azure Terraform
 - **Multi-stage Docker** — optimized build with ~50% image size reduction, uv for fast installs
-- **API versioning** — all `/api/*` routes mirrored at `/api/v1/*` for stable integrations; CI enforces route mirroring via `backend/tests/test_api_v1_manifest.py` with explicit exemptions tracked in `backend/api_v1_mirror_exemptions.json`
+- **API versioning** — core migration-workbench routes form the explicit stable `/api/v1/*` contract; existing beta, admin, internal, and scaffold aliases are classified compatibility routes with deprecation/sunset headers. CI rejects duplicate runtime routes and unclassified mirrors.
 - **Feature flags system** — percentage rollout + user targeting with audited admin API and runtime dashboard toggles
 - **Comprehensive audit logging** — structured JSON with actor/IP context, risk levels, alerting rules, compliance queries
 - **Session persistence** — pluggable SessionStore with InMemory and Redis backends
@@ -138,9 +129,11 @@ Artifacts are written as `analysis.json`, `terraform/main.tf`, `bicep/main.bicep
 ```bash
 cd infra
 az login
-terraform init
-terraform apply -var-file="terraform.tfvars"
+terraform init -backend=false -input=false -lockfile=readonly
+terraform validate
 ```
+
+Production plan/apply uses the environment-gated Terraform workflow with private partial-backend settings. For an approved operator session, follow [infra/README.md](infra/README.md); never run a stateful init without an environment-specific private state key.
 
 ### Run Locally
 
@@ -538,7 +531,7 @@ Dynamic pricing powered by the [Azure Retail Prices API](https://prices.azure.co
 
 ### Core Endpoints (200+ total across 59 router modules)
 
-> **Note:** All `/api/*` routes are also available at `/api/v1/*` for versioned API access.
+> **Note:** Core integration routes are stable at `/api/v1/*`. Temporary compatibility aliases advertise `Deprecation` and `Sunset` headers.
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
@@ -637,7 +630,7 @@ Dynamic pricing powered by the [Azure Retail Prices API](https://prices.azure.co
 | `/api/drift/baselines/{id}/findings/{finding_id}` | PATCH | Accept, reject, defer, or reopen a finding |
 | `/api/drift/baselines/{id}/report` | GET | Export the latest audit as Markdown |
 
-> **Note:** All routes also available at `/api/v1/*`
+> **Note:** Stable public routes are available at `/api/v1/*`; compatibility-only aliases are explicitly deprecated.
 
 ### AI & Intelligence
 
@@ -840,23 +833,14 @@ Production hardening switches:
 
 - `DATABASE_URL` must point to PostgreSQL for production; set `ENFORCE_POSTGRES=true` to fail startup if SQLite is accidentally configured.
 - `REDIS_HOST` or `REDIS_URL` should be configured for horizontal scale; set `REQUIRE_REDIS=true` to fail startup instead of falling back to local file-backed stores.
+- Async analysis, IaC, and HLD `202 Accepted` responses use Redis-backed claim/lease/recovery semantics. See [docs/operations/durable-jobs.md](docs/operations/durable-jobs.md) for the durability guarantee, retry behavior, worker settings, and alert response.
 - `FEATURE_FLAG_LIVE_CLOUD_SCANNER` and `FEATURE_FLAG_DEPLOY_ENGINE` default to disabled and must only be enabled after the admin release gate and tenant validation pass.
 
 ### Azure Resources
 
-| Resource | SKU | Region |
-|----------|-----|--------|
-| Container Apps (`archmorph-api`, `archmorph-mcp-gateway`) | Consumption | West Europe |
-| Static Web Apps | Free | West Europe |
-| Container Registry (`archmorphacm7pd`) | Basic | West Europe |
-| Azure OpenAI | S0 | West Europe [^1] |
-| PostgreSQL Flexible Server | Burstable B1ms | West Europe |
-| Azure Cache for Redis | Basic C0 | West Europe |
-| Application Insights | — | West Europe |
+The deployment uses Azure Container Apps, Static Web Apps, Container Registry, Azure OpenAI, PostgreSQL Flexible Server, Redis, Blob Storage, Key Vault, Front Door, and Azure Monitor. Concrete resource names, generated service hostnames, regions, and rollback inventory are private deployment configuration rather than public documentation.
 
-[^1]: #607 cut production traffic over to the West Europe account `archmorph-openai-we-acm7pd` with `gpt-4.1` primary and `gpt-4o` fallback. The prior East US account remains online during the rollback/zero-traffic verification window. The April 2026 hub used to also run an `archmorph-backend` App Service (Canada Central), a duplicate `cafd43cfd4deacr` registry (East US), and a stray `secondnature-openai-whisper` cognitive account. All three were retired during the May 2026 infra consolidation; the dev RG now hosts only the active Container Apps stack and supporting data services.
-
-Terraform topology and no-break state-sync guardrails are documented in [infra/README.md](infra/README.md). Do not run Terraform state removal or apply steps for the OpenAI region sync until the live West Europe account and deployments have been imported and an operator change window is approved.
+Terraform topology, partial-backend initialization, and no-break state guardrails are documented in [infra/README.md](infra/README.md). Keep live inventory in GitHub secrets/variables, Terraform state, or approved private operator notes.
 
 Sweden Central one-region planning is documented in [docs/infra/sweden-central-migration-plan.md](docs/infra/sweden-central-migration-plan.md), with the evidence checklist in [docs/infra/sweden-central-readiness-report.md](docs/infra/sweden-central-readiness-report.md). The migration strategy is parallel build first: do not edit `location` / `openai_location` in place against the current West Europe state key. Build Sweden Central with isolated state, validate service/SKU and Azure OpenAI quota, dark-launch, shift traffic gradually, then retire old regions under a separate zero-traffic gate.
 
@@ -937,7 +921,7 @@ See [docs/DEPLOYMENT_COSTS.md](docs/DEPLOYMENT_COSTS.md) for full breakdown.
 | v3.8.1 — UX Polish & Bug Bash | Done | Fix HLD generation 500 crashes, recover missing Map layers, unblock IaC dynamic modifications, populate Coming Soon tab, and Drift Alpha warnings |
 | v4.0.0 — Platform Scale | Done | RAG pipeline and AI Agent PaaS PoC experiments, cost/token observability, AI mapping auto-suggestions, migration timeline generator, service dependency graph, social auth/profile/RBAC experiments, PDF report export, DevOps modernization (uv, Trivy, Helm) |
 | v4.1.0 — Enterprise & Collaboration Preview | Mixed | Product analytics, UX Wave 1/2, Terraform import, replay/gallery/collaboration, cost observability, drift baselines, admin release gates, and security evidence are implemented or beta. Live scanner, deploy engine, and credential vault remain scaffolded/hardening work; RAG/Agent PaaS, SSO/org/profile routes were retired from the active API during main convergence. |
-| v4.3.0-main — Convergence & Architecture Package | Done | Merged service freshness, analytics-retention cleanup, SSO/org/profile removal, and Architecture Package HTML/SVG exports; open PR count returned to zero and active branches converged to main. |
+| v4.3.0 — Convergence & Architecture Package | Preview | Merged service freshness, API/export coherence, retired inactive surfaces, and Architecture Package HTML/SVG exports. The code version is canonical, while capability maturity and a future tagged release remain evidence-gated. |
 | v5.0 — Next | Planned | VS Code extension, multi-diagram projects, GitHub/GitLab IaC PR integration |
 
 ---

@@ -4,6 +4,7 @@ Analysis Report Export routes (Issue #236).
 Generates a comprehensive PDF report from a completed analysis session.
 """
 
+import hashlib
 import io
 import logging
 
@@ -56,6 +57,7 @@ async def download_analysis_report(
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
             "Content-Length": str(len(pdf_bytes)),
+            "X-Artifact-SHA256": hashlib.sha256(pdf_bytes).hexdigest(),
             "X-Export-Capability-Next": issue_export_capability(diagram_id),
         },
     )

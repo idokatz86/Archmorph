@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
 """Quick test of the enhanced vision analyzer on all 3 diagrams."""
-import json
+import os
 import sys
-sys.path.insert(0, "/Users/idokatz/VSCode/Archmorph/backend")
-from vision_analyzer import analyze_image
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+DIAGRAM_DIR = Path(os.getenv("VISION_TEST_DIAGRAM_DIR", Path(__file__).parent / "fixtures/vision"))
+sys.path.insert(0, str(REPO_ROOT / "backend"))
+from vision_analyzer import analyze_image  # noqa: E402
 
 DIAGRAMS = [
-    ("Call Center", "/Users/idokatz/Desktop/1.png"),
-    ("ArteraAI Medical", "/Users/idokatz/Desktop/2.png"),
-    ("Bitbucket VPC", "/Users/idokatz/Desktop/3.png"),
+    ("Call Center", DIAGRAM_DIR / "call-center.png"),
+    ("Medical", DIAGRAM_DIR / "medical.png"),
+    ("VPC", DIAGRAM_DIR / "vpc.png"),
 ]
 
 for idx, (label, path) in enumerate(DIAGRAMS, 1):

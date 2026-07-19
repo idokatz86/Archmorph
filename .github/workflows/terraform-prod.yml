@@ -26,12 +26,15 @@ env:
   TF_WORKING_DIR: infra
   TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
   TF_VAR_environment: prod
-  # The public production deployment currently lives in a legacy dev-named Azure stack.
-  # Keep resource names aligned with state until a reviewed prod RG migration exists.
-  TF_VAR_resource_group_environment: dev
+  TFSTATE_RESOURCE_GROUP: ${{ secrets.TFSTATE_RESOURCE_GROUP }}
+  TFSTATE_STORAGE_ACCOUNT: ${{ secrets.TFSTATE_STORAGE_ACCOUNT }}
+  TFSTATE_CONTAINER: ${{ secrets.TFSTATE_CONTAINER }}
+  TFSTATE_KEY: ${{ secrets.TFSTATE_KEY }}
+  # Legacy live-stack inventory is private configuration until reviewed migrations retire it.
+  TF_VAR_resource_group_environment: ${{ secrets.TF_RESOURCE_GROUP_ENVIRONMENT }}
   TF_VAR_enable_production_infra_hardening: false
-  # Preserve the live legacy Redis cache name until a reviewed Redis migration/cutover is approved.
-  TF_VAR_redis_name_override: archmorph-redis
+  TF_VAR_redis_name_override: ${{ secrets.TF_REDIS_NAME_OVERRIDE }}
+  TF_VAR_workbook_id_override: ${{ secrets.TF_WORKBOOK_ID }}
   TF_VAR_db_admin_username: ${{ secrets.DB_ADMIN_USERNAME }}
   TF_VAR_db_admin_password: ${{ secrets.DB_ADMIN_PASSWORD }}
   TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
@@ -94,28 +97,19 @@ jobs:
           set -euo pipefail
           echo "::notice::Production plan/apply uses Azure Storage remote state."
 
-          BACKEND_CONFIG_FILE="main.tf"
-          if [ ! -f "$BACKEND_CONFIG_FILE" ]; then
-            echo "::error::Cannot find $BACKEND_CONFIG_FILE in ${PWD} to resolve Terraform backend settings."
-            exit 1
-          fi
+          STATE_RESOURCE_GROUP="${TFSTATE_RESOURCE_GROUP:-}"
+          STATE_STORAGE_ACCOUNT="${TFSTATE_STORAGE_ACCOUNT:-}"
+          STATE_CONTAINER="${TFSTATE_CONTAINER:-}"
+          STATE_KEY="${TFSTATE_KEY:-}"
 
-          STATE_RESOURCE_GROUP=$(sed -nE 's/^[[:space:]]*resource_group_name[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' "$BACKEND_CONFIG_FILE" | head -1)
-          STATE_STORAGE_ACCOUNT=$(sed -nE 's/^[[:space:]]*storage_account_name[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' "$BACKEND_CONFIG_FILE" | head -1)
-          STATE_CONTAINER=$(sed -nE 's/^[[:space:]]*container_name[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' "$BACKEND_CONFIG_FILE" | head -1)
-          STATE_KEY=$(sed -nE 's/^[[:space:]]*key[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' "$BACKEND_CONFIG_FILE" | head -1)
-
-          for required in STATE_RESOURCE_GROUP STATE_STORAGE_ACCOUNT STATE_CONTAINER STATE_KEY; do
+          for required in STATE_RESOURCE_GROUP STATE_STORAGE_ACCOUNT STATE_CONTAINER STATE_KEY TF_VAR_workbook_id_override; do
             if [ -z "${!required:-}" ]; then
-              echo "::error::Unable to resolve Terraform backend ${required} from ${BACKEND_CONFIG_FILE}."
+              echo "::error::Required private Terraform backend setting ${required} is not configured."
               exit 1
             fi
           done
 
-          STATE_CONTAINER_SCOPE="/subscriptions/${ARM_SUBSCRIPTION_ID}/resourceGroups/${STATE_RESOURCE_GROUP}/providers/Microsoft.Storage/storageAccounts/${STATE_STORAGE_ACCOUNT}/blobServices/default/containers/${STATE_CONTAINER}"
-          STATE_STORAGE_SCOPE="/subscriptions/${ARM_SUBSCRIPTION_ID}/resourceGroups/${STATE_RESOURCE_GROUP}/providers/Microsoft.Storage/storageAccounts/${STATE_STORAGE_ACCOUNT}"
-
-          echo "Terraform remote state scope: account=${STATE_STORAGE_ACCOUNT}, container=${STATE_CONTAINER}, key=${STATE_KEY}"
+          echo "Terraform remote-state settings are configured."
 
           TFSTATE_ACCESS_ERROR="$(mktemp)"
           set +e
@@ -130,12 +124,9 @@ jobs:
           set -e
 
           if [ "${TFSTATE_ACCESS_STATUS}" -ne 0 ]; then
-            echo "::error::Terraform remote-state preflight failed: this workflow identity cannot list blobs in ${STATE_STORAGE_ACCOUNT}/${STATE_CONTAINER}."
-            echo "::notice::Grant Blob data-plane access (for example: Storage Blob Data Contributor) to AZURE_CLIENT_ID=${ARM_CLIENT_ID}."
-            echo "::notice::Least-privilege scope (container): ${STATE_CONTAINER_SCOPE}"
-            echo "::notice::Alternative scope (storage account): ${STATE_STORAGE_SCOPE}"
+            echo "::error::Terraform remote-state preflight failed: the workflow identity cannot list the configured state container."
+            echo "::notice::Grant Blob data-plane access (for example: Storage Blob Data Contributor) at the private backend scope."
             echo "::notice::After RBAC propagates, rerun this Terraform Production workflow and then rerun CI/CD."
-            sed 's/^/az storage blob list: /' "${TFSTATE_ACCESS_ERROR}" >&2
             rm -f "${TFSTATE_ACCESS_ERROR}"
             exit 1
           fi
@@ -145,7 +136,12 @@ jobs:
 
       - name: Terraform Init
         if: github.event_name == 'workflow_dispatch'
-        run: terraform init -input=false -lockfile=readonly
+        run: |
+          terraform init -input=false -lockfile=readonly \
+            -backend-config="resource_group_name=${TFSTATE_RESOURCE_GROUP}" \
+            -backend-config="storage_account_name=${TFSTATE_STORAGE_ACCOUNT}" \
+            -backend-config="container_name=${TFSTATE_CONTAINER}" \
+            -backend-config="key=${TFSTATE_KEY}"
 
       - name: "Preflight: verify Terraform state stack contract"
         if: github.event_name == 'workflow_dispatch'
@@ -155,7 +151,7 @@ jobs:
           EXPECTED_RESOURCE_GROUP="archmorph-rg-${STACK_ENVIRONMENT}"
 
           if [ "$(az group exists --name "${EXPECTED_RESOURCE_GROUP}" -o tsv)" != "true" ]; then
-            echo "::error::Expected Terraform target resource group ${EXPECTED_RESOURCE_GROUP} does not exist. Refusing to plan."
+            echo "::error::Privately configured Terraform target resource group does not exist. Refusing to plan."
             exit 1
           fi
 
@@ -185,11 +181,11 @@ jobs:
 
           if resource_group != expected_resource_group:
               raise SystemExit(
-                  f"::error::Terraform state targets {resource_group}, but workflow stack settings "
-                  f"expects {expected_resource_group}. Refusing to plan because this would replace the stack."
+                  "::error::Terraform state does not match the privately configured target stack. "
+                  "Refusing to plan because this would replace the stack."
               )
 
-          print(f"Terraform state stack preflight succeeded for {resource_group}.")
+          print("Terraform state stack preflight succeeded for the configured target.")
           PY
           rm -f "${STATE_SNAPSHOT}"
 
@@ -197,9 +193,9 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         run: terraform plan -input=false -out=tfplan
 
-      - name: Show plan
+      - name: Render plan for encrypted review bundle
         if: github.event_name == 'workflow_dispatch'
-        run: terraform show -no-color tfplan | tee tfplan.txt
+        run: terraform show -no-color tfplan > tfplan.txt
 
       - name: "Preflight: block unsafe live-resource creates and review PostgreSQL firewall-rule destroy"
         if: github.event_name == 'workflow_dispatch'
@@ -297,18 +293,10 @@ jobs:
                       f"/subscriptions/{subscription_id}/resourceGroups/{resource_group}"
                     f"/providers/Microsoft.Cache/Redis/{redis_name}"
                   ),
-                  "legacy_resource_ids": [
-                      (
-                          f"/subscriptions/{subscription_id}/resourceGroups/{resource_group}"
-                          "/providers/Microsoft.Cache/Redis/archmorph-redis"
-                      )
-                  ],
                   "manual_reconciliation": (
-                      "The live Redis cache uses the legacy unsuffixed name archmorph-redis, while "
-                      "Terraform may target archmorph-redis-${random_string.suffix.result} when "
-                      "TF_VAR_redis_name_override is not set. "
-                      "Do not import blindly; either preserve the legacy name in Terraform or approve "
-                      "a reviewed Redis migration before any apply."
+                      "TF_VAR_redis_name_override must identify any existing cache during adoption. "
+                      "Do not import blindly; preserve the configured name or approve a reviewed "
+                      "Redis migration before any apply."
                   ),
               },
               {
@@ -344,24 +332,11 @@ jobs:
           if adoption_gaps:
               print(
                   "::error::Terraform plan still wants to create Azure resources that already exist "
-                  "live in the legacy dev-named stack. Import them into Terraform state before approving any apply."
+                "in the configured live stack. Reconcile them privately before approving any apply."
               )
-              for resource in adoption_gaps:
-                  if "import_command" in resource:
-                      print(
-                          "::notice::"
-                          f"{resource['address']} already exists live. Import with: {resource['import_command']}"
-                      )
-                  else:
-                      print(
-                          "::notice::"
-                          f"{resource['address']} conflicts with existing live resource "
-                          f"{resource['existing_resource_id']}. "
-                          f"{resource.get('manual_reconciliation', 'Review manually before apply.')}"
-                      )
               print(
-                  "::notice::After importing the resources above, rerun Terraform Production with apply=false "
-                  "and confirm those create actions are gone before reviewing any apply."
+                f"::notice::{len(adoption_gaps)} existing resource adoption gap(s) detected. "
+                "Use private inventory and the encrypted plan bundle for reconciliation, then rerun with apply=false."
               )
               sys.exit(1)
 
@@ -414,6 +389,28 @@ jobs:
               )
           else:
               print("Terraform plan does not include an AllowAzureServices firewall-rule destroy.")
+
+          action_counts = {"create": 0, "update": 0, "delete": 0, "replace": 0, "no-op": 0}
+          for change in plan.get("resource_changes", []):
+              actions = change.get("change", {}).get("actions", [])
+              if actions == ["create"]:
+                  action_counts["create"] += 1
+              elif actions == ["update"]:
+                  action_counts["update"] += 1
+              elif actions == ["delete"]:
+                  action_counts["delete"] += 1
+              elif "create" in actions and "delete" in actions:
+                  action_counts["replace"] += 1
+              else:
+                  action_counts["no-op"] += 1
+
+          summary = Path(os.environ["GITHUB_STEP_SUMMARY"])
+          with summary.open("a", encoding="utf-8") as handle:
+              handle.write("## Terraform production plan action summary\n\n")
+              handle.write("| Action | Count |\n| --- | ---: |\n")
+              for action, count in action_counts.items():
+                  handle.write(f"| {action} | {count} |\n")
+              handle.write("\nFull resource inventory is available only in the encrypted reviewed-plan bundle.\n")
           PY
           rm -f tfplan.json tfstate.snapshot.json
 
@@ -471,6 +468,7 @@ jobs:
           fi
           tar -czf prod-reviewed-plan.tar.gz \
             tfplan \
+            tfplan.txt \
             tfplan.sha256 \
             .terraform.lock.hcl \
             provider_lock.sha256 \
@@ -486,9 +484,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: prod-reviewed-plan
-          path: |
-            infra/tfplan.txt
-            infra/prod-reviewed-plan.tar.gz.enc
+          path: infra/prod-reviewed-plan.tar.gz.enc
           retention-days: 1
 
   prod-apply:
@@ -539,7 +535,12 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Terraform Init
-        run: terraform init -input=false -lockfile=readonly
+        run: |
+          terraform init -input=false -lockfile=readonly \
+            -backend-config="resource_group_name=${TFSTATE_RESOURCE_GROUP}" \
+            -backend-config="storage_account_name=${TFSTATE_STORAGE_ACCOUNT}" \
+            -backend-config="container_name=${TFSTATE_CONTAINER}" \
+            -backend-config="key=${TFSTATE_KEY}"
 
       - name: Verify reviewed plan artifact integrity and assumptions
         run: |

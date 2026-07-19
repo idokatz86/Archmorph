@@ -1,8 +1,9 @@
 """Validate repository agent instruction files and trigger agent CI checks."""
 
 import os, re
+from pathlib import Path
 
-agents_dir = "/Users/idokatz/VSCode/Archmorph/.github/agents"
+agents_dir = Path(__file__).resolve().parent
 required = ["System Persona", "Core Competencies", "Collaboration Protocols", "Guardrails"]
 files = sorted([f for f in os.listdir(agents_dir) if f.endswith(".agent.md")])
 
@@ -11,7 +12,7 @@ all_ok = True
 total_lines = 0
 total_chars = 0
 for f in files:
-    path = os.path.join(agents_dir, f)
+    path = agents_dir / f
     with open(path) as fh:
         content = fh.read()
     lines = content.count("\n")

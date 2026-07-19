@@ -736,7 +736,7 @@ customEvents
 | summarize monthlyCost = sum(todouble(customMeasurements.costUSD)) by tenantId
 | join kind=inner (
     externaldata(tenantId: string, monthlyBudget: double)
-    [@"https://staccounting.blob.core.windows.net/budgets/tenant-budgets.csv"]
+    [@"https://<storage-account>.blob.core.windows.net/budgets/tenant-budgets.csv"]
     with (format="csv", ignoreFirstRecord=true)
 ) on tenantId
 | where monthlyCost > monthlyBudget * 0.8

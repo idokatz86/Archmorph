@@ -16,6 +16,7 @@ from strict_models import StrictBaseModel
 from typing import Dict, Any, Optional
 import asyncio
 import base64
+import hashlib
 import logging
 
 from database import get_db, SessionLocal
@@ -26,13 +27,13 @@ from routers.shared import (
     require_diagram_access,
 )
 import ci_smoke
-from job_queue import job_manager, AdmissionRejected, AdmissionStoreError
+from job_queue import job_manager, AdmissionRejected, AdmissionStoreError, JobStoreError
 from usage_metrics import record_event, record_funnel_step
 from export_capabilities import attach_export_capability
 from data_lifecycle import attach_trust_receipt, build_trust_receipt
 from image_classifier import classify_image
-from vision_analyzer import analyze_image
-from openai_client import OpenAIServiceError, handle_openai_error
+from vision_analyzer import analyze_image, VISION_PROMPT_HASH
+from openai_client import AZURE_OPENAI_DEPLOYMENT, OpenAIServiceError, handle_openai_error
 from hld_generator import generate_hld, generate_hld_markdown  # noqa: F401 — re-exported for test monkeypatching
 from auth import get_user_from_request_headers
 from analysis_history import maybe_save_from_session
@@ -678,6 +679,15 @@ async def analyze_diagram_async(
     owner_user_id = user.id if user else None
     tenant_id = user.tenant_id if user else None
     owner_api_key_id = api_key_principal_id if not user else None
+    image_b64, content_type = IMAGE_STORE[diagram_id]
+    image_bytes = base64.b64decode(image_b64) if isinstance(image_b64, str) else image_b64
+    execution_payload = {
+        "diagram_id": diagram_id,
+        "image_sha256": hashlib.sha256(image_bytes).hexdigest(),
+        "content_type": content_type,
+        "model": AZURE_OPENAI_DEPLOYMENT,
+        "vision_prompt_hash": VISION_PROMPT_HASH,
+    }
     try:
         job = job_manager.submit(
             "analyze",
@@ -686,6 +696,7 @@ async def analyze_diagram_async(
             tenant_id=tenant_id,
             owner_api_key_id=owner_api_key_id,
             enforce_admission=True,
+            execution_payload=execution_payload,
         )
     except AdmissionRejected as exc:
         raise ArchmorphException(
@@ -699,38 +710,38 @@ async def analyze_diagram_async(
             },
             headers={"Retry-After": "30"},
         )
-    except AdmissionStoreError:
+    except (AdmissionStoreError, JobStoreError):
         raise ArchmorphException(
             503,
             "Analysis admission is temporarily unavailable. Please retry shortly.",
             details={"error": "analysis_admission_unavailable"},
             headers={"Retry-After": "30"},
         )
-    asyncio.create_task(_run_analysis_job(job.job_id, diagram_id))
-
     from starlette.responses import JSONResponse
     return JSONResponse(
         status_code=202,
         content={
             "job_id": job.job_id,
             "diagram_id": diagram_id,
-            "status": "queued",
+            "status": job.status.value,
             "stream_url": f"/api/jobs/{job.job_id}/stream",
             "status_url": f"/api/jobs/{job.job_id}",
         },
     )
 
 
-async def _run_analysis_job(job_id: str, diagram_id: str) -> None:
+async def _run_analysis_job(job_id: str, payload: Dict[str, Any]) -> None:
     """Background worker for diagram analysis with real progress updates."""
+    diagram_id = str(payload["diagram_id"])
     try:
-        job_manager.start(job_id)
-
         image_b64, content_type = IMAGE_STORE[diagram_id]
         image_bytes = base64.b64decode(image_b64) if isinstance(image_b64, str) else image_b64
+        if hashlib.sha256(image_bytes).hexdigest() != payload.get("image_sha256"):
+            job_manager.fail(job_id, "Uploaded image changed after this analysis job was accepted")
+            return
         job_manager.update_progress(job_id, 5, "Preprocessing image...", phase="preprocessing")
 
-        if job_manager.is_cancelled(job_id):
+        if not job_manager.owns_current_lease(job_id):
             return
 
         # Forward raw bytes directly
@@ -738,7 +749,7 @@ async def _run_analysis_job(job_id: str, diagram_id: str) -> None:
 
         job_manager.update_progress(job_id, 15, "Classifying image type...", phase="classifying")
 
-        if job_manager.is_cancelled(job_id):
+        if not job_manager.owns_current_lease(job_id):
             return
 
         # Classify
@@ -757,13 +768,13 @@ async def _run_analysis_job(job_id: str, diagram_id: str) -> None:
 
         job_manager.update_progress(job_id, 30, "Waiting for model capacity...", phase="waiting_for_model")
 
-        if job_manager.is_cancelled(job_id):
+        if not job_manager.owns_current_lease(job_id):
             return
 
         job_manager.update_progress(job_id, 40, "Analyzing cloud services and topology...", phase="analyzing")
         result = await asyncio.to_thread(analyze_image, compressed_bytes, compressed_type)
 
-        if job_manager.is_cancelled(job_id):
+        if not job_manager.owns_current_lease(job_id):
             return
 
         job_manager.update_progress(job_id, 65, "Validating analysis output...", phase="validating")
@@ -785,6 +796,17 @@ async def _run_analysis_job(job_id: str, diagram_id: str) -> None:
             result["_owner_api_key_id"] = job_api_principal_id
 
         job_manager.update_progress(job_id, 80, "Saving analysis results...", phase="saving")
+        if not job_manager.owns_current_lease(job_id):
+            return
+        latest_image_b64, _latest_content_type = IMAGE_STORE[diagram_id]
+        latest_image_bytes = (
+            base64.b64decode(latest_image_b64)
+            if isinstance(latest_image_b64, str)
+            else latest_image_b64
+        )
+        if hashlib.sha256(latest_image_bytes).hexdigest() != payload.get("image_sha256"):
+            job_manager.fail(job_id, "Uploaded image changed while analysis was running")
+            return
         SESSION_STORE[diagram_id] = result
         mark_diagram_analyzed(diagram_id, result)
 

@@ -10,6 +10,7 @@ from logging_config import configure_logging, correlation_id_var  # noqa: E402
 configure_logging()
 
 from fastapi import FastAPI, Request  # noqa: E402
+from fastapi.routing import APIRoute  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from starlette.middleware.base import BaseHTTPMiddleware  # noqa: E402
 from starlette.middleware.gzip import GZipMiddleware  # noqa: E402
@@ -117,6 +118,7 @@ from routers.models import router as models_router  # noqa: E402
 from routers.insights import router as insights_router  # noqa: E402
 from routers.sharing import router as sharing_router  # noqa: E402
 from routers.infra import domain_router as infra_router  # noqa: E402
+from routers.infra_import import router as infra_import_router  # noqa: E402
 from routers.suggestions import router as suggestions_router  # noqa: E402
 from routers.services import router as services_router  # noqa: E402
 from routers.admin import domain_router as admin_router  # noqa: E402
@@ -128,7 +130,6 @@ from routers.feedback import router as feedback_router  # noqa: E402
 from routers.auth import router as auth_router  # noqa: E402
 from routers.versioning import router as versioning_router  # noqa: E402
 from routers.terraform import router as terraform_router  # noqa: E402
-from routers.feature_flags import router as feature_flags_router  # noqa: E402
 from routers.jobs import router as jobs_router  # noqa: E402
 from routers.credentials import router as credentials_router  # noqa: E402
 from routers.tf_backend import router as tf_backend_router  # noqa: E402
@@ -154,29 +155,35 @@ from routers.collaboration_routes import router as collaboration_router  # noqa:
 from routers.replay_routes import router as replay_router  # noqa: E402
 from routers.workspaces import router as workspaces_router  # noqa: E402
 from routers.review_queue import router as review_queue_router  # noqa: E402
-from routers.v1 import build_v1_router  # noqa: E402
+from routers.v1 import V1CompatibilityHeadersMiddleware, V1RouterSpec, build_v1_router  # noqa: E402
 from api_versioning import VersionMiddleware  # noqa: E402
 from auth import get_user_from_request_headers, request_has_untrusted_swa_principal  # noqa: E402
 from audit_logging import audit_logger, AuditEventType  # noqa: E402, F401
 from error_envelope import register_error_handlers  # noqa: E402
+from job_queue import durable_job_worker  # noqa: E402
+from routers.diagrams import _run_analysis_job  # noqa: E402
+from routers.iac_routes import _run_iac_job  # noqa: E402
+from routers.hld_routes import _run_hld_job  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
-# Allowed frontend origins (production) — strictly enumerated, no wildcards
-env_origins = [
-    o.strip() for o in os.getenv("ALLOWED_ORIGINS", "").split(",")
-    if o.strip()
-]
-default_origins = [
-    "https://archmorphai.com",
-    "https://www.archmorphai.com",
-    "https://agreeable-ground-01012c003.2.azurestaticapps.net"
-]
-ALLOWED_ORIGINS = list(set(env_origins + default_origins))
+def _configured_cors_origins() -> list[str]:
+    """Return explicit deployment origins plus local-only development origins.
 
-# Add local dev origins only when running locally
-if os.getenv("ENVIRONMENT", "production") == "dev":
-    ALLOWED_ORIGINS.extend(["http://localhost:5173", "http://localhost:3000"])
+    Production and staging intentionally have no source-code hostname fallback:
+    an omitted ``ALLOWED_ORIGINS`` value fails closed with no cross-origin access.
+    """
+    origins = [
+        origin.strip()
+        for origin in os.getenv("ALLOWED_ORIGINS", "").split(",")
+        if origin.strip()
+    ]
+    if os.getenv("ENVIRONMENT", "production").lower() in {"dev", "development"}:
+        origins.extend(["http://localhost:5173", "http://localhost:3000"])
+    return list(dict.fromkeys(origins))
+
+
+ALLOWED_ORIGINS = _configured_cors_origins()
 
 
 def _normalize_host(value: str | None) -> str:
@@ -251,8 +258,19 @@ async def lifespan(app: FastAPI):
     asyncio.get_running_loop().set_default_executor(_executor)
     logger.info("Thread pool configured: %d workers", _THREAD_POOL_SIZE)
 
+    durable_job_worker.register("analyze", _run_analysis_job)
+    durable_job_worker.register("generate_iac", _run_iac_job)
+    durable_job_worker.register("generate_hld", _run_hld_job)
+    reconciliation = await durable_job_worker.start()
+    logger.info(
+        "Durable job worker started (recovered=%d, failed=%d)",
+        len(reconciliation["recovered"]),
+        len(reconciliation["failed"]),
+    )
+
     yield
     logger.info("Shutting down Archmorph API")
+    await durable_job_worker.stop()
     stop_scheduler()
     flush_metrics()
     _executor.shutdown(wait=False)
@@ -285,11 +303,16 @@ app = FastAPI(
 # ─────────────────────────────────────────────────────────────
 _CORS_ALLOW_CREDENTIALS = False  # Never enable credentials with wildcard origins
 
-def _validate_cors_config(allow_origins: list, allow_credentials: bool) -> None:
-    """Raise at startup if wildcard origin is combined with allow_credentials=True.
+def _validate_cors_config(
+    allow_origins: list[str],
+    allow_credentials: bool,
+    *,
+    environment: str | None = None,
+) -> None:
+    """Reject unsafe or incomplete CORS configuration before serving traffic.
 
-    Browsers enforce this restriction (CORS spec §3.2.2) but we also validate
-    server-side so misconfigurations are caught before traffic reaches the API (#846).
+    Production and staging accept only explicit HTTPS origins. Development/test
+    can opt into local HTTP origins, but wildcard credentials remain forbidden.
     """
     if allow_credentials and "*" in allow_origins:
         raise RuntimeError(
@@ -298,6 +321,42 @@ def _validate_cors_config(allow_origins: list, allow_credentials: bool) -> None:
             "configuration exposes credentials to any origin.  "
             "Set ALLOWED_ORIGINS to explicit origins or disable credentials."
         )
+
+    runtime_environment = (environment or os.getenv("ENVIRONMENT", "production")).lower()
+    if runtime_environment not in {"prod", "production", "staging"}:
+        return
+    if not allow_origins:
+        raise RuntimeError(
+            "CORS security misconfiguration: ALLOWED_ORIGINS must contain at least one "
+            f"explicit HTTPS origin in {runtime_environment}."
+        )
+
+    for origin in allow_origins:
+        if origin in {"*", "null"}:
+            raise RuntimeError("CORS security misconfiguration: wildcard and null origins are forbidden")
+        try:
+            parsed = urlsplit(origin)
+            port = parsed.port
+        except ValueError as exc:
+            raise RuntimeError("CORS security misconfiguration: malformed origin") from exc
+        hostname = (parsed.hostname or "").lower()
+        if (
+            parsed.scheme != "https"
+            or not parsed.netloc
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.path
+            or parsed.query
+            or parsed.fragment
+            or port not in {None, 443}
+            or hostname in {"localhost", "127.0.0.1", "::1"}
+            or hostname.endswith(".localhost")
+        ):
+            raise RuntimeError(
+                "CORS security misconfiguration: production/staging origins must be "
+                "canonical HTTPS origins without credentials, paths, queries, fragments, "
+                "local hosts, or non-default ports"
+            )
 
 _validate_cors_config(ALLOWED_ORIGINS, _CORS_ALLOW_CREDENTIALS)
 
@@ -315,7 +374,7 @@ app.add_middleware(
     allow_credentials=_CORS_ALLOW_CREDENTIALS,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
     allow_headers=["Content-Type", "Authorization", "X-API-Key", "X-CSRF-Token", "X-Export-Capability"],
-    expose_headers=["X-Export-Capability-Next", "ETag"],
+    expose_headers=["X-Artifact-SHA256", "X-Export-Capability-Next", "ETag"],
     max_age=3600,  # Cache preflight for 1 hour
 )
 
@@ -540,120 +599,128 @@ app.add_middleware(VersionMiddleware)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # ─────────────────────────────────────────────────────────────
-# Include Routers
+# Include each runtime router exactly once. Domain routers own their children.
 # ─────────────────────────────────────────────────────────────
-app.include_router(icon_router)
-app.include_router(health_router)
-app.include_router(diagrams_router)
-app.include_router(projects_router)
-app.include_router(analysis_router)
-app.include_router(iac_routes_router)
-app.include_router(hld_routes_router)
-app.include_router(agents_router)
-app.include_router(executions_router)
-app.include_router(agent_memory_router)
-app.include_router(policies_router)
-app.include_router(models_router)
-app.include_router(insights_router)
-app.include_router(sharing_router)
-app.include_router(infra_router)
-app.include_router(suggestions_router)
-app.include_router(services_router)
-app.include_router(admin_router)
-app.include_router(chat_router)
-app.include_router(roadmap_router)
-app.include_router(samples_router)
-app.include_router(templates_router)
-app.include_router(feedback_router)
-app.include_router(auth_router)
-app.include_router(versioning_router)
-app.include_router(terraform_router)
-app.include_router(feature_flags_router)
-app.include_router(jobs_router)
-app.include_router(credentials_router)
-app.include_router(tf_backend_router)
-app.include_router(drift_router)
-app.include_router(scanner_router)
-app.include_router(deploy_router)
-app.include_router(deployments_router)
-app.include_router(cost_router)
-app.include_router(timeline_router)
-app.include_router(report_router)
-app.include_router(api_keys_router)
-app.include_router(webhook_routes_router)
-app.include_router(integrations_router)
-app.include_router(github_integration_router)
-app.include_router(sku_router)
-app.include_router(provenance_router)
-app.include_router(network_router)
-app.include_router(share_routes_router)
-app.include_router(diff_routes_router)
-app.include_router(terraform_import_router)
-app.include_router(cost_comparison_router)
-app.include_router(collaboration_router)
-app.include_router(replay_router)
-app.include_router(workspaces_router)
-app.include_router(review_queue_router)
+MOUNTED_ROUTERS = (
+    icon_router,
+    health_router,
+    diagrams_router,
+    projects_router,
+    analysis_router,
+    iac_routes_router,
+    hld_routes_router,
+    agents_router,
+    executions_router,
+    agent_memory_router,
+    policies_router,
+    models_router,
+    insights_router,
+    sharing_router,
+    infra_router,
+    suggestions_router,
+    services_router,
+    admin_router,
+    chat_router,
+    roadmap_router,
+    samples_router,
+    templates_router,
+    feedback_router,
+    auth_router,
+    versioning_router,
+    jobs_router,
+    credentials_router,
+    cost_router,
+    timeline_router,
+    report_router,
+    api_keys_router,
+    webhook_routes_router,
+    integrations_router,
+    github_integration_router,
+    sku_router,
+    provenance_router,
+    network_router,
+    share_routes_router,
+    diff_routes_router,
+    cost_comparison_router,
+    collaboration_router,
+    replay_router,
+    workspaces_router,
+    review_queue_router,
+)
+
+for mounted_router in MOUNTED_ROUTERS:
+    app.include_router(mounted_router)
 
 # ─────────────────────────────────────────────────────────────
-# API v1 Versioned Routes (/api/v1/* mirrors the stable public API subset)
+# API v1 Versioned Routes
+#
+# Public routers are the supported migration-workbench contract. Existing beta,
+# admin, internal, and scaffold aliases remain explicit compatibility routes
+# until their published sunset instead of being mirrored implicitly forever.
 # ─────────────────────────────────────────────────────────────
-_all_routers = [
-    (icon_router, ""),           # Use router-declared prefix (/api)
-    (health_router, ""),         # routes define /api/... in decorators
-    (diagrams_router, ""),
-    (projects_router, ""),
-    (analysis_router, ""),
-    (iac_routes_router, ""),
-    (hld_routes_router, ""),
-    (agents_router, ""),
-    (executions_router, ""),
-    (agent_memory_router, ""),
-    (policies_router, ""),
-    (models_router, ""),
-    (insights_router, ""),
-    (sharing_router, ""),
-    (infra_router, ""),
-    (suggestions_router, ""),
-    (services_router, ""),
-    (admin_router, ""),
-    (chat_router, ""),
-    (roadmap_router, ""),
-    (samples_router, ""),
-    (templates_router, ""),
-    (feedback_router, ""),
-    (auth_router, ""),
-    (versioning_router, ""),
-    (terraform_router, ""),
-    (feature_flags_router, ""),
-    (jobs_router, ""),
-    (credentials_router, ""),
-    (tf_backend_router, ""),
-    (drift_router, ""),
-    (scanner_router, ""),
-    (deploy_router, ""),
-    (deployments_router, ""),
-    (cost_router, ""),
-    (timeline_router, ""),
-    (report_router, ""),
-    (api_keys_router, ""),
-    (webhook_routes_router, ""),
-    (integrations_router, ""),
-    (github_integration_router, ""),
-    (sku_router, ""),
-    (provenance_router, ""),
-    (network_router, ""),
-    (share_routes_router, ""),
-    (diff_routes_router, ""),
-    (terraform_import_router, ""),
-    (cost_comparison_router, ""),
-    (collaboration_router, ""),
-    (replay_router, ""),
-    (workspaces_router, ""),
-    (review_queue_router, ""),
+V1_ROUTE_SPECS = [
+    V1RouterSpec(health_router),
+    V1RouterSpec(diagrams_router),
+    V1RouterSpec(projects_router),
+    V1RouterSpec(analysis_router),
+    V1RouterSpec(iac_routes_router),
+    V1RouterSpec(hld_routes_router),
+    V1RouterSpec(insights_router),
+    V1RouterSpec(services_router),
+    V1RouterSpec(chat_router),
+    V1RouterSpec(samples_router),
+    V1RouterSpec(templates_router),
+    V1RouterSpec(feedback_router),
+    V1RouterSpec(auth_router),
+    V1RouterSpec(jobs_router),
+    V1RouterSpec(timeline_router),
+    V1RouterSpec(report_router),
+    V1RouterSpec(sku_router),
+    V1RouterSpec(provenance_router),
+    V1RouterSpec(network_router),
+    V1RouterSpec(share_routes_router),
+    V1RouterSpec(workspaces_router),
+    V1RouterSpec(review_queue_router),
+    V1RouterSpec(infra_import_router),
+    V1RouterSpec(icon_router, stability="compatibility", rationale="Mixed public and admin icon-registry surface pending route split"),
+    V1RouterSpec(agents_router, stability="compatibility", rationale="Agent platform surface is outside the core migration workbench"),
+    V1RouterSpec(executions_router, stability="compatibility", rationale="Agent execution surface is outside the core migration workbench"),
+    V1RouterSpec(agent_memory_router, stability="compatibility", rationale="Agent memory surface is outside the core migration workbench"),
+    V1RouterSpec(policies_router, stability="compatibility", rationale="Agent policy surface is outside the core migration workbench"),
+    V1RouterSpec(models_router, stability="compatibility", rationale="Model registry surface is outside the core migration workbench"),
+    V1RouterSpec(suggestions_router, stability="compatibility", rationale="Mixed admin and beta suggestion surface pending route split"),
+    V1RouterSpec(admin_router, stability="compatibility", rationale="Administrative operations are not part of the public API"),
+    V1RouterSpec(roadmap_router, stability="compatibility", rationale="Product-roadmap helper routes are not a stable integration contract"),
+    V1RouterSpec(versioning_router, stability="compatibility", rationale="Legacy transient diagram versioning pending durable workspace migration"),
+    V1RouterSpec(terraform_router, stability="compatibility", rationale="Terraform helper is part of the infrastructure scaffold"),
+    V1RouterSpec(credentials_router, stability="compatibility", rationale="Credential vault and provider validation remain scaffolded"),
+    V1RouterSpec(terraform_import_router, stability="compatibility", rationale="Legacy format-specific imports are superseded by unified infrastructure import"),
+    V1RouterSpec(tf_backend_router, stability="compatibility", rationale="Terraform state backend is an internal scaffold surface"),
+    V1RouterSpec(drift_router, stability="compatibility", rationale="Drift workflow remains beta"),
+    V1RouterSpec(scanner_router, stability="compatibility", rationale="Live cloud scanner remains scaffolded"),
+    V1RouterSpec(deploy_router, stability="compatibility", rationale="Legacy deployment execution remains scaffolded"),
+    V1RouterSpec(deployments_router, stability="compatibility", rationale="Deployment orchestration remains scaffolded"),
+    V1RouterSpec(cost_router, stability="compatibility", rationale="Token and agent cost observability remains beta"),
+    V1RouterSpec(api_keys_router, stability="compatibility", rationale="In-memory API key management is not a durable public contract"),
+    V1RouterSpec(webhook_routes_router, stability="compatibility", rationale="Webhook management is outside the core migration workbench"),
+    V1RouterSpec(integrations_router, stability="compatibility", rationale="Third-party integrations are outside the core migration workbench"),
+    V1RouterSpec(github_integration_router, stability="compatibility", rationale="PR-based IaC integration remains planned"),
+    V1RouterSpec(diff_routes_router, stability="compatibility", rationale="Transient architecture diff routes await durable workspace migration"),
+    V1RouterSpec(cost_comparison_router, stability="compatibility", rationale="Multi-cloud cost comparison remains beta"),
+    V1RouterSpec(collaboration_router, stability="compatibility", rationale="Real-time collaboration remains beta"),
+    V1RouterSpec(replay_router, stability="compatibility", rationale="Migration replay remains beta"),
 ]
-v1_router = build_v1_router(_all_routers)
+v1_router = build_v1_router(V1_ROUTE_SPECS)
 app.include_router(v1_router)
+app.add_middleware(
+    V1CompatibilityHeadersMiddleware,
+    compatibility_routes=tuple(
+        route
+        for route in v1_router.routes
+        if isinstance(route, APIRoute)
+        and getattr(route, "_archmorph_v1_compatibility", False)
+    ),
+)
 
 
 if __name__ == "__main__":

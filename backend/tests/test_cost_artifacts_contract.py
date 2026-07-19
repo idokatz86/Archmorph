@@ -161,6 +161,9 @@ def test_cost_csv_export_contract_header_rows_and_total(test_client, cost_contra
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/csv")
+    assert response.headers["content-disposition"].endswith(".csv")
+    assert len(response.headers["x-artifact-sha256"]) == 64
+    assert response.headers["x-export-capability-next"]
     rows = list(csv.reader(response.text.splitlines()))
     assert rows[0] == [
         "Service",

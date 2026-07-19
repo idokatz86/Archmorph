@@ -14,11 +14,11 @@ export default function ExportPanel({ exportLoading, onExportDiagram, secondary 
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div>
           <h3 className={`font-semibold text-text-primary mb-0.5 ${secondary ? 'text-xs' : 'text-sm'}`}>
-            {secondary ? 'Classic Diagram Exports' : 'Export Architecture Package'}
+            {secondary ? 'Architecture Package Exports' : 'Export Architecture Package'}
           </h3>
           <p className="text-xs text-text-muted">
             {secondary
-              ? 'Standalone SVG and HTML outputs for diagram-only sharing'
+              ? 'Customer-ready HTML package and standalone target or DR topology SVGs'
               : 'Download the customer-ready HTML package or focused SVG topology outputs'}
           </p>
         </div>

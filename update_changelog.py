@@ -1,7 +1,7 @@
-import re
+from pathlib import Path
 
-file_path = "/Users/idokatz/VSCode/Archmorph/CHANGELOG.md"
-with open(file_path, "r") as f:
+file_path = Path(__file__).resolve().parent / "CHANGELOG.md"
+with file_path.open("r") as f:
     text = f.read()
 
 new_log = """
@@ -22,7 +22,7 @@ new_log = """
 
 text = text.replace("## [Unreleased]\n", "## [Unreleased]\n" + new_log)
 
-with open(file_path, "w") as f:
+with file_path.open("w") as f:
     f.write(text)
 
 print("Updated CHANGELOG.md")

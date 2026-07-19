@@ -381,16 +381,59 @@ class TestCORSStartupValidation:
     def test_passes_with_explicit_origins_and_credentials(self):
         from main import _validate_cors_config
         # Should not raise
-        _validate_cors_config(["https://example.com"], allow_credentials=True)
+        _validate_cors_config(
+            ["https://example.com"],
+            allow_credentials=True,
+            environment="production",
+        )
 
-    def test_passes_with_wildcard_and_no_credentials(self):
+    def test_non_production_can_use_wildcard_without_credentials(self):
         from main import _validate_cors_config
-        # Should not raise
-        _validate_cors_config(["*"], allow_credentials=False)
+        _validate_cors_config(["*"], allow_credentials=False, environment="test")
 
     def test_passes_with_explicit_origins_and_no_credentials(self):
         from main import _validate_cors_config
-        _validate_cors_config(["https://archmorphai.com"], allow_credentials=False)
+        _validate_cors_config(
+            ["https://frontend.example.com"],
+            allow_credentials=False,
+            environment="production",
+        )
+
+    @pytest.mark.parametrize(
+        "origins",
+        [
+            [],
+            ["*"],
+            ["null"],
+            ["http://frontend.example.com"],
+            ["https://localhost"],
+            ["https://frontend.example.com/"],
+            ["https://frontend.example.com/path"],
+            ["https://user@frontend.example.com"],
+            ["https://frontend.example.com:8443"],
+        ],
+    )
+    def test_production_rejects_unsafe_or_missing_origins(self, origins):
+        from main import _validate_cors_config
+
+        with pytest.raises(RuntimeError, match="CORS security misconfiguration"):
+            _validate_cors_config(origins, allow_credentials=False, environment="production")
+
+    def test_production_origins_are_configuration_driven(self, monkeypatch):
+        from main import _configured_cors_origins
+
+        monkeypatch.setenv("ENVIRONMENT", "production")
+        monkeypatch.delenv("ALLOWED_ORIGINS", raising=False)
+        assert _configured_cors_origins() == []
+
+        monkeypatch.setenv(
+            "ALLOWED_ORIGINS",
+            "https://frontend.example.com,https://admin.example.com",
+        )
+        assert _configured_cors_origins() == [
+            "https://frontend.example.com",
+            "https://admin.example.com",
+        ]
 
 
 # ======================================================================

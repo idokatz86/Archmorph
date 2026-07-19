@@ -56,7 +56,7 @@ def test_preview_deployment_requires_admin_auth():
     payload = {
         "provider": "azure",
         "infrastructure_code": "resource group 'my-rg' {}",
-        "variables": {"resource_group": "test-rg"}
+        "variables": {"resource_group": "example-resource-group"}
     }
     response = client.post("/api/deployments/preview", json=payload)
     assert response.status_code == 401
@@ -66,7 +66,7 @@ def test_preview_deployment_azure(admin_headers):
     payload = {
         "provider": "azure",
         "infrastructure_code": "resource group 'my-rg' {}",
-        "variables": {"resource_group": "test-rg"}
+        "variables": {"resource_group": "example-resource-group"}
     }
     response = client.post("/api/deployments/preview", json=payload, headers=admin_headers)
     assert response.status_code == 200
@@ -88,7 +88,7 @@ def test_execute_deployment_azure(admin_headers):
     payload = {
         "provider": "azure",
         "infrastructure_code": "test",
-        "variables": {"resource_group": "test-rg"}
+        "variables": {"resource_group": "example-resource-group"}
     }
     response = client.post("/api/deployments/execute", json=payload, headers=admin_headers)
     assert response.status_code == 200
@@ -101,7 +101,7 @@ def test_execute_deployment_requires_admin_auth_even_when_flag_enabled():
     payload = {
         "provider": "azure",
         "infrastructure_code": "test",
-        "variables": {"resource_group": "test-rg"}
+        "variables": {"resource_group": "example-resource-group"}
     }
     response = client.post("/api/deployments/execute", json=payload)
     assert response.status_code == 401
@@ -111,7 +111,7 @@ def test_execute_deployment_requires_feature_flag(admin_headers):
     payload = {
         "provider": "azure",
         "infrastructure_code": "test",
-        "variables": {"resource_group": "test-rg"}
+        "variables": {"resource_group": "example-resource-group"}
     }
     response = client.post("/api/deployments/execute", json=payload, headers=admin_headers)
     assert response.status_code == 403
@@ -157,10 +157,10 @@ async def test_azure_deploy_service_methods():
     creds = await service.get_credentials()
     assert creds["status"] == "authenticated"
     
-    preview = await service.preview_deployment({"variables": {"resource_group": "test-rg"}})
+    preview = await service.preview_deployment({"variables": {"resource_group": "example-resource-group"}})
     assert preview["status"] == "success"
     
-    deploy = await service.deploy_infrastructure("job123", {"variables": {"resource_group": "test-rg"}})
+    deploy = await service.deploy_infrastructure("job123", {"variables": {"resource_group": "example-resource-group"}})
     assert deploy["status"] == "in_progress"
 
 @pytest.mark.asyncio
