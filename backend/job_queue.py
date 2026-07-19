@@ -26,7 +26,6 @@ Usage::
 import asyncio
 import contextvars
 import hashlib
-import hmac
 import json
 import logging
 import os
@@ -297,11 +296,12 @@ class JobManager:
             "owner_api_key_id": owner_api_key_id,
         }
         canonical = json.dumps(principal, sort_keys=True, separators=(",", ":"))
-        principal_hash = hmac.new(
-            b"archmorph-job-idempotency-v1",
+        principal_hash = hashlib.pbkdf2_hmac(
+            "sha256",
             canonical.encode("utf-8"),
-            hashlib.sha256,
-        ).hexdigest()
+            b"archmorph-job-idempotency-v1",
+            120_000,
+        ).hex()
         return f"{principal_hash}:{input_hash}"
 
     def _increment_durable_metric(self, name: str, amount: int = 1) -> None:
