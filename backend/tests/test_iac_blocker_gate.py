@@ -197,7 +197,7 @@ class TestIaCGateAsync:
         )
         assert resp.status_code == 202, resp.text
         body = resp.json()
-        assert body.get("status") == "queued"
+        assert body.get("status") in {"queued", "running"}
         assert body.get("job_id")
 
 

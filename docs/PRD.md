@@ -528,6 +528,14 @@ Current infrastructure posture: West Europe remains the active production region
 
 A future Beta-to-Live decision must be explicit and current. It requires: customer-representative functional fidelity, observable latency/error/icon metrics, security sign-off, performance SLO evidence, frontend accessibility coverage, production smoke evidence, an updated limitations statement, and a tagged release. Closed or superseded planning issues are not release evidence by themselves.
 
+### 3.58 Restart-Safe Async Execution (#1239)
+
+- **Accepted-job contract** — async analysis, IaC, and HLD endpoints persist a versioned, non-secret execution envelope and atomic input/configuration hash before returning `202 Accepted`.
+- **Recovery model** — Redis-backed workers use claim leases and heartbeats. Only the current live lease can publish progress or terminal state; expired work is reconciled on startup and periodically within a bounded retry budget.
+- **State correctness** — authenticated cancellation atomically revokes running leases, analysis admission counters are released once and rebuilt at startup, and owner-scoped SSE streams retain recovery continuity across workers and revisions.
+- **Production dependency** — production sets `REQUIRE_REDIS=true` and fails closed instead of accepting durable work into revision-local storage when Redis is unavailable.
+- **Operations** — [operations/durable-jobs.md](operations/durable-jobs.md) defines the at-least-once guarantee, tuning settings, metrics, alerts, and incident response.
+
 ---
 
 ## 4. Service Mapping Database
