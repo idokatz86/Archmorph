@@ -8,6 +8,7 @@ from pathlib import Path
 
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
+REPO_ROOT = BACKEND_DIR.parent
 
 
 def run_backend_snippet(code: str, **overrides: str) -> subprocess.CompletedProcess[str]:
@@ -91,3 +92,27 @@ def test_production_rejects_missing_redis_without_opt_in_flag():
     )
     assert result.returncode != 0
     assert "REQUIRE_REDIS is set" in result.stderr
+
+
+def test_terraform_and_helm_split_liveness_from_readiness():
+    terraform = (REPO_ROOT / "infra" / "main.tf").read_text(encoding="utf-8")
+    variables = (REPO_ROOT / "infra" / "variables.tf").read_text(encoding="utf-8")
+    dr_terraform = (REPO_ROOT / "infra" / "dr" / "main.tf").read_text(encoding="utf-8")
+    helm_values = (REPO_ROOT / "charts" / "archmorph" / "values.yaml").read_text(encoding="utf-8")
+    helm_prod = (REPO_ROOT / "charts" / "archmorph" / "values-production.yaml").read_text(encoding="utf-8")
+
+    assert 'default     = "/healthz"' in variables
+    assert 'default     = "/readyz"' in variables
+    assert "readiness_probe {\n        path                    = var.readiness_probe_path" in terraform
+    assert "liveness_probe {\n        path                    = var.health_probe_path" in terraform
+    assert 'url = "https://${azurerm_container_app.backend.ingress[0].fqdn}${var.readiness_probe_path}"' in terraform
+    assert "health_probe {\n    path                = var.readiness_probe_path" in terraform
+    assert 'default     = "/readyz"' in dr_terraform
+    assert "path                         = var.readiness_probe_path" in dr_terraform
+    assert "readinessProbe:\n  httpGet:\n    path: /readyz" in helm_values
+    assert "livenessProbe:\n  httpGet:\n    path: /healthz" in helm_values
+    assert 'ENFORCE_POSTGRES: "true"' in helm_prod
+    assert 'REQUIRE_REDIS: "true"' in helm_prod
+    assert "secretKey: AZURE_OPENAI_API_KEY" in helm_prod
+    assert "secretKey: DATABASE_URL" in helm_prod
+    assert "secretKey: REDIS_URL" in helm_prod

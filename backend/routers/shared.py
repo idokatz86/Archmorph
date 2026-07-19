@@ -3,6 +3,7 @@ Shared state, dependencies, and models used across Archmorph API routers.
 """
 
 import asyncio
+import copy
 import os
 import logging
 import secrets
@@ -112,6 +113,29 @@ def get_api_key_service_principal(headers: dict) -> Optional[str]:
     return f"api-key:{digest}"
 
 
+def get_request_durable_principal(request: Request) -> Optional[dict]:
+    """Map user or API-key authentication to a stable durable identity."""
+    from auth import get_user_from_request_headers
+
+    headers = dict(request.headers)
+    user = get_user_from_request_headers(headers)
+    if user:
+        return {
+            "owner_user_id": user.id,
+            "tenant_id": user.tenant_id,
+            "owner_api_key_id": None,
+        }
+    api_key_id = get_api_key_service_principal(headers)
+    if api_key_id:
+        digest = api_key_id.split(":", 1)[-1]
+        return {
+            "owner_user_id": api_key_id,
+            "tenant_id": f"service:{digest}",
+            "owner_api_key_id": api_key_id,
+        }
+    return None
+
+
 @lru_cache(maxsize=32)
 def _derive_api_key_principal_digest(key_material: str) -> str:
     """Derive a stable opaque principal ID from API-key material."""
@@ -187,10 +211,8 @@ def _load_diagram_session_for_access(diagram_id: str) -> Optional[dict]:
 
 def _load_durable_diagram_session(request: Request, diagram_id: str) -> Optional[dict]:
     """Hydrate a lost analysis cache from the caller's tenant-scoped SQL record."""
-    from auth import get_user_from_request_headers
-
-    user = get_user_from_request_headers(dict(request.headers))
-    if user is None or not user.tenant_id:
+    principal = get_request_durable_principal(request)
+    if principal is None or not principal["tenant_id"]:
         return None
 
     from database import SessionLocal
@@ -201,9 +223,10 @@ def _load_durable_diagram_session(request: Request, diagram_id: str) -> Optional
         return load_analysis_state(
             db,
             diagram_id=diagram_id,
-            owner_user_id=user.id,
-            tenant_id=user.tenant_id,
+            owner_user_id=principal["owner_user_id"],
+            tenant_id=principal["tenant_id"],
             session_store=SESSION_STORE,
+            cache_owner_api_key_id=principal["owner_api_key_id"],
         )
     except Exception as exc:
         logger.warning(
@@ -257,6 +280,84 @@ def authorize_diagram_access(
     if user:
         owner_user_id = session.get("_owner_user_id")
         tenant_id = session.get("_tenant_id")
+        if owner_user_id == user.id and tenant_id == "default_tenant":
+            try:
+                principal = get_request_durable_principal(request)
+                if principal is None or not principal["tenant_id"]:
+                    raise ArchmorphException(404, "Diagram not found")
+
+                from database import SessionLocal
+                from workspace_store import get_analysis_by_diagram, load_analysis_state
+
+                db = SessionLocal()
+                try:
+                    legacy_analysis = get_analysis_by_diagram(
+                        db,
+                        diagram_id=diagram_id,
+                        owner_user_id=user.id,
+                        tenant_id="default_tenant",
+                    )
+                    target_analysis = get_analysis_by_diagram(
+                        db,
+                        diagram_id=diagram_id,
+                        owner_user_id=principal["owner_user_id"],
+                        tenant_id=principal["tenant_id"],
+                    )
+                    migrated_session = None
+                    if legacy_analysis is None and target_analysis is not None:
+                        migrated_session = load_analysis_state(
+                            db,
+                            diagram_id=diagram_id,
+                            owner_user_id=principal["owner_user_id"],
+                            tenant_id=principal["tenant_id"],
+                            session_store=SESSION_STORE,
+                            allow_legacy_cache_rehome=True,
+                        )
+                finally:
+                    db.close()
+                if migrated_session is not None:
+                    from usage_metrics import record_event
+
+                    record_event(
+                        "legacy_tenant_cache_rehomed",
+                        {
+                            "diagram_id": diagram_id,
+                            "owner_user_id": user.id,
+                            "source": "durable_target",
+                        },
+                    )
+                    return SESSION_STORE.peek(diagram_id) or migrated_session
+                if legacy_analysis is not None or target_analysis is not None:
+                    from usage_metrics import record_event
+
+                    record_event(
+                        "legacy_tenant_cache_conflict",
+                        {"diagram_id": diagram_id, "owner_user_id": user.id},
+                    )
+                    raise ArchmorphException(404, "Diagram not found")
+
+                persist_diagram_mutation(
+                    request,
+                    diagram_id,
+                    session,
+                    label="legacy-default-tenant-cache-rehome",
+                    allow_legacy_cache_rehome=True,
+                )
+                session = SESSION_STORE.peek(diagram_id) or session
+                from usage_metrics import record_event
+
+                record_event(
+                    "legacy_tenant_cache_rehomed",
+                    {"diagram_id": diagram_id, "owner_user_id": user.id},
+                )
+                return session
+            except Exception as exc:
+                logger.warning(
+                    "legacy_tenant_cache_rehome_failed diagram_id=%s error_type=%s",
+                    _safe_log_value(diagram_id),
+                    type(exc).__name__,
+                )
+                raise ArchmorphException(404, "Diagram not found") from exc
         if not owner_user_id or not tenant_id:
             logger.debug(
                 "deny_diagram_access_missing_user_metadata diagram_id=%s owner=%s tenant=%s",
@@ -287,6 +388,91 @@ def authorize_diagram_access(
 def require_diagram_access(request: Request, diagram_id: str) -> dict:
     """FastAPI dependency wrapper for diagram access checks."""
     return authorize_diagram_access(request, diagram_id)
+
+
+def persist_diagram_mutation(
+    request: Request,
+    diagram_id: str,
+    snapshot: dict,
+    *,
+    artifact_type: Optional[str] = None,
+    artifact_format: Optional[str] = None,
+    artifact_content: Optional[str] = None,
+    expected_version: Optional[int] = None,
+    label: Optional[str] = None,
+    allow_legacy_cache_rehome: bool = False,
+):
+    """Persist an authenticated mutation, then project its committed version.
+
+    Public compatibility flows without a durable principal remain transient.
+    User and API-key mutations use the same repository/UoW and fail closed when
+    PostgreSQL cannot commit them.
+    """
+    detached_snapshot = copy.deepcopy(snapshot)
+    if _is_public_diagram_session(diagram_id, detached_snapshot):
+        if not SESSION_STORE.set(diagram_id, detached_snapshot):
+            raise ArchmorphException(503, "Analysis cache is temporarily unavailable")
+        return None
+    principal = get_request_durable_principal(request)
+    if principal is None:
+        if not SESSION_STORE.set(diagram_id, detached_snapshot):
+            raise ArchmorphException(503, "Analysis cache is temporarily unavailable")
+        return None
+    if not principal["tenant_id"]:
+        raise ArchmorphException(
+            401,
+            "Authenticated tenant context is required for durable analysis state.",
+            details={"error": "tenant_context_required"},
+        )
+
+    from database import SessionLocal
+    from workspace_store import (
+        AnalysisCacheWriteError,
+        AnalysisVersionConflictError,
+        DurableAnalysisPersistenceError,
+        persist_analysis_mutation,
+    )
+
+    db = SessionLocal()
+    try:
+        return persist_analysis_mutation(
+            db,
+            owner_user_id=principal["owner_user_id"],
+            tenant_id=principal["tenant_id"],
+            diagram_id=diagram_id,
+            snapshot=detached_snapshot,
+            session_store=SESSION_STORE,
+            cache_owner_api_key_id=principal["owner_api_key_id"],
+            artifact_type=artifact_type,
+            artifact_format=artifact_format,
+            artifact_content=artifact_content,
+            expected_version=expected_version,
+            label=label,
+            cache_required=True,
+            allow_legacy_cache_rehome=allow_legacy_cache_rehome,
+        )
+    except AnalysisVersionConflictError as exc:
+        raise ArchmorphException(
+            409,
+            "Analysis changed while this operation was running.",
+            details={"error": "analysis_version_conflict"},
+        ) from exc
+    except AnalysisCacheWriteError as exc:
+        raise ArchmorphException(
+            503,
+            "Analysis cache is temporarily unavailable. The durable record was saved; retry to continue.",
+            details={"error": "analysis_cache_unavailable", "durable_saved": True},
+            headers={"Retry-After": "5"},
+        ) from exc
+    except (DurableAnalysisPersistenceError, ValueError) as exc:
+        raise ArchmorphException(
+            503,
+            "Analysis persistence is temporarily unavailable. Please retry shortly.",
+            details={"error": "analysis_persistence_unavailable"},
+            headers={"Retry-After": "30"},
+        ) from exc
+    finally:
+        db.close()
 
 
 # ─────────────────────────────────────────────────────────────

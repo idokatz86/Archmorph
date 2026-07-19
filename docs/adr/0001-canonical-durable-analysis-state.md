@@ -29,20 +29,28 @@ state or change ownership.
 | Quota policy | PostgreSQL organization plan limits | Bounded user counters remain compatibility/display-only until a quota product is activated | No new quota product or enforcement is introduced here |
 | Transient progress | Redis job envelopes, leases, events, and admission counters | In-process waiters are accelerators only | Eventual progress visibility; bounded retry and lease semantics |
 
-`workspace_store.persist_analysis_state()` is the sole active authenticated
-analysis write boundary. It resolves or creates the tenant-scoped workspace and
-analysis, appends an immutable version, commits PostgreSQL, then refreshes the
-shared cache. A cache failure cannot roll back or supersede the committed row.
+`workspace_store.persist_analysis_mutation()` is the sole active authenticated
+analysis write boundary. Analysis add/apply, review dispositions, HLD, IaC,
+IaC chat code/history, async completion, and compatibility version routes all use it. It resolves or
+creates the tenant-scoped workspace and analysis, appends an immutable version,
+persists any generated HLD/IaC `Artifact` against that exact version, commits
+PostgreSQL, then refreshes the shared cache. A cache failure cannot roll back or
+supersede the committed row.
 Callers that need an immediately readable cache receive a retryable error after
 the durable commit. Reads may hydrate a missing cache only from a query filtered
 by both `owner_user_id` and `tenant_id`.
 
-Authenticated durable writes require an explicit tenant claim. Individual GitHub
-accounts, whose provider does not issue an organization tenant claim, use a
-unique `github:<subject>` scope to preserve existing single-user behavior. There
-is no shared `default_tenant` fallback. Anonymous, API-key, sample, and template
-compatibility paths may remain tenantless and transient; they are not promoted
-to durable user records.
+Authenticated durable writes require an explicit tenant claim. SWA GitHub,
+Google, and AAD identities without a tenant claim use an opaque SHA-256
+provider-subject scope derived only from immutable provider and subject values.
+The durable owner remains the stable provider user ID already used by API and
+workspace ownership contracts; mutable email/login/display-name values are never
+used for either owner or tenant identity.
+There is no shared `default_tenant` fallback. Legacy tokens carrying that value
+map to the same provider-subject scope used by current tokens. API keys map to
+opaque service-principal owner/tenant markers and use the same durable UoW. Only
+anonymous development, sample, and template compatibility paths may remain
+tenantless and transient; they are not promoted to durable user records.
 
 ## Failure domains and operations
 
@@ -61,12 +69,14 @@ to durable user records.
 
 ## Compatibility and migration
 
-No schema migration is required: migration `013` already created the canonical
-workspace, analysis, version, artifact, and decision tables. Existing workspace
-rows remain valid. Existing session-only records continue to work until their TTL
-expires; the next authenticated analysis completion or restore creates/updates a
-canonical durable record through the repository boundary. Session keys and all
-public HTTP paths/response contracts remain unchanged.
+Migration `014` widens tenant scopes, rehomes unambiguous `default_tenant` and
+pre-hardening `github:github_<subject>` rows
+to deterministic owner-scoped legacy namespaces, writes row counts to
+`tenant_rehome_audit`, and moves duplicate/conflicting analyses into unique
+`legacy-conflict:*` quarantine scopes with per-analysis audit evidence so an
+operator can resolve them without silent merges. It then adds unique durable
+analysis identity `(owner_user_id, tenant_id, diagram_id)` and idempotent artifact
+identity `(version_id, artifact_type, content_hash)`.
 
 The old in-memory RBAC organization/membership/quota/analysis-owner dictionaries
 were removed after repository-wide import analysis proved no active route used
@@ -74,11 +84,33 @@ them. `RequireRole` remains as a state-free compatibility adapter for the model
 registry. Durable organization services remain in `models.tenant` and
 `services.tenant_service`.
 
-The legacy transient version route contracts remain compatibility APIs; new
-durable workspace version APIs and active authenticated analysis writes use
-`analysis_versions`. Migrating the optional diff presentation metadata is not
-required to establish durable analysis truth and is intentionally not a schema
-expansion in this issue.
+Legacy diagram version route contracts now adapt to `analysis_versions` for
+signed-in users and API-key service principals. Anonymous/sample callers retain
+an explicitly marked transient compatibility response and cannot write transient
+state into an authenticated canonical namespace.
+
+`restore-session` requires either an existing same-owner namespace, a durable
+same-owner analysis, or a reusable signed restore capability issued at upload
+and bound to diagram plus user/tenant or API-key marker. Missing and unauthorized
+claims return the same 404 response. Export capabilities are principal-bound as
+well and are never stored in durable snapshots.
+
+Legacy `default_tenant` cache entries are rehomed only when no durable row
+exists, or are replaced by the already-migrated target-tenant durable version.
+If legacy and target durable identities conflict, access fails with the same 404
+and emits a conflict audit event; the cache is not promoted.
+
+Concurrent writers are serialized by row locks after the unique identity insert
+and retry PostgreSQL uniqueness conflicts. Version allocation uses the maximum
+durable version plus the analysis pointer. Redis projections carry the committed
+`_analysis_version`; exact-owner compare-and-set rejects an older projection
+after a newer commit, preventing completion-order reversal or ownerless cache
+claims.
+
+`/healthz` remains anonymous process liveness. `/readyz` is anonymous and
+sanitized but returns 503 unless required PostgreSQL and Redis probes succeed.
+Terraform Container Apps/Front Door/availability readiness and Helm readiness
+use `/readyz`; startup and liveness continue to use `/healthz`.
 
 ## Retention and deletion
 

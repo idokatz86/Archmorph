@@ -234,6 +234,38 @@ async def healthz():
     return JSONResponse(content={"status": "alive"})
 
 
+@router.get("/readyz")
+async def readyz():
+    """Anonymous sanitized readiness for required PostgreSQL and Redis."""
+    database_ready = False
+    redis_ready = False
+    try:
+        from database import database_readiness
+
+        database_ready = bool(database_readiness()["ready_for_production"])
+    except Exception:
+        database_ready = False
+    try:
+        from session_store import session_store_readiness
+
+        redis = session_store_readiness()
+        redis_ready = bool(redis["ready_for_horizontal_scale"])
+    except Exception:
+        redis_ready = False
+
+    ready = database_ready and redis_ready
+    return JSONResponse(
+        status_code=200 if ready else 503,
+        content={
+            "status": "ready" if ready else "not_ready",
+            "checks": {
+                "database": "ready" if database_ready else "unavailable",
+                "redis": "ready" if redis_ready else "unavailable",
+            },
+        },
+    )
+
+
 @router.get("/api/health")
 async def health(_auth=Depends(verify_api_key)):
     update_status, freshness = await _catalog_health()

@@ -2,6 +2,7 @@ import json
 import os
 import re
 import sys
+import uuid
 from collections import Counter
 from pathlib import Path
 
@@ -119,7 +120,7 @@ def test_version_route_family_uses_one_canonical_history(test_client):
     from routers.shared import SESSION_STORE
     from versioning import VERSION_STORE
 
-    diagram_id = "route-coherence-version-history"
+    diagram_id = f"route-coherence-version-history-{uuid.uuid4().hex}"
     VERSION_STORE.pop(diagram_id, None)
     SESSION_STORE.set(
         diagram_id,

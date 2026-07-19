@@ -16,6 +16,7 @@ from strict_models import StrictBaseModel
 from typing import Dict, Any, Optional
 import asyncio
 import base64
+import copy
 import hashlib
 import logging
 
@@ -23,13 +24,18 @@ from database import get_db, SessionLocal
 from routers.shared import (
     SESSION_STORE, IMAGE_STORE, PROJECT_STORE, SHARE_STORE, EXPORT_CAPABILITY_STORE,
     limiter, verify_api_key, verify_api_key_or_user_session, MAX_UPLOAD_SIZE, generate_session_id,
-    require_authenticated_user, get_api_key_service_principal,
+    get_api_key_service_principal, get_request_durable_principal,
     require_diagram_access,
 )
 import ci_smoke
 from job_queue import job_manager, AdmissionRejected, AdmissionStoreError, JobStoreError
 from usage_metrics import record_event, record_funnel_step
-from export_capabilities import attach_export_capability
+from export_capabilities import (
+    _principal_marker,
+    attach_export_capability,
+    issue_restore_capability,
+    verify_restore_capability,
+)
 from data_lifecycle import attach_trust_receipt, build_trust_receipt
 from image_classifier import classify_image
 from vision_analyzer import analyze_image, VISION_PROMPT_HASH
@@ -180,6 +186,7 @@ class RestoreSessionRequest(StrictBaseModel):
     iac_format: Optional[str] = None
     image_base64: Optional[str] = None
     image_content_type: Optional[str] = None
+    restore_capability: Optional[str] = None
 
 
 def _purge_store_records_for_diagram(store, diagram_id: str) -> int:
@@ -229,6 +236,7 @@ def _persist_authenticated_analysis(
     tenant_id: Optional[str],
     diagram_id: str,
     session: Dict[str, Any],
+    owner_api_key_id: Optional[str] = None,
     cache_required: bool = False,
 ) -> None:
     try:
@@ -239,7 +247,9 @@ def _persist_authenticated_analysis(
             diagram_id=diagram_id,
             snapshot=session,
             session_store=SESSION_STORE,
+            cache_owner_api_key_id=owner_api_key_id,
             cache_required=cache_required,
+            allow_unowned_upload_claim=True,
         )
     except ValueError as exc:
         if not tenant_id:
@@ -319,6 +329,17 @@ async def upload_diagram(request: Request, project_id: str, file: UploadFile = F
 
     # Base64-encode for Redis/FileStore compatibility
     IMAGE_STORE[diagram_id] = (base64.b64encode(image_bytes).decode("ascii"), file.content_type)
+    headers = dict(request.headers)
+    upload_user = get_user_from_request_headers(headers)
+    upload_api_key_id = get_api_key_service_principal(headers)
+    namespace_claim = {"diagram_id": diagram_id, "status": "uploaded"}
+    if upload_user:
+        namespace_claim["_owner_user_id"] = upload_user.id
+        namespace_claim["_tenant_id"] = upload_user.tenant_id
+    elif upload_api_key_id:
+        namespace_claim["_owner_api_key_id"] = upload_api_key_id
+        namespace_claim["_tenant_id"] = f"service:{upload_api_key_id.split(':', 1)[-1]}"
+    SESSION_STORE.set(diagram_id, namespace_claim)
     logger.info("Stored image for %s (%s bytes, %s)", str(diagram_id).replace('\n', '').replace('\r', ''), str(len(image_bytes)).replace('\n', '').replace('\r', ''), str(file.content_type).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
 
     # Proactive capacity warning (#177)
@@ -333,13 +354,20 @@ async def upload_diagram(request: Request, project_id: str, file: UploadFile = F
 
     record_event("diagrams_uploaded", {"filename": file.filename})
     record_funnel_step(diagram_id, "upload")
+    principal_marker = _principal_marker(request)
+    restore_capability = (
+        issue_restore_capability(request, diagram_id)
+        if principal_marker
+        else None
+    )
     return _attach_lifecycle_receipt(attach_export_capability({
         "diagram_id": diagram_id,
         "project_id": project_id,
         "filename": file.filename,
         "size": len(image_bytes),
-        "status": "uploaded"
-    }, diagram_id), diagram_id, image_present=True, session_present=False)
+        "status": "uploaded",
+        "restore_capability": restore_capability,
+    }, diagram_id, principal_marker=principal_marker), diagram_id, image_present=True, session_present=False)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -351,7 +379,7 @@ async def restore_session(
     request: Request,
     diagram_id: str,
     body: RestoreSessionRequest,
-    user=Depends(require_authenticated_user),
+    _auth=Depends(verify_api_key_or_user_session),
     db=Depends(get_db),
 ):
     """Re-inject a cached analysis result into the session store.
@@ -360,7 +388,7 @@ async def restore_session(
     restarts and the in-memory store is wiped, the frontend can push its
     cached copy here to transparently restore the session.
     """
-    analysis = body.analysis
+    analysis = copy.deepcopy(body.analysis)
     if not analysis or not isinstance(analysis, dict):
         raise ArchmorphException(400, "Invalid analysis payload")
     try:
@@ -375,18 +403,48 @@ async def restore_session(
             },
         )
 
-    existing = SESSION_STORE.get(diagram_id)
-    if isinstance(existing, dict):
-        existing_owner = existing.get("_owner_user_id")
-        existing_tenant = existing.get("_tenant_id")
-        if existing_owner and existing_owner != user.id:
-            raise ArchmorphException(403, "Forbidden: session owner mismatch")
-        if existing_tenant and existing_tenant != user.tenant_id:
-            raise ArchmorphException(403, "Forbidden: tenant mismatch")
+    principal = get_request_durable_principal(request)
+    if principal is None or not principal["tenant_id"]:
+        raise ArchmorphException(401, "Authentication required")
+    owner_user_id = principal["owner_user_id"]
+    tenant_id = principal["tenant_id"]
+    owner_api_key_id = principal["owner_api_key_id"]
+
+    existing = SESSION_STORE.peek(diagram_id)
+    owns_existing = bool(
+        isinstance(existing, dict)
+        and existing.get("_tenant_id") == tenant_id
+        and (
+            existing.get("_owner_api_key_id") == owner_api_key_id
+            if owner_api_key_id
+            else existing.get("_owner_user_id") == owner_user_id
+        )
+    )
+    if not owns_existing:
+        from workspace_store import load_analysis_state
+
+        durable = load_analysis_state(
+            db,
+            diagram_id=diagram_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+        )
+        owns_existing = durable is not None
+    if not owns_existing and not verify_restore_capability(
+        request,
+        diagram_id,
+        body.restore_capability,
+    ):
+        raise ArchmorphException(404, "Diagram not found")
 
     analysis["diagram_id"] = diagram_id
-    analysis["_owner_user_id"] = user.id
-    analysis["_tenant_id"] = user.tenant_id
+    analysis["_tenant_id"] = tenant_id
+    if owner_api_key_id:
+        analysis["_owner_api_key_id"] = owner_api_key_id
+        analysis.pop("_owner_user_id", None)
+    else:
+        analysis["_owner_user_id"] = owner_user_id
+        analysis.pop("_owner_api_key_id", None)
 
     if body.hld:
         analysis["hld"] = body.hld
@@ -399,10 +457,11 @@ async def restore_session(
 
     _persist_authenticated_analysis(
         db,
-        user_id=user.id,
-        tenant_id=user.tenant_id,
+        user_id=owner_user_id,
+        tenant_id=tenant_id,
         diagram_id=diagram_id,
         session=analysis,
+        owner_api_key_id=owner_api_key_id,
         cache_required=True,
     )
     restored_parts = ["analysis"]
@@ -432,9 +491,16 @@ async def restore_session(
         restored_parts.append("image")
     logger.info("Session restored for %s via client cache (%s)", str(diagram_id).replace('\n', '').replace('\r', ''), str(", ".join(restored_parts)).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
     record_event("sessions_restored", {"diagram_id": diagram_id, "parts": restored_parts})
+    next_restore_capability = issue_restore_capability(request, diagram_id)
     return _attach_lifecycle_receipt(attach_export_capability(
-        {"status": "restored", "diagram_id": diagram_id, "restored": restored_parts},
+        {
+            "status": "restored",
+            "diagram_id": diagram_id,
+            "restored": restored_parts,
+            "restore_capability": next_restore_capability,
+        },
         diagram_id,
+        principal_marker=_principal_marker(request),
     ), diagram_id, image_present=diagram_id in IMAGE_STORE, session_present=True)
 
 
@@ -613,12 +679,35 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
                 )
             finally:
                 db.close()
+        elif api_key_principal_id:
+            db = SessionLocal()
+            try:
+                _persist_authenticated_analysis(
+                    db,
+                    user_id=api_key_principal_id,
+                    tenant_id=f"service:{api_key_principal_id.split(':', 1)[-1]}",
+                    diagram_id=diagram_id,
+                    session=result,
+                    owner_api_key_id=api_key_principal_id,
+                    cache_required=True,
+                )
+            finally:
+                db.close()
         else:
             SESSION_STORE[diagram_id] = result
         mark_diagram_analyzed(diagram_id, result)
         record_event("analyses_run", {"diagram_id": diagram_id, "services": result["services_detected"]})
         record_funnel_step(diagram_id, "analyze")
-        return _attach_lifecycle_receipt(attach_export_capability(result, diagram_id), diagram_id, image_present=True, session_present=True)
+        return _attach_lifecycle_receipt(
+            attach_export_capability(
+                result,
+                diagram_id,
+                principal_marker=_principal_marker(request),
+            ),
+            diagram_id,
+            image_present=True,
+            session_present=True,
+        )
 
     # No need to pre-compress, vision analyzer and classifier handle it internally
     compressed_bytes, compressed_type = image_bytes, content_type
@@ -685,13 +774,36 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
             )
         finally:
             db.close()
+    elif api_key_principal_id:
+        db = SessionLocal()
+        try:
+            _persist_authenticated_analysis(
+                db,
+                user_id=api_key_principal_id,
+                tenant_id=f"service:{api_key_principal_id.split(':', 1)[-1]}",
+                diagram_id=diagram_id,
+                session=result,
+                owner_api_key_id=api_key_principal_id,
+                cache_required=True,
+            )
+        finally:
+            db.close()
     else:
         SESSION_STORE[diagram_id] = result
     mark_diagram_analyzed(diagram_id, result)
     record_event("analyses_run", {"diagram_id": diagram_id, "services": result["services_detected"]})
     record_funnel_step(diagram_id, "analyze")
 
-    return _attach_lifecycle_receipt(attach_export_capability(result, diagram_id), diagram_id, image_present=True, session_present=True)
+    return _attach_lifecycle_receipt(
+        attach_export_capability(
+            result,
+            diagram_id,
+            principal_marker=_principal_marker(request),
+        ),
+        diagram_id,
+        image_present=True,
+        session_present=True,
+    )
 
 
 # ─────────────────────────────────────────────────────────────
@@ -858,6 +970,20 @@ async def _run_analysis_job(job_id: str, payload: Dict[str, Any]) -> None:
                     tenant_id=job_tenant_id,
                     diagram_id=diagram_id,
                     session=result,
+                    cache_required=True,
+                )
+            finally:
+                db.close()
+        elif job_api_principal_id:
+            db = SessionLocal()
+            try:
+                _persist_authenticated_analysis(
+                    db,
+                    user_id=job_api_principal_id,
+                    tenant_id=f"service:{job_api_principal_id.split(':', 1)[-1]}",
+                    diagram_id=diagram_id,
+                    session=result,
+                    owner_api_key_id=job_api_principal_id,
                     cache_required=True,
                 )
             finally:

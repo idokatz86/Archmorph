@@ -6,6 +6,8 @@ image:
 
 env:
   ENVIRONMENT: "staging"
+  ENFORCE_POSTGRES: "true"
+  REQUIRE_REDIS: "true"
   RATE_LIMIT_ENABLED: "true"
   ALLOWED_ORIGINS: "https://frontend.example.com"
 

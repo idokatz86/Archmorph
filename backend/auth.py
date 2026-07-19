@@ -57,6 +57,8 @@ JWKS_CACHE: TTLCache = TTLCache(maxsize=10, ttl=3600)
 USER_CACHE_TTL = int(os.getenv("USER_CACHE_TTL", "3600"))
 MAX_USER_CACHE_ENTRIES = 1000
 USER_CACHE: TTLCache = TTLCache(maxsize=MAX_USER_CACHE_ENTRIES, ttl=USER_CACHE_TTL)
+LEGACY_DEFAULT_TENANT = "default_tenant"
+_IDENTITY_SCOPE_SALT = b"archmorph-provider-tenant-v1"
 
 
 # ─────────────────────────────────────────────────────────────
@@ -80,6 +82,66 @@ class UserTier(str, Enum):
         if value == "pro":
             return cls.TEAM
         return cls.FREE
+
+
+def provider_subject_tenant_scope(provider: AuthProvider | str, subject: str) -> Optional[str]:
+    """Return a stable opaque tenant scope for providers without tenant claims.
+
+    The provider and immutable subject are HMAC-like domain-separated inputs;
+    mutable email/login/display-name values are deliberately excluded.
+    """
+    provider_value = provider.value if isinstance(provider, AuthProvider) else str(provider)
+    normalized_subject = str(subject or "").strip()
+    if not normalized_subject or provider_value == AuthProvider.ANONYMOUS.value:
+        return None
+    digest = hashlib.sha256(
+        _IDENTITY_SCOPE_SALT + b"\0" + provider_value.encode("utf-8") + b"\0" + normalized_subject.encode("utf-8")
+    ).hexdigest()[:32]
+    return f"idp:{digest}"
+
+
+def legacy_owner_tenant_scope(owner_user_id: str) -> str:
+    """Match migration 014's deterministic quarantine-free legacy namespace."""
+    digest = hashlib.sha256(str(owner_user_id).encode("utf-8")).hexdigest()[:24]
+    return f"legacy:{digest}"
+
+
+def _provider_subject_from_user_id(provider: AuthProvider, user_id: str) -> str:
+    prefixes = {
+        AuthProvider.MICROSOFT: ("aad_", "microsoft_"),
+        AuthProvider.GITHUB: ("github_",),
+        AuthProvider.GOOGLE: ("google_",),
+        AuthProvider.AZURE_AD_B2C: ("azure_ad_b2c_",),
+    }
+    for prefix in prefixes.get(provider, ()):
+        if user_id.startswith(prefix):
+            return user_id[len(prefix):]
+    return user_id
+
+
+def _normalize_token_tenant(
+    *,
+    tenant_id: Optional[str],
+    provider: AuthProvider,
+    subject: str,
+    provider_subject: Optional[str] = None,
+) -> Optional[str]:
+    inferred_subject = _provider_subject_from_user_id(provider, subject)
+    stable_subject = provider_subject or inferred_subject
+    legacy_provider_tenant = (
+        provider == AuthProvider.GITHUB
+        and tenant_id == f"github:{subject}"
+    )
+    if tenant_id == LEGACY_DEFAULT_TENANT:
+        if provider_subject or inferred_subject != subject:
+            return provider_subject_tenant_scope(provider, stable_subject)
+        return legacy_owner_tenant_scope(subject)
+    if legacy_provider_tenant:
+        return (
+            provider_subject_tenant_scope(provider, stable_subject)
+            or legacy_owner_tenant_scope(subject)
+        )
+    return tenant_id or provider_subject_tenant_scope(provider, stable_subject)
 
 
 @dataclass
@@ -140,6 +202,7 @@ class User:
     name: Optional[str] = None
     avatar_url: Optional[str] = None
     provider: AuthProvider = AuthProvider.ANONYMOUS
+    provider_subject: Optional[str] = None
 
     tier: UserTier = UserTier.FREE
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -253,6 +316,7 @@ class User:
             "avatar_url": self.avatar_url,
 
             "provider": self.provider.value,
+            "provider_subject": self.provider_subject,
             "tier": self.tier.value,
             "tenant_id": self.tenant_id,
             "roles": self.roles,
@@ -361,12 +425,19 @@ async def validate_azure_ad_b2c_token(token: str) -> User:
         if user_id in USER_STORE:
             user = USER_STORE[user_id]
         else:
+            provider = AuthProvider.AZURE_AD_B2C
             user = User(
                 id=user_id,
                 email=email,
                 name=name,
-                provider=AuthProvider.AZURE_AD_B2C,
-                tenant_id=payload.get("tid") or payload.get("tenant_id"),
+                provider=provider,
+                provider_subject=user_id,
+                tenant_id=_normalize_token_tenant(
+                    tenant_id=payload.get("tid") or payload.get("tenant_id"),
+                    provider=provider,
+                    subject=user_id,
+                    provider_subject=user_id,
+                ),
             )
             USER_STORE[user_id] = user
         
@@ -440,12 +511,14 @@ async def exchange_github_code(code: str) -> User:
             if user_id in USER_STORE:
                 user = USER_STORE[user_id]
             else:
+                provider = AuthProvider.GITHUB
                 user = User(
                     id=user_id,
                     email=email,
                     name=github_user.get("name", github_user["login"]),
-                    provider=AuthProvider.GITHUB,
-                    tenant_id=f"github:{user_id}",
+                    provider=provider,
+                    provider_subject=str(github_user["id"]),
+                    tenant_id=provider_subject_tenant_scope(provider, str(github_user["id"])),
                 )
                 USER_STORE[user_id] = user
             
@@ -492,6 +565,8 @@ def generate_session_token(user: User) -> str:
         "exp": now + timedelta(hours=JWT_EXPIRY_HOURS),
         "type": "access",
     }
+    if user.provider_subject:
+        payload["provider_subject"] = user.provider_subject
     if user.tenant_id:
         payload["tenant_id"] = user.tenant_id
     token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
@@ -518,6 +593,12 @@ def get_user_from_session(token: str) -> Optional[User]:
     # Fast path: in-memory cache hit
     cached = USER_CACHE.get(token)
     if cached:
+        cached.tenant_id = _normalize_token_tenant(
+            tenant_id=cached.tenant_id,
+            provider=cached.provider,
+            subject=cached.id,
+            provider_subject=cached.provider_subject,
+        )
         return cached
 
     # Slow path: decode JWT
@@ -529,6 +610,12 @@ def get_user_from_session(token: str) -> Optional[User]:
         # Check USER_STORE for full user with quota state
         if user_id in USER_STORE:
             user = USER_STORE[user_id]
+            user.tenant_id = _normalize_token_tenant(
+                tenant_id=user.tenant_id,
+                provider=user.provider,
+                subject=user.id,
+                provider_subject=user.provider_subject,
+            )
             USER_CACHE[token] = user
             return user
         # Reconstruct minimal user from JWT claims
@@ -543,8 +630,14 @@ def get_user_from_session(token: str) -> Optional[User]:
             name=payload.get("name"),
             avatar_url=payload.get("avatar_url"),
             provider=provider,
+            provider_subject=payload.get("provider_subject"),
             tier=UserTier(payload.get("tier", "free")),
-            tenant_id=payload.get("tenant_id"),
+            tenant_id=_normalize_token_tenant(
+                tenant_id=payload.get("tenant_id"),
+                provider=provider,
+                subject=user_id,
+                provider_subject=payload.get("provider_subject"),
+            ),
             roles=payload.get("roles", ["user"]),
         )
         USER_CACHE[token] = user
@@ -641,17 +734,35 @@ def parse_swa_client_principal(header_value: str) -> Optional[User]:
         user.name = name or user.name
         user.email = email or user.email
         user.avatar_url = avatar_url or user.avatar_url
+        user.tenant_id = _normalize_token_tenant(
+            tenant_id=(
+                claims.get("http://schemas.microsoft.com/identity/claims/tenantid")
+                or claims.get("tid")
+                or data.get("tenantId")
+                or user.tenant_id
+            ),
+            provider=provider,
+            subject=user_id,
+            provider_subject=user.provider_subject or user_id,
+        )
     else:
+        tenant_claim = (
+            claims.get("http://schemas.microsoft.com/identity/claims/tenantid")
+            or claims.get("tid")
+            or data.get("tenantId")
+        )
         user = User(
             id=full_user_id,
             email=email,
             name=name,
             avatar_url=avatar_url,
             provider=provider,
-            tenant_id=(
-                claims.get("http://schemas.microsoft.com/identity/claims/tenantid")
-                or claims.get("tid")
-                or data.get("tenantId")
+            provider_subject=user_id,
+            tenant_id=_normalize_token_tenant(
+                tenant_id=tenant_claim,
+                provider=provider,
+                subject=user_id,
+                provider_subject=user_id,
             ),
         )
         USER_STORE[full_user_id] = user

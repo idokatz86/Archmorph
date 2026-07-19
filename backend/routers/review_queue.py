@@ -19,9 +19,9 @@ from strict_models import StrictBaseModel
 from pydantic import Field
 
 from routers.shared import (
-    SESSION_STORE,
     authorize_diagram_access,
     limiter,
+    persist_diagram_mutation,
     require_diagram_access,
     verify_api_key_or_user_session,
 )
@@ -155,7 +155,12 @@ async def set_item_disposition(
     if body.action == "mark_risk":
         updated_session = apply_risk_annotations(updated_session, dispositions)
 
-    SESSION_STORE[diagram_id] = updated_session
+    persist_diagram_mutation(
+        request,
+        diagram_id,
+        updated_session,
+        label=f"review-disposition-{body.action}",
+    )
 
     summary = queue_summary(items, dispositions)
     return {

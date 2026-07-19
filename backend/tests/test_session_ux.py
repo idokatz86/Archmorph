@@ -31,6 +31,8 @@ from session_store import (
 )
 from routers.shared import IMAGE_STORE, SESSION_STORE
 from auth import User, AuthProvider, UserTier, generate_session_token
+from export_capabilities import issue_restore_capability
+from starlette.requests import Request
 
 
 # ─────────────────────────────────────────────────────────────
@@ -90,6 +92,20 @@ def auth_headers():
     )
     token = generate_session_token(user)
     return {"Authorization": f"Bearer {token}"}
+
+
+def _restore_payload(auth_headers, analysis, diagram_id, **extra):
+    request = Request(
+        {
+            "type": "http",
+            "headers": [(b"authorization", auth_headers["Authorization"].encode())],
+        }
+    )
+    return {
+        "analysis": analysis,
+        "restore_capability": issue_restore_capability(request, diagram_id),
+        **extra,
+    }
 
 
 # ─────────────────────────────────────────────────────────────
@@ -192,7 +208,7 @@ class TestSessionRestore:
 
         resp = test_client.post(
             f"/api/v1/diagrams/{diagram_id}/restore-session",
-            json={"analysis": analysis},
+            json=_restore_payload(auth_headers, analysis, diagram_id),
             headers=auth_headers,
         )
         assert resp.status_code == 200
@@ -226,7 +242,7 @@ class TestSessionRestore:
 
         test_client.post(
             f"/api/v1/diagrams/{diagram_id}/restore-session",
-            json={"analysis": analysis},
+            json=_restore_payload(auth_headers, analysis, diagram_id),
             headers=auth_headers,
         )
 
@@ -240,7 +256,7 @@ class TestSessionRestore:
         diagram_id = "test-restored-read-001"
         test_client.post(
             f"/api/v1/diagrams/{diagram_id}/restore-session",
-            json={"analysis": analysis},
+            json=_restore_payload(auth_headers, analysis, diagram_id),
             headers=auth_headers,
         )
 
@@ -255,7 +271,7 @@ class TestSessionRestore:
         diagram_id = "test-rate-limit"
         resp = test_client.post(
             f"/api/v1/diagrams/{diagram_id}/restore-session",
-            json={"analysis": analysis},
+            json=_restore_payload(auth_headers, analysis, diagram_id),
             headers=auth_headers,
         )
         assert resp.status_code == 200
@@ -265,7 +281,8 @@ class TestSessionRestore:
             "/api/v1/diagrams/test-no-auth/restore-session",
             json={"analysis": analysis},
         )
-        assert resp.status_code == 401
+        assert resp.status_code == 404
+        assert resp.json()["error"]["message"] == "Diagram not found"
 
     def test_restore_rejects_malicious_image_payload(self, test_client, analysis, auth_headers):
         svg = b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'
@@ -273,11 +290,13 @@ class TestSessionRestore:
 
         resp = test_client.post(
             f"/api/v1/diagrams/{diagram_id}/restore-session",
-            json={
-                "analysis": analysis,
-                "image_base64": base64.b64encode(svg).decode("ascii"),
-                "image_content_type": "image/svg+xml",
-            },
+            json=_restore_payload(
+                auth_headers,
+                analysis,
+                diagram_id,
+                image_base64=base64.b64encode(svg).decode("ascii"),
+                image_content_type="image/svg+xml",
+            ),
             headers=auth_headers,
         )
 

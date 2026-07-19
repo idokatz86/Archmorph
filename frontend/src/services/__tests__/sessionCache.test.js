@@ -262,3 +262,16 @@ describe('sessionCache', () => {
     expect(sessionStorage.getItem('archmorph_img_blocked-diagram')).toBeNull()
   })
 })
+    it('persists the signed restore capability only in opted-in sensitive cache', () => {
+      saveSessionWithOptIn(
+        'restore-capability-diagram',
+        { zones: [] },
+        [],
+        {},
+        { restoreCapability: 'signed-restore-capability' },
+      );
+
+      const restored = loadSession('restore-capability-diagram', { persistSensitive: true });
+
+      expect(restored.restoreCapability).toBe('signed-restore-capability');
+    });

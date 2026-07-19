@@ -23,6 +23,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from database import Base
 from sqlalchemy import create_engine, event
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 import models  # noqa: F401 — register all ORM models with Base.metadata
@@ -47,6 +48,7 @@ from workspace_store import (
     load_analysis_state,
     maybe_link_session,
     persist_analysis_state,
+    persist_analysis_mutation,
     restore_analysis_version,
     save_analysis_version,
     update_workspace,
@@ -833,6 +835,266 @@ class TestCanonicalAnalysisState:
                 diagram_id="diag-no-tenant",
                 snapshot={"mappings": []},
             )
+
+    @pytest.mark.parametrize(
+        ("label", "mutation"),
+        [
+            ("analysis-services-added", {"mappings": [{"source_service": "S3"}]}),
+            ("guided-answers-applied", {"guided_answers": {"ha": "yes"}}),
+            ("review-disposition-accept", {"review_queue_dispositions": {"item": {"action": "accept"}}}),
+        ],
+    )
+    def test_each_analysis_mutation_survives_cache_loss(self, db, label, mutation):
+        store = self._FakeStore()
+        snapshot = {"services_detected": 1, "mappings": [], **mutation}
+        result = persist_analysis_mutation(
+            db,
+            owner_user_id="mutation-owner",
+            tenant_id="mutation-tenant",
+            diagram_id=f"diag-{label}",
+            snapshot=snapshot,
+            session_store=store,
+            label=label,
+            cache_required=True,
+        )
+
+        store.clear()
+        hydrated = load_analysis_state(
+            db,
+            diagram_id=f"diag-{label}",
+            owner_user_id="mutation-owner",
+            tenant_id="mutation-tenant",
+            session_store=store,
+        )
+
+        assert result.version.version_number == 1
+        for key, value in mutation.items():
+            assert hydrated[key] == value
+
+    @pytest.mark.parametrize(
+        ("artifact_type", "artifact_format", "content"),
+        [
+            ("hld", "markdown", "# Durable HLD"),
+            ("terraform", "terraform", 'resource "azurerm_resource_group" "main" {}'),
+            ("bicep", "bicep", "resource rg 'Microsoft.Resources/resourceGroups@2024-11-01' = {}"),
+        ],
+    )
+    def test_generated_artifact_and_snapshot_survive_cache_loss(
+        self,
+        db,
+        artifact_type,
+        artifact_format,
+        content,
+    ):
+        store = self._FakeStore()
+        snapshot = {"mappings": [], "generated": artifact_type}
+        result = persist_analysis_mutation(
+            db,
+            owner_user_id="artifact-owner",
+            tenant_id="artifact-tenant",
+            diagram_id=f"diag-{artifact_type}",
+            snapshot=snapshot,
+            session_store=store,
+            artifact_type=artifact_type,
+            artifact_format=artifact_format,
+            artifact_content=content,
+            cache_required=True,
+        )
+
+        store.clear()
+        hydrated = load_analysis_state(
+            db,
+            diagram_id=f"diag-{artifact_type}",
+            owner_user_id="artifact-owner",
+            tenant_id="artifact-tenant",
+        )
+        artifacts = list_artifacts(
+            db,
+            analysis_id=result.analysis.id,
+            owner_user_id="artifact-owner",
+            tenant_id="artifact-tenant",
+        )
+
+        assert hydrated["generated"] == artifact_type
+        assert result.artifact.version_id == result.version.id
+        assert artifacts["total"] == 1
+        persisted = get_artifact(
+            db,
+            result.artifact.id,
+            owner_user_id="artifact-owner",
+            tenant_id="artifact-tenant",
+        )
+        assert persisted.content == content
+
+    def test_canonical_uow_calls_artifact_repository(self, db, monkeypatch):
+        import workspace_store
+
+        calls = []
+        original = workspace_store.create_artifact
+
+        def capture(*args, **kwargs):
+            calls.append(kwargs)
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(workspace_store, "create_artifact", capture)
+        result = persist_analysis_mutation(
+            db,
+            owner_user_id="artifact-caller-owner",
+            tenant_id="artifact-caller-tenant",
+            diagram_id="diag-artifact-caller",
+            snapshot={"mappings": [], "hld": {"title": "HLD"}},
+            artifact_type="hld",
+            artifact_format="markdown",
+            artifact_content="# HLD",
+        )
+
+        assert result.artifact is not None
+        assert calls[0]["version_id"] == result.version.id
+        assert calls[0]["commit"] is False
+
+    def test_version_aware_cache_cas_rejects_reversed_projection(self, db):
+        store = self._FakeStore()
+        first = persist_analysis_mutation(
+            db,
+            owner_user_id="cas-owner",
+            tenant_id="cas-tenant",
+            diagram_id="diag-cas",
+            snapshot={"step": "first", "mappings": []},
+        )
+        second = persist_analysis_mutation(
+            db,
+            owner_user_id="cas-owner",
+            tenant_id="cas-tenant",
+            diagram_id="diag-cas",
+            snapshot={"step": "second", "mappings": []},
+            session_store=store,
+            cache_required=True,
+        )
+
+        from workspace_store import AnalysisCacheWriteError, _write_session_cache
+
+        with pytest.raises(AnalysisCacheWriteError):
+            _write_session_cache(
+                store,
+                diagram_id="diag-cas",
+                owner_user_id="cas-owner",
+                tenant_id="cas-tenant",
+                snapshot={"step": "first"},
+                version_number=first.version.version_number,
+            )
+        assert second.version.version_number == 2
+        assert store.data["diag-cas"]["step"] == "second"
+        assert store.data["diag-cas"]["_analysis_version"] == 2
+
+    def test_version_aware_cache_cas_rejects_ownerless_existing_entry(self, db):
+        from workspace_store import AnalysisCacheWriteError, _write_session_cache
+
+        store = self._FakeStore()
+        store.data["diag-ownerless"] = {
+            "_tenant_id": "cas-tenant",
+            "_analysis_version": 1,
+        }
+
+        with pytest.raises(AnalysisCacheWriteError):
+            _write_session_cache(
+                store,
+                diagram_id="diag-ownerless",
+                owner_user_id="cas-owner",
+                tenant_id="cas-tenant",
+                snapshot={"step": "second"},
+                version_number=2,
+            )
+
+    def test_expected_version_conflict_does_not_append(self, db):
+        first = persist_analysis_mutation(
+            db,
+            owner_user_id="optimistic-owner",
+            tenant_id="optimistic-tenant",
+            diagram_id="diag-optimistic",
+            snapshot={"mappings": []},
+        )
+        from workspace_store import AnalysisVersionConflictError
+
+        with pytest.raises(AnalysisVersionConflictError):
+            persist_analysis_mutation(
+                db,
+                owner_user_id="optimistic-owner",
+                tenant_id="optimistic-tenant",
+                diagram_id="diag-optimistic",
+                snapshot={"mappings": [], "stale": True},
+                expected_version=0,
+            )
+        assert len(list_analysis_versions(
+            db,
+            analysis_id=first.analysis.id,
+            owner_user_id="optimistic-owner",
+            tenant_id="optimistic-tenant",
+        )) == 1
+
+    def test_database_uniqueness_matches_analysis_identity(self, db):
+        from models.workspace import Analysis
+
+        first = persist_analysis_mutation(
+            db,
+            owner_user_id="unique-owner",
+            tenant_id="unique-tenant",
+            diagram_id="diag-unique",
+            snapshot={"mappings": []},
+        )
+        duplicate = Analysis(
+            workspace_id=first.analysis.workspace_id,
+            owner_user_id="unique-owner",
+            tenant_id="unique-tenant",
+            diagram_id="diag-unique",
+        )
+        db.add(duplicate)
+        with pytest.raises(IntegrityError):
+            db.commit()
+        db.rollback()
+
+    def test_legacy_version_restore_survives_cache_loss(self, db):
+        store = self._FakeStore()
+        original = persist_analysis_mutation(
+            db,
+            owner_user_id="restore-owner",
+            tenant_id="restore-tenant",
+            diagram_id="diag-version-restore",
+            snapshot={"step": "original", "mappings": []},
+            session_store=store,
+            label="original",
+            cache_required=True,
+        )
+        persist_analysis_mutation(
+            db,
+            owner_user_id="restore-owner",
+            tenant_id="restore-tenant",
+            diagram_id="diag-version-restore",
+            snapshot={"step": "changed", "mappings": []},
+            session_store=store,
+            label="changed",
+            cache_required=True,
+        )
+
+        restored = restore_analysis_version(
+            db,
+            analysis_id=original.analysis.id,
+            version_number=original.version.version_number,
+            owner_user_id="restore-owner",
+            tenant_id="restore-tenant",
+            session_store=store,
+        )
+        store.clear()
+        hydrated = load_analysis_state(
+            db,
+            diagram_id="diag-version-restore",
+            owner_user_id="restore-owner",
+            tenant_id="restore-tenant",
+            session_store=store,
+        )
+
+        assert restored.restored_from == original.version.version_number
+        assert hydrated["step"] == "original"
+        assert store.data["diag-version-restore"]["_analysis_version"] == restored.version_number
 
 
 def test_cache_loss_hydration_has_no_cross_tenant_existence_oracle(test_client, monkeypatch, db):

@@ -88,6 +88,7 @@ export function saveSession(diagramId, analysis, questions = [], answers = {}, e
       iacCode: extra.iacCode || null,
       iacFormat: extra.iacFormat || null,
       hldData: extra.hldData || null,
+      restoreCapability: extra.restoreCapability || null,
       sensitiveCacheOptIn: true,
       ts: Date.now(),
     });

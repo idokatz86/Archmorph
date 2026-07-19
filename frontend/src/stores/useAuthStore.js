@@ -73,7 +73,13 @@ function claimValue(principal, names) {
   return claims.find((claim) => names.includes(claim.typ))?.val || null;
 }
 
-function userFromSwaPrincipal(principal) {
+async function providerSubjectTenantScope(identityProvider, subject) {
+  const input = new TextEncoder().encode(`archmorph-provider-tenant-v1\0${identityProvider}\0${subject}`);
+  const digest = await crypto.subtle.digest('SHA-256', input);
+  return `idp:${Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('').slice(0, 32)}`;
+}
+
+async function userFromSwaPrincipal(principal) {
   if (!principal?.userId) return null;
   const roles = Array.isArray(principal.userRoles) ? principal.userRoles : [];
   if (!roles.includes('authenticated')) return null;
@@ -89,10 +95,11 @@ function userFromSwaPrincipal(principal) {
     'name',
     'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name',
   ]) || principal.userDetails || 'User';
-  const tenantId = claimValue(principal, [
+  const tenantClaim = claimValue(principal, [
     'http://schemas.microsoft.com/identity/claims/tenantid',
     'tid',
   ]) || principal.tenantId || null;
+  const tenantId = tenantClaim || await providerSubjectTenantScope(provider, principal.userId);
 
   return {
     id: `${identityProvider}_${principal.userId}`,
@@ -179,7 +186,7 @@ const useAuthStore = create((set, get) => ({
         const data = await res.json();
         const principal = data?.clientPrincipal;
         if (principal?.userId) {
-          const swaUser = userFromSwaPrincipal(principal);
+          const swaUser = await userFromSwaPrincipal(principal);
           // SWA authenticated — get full user from our API
           const apiRes = await fetch(`${API_BASE}/auth/me`, {
             headers: { 'Content-Type': 'application/json' },

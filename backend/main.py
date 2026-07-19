@@ -408,11 +408,12 @@ class ArchmorphMiddleware(BaseHTTPMiddleware):
     """
 
     _AUDIT_SKIP = frozenset({
-        "/health", "/api/health", "/favicon.ico",
+        "/health", "/healthz", "/readyz", "/api/health", "/favicon.ico",
         "/openapi.json", "/docs", "/redoc",
     })
     _ORIGIN_LOCK_SKIP = frozenset({
         "/healthz",
+        "/readyz",
     })
 
     @staticmethod

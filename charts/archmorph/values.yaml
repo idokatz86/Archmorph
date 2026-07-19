@@ -97,6 +97,9 @@ externalSecrets:
     - secretKey: DATABASE_URL
       remoteRef:
         key: database-url
+    - secretKey: REDIS_URL
+      remoteRef:
+        key: redis-url
     - secretKey: APPLICATIONINSIGHTS_CONNECTION_STRING
       remoteRef:
         key: appinsights-connection-string
@@ -116,7 +119,7 @@ livenessProbe:
 
 readinessProbe:
   httpGet:
-    path: /healthz
+    path: /readyz
     port: 8000
   initialDelaySeconds: 5
   periodSeconds: 10

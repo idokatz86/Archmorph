@@ -3508,6 +3508,17 @@
               }
             ],
             "title": "Image Content Type"
+          },
+          "restore_capability": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Restore Capability"
           }
         },
         "required": [
@@ -10218,6 +10229,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Restore Session"
       }
     },
@@ -21201,6 +21217,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "summary": "Restore Session V1",
         "tags": [
           "v1"
@@ -27855,6 +27876,23 @@
           }
         },
         "summary": "Healthz"
+      }
+    },
+    "/readyz": {
+      "get": {
+        "description": "Anonymous sanitized readiness for required PostgreSQL and Redis.",
+        "operationId": "readyz_readyz_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Readyz"
       }
     }
   }

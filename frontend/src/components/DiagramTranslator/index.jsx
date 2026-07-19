@@ -445,6 +445,7 @@ export default function DiagramTranslator() {
         iacFormat: normalizeIacFormat(cached.iacFormat),
         hldData: cached.hldData || null,
         exportCapability: null,
+        restoreCapability: cached.restoreCapability || null,
         step: cached.iacCode ? 'iac' : 'results',
       });
     }
@@ -718,6 +719,9 @@ export default function DiagramTranslator() {
       payload.iac_code = source.iacCode;
       payload.iac_format = source.iacFormat || null;
     }
+    if (source.restoreCapability) {
+      payload.restore_capability = source.restoreCapability;
+    }
     // Include cached diagram image so IMAGE_STORE is also restored (#333).
     const cachedImg = loadCachedImage(diagramId, { persistSensitive: persistSensitiveCache });
     if (cachedImg) {
@@ -732,6 +736,11 @@ export default function DiagramTranslator() {
     if (!payload) return null;
     const restoredData = await api.post(`/diagrams/${diagramId}/restore-session`, payload);
     rememberExportCapability(restoredData?.export_capability);
+    if (restoredData?.restore_capability) {
+      stateRef.current = { ...stateRef.current, restoreCapability: restoredData.restore_capability };
+      set({ restoreCapability: restoredData.restore_capability });
+      updateSessionCache({ restoreCapability: restoredData.restore_capability });
+    }
     return restoredData;
   }, [buildRestorePayload, rememberExportCapability]);
 
@@ -878,7 +887,20 @@ export default function DiagramTranslator() {
       const projectId = state.projectId || DEFAULT_PROJECT_ID;
       const uploadData = await withAuthRecovery(() => api.post(`/projects/${projectId}/diagrams`, formData, signal));
       const { diagram_id } = uploadData;
-      set({ projectId: uploadData.project_id || projectId, diagramId: diagram_id, exportCapability: uploadData.export_capability || null, purgeReceipt: null });
+      set({
+        projectId: uploadData.project_id || projectId,
+        diagramId: diagram_id,
+        exportCapability: uploadData.export_capability || null,
+        restoreCapability: uploadData.restore_capability || null,
+        purgeReceipt: null,
+      });
+      stateRef.current = {
+        ...stateRef.current,
+        projectId: uploadData.project_id || projectId,
+        diagramId: diagram_id,
+        exportCapability: uploadData.export_capability || null,
+        restoreCapability: uploadData.restore_capability || null,
+      };
       await refreshProjectStatus(uploadData.project_id || projectId);
 
       // Cache uploaded image for session restore (#333)
@@ -1013,6 +1035,7 @@ export default function DiagramTranslator() {
           persistSensitive: persistSensitiveCache,
           allQuestions: questionState.allQuestions,
           questionAssumptions: questionState.questionAssumptions,
+          restoreCapability: uploadData.restore_capability || stateRef.current.restoreCapability,
         });
         set({ ...questionState, step: 'results' });
       } else {
@@ -1071,6 +1094,7 @@ export default function DiagramTranslator() {
           persistSensitive: persistSensitiveCache,
           allQuestions: questionState.allQuestions,
           questionAssumptions: questionState.questionAssumptions,
+          restoreCapability: uploadData.restore_capability || stateRef.current.restoreCapability,
         });
         set({ ...questionState, step: 'results' });
       }

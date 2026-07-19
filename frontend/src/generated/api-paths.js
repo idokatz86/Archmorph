@@ -458,6 +458,7 @@ export const API_PATH_TEMPLATES = Object.freeze({
   API_WORKSPACES_WORKSPACE_ID: "/api/workspaces/{workspace_id}",
   API_WORKSPACES_WORKSPACE_ID_ANALYSES: "/api/workspaces/{workspace_id}/analyses",
   HEALTHZ: "/healthz",
+  READYZ: "/readyz",
 });
 
 export const OPENAPI_PATHS = Object.freeze(Object.values(API_PATH_TEMPLATES));

@@ -10,6 +10,7 @@ from pydantic import Field
 from starlette.responses import JSONResponse
 from strict_models import StrictBaseModel
 import asyncio
+import copy
 import hashlib
 import json
 import logging
@@ -22,6 +23,7 @@ from routers.shared import (
     authorize_diagram_access,
     get_api_key_service_principal,
     limiter,
+    persist_diagram_mutation,
     require_diagram_access,
     verify_api_key,
 )
@@ -53,11 +55,10 @@ def _get_stored_etag(session: dict) -> str | None:
     return session.get(_IAC_ETAG_KEY)
 
 
-def _store_iac_etag(diagram_id: str, session: dict, code: str) -> str:
-    """Compute and persist the new ETag; return it."""
+def _store_iac_etag(session: dict, code: str) -> str:
+    """Compute and stage the new ETag; the caller owns persistence."""
     etag = _compute_iac_etag(code)
     session[_IAC_ETAG_KEY] = etag
-    SESSION_STORE[diagram_id] = session
     return etag
 
 
@@ -247,16 +248,26 @@ async def generate_iac(
     # Persist the canonical IaC code server-side so chat turns can validate
     # the client is working against the same version (#842), and update the
     # short ETag used by If-Match optimistic concurrency checks (#858).
-    session["iac_code"] = code
-    session["iac_code_hash"] = _iac_code_hash(code)
-    session["iac_format"] = format
-    new_etag = _store_iac_etag(diagram_id, session, code)
+    updated_session = copy.deepcopy(session)
+    updated_session["iac_code"] = code
+    updated_session["iac_code_hash"] = _iac_code_hash(code)
+    updated_session["iac_format"] = format
+    new_etag = _store_iac_etag(updated_session, code)
+    persist_diagram_mutation(
+        request,
+        diagram_id,
+        updated_session,
+        artifact_type=format,
+        artifact_format=format,
+        artifact_content=code,
+        label=f"iac-{format}-generated",
+    )
     return JSONResponse(
         content={
             "diagram_id": diagram_id,
             "format": format,
             "code": code,
-            "code_hash": session["iac_code_hash"],
+            "code_hash": updated_session["iac_code_hash"],
             "etag": new_etag,
         },
         headers={"ETag": new_etag},
@@ -280,6 +291,11 @@ async def iac_chat_endpoint(request: Request, diagram_id: str, msg: IaCChatMessa
     record_event("iac_chat_messages", {"diagram_id": diagram_id})
 
     session = authorize_diagram_access(request, diagram_id, purpose="chat about IaC")
+    durable_history = session.get("iac_chat_history")
+    if isinstance(durable_history, list) and not get_iac_chat_history(diagram_id):
+        from iac_chat import IAC_CHAT_SESSIONS
+
+        IAC_CHAT_SESSIONS[f"{diagram_id}:iac"] = copy.deepcopy(durable_history)
     analysis_context = session.get("analysis") if session else None
 
     # ── Server-side canonical code validation (#842) ──────────────────────
@@ -313,12 +329,26 @@ async def iac_chat_endpoint(request: Request, diagram_id: str, msg: IaCChatMessa
     if not result.get("error"):
         new_code = result.get("code")
         if new_code:
-            session = SESSION_STORE.get(diagram_id) or session
-            session["iac_code"] = new_code
-            session["iac_code_hash"] = _iac_code_hash(new_code)
-            new_etag = _store_iac_etag(diagram_id, session, new_code)
+            latest_session = SESSION_STORE.peek(diagram_id) or session
+            updated_session = copy.deepcopy(latest_session)
+            updated_session["iac_code"] = new_code
+            updated_session["iac_code_hash"] = _iac_code_hash(new_code)
+            updated_session["iac_format"] = msg.format
+            updated_session["iac_chat_history"] = copy.deepcopy(
+                get_iac_chat_history(diagram_id)
+            )
+            new_etag = _store_iac_etag(updated_session, new_code)
+            persist_diagram_mutation(
+                request,
+                diagram_id,
+                updated_session,
+                artifact_type=msg.format,
+                artifact_format=msg.format,
+                artifact_content=new_code,
+                label=f"iac-{msg.format}-chat",
+            )
             # Surface the new hash so clients can synchronise without re-fetching
-            result["code_hash"] = session["iac_code_hash"]
+            result["code_hash"] = updated_session["iac_code_hash"]
             result["etag"] = new_etag
 
     if result.get("services_added"):
@@ -336,12 +366,15 @@ async def iac_chat_history(
     request: Request,
     diagram_id: str,
     _auth=Depends(verify_api_key),
-    _session=Depends(require_diagram_access),
+    session=Depends(require_diagram_access),
 ):
     """Get IaC chat history for a diagram."""
+    history = get_iac_chat_history(diagram_id)
+    if not history and isinstance(session.get("iac_chat_history"), list):
+        history = session["iac_chat_history"]
     return {
         "diagram_id": diagram_id,
-        "messages": get_iac_chat_history(diagram_id),
+        "messages": history,
     }
 
 
@@ -505,11 +538,52 @@ async def _run_iac_job(
             updated["iac_format"] = iac_format
             return updated
 
-        canonical_state_persisted, latest_session = SESSION_STORE.update_if(
-            diagram_id,
-            _canonical_state_matches,
-            _write_canonical_state,
-        )
+        latest_session = SESSION_STORE.peek(diagram_id)
+        canonical_state_persisted = _canonical_state_matches(latest_session)
+        if canonical_state_persisted:
+            updated_session = _write_canonical_state(latest_session)
+            if job_record and (
+                getattr(job_record, "owner_user_id", None)
+                or getattr(job_record, "owner_api_key_id", None)
+            ):
+                from database import SessionLocal
+                from workspace_store import AnalysisVersionConflictError, persist_analysis_mutation
+
+                db = SessionLocal()
+                try:
+                    expected_version = latest_session.get("_analysis_version")
+                    durable_owner = job_record.owner_user_id or job_record.owner_api_key_id
+                    durable_tenant = job_record.tenant_id or f"service:{job_record.owner_api_key_id.split(':', 1)[-1]}"
+                    persist_analysis_mutation(
+                        db,
+                        owner_user_id=durable_owner,
+                        tenant_id=durable_tenant,
+                        diagram_id=diagram_id,
+                        snapshot=updated_session,
+                        session_store=SESSION_STORE,
+                        cache_owner_api_key_id=job_record.owner_api_key_id,
+                        artifact_type=iac_format,
+                        artifact_format=iac_format,
+                        artifact_content=code,
+                        expected_version=int(expected_version) if expected_version is not None else None,
+                        label=f"iac-{iac_format}-generated-async",
+                        cache_required=True,
+                    )
+                    latest_session = SESSION_STORE.peek(diagram_id)
+                except AnalysisVersionConflictError:
+                    canonical_state_persisted = False
+                    latest_session = SESSION_STORE.peek(diagram_id)
+                except Exception as exc:
+                    job_manager.fail(job_id, f"Canonical IaC persistence failed: {type(exc).__name__}")
+                    return
+                finally:
+                    db.close()
+            else:
+                canonical_state_persisted, latest_session = SESSION_STORE.update_if(
+                    diagram_id,
+                    _canonical_state_matches,
+                    _write_canonical_state,
+                )
         canonical_state_changed = not canonical_state_persisted
         if canonical_state_persisted:
             new_etag = _get_stored_etag(latest_session) or new_etag

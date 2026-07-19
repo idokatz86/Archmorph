@@ -262,9 +262,15 @@ variable "storage_cmk_key_vault_key_id" {
 }
 
 variable "health_probe_path" {
-  description = "Health probe path for infra checks. Defaults to the anonymous health endpoint."
+  description = "Anonymous liveness probe path. Must not depend on PostgreSQL or Redis."
   type        = string
   default     = "/healthz"
+}
+
+variable "readiness_probe_path" {
+  description = "Anonymous readiness probe path for required PostgreSQL and Redis dependencies."
+  type        = string
+  default     = "/readyz"
 }
 
 variable "app_insights_sampling_percentage_prod" {

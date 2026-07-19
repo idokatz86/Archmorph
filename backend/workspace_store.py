@@ -40,9 +40,11 @@ Usage example::
 import hashlib
 import json as _json
 import logging
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -74,6 +76,10 @@ class AnalysisCacheWriteError(RuntimeError):
     """Raised when a required cache refresh fails after a durable commit."""
 
 
+class AnalysisVersionConflictError(RuntimeError):
+    """Raised when an optimistic mutation targets an obsolete durable version."""
+
+
 @dataclass(frozen=True)
 class AnalysisWriteResult:
     """Result of one canonical analysis persistence operation."""
@@ -81,6 +87,7 @@ class AnalysisWriteResult:
     analysis: Analysis
     version: AnalysisVersion
     cache_updated: bool
+    artifact: Optional[Artifact] = None
 
 
 def _short_hash(data: str) -> str:
@@ -104,6 +111,16 @@ def _redact_snapshot(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         if key.startswith("_owner_") or key in {"_tenant_id", "export_capability", "exportCapability"}:
             redacted.pop(key, None)
     return redacted
+
+
+def _serialize_snapshot(snapshot: Dict[str, Any]) -> str:
+    """Return deterministic JSON for hashes, idempotency, and durable snapshots."""
+    return _json.dumps(
+        _redact_snapshot(snapshot),
+        default=str,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
 
 
 def _require_durable_identity(owner_user_id: str, tenant_id: Optional[str]) -> None:
@@ -419,7 +436,7 @@ def save_analysis_version(
     per-analysis cap is exceeded.
     """
     snapshot = _redact_snapshot(snapshot)
-    snapshot_json = _json.dumps(snapshot, default=str)
+    snapshot_json = _serialize_snapshot(snapshot)
     content_hash = _short_hash(snapshot_json)
     mappings = snapshot.get("mappings", [])
     confidences = [m.get("confidence") for m in mappings if m.get("confidence") is not None]
@@ -428,8 +445,11 @@ def save_analysis_version(
 
     last_integrity_error: Optional[IntegrityError] = None
     for _attempt in range(3):
+        query = db.query(Analysis)
+        if db.get_bind().dialect.name == "postgresql":
+            query = query.with_for_update()
         analysis = (
-            db.query(Analysis)
+            query
             .filter(
                 Analysis.id == analysis_id,
                 Analysis.owner_user_id == owner_user_id,
@@ -440,7 +460,13 @@ def save_analysis_version(
         if analysis is None:
             raise ValueError(f"Analysis {analysis_id!r} not found or access denied")
 
-        new_version_number = analysis.current_version + 1
+        max_version = (
+            db.query(func.max(AnalysisVersion.version_number))
+            .filter(AnalysisVersion.analysis_id == analysis_id)
+            .scalar()
+            or 0
+        )
+        new_version_number = max(int(analysis.current_version or 0), int(max_version)) + 1
         version = AnalysisVersion(
             analysis_id=analysis_id,
             version_number=new_version_number,
@@ -567,6 +593,7 @@ def restore_analysis_version(
     owner_user_id: str,
     tenant_id: Optional[str] = None,
     session_store: Any = None,
+    cache_owner_api_key_id: Optional[str] = None,
 ) -> Optional[AnalysisVersion]:
     """Restore a previous version by creating a new version from it.
 
@@ -603,6 +630,7 @@ def restore_analysis_version(
             snapshot=snapshot,
             workspace_id=analysis.workspace_id,
             session_store=session_store,
+            cache_owner_api_key_id=cache_owner_api_key_id,
             label=f"restored-from-v{version_number}",
             restored_from=version_number,
         )
@@ -647,13 +675,46 @@ def create_artifact(
     format: Optional[str] = None,
     content: Optional[str] = None,
     storage_url: Optional[str] = None,
+    commit: bool = True,
 ) -> Artifact:
     """Record a generated artifact."""
+    analysis = get_analysis_record(
+        db,
+        analysis_id,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+    )
+    if analysis is None:
+        raise ValueError(f"Analysis {analysis_id!r} not found or access denied")
+    if version_id is not None:
+        version = (
+            db.query(AnalysisVersion)
+            .filter(
+                AnalysisVersion.id == version_id,
+                AnalysisVersion.analysis_id == analysis_id,
+            )
+            .first()
+        )
+        if version is None:
+            raise ValueError(f"Version {version_id!r} not found for analysis")
     content_hash: Optional[str] = None
     size_bytes: Optional[int] = None
     if content:
         content_hash = _full_hash(content.encode("utf-8"))
         size_bytes = len(content.encode("utf-8"))
+
+    if version_id is not None and content_hash is not None:
+        existing = (
+            db.query(Artifact)
+            .filter(
+                Artifact.version_id == version_id,
+                Artifact.artifact_type == artifact_type,
+                Artifact.content_hash == content_hash,
+            )
+            .first()
+        )
+        if existing is not None:
+            return existing
 
     artifact = Artifact(
         analysis_id=analysis_id,
@@ -669,8 +730,11 @@ def create_artifact(
         size_bytes=size_bytes,
     )
     db.add(artifact)
-    db.commit()
-    db.refresh(artifact)
+    if commit:
+        db.commit()
+        db.refresh(artifact)
+    else:
+        db.flush()
     logger.info(
         "artifact_created artifact_id=%s analysis=%s type=%s",
         artifact.id,
@@ -884,12 +948,18 @@ def _stage_analysis_version(
     restored_from: Optional[int],
 ) -> AnalysisVersion:
     redacted = _redact_snapshot(snapshot)
-    snapshot_json = _json.dumps(redacted, default=str)
+    snapshot_json = _serialize_snapshot(redacted)
     mappings = redacted.get("mappings", [])
     confidences = [m.get("confidence") for m in mappings if m.get("confidence") is not None]
     services_detected = redacted.get("services_detected", len(mappings))
     confidence_avg = round(sum(confidences) / len(confidences), 4) if confidences else None
-    version_number = analysis.current_version + 1
+    max_version = (
+        db.query(func.max(AnalysisVersion.version_number))
+        .filter(AnalysisVersion.analysis_id == analysis.id)
+        .scalar()
+        or 0
+    )
+    version_number = max(int(analysis.current_version or 0), int(max_version)) + 1
     version = AnalysisVersion(
         analysis_id=analysis.id,
         version_number=version_number,
@@ -915,7 +985,7 @@ def _matching_current_version(
 ) -> Optional[AnalysisVersion]:
     if analysis.current_version <= 0:
         return None
-    snapshot_json = _json.dumps(_redact_snapshot(snapshot), default=str)
+    snapshot_json = _serialize_snapshot(snapshot)
     candidate = (
         db.query(AnalysisVersion)
         .filter(
@@ -937,14 +1007,22 @@ def _write_session_cache(
     owner_user_id: str,
     tenant_id: str,
     snapshot: Dict[str, Any],
+    version_number: int,
+    owner_api_key_id: Optional[str] = None,
     allow_existing: bool = True,
+    allow_legacy_tenant_rehome: bool = False,
+    allow_unowned_upload_claim: bool = False,
 ) -> None:
     cached_snapshot = {
         **_redact_snapshot(snapshot),
         "diagram_id": diagram_id,
-        "_owner_user_id": owner_user_id,
         "_tenant_id": tenant_id,
+        "_analysis_version": version_number,
     }
+    if owner_api_key_id:
+        cached_snapshot["_owner_api_key_id"] = owner_api_key_id
+    else:
+        cached_snapshot["_owner_user_id"] = owner_user_id
     if not allow_existing:
         updated, _current = session_store.update_if(
             diagram_id,
@@ -955,16 +1033,47 @@ def _write_session_cache(
             raise AnalysisCacheWriteError("Refusing to hydrate over an existing cache entry")
         return
 
-    def _same_owner(current: Any) -> bool:
-        return current is None or (
-            isinstance(current, dict)
-            and current.get("_owner_user_id") in (None, owner_user_id)
-            and current.get("_tenant_id") in (None, tenant_id)
+    def _same_owner_and_not_newer(current: Any) -> bool:
+        if current is None:
+            return True
+        if not isinstance(current, dict):
+            return False
+        current_version = current.get("_analysis_version")
+        unowned_upload_claim = bool(
+            allow_unowned_upload_claim
+            and current.get("diagram_id") == diagram_id
+            and current.get("status") == "uploaded"
+            and current.get("_owner_user_id") is None
+            and current.get("_owner_api_key_id") is None
+            and current_version is None
+        )
+        if unowned_upload_claim:
+            return True
+        owner_matches = (
+            current.get("_owner_api_key_id") == owner_api_key_id
+            and current.get("_owner_user_id") is None
+            if owner_api_key_id
+            else current.get("_owner_user_id") == owner_user_id
+            and current.get("_owner_api_key_id") is None
+        )
+        tenant_matches = current.get("_tenant_id") == tenant_id or (
+            owner_api_key_id is not None
+            and current.get("_owner_api_key_id") == owner_api_key_id
+            and current.get("_tenant_id") is None
+        ) or (
+            allow_legacy_tenant_rehome
+            and current.get("_owner_user_id") == owner_user_id
+            and current.get("_tenant_id") == "default_tenant"
+        )
+        return (
+            owner_matches
+            and tenant_matches
+            and (current_version is None or int(current_version) <= version_number)
         )
 
     updated, _current = session_store.update_if(
         diagram_id,
-        _same_owner,
+        _same_owner_and_not_newer,
         lambda _current: cached_snapshot,
     )
     if not updated:
@@ -982,7 +1091,14 @@ def persist_analysis_state(
     session_store: Any = None,
     label: Optional[str] = None,
     restored_from: Optional[int] = None,
+    expected_version: Optional[int] = None,
+    artifact_type: Optional[str] = None,
+    artifact_format: Optional[str] = None,
+    artifact_content: Optional[str] = None,
+    cache_owner_api_key_id: Optional[str] = None,
     cache_required: bool = False,
+    allow_legacy_cache_rehome: bool = False,
+    allow_unowned_upload_claim: bool = False,
 ) -> AnalysisWriteResult:
     """Commit authenticated analysis state, then refresh its transient cache.
 
@@ -994,61 +1110,94 @@ def persist_analysis_state(
     _require_durable_identity(owner_user_id, tenant_id)
     assert tenant_id is not None
 
-    try:
-        analysis = _get_analysis_by_diagram(
-            db,
-            diagram_id=diagram_id,
-            owner_user_id=owner_user_id,
-            tenant_id=tenant_id,
-            for_update=True,
-        )
-        if analysis is None:
-            resolved_workspace_id = _resolve_workspace_id(
+    last_integrity_error: Optional[IntegrityError] = None
+    artifact: Optional[Artifact] = None
+    for attempt in range(5):
+        try:
+            analysis = _get_analysis_by_diagram(
                 db,
-                owner_user_id=owner_user_id,
-                tenant_id=tenant_id,
-                snapshot=snapshot,
-                workspace_id=workspace_id,
-            )
-            mappings = snapshot.get("mappings", [])
-            confidences = [m.get("confidence") for m in mappings if m.get("confidence") is not None]
-            analysis = Analysis(
-                workspace_id=resolved_workspace_id,
-                owner_user_id=owner_user_id,
-                tenant_id=tenant_id,
                 diagram_id=diagram_id,
-                source_cloud=snapshot.get("source_provider", "aws"),
-                target_cloud=snapshot.get("target_provider", "azure"),
-                status="completed",
-                services_detected=snapshot.get("services_detected", len(mappings)),
-                confidence_avg=(round(sum(confidences) / len(confidences), 4) if confidences else None),
-                current_version=0,
-            )
-            db.add(analysis)
-            db.flush()
-        elif workspace_id is not None and analysis.workspace_id != workspace_id:
-            raise ValueError(f"Analysis for diagram {diagram_id!r} belongs to another workspace")
-
-        version = None
-        if label is None and restored_from is None:
-            version = _matching_current_version(db, analysis=analysis, snapshot=snapshot)
-        version_created = version is None
-        if version is None:
-            version = _stage_analysis_version(
-                db,
-                analysis=analysis,
                 owner_user_id=owner_user_id,
-                snapshot=snapshot,
-                label=label,
-                restored_from=restored_from,
+                tenant_id=tenant_id,
+                for_update=True,
             )
-        db.commit()
-    except ValueError:
-        db.rollback()
-        raise
-    except Exception as exc:
-        db.rollback()
-        raise DurableAnalysisPersistenceError("Failed to persist canonical analysis state") from exc
+            if analysis is None:
+                resolved_workspace_id = _resolve_workspace_id(
+                    db,
+                    owner_user_id=owner_user_id,
+                    tenant_id=tenant_id,
+                    snapshot=snapshot,
+                    workspace_id=workspace_id,
+                )
+                mappings = snapshot.get("mappings", [])
+                confidences = [m.get("confidence") for m in mappings if m.get("confidence") is not None]
+                analysis = Analysis(
+                    workspace_id=resolved_workspace_id,
+                    owner_user_id=owner_user_id,
+                    tenant_id=tenant_id,
+                    diagram_id=diagram_id,
+                    source_cloud=snapshot.get("source_provider", "aws"),
+                    target_cloud=snapshot.get("target_provider", "azure"),
+                    status="completed",
+                    services_detected=snapshot.get("services_detected", len(mappings)),
+                    confidence_avg=(round(sum(confidences) / len(confidences), 4) if confidences else None),
+                    current_version=0,
+                )
+                db.add(analysis)
+                db.flush()
+            elif workspace_id is not None and analysis.workspace_id != workspace_id:
+                raise ValueError(f"Analysis for diagram {diagram_id!r} belongs to another workspace")
+
+            if expected_version is not None and int(analysis.current_version or 0) != expected_version:
+                raise AnalysisVersionConflictError(
+                    f"Expected version {expected_version}, current version is {analysis.current_version}"
+                )
+
+            version = None
+            if label is None and restored_from is None:
+                version = _matching_current_version(db, analysis=analysis, snapshot=snapshot)
+            version_created = version is None
+            if version is None:
+                version = _stage_analysis_version(
+                    db,
+                    analysis=analysis,
+                    owner_user_id=owner_user_id,
+                    snapshot=snapshot,
+                    label=label,
+                    restored_from=restored_from,
+                )
+            if artifact_type and artifact_content is not None:
+                db.flush()
+                artifact = create_artifact(
+                    db,
+                    analysis_id=analysis.id,
+                    version_id=version.id,
+                    owner_user_id=owner_user_id,
+                    tenant_id=tenant_id,
+                    artifact_type=artifact_type,
+                    format=artifact_format,
+                    content=artifact_content,
+                    commit=False,
+                )
+            db.commit()
+            break
+        except AnalysisVersionConflictError:
+            db.rollback()
+            raise
+        except ValueError:
+            db.rollback()
+            raise
+        except IntegrityError as exc:
+            db.rollback()
+            last_integrity_error = exc
+            if db.get_bind().dialect.name == "postgresql":
+                time.sleep(0.01 * (attempt + 1))
+            continue
+        except Exception as exc:
+            db.rollback()
+            raise DurableAnalysisPersistenceError("Failed to persist canonical analysis state") from exc
+    else:
+        raise DurableAnalysisPersistenceError("Failed to persist canonical analysis state after retries") from last_integrity_error
 
     if version_created:
         try:
@@ -1070,6 +1219,10 @@ def persist_analysis_state(
                 owner_user_id=owner_user_id,
                 tenant_id=tenant_id,
                 snapshot=snapshot,
+                version_number=version.version_number,
+                owner_api_key_id=cache_owner_api_key_id,
+                allow_legacy_tenant_rehome=allow_legacy_cache_rehome,
+                allow_unowned_upload_claim=allow_unowned_upload_claim,
             )
             cache_updated = True
         except AnalysisCacheWriteError:
@@ -1085,7 +1238,17 @@ def persist_analysis_state(
                 type(exc).__name__,
             )
 
-    return AnalysisWriteResult(analysis=analysis, version=version, cache_updated=cache_updated)
+    return AnalysisWriteResult(
+        analysis=analysis,
+        version=version,
+        cache_updated=cache_updated,
+        artifact=artifact,
+    )
+
+
+def persist_analysis_mutation(db: Session, **kwargs: Any) -> AnalysisWriteResult:
+    """Named repository/UoW entry point for every authenticated mutation."""
+    return persist_analysis_state(db, **kwargs)
 
 
 def load_analysis_state(
@@ -1095,6 +1258,8 @@ def load_analysis_state(
     owner_user_id: str,
     tenant_id: Optional[str],
     session_store: Any = None,
+    cache_owner_api_key_id: Optional[str] = None,
+    allow_legacy_cache_rehome: bool = False,
 ) -> Optional[Dict[str, Any]]:
     """Load the latest tenant-scoped durable snapshot and optionally hydrate cache."""
     _require_durable_identity(owner_user_id, tenant_id)
@@ -1120,9 +1285,13 @@ def load_analysis_state(
     hydrated = {
         **snapshot,
         "diagram_id": diagram_id,
-        "_owner_user_id": owner_user_id,
         "_tenant_id": tenant_id,
+        "_analysis_version": version.version_number,
     }
+    if cache_owner_api_key_id:
+        hydrated["_owner_api_key_id"] = cache_owner_api_key_id
+    else:
+        hydrated["_owner_user_id"] = owner_user_id
     if session_store is not None:
         try:
             _write_session_cache(
@@ -1131,7 +1300,10 @@ def load_analysis_state(
                 owner_user_id=owner_user_id,
                 tenant_id=tenant_id,
                 snapshot=hydrated,
-                allow_existing=False,
+                version_number=version.version_number,
+                owner_api_key_id=cache_owner_api_key_id,
+                allow_existing=allow_legacy_cache_rehome,
+                allow_legacy_tenant_rehome=allow_legacy_cache_rehome,
             )
         except Exception as exc:
             logger.warning(
@@ -1140,6 +1312,93 @@ def load_analysis_state(
                 type(exc).__name__,
             )
     return hydrated
+
+
+def get_analysis_by_diagram(
+    db: Session,
+    *,
+    diagram_id: str,
+    owner_user_id: str,
+    tenant_id: str,
+) -> Optional[Analysis]:
+    """Return the durable analysis identity behind compatibility diagram APIs."""
+    return _get_analysis_by_diagram(
+        db,
+        diagram_id=diagram_id,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+    )
+
+
+def compare_analysis_versions(
+    db: Session,
+    *,
+    analysis_id: str,
+    owner_user_id: str,
+    tenant_id: str,
+    version_a: int,
+    version_b: int,
+) -> Dict[str, Any]:
+    """Return the legacy diff shape from two durable immutable snapshots."""
+    from versioning import _detect_changes
+
+    first = get_analysis_version(
+        db,
+        analysis_id=analysis_id,
+        version_number=version_a,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+    )
+    second = get_analysis_version(
+        db,
+        analysis_id=analysis_id,
+        version_number=version_b,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+    )
+    if first is None or second is None:
+        return {"error": "One or both versions not found"}
+    snapshot_a = _json.loads(first.snapshot)
+    snapshot_b = _json.loads(second.snapshot)
+    changes = _detect_changes(snapshot_a, snapshot_b)
+    mappings_a = {m["source_service"]: m for m in snapshot_a.get("mappings", [])}
+    mappings_b = {m["source_service"]: m for m in snapshot_b.get("mappings", [])}
+    service_diff = []
+    for service in sorted(set(mappings_a) | set(mappings_b)):
+        in_a = service in mappings_a
+        in_b = service in mappings_b
+        status = (
+            "unchanged" if in_a and in_b and mappings_a[service] == mappings_b[service]
+            else "modified" if in_a and in_b
+            else "removed" if in_a
+            else "added"
+        )
+        service_diff.append(
+            {
+                "service": service,
+                "status": status,
+                "version_a": mappings_a.get(service),
+                "version_b": mappings_b.get(service),
+            }
+        )
+    analysis = get_analysis_record(
+        db,
+        analysis_id,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+    )
+    assert analysis is not None
+    return {
+        "diagram_id": analysis.diagram_id,
+        "version_a": version_a,
+        "version_b": version_b,
+        "changes": [change.to_dict() for change in changes],
+        "service_diff": service_diff,
+        "summary": {
+            key: sum(1 for item in service_diff if item["status"] == key)
+            for key in ("added", "removed", "modified", "unchanged")
+        },
+    }
 
 def maybe_link_session(
     db: Session,

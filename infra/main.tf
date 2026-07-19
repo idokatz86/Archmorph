@@ -824,7 +824,7 @@ resource "azurerm_container_app" "backend" {
       }
 
       readiness_probe {
-        path                    = var.health_probe_path
+        path                    = var.readiness_probe_path
         port                    = 8000
         transport               = "HTTP"
         interval_seconds        = 10
@@ -1404,7 +1404,7 @@ resource "azurerm_application_insights_standard_web_test" "health_check" {
   enabled                 = true
 
   request {
-    url = "https://${azurerm_container_app.backend.ingress[0].fqdn}${var.health_probe_path}"
+    url = "https://${azurerm_container_app.backend.ingress[0].fqdn}${var.readiness_probe_path}"
   }
 
   validation_rules {
@@ -2768,7 +2768,7 @@ resource "azurerm_cdn_frontdoor_origin_group" "api" {
   }
 
   health_probe {
-    path                = var.health_probe_path
+    path                = var.readiness_probe_path
     protocol            = "Https"
     interval_in_seconds = 30
     request_type        = "GET"

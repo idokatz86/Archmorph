@@ -8,12 +8,17 @@ from fastapi.routing import APIRoute
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from auth import AuthProvider, User, UserTier, generate_session_token  # noqa: E402
-from export_capabilities import verify_export_capability  # noqa: E402
+from export_capabilities import (  # noqa: E402
+    issue_restore_capability,
+    verify_export_capability,
+    verify_restore_capability,
+)
 from main import SESSION_STORE, app  # noqa: E402
 from routers.replay_routes import _replay_store, require_replay_access, require_replay_body_access  # noqa: E402
 from routers.share_routes import require_share_access  # noqa: E402
 from routers.shared import (  # noqa: E402
     get_api_key_service_principal,
+    get_request_durable_principal,
     require_diagram_access,
     verify_api_key,
     verify_api_key_or_user_session,
@@ -43,6 +48,30 @@ def _owned_session(*, owner_user_id: str | None = None, tenant_id: str | None = 
     if owner_api_key:
         session["_owner_api_key_id"] = owner_api_key
     return session
+
+
+def test_durable_user_principal_preserves_stable_owner_id_and_opaque_tenant_scope():
+    from auth import provider_subject_tenant_scope
+    from starlette.requests import Request
+
+    user = User(
+        id="github_42",
+        provider=AuthProvider.GITHUB,
+        provider_subject="42",
+        tenant_id=provider_subject_tenant_scope(AuthProvider.GITHUB, "42"),
+    )
+    token = generate_session_token(user)
+    request = Request(
+        {
+            "type": "http",
+            "headers": [(b"authorization", f"Bearer {token}".encode())],
+        }
+    )
+
+    principal = get_request_durable_principal(request)
+
+    assert principal["owner_user_id"] == "github_42"
+    assert principal["tenant_id"] == provider_subject_tenant_scope(AuthProvider.GITHUB, "42")
 
 
 @pytest.fixture(autouse=True)
@@ -217,3 +246,117 @@ def test_restore_session_keeps_owner_only_mutation_guard(test_client):
     )
 
     assert_cross_tenant_denied(response)
+
+
+def test_restore_missing_and_foreign_namespace_return_same_404(
+    test_client,
+    tenant_a_auth_headers,
+    tenant_b_auth_headers,
+):
+    diagram_id = "restore-oracle-locked"
+    SESSION_STORE[diagram_id] = _owned_session(owner_user_id="user-a-001", tenant_id="tenant-a")
+    payload = {"analysis": copy.deepcopy(SAMPLE_ANALYSIS)}
+
+    foreign = test_client.post(
+        f"/api/diagrams/{diagram_id}/restore-session",
+        headers=tenant_b_auth_headers,
+        json=payload,
+    )
+    missing = test_client.post(
+        "/api/diagrams/restore-oracle-missing/restore-session",
+        headers=tenant_b_auth_headers,
+        json=payload,
+    )
+
+    assert foreign.status_code == missing.status_code == 404
+    assert foreign.json()["error"]["message"] == missing.json()["error"]["message"]
+
+
+def test_restore_capability_survives_cache_loss_and_is_principal_bound(
+    test_client,
+    tenant_a_auth_headers,
+    tenant_b_auth_headers,
+):
+    from starlette.requests import Request
+
+    diagram_id = "restore-capability-cache-loss"
+    request = Request(
+        {
+            "type": "http",
+            "headers": [(b"authorization", tenant_a_auth_headers["Authorization"].encode())],
+        }
+    )
+    capability = issue_restore_capability(request, diagram_id)
+    SESSION_STORE.delete(diagram_id)
+    payload = {
+        "analysis": copy.deepcopy(SAMPLE_ANALYSIS),
+        "restore_capability": capability,
+    }
+
+    denied = test_client.post(
+        f"/api/diagrams/{diagram_id}/restore-session",
+        headers=tenant_b_auth_headers,
+        json=payload,
+    )
+    allowed = test_client.post(
+        f"/api/diagrams/{diagram_id}/restore-session",
+        headers=tenant_a_auth_headers,
+        json=payload,
+    )
+
+    assert denied.status_code == 404
+    assert allowed.status_code == 200, allowed.text
+    next_capability = allowed.json()["restore_capability"]
+    assert next_capability
+    assert verify_restore_capability(request, diagram_id, next_capability) is True
+
+
+def test_restore_capability_records_api_key_actor_marker(monkeypatch):
+    import jwt
+    from auth import JWT_ALGORITHM, JWT_SECRET
+    from routers import shared
+    from starlette.requests import Request
+
+    monkeypatch.setattr(shared, "API_KEY", "restore-api-key")
+    request = Request(
+        {
+            "type": "http",
+            "headers": [(b"x-api-key", b"restore-api-key")],
+        }
+    )
+
+    capability = issue_restore_capability(request, "restore-api-marker")
+    payload = jwt.decode(capability, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+
+    assert payload["actor_kind"] == "api_key"
+    assert payload["scope"] == "session:restore"
+    assert payload["principal_digest"]
+
+
+def test_api_key_restore_capability_claims_and_restores_namespace(test_client, monkeypatch):
+    from routers import shared
+    from starlette.requests import Request
+
+    api_key = "restore-api-key-route"
+    diagram_id = "restore-api-key-namespace"
+    monkeypatch.setattr(shared, "API_KEY", api_key)
+    request = Request(
+        {
+            "type": "http",
+            "headers": [(b"x-api-key", api_key.encode())],
+        }
+    )
+    capability = issue_restore_capability(request, diagram_id)
+
+    response = test_client.post(
+        f"/api/diagrams/{diagram_id}/restore-session",
+        headers={"X-API-Key": api_key},
+        json={
+            "analysis": copy.deepcopy(SAMPLE_ANALYSIS),
+            "restore_capability": capability,
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    principal = get_api_key_service_principal({"x-api-key": api_key})
+    assert SESSION_STORE.peek(diagram_id)["_owner_api_key_id"] == principal

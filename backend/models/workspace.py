@@ -53,7 +53,7 @@ class Workspace(Base):
 
     id = Column(String(36), primary_key=True, default=_new_uuid)
     owner_user_id = Column(String(100), nullable=False, index=True)
-    tenant_id = Column(String(36), nullable=True, index=True)
+    tenant_id = Column(String(100), nullable=True, index=True)
     name = Column(String(300), nullable=False)
     description = Column(Text, nullable=True)
     source_cloud = Column(String(20), nullable=False, server_default="aws")
@@ -104,7 +104,7 @@ class SourceAsset(Base):
         index=True,
     )
     owner_user_id = Column(String(100), nullable=False, index=True)
-    tenant_id = Column(String(36), nullable=True, index=True)
+    tenant_id = Column(String(100), nullable=True, index=True)
     filename = Column(String(500), nullable=False)
     content_type = Column(String(100), nullable=True)
     file_size_bytes = Column(Integer, nullable=True)
@@ -161,7 +161,7 @@ class Analysis(Base):
         index=True,
     )
     owner_user_id = Column(String(100), nullable=False, index=True)
-    tenant_id = Column(String(36), nullable=True, index=True)
+    tenant_id = Column(String(100), nullable=True, index=True)
     diagram_id = Column(String(50), nullable=True, index=True)    # session store key
     title = Column(String(300), nullable=True)
     source_cloud = Column(String(20), nullable=False, server_default="aws")
@@ -175,6 +175,13 @@ class Analysis(Base):
 
     __table_args__ = (
         Index("ix_analyses_workspace_owner", "workspace_id", "owner_user_id"),
+        Index(
+            "ux_analyses_owner_tenant_diagram",
+            "owner_user_id",
+            "tenant_id",
+            "diagram_id",
+            unique=True,
+        ),
     )
 
     def to_dict(self) -> dict:
@@ -279,7 +286,7 @@ class Artifact(Base):
         index=True,
     )
     owner_user_id = Column(String(100), nullable=False, index=True)
-    tenant_id = Column(String(36), nullable=True, index=True)
+    tenant_id = Column(String(100), nullable=True, index=True)
     artifact_type = Column(String(50), nullable=False, index=True)  # terraform|bicep|hld|cost_report|…
     format = Column(String(20), nullable=True)                       # terraform|bicep|json|markdown
     content = Column(Text, nullable=True)                            # inline text content
@@ -291,6 +298,13 @@ class Artifact(Base):
     __table_args__ = (
         Index("ix_artifacts_analysis_type", "analysis_id", "artifact_type"),
         Index("ix_artifacts_owner_tenant", "owner_user_id", "tenant_id"),
+        Index(
+            "ux_artifacts_version_type_hash",
+            "version_id",
+            "artifact_type",
+            "content_hash",
+            unique=True,
+        ),
     )
 
     def to_dict(self, *, include_content: bool = False) -> dict:
@@ -337,7 +351,7 @@ class Decision(Base):
         index=True,
     )
     owner_user_id = Column(String(100), nullable=False, index=True)
-    tenant_id = Column(String(36), nullable=True, index=True)
+    tenant_id = Column(String(100), nullable=True, index=True)
     decision_type = Column(String(50), nullable=False)  # risk | decision | note
     title = Column(String(300), nullable=False)
     description = Column(Text, nullable=True)
@@ -368,3 +382,17 @@ class Decision(Base):
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
+
+
+class TenantRehomeAudit(Base):
+    """Operator audit for guarded legacy tenant migration and quarantine."""
+
+    __tablename__ = "tenant_rehome_audit"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    owner_user_id = Column(String(100), nullable=False, index=True)
+    source_tenant_id = Column(String(100), nullable=False)
+    target_tenant_id = Column(String(100), nullable=True)
+    status = Column(String(20), nullable=False, index=True)
+    details = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

@@ -73,10 +73,14 @@ class TestIaCChatStateValidation:
     def _seed_session(self, diagram_id: str, code: str, fmt: str = "terraform"):
         """Pre-populate the session as if /generate had been called."""
         from main import SESSION_STORE
+        from routers.shared import get_api_key_service_principal
+
+        owner_api_key_id = get_api_key_service_principal({"x-api-key": "test-suite-api-key"})
         SESSION_STORE[diagram_id] = {
             "iac_code": code,
             "iac_code_hash": _sha256(code),
             "iac_format": fmt,
+            "_owner_api_key_id": owner_api_key_id,
         }
 
     @patch("iac_chat.cached_chat_completion")
@@ -250,6 +254,50 @@ class TestHealthEndpointSplit:
         resp = client.get("/healthz")
         assert resp.status_code == 200
         assert resp.json()["status"] == "alive"
+
+    def test_readyz_is_anonymous_sanitized_and_fails_closed(self, monkeypatch):
+        import database
+        import session_store
+
+        monkeypatch.setattr(
+            database,
+            "database_readiness",
+            lambda: {"ready_for_production": False},
+        )
+        monkeypatch.setattr(
+            session_store,
+            "session_store_readiness",
+            lambda: {"ready_for_horizontal_scale": True},
+        )
+
+        response = client.get("/readyz")
+
+        assert response.status_code == 503
+        assert response.json() == {
+            "status": "not_ready",
+            "checks": {"database": "unavailable", "redis": "ready"},
+        }
+        assert "connection" not in response.text.lower()
+
+    def test_readyz_requires_both_postgres_and_redis(self, monkeypatch):
+        import database
+        import session_store
+
+        monkeypatch.setattr(
+            database,
+            "database_readiness",
+            lambda: {"ready_for_production": True},
+        )
+        monkeypatch.setattr(
+            session_store,
+            "session_store_readiness",
+            lambda: {"ready_for_horizontal_scale": True},
+        )
+
+        response = client.get("/readyz")
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "ready"
 
     def test_healthz_does_not_expose_dependency_details(self):
         """Liveness probe must not expose internal system state."""

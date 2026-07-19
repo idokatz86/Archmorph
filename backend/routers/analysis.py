@@ -11,9 +11,9 @@ import asyncio
 import logging
 
 from routers.shared import (
-    SESSION_STORE,
     authorize_diagram_access,
     limiter,
+    persist_diagram_mutation,
     require_diagram_access,
     verify_api_key_or_user_session,
 )
@@ -23,7 +23,7 @@ from mcp_diagram_generator import mcp_client
 from service_builder import deduplicate_questions, get_smart_defaults_from_analysis, add_services_from_text
 from architecture_package import generate_architecture_package
 from error_envelope import ArchmorphException
-from export_capabilities import attach_export_capability, consume_export_capability, verify_export_capability
+from export_capabilities import _principal_marker, attach_export_capability, consume_export_capability, verify_export_capability
 from analysis_payload_bounds import AnalysisPayloadTooLarge, validate_analysis_payload_bounds
 
 logger = logging.getLogger(__name__)
@@ -122,7 +122,12 @@ async def add_services_natural_language(
         "services_added": updated.get("services_added", []),
     })
 
-    SESSION_STORE[diagram_id] = updated
+    persist_diagram_mutation(
+        request,
+        diagram_id,
+        updated,
+        label="analysis-services-added",
+    )
 
     record_event("services_added_nl", {
         "diagram_id": diagram_id,
@@ -153,7 +158,12 @@ async def apply_guided_answers(
     analysis = authorize_diagram_access(request, diagram_id, purpose="apply answers")
 
     refined = apply_answers(analysis, answers)
-    SESSION_STORE[diagram_id] = refined
+    persist_diagram_mutation(
+        request,
+        diagram_id,
+        refined,
+        label="guided-answers-applied",
+    )
     record_event("answers_applied", {"diagram_id": diagram_id})
     record_funnel_step(diagram_id, "answers")
     return refined
@@ -228,7 +238,7 @@ async def export_architecture_diagram(
         })
         record_funnel_step(diagram_id, "export")
         consume_export_capability(capability)
-        return attach_export_capability(result, diagram_id)
+        return attach_export_capability(result, diagram_id, principal_marker=_principal_marker(request))
 
     try:
         content = await mcp_client.generate_diagram(format, analysis)
@@ -255,7 +265,7 @@ async def export_architecture_diagram(
     record_event(f"exports_{format}", {"diagram_id": diagram_id})
     record_funnel_step(diagram_id, "export")
     consume_export_capability(capability)
-    return attach_export_capability(result, diagram_id)
+    return attach_export_capability(result, diagram_id, principal_marker=_principal_marker(request))
 
 
 # ─────────────────────────────────────────────────────────────
@@ -295,7 +305,6 @@ async def export_architecture_package(
             diagram=diagram,  # type: ignore[arg-type]
             analysis_id=diagram_id,
         )
-        SESSION_STORE[diagram_id] = analysis
     except AnalysisPayloadTooLarge as exc:
         raise ArchmorphException(413, str(exc), details=exc.details)
     except ValueError as exc:
@@ -308,4 +317,4 @@ async def export_architecture_package(
     })
     record_funnel_step(diagram_id, "export")
     consume_export_capability(capability)
-    return attach_export_capability(result, diagram_id)
+    return attach_export_capability(result, diagram_id, principal_marker=_principal_marker(request))
