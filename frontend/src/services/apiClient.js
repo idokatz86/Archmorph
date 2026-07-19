@@ -195,6 +195,7 @@ function buildHeaders(optionsHeaders = {}, includeDefaultAuth = true) {
 async function request(path, options = {}, signal) {
   const url = path.startsWith('http') ? path : `${API_BASE}${path}`;
   const includeDefaultCredentials = isApiRequest(path, url);
+  const rawResponse = options.rawResponse === true;
 
   const headers = buildHeaders(options.headers, includeDefaultCredentials);
   // Track whether an Authorization header was included (for context-aware 401 messages).
@@ -231,6 +232,7 @@ async function request(path, options = {}, signal) {
         headers,
         signal: timeoutController.signal,
       };
+      delete requestOptions.rawResponse;
       if (options.credentials !== undefined) {
         requestOptions.credentials = options.credentials;
       } else if (includeDefaultCredentials) {
@@ -246,6 +248,10 @@ async function request(path, options = {}, signal) {
       if (res.status === 204) return null;
 
       const contentType = res.headers.get('content-type') || '';
+
+      // Download callers need headers, filename, and capability rotation even
+      // for JSON/text artifacts. Return the untouched successful response.
+      if (rawResponse && res.ok) return res;
 
       // Non-JSON responses (binary exports)
       if (!contentType.includes('application/json')) {
@@ -340,6 +346,30 @@ const api = {
     request(path, { method: 'PATCH', body: JSON.stringify(body) }, signal),
 
   delete: (path, signal) => request(path, { method: 'DELETE' }, signal),
+
+  /**
+   * Download an artifact while preserving response headers and raw bytes.
+   * @param {string} path
+   * @param {{ method?: string, body?: any, timeout?: number, headers?: Record<string, string> }} opts
+   * @param {AbortSignal} [signal]
+   * @returns {Promise<Response>}
+   */
+  download: (path, { method = 'GET', body, timeout, headers = {} } = {}, signal) =>
+    request(
+      path,
+      {
+        method,
+        body: body === undefined
+          ? undefined
+          : body instanceof FormData
+            ? body
+            : JSON.stringify(body),
+        timeout,
+        headers,
+        rawResponse: true,
+      },
+      signal,
+    ),
 
   /**
    * Authenticated request (admin endpoints).

@@ -8,7 +8,10 @@ Mandatory diagram attachments enforced in customer export mode (#357).
 from fastapi import APIRouter, Request, Depends
 import asyncio
 import base64
+import hashlib
+import json
 import logging
+from typing import Any, Dict
 
 from routers.shared import (
     SESSION_STORE,
@@ -19,7 +22,8 @@ from routers.shared import (
     verify_api_key,
     verify_api_key_or_user_session,
 )
-from job_queue import job_manager
+from job_queue import JobStoreError, job_manager
+from openai_client import AZURE_OPENAI_DEPLOYMENT
 from usage_metrics import record_event
 import routers.diagrams as diagrams_compat
 from error_envelope import ArchmorphException
@@ -31,6 +35,31 @@ from export_capabilities import attach_export_capability, consume_export_capabil
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _hld_generation_input(session: dict) -> dict:
+    """Return the deterministic session projection consumed by HLD generation."""
+    return {
+        "mappings": session.get("mappings", []),
+        "zones": session.get("zones", []),
+        "architecture_patterns": session.get("architecture_patterns", []),
+        "service_connections": session.get("service_connections", []),
+        "source_provider": session.get("source_provider", "aws"),
+        "diagram_type": session.get("diagram_type", "Cloud Architecture"),
+        "warnings": session.get("warnings", []),
+        "iac_parameters": session.get("iac_parameters", {}),
+    }
+
+
+def _hld_generation_input_hash(session: dict) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            _hld_generation_input(session),
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        ).encode("utf-8")
+    ).hexdigest()
 
 
 # ─────────────────────────────────────────────────────────────
@@ -253,16 +282,29 @@ async def generate_hld_async(
     headers = dict(request.headers)
     user = get_user_from_request_headers(headers)
     api_key_principal_id = get_api_key_service_principal(headers)
-    authorize_diagram_access(request, diagram_id, purpose="queue HLD generation")
+    session = authorize_diagram_access(request, diagram_id, purpose="queue HLD generation")
+    analysis_hash = _hld_generation_input_hash(session)
 
-    job = job_manager.submit(
-        "generate_hld",
-        diagram_id=diagram_id,
-        owner_user_id=user.id if user else None,
-        tenant_id=user.tenant_id if user else None,
-        owner_api_key_id=api_key_principal_id if not user else None,
-    )
-    asyncio.create_task(_run_hld_job(job.job_id, diagram_id))
+    try:
+        job = job_manager.submit(
+            "generate_hld",
+            diagram_id=diagram_id,
+            owner_user_id=user.id if user else None,
+            tenant_id=user.tenant_id if user else None,
+            owner_api_key_id=api_key_principal_id if not user else None,
+            execution_payload={
+                "diagram_id": diagram_id,
+                "analysis_hash": analysis_hash,
+                "model": AZURE_OPENAI_DEPLOYMENT,
+            },
+        )
+    except JobStoreError:
+        raise ArchmorphException(
+            503,
+            "HLD job persistence is temporarily unavailable. Please retry shortly.",
+            details={"error": "job_persistence_unavailable"},
+            headers={"Retry-After": "30"},
+        )
 
     from starlette.responses import JSONResponse
     return JSONResponse(
@@ -270,22 +312,25 @@ async def generate_hld_async(
         content={
             "job_id": job.job_id,
             "diagram_id": diagram_id,
-            "status": "queued",
+            "status": job.status.value,
             "stream_url": f"/api/jobs/{job.job_id}/stream",
         },
     )
 
 
-async def _run_hld_job(job_id: str, diagram_id: str) -> None:
+async def _run_hld_job(job_id: str, payload: Dict[str, Any]) -> None:
     """Background worker for HLD generation."""
+    diagram_id = str(payload["diagram_id"])
     try:
-        job_manager.start(job_id)
         job_manager.update_progress(job_id, 10, "Preparing HLD generation...")
 
         job_record = job_manager.get(job_id)
         session = SESSION_STORE.get(diagram_id)
         if not session:
             job_manager.fail(job_id, "Analysis not found")
+            return
+        if _hld_generation_input_hash(session) != payload.get("analysis_hash"):
+            job_manager.fail(job_id, "Analysis changed after this HLD job was accepted")
             return
         if job_record:
             job_user_id = getattr(job_record, "owner_user_id", None)
@@ -302,7 +347,7 @@ async def _run_hld_job(job_id: str, diagram_id: str) -> None:
                 job_manager.fail(job_id, "Analysis access revoked")
                 return
 
-        if job_manager.is_cancelled(job_id):
+        if not job_manager.owns_current_lease(job_id):
             return
 
         # Cost estimate
@@ -313,7 +358,12 @@ async def _run_hld_job(job_id: str, diagram_id: str) -> None:
                 iac_params = session.get("iac_parameters", {})
                 region = iac_params.get("region", "westeurope")
                 strategy = iac_params.get("sku_strategy", "balanced")
-                cost_estimate = estimate_services_cost(session.get("mappings", []), region=region, sku_strategy=strategy)
+                cost_estimate = await asyncio.to_thread(
+                    estimate_services_cost,
+                    session.get("mappings", []),
+                    region=region,
+                    sku_strategy=strategy,
+                )
                 session["_cached_cost_estimate"] = cost_estimate
                 SESSION_STORE[diagram_id] = session
             except Exception:
@@ -321,24 +371,51 @@ async def _run_hld_job(job_id: str, diagram_id: str) -> None:
 
         job_manager.update_progress(job_id, 40, "Generating High-Level Design with GPT-4o...")
 
-        hld = diagrams_compat.generate_hld(
+        hld = await asyncio.to_thread(
+            diagrams_compat.generate_hld,
             analysis=session,
             cost_estimate=cost_estimate,
             iac_params=session.get("iac_parameters"),
         )
 
-        if job_manager.is_cancelled(job_id):
+        if not job_manager.owns_current_lease(job_id):
             return
 
         job_manager.update_progress(job_id, 80, "Rendering markdown...")
-        markdown = diagrams_compat.generate_hld_markdown(hld)
+        markdown = await asyncio.to_thread(diagrams_compat.generate_hld_markdown, hld)
 
-        session["hld"] = hld
-        session["hld_markdown"] = markdown
-        SESSION_STORE[diagram_id] = session
+        if not job_manager.owns_current_lease(job_id):
+            return
+
+        def _analysis_unchanged(candidate: dict | None) -> bool:
+            return (
+                isinstance(candidate, dict)
+                and _hld_generation_input_hash(candidate) == payload.get("analysis_hash")
+            )
+
+        def _store_hld(candidate: dict) -> dict:
+            updated = dict(candidate)
+            updated["hld"] = hld
+            updated["hld_markdown"] = markdown
+            return updated
+
+        canonical_state_persisted, _latest_session = SESSION_STORE.update_if(
+            diagram_id,
+            _analysis_unchanged,
+            _store_hld,
+        )
 
         record_event("hld_generated", {"diagram_id": diagram_id})
-        job_manager.complete(job_id, result={"diagram_id": diagram_id, "hld": hld, "markdown": markdown})
+        job_manager.complete(
+            job_id,
+            result={
+                "diagram_id": diagram_id,
+                "hld": hld,
+                "markdown": markdown,
+                "canonical_state_persisted": canonical_state_persisted,
+                "canonical_state_conflict": not canonical_state_persisted,
+            },
+        )
 
     except Exception as exc:
         logger.error("Async HLD generation failed: %s", str(exc).replace('\n', '').replace('\r', ''), exc_info=True)  # codeql[py/log-injection] Handled by custom

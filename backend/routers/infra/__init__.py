@@ -15,7 +15,7 @@ from routers.deploy import router as deploy_router
 from routers.deployments import router as deployments_router
 from routers.drift import router as drift_router
 
-domain_router = APIRouter(tags=["infra"])
+domain_router = APIRouter()
 
 domain_router.include_router(infra_router)
 domain_router.include_router(terraform_router)

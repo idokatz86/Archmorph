@@ -845,7 +845,7 @@ The user requested a **full technical audit** of the Archmorph repository coveri
 #### F-DO-3. Container image not pinned by digest in deploy step
 - **Severity:** P0 · **Area:** supply-chain / deploy
 - **File(s):** [.github/workflows/deploy.yml](../../.github/workflows/deploy.yml), [infra/main.tf container app block](../../infra/main.tf)
-- **Repro / Evidence:** ACR image referenced as `archmorph.azurecr.io/backend:latest` in container app spec; no SHA digest.
+- **Repro / Evidence:** ACR image referenced as `example.azurecr.io/backend:latest` in container app spec; no SHA digest.
 - **Impact:** Mutable tag can be replaced by attacker with ACR write access; rollback ambiguous.
 - **Suggested fix:** Push image with digest; use `image@sha256:...` in tf var; output digest in build job.
 - **Acceptance criteria:** Deploy artifacts include immutable digest; rollback resolves to specific digest.
@@ -1104,7 +1104,7 @@ The user requested a **full technical audit** of the Archmorph repository coveri
 
 #### F-BUG-7. `dump_configs.py` writes `terraform.tfvars` containing secrets in plaintext to repo root
 - **Severity:** P1 · **Area:** secrets
-- **File(s):** [Archmorph/scripts/dump_configs.py](../../scripts/dump_configs.py), [/Users/idokatz/VSCode/dump_configs.py](../../../dump_configs.py)
+- **File(s):** [scripts/dump_configs.py](../../scripts/dump_configs.py), plus an operator-local predecessor retained outside the repository
 - **Repro / Evidence:** Workspace-root `dump_configs.py` writes tfvars with literal secrets to current dir. Easy to commit accidentally.
 - **Impact:** Secret leak via git.
 - **Suggested fix:** Write to `~/.config/archmorph/...` outside repo; add `.gitignore` entry; warn user.

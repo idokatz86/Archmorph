@@ -5,7 +5,9 @@ Use this checklist before promoting a build to production or enabling scaffolded
 ## 1. Branch And Version
 
 - Release branch is `main` for production. Archmorph does not maintain a separate staging environment.
-- `frontend/src/constants.js` contains the intended `APP_VERSION`.
+- Root [VERSION](../VERSION) contains the intended stable semantic version.
+- `python3 scripts/sync_version.py --check` confirms backend, frontend, package, badge, PRD, OpenAPI, diagram, and changelog version signals match it.
+- `python3 scripts/lint_public_metadata.py` confirms public files contain placeholders rather than environment inventory.
 - [CHANGELOG.md](../CHANGELOG.md) has an `[Unreleased]` entry describing the release.
 - Documentation reflects the actual feature maturity: `Live`, `Beta`, `Scaffold`, or `Planned`.
 

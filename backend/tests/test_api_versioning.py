@@ -139,14 +139,28 @@ class TestV1RouteMirroring:
         assert v1.status_code == 200
 
     def test_v1_roadmap(self, client):
-        """GET /api/v1/roadmap mirrors /api/roadmap."""
+        """Compatibility aliases advertise their deprecation and sunset."""
         v1 = client.get("/api/v1/roadmap")
         assert v1.status_code == 200
+        assert v1.headers["deprecation"] == "true"
+        assert "GMT" in v1.headers["sunset"]
 
     def test_v1_auth_config(self, client):
         """GET /api/v1/auth/config mirrors /api/auth/config."""
         v1 = client.get("/api/v1/auth/config")
         assert v1.status_code == 200
+
+    def test_public_v1_route_has_no_compatibility_headers(self, client):
+        v1 = client.get("/api/v1/health")
+        assert v1.status_code == 200
+        assert "deprecation" not in v1.headers
+        assert "sunset" not in v1.headers
+
+    def test_v1_compatibility_headers_apply_to_error_responses(self, client):
+        v1 = client.get("/api/v1/terraform/state/example/dev")
+        assert v1.status_code == 401
+        assert v1.headers["deprecation"] == "true"
+        assert "GMT" in v1.headers["sunset"]
 
     def test_original_routes_still_work(self, client):
         """Original /api/* routes must continue working."""

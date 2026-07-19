@@ -42,11 +42,13 @@ def test_prod_plan_encrypts_binary_plan_and_uploads_integrity_metadata():
     assert len(upload_steps) == 1
     upload_step = upload_steps[0]
     upload_paths = upload_step["with"]["path"]
-    assert "infra/prod-reviewed-plan.tar.gz.enc" in upload_paths
-    assert "infra/tfplan.txt" in upload_paths
-    assert "infra/tfplan\n" not in upload_paths
-    assert "infra/.terraform.lock.hcl" not in upload_paths
+    assert upload_paths == "infra/prod-reviewed-plan.tar.gz.enc"
     assert upload_step["with"]["retention-days"] == 1
+
+    render_step = _step_by_name(plan_steps, "Render plan for encrypted review bundle")
+    assert render_step["run"] == "terraform show -no-color tfplan > tfplan.txt"
+    assert "tfplan.txt" in encrypt_script
+    assert "tee tfplan.txt" not in WORKFLOW.read_text(encoding="utf-8")
 
 
 def test_prod_plan_preflights_remote_state_blob_rbac_before_init():
@@ -58,8 +60,20 @@ def test_prod_plan_preflights_remote_state_blob_rbac_before_init():
     assert "az storage blob list" in preflight_script
     assert "--auth-mode login" in preflight_script
     assert "Storage Blob Data Contributor" in preflight_script
-    assert "Least-privilege scope (container)" in preflight_script
-    assert "AZURE_CLIENT_ID=${ARM_CLIENT_ID}" in preflight_script
+    assert "private backend scope" in preflight_script
+    assert "STATE_CONTAINER_SCOPE" not in preflight_script
+    assert "STATE_STORAGE_SCOPE" not in preflight_script
+    assert "sed 's/^/az storage blob list: /'" not in preflight_script
+    assert 'STATE_RESOURCE_GROUP="${TFSTATE_RESOURCE_GROUP:-}"' in preflight_script
+    assert 'STATE_STORAGE_ACCOUNT="${TFSTATE_STORAGE_ACCOUNT:-}"' in preflight_script
+    assert "Required private Terraform backend setting" in preflight_script
+    assert "BACKEND_CONFIG_FILE" not in preflight_script
+
+    init_step = _step_by_name(plan_steps, "Terraform Init")
+    assert '-backend-config="resource_group_name=${TFSTATE_RESOURCE_GROUP}"' in init_step["run"]
+    assert '-backend-config="storage_account_name=${TFSTATE_STORAGE_ACCOUNT}"' in init_step["run"]
+    assert '-backend-config="container_name=${TFSTATE_CONTAINER}"' in init_step["run"]
+    assert '-backend-config="key=${TFSTATE_KEY}"' in init_step["run"]
 
     preflight_index = plan_steps.index(preflight_step)
     login_index = plan_steps.index(_step_by_name(plan_steps, "Azure Login (OIDC)"))
@@ -105,19 +119,20 @@ def test_prod_plan_blocks_existing_live_resource_creates_until_imported():
     assert '"azurerm_storage_account.main"' in adoption_script
     assert '"azurerm_redis_cache.main"' in adoption_script
     assert 'redis_name = os.environ.get("TF_VAR_redis_name_override") or f"archmorph-redis-{name_suffix}"' in adoption_script
-    assert '"legacy_resource_ids"' in adoption_script
-    assert "/providers/Microsoft.Cache/Redis/archmorph-redis" in adoption_script
+    assert '"legacy_resource_ids": [' not in adoption_script
+    assert "TF_VAR_redis_name_override must identify any existing cache" in adoption_script
     assert "Do not import blindly" in adoption_script
     assert '"azurerm_static_web_app.frontend"' in adoption_script
     assert '"resource"' in adoption_script
     assert '"show"' in adoption_script
-    assert "Import with:" in adoption_script
-    assert "conflicts with existing live resource" in adoption_script
-    assert 'terraform import {resource["address"]}' in adoption_script
+    assert "Import with:" not in adoption_script
+    assert "conflicts with existing live resource" not in adoption_script
+    assert "existing resource adoption gap(s) detected" in adoption_script
+    assert "Full resource inventory is available only in the encrypted reviewed-plan bundle" in adoption_script
     assert "Terraform live-resource adoption preflight found no known existing resources planned as creates." in adoption_script
-    assert "After importing the resources above, rerun Terraform Production with apply=false" in adoption_script
+    assert "GITHUB_STEP_SUMMARY" in adoption_script
 
-    show_plan_index = plan_steps.index(_step_by_name(plan_steps, "Show plan"))
+    show_plan_index = plan_steps.index(_step_by_name(plan_steps, "Render plan for encrypted review bundle"))
     adoption_index = plan_steps.index(adoption_step)
     collect_index = plan_steps.index(_step_by_name(plan_steps, "Collect plan integrity metadata"))
     assert show_plan_index < adoption_index < collect_index
@@ -168,14 +183,19 @@ def test_prod_workflow_supplies_legacy_openai_secret_variable():
     assert env["TF_VAR_openai_api_key"] == "${{ secrets.AZURE_OPENAI_API_KEY }}"
 
 
-def test_prod_workflow_uses_prod_runtime_with_legacy_live_stack_names():
+def test_prod_workflow_uses_private_prod_stack_inventory():
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     env = workflow["env"]
 
     assert env["TF_VAR_environment"] == "prod"
-    assert env["TF_VAR_resource_group_environment"] == "dev"
+    assert env["TFSTATE_RESOURCE_GROUP"] == "${{ secrets.TFSTATE_RESOURCE_GROUP }}"
+    assert env["TFSTATE_STORAGE_ACCOUNT"] == "${{ secrets.TFSTATE_STORAGE_ACCOUNT }}"
+    assert env["TFSTATE_CONTAINER"] == "${{ secrets.TFSTATE_CONTAINER }}"
+    assert env["TFSTATE_KEY"] == "${{ secrets.TFSTATE_KEY }}"
+    assert env["TF_VAR_resource_group_environment"] == "${{ secrets.TF_RESOURCE_GROUP_ENVIRONMENT }}"
     assert env["TF_VAR_enable_production_infra_hardening"] is False
-    assert env["TF_VAR_redis_name_override"] == "archmorph-redis"
+    assert env["TF_VAR_redis_name_override"] == "${{ secrets.TF_REDIS_NAME_OVERRIDE }}"
+    assert env["TF_VAR_workbook_id_override"] == "${{ secrets.TF_WORKBOOK_ID }}"
 
 
 def test_prod_apply_downloads_and_applies_reviewed_plan_only():
@@ -195,8 +215,11 @@ def test_prod_apply_downloads_and_applies_reviewed_plan_only():
     assert "cp reviewed-plan/.terraform.lock.hcl .terraform.lock.hcl" in decrypt_script
 
     decrypt_index = apply_steps.index(decrypt_step)
-    init_index = apply_steps.index(_step_by_name(apply_steps, "Terraform Init"))
+    init_step = _step_by_name(apply_steps, "Terraform Init")
+    init_index = apply_steps.index(init_step)
     assert decrypt_index < init_index
+    assert '-backend-config="resource_group_name=${TFSTATE_RESOURCE_GROUP}"' in init_step["run"]
+    assert '-backend-config="storage_account_name=${TFSTATE_STORAGE_ACCOUNT}"' in init_step["run"]
 
     verify_step = _step_by_name(apply_steps, "Verify reviewed plan artifact integrity and assumptions")
     verify_script = verify_step["run"]

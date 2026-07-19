@@ -179,6 +179,33 @@ describe('apiClient', () => {
     expect(result.headers.get('content-type')).toBe('application/octet-stream')
   })
 
+  it('download preserves a raw JSON response and artifact headers', async () => {
+    const mockResponse = new Response(JSON.stringify({ phases: [] }), {
+      status: 200,
+      headers: {
+        'content-type': 'application/json',
+        'content-disposition': 'attachment; filename="timeline.json"',
+        'x-export-capability-next': 'next-capability',
+      },
+    })
+    fetch.mockResolvedValueOnce(mockResponse)
+
+    const result = await api.download('/diagrams/d1/migration-timeline/export?format=json', {
+      headers: { 'X-Export-Capability': 'current-capability' },
+    })
+
+    expect(result).toBe(mockResponse)
+    expect(result.headers.get('content-disposition')).toContain('timeline.json')
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/migration-timeline/export?format=json'),
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({ 'X-Export-Capability': 'current-capability' }),
+      }),
+    )
+    expect(fetch.mock.calls[0][1]).not.toHaveProperty('rawResponse')
+  })
+
   it('throws ApiError for non-JSON error responses', async () => {
     // Use 400 (non-retryable) to avoid retry backoff delays
     fetch.mockResolvedValueOnce({

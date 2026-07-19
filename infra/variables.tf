@@ -277,3 +277,15 @@ variable "app_insights_sampling_percentage_prod" {
     error_message = "app_insights_sampling_percentage_prod must be between 1 and 100."
   }
 }
+
+variable "workbook_id_override" {
+  description = "Optional existing Azure Monitor Workbook UUID. Supply privately when adopting an existing stack."
+  type        = string
+  nullable    = true
+  default     = null
+
+  validation {
+    condition     = var.workbook_id_override == null || can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", var.workbook_id_override))
+    error_message = "workbook_id_override must be null or a UUID."
+  }
+}

@@ -2629,10 +2629,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Versions
-         * @description List all saved versions for a diagram.
+         * Get Version History Endpoint
+         * @description Get version history for a diagram.
          */
-        get: operations["list_versions_api_diagrams__diagram_id__versions_get"];
+        get: operations["get_version_history_endpoint_api_diagrams__diagram_id__versions_get"];
         put?: never;
         /**
          * Create Version Endpoint
@@ -2719,26 +2719,6 @@ export interface paths {
          * @description Restore a previous version, creating a new version from it.
          */
         post: operations["restore_version_endpoint_api_diagrams__diagram_id__versions__version_number__restore_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/diagrams/{diagram_id}/versions/{version}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Version
-         * @description Get a specific version snapshot.
-         */
-        get: operations["get_version_api_diagrams__diagram_id__versions__version__get"];
-        put?: never;
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -7158,10 +7138,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List Versions V1
-         * @description List all saved versions for a diagram.
+         * Get Version History Endpoint V1
+         * @description Get version history for a diagram.
          */
-        get: operations["list_versions_v1_api_v1_diagrams__diagram_id__versions_get"];
+        get: operations["get_version_history_endpoint_v1_api_v1_diagrams__diagram_id__versions_get"];
         put?: never;
         /**
          * Create Version Endpoint V1
@@ -7248,26 +7228,6 @@ export interface paths {
          * @description Restore a previous version, creating a new version from it.
          */
         post: operations["restore_version_endpoint_v1_api_v1_diagrams__diagram_id__versions__version_number__restore_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/diagrams/{diagram_id}/versions/{version}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Version V1
-         * @description Get a specific version snapshot.
-         */
-        get: operations["get_version_v1_api_v1_diagrams__diagram_id__versions__version__get"];
-        put?: never;
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -14821,7 +14781,9 @@ export interface operations {
             query?: {
                 format?: string;
             };
-            header?: never;
+            header?: {
+                "X-Export-Capability"?: string | null;
+            };
             path: {
                 diagram_id: string;
             };
@@ -15313,7 +15275,7 @@ export interface operations {
             };
         };
     };
-    list_versions_api_diagrams__diagram_id__versions_get: {
+    get_version_history_endpoint_api_diagrams__diagram_id__versions_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -15487,38 +15449,6 @@ export interface operations {
             path: {
                 diagram_id: string;
                 version_number: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_version_api_diagrams__diagram_id__versions__version__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                diagram_id: string;
-                version: number;
             };
             cookie?: never;
         };
@@ -21879,7 +21809,9 @@ export interface operations {
             query?: {
                 format?: string;
             };
-            header?: never;
+            header?: {
+                "X-Export-Capability"?: string | null;
+            };
             path: {
                 diagram_id: string;
             };
@@ -22371,7 +22303,7 @@ export interface operations {
             };
         };
     };
-    list_versions_v1_api_v1_diagrams__diagram_id__versions_get: {
+    get_version_history_endpoint_v1_api_v1_diagrams__diagram_id__versions_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -22545,38 +22477,6 @@ export interface operations {
             path: {
                 diagram_id: string;
                 version_number: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_version_v1_api_v1_diagrams__diagram_id__versions__version__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                diagram_id: string;
-                version: number;
             };
             cookie?: never;
         };

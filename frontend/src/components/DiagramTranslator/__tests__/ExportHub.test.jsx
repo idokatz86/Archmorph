@@ -3,11 +3,11 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 vi.mock('../../../services/apiClient', () => ({
-  default: { post: vi.fn(), get: vi.fn() },
+  default: { post: vi.fn(), get: vi.fn(), download: vi.fn() },
 }))
 
 import api from '../../../services/apiClient'
-import ExportHub from '../ExportHub'
+import ExportHub, { DELIVERABLES, generateDeliverable } from '../ExportHub'
 
 const ACCESSIBLE_LANDING_ZONE_SVG = `
 <svg role="img" aria-labelledby="lz-title" aria-describedby="lz-desc" xmlns="http://www.w3.org/2000/svg">
@@ -37,10 +37,20 @@ function openExportHub() {
   })
 }
 
+function downloadResponse(body, contentType, filename, nextCapability = null) {
+  const headers = new Headers({
+    'content-type': contentType,
+    'content-disposition': `attachment; filename="${filename}"`,
+  })
+  if (nextCapability) headers.set('x-export-capability-next', nextCapability)
+  return new Response(body, { status: 200, headers })
+}
+
 describe('ExportHub accessibility', () => {
   beforeEach(() => {
     api.post.mockReset()
     api.get.mockReset()
+    api.download.mockReset()
   })
 
   it('moves focus into the dialog and restores focus on Escape', async () => {
@@ -131,57 +141,43 @@ describe('ExportHub parallel generation', () => {
   beforeEach(() => {
     api.post.mockReset()
     api.get.mockReset()
+    api.download.mockReset()
   })
 
-  it('fires independent deliverables in parallel — all three reach the API before any resolves', async () => {
-    // We control resolution so we can observe concurrency:
-    // resolve() for each call is deferred until we explicitly trigger it.
-    let pendingCount = 0
-    const resolvers = []
-    api.post.mockImplementation(() => {
-      pendingCount++
-      return new Promise((resolve) => {
-        resolvers.push(() => {
-          pendingCount--
-          resolve({ code: 'resource {}', filename: 'archmorph-iac.tf' })
-        })
-      })
-    })
-    api.get.mockImplementation(() => {
-      pendingCount++
-      return new Promise((resolve) => {
-        resolvers.push(() => {
-          pendingCount--
-          resolve({ services: [], total_monthly_estimate: { low: 0, high: 0 } })
-        })
-      })
-    })
+  it('runs the independent IaC lane in parallel with the sequential capability lane', async () => {
+    let resolveIac
+    let resolveCost
+    api.post.mockImplementation(() => new Promise(resolve => { resolveIac = resolve }))
+    api.download.mockImplementation(() => new Promise(resolve => { resolveCost = resolve }))
 
     const user = userEvent.setup()
     render(<ExportHub diagramId="diag-1" />)
 
     openExportHub()
 
-    // Deselect capability-gated deliverables, keep only independent ones
-    for (const label of ['Architecture Package', 'High-Level Design', 'PDF Analysis Report']) {
+    // Keep one free artifact and one capability-gated artifact selected.
+    for (const label of ['Architecture Package', 'High-Level Design', 'Migration Timeline', 'PDF Analysis Report']) {
       await user.click(await screen.findByLabelText(`Include ${label}`))
     }
 
-    // Start generation — 3 independent deliverables (IaC, Cost, Timeline)
     await user.click(screen.getByRole('button', { name: /Generate All Selected/i }))
 
-    // All three API calls must be in-flight before we resolve any.
-    // CONCURRENCY limit is 3, so all 3 should start immediately.
-    await waitFor(() => expect(resolvers.length).toBeGreaterThanOrEqual(3), { timeout: 2000 })
+    await waitFor(() => {
+      expect(api.post).toHaveBeenCalledWith(
+        expect.stringContaining('/generate?format=terraform'),
+        undefined,
+        undefined,
+        180_000,
+      )
+      expect(api.download).toHaveBeenCalledWith(
+        '/diagrams/diag-1/cost-estimate/export',
+        { headers: {} },
+      )
+    })
 
-    // All three were in-flight simultaneously — verify by resolving them all now
-    const countBeforeResolve = resolvers.length
-    expect(countBeforeResolve).toBeGreaterThanOrEqual(3)
+    resolveIac({ code: 'resource {}', filename: 'archmorph-iac.tf' })
+    resolveCost(downloadResponse('Service,Monthly Low\nTOTAL,0\n', 'text/csv', 'cost.csv', 'next-token'))
 
-    // Resolve all pending calls
-    resolvers.forEach(r => r())
-
-    // Generation should complete
     await waitFor(
       () => expect(screen.getByRole('button', { name: /Generate All Selected/i })).not.toBeDisabled(),
       { timeout: 3000 }
@@ -218,8 +214,8 @@ describe('ExportHub parallel generation', () => {
 
     openExportHub()
 
-    // Deselect independent deliverables, keep only capability-gated ones
-    for (const label of ['Infrastructure Code', 'Cost Estimate', 'Migration Timeline']) {
+    // Keep only the two JSON-delivered capability artifacts selected.
+    for (const label of ['Infrastructure Code', 'Cost Estimate', 'Migration Timeline', 'PDF Analysis Report']) {
       await user.click(await screen.findByLabelText(`Include ${label}`))
     }
 
@@ -274,5 +270,86 @@ describe('ExportHub parallel generation', () => {
     expect(capabilityOrder[0].cap).toBeNull()
     expect(capabilityOrder[1].cap).toBe('fresh-capability')
     expect(onExportCapability).toHaveBeenCalledWith('rotated-capability')
+  })
+})
+
+describe('ExportHub truthful artifact contracts', () => {
+  beforeEach(() => {
+    api.post.mockReset()
+    api.get.mockReset()
+    api.download.mockReset()
+  })
+
+  it('offers only the implemented CSV cost format', () => {
+    const cost = DELIVERABLES.find(deliverable => deliverable.id === 'cost')
+    expect(cost.formats).toEqual([{ id: 'csv', label: 'CSV' }])
+  })
+
+  it('downloads the canonical backend cost CSV with capability rotation', async () => {
+    api.download.mockResolvedValueOnce(downloadResponse(
+      'Service,Monthly Low (USD)\nTOTAL,10\n',
+      'text/csv; charset=utf-8',
+      'cost-estimate-diag-1.csv',
+      'cost-next',
+    ))
+
+    const result = await generateDeliverable('diag-1', { id: 'cost' }, 'csv', true, 'cost-current')
+
+    expect(api.download).toHaveBeenCalledWith('/diagrams/diag-1/cost-estimate/export', {
+      headers: { 'X-Export-Capability': 'cost-current' },
+    })
+    expect(result).toMatchObject({
+      filename: 'cost-estimate-diag-1.csv',
+      format: 'cost-csv',
+      mimeType: 'text/csv',
+      exportCapability: 'cost-next',
+    })
+    expect(await result.blob.text()).toContain('TOTAL,10')
+  })
+
+  it('generates and exports the canonical seven-phase timeline', async () => {
+    api.post.mockResolvedValueOnce({ phases: Array.from({ length: 7 }, (_, index) => ({ order: index + 1 })) })
+    api.download.mockResolvedValueOnce(downloadResponse(
+      '# Migration Timeline\n\n## Phase 1',
+      'text/markdown',
+      'timeline-diag-1.md',
+      'timeline-next',
+    ))
+
+    const result = await generateDeliverable('diag-1', { id: 'timeline' }, 'markdown', true, 'timeline-current')
+
+    expect(api.post).toHaveBeenCalledWith('/diagrams/diag-1/migration-timeline')
+    expect(api.download).toHaveBeenCalledWith('/diagrams/diag-1/migration-timeline/export?format=md', {
+      headers: { 'X-Export-Capability': 'timeline-current' },
+    })
+    expect(result).toMatchObject({
+      filename: 'timeline-diag-1.md',
+      format: 'timeline-markdown',
+      mimeType: 'text/markdown',
+      exportCapability: 'timeline-next',
+    })
+  })
+
+  it('uses the real streamed analysis report instead of HLD export', async () => {
+    api.download.mockResolvedValueOnce(downloadResponse(
+      '%PDF-1.7\n',
+      'application/pdf',
+      'archmorph-report-diag-1.pdf',
+      'report-next',
+    ))
+
+    const result = await generateDeliverable('diag-1', { id: 'pdf-report' }, null, true, 'report-current')
+
+    expect(api.download).toHaveBeenCalledWith('/diagrams/diag-1/report?format=pdf', {
+      headers: { 'X-Export-Capability': 'report-current' },
+    })
+    expect(api.post).not.toHaveBeenCalledWith(expect.stringContaining('export-hld'), expect.anything())
+    expect(result).toMatchObject({
+      filename: 'archmorph-report-diag-1.pdf',
+      format: 'analysis-report-pdf',
+      mimeType: 'application/pdf',
+      exportCapability: 'report-next',
+    })
+    expect(await result.blob.text()).toMatch(/^%PDF-/)
   })
 })

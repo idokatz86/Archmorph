@@ -6,7 +6,7 @@
 
 ## Decision Summary
 
-Keep the current Azure OpenAI baseline for production: `gpt-4.1` primary with `gpt-4o` fallback on the West Europe account `archmorph-openai-we-acm7pd`.
+Keep the current Azure OpenAI baseline for production: `gpt-4.1` primary with `gpt-4o` fallback on the configured regional account. Concrete inventory remains in private operator evidence.
 
 Add benchmark candidates only for the low-risk or specialist lanes where live evidence may justify a later feature-flagged route. Do not create, update, or route production deployments until the live benchmark proves quality or cost improvement without breaking structured output, export artifacts, quota headroom, safety behavior, or SLA gates.
 
@@ -18,8 +18,8 @@ Read-only Azure inventory on May 7, 2026 confirmed:
 | --- | --- |
 | Subscription | Redacted in-repo; use the private operator runbook or Azure context for the concrete ID. |
 | Tenant | Redacted in-repo; use the private operator runbook or Azure context for the concrete ID. |
-| Resource group | `archmorph-rg-dev` |
-| Account | `archmorph-openai-we-acm7pd` |
+| Resource group | `<configured-resource-group>` |
+| Account | `<configured-foundry-account>` |
 | Region | West Europe (`westeurope`) |
 | Primary deployment | `gpt-4.1`, model version `2025-04-14`, `GlobalStandard`, capacity `10` |
 | Fallback deployment | `gpt-4o`, model version `2024-11-20`, `GlobalStandard`, capacity `10` |
@@ -31,8 +31,8 @@ Terraform already matches the desired auth posture: local auth is disabled on th
 
 | Region | Evidence | Candidate posture |
 | --- | --- | --- |
-| West Europe | `az cognitiveservices account list-models` on `archmorph-openai-we-acm7pd` exposed current `gpt-4.1`/`gpt-4o` plus deployable `gpt-4o-mini`, `gpt-4.1-mini`, `gpt-4.1-nano`, `o4-mini`, `gpt-5`, `gpt-5-mini`, `gpt-5-nano`, `gpt-5-codex`, `gpt-5-pro`, `gpt-5.3-codex`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.4-nano`, and `gpt-5.5`. | Eligible for benchmark candidates. `gpt-5.5` is `GlobalProvisionedManaged`, so it is capacity-gated and should not be treated as a default route candidate. |
-| Sweden Central | Subscription inventory found an `AIServices` account, `agentsecysbz`, in `rg-agent-security-foundry-sc`. The model-list query hung and was interrupted. | Treat as pending validation for #783 migration planning. No Archmorph routing until model list, quota, RBAC, and rollback drills are captured cleanly. |
+| West Europe | Redacted operator model-list evidence exposed current baseline deployments plus the documented benchmark candidates. | Eligible for benchmark candidates. Provisioned models remain capacity-gated and must not be treated as default routes. |
+| Sweden Central | Redacted subscription evidence found an `AIServices` account, but model-list validation remained incomplete. | Treat as pending validation for #783 migration planning. No routing until model list, quota, RBAC, and rollback drills are captured cleanly. |
 
 Quota usage discovery for West Europe returned no rows in this CLI environment. That is not evidence of quota headroom; the live benchmark must capture TPM/RPM, 429s, retry behavior, and p95 latency before any routed deployment is proposed.
 

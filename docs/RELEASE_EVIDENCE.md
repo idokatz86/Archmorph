@@ -14,8 +14,8 @@ This file records production readiness evidence for release checkpoints. Keep se
 
 ### Local Verification
 
-- Backend lint: `/Users/idokatz/VSCode/Archmorph/backend/.venv/bin/python -m ruff check backend` passed.
-- Backend tests: `/Users/idokatz/VSCode/Archmorph/backend/.venv/bin/python -m pytest backend/tests` passed with `1554 passed, 1 skipped`.
+- Backend lint: `<repo>/backend/.venv/bin/python -m ruff check backend` passed.
+- Backend tests: `<repo>/backend/.venv/bin/python -m pytest backend/tests` passed with `1554 passed, 1 skipped`.
 - Frontend audit: `npm --prefix frontend audit --audit-level=moderate` reported `0 vulnerabilities`.
 - Frontend lint: `npm --prefix frontend run lint` passed.
 - Frontend tests: `npm --prefix frontend test -- --run` passed with `262 passed`.
@@ -43,16 +43,16 @@ This file records production readiness evidence for release checkpoints. Keep se
 - Storage readiness: session store exposes Redis/File/Memory readiness metadata and supports `REQUIRE_REDIS=true` for scaled production promotion.
 - Database readiness: database layer exposes backend readiness metadata and supports `ENFORCE_POSTGRES=true` for production promotion.
 - Identity readiness: SSO/SCIM readiness endpoint reports configured booleans without exposing secret values.
-- Validation: focused backend gate tests passed with `/Users/idokatz/VSCode/Archmorph/backend/.venv/bin/python -m pytest tests/test_feature_flags.py tests/test_session_store.py tests/test_database.py tests/test_deployments.py tests/test_release_gates.py -q --no-cov`.
-- Full backend gate: `/Users/idokatz/VSCode/Archmorph/backend/.venv/bin/python -m pytest --tb=short -q -n auto --dist loadfile --cov=. --cov-report=term-missing --cov-config=.coveragerc --cov-context=test --cov-fail-under=63` passed with total coverage `64.78%`.
+- Validation: focused backend gate tests passed with `<repo>/backend/.venv/bin/python -m pytest tests/test_feature_flags.py tests/test_session_store.py tests/test_database.py tests/test_deployments.py tests/test_release_gates.py -q --no-cov`.
+- Full backend gate: `<repo>/backend/.venv/bin/python -m pytest --tb=short -q -n auto --dist loadfile --cov=. --cov-report=term-missing --cov-config=.coveragerc --cov-context=test --cov-fail-under=63` passed with total coverage `64.78%`.
 
 ## 2026-04-28 Production-Parity Local Stack Pass
 
 - Purpose: Add a no-staging local parity path for validating production persistence guards before direct production promotion.
 - Compose overlay: `docker-compose.parity.yml` starts the backend with `ENVIRONMENT=production`, `ENFORCE_POSTGRES=true`, `REQUIRE_REDIS=true`, PostgreSQL via `DATABASE_URL`, Redis via `REDIS_URL`, and Gunicorn/Uvicorn workers.
 - Guard tests: `backend/tests/test_production_parity.py` verifies enforced PostgreSQL readiness, enforced Redis readiness, and fail-closed behavior when either guard is misconfigured.
-- Validation: `/Users/idokatz/VSCode/Archmorph/backend/.venv/bin/python -m ruff check backend/tests/test_production_parity.py` passed.
-- Validation: `/Users/idokatz/VSCode/Archmorph/backend/.venv/bin/python -m pytest backend/tests/test_database.py backend/tests/test_session_store.py backend/tests/test_production_parity.py -q --no-cov` passed with `45` tests.
+- Validation: `<repo>/backend/.venv/bin/python -m ruff check backend/tests/test_production_parity.py` passed.
+- Validation: `<repo>/backend/.venv/bin/python -m pytest backend/tests/test_database.py backend/tests/test_session_store.py backend/tests/test_production_parity.py -q --no-cov` passed with `45` tests.
 
 ## 2026-04-28 API Contract Guard Pass
 

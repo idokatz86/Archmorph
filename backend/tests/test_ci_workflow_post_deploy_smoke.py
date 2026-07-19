@@ -68,6 +68,30 @@ def test_backend_deploy_wires_jwt_secret_to_container_app_revision():
     assert "2>/dev/null || true" not in deploy_script
 
 
+def test_backend_deploy_requires_and_verifies_private_cors_origins():
+    workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
+    deploy_job = workflow["jobs"]["deploy-backend"]
+
+    assert deploy_job["env"]["ALLOWED_ORIGINS"] == "${{ secrets.CORS_ALLOWED_ORIGINS }}"
+
+    validate_step = next(
+        step for step in deploy_job["steps"] if step.get("name") == "Validate backend deploy secret inputs"
+    )
+    assert "ALLOWED_ORIGINS" in validate_step["run"]
+
+    deploy_step = next(step for step in deploy_job["steps"] if step.get("name") == "Deploy green revision")
+    assert 'ALLOWED_ORIGINS="$ALLOWED_ORIGINS"' in deploy_step["run"]
+
+    preflight_step = next(
+        step for step in deploy_job["steps"] if step.get("name") == "Preflight green revision auth and storage contract"
+    )
+    assert "ALLOWED_ORIGINS does not match private deployment configuration" in preflight_step["run"]
+
+    smoke_step = next(step for step in deploy_job["steps"] if step.get("name") == "Smoke test green revision")
+    assert 'CORS_ORIGIN="${ALLOWED_ORIGINS%%,*}"' in smoke_step["run"]
+    assert "access-control-allow-origin: $CORS_ORIGIN" in smoke_step["run"]
+
+
 def test_backend_deploy_can_read_terraform_front_door_outputs():
     workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
 
@@ -176,6 +200,16 @@ def test_backend_storage_validation_requires_private_endpoint_when_public_access
     validate_script = validate_step["run"]
     discover_script = discover_step["run"]
 
+    deploy_env = workflow["jobs"]["deploy-backend"]["env"]
+    for name in (
+        "TFSTATE_RESOURCE_GROUP",
+        "TFSTATE_STORAGE_ACCOUNT",
+        "TFSTATE_CONTAINER",
+        "TFSTATE_KEY",
+    ):
+        assert deploy_env[name] == f"${{{{ secrets.{name} }}}}"
+    assert deploy_env["LEGACY_METRICS_STORAGE_ACCOUNT"] == "${{ secrets.LEGACY_METRICS_STORAGE_ACCOUNT }}"
+
     assert 'if [ "$PUBLIC_NETWORK_ACCESS" = "Disabled" ]; then' in validate_script
     assert "APPROVED_PRIVATE_ENDPOINT_COUNT=$(az network private-endpoint-connection list" in validate_script
     assert "PRIVATE_ENDPOINT_STATUS=$?" in validate_script
@@ -184,16 +218,16 @@ def test_backend_storage_validation_requires_private_endpoint_when_public_access
     assert "tags.project=='archmorph'" in validate_script
     assert "tags.managed_by=='terraform'" in validate_script
     assert "No tagged Terraform-managed Archmorph storage accounts were found" in validate_script
-    assert "name!='archmorphmetrics'" in validate_script
+    assert 'grep -vxF "$LEGACY_METRICS_STORAGE_ACCOUNT"' in validate_script
     assert "No Terraform-managed Archmorph storage account candidates were found" in validate_script
     assert "CANDIDATE_METRICS_CONTAINER_ID" in validate_script
     assert "NOT_FOUND_STORAGE_NAMES=()" in validate_script
     assert "StatusCode=404|ResourceNotFound|ContainerNotFound|NotFound" in validate_script
-    assert "Unable to query metrics container for storage account" in validate_script
+    assert "Unable to query a candidate metrics container" in validate_script
     assert "CREATE_METRICS_CONTAINER=true" in validate_script
     assert '[ "${#CANDIDATE_STORAGE_NAMES[@]}" -eq 1 ]' in validate_script
     assert '[ "${#NOT_FOUND_STORAGE_NAMES[@]}" -eq 1 ]' in validate_script
-    assert "Metrics container was not found on storage account" in validate_script
+    assert "Metrics container was not found on the selected storage account" in validate_script
     assert "publicAccess\":\"None" in validate_script
     assert "STORAGE_NETWORK_RULES=$(az storage account show" in validate_script
     assert "--query networkRuleSet" in validate_script
@@ -203,6 +237,8 @@ def test_backend_storage_validation_requires_private_endpoint_when_public_access
     assert '.ipRules // .ip_rules // [] | length' in validate_script
     assert 'endswith("/subnets/container-apps-subnet")' in validate_script
     assert '.virtualNetworkRules // .virtual_network_rules // []' in validate_script
+    assert '-backend-config="resource_group_name=${TFSTATE_RESOURCE_GROUP}"' in discover_script
+    assert '-backend-config="storage_account_name=${TFSTATE_STORAGE_ACCOUNT}"' in discover_script
     assert '.virtualNetworkResourceId // .virtual_network_resource_id // ""' in validate_script
     assert '.state == "Succeeded"' in validate_script
     assert "CONTAINER_APPS_VNET_RULE_TOTAL_COUNT" in validate_script
@@ -231,7 +267,7 @@ def test_backend_storage_validation_requires_private_endpoint_when_public_access
     assert "CONTAINER_APPS_SUBNET_ID_COUNT" in discover_script
     assert "CONTAINER_APPS_SUBNET_ID=$CONTAINER_APPS_SUBNET_ID" in discover_script
     assert "Unable to discover container-apps-subnet ID for storage network rule cutover" in validate_script
-    assert "must be container-apps-subnet before storage network rule cutover" in discover_script
+    assert "does not match the approved subnet contract" in discover_script
     assert "az storage account network-rule add" in validate_script
     assert "--subnet \"$CONTAINER_APPS_SUBNET_ID\"" in validate_script
     assert "for vnet_rule_attempt in" in validate_script
@@ -251,8 +287,8 @@ def test_backend_storage_validation_requires_private_endpoint_when_public_access
     assert "az storage account update" in validate_script
     assert "--public-network-access Enabled" in validate_script
     assert "Expected exactly one Terraform-managed Archmorph storage account with a metrics container" in validate_script
-    assert "Container App still references legacy storage account" in validate_script
-    assert "deploying Terraform-managed storage account" in validate_script
+    assert "Container App storage differs from the selected Terraform-managed account" in validate_script
+    assert "validating the reviewed metrics cutover" in validate_script
     assert "has public network access disabled but no approved private endpoint connection" in validate_script
     assert "ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER" in validate_script
     assert "managed-identity blob preflight will prove RBAC data-plane access" in validate_script

@@ -7,7 +7,7 @@ image:
 env:
   ENVIRONMENT: "staging"
   RATE_LIMIT_ENABLED: "true"
-  ALLOWED_ORIGINS: "https://archmorph-staging.azurestaticapps.net"
+  ALLOWED_ORIGINS: "https://frontend.example.com"
 
 resources:
   limits:
@@ -29,17 +29,17 @@ ingress:
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-staging
   hosts:
-    - host: api-staging.archmorph.dev
+    - host: api-staging.example.com
       paths:
         - path: /
           pathType: Prefix
   tls:
-    - secretName: archmorph-staging-tls
+    - secretName: example-staging-api-tls
       hosts:
-        - api-staging.archmorph.dev
+        - api-staging.example.com
 
 externalSecrets:
   enabled: true
   secretStoreRef:
-    name: azure-keyvault-staging
+    name: example-staging-secret-store
     kind: SecretStore

@@ -10,8 +10,11 @@ GET  /api/diagrams/{diagram_id}/migration-timeline/export?format=json|md|csv
 from fastapi import APIRouter, Query, Request, Response, Depends
 from typing import Optional
 import asyncio
+import hashlib
+import json
 import logging
 
+from export_capabilities import consume_export_capability, issue_export_capability, verify_export_capability
 from routers.shared import authorize_diagram_access, limiter, require_diagram_access, verify_api_key
 from usage_metrics import record_event
 from migration_timeline import (
@@ -78,6 +81,7 @@ async def export_migration_timeline(
     diagram_id: str,
     format: str = Query("json", pattern="^(json|md|csv)$"),
     _auth=Depends(verify_api_key),
+    capability=Depends(verify_export_capability),
 ):
     """Export the migration timeline in JSON, Markdown, or CSV format."""
     session = authorize_diagram_access(request, diagram_id, purpose="export a migration timeline")
@@ -88,19 +92,28 @@ async def export_migration_timeline(
 
     if format == "md":
         content = render_timeline_markdown(timeline)
-        return Response(
-            content=content,
-            media_type="text/markdown",
-            headers={"Content-Disposition": f"attachment; filename=timeline-{diagram_id}.md"},
-        )
-
-    if format == "csv":
+        media_type = "text/markdown"
+        extension = "md"
+    elif format == "csv":
         content = render_timeline_csv(timeline)
-        return Response(
-            content=content,
-            media_type="text/csv",
-            headers={"Content-Disposition": f"attachment; filename=timeline-{diagram_id}.csv"},
-        )
+        media_type = "text/csv"
+        extension = "csv"
+    else:
+        content = json.dumps(timeline, ensure_ascii=False, default=str)
+        media_type = "application/json"
+        extension = "json"
 
-    # Default: JSON
-    return timeline
+    consume_export_capability(capability)
+    record_event("migration_timeline_exported", {
+        "diagram_id": diagram_id,
+        "format": format,
+    })
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="timeline-{diagram_id}.{extension}"',
+            "X-Artifact-SHA256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+            "X-Export-Capability-Next": issue_export_capability(diagram_id),
+        },
+    )

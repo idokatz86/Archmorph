@@ -2,9 +2,9 @@
 # Archmorph — Staging Environment Terraform Configuration
 # Issue #147: Staging / DR / Blue-Green Deploy
 #
-# Usage:
+# Usage (from repository root):
+#   python3 scripts/init_terraform_backend.py --environment staging
 #   cd infra/staging
-#   terraform init
 #   terraform plan -var-file=staging.tfvars
 #   terraform apply -var-file=staging.tfvars
 #
@@ -27,11 +27,7 @@ terraform {
   }
 
   backend "azurerm" {
-    resource_group_name  = "archmorph-tfstate-rg"
-    storage_account_name = "archmorphtfstate"
-    container_name       = "tfstate"
-    key                  = "archmorph-staging.tfstate"
-    use_azuread_auth     = true
+    use_azuread_auth = true
   }
 }
 
@@ -66,7 +62,7 @@ variable "alert_email" {
 variable "staging_frontend_url" {
   description = "Staging frontend URL for CORS configuration"
   type        = string
-  default     = "https://archmorph-staging.azurestaticapps.net"
+  default     = "https://frontend.example.com"
 }
 
 # ─────────────────────────────────────────────────────────────
