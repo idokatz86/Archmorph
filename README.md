@@ -833,6 +833,7 @@ Production hardening switches:
 
 - `DATABASE_URL` must point to PostgreSQL for production; set `ENFORCE_POSTGRES=true` to fail startup if SQLite is accidentally configured.
 - `REDIS_HOST` or `REDIS_URL` should be configured for horizontal scale; set `REQUIRE_REDIS=true` to fail startup instead of falling back to local file-backed stores.
+- Async analysis, IaC, and HLD `202 Accepted` responses use Redis-backed claim/lease/recovery semantics. See [docs/operations/durable-jobs.md](docs/operations/durable-jobs.md) for the durability guarantee, retry behavior, worker settings, and alert response.
 - `FEATURE_FLAG_LIVE_CLOUD_SCANNER` and `FEATURE_FLAG_DEPLOY_ENGINE` default to disabled and must only be enabled after the admin release gate and tenant validation pass.
 
 ### Azure Resources
