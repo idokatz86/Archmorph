@@ -27,6 +27,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
 os.environ.setdefault("LOG_LEVEL", "ERROR")
 os.environ.setdefault("DATABASE_URL", "sqlite:///./openapi_export.db")
+os.environ.setdefault("ALLOWED_ORIGINS", "https://frontend.example.com")
 
 warnings.filterwarnings("ignore", message="Duplicate Operation ID.*")
 

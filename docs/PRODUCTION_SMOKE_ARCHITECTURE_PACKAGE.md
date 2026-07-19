@@ -18,7 +18,7 @@ The workflow requires `API_URL`, `FRONTEND_URL`, and `ADMIN_KEY` GitHub secrets.
 ```bash
 cd Archmorph
 API_URL="https://api.archmorphai.com/api" \
-FRONTEND_URL="https://agreeable-ground-01012c003.2.azurestaticapps.net" \
+FRONTEND_URL="https://frontend.example.com" \
 ADMIN_KEY="<redacted>" \
 STRICT_FRESHNESS=true \
 ./scripts/architecture_package_smoke.sh

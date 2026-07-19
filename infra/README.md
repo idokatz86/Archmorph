@@ -2,91 +2,38 @@
 
 This directory contains the checked-in Terraform configuration for the Azure-hosted Archmorph stack. It is validated in CI with `terraform init -backend=false`, `terraform fmt -check`, `terraform validate`, and Archmorph-owned Checkov policy checks; live plans and state operations remain operator-run tasks.
 
-## Current Topology
+## Topology ownership
 
-| Component | Terraform owner | Region note |
+| Component | Terraform owner | Configuration contract |
 | --- | --- | --- |
-| Resource group, Container Apps, Container Registry, PostgreSQL, Redis, Application Insights, Log Analytics, and primary Blob Storage | `infra/main.tf` | `var.location`, default `westeurope` |
-| Azure OpenAI account and model deployments | `infra/main.tf` | Live traffic uses West Europe account `archmorph-openai-we-acm7pd` with `gpt-4.1` primary and `gpt-4o` fallback; Terraform now targets `var.openai_location = westeurope`, but #608 import/state sync must run before apply |
-| Metrics storage container `metrics` | `infra/main.tf` (`azurerm_storage_container.metrics`) | Uses the same Terraform-managed primary Blob storage account as the app runtime |
-| Terraform remote state storage | Bootstrap command comments in `infra/main.tf` | `archmorph-tfstate-rg` / `archmorphtfstate`, `westeurope` |
+| Resource group, Container Apps, Container Registry, PostgreSQL, Redis, monitoring, and primary Blob Storage | `infra/main.tf` | Region, names, and overrides come from reviewed variables and private deployment settings |
+| Azure OpenAI account and model deployments | `infra/main.tf` | Region/model changes require a reviewed import, quota check, and rollback plan |
+| Metrics storage container | `infra/main.tf` | Uses the Terraform-managed primary storage account and managed-identity RBAC |
+| Terraform remote state | Partial `azurerm` backend blocks | Resource group, account, container, and key come from private CI/operator configuration |
 
-## No-Break State Sync Guardrails
+## Partial backend initialization
 
-Issue #608 tracks bringing Terraform state back in line with the consolidated Azure estate. The #607 live traffic cutover to West Europe is complete, but the East US account remains online for rollback and the live West Europe account still needs to be adopted into Terraform state. The following operations must stay manual and change-window controlled:
-
-- `terraform plan` against the live dev workspace
-- `terraform import`
-- `terraform state rm`
-- `terraform apply`
-- Any Azure CLI command that creates, updates, deletes, or moves resources
-
-Before any state-changing operation:
-
-1. Confirm production traffic is still using the West Europe OpenAI account and App Insights shows no East US dependency traffic in the verification window.
-2. Run `terraform state pull > backup.tfstate` and keep the backup outside the repository.
-3. Capture `terraform plan -lock=false` output and verify there is no unrelated drift.
-4. Import `archmorph-openai-we-acm7pd` and its `gpt-4.1` / `gpt-4o` deployments into the Terraform resources before changing or removing the East US state entry.
-5. Keep the East US account alive until at least 24 hours of zero traffic is verified.
-6. Apply only from an approved operator session with rollback notes and smoke checks ready.
-
-### Legacy live-stack import reconciliation runbook (`archmorph-rg-dev`)
-
-Issue #1079 tracks the next state-sync gap after the remote-state RBAC and stack-contract fixes: the `Terraform Production` plan can now read the live state, but it must not approve or apply a plan that still wants to create resources which already exist in the legacy dev-named production stack.
-
-Use this runbook from an approved operator shell only. It is intentionally manual and should be completed before re-running `Terraform Production` with `apply=false`.
+Never commit live backend inventory. Configure `TFSTATE_RESOURCE_GROUP`, `TFSTATE_STORAGE_ACCOUNT`, `TFSTATE_CONTAINER`, `TFSTATE_KEY`, and a distinct `TFSTATE_STAGING_KEY` as private GitHub repository secrets or operator-local environment values. Use the validated wrapper:
 
 ```bash
-cd infra
-terraform init -input=false -lockfile=readonly
-terraform state pull > backup.tfstate
-
-STACK_ENVIRONMENT="${TF_VAR_resource_group_environment:-${TF_VAR_environment}}"
-RESOURCE_GROUP="archmorph-rg-${STACK_ENVIRONMENT}"
-NAME_SUFFIX="$(python3 - <<'PY'
-import json
-import subprocess
-
-state = json.loads(subprocess.check_output(["terraform", "state", "pull"], text=True))
-for resource in state.get("resources", []):
-    if resource.get("type") == "random_string" and resource.get("name") == "suffix":
-        for instance in resource.get("instances", []):
-            result = instance.get("attributes", {}).get("result")
-            if result:
-                print(result)
-                raise SystemExit(0)
-raise SystemExit("Unable to resolve random_string.suffix.result from Terraform state.")
-PY
-)"
-REDIS_NAME="archmorph-redis"
-
-terraform import azurerm_container_app_environment.main \
-  "/subscriptions/${ARM_SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.App/managedEnvironments/archmorph-cae-${STACK_ENVIRONMENT}"
-terraform import azurerm_container_app.backend \
-  "/subscriptions/${ARM_SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.App/containerApps/archmorph-api"
-terraform import azurerm_user_assigned_identity.container_app \
-  "/subscriptions/${ARM_SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/archmorph-api-identity"
-terraform import azurerm_storage_account.main \
-  "/subscriptions/${ARM_SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.Storage/storageAccounts/archmorph${NAME_SUFFIX}"
-terraform import azurerm_redis_cache.main \
-  "/subscriptions/${ARM_SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.Cache/Redis/${REDIS_NAME}"
+python3 scripts/init_terraform_backend.py --environment production
+python3 scripts/init_terraform_backend.py --environment staging
 ```
 
-Then re-run the plan-only workflow and confirm the resources above no longer appear as creates. `azurerm_static_web_app.frontend` is already in state when the plan shows an in-place update only, so it should stay a drift review item rather than an import gap.
+The wrapper refuses missing settings and rejects a staging key that equals the production key; environment state must never share a key.
 
-The current production workflow sets `TF_VAR_redis_name_override=archmorph-redis` because live inventory contains the legacy unsuffixed cache. Do not remove that override until a reviewed Redis migration to `archmorph-redis-${NAME_SUFFIX}` or another target name has a session/cache cutover and rollback plan.
+## No-break state guardrails
 
-If the plan still wants to destroy `azurerm_postgresql_flexible_server_firewall_rule.allow_azure[0]`, verify Azure still reports `publicNetworkAccess = Disabled` on the live PostgreSQL Flexible Server before approving any future apply:
+Live inventory, imported-resource IDs, and migration history belong in private operator notes, Terraform state, and approved change records—not this repository. Before any state-changing operation:
 
-```bash
-az postgres flexible-server show \
-  --resource-group "${RESOURCE_GROUP}" \
-  --name "archmorph-db-${NAME_SUFFIX}" \
-  --query 'network.publicNetworkAccess' \
-  -o tsv
-```
+1. Confirm the intended target from private deployment configuration and current traffic evidence.
+2. Run `terraform state pull > backup.tfstate` and retain the backup outside the repository.
+3. Generate and review a locked binary plan; reject unrelated creates, replacements, or destroys.
+4. Import existing resources only after verifying the exact IDs from the Azure control plane.
+5. Keep rollback resources available until the approved zero-traffic window passes.
+6. Apply only from the environment-gated workflow or an approved operator session.
 
-The legacy `AllowAzureServices` firewall rule is redundant only while public PostgreSQL access stays disabled. Do not approve an apply that removes that rule unless the server-level setting remains disabled and the reviewed plan no longer includes existing-resource creates.
+The `Terraform Production` workflow fails when private backend settings or legacy-name overrides are absent. Do not replace those checks with source-code defaults. For import/adoption guidance, use role-based placeholders such as `<resource-group>`, `<container-app>`, `<storage-account>`, and `<redis-cache>`.
 
 ## Sweden Central One-Region Migration Guardrails
 
@@ -111,7 +58,7 @@ Production backend traffic is expected to arrive through the Archmorph-owned Azu
 - Terraform sets the Front Door origin `origin_host_header` to the owned endpoint hostname (`azurerm_cdn_frontdoor_endpoint.api[0].host_name`).
 - The Container App receives `TRUSTED_FRONT_DOOR_FDID` from `azurerm_cdn_frontdoor_profile.main[0].resource_guid` and `TRUSTED_FRONT_DOOR_HOSTS` from the Front Door endpoint hostname.
 - Runtime middleware enforces that production requests (except `/healthz` platform liveness probes) carry the matching `X-Azure-FDID` header and a trusted host value before the app serves the request.
-- The values above are identifiers, not secrets. They are safe to use in smoke tests that prove direct Container App access is rejected while Front Door-routed traffic succeeds.
+- These values are deployment identifiers. Keep their concrete values in Terraform state or private CI/operator settings; smoke tests should consume outputs without publishing them.
 
 For operator verification after Terraform changes, inspect:
 

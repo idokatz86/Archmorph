@@ -19,6 +19,13 @@ describe('ExportPanel', () => {
     expect(screen.getByText(/Download the customer-ready HTML package/)).toBeInTheDocument()
   })
 
+  it('accurately labels the compact package export surface', () => {
+    render(<ExportPanel {...defaultProps} secondary />)
+    expect(screen.getByText('Architecture Package Exports')).toBeInTheDocument()
+    expect(screen.getByText(/Customer-ready HTML package/)).toBeInTheDocument()
+    expect(screen.queryByText('Classic Diagram Exports')).not.toBeInTheDocument()
+  })
+
   it('renders HTML Package button', () => {
     render(<ExportPanel {...defaultProps} />)
     expect(screen.getByText('HTML Package')).toBeInTheDocument()

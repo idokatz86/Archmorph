@@ -29,13 +29,16 @@ def test_security_workflow_scans_all_production_runtime_images():
 
     assert names == {"backend", "mcp-gateway"}
     assert _step_by_name(trivy_job["steps"], "Build ${{ matrix.image.name }} image for scanning")
-    assert _step_by_name(trivy_job["steps"], "Container healthcheck smoke (${{ matrix.image.name }})")
+    health_step = _step_by_name(trivy_job["steps"], "Container healthcheck smoke (${{ matrix.image.name }})")
+    assert "-e ENVIRONMENT=test" in health_step["run"]
+    assert "-e ALLOWED_ORIGINS=https://frontend.example.com" in health_step["run"]
 
 
 def test_security_workflow_uses_distinct_sarif_category_per_runtime_image():
     workflow = _load()
     upload_step = _step_by_name(workflow["jobs"]["trivy-container"]["steps"], "Upload Trivy SARIF to GitHub Security")
     assert upload_step["with"]["category"] == "trivy-container-${{ matrix.image.name }}"
+    assert "hashFiles(format('trivy-results-{0}.sarif', matrix.image.name)) != ''" in upload_step["if"]
 
 
 def test_security_workflow_builds_scan_images_without_layer_cache():

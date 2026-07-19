@@ -11,6 +11,7 @@ from strict_models import StrictBaseModel
 from typing import Optional, List
 import asyncio
 import csv
+import hashlib
 import io
 import logging
 
@@ -690,7 +691,10 @@ async def export_cost_csv(
     response = Response(
         content=csv_content,
         media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename=cost-estimate-{diagram_id}.csv"},
+        headers={
+            "Content-Disposition": f"attachment; filename=cost-estimate-{diagram_id}.csv",
+            "X-Artifact-SHA256": hashlib.sha256(csv_content.encode("utf-8")).hexdigest(),
+        },
     )
     response.headers["X-Export-Capability-Next"] = issue_export_capability(diagram_id)
     return response

@@ -10,8 +10,8 @@ openai_location = "swedencentral"
 environment     = "dev"
 
 # Keep global URLs and secrets operator-owned. Do not commit real values here.
-frontend_url      = "https://archmorphai.com"
-db_admin_username = "archmorphadmin"
+frontend_url      = "https://frontend.example.com"
+db_admin_username = "example_admin"
 # db_admin_password = Set via TF_VAR_db_admin_password or an approved secret store.
 
 # Match current West Europe baseline until Sweden Central quota proves otherwise.

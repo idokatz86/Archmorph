@@ -151,6 +151,7 @@ def test_diagram_artifact_routes_require_api_key_or_user_session_dependency_and_
         "/api/diagrams/{diagram_id}/export-package",
         "/api/diagrams/{diagram_id}/report",
         "/api/diagrams/{diagram_id}/cost-estimate/export",
+        "/api/diagrams/{diagram_id}/migration-timeline/export",
     }
 
     missing: list[str] = []

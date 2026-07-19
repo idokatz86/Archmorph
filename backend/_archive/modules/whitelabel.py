@@ -226,7 +226,7 @@ async def get_embed_snippet(partner_id: str):
 <script>
 (function() {{
   var iframe = document.createElement('iframe');
-  iframe.src = 'https://app.archmorph.com/embed?partner={partner_id}';
+    iframe.src = 'https://frontend.example.com/embed?partner={partner_id}';
   iframe.style.width = '{width}';
   iframe.style.height = '{height}';
   iframe.style.border = 'none';
