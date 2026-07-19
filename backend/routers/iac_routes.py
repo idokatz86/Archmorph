@@ -11,10 +11,11 @@ from starlette.responses import JSONResponse
 from strict_models import StrictBaseModel
 import asyncio
 import hashlib
+import json
 import logging
 import re
 import secrets
-from typing import Literal, Optional
+from typing import Any, Dict, Literal, Optional
 
 from routers.shared import (
     SESSION_STORE,
@@ -24,7 +25,8 @@ from routers.shared import (
     require_diagram_access,
     verify_api_key,
 )
-from job_queue import job_manager
+from job_queue import JobStoreError, job_manager
+from openai_client import AZURE_OPENAI_DEPLOYMENT
 from usage_metrics import record_event, record_funnel_step
 from iac_chat import process_iac_chat, get_iac_chat_history, clear_iac_chat
 from iac_generator import generate_iac_code
@@ -65,6 +67,29 @@ def _with_iac_etag(session: dict, code: str) -> tuple[dict, str]:
     etag = _compute_iac_etag(code)
     updated[_IAC_ETAG_KEY] = etag
     return updated, etag
+
+
+def _iac_generation_input(session: dict) -> dict:
+    """Return the deterministic session projection consumed by IaC generation."""
+    return {
+        "mappings": session.get("mappings", []),
+        "services_detected": session.get("services_detected", 0),
+        "source_provider": session.get("source_provider", "AWS"),
+        "service_connections": session.get("service_connections", []),
+        "architecture_patterns": session.get("architecture_patterns", []),
+        "iac_parameters": session.get("iac_parameters", {}),
+    }
+
+
+def _iac_generation_input_hash(session: dict) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            _iac_generation_input(session),
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        ).encode("utf-8")
+    ).hexdigest()
 
 
 def _enforce_iac_if_match(request: Request, session: dict) -> None:
@@ -359,15 +384,32 @@ async def generate_iac_async(
     _check_architecture_blockers(diagram_id, session, force)
     queued_etag = _get_stored_etag(session)
     queued_code_hash = session.get("iac_code_hash")
+    analysis_hash = _iac_generation_input_hash(session)
+    execution_payload = {
+        "diagram_id": diagram_id,
+        "format": format,
+        "queued_etag": queued_etag,
+        "queued_code_hash": queued_code_hash,
+        "analysis_hash": analysis_hash,
+        "model": AZURE_OPENAI_DEPLOYMENT,
+    }
 
-    job = job_manager.submit(
-        "generate_iac",
-        diagram_id=diagram_id,
-        owner_user_id=user.id if user else None,
-        tenant_id=user.tenant_id if user else None,
-        owner_api_key_id=api_key_principal_id if not user else None,
-    )
-    asyncio.create_task(_run_iac_job(job.job_id, diagram_id, format, queued_etag, queued_code_hash))
+    try:
+        job = job_manager.submit(
+            "generate_iac",
+            diagram_id=diagram_id,
+            owner_user_id=user.id if user else None,
+            tenant_id=user.tenant_id if user else None,
+            owner_api_key_id=api_key_principal_id if not user else None,
+            execution_payload=execution_payload,
+        )
+    except JobStoreError:
+        raise ArchmorphException(
+            503,
+            "IaC job persistence is temporarily unavailable. Please retry shortly.",
+            details={"error": "job_persistence_unavailable"},
+            headers={"Retry-After": "30"},
+        )
 
     from starlette.responses import JSONResponse
     return JSONResponse(
@@ -376,7 +418,7 @@ async def generate_iac_async(
             "job_id": job.job_id,
             "diagram_id": diagram_id,
             "format": format,
-            "status": "queued",
+            "status": job.status.value,
             "stream_url": f"/api/jobs/{job.job_id}/stream",
         },
     )
@@ -384,20 +426,38 @@ async def generate_iac_async(
 
 async def _run_iac_job(
     job_id: str,
-    diagram_id: str,
-    iac_format: str,
-    queued_etag: Optional[str] = None,
-    queued_code_hash: Optional[str] = None,
+    payload: Dict[str, Any],
 ) -> None:
     """Background worker for IaC generation."""
+    diagram_id = str(payload["diagram_id"])
+    iac_format = str(payload["format"])
+    queued_etag = payload.get("queued_etag")
+    queued_code_hash = payload.get("queued_code_hash")
     try:
-        job_manager.start(job_id)
         job_manager.update_progress(job_id, 10, f"Generating {iac_format.title()} code...")
 
         session = SESSION_STORE.get(diagram_id, {})
+        job_record = job_manager.get(job_id)
+        if job_record:
+            job_user_id = getattr(job_record, "owner_user_id", None)
+            job_tenant_id = getattr(job_record, "tenant_id", None)
+            job_api_key_id = getattr(job_record, "owner_api_key_id", None)
+            if job_user_id or job_tenant_id:
+                if (
+                    session.get("_owner_user_id") != job_user_id
+                    or session.get("_tenant_id") != job_tenant_id
+                ):
+                    job_manager.fail(job_id, "Analysis access revoked")
+                    return
+            elif job_api_key_id and session.get("_owner_api_key_id") != job_api_key_id:
+                job_manager.fail(job_id, "Analysis access revoked")
+                return
+        if _iac_generation_input_hash(session) != payload.get("analysis_hash"):
+            job_manager.fail(job_id, "Analysis changed after this IaC job was accepted")
+            return
         iac_params = session.get("iac_parameters", {})
 
-        if job_manager.is_cancelled(job_id):
+        if not job_manager.owns_current_lease(job_id):
             return
 
         job_manager.update_progress(job_id, 30, "Calling GPT-4o for code generation...")
@@ -409,10 +469,13 @@ async def _run_iac_job(
             params=iac_params,
         )
 
-        if job_manager.is_cancelled(job_id):
+        if not job_manager.owns_current_lease(job_id):
             return
 
         job_manager.update_progress(job_id, 90, "Finalizing code...")
+
+        if not job_manager.owns_current_lease(job_id):
+            return
 
         record_event(f"iac_generated_{iac_format}", {"diagram_id": diagram_id})
         record_funnel_step(diagram_id, "iac_generate")
@@ -426,7 +489,11 @@ async def _run_iac_job(
         def _canonical_state_matches(candidate: dict | None) -> bool:
             if candidate is None:
                 return False
-            return _get_stored_etag(candidate) == queued_etag and candidate.get("iac_code_hash") == queued_code_hash
+            return (
+                _get_stored_etag(candidate) == queued_etag
+                and candidate.get("iac_code_hash") == queued_code_hash
+                and _iac_generation_input_hash(candidate) == payload.get("analysis_hash")
+            )
 
         def _write_canonical_state(candidate: dict) -> dict:
             updated, _ = _with_iac_etag(candidate, code)

@@ -160,6 +160,10 @@ from api_versioning import VersionMiddleware  # noqa: E402
 from auth import get_user_from_request_headers, request_has_untrusted_swa_principal  # noqa: E402
 from audit_logging import audit_logger, AuditEventType  # noqa: E402, F401
 from error_envelope import register_error_handlers  # noqa: E402
+from job_queue import durable_job_worker  # noqa: E402
+from routers.diagrams import _run_analysis_job  # noqa: E402
+from routers.iac_routes import _run_iac_job  # noqa: E402
+from routers.hld_routes import _run_hld_job  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -254,8 +258,19 @@ async def lifespan(app: FastAPI):
     asyncio.get_running_loop().set_default_executor(_executor)
     logger.info("Thread pool configured: %d workers", _THREAD_POOL_SIZE)
 
+    durable_job_worker.register("analyze", _run_analysis_job)
+    durable_job_worker.register("generate_iac", _run_iac_job)
+    durable_job_worker.register("generate_hld", _run_hld_job)
+    reconciliation = await durable_job_worker.start()
+    logger.info(
+        "Durable job worker started (recovered=%d, failed=%d)",
+        len(reconciliation["recovered"]),
+        len(reconciliation["failed"]),
+    )
+
     yield
     logger.info("Shutting down Archmorph API")
+    await durable_job_worker.stop()
     stop_scheduler()
     flush_metrics()
     _executor.shutdown(wait=False)

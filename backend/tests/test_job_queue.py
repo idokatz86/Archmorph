@@ -14,6 +14,8 @@ import os
 import sys
 import json
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
 import pytest
 
 
@@ -245,6 +247,343 @@ class TestJobManager:
             reset_stores()
 
 
+class TestDurableJobRecovery:
+    """Chaos and ownership tests for accepted restart-safe jobs (#1239)."""
+
+    def _make_managers(self, *, max_attempts=3):
+        from job_queue import JobManager
+        from session_store import reset_stores
+
+        reset_stores()
+        writer = JobManager(max_jobs=50, lease_seconds=5, max_attempts=max_attempts, worker_id="writer")
+        recovery = JobManager(max_jobs=50, lease_seconds=5, max_attempts=max_attempts, worker_id="recovery")
+        return writer, recovery
+
+    def test_atomic_input_hash_idempotency_returns_one_job(self):
+        writer, recovery = self._make_managers()
+        payload = {"diagram_id": "d1", "image_sha256": "abc", "model": "model-a"}
+
+        first = writer.submit("analyze", diagram_id="d1", execution_payload=payload)
+        duplicate = recovery.submit("analyze", diagram_id="d1", execution_payload=payload)
+
+        assert duplicate.job_id == first.job_id
+        assert len(writer.list_jobs()) == 1
+
+    def test_changed_configuration_creates_new_job(self):
+        writer, recovery = self._make_managers()
+        first = writer.submit(
+            "generate_iac",
+            diagram_id="d1",
+            execution_payload={"diagram_id": "d1", "format": "terraform", "model": "model-a"},
+        )
+        changed = recovery.submit(
+            "generate_iac",
+            diagram_id="d1",
+            execution_payload={"diagram_id": "d1", "format": "terraform", "model": "model-b"},
+        )
+        assert changed.job_id != first.job_id
+
+    def test_idempotency_is_scoped_to_job_owner(self):
+        writer, recovery = self._make_managers()
+        payload = {"diagram_id": "d1", "image_sha256": "abc"}
+
+        first = writer.submit("analyze", owner_user_id="u1", tenant_id="t1", execution_payload=payload)
+        other_owner = recovery.submit(
+            "analyze",
+            owner_user_id="u2",
+            tenant_id="t1",
+            execution_payload=payload,
+        )
+
+        assert other_owner.job_id != first.job_id
+
+    def test_stale_idempotency_reservation_is_repaired(self):
+        from job_queue import JobManager
+
+        writer, _recovery = self._make_managers()
+        payload = {"diagram_id": "d1"}
+        input_hash = JobManager.input_hash("generate_hld", None, payload)
+        key = JobManager._idempotency_key(
+            input_hash,
+            owner_user_id=None,
+            tenant_id=None,
+            owner_api_key_id=None,
+        )
+        writer._idempotency_store.set(
+            key,
+            {
+                "job_id": "missing-job",
+                "created_at": (datetime.now(timezone.utc) - timedelta(seconds=10)).isoformat(),
+            },
+        )
+
+        job = writer.submit("generate_hld", execution_payload=payload)
+
+        assert job.status == "queued"
+        assert writer._idempotency_store.peek(key)["job_id"] == job.job_id
+
+    def test_event_store_failure_does_not_rollback_accepted_job(self, monkeypatch):
+        writer, recovery = self._make_managers()
+        monkeypatch.setattr(writer._events_store, "set", lambda *args, **kwargs: False)
+        payload = {"diagram_id": "d1", "analysis_hash": "abc"}
+
+        job = writer.submit("generate_hld", execution_payload=payload)
+        duplicate = recovery.submit("generate_hld", execution_payload=payload)
+
+        assert writer.get(job.job_id) is not None
+        assert duplicate.job_id == job.job_id
+        assert len(writer.list_jobs()) == 1
+
+    def test_worker_rejects_heartbeat_at_or_beyond_lease(self):
+        from job_queue import DurableJobWorker
+
+        writer, _recovery = self._make_managers()
+        with pytest.raises(ValueError, match="JOB_HEARTBEAT_SECONDS"):
+            DurableJobWorker(writer, heartbeat_seconds=5)
+
+    def test_concurrent_idempotent_submissions_persist_one_job(self):
+        writer, recovery = self._make_managers()
+        payload = {"diagram_id": "d1", "analysis_hash": "abc"}
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [
+                pool.submit(manager.submit, "generate_hld", execution_payload=payload)
+                for manager in (writer, recovery)
+            ]
+        jobs = [future.result() for future in futures]
+
+        assert len({job.job_id for job in jobs}) == 1
+        assert len(writer.list_jobs()) == 1
+
+    @pytest.mark.chaos
+    def test_crash_after_submit_is_claimable(self):
+        writer, recovery = self._make_managers()
+        job = writer.submit("generate_hld", execution_payload={"diagram_id": "d1"})
+
+        assert recovery.claim(job.job_id) is not None
+        claimed = recovery.get(job.job_id)
+        assert claimed.status == "running"
+        assert claimed.attempt == 1
+
+    @pytest.mark.chaos
+    def test_crash_after_claim_is_requeued_after_lease_expiry(self):
+        writer, recovery = self._make_managers()
+        job = writer.submit("analyze", execution_payload={"diagram_id": "d1"})
+        claim_time = datetime.now(timezone.utc)
+        stale_token = writer.claim(job.job_id, now=claim_time)
+        assert stale_token
+
+        result = recovery.reconcile_abandoned(now=claim_time + timedelta(seconds=6))
+
+        assert result["recovered"] == [job.job_id]
+        recovered = recovery.get(job.job_id)
+        assert recovered.status == "queued"
+        assert recovered.recovery_count == 1
+
+    @pytest.mark.chaos
+    def test_crash_before_completion_persistence_allows_retry(self):
+        writer, recovery = self._make_managers()
+        job = writer.submit("generate_iac", execution_payload={"diagram_id": "d1", "format": "bicep"})
+        claim_time = datetime.now(timezone.utc)
+        stale_token = writer.claim(job.job_id, now=claim_time)
+        assert stale_token
+        writer.update_progress(job.job_id, 80, "side effect finished")
+
+        recovery.reconcile_abandoned(now=claim_time + timedelta(seconds=6))
+        retry_token = recovery.claim(job.job_id, now=claim_time + timedelta(seconds=7))
+
+        assert retry_token and retry_token != stale_token
+        assert recovery.get(job.job_id).attempt == 2
+
+    def test_stale_worker_cannot_progress_or_complete_after_reclaim(self):
+        writer, recovery = self._make_managers()
+        job = writer.submit("generate_hld", execution_payload={"diagram_id": "d1"})
+        claim_time = datetime.now(timezone.utc)
+        stale_token = writer.claim(job.job_id, now=claim_time)
+        recovery.reconcile_abandoned(now=claim_time + timedelta(seconds=6))
+        fresh_token = recovery.claim(job.job_id, now=claim_time + timedelta(seconds=7))
+        assert fresh_token
+
+        with writer.lease_context(stale_token):
+            writer.update_progress(job.job_id, 99, "stale write")
+            writer.complete(job.job_id, {"winner": "stale"})
+
+        latest = recovery.get(job.job_id)
+        assert latest.status == "running"
+        assert latest.progress != 99
+        assert latest.result is None
+
+    def test_expired_worker_cannot_complete_before_reconciliation(self):
+        writer, recovery = self._make_managers()
+        job = writer.submit("generate_hld", execution_payload={"diagram_id": "d1"})
+        expired_claim_time = datetime.now(timezone.utc) - timedelta(seconds=6)
+        stale_token = writer.claim(job.job_id, now=expired_claim_time)
+        assert stale_token
+
+        with writer.lease_context(stale_token):
+            writer.complete(job.job_id, {"winner": "expired"})
+
+        latest = recovery.get(job.job_id)
+        assert latest.status == "running"
+        assert latest.result is None
+
+    def test_running_job_cancel_revokes_worker_lease_and_releases_counter_once(self):
+        writer, recovery = self._make_managers()
+        job = writer.submit(
+            "analyze",
+            owner_user_id="u1",
+            execution_payload={"diagram_id": "d1"},
+            enforce_admission=True,
+        )
+        token = writer.claim(job.job_id)
+        assert writer.count_active_jobs(user_id="u1") == 1
+
+        assert recovery.cancel(job.job_id) is True
+        assert recovery.cancel(job.job_id) is False
+        assert writer.count_active_jobs(user_id="u1") == 0
+        with writer.lease_context(token):
+            writer.complete(job.job_id, {"should_not": "win"})
+        assert recovery.get(job.job_id).status == "cancelled"
+
+    def test_startup_rebuild_restores_analysis_admission_counters(self):
+        writer, recovery = self._make_managers()
+        writer.submit("analyze", owner_user_id="u1", tenant_id="t1", execution_payload={"diagram_id": "d1"})
+        writer._active_counts_store.delete("totals")
+        assert recovery.count_active_jobs(user_id="u1") == 0
+
+        recovery.reconcile_abandoned(rebuild_counters=True)
+
+        assert recovery.count_active_jobs(user_id="u1") == 1
+        assert recovery.count_active_jobs(tenant_id="t1") == 1
+
+    def test_periodic_recovery_does_not_double_rebuild_counters(self):
+        writer, recovery = self._make_managers()
+        writer.submit("analyze", owner_user_id="u1", execution_payload={"diagram_id": "d1"})
+        recovery.reconcile_abandoned(rebuild_counters=True)
+
+        recovery.reconcile_abandoned()
+
+        assert recovery.count_active_jobs(user_id="u1") == 1
+
+    def test_periodic_recovery_repairs_terminal_counter_reservation(self):
+        writer, recovery = self._make_managers()
+        job = writer.submit(
+            "analyze",
+            owner_user_id="u1",
+            execution_payload={"diagram_id": "d1"},
+            enforce_admission=True,
+        )
+        payload = writer._jobs_store.peek(job.job_id)
+        payload.update(
+            {
+                "status": "completed",
+                "phase": "completed",
+                "active_counters_released": True,
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        writer._jobs_store.set(job.job_id, payload)
+        assert recovery.count_active_jobs(user_id="u1") == 1
+
+        recovery.reconcile_abandoned()
+
+        assert recovery.count_active_jobs(user_id="u1") == 0
+
+    def test_retry_budget_exhaustion_fails_and_releases_counter(self):
+        writer, recovery = self._make_managers(max_attempts=1)
+        job = writer.submit(
+            "analyze",
+            owner_user_id="u1",
+            execution_payload={"diagram_id": "d1"},
+            enforce_admission=True,
+        )
+        claim_time = datetime.now(timezone.utc)
+        writer.claim(job.job_id, now=claim_time)
+
+        result = recovery.reconcile_abandoned(now=claim_time + timedelta(seconds=6))
+
+        assert result["failed"] == [job.job_id]
+        failed = recovery.get(job.job_id)
+        assert failed.status == "failed"
+        assert failed.retryable is False
+        assert recovery.count_active_jobs(user_id="u1") == 0
+
+    @pytest.mark.asyncio
+    async def test_recovered_event_preserves_sse_continuity(self):
+        writer, recovery = self._make_managers()
+        job = writer.submit("generate_iac", execution_payload={"diagram_id": "d1"})
+        claim_time = datetime.now(timezone.utc)
+        writer.claim(job.job_id, now=claim_time)
+        recovery.reconcile_abandoned(now=claim_time + timedelta(seconds=6))
+        recovery.cancel(job.job_id)
+
+        events = []
+        async for event in writer.stream(job.job_id, timeout=1):
+            events.append(event)
+        combined = "".join(events)
+        assert "event: recovered" in combined
+        assert "event: cancelled" in combined
+
+    def test_durable_metrics_expose_recovery_counts(self):
+        writer, recovery = self._make_managers()
+        job = writer.submit("generate_hld", execution_payload={"diagram_id": "d1"})
+        claim_time = datetime.now(timezone.utc)
+        writer.claim(job.job_id, now=claim_time)
+        recovery.reconcile_abandoned(now=claim_time + timedelta(seconds=6))
+
+        metrics = recovery.metrics()["durability"]
+        assert metrics["abandoned_total"] == 1
+        assert metrics["recovered_total"] == 1
+        assert metrics["retried_total"] == 1
+        assert metrics["retryable_jobs"] == 1
+
+    @pytest.mark.asyncio
+    async def test_worker_executes_claimed_envelope_to_completion(self):
+        from job_queue import DurableJobWorker
+
+        writer, _recovery = self._make_managers()
+        worker = DurableJobWorker(writer, poll_seconds=0.01, heartbeat_seconds=1, recovery_seconds=1)
+
+        async def handler(job_id, payload):
+            assert payload == {"diagram_id": "d1"}
+            writer.complete(job_id, {"ok": True})
+
+        worker.register("generate_hld", handler)
+        job = writer.submit("generate_hld", execution_payload={"diagram_id": "d1"})
+        await worker.start()
+        try:
+            for _ in range(100):
+                if writer.get(job.job_id).status == "completed":
+                    break
+                await asyncio.sleep(0.01)
+            assert writer.get(job.job_id).result == {"ok": True}
+        finally:
+            await worker.stop()
+
+    @pytest.mark.asyncio
+    async def test_submission_wakes_worker_before_poll_interval(self):
+        from job_queue import DurableJobWorker
+
+        writer, _recovery = self._make_managers()
+        worker = DurableJobWorker(writer, poll_seconds=30, heartbeat_seconds=1, recovery_seconds=30)
+
+        async def handler(job_id, _payload):
+            writer.complete(job_id, {"ok": True})
+
+        worker.register("generate_hld", handler)
+        await worker.start()
+        try:
+            await asyncio.sleep(0)
+            job = writer.submit("generate_hld", execution_payload={"diagram_id": "d1"})
+            for _ in range(50):
+                if writer.get(job.job_id).status == "completed":
+                    break
+                await asyncio.sleep(0.01)
+            assert writer.get(job.job_id).status == "completed"
+        finally:
+            await worker.stop()
+
+
 # ─────────────────────────────────────────────────────────────
 # Job serialization
 # ─────────────────────────────────────────────────────────────
@@ -406,6 +745,19 @@ class TestJobsRouter:
 class TestAsyncAnalyzeEndpoint:
     """Test the async analyze endpoint returns 202."""
 
+    def test_async_endpoints_do_not_launch_process_local_runner_tasks(self):
+        from pathlib import Path
+
+        routers_dir = Path(__file__).resolve().parents[1] / "routers"
+        for filename, runner in (
+            ("diagrams.py", "_run_analysis_job"),
+            ("iac_routes.py", "_run_iac_job"),
+            ("hld_routes.py", "_run_hld_job"),
+        ):
+            source = (routers_dir / filename).read_text()
+            assert f"create_task({runner}" not in source
+            assert "execution_payload=" in source
+
     def test_analyze_async_no_upload_returns_404(self, test_client, auth_headers):
         """Without uploading first, should get 404."""
         res = test_client.post("/api/diagrams/nonexistent/analyze-async", headers=auth_headers)
@@ -429,14 +781,148 @@ class TestAsyncAnalyzeEndpoint:
         res = test_client.post("/api/diagrams/nonexistent/generate-hld-async", headers=auth_headers)
         assert res.status_code == 404
 
+    @pytest.mark.asyncio
+    async def test_analysis_worker_rejects_changed_uploaded_image(self):
+        from job_queue import JobManager
+        from routers.diagrams import _run_analysis_job
+        from routers.shared import IMAGE_STORE
+        import routers.diagrams as diagrams_router
+
+        manager = JobManager(max_jobs=20, worker_id="analysis-test")
+        original_manager = diagrams_router.job_manager
+        diagrams_router.job_manager = manager
+        diagram_id = "changed-analysis-image"
+        IMAGE_STORE[diagram_id] = (b"new-image", "image/png")
+        try:
+            job = manager.submit(
+                "analyze",
+                diagram_id=diagram_id,
+                execution_payload={
+                    "diagram_id": diagram_id,
+                    "image_sha256": "stale-hash",
+                    "content_type": "image/png",
+                },
+            )
+            token = manager.claim(job.job_id)
+            with manager.lease_context(token):
+                await _run_analysis_job(job.job_id, job.execution_payload)
+            failed = manager.get(job.job_id)
+            assert failed.status == "failed"
+            assert "image changed" in failed.error.lower()
+        finally:
+            diagrams_router.job_manager = original_manager
+            IMAGE_STORE.delete(diagram_id)
+
+    @pytest.mark.asyncio
+    async def test_iac_worker_rejects_changed_analysis(self):
+        from job_queue import JobManager
+        from routers.iac_routes import _run_iac_job
+        from routers.shared import SESSION_STORE
+        import routers.iac_routes as iac_router
+
+        manager = JobManager(max_jobs=20, worker_id="iac-test")
+        original_manager = iac_router.job_manager
+        iac_router.job_manager = manager
+        diagram_id = "changed-iac-analysis"
+        SESSION_STORE[diagram_id] = {"mappings": [{"source_service": "S3"}]}
+        try:
+            job = manager.submit(
+                "generate_iac",
+                diagram_id=diagram_id,
+                execution_payload={
+                    "diagram_id": diagram_id,
+                    "format": "terraform",
+                    "analysis_hash": "stale-hash",
+                },
+            )
+            token = manager.claim(job.job_id)
+            with manager.lease_context(token):
+                await _run_iac_job(job.job_id, job.execution_payload)
+            failed = manager.get(job.job_id)
+            assert failed.status == "failed"
+            assert "analysis changed" in failed.error.lower()
+        finally:
+            iac_router.job_manager = original_manager
+            SESSION_STORE.delete(diagram_id)
+
+    @pytest.mark.asyncio
+    async def test_iac_worker_rejects_revoked_owner(self):
+        from job_queue import JobManager
+        from routers.iac_routes import _iac_generation_input_hash, _run_iac_job
+        from routers.shared import SESSION_STORE
+        import routers.iac_routes as iac_router
+
+        manager = JobManager(max_jobs=20, worker_id="iac-owner-test")
+        original_manager = iac_router.job_manager
+        iac_router.job_manager = manager
+        diagram_id = "revoked-iac-owner"
+        session = {
+            "mappings": [{"source_service": "S3"}],
+            "_owner_user_id": "new-owner",
+            "_tenant_id": "tenant-a",
+        }
+        SESSION_STORE[diagram_id] = session
+        try:
+            job = manager.submit(
+                "generate_iac",
+                diagram_id=diagram_id,
+                owner_user_id="old-owner",
+                tenant_id="tenant-a",
+                execution_payload={
+                    "diagram_id": diagram_id,
+                    "format": "terraform",
+                    "analysis_hash": _iac_generation_input_hash(session),
+                },
+            )
+            token = manager.claim(job.job_id)
+            with manager.lease_context(token):
+                await _run_iac_job(job.job_id, job.execution_payload)
+            failed = manager.get(job.job_id)
+            assert failed.status == "failed"
+            assert "access revoked" in failed.error.lower()
+        finally:
+            iac_router.job_manager = original_manager
+            SESSION_STORE.delete(diagram_id)
+
+    @pytest.mark.asyncio
+    async def test_hld_worker_rejects_changed_analysis(self):
+        from job_queue import JobManager
+        from routers.hld_routes import _run_hld_job
+        from routers.shared import SESSION_STORE
+        import routers.hld_routes as hld_router
+
+        manager = JobManager(max_jobs=20, worker_id="hld-test")
+        original_manager = hld_router.job_manager
+        hld_router.job_manager = manager
+        diagram_id = "changed-hld-analysis"
+        SESSION_STORE[diagram_id] = {"mappings": [{"source_service": "S3"}]}
+        try:
+            job = manager.submit(
+                "generate_hld",
+                diagram_id=diagram_id,
+                execution_payload={"diagram_id": diagram_id, "analysis_hash": "stale-hash"},
+            )
+            token = manager.claim(job.job_id)
+            with manager.lease_context(token):
+                await _run_hld_job(job.job_id, job.execution_payload)
+            failed = manager.get(job.job_id)
+            assert failed.status == "failed"
+            assert "analysis changed" in failed.error.lower()
+        finally:
+            hld_router.job_manager = original_manager
+            SESSION_STORE.delete(diagram_id)
+
     def test_api_key_async_iac_create_status_stream_cancel(self, test_client, api_key_headers, monkeypatch):
-        from job_queue import job_manager
+        from job_queue import durable_job_worker, job_manager
         from routers.shared import SESSION_STORE
 
-        async def _fake_run_iac_job(job_id: str, diagram_id: str, iac_format: str, *args, **kwargs) -> None:
-            await asyncio.sleep(0)
+        async def _wait_for_cancellation(job_id, _payload):
+            for _ in range(100):
+                if job_manager.is_cancelled(job_id):
+                    return
+                await asyncio.sleep(0.01)
 
-        monkeypatch.setattr("routers.iac_routes._run_iac_job", _fake_run_iac_job)
+        monkeypatch.setitem(durable_job_worker._handlers, "generate_iac", _wait_for_cancellation)
         diagram_id = "api-key-iac-diagram"
         SESSION_STORE[diagram_id] = {
             "services_detected": 0,
@@ -450,6 +936,10 @@ class TestAsyncAnalyzeEndpoint:
             principal_id = _api_key_principal(api_key_headers)
             created = job_manager.get(job_id)
             assert created is not None
+            assert created.durable is True
+            assert created.execution_payload["diagram_id"] == diagram_id
+            assert created.execution_payload["format"] == "terraform"
+            assert created.execution_payload["analysis_hash"]
             assert created.owner_user_id is None
             assert created.owner_api_key_id == principal_id
 
@@ -550,9 +1040,39 @@ class TestAdmissionControl:
     def test_submit_enforce_admission_surfaces_counter_store_failure(self, monkeypatch):
         from job_queue import AdmissionStoreError
         mgr = self._make_manager(max_per_user=2)
-        monkeypatch.setattr(mgr._active_counts_store, "update_if", lambda *args, **kwargs: (False, {"active": 0}))
+        monkeypatch.setattr(
+            mgr._active_counts_store,
+            "update_if",
+            lambda *args, **kwargs: (False, {"counts": {"user:u1": 0}}),
+        )
         with pytest.raises(AdmissionStoreError):
             mgr.submit("analyze", owner_user_id="u1", tenant_id="t1", enforce_admission=True)
+
+    def test_concurrent_admission_reservations_do_not_oversubscribe(self):
+        from job_queue import AdmissionRejected
+
+        mgr = self._make_manager(max_per_user=1, max_per_tenant=1)
+
+        def submit():
+            return mgr.submit(
+                "analyze",
+                owner_user_id="u1",
+                tenant_id="t1",
+                enforce_admission=True,
+            )
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(submit) for _ in range(2)]
+        outcomes = []
+        for future in futures:
+            try:
+                outcomes.append(future.result())
+            except AdmissionRejected:
+                outcomes.append("rejected")
+
+        assert sum(item != "rejected" for item in outcomes) == 1
+        assert mgr.count_active_jobs(user_id="u1") == 1
+        assert mgr.count_active_jobs(tenant_id="t1") == 1
 
     def test_non_analysis_jobs_do_not_consume_analysis_quota(self):
         mgr = self._make_manager(max_per_user=2)
