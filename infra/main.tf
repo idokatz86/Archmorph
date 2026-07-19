@@ -760,6 +760,36 @@ resource "azurerm_container_app" "backend" {
       }
 
       env {
+        name  = "REQUIRE_REDIS"
+        value = "true"
+      }
+
+      env {
+        name  = "JOB_LEASE_SECONDS"
+        value = "90"
+      }
+
+      env {
+        name  = "JOB_HEARTBEAT_SECONDS"
+        value = "15"
+      }
+
+      env {
+        name  = "JOB_POLL_SECONDS"
+        value = "1"
+      }
+
+      env {
+        name  = "JOB_RECOVERY_SECONDS"
+        value = "30"
+      }
+
+      env {
+        name  = "JOB_MAX_ATTEMPTS"
+        value = "3"
+      }
+
+      env {
         name        = "APPLICATIONINSIGHTS_CONNECTION_STRING"
         secret_name = "appinsights-connection"
       }
@@ -1209,6 +1239,82 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "container_restarts" {
   }
 
   tags = local.tags
+}
+
+# Durable async job recovery alert (#1239)
+resource "azurerm_monitor_scheduled_query_rules_alert_v2" "durable_job_recovery" {
+  name                = "archmorph-durable-job-recovery"
+  resource_group_name = azurerm_resource_group.main.name
+  location            = azurerm_resource_group.main.location
+  description         = "Alert when accepted async jobs are abandoned, recovered, or retried after worker/revision loss"
+  severity            = 2
+  enabled             = true
+  scopes              = [azurerm_application_insights.main.id]
+
+  evaluation_frequency = "PT5M"
+  window_duration      = "PT15M"
+
+  criteria {
+    query                   = <<-KQL
+      customMetrics
+      | where name in ('jobs.durable.abandoned_total', 'jobs.durable.recovered_total', 'jobs.durable.retried_total')
+      | summarize RecoveryEvents = sum(valueCount)
+      | project RecoveryEvents
+    KQL
+    time_aggregation_method = "Maximum"
+    operator                = "GreaterThan"
+    threshold               = 0
+    metric_measure_column   = "RecoveryEvents"
+    failing_periods {
+      minimum_failing_periods_to_trigger_alert = 1
+      number_of_evaluation_periods             = 1
+    }
+  }
+
+  action {
+    action_groups = [azurerm_monitor_action_group.critical.id]
+  }
+
+  auto_mitigation_enabled = true
+  tags                    = local.tags
+}
+
+# Retryable durable-job backlog alert (#1239)
+resource "azurerm_monitor_scheduled_query_rules_alert_v2" "durable_job_backlog" {
+  name                = "archmorph-durable-job-backlog"
+  resource_group_name = azurerm_resource_group.main.name
+  location            = azurerm_resource_group.main.location
+  description         = "Alert when retryable accepted jobs remain queued or running for too long"
+  severity            = 2
+  enabled             = true
+  scopes              = [azurerm_application_insights.main.id]
+
+  evaluation_frequency = "PT5M"
+  window_duration      = "PT15M"
+
+  criteria {
+    query                   = <<-KQL
+      customMetrics
+      | where name == 'jobs.durable.retryable_jobs'
+      | summarize RetryableJobs = max(value) by bin(timestamp, 5m)
+      | project RetryableJobs
+    KQL
+    time_aggregation_method = "Maximum"
+    operator                = "GreaterThan"
+    threshold               = 0
+    metric_measure_column   = "RetryableJobs"
+    failing_periods {
+      minimum_failing_periods_to_trigger_alert = 3
+      number_of_evaluation_periods             = 3
+    }
+  }
+
+  action {
+    action_groups = [azurerm_monitor_action_group.critical.id]
+  }
+
+  auto_mitigation_enabled = true
+  tags                    = local.tags
 }
 
 # Slow API Response Alert (P95 > 10s, log-based for endpoint detail)
