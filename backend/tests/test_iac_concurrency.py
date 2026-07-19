@@ -67,9 +67,23 @@ def client():
 
 @pytest.fixture(autouse=True)
 def clean_session():
+    from job_queue import job_manager
+
     SESSION_STORE.clear()
+    job_manager._jobs.clear()
+    job_manager._jobs_store.clear()
+    job_manager._events_store.clear()
+    job_manager._active_counts_store.clear()
+    job_manager._idempotency_store.clear()
+    job_manager._metrics_store.clear()
     yield
     SESSION_STORE.clear()
+    job_manager._jobs.clear()
+    job_manager._jobs_store.clear()
+    job_manager._events_store.clear()
+    job_manager._active_counts_store.clear()
+    job_manager._idempotency_store.clear()
+    job_manager._metrics_store.clear()
 
 
 @pytest.fixture()
