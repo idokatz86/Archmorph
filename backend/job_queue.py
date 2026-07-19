@@ -26,6 +26,7 @@ Usage::
 import asyncio
 import contextvars
 import hashlib
+import hmac
 import json
 import logging
 import os
@@ -289,13 +290,19 @@ class JobManager:
         tenant_id: Optional[str],
         owner_api_key_id: Optional[str],
     ) -> str:
+        from auth import JWT_SECRET
+
         principal = {
             "owner_user_id": owner_user_id,
             "tenant_id": tenant_id,
             "owner_api_key_id": owner_api_key_id,
         }
         canonical = json.dumps(principal, sort_keys=True, separators=(",", ":"))
-        principal_hash = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        principal_hash = hmac.new(
+            JWT_SECRET.encode("utf-8"),
+            canonical.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
         return f"{principal_hash}:{input_hash}"
 
     def _increment_durable_metric(self, name: str, amount: int = 1) -> None:
@@ -1188,7 +1195,10 @@ class JobManager:
             if release_counters:
                 self._release_job_counter_reservation(job)
             self._emit(job, "cancelled", {})
-            logger.info("Job cancelled: %s", job_id)
+            logger.info(
+                "Job cancelled: %s",
+                str(job_id).replace("\n", "").replace("\r", ""),
+            )  # codeql[py/log-injection] sanitized above
             return True
         job.status = JobStatus.CANCELLED
         self._release_active_counters(job)
@@ -1197,7 +1207,10 @@ class JobManager:
         job.updated_at = job.completed_at
         self._jobs_store.set(job.job_id, job.to_storage_dict())
         self._emit(job, "cancelled", {})
-        logger.info("Job cancelled: %s", job_id)
+        logger.info(
+            "Job cancelled: %s",
+            str(job_id).replace("\n", "").replace("\r", ""),
+        )  # codeql[py/log-injection] sanitized above
         return True
 
     def is_cancelled(self, job_id: str) -> bool:
