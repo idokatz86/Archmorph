@@ -185,6 +185,37 @@ def _load_diagram_session_for_access(diagram_id: str) -> Optional[dict]:
     return get_or_recreate_session(diagram_id)
 
 
+def _load_durable_diagram_session(request: Request, diagram_id: str) -> Optional[dict]:
+    """Hydrate a lost analysis cache from the caller's tenant-scoped SQL record."""
+    from auth import get_user_from_request_headers
+
+    user = get_user_from_request_headers(dict(request.headers))
+    if user is None or not user.tenant_id:
+        return None
+
+    from database import SessionLocal
+    from workspace_store import load_analysis_state
+
+    db = SessionLocal()
+    try:
+        return load_analysis_state(
+            db,
+            diagram_id=diagram_id,
+            owner_user_id=user.id,
+            tenant_id=user.tenant_id,
+            session_store=SESSION_STORE,
+        )
+    except Exception as exc:
+        logger.warning(
+            "durable_analysis_hydration_failed diagram_id=%s error_type=%s",
+            _safe_log_value(diagram_id),
+            type(exc).__name__,
+        )
+        return None
+    finally:
+        db.close()
+
+
 def _is_public_diagram_session(diagram_id: str, session: Optional[dict]) -> bool:
     if diagram_id.startswith("sample-"):
         return True
@@ -211,6 +242,8 @@ def authorize_diagram_access(
     from auth import get_user_from_request_headers
 
     session = _load_diagram_session_for_access(diagram_id)
+    if session is None:
+        session = _load_durable_diagram_session(request, diagram_id)
     if _is_public_diagram_session(diagram_id, session):
         if session is None:
             raise ArchmorphException(404, "Diagram not found")

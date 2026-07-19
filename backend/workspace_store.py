@@ -4,11 +4,12 @@ analysis versions, artifacts, and decisions (Issue #1129).
 
 Design principles
 -----------------
-* **Dual-write**: changes are written to the SQLAlchemy-backed database for
-  durability and optionally to the session store for hot reads.
-* **Session compatibility**: existing live-session flow is unaffected.  The
-  ``maybe_link_session`` helper is a lightweight hook that workspace-aware
-  callers can use after a session is saved.
+* **PostgreSQL is canonical**: authenticated analysis state is committed to
+    the SQLAlchemy-backed database before the shared session cache is updated.
+* **One write boundary**: ``persist_analysis_state`` owns workspace/analysis/
+    version creation and cache refresh. Compatibility helpers delegate to it.
+* **Session compatibility**: API-key, anonymous, and sample flows can remain
+    cache-only; authenticated durable flows can hydrate a lost cache from SQL.
 * **Ownership / tenant enforcement**: every write and read validates
   ``owner_user_id`` (and optionally ``tenant_id``) before proceeding.
 * **Retention policy**:
@@ -39,6 +40,7 @@ Usage example::
 import hashlib
 import json as _json
 import logging
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy.exc import IntegrityError
@@ -64,6 +66,23 @@ MAX_VERSIONS_PER_ANALYSIS = 50
 MAX_WORKSPACES_PER_USER = 500
 
 
+class DurableAnalysisPersistenceError(RuntimeError):
+    """Raised when canonical analysis state cannot be committed."""
+
+
+class AnalysisCacheWriteError(RuntimeError):
+    """Raised when a required cache refresh fails after a durable commit."""
+
+
+@dataclass(frozen=True)
+class AnalysisWriteResult:
+    """Result of one canonical analysis persistence operation."""
+
+    analysis: Analysis
+    version: AnalysisVersion
+    cache_updated: bool
+
+
 def _short_hash(data: str) -> str:
     """Return a 16-char hex digest of *data* for content-addressed dedup."""
     return hashlib.sha256(data.encode("utf-8")).hexdigest()[:16]
@@ -85,6 +104,12 @@ def _redact_snapshot(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         if key.startswith("_owner_") or key in {"_tenant_id", "export_capability", "exportCapability"}:
             redacted.pop(key, None)
     return redacted
+
+
+def _require_durable_identity(owner_user_id: str, tenant_id: Optional[str]) -> None:
+    """Reject implicit or incomplete identity on authenticated durable writes."""
+    if not owner_user_id or not tenant_id:
+        raise ValueError("Authenticated durable analysis records require owner_user_id and tenant_id")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -545,8 +570,9 @@ def restore_analysis_version(
 ) -> Optional[AnalysisVersion]:
     """Restore a previous version by creating a new version from it.
 
-    If *session_store* is provided the live session dict is also updated so
-    the current session immediately reflects the restored state.
+    ``session_store`` remains accepted for API compatibility. Cache refresh is
+    delegated to the same durable-first write boundary used by active analysis
+    completion paths.
 
     Returns the new version record, or None when the source version is not found.
     """
@@ -561,6 +587,27 @@ def restore_analysis_version(
         return None
 
     snapshot = _json.loads(source.snapshot)
+    analysis = get_analysis_record(
+        db,
+        analysis_id,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+    )
+    assert analysis is not None
+    if analysis.diagram_id and tenant_id is not None:
+        result = persist_analysis_state(
+            db,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+            diagram_id=analysis.diagram_id,
+            snapshot=snapshot,
+            workspace_id=analysis.workspace_id,
+            session_store=session_store,
+            label=f"restored-from-v{version_number}",
+            restored_from=version_number,
+        )
+        return result.version
+
     new_version = save_analysis_version(
         db,
         analysis_id=analysis_id,
@@ -570,30 +617,17 @@ def restore_analysis_version(
         label=f"restored-from-v{version_number}",
         restored_from=version_number,
     )
-
-    # Dual-write: update live session if store is provided and analysis has a diagram_id
-    if session_store is not None:
-        analysis = get_analysis_record(db, analysis_id, owner_user_id=owner_user_id, tenant_id=tenant_id)
-        if analysis and analysis.diagram_id:
-            try:
-                existing = session_store.get(analysis.diagram_id) if hasattr(session_store, "get") else None
-                if isinstance(existing, dict):
-                    if existing.get("_owner_user_id") not in (None, owner_user_id):
-                        logger.warning("session_restore_owner_mismatch diagram_id=%s", safe(analysis.diagram_id))
-                        return new_version
-                    if existing.get("_tenant_id") not in (None, tenant_id):
-                        logger.warning("session_restore_tenant_mismatch diagram_id=%s", safe(analysis.diagram_id))
-                        return new_version
-                restored_snapshot = {**snapshot, "_owner_user_id": owner_user_id, "_tenant_id": tenant_id}
-                session_store.set(analysis.diagram_id, restored_snapshot)
-                logger.info(
-                    "session_restored_from_version diagram_id=%s version=%d",
-                    safe(analysis.diagram_id),
-                    version_number,
-                )
-            except Exception as exc:  # nosec B110 — session store is best-effort
-                logger.warning("session_store_restore_failed: %s", safe(str(exc)))
-
+    if session_store is not None and analysis.diagram_id:
+        try:
+            existing = session_store.get(analysis.diagram_id) if hasattr(session_store, "get") else None
+            if isinstance(existing, dict) and existing.get("_owner_user_id") not in (None, owner_user_id):
+                return new_version
+            session_store.set(
+                analysis.diagram_id,
+                {**snapshot, "_owner_user_id": owner_user_id, "_tenant_id": tenant_id},
+            )
+        except Exception as exc:
+            logger.warning("legacy_session_restore_failed error_type=%s", type(exc).__name__)
     return new_version
 
 
@@ -772,8 +806,340 @@ def list_decisions(
 
 
 # ─────────────────────────────────────────────────────────────
-# Session ↔ Workspace bridge
+# Canonical analysis write boundary and session-cache bridge
 # ─────────────────────────────────────────────────────────────
+
+def _get_analysis_by_diagram(
+    db: Session,
+    *,
+    diagram_id: str,
+    owner_user_id: str,
+    tenant_id: str,
+    for_update: bool = False,
+) -> Optional[Analysis]:
+    query = (
+        db.query(Analysis)
+        .filter(
+            Analysis.diagram_id == diagram_id,
+            Analysis.owner_user_id == owner_user_id,
+            Analysis.tenant_id == tenant_id,
+        )
+    )
+    if for_update:
+        query = query.with_for_update()
+    return query.first()
+
+
+def _resolve_workspace_id(
+    db: Session,
+    *,
+    owner_user_id: str,
+    tenant_id: str,
+    snapshot: Dict[str, Any],
+    workspace_id: Optional[str],
+) -> str:
+    if workspace_id is not None:
+        workspace = get_workspace(
+            db,
+            workspace_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+        )
+        if workspace is None:
+            raise ValueError(f"Workspace {workspace_id!r} not found or access denied")
+        return workspace.id
+
+    workspace = (
+        db.query(Workspace)
+        .filter(
+            Workspace.owner_user_id == owner_user_id,
+            Workspace.tenant_id == tenant_id,
+            Workspace.name == "Default Workspace",
+            Workspace.status == "active",
+        )
+        .first()
+    )
+    if workspace is not None:
+        return workspace.id
+
+    workspace = Workspace(
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+        name="Default Workspace",
+        source_cloud=snapshot.get("source_provider", "aws"),
+        target_cloud=snapshot.get("target_provider", "azure"),
+    )
+    db.add(workspace)
+    db.flush()
+    return workspace.id
+
+
+def _stage_analysis_version(
+    db: Session,
+    *,
+    analysis: Analysis,
+    owner_user_id: str,
+    snapshot: Dict[str, Any],
+    label: Optional[str],
+    restored_from: Optional[int],
+) -> AnalysisVersion:
+    redacted = _redact_snapshot(snapshot)
+    snapshot_json = _json.dumps(redacted, default=str)
+    mappings = redacted.get("mappings", [])
+    confidences = [m.get("confidence") for m in mappings if m.get("confidence") is not None]
+    services_detected = redacted.get("services_detected", len(mappings))
+    confidence_avg = round(sum(confidences) / len(confidences), 4) if confidences else None
+    version_number = analysis.current_version + 1
+    version = AnalysisVersion(
+        analysis_id=analysis.id,
+        version_number=version_number,
+        label=label or f"v{version_number}",
+        snapshot=snapshot_json,
+        content_hash=_short_hash(snapshot_json),
+        created_by=owner_user_id,
+        restored_from=restored_from,
+    )
+    db.add(version)
+    analysis.current_version = version_number
+    analysis.services_detected = services_detected
+    if confidence_avg is not None:
+        analysis.confidence_avg = confidence_avg
+    return version
+
+
+def _matching_current_version(
+    db: Session,
+    *,
+    analysis: Analysis,
+    snapshot: Dict[str, Any],
+) -> Optional[AnalysisVersion]:
+    if analysis.current_version <= 0:
+        return None
+    snapshot_json = _json.dumps(_redact_snapshot(snapshot), default=str)
+    candidate = (
+        db.query(AnalysisVersion)
+        .filter(
+            AnalysisVersion.analysis_id == analysis.id,
+            AnalysisVersion.version_number == analysis.current_version,
+            AnalysisVersion.content_hash == _short_hash(snapshot_json),
+        )
+        .first()
+    )
+    if candidate is None or candidate.snapshot != snapshot_json:
+        return None
+    return candidate
+
+
+def _write_session_cache(
+    session_store: Any,
+    *,
+    diagram_id: str,
+    owner_user_id: str,
+    tenant_id: str,
+    snapshot: Dict[str, Any],
+    allow_existing: bool = True,
+) -> None:
+    cached_snapshot = {
+        **_redact_snapshot(snapshot),
+        "diagram_id": diagram_id,
+        "_owner_user_id": owner_user_id,
+        "_tenant_id": tenant_id,
+    }
+    if not allow_existing:
+        updated, _current = session_store.update_if(
+            diagram_id,
+            lambda current: current is None,
+            lambda _current: cached_snapshot,
+        )
+        if not updated:
+            raise AnalysisCacheWriteError("Refusing to hydrate over an existing cache entry")
+        return
+
+    def _same_owner(current: Any) -> bool:
+        return current is None or (
+            isinstance(current, dict)
+            and current.get("_owner_user_id") in (None, owner_user_id)
+            and current.get("_tenant_id") in (None, tenant_id)
+        )
+
+    updated, _current = session_store.update_if(
+        diagram_id,
+        _same_owner,
+        lambda _current: cached_snapshot,
+    )
+    if not updated:
+        raise AnalysisCacheWriteError("Shared analysis cache rejected the ownership-safe update")
+
+
+def persist_analysis_state(
+    db: Session,
+    *,
+    owner_user_id: str,
+    tenant_id: Optional[str],
+    diagram_id: str,
+    snapshot: Dict[str, Any],
+    workspace_id: Optional[str] = None,
+    session_store: Any = None,
+    label: Optional[str] = None,
+    restored_from: Optional[int] = None,
+    cache_required: bool = False,
+) -> AnalysisWriteResult:
+    """Commit authenticated analysis state, then refresh its transient cache.
+
+    The database transaction is the success boundary. A cache failure never
+    rolls back or replaces canonical PostgreSQL state. Callers that cannot
+    continue without a fresh cache can set ``cache_required=True`` and receive
+    ``AnalysisCacheWriteError`` after the durable commit succeeds.
+    """
+    _require_durable_identity(owner_user_id, tenant_id)
+    assert tenant_id is not None
+
+    try:
+        analysis = _get_analysis_by_diagram(
+            db,
+            diagram_id=diagram_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+            for_update=True,
+        )
+        if analysis is None:
+            resolved_workspace_id = _resolve_workspace_id(
+                db,
+                owner_user_id=owner_user_id,
+                tenant_id=tenant_id,
+                snapshot=snapshot,
+                workspace_id=workspace_id,
+            )
+            mappings = snapshot.get("mappings", [])
+            confidences = [m.get("confidence") for m in mappings if m.get("confidence") is not None]
+            analysis = Analysis(
+                workspace_id=resolved_workspace_id,
+                owner_user_id=owner_user_id,
+                tenant_id=tenant_id,
+                diagram_id=diagram_id,
+                source_cloud=snapshot.get("source_provider", "aws"),
+                target_cloud=snapshot.get("target_provider", "azure"),
+                status="completed",
+                services_detected=snapshot.get("services_detected", len(mappings)),
+                confidence_avg=(round(sum(confidences) / len(confidences), 4) if confidences else None),
+                current_version=0,
+            )
+            db.add(analysis)
+            db.flush()
+        elif workspace_id is not None and analysis.workspace_id != workspace_id:
+            raise ValueError(f"Analysis for diagram {diagram_id!r} belongs to another workspace")
+
+        version = None
+        if label is None and restored_from is None:
+            version = _matching_current_version(db, analysis=analysis, snapshot=snapshot)
+        version_created = version is None
+        if version is None:
+            version = _stage_analysis_version(
+                db,
+                analysis=analysis,
+                owner_user_id=owner_user_id,
+                snapshot=snapshot,
+                label=label,
+                restored_from=restored_from,
+            )
+        db.commit()
+    except ValueError:
+        db.rollback()
+        raise
+    except Exception as exc:
+        db.rollback()
+        raise DurableAnalysisPersistenceError("Failed to persist canonical analysis state") from exc
+
+    if version_created:
+        try:
+            _trim_old_versions(db, analysis.id)
+        except Exception as exc:
+            db.rollback()
+            logger.warning(
+                "analysis_version_retention_failed analysis_id=%s error_type=%s",
+                safe(analysis.id),
+                type(exc).__name__,
+            )
+
+    cache_updated = False
+    if session_store is not None:
+        try:
+            _write_session_cache(
+                session_store,
+                diagram_id=diagram_id,
+                owner_user_id=owner_user_id,
+                tenant_id=tenant_id,
+                snapshot=snapshot,
+            )
+            cache_updated = True
+        except AnalysisCacheWriteError:
+            if cache_required:
+                raise
+            logger.warning("analysis_cache_refresh_failed diagram_id=%s", safe(diagram_id))
+        except Exception as exc:
+            if cache_required:
+                raise AnalysisCacheWriteError("Shared analysis cache update failed") from exc
+            logger.warning(
+                "analysis_cache_refresh_failed diagram_id=%s error_type=%s",
+                safe(diagram_id),
+                type(exc).__name__,
+            )
+
+    return AnalysisWriteResult(analysis=analysis, version=version, cache_updated=cache_updated)
+
+
+def load_analysis_state(
+    db: Session,
+    *,
+    diagram_id: str,
+    owner_user_id: str,
+    tenant_id: Optional[str],
+    session_store: Any = None,
+) -> Optional[Dict[str, Any]]:
+    """Load the latest tenant-scoped durable snapshot and optionally hydrate cache."""
+    _require_durable_identity(owner_user_id, tenant_id)
+    assert tenant_id is not None
+    analysis = _get_analysis_by_diagram(
+        db,
+        diagram_id=diagram_id,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+    )
+    if analysis is None or analysis.current_version <= 0:
+        return None
+    version = get_analysis_version(
+        db,
+        analysis_id=analysis.id,
+        version_number=analysis.current_version,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+    )
+    if version is None:
+        return None
+    snapshot = _json.loads(version.snapshot)
+    hydrated = {
+        **snapshot,
+        "diagram_id": diagram_id,
+        "_owner_user_id": owner_user_id,
+        "_tenant_id": tenant_id,
+    }
+    if session_store is not None:
+        try:
+            _write_session_cache(
+                session_store,
+                diagram_id=diagram_id,
+                owner_user_id=owner_user_id,
+                tenant_id=tenant_id,
+                snapshot=hydrated,
+                allow_existing=False,
+            )
+        except Exception as exc:
+            logger.warning(
+                "analysis_cache_hydration_failed diagram_id=%s error_type=%s",
+                safe(diagram_id),
+                type(exc).__name__,
+            )
+    return hydrated
 
 def maybe_link_session(
     db: Session,
@@ -784,101 +1150,77 @@ def maybe_link_session(
     session: Dict[str, Any],
     workspace_id: Optional[str] = None,
 ) -> Optional[AnalysisVersion]:
-    """Hook: persist a session snapshot as a new analysis version.
+    """Compatibility wrapper for the canonical durable write boundary.
 
     If *workspace_id* is given the analysis is linked to that workspace.
     If no matching Analysis exists for *diagram_id*, a default workspace and
     analysis are created automatically so the session is never lost.
 
-    This is called from the existing session-save code paths and does not
-    block or raise — all errors are logged and swallowed.
+    Tenantless calls are retained only for non-authenticated/sample
+    compatibility. Legacy callers still receive ``None`` instead of an exception. Active
+    authenticated analysis paths call ``persist_analysis_state`` directly and
+    fail closed when canonical persistence is unavailable.
     """
-    try:
-        return _do_link_session(
-            db,
-            owner_user_id=owner_user_id,
-            tenant_id=tenant_id,
-            diagram_id=diagram_id,
-            session=session,
-            workspace_id=workspace_id,
-        )
-    except Exception as exc:
-        logger.warning("maybe_link_session_failed diagram_id=%s error=%s", safe(diagram_id), safe(str(exc)))
-        return None
-
-
-def _do_link_session(
-    db: Session,
-    *,
-    owner_user_id: str,
-    tenant_id: Optional[str],
-    diagram_id: str,
-    session: Dict[str, Any],
-    workspace_id: Optional[str],
-) -> Optional[AnalysisVersion]:
-    # Find or auto-create analysis for this diagram_id
-    analysis = (
-        db.query(Analysis)
-        .filter(
-            Analysis.diagram_id == diagram_id,
-            Analysis.owner_user_id == owner_user_id,
-            _tenant_matches(Analysis.tenant_id, tenant_id),
-        )
-        .first()
-    )
-
-    if analysis is None:
-        # Auto-create default workspace when not supplied
-        if workspace_id is not None:
-            workspace = get_workspace(db, workspace_id, owner_user_id=owner_user_id, tenant_id=tenant_id)
-            if workspace is None:
-                raise ValueError(f"Workspace {workspace_id!r} not found or access denied")
-        else:
-            existing_ws = (
-                db.query(Workspace)
+    if tenant_id is None:
+        try:
+            analysis = (
+                db.query(Analysis)
                 .filter(
-                    Workspace.owner_user_id == owner_user_id,
-                    _tenant_matches(Workspace.tenant_id, tenant_id),
-                    Workspace.name == "Default Workspace",
-                    Workspace.status == "active",
+                    Analysis.diagram_id == diagram_id,
+                    Analysis.owner_user_id == owner_user_id,
+                    Analysis.tenant_id.is_(None),
                 )
                 .first()
             )
-            if existing_ws:
-                workspace_id = existing_ws.id
-            else:
-                new_ws = create_workspace(
+            if analysis is None:
+                if workspace_id is None:
+                    workspace = (
+                        db.query(Workspace)
+                        .filter(
+                            Workspace.owner_user_id == owner_user_id,
+                            Workspace.tenant_id.is_(None),
+                            Workspace.name == "Default Workspace",
+                            Workspace.status == "active",
+                        )
+                        .first()
+                    )
+                    if workspace is None:
+                        workspace = create_workspace(
+                            db,
+                            owner_user_id=owner_user_id,
+                            name="Default Workspace",
+                            source_cloud=session.get("source_provider", "aws"),
+                            target_cloud=session.get("target_provider", "azure"),
+                        )
+                    workspace_id = workspace.id
+                analysis = create_analysis(
                     db,
+                    workspace_id=workspace_id,
                     owner_user_id=owner_user_id,
-                    tenant_id=tenant_id,
-                    name="Default Workspace",
+                    diagram_id=diagram_id,
                     source_cloud=session.get("source_provider", "aws"),
                     target_cloud=session.get("target_provider", "azure"),
                 )
-                workspace_id = new_ws.id
+            return save_analysis_version(
+                db,
+                analysis_id=analysis.id,
+                owner_user_id=owner_user_id,
+                snapshot=session,
+            )
+        except Exception as exc:
+            logger.warning("maybe_link_session_failed diagram_id=%s error=%s", safe(diagram_id), safe(str(exc)))
+            return None
 
-        mappings = session.get("mappings", [])
-        service_count = session.get("services_detected", len(mappings))
-        confidences = [m.get("confidence") for m in mappings if m.get("confidence") is not None]
-        confidence_avg = round(sum(confidences) / len(confidences), 4) if confidences else None
-
-        analysis = create_analysis(
+    try:
+        result = persist_analysis_state(
             db,
-            workspace_id=workspace_id,
             owner_user_id=owner_user_id,
             tenant_id=tenant_id,
             diagram_id=diagram_id,
-            source_cloud=session.get("source_provider", "aws"),
-            target_cloud=session.get("target_provider", "azure"),
-            status="completed",
-            services_detected=service_count,
-            confidence_avg=confidence_avg,
+            snapshot=session,
+            workspace_id=workspace_id,
         )
-
-    return save_analysis_version(
-        db,
-        analysis_id=analysis.id,
-        owner_user_id=owner_user_id,
-        tenant_id=tenant_id,
-        snapshot=session,
-    )
+        return result.version
+    except Exception as exc:
+        logger.warning("maybe_link_session_failed diagram_id=%s error=%s", safe(diagram_id), safe(str(exc)))
+        return None

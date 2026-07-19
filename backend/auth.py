@@ -144,8 +144,9 @@ class User:
     tier: UserTier = UserTier.FREE
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     
-    # Multi-tenant RBAC fields (#238)
-    tenant_id: str = "default_tenant"
+    # Multi-tenant identity. Durable writes require a provider tenant claim or
+    # unique provider-scoped subject; anonymous/sample paths may remain tenantless.
+    tenant_id: Optional[str] = None
     roles: list = field(default_factory=lambda: ["user"])
 
     
@@ -365,6 +366,7 @@ async def validate_azure_ad_b2c_token(token: str) -> User:
                 email=email,
                 name=name,
                 provider=AuthProvider.AZURE_AD_B2C,
+                tenant_id=payload.get("tid") or payload.get("tenant_id"),
             )
             USER_STORE[user_id] = user
         
@@ -443,6 +445,7 @@ async def exchange_github_code(code: str) -> User:
                     email=email,
                     name=github_user.get("name", github_user["login"]),
                     provider=AuthProvider.GITHUB,
+                    tenant_id=f"github:{user_id}",
                 )
                 USER_STORE[user_id] = user
             
@@ -484,12 +487,13 @@ def generate_session_token(user: User) -> str:
         "avatar_url": user.avatar_url,
         "provider": user.provider.value,
         "tier": user.tier.value,
-        "tenant_id": user.tenant_id,
         "roles": user.roles,
         "iat": now,
         "exp": now + timedelta(hours=JWT_EXPIRY_HOURS),
         "type": "access",
     }
+    if user.tenant_id:
+        payload["tenant_id"] = user.tenant_id
     token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
     # Also cache the user object for fast lookup
     USER_CACHE[token] = user
@@ -540,7 +544,7 @@ def get_user_from_session(token: str) -> Optional[User]:
             avatar_url=payload.get("avatar_url"),
             provider=provider,
             tier=UserTier(payload.get("tier", "free")),
-            tenant_id=payload.get("tenant_id", "default_tenant"),
+            tenant_id=payload.get("tenant_id"),
             roles=payload.get("roles", ["user"]),
         )
         USER_CACHE[token] = user
@@ -644,6 +648,11 @@ def parse_swa_client_principal(header_value: str) -> Optional[User]:
             name=name,
             avatar_url=avatar_url,
             provider=provider,
+            tenant_id=(
+                claims.get("http://schemas.microsoft.com/identity/claims/tenantid")
+                or claims.get("tid")
+                or data.get("tenantId")
+            ),
         )
         USER_STORE[full_user_id] = user
 

@@ -95,7 +95,14 @@ class CreateDecisionRequest(StrictBaseModel):
 
 
 def _tenant_id(user) -> Optional[str]:
-    return getattr(user, "tenant_id", None)
+    tenant_id = getattr(user, "tenant_id", None)
+    if not tenant_id:
+        raise ArchmorphException(
+            401,
+            "Authenticated tenant context is required for durable workspace state.",
+            details={"error": "tenant_context_required"},
+        )
+    return tenant_id
 
 
 # ─────────────────────────────────────────────────────────────
@@ -116,7 +123,7 @@ async def create_workspace_endpoint(
         db,
         owner_user_id=user.id,
         name=body.name,
-        tenant_id=getattr(user, "tenant_id", None),
+        tenant_id=_tenant_id(user),
         description=body.description,
         source_cloud=body.source_cloud,
         target_cloud=body.target_cloud,
@@ -139,7 +146,7 @@ async def list_workspaces_endpoint(
     return list_workspaces(
         db,
         owner_user_id=user.id,
-        tenant_id=getattr(user, "tenant_id", None),
+        tenant_id=_tenant_id(user),
         status=status,
         limit=limit,
         offset=offset,

@@ -77,7 +77,12 @@ fi
 
 redis_status="$(printf '%s' "$health_json" | jq -r '.checks.redis // empty')"
 redis_scale_blocked="$(printf '%s' "$health_json" | jq -r '.checks.redis_readiness.scale_blocked // false')"
-if [[ "$redis_status" == "missing_required" ]]; then
+database_ready="$(printf '%s' "$health_json" | jq -r '.checks.database_readiness.ready_for_production // false')"
+if [[ "$database_ready" != "true" ]]; then
+  echo "::error::PostgreSQL canonical state dependency is unavailable"
+  printf '%s' "$health_json" | jq -c '.checks.database_readiness // {database: .checks.database}'
+  exit 1
+elif [[ "$redis_status" == "missing_required" || "$redis_status" == "unreachable" || "$redis_status" == "error" ]]; then
   echo "::error::Redis is required but not configured"
   printf '%s' "$health_json" | jq -c '.checks.redis_readiness // {redis: .checks.redis}'
   exit 1

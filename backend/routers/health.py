@@ -94,6 +94,19 @@ def _run_dependency_checks() -> tuple[dict[str, str], bool, bool]:
     degraded = False
     unhealthy = False
 
+    # ── PostgreSQL (canonical durable state) ──────────────
+    try:
+        from database import database_readiness
+
+        database = database_readiness()
+        checks["database_readiness"] = database
+        checks["database"] = "ok" if database["ready_for_production"] else "unavailable"
+        if database["production_like"] and not database["ready_for_production"]:
+            unhealthy = True
+    except Exception:
+        checks["database"] = "error"
+        unhealthy = True
+
     # ── OpenAI client ─────────────────────────────────────
     try:
         from openai_client import AZURE_OPENAI_ENDPOINT, get_openai_client
@@ -163,32 +176,32 @@ def _run_dependency_checks() -> tuple[dict[str, str], bool, bool]:
     # ── Redis (optional unless REQUIRE_REDIS/ENFORCE_REDIS is set) ────────
     try:
         from session_store import (
-            REQUIRE_REDIS,
-            _create_redis_client,
             redis_configured,
             session_store_readiness,
         )
+        redis_readiness = session_store_readiness()
+        redis_required = bool(redis_readiness["require_redis"])
         if redis_configured():
-            try:
-                _create_redis_client(socket_connect_timeout=2)
+            if redis_readiness["redis_reachable"]:
                 checks["redis"] = "ok"
-            except Exception as exc:
-                # Connection failed — private endpoint not reachable or misconfigured
+            else:
                 logger.warning(
-                    "Redis health probe unreachable: %s: %s",
-                    type(exc).__name__,
-                    exc,
+                    "Redis health probe unreachable (error_type=%s)",
+                    redis_readiness.get("redis_error") or "unknown",
                 )
                 checks["redis"] = "unreachable"
-                degraded = True
+                if redis_required:
+                    unhealthy = True
+                else:
+                    degraded = True
         else:
-            checks["redis"] = "missing_required" if REQUIRE_REDIS else "disabled_optional"
-            if REQUIRE_REDIS:
-                degraded = True
-        checks["redis_readiness"] = session_store_readiness()
+            checks["redis"] = "missing_required" if redis_required else "disabled_optional"
+            if redis_required:
+                unhealthy = True
+        checks["redis_readiness"] = redis_readiness
     except Exception:
         checks["redis"] = "error"
-        degraded = True
+        unhealthy = True
 
     # ── Service catalog sanity ────────────────────────────
     catalog_ok = len(AWS_SERVICES) > 0 and len(AZURE_SERVICES) > 0 and len(CROSS_CLOUD_MAPPINGS) > 0

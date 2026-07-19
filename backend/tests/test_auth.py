@@ -43,6 +43,7 @@ class TestUser:
         assert user.email == "test@example.com"
         assert user.tier == UserTier.FREE
         assert user.analyses_used == 0
+        assert user.tenant_id is None
     
     def test_check_quota_allowed(self):
         user = User(id="test-123")
@@ -115,6 +116,8 @@ class TestSessionManagement:
         user = User(id="test-123")
         token = generate_session_token(user)
         assert len(token) > 20
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        assert "tenant_id" not in payload
     
     def test_get_user_from_session(self):
         user = User(id="test-123", email="test@example.com")
@@ -144,6 +147,7 @@ class TestSessionManagement:
 
         assert retrieved is not None
         assert retrieved.tier == UserTier.TEAM
+        assert retrieved.tenant_id is None
     
     def test_invalid_session_token(self):
         result = get_user_from_session("invalid-token")

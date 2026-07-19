@@ -31,6 +31,7 @@ def _swa_header(user_id: str = "trusted-user") -> dict[str, str]:
 
 def test_production_rejects_untrusted_swa_principal_header(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("REQUIRE_REDIS", "false")
     monkeypatch.delenv("TRUST_SWA_PRINCIPAL_HEADER", raising=False)
 
     with TestClient(app, raise_server_exceptions=False) as client:
@@ -42,6 +43,7 @@ def test_production_rejects_untrusted_swa_principal_header(monkeypatch):
 
 def test_production_rejects_forged_swa_principal_even_with_matching_csrf(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("REQUIRE_REDIS", "false")
     monkeypatch.delenv("TRUST_SWA_PRINCIPAL_HEADER", raising=False)
 
     token = "csrf-test-token"
@@ -57,6 +59,7 @@ def test_production_rejects_forged_swa_principal_even_with_matching_csrf(monkeyp
 
 def test_production_rejects_swa_login_with_forged_header_even_with_csrf(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("REQUIRE_REDIS", "false")
     monkeypatch.delenv("TRUST_SWA_PRINCIPAL_HEADER", raising=False)
 
     token = "csrf-login-token"
@@ -72,6 +75,7 @@ def test_production_rejects_swa_login_with_forged_header_even_with_csrf(monkeypa
 
 def test_production_accepts_swa_login_when_principal_trust_is_enabled_and_csrf_matches(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("REQUIRE_REDIS", "false")
     monkeypatch.setenv("TRUST_SWA_PRINCIPAL_HEADER", "true")
 
     token = "csrf-login-token"

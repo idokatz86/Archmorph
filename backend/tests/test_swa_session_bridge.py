@@ -17,7 +17,7 @@ from routers import shared  # noqa: E402
 
 
 OWNER_USER_ID = "aad_bridge-user"
-OWNER_TENANT_ID = "default_tenant"
+OWNER_TENANT_ID = "tenant-bridge"
 
 
 def _owner_headers() -> dict[str, str]:
@@ -62,7 +62,7 @@ def _swa_principal(user_id: str = "bridge-user") -> str:
         "userId": user_id,
         "userDetails": f"{user_id}@example.com",
         "userRoles": ["authenticated"],
-        "claims": [],
+        "claims": [{"typ": "tid", "val": OWNER_TENANT_ID}],
     }
     return base64.b64encode(json.dumps(principal).encode("utf-8")).decode("ascii")
 

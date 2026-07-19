@@ -13,8 +13,8 @@ retention:
 
 Retention boundaries
 --------------------
-  transient    — Redis/session store only (current live sessions)
-  workspace    — saved to this module's tables; survives session expiry
+    transient    — Redis/session cache and coordination only
+    workspace    — canonical PostgreSQL records; survives cache loss/expiry
   audit        — written to audit_log (separate table, longer retention)
 """
 

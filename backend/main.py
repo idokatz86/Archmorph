@@ -229,9 +229,19 @@ async def lifespan(app: FastAPI):
     async def _init_database():
         try:
             await asyncio.to_thread(init_db)
+            from database import database_readiness
+
+            readiness = await asyncio.to_thread(database_readiness)
+            if readiness["production_like"] and not readiness["ready_for_production"]:
+                raise RuntimeError("Required PostgreSQL dependency is unavailable")
             logger.info("Database layer initialized")
         except Exception as exc:
-            logger.warning("Database init failed (non-fatal, in-memory stores used): %s", exc)
+            from database import database_readiness
+
+            readiness = database_readiness()
+            if readiness["production_like"] or readiness["enforce_postgres"]:
+                raise RuntimeError("Required PostgreSQL dependency is unavailable") from exc
+            logger.warning("Database init failed in non-production mode: %s", exc)
 
     async def _init_icons():
         try:
@@ -245,6 +255,12 @@ async def lifespan(app: FastAPI):
             logger.warning("Icon auto-load skipped: %s", exc)
 
     await asyncio.gather(_init_database(), _init_icons())
+
+    from session_store import session_store_readiness
+
+    session_readiness = await asyncio.to_thread(session_store_readiness)
+    if session_readiness["require_redis"] and not session_readiness["ready_for_horizontal_scale"]:
+        raise RuntimeError("Required Redis dependency is unavailable")
 
     # ── Thread pool sizing (#177) ──
     # GPT vision calls use asyncio.to_thread() which shares the default executor.

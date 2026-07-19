@@ -740,6 +740,11 @@ resource "azurerm_container_app" "backend" {
       }
 
       env {
+        name  = "ENFORCE_POSTGRES"
+        value = "true"
+      }
+
+      env {
         name  = "ALLOWED_ORIGINS"
         value = var.frontend_url
       }

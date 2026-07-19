@@ -9,6 +9,7 @@ const principal = {
   claims: [
     { typ: 'name', val: 'Ido Katz' },
     { typ: 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress', val: 'ido@example.com' },
+    { typ: 'tid', val: 'tenant-123' },
   ],
 };
 
@@ -51,6 +52,7 @@ describe('useAuthStore', () => {
       name: 'Ido Katz',
       email: 'ido@example.com',
       provider: 'microsoft',
+      tenant_id: 'tenant-123',
     });
   });
 

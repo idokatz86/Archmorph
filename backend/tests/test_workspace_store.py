@@ -44,7 +44,9 @@ from workspace_store import (
     list_decisions,
     list_source_assets,
     list_workspaces,
+    load_analysis_state,
     maybe_link_session,
+    persist_analysis_state,
     restore_analysis_version,
     save_analysis_version,
     update_workspace,
@@ -592,6 +594,7 @@ class TestMaybeLinkSession:
         version = maybe_link_session(
             db,
             owner_user_id="u1",
+            tenant_id="tenant-1",
             diagram_id="new-diag",
             session=self._sample_session,
         )
@@ -608,12 +611,20 @@ class TestMaybeLinkSession:
     def test_uses_existing_analysis_for_same_diagram(self, db):
         # First call creates workspace + analysis + v1
         v1 = maybe_link_session(
-            db, owner_user_id="u1", diagram_id="diag-dup", session=self._sample_session
+            db,
+            owner_user_id="u1",
+            tenant_id="tenant-1",
+            diagram_id="diag-dup",
+            session=self._sample_session,
         )
         # Second call with updated session → v2 on same analysis
         updated = dict(self._sample_session, services_detected=5)
         v2 = maybe_link_session(
-            db, owner_user_id="u1", diagram_id="diag-dup", session=updated
+            db,
+            owner_user_id="u1",
+            tenant_id="tenant-1",
+            diagram_id="diag-dup",
+            session=updated,
         )
         assert v1 is not None
         assert v2 is not None
@@ -631,10 +642,11 @@ class TestMaybeLinkSession:
         assert result is None
 
     def test_uses_provided_workspace_id(self, db):
-        ws = create_workspace(db, owner_user_id="u2", name="My WS")
+        ws = create_workspace(db, owner_user_id="u2", tenant_id="tenant-2", name="My WS")
         v = maybe_link_session(
             db,
             owner_user_id="u2",
+            tenant_id="tenant-2",
             diagram_id="diag-linked",
             session=self._sample_session,
             workspace_id=ws.id,
@@ -677,3 +689,210 @@ class TestMaybeLinkSession:
         assert v1.analysis_id != v2.analysis_id
         assert list_workspaces(db, owner_user_id="u1", tenant_id="tenant-a")["total"] == 1
         assert list_workspaces(db, owner_user_id="u1", tenant_id="tenant-b")["total"] == 1
+
+
+class TestCanonicalAnalysisState:
+    class _FakeStore:
+        def __init__(self, *, accept_writes=True):
+            self.data = {}
+            self.accept_writes = accept_writes
+
+        def get(self, key):
+            return self.data.get(key)
+
+        def set(self, key, value):
+            if not self.accept_writes:
+                return False
+            self.data[key] = value
+            return True
+
+        def update_if(self, key, predicate, updater):
+            current = self.data.get(key)
+            if not predicate(current):
+                return False, current
+            updated = updater(current)
+            if not self.set(key, updated):
+                return False, current
+            return True, updated
+
+        def clear(self):
+            self.data.clear()
+
+    def test_restart_and_cache_loss_hydrate_from_durable_version(self, db):
+        store = self._FakeStore()
+        persisted = persist_analysis_state(
+            db,
+            owner_user_id="owner-a",
+            tenant_id="tenant-a",
+            diagram_id="diag-restart",
+            snapshot={"services_detected": 1, "mappings": [{"source_service": "S3"}]},
+            session_store=store,
+            cache_required=True,
+        )
+        assert persisted.cache_updated is True
+
+        store.clear()  # Redis loss / process restart
+        db.expunge_all()
+
+        hydrated = load_analysis_state(
+            db,
+            diagram_id="diag-restart",
+            owner_user_id="owner-a",
+            tenant_id="tenant-a",
+            session_store=store,
+        )
+        assert hydrated is not None
+        assert hydrated["mappings"][0]["source_service"] == "S3"
+        assert store.data["diag-restart"]["_tenant_id"] == "tenant-a"
+
+    def test_cache_failure_does_not_replace_committed_canonical_state(self, db):
+        store = self._FakeStore(accept_writes=False)
+        result = persist_analysis_state(
+            db,
+            owner_user_id="owner-a",
+            tenant_id="tenant-a",
+            diagram_id="diag-cache-loss",
+            snapshot={"services_detected": 2, "mappings": []},
+            session_store=store,
+        )
+        assert result.cache_updated is False
+        assert load_analysis_state(
+            db,
+            diagram_id="diag-cache-loss",
+            owner_user_id="owner-a",
+            tenant_id="tenant-a",
+        )["services_detected"] == 2
+
+        retry = persist_analysis_state(
+            db,
+            owner_user_id="owner-a",
+            tenant_id="tenant-a",
+            diagram_id="diag-cache-loss",
+            snapshot={"services_detected": 2, "mappings": []},
+            session_store=self._FakeStore(),
+        )
+        assert retry.version.id == result.version.id
+        assert list_analysis_versions(
+            db,
+            analysis_id=result.analysis.id,
+            owner_user_id="owner-a",
+            tenant_id="tenant-a",
+        ) == [result.version.to_dict()]
+
+    def test_failed_version_write_rolls_back_workspace_and_analysis(self, db, monkeypatch):
+        from models.workspace import Analysis, Workspace
+        import workspace_store
+
+        def fail_version(*_args, **_kwargs):
+            raise RuntimeError("synthetic version failure")
+
+        monkeypatch.setattr(workspace_store, "_stage_analysis_version", fail_version)
+
+        with pytest.raises(workspace_store.DurableAnalysisPersistenceError):
+            persist_analysis_state(
+                db,
+                owner_user_id="owner-rollback",
+                tenant_id="tenant-rollback",
+                diagram_id="diag-rollback",
+                snapshot={"mappings": []},
+            )
+
+        assert db.query(Workspace).filter_by(owner_user_id="owner-rollback").count() == 0
+        assert db.query(Analysis).filter_by(diagram_id="diag-rollback").count() == 0
+
+    def test_cross_tenant_lookup_matches_missing_lookup(self, db):
+        persist_analysis_state(
+            db,
+            owner_user_id="shared-user",
+            tenant_id="tenant-a",
+            diagram_id="diag-private",
+            snapshot={"mappings": []},
+        )
+
+        forbidden = load_analysis_state(
+            db,
+            diagram_id="diag-private",
+            owner_user_id="shared-user",
+            tenant_id="tenant-b",
+        )
+        missing = load_analysis_state(
+            db,
+            diagram_id="diag-missing",
+            owner_user_id="shared-user",
+            tenant_id="tenant-b",
+        )
+        assert forbidden is None
+        assert missing is None
+
+    def test_authenticated_durable_write_requires_explicit_tenant(self, db):
+        with pytest.raises(ValueError, match="require owner_user_id and tenant_id"):
+            persist_analysis_state(
+                db,
+                owner_user_id="owner-a",
+                tenant_id=None,
+                diagram_id="diag-no-tenant",
+                snapshot={"mappings": []},
+            )
+
+
+def test_cache_loss_hydration_has_no_cross_tenant_existence_oracle(test_client, monkeypatch, db):
+    import database
+    from auth import AuthProvider, User, generate_session_token
+    from routers import shared
+
+    persist_analysis_state(
+        db,
+        owner_user_id="owner-http",
+        tenant_id="tenant-http-a",
+        diagram_id="diag-http-durable",
+        snapshot={"services_detected": 1, "mappings": []},
+    )
+    shared.SESSION_STORE.delete("diag-http-durable")
+
+    class _NonClosingSession:
+        def __getattr__(self, name):
+            return getattr(db, name)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(database, "SessionLocal", _NonClosingSession)
+
+    def headers(user_id, tenant_id):
+        token = generate_session_token(
+            User(id=user_id, provider=AuthProvider.GITHUB, tenant_id=tenant_id)
+        )
+        return {"Authorization": f"Bearer {token}"}
+
+    owner = test_client.get(
+        "/api/diagrams/diag-http-durable/hld",
+        headers=headers("owner-http", "tenant-http-a"),
+    )
+    assert shared.SESSION_STORE.get("diag-http-durable")["_tenant_id"] == "tenant-http-a"
+    shared.SESSION_STORE.delete("diag-http-durable")
+    forbidden = test_client.get(
+        "/api/diagrams/diag-http-durable/hld",
+        headers=headers("owner-http", "tenant-http-b"),
+    )
+    missing = test_client.get(
+        "/api/diagrams/diag-http-missing/hld",
+        headers=headers("owner-http", "tenant-http-b"),
+    )
+
+    assert owner.status_code == 404  # analysis exists; HLD artifact does not
+    assert forbidden.status_code == missing.status_code == 404
+    assert forbidden.json()["error"]["message"] == missing.json()["error"]["message"]
+
+
+def test_workspace_route_rejects_authenticated_user_without_tenant(test_client):
+    from auth import User, generate_session_token
+
+    token = generate_session_token(User(id="tenantless-workspace-user"))
+    response = test_client.post(
+        "/api/workspaces",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"name": "Must not persist"},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["error"]["details"]["error"] == "tenant_context_required"

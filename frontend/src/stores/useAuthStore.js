@@ -89,6 +89,10 @@ function userFromSwaPrincipal(principal) {
     'name',
     'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name',
   ]) || principal.userDetails || 'User';
+  const tenantId = claimValue(principal, [
+    'http://schemas.microsoft.com/identity/claims/tenantid',
+    'tid',
+  ]) || principal.tenantId || null;
 
   return {
     id: `${identityProvider}_${principal.userId}`,
@@ -97,7 +101,7 @@ function userFromSwaPrincipal(principal) {
     avatar_url: claimValue(principal, ['picture']),
     provider,
     tier: 'free',
-    tenant_id: 'default_tenant',
+    tenant_id: tenantId,
     roles: roles.filter((role) => role !== 'anonymous'),
     authenticated: true,
   };

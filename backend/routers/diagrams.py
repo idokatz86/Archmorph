@@ -36,7 +36,6 @@ from vision_analyzer import analyze_image, VISION_PROMPT_HASH
 from openai_client import AZURE_OPENAI_DEPLOYMENT, OpenAIServiceError, handle_openai_error
 from hld_generator import generate_hld, generate_hld_markdown  # noqa: F401 — re-exported for test monkeypatching
 from auth import get_user_from_request_headers
-from analysis_history import maybe_save_from_session
 from error_envelope import ArchmorphException
 from upload_validator import validate_upload, UploadValidationError
 from sku_translator import get_sku_translator
@@ -56,7 +55,11 @@ from analysis_payload_bounds import (
     AnalysisPayloadTooLarge,
     validate_analysis_payload_bounds,
 )
-from workspace_store import maybe_link_session
+from workspace_store import (
+    AnalysisCacheWriteError,
+    DurableAnalysisPersistenceError,
+    persist_analysis_state,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -219,14 +222,52 @@ def _attach_lifecycle_receipt(
     )
 
 
-def _persist_workspace_snapshot(db, *, user_id: str, tenant_id: Optional[str], diagram_id: str, session: Dict[str, Any]) -> None:
-    maybe_link_session(
-        db,
-        owner_user_id=user_id,
-        tenant_id=tenant_id,
-        diagram_id=diagram_id,
-        session=session,
-    )
+def _persist_authenticated_analysis(
+    db,
+    *,
+    user_id: str,
+    tenant_id: Optional[str],
+    diagram_id: str,
+    session: Dict[str, Any],
+    cache_required: bool = False,
+) -> None:
+    try:
+        persist_analysis_state(
+            db,
+            owner_user_id=user_id,
+            tenant_id=tenant_id,
+            diagram_id=diagram_id,
+            snapshot=session,
+            session_store=SESSION_STORE,
+            cache_required=cache_required,
+        )
+    except ValueError as exc:
+        if not tenant_id:
+            raise ArchmorphException(
+                401,
+                "Authenticated tenant context is required for durable analysis state.",
+                details={"error": "tenant_context_required"},
+            ) from exc
+        raise ArchmorphException(
+            503,
+            "Analysis persistence is temporarily unavailable. Please retry shortly.",
+            details={"error": "analysis_persistence_unavailable"},
+            headers={"Retry-After": "30"},
+        ) from exc
+    except DurableAnalysisPersistenceError as exc:
+        raise ArchmorphException(
+            503,
+            "Analysis persistence is temporarily unavailable. Please retry shortly.",
+            details={"error": "analysis_persistence_unavailable"},
+            headers={"Retry-After": "30"},
+        ) from exc
+    except AnalysisCacheWriteError as exc:
+        raise ArchmorphException(
+            503,
+            "Analysis cache is temporarily unavailable. The durable record was saved; retry to continue.",
+            details={"error": "analysis_cache_unavailable", "durable_saved": True},
+            headers={"Retry-After": "5"},
+        ) from exc
 
 
 # ─────────────────────────────────────────────────────────────
@@ -356,7 +397,14 @@ async def restore_session(
     if body.iac_format:
         analysis["_cached_iac_format"] = body.iac_format
 
-    SESSION_STORE[diagram_id] = analysis
+    _persist_authenticated_analysis(
+        db,
+        user_id=user.id,
+        tenant_id=user.tenant_id,
+        diagram_id=diagram_id,
+        session=analysis,
+        cache_required=True,
+    )
     restored_parts = ["analysis"]
     if body.hld:
         restored_parts.append("hld")
@@ -384,13 +432,6 @@ async def restore_session(
         restored_parts.append("image")
     logger.info("Session restored for %s via client cache (%s)", str(diagram_id).replace('\n', '').replace('\r', ''), str(", ".join(restored_parts)).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
     record_event("sessions_restored", {"diagram_id": diagram_id, "parts": restored_parts})
-    _persist_workspace_snapshot(
-        db,
-        user_id=user.id,
-        tenant_id=user.tenant_id,
-        diagram_id=diagram_id,
-        session=analysis,
-    )
     return _attach_lifecycle_receipt(attach_export_capability(
         {"status": "restored", "diagram_id": diagram_id, "restored": restored_parts},
         diagram_id,
@@ -559,23 +600,24 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
             result["_tenant_id"] = user.tenant_id
         elif api_key_principal_id:
             result["_owner_api_key_id"] = api_key_principal_id
-        SESSION_STORE[diagram_id] = result
-        mark_diagram_analyzed(diagram_id, result)
-        record_event("analyses_run", {"diagram_id": diagram_id, "services": result["services_detected"]})
-        record_funnel_step(diagram_id, "analyze")
         if user:
-            maybe_save_from_session(user.id, result, diagram_id)
             db = SessionLocal()
             try:
-                _persist_workspace_snapshot(
+                _persist_authenticated_analysis(
                     db,
                     user_id=user.id,
                     tenant_id=user.tenant_id,
                     diagram_id=diagram_id,
                     session=result,
+                    cache_required=True,
                 )
             finally:
                 db.close()
+        else:
+            SESSION_STORE[diagram_id] = result
+        mark_diagram_analyzed(diagram_id, result)
+        record_event("analyses_run", {"diagram_id": diagram_id, "services": result["services_detected"]})
+        record_funnel_step(diagram_id, "analyze")
         return _attach_lifecycle_receipt(attach_export_capability(result, diagram_id), diagram_id, image_present=True, session_present=True)
 
     # No need to pre-compress, vision analyzer and classifier handle it internally
@@ -630,24 +672,24 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
     if len(SESSION_STORE) >= SESSION_STORE.maxsize:
         logger.warning("Session store at capacity (%d/%d) — oldest sessions will be evicted",
                        str(len(SESSION_STORE)).replace('\n', '').replace('\r', ''), str(SESSION_STORE.maxsize).replace('\n', '').replace('\r', ''))
-    SESSION_STORE[diagram_id] = result
-    mark_diagram_analyzed(diagram_id, result)
-    record_event("analyses_run", {"diagram_id": diagram_id, "services": result["services_detected"]})
-    record_funnel_step(diagram_id, "analyze")
-
     if user:
-        maybe_save_from_session(user.id, result, diagram_id)
         db = SessionLocal()
         try:
-            _persist_workspace_snapshot(
+            _persist_authenticated_analysis(
                 db,
                 user_id=user.id,
                 tenant_id=user.tenant_id,
                 diagram_id=diagram_id,
                 session=result,
+                cache_required=True,
             )
         finally:
             db.close()
+    else:
+        SESSION_STORE[diagram_id] = result
+    mark_diagram_analyzed(diagram_id, result)
+    record_event("analyses_run", {"diagram_id": diagram_id, "services": result["services_detected"]})
+    record_funnel_step(diagram_id, "analyze")
 
     return _attach_lifecycle_receipt(attach_export_capability(result, diagram_id), diagram_id, image_present=True, session_present=True)
 
@@ -807,7 +849,21 @@ async def _run_analysis_job(job_id: str, payload: Dict[str, Any]) -> None:
         if hashlib.sha256(latest_image_bytes).hexdigest() != payload.get("image_sha256"):
             job_manager.fail(job_id, "Uploaded image changed while analysis was running")
             return
-        SESSION_STORE[diagram_id] = result
+        if job_user_id:
+            db = SessionLocal()
+            try:
+                _persist_authenticated_analysis(
+                    db,
+                    user_id=job_user_id,
+                    tenant_id=job_tenant_id,
+                    diagram_id=diagram_id,
+                    session=result,
+                    cache_required=True,
+                )
+            finally:
+                db.close()
+        else:
+            SESSION_STORE[diagram_id] = result
         mark_diagram_analyzed(diagram_id, result)
 
         job_manager.update_progress(job_id, 90, "Saving guided questions and evidence...", phase="saving")
@@ -815,21 +871,7 @@ async def _run_analysis_job(job_id: str, payload: Dict[str, Any]) -> None:
         record_event("analyses_run", {"diagram_id": diagram_id, "services": result.get("services_detected", 0)})
         record_funnel_step(diagram_id, "analyze")
 
-        # Save to user history if job carries an authenticated owner.
-        if job_user_id:
-            maybe_save_from_session(job_user_id, result, diagram_id)
-            db = SessionLocal()
-            try:
-                _persist_workspace_snapshot(
-                    db,
-                    user_id=job_user_id,
-                    tenant_id=job_tenant_id,
-                    diagram_id=diagram_id,
-                    session=result,
-                )
-            finally:
-                db.close()
-        elif job_api_principal_id:
+        if job_api_principal_id:
             logger.debug(
                 "Skipping user history persistence for API principal-owned async analysis %s",
                 str(diagram_id).replace('\n', '').replace('\r', ''),

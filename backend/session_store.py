@@ -660,7 +660,13 @@ REDIS_URL = os.getenv("REDIS_URL", "")  # kept for backward compat
 REDIS_HOST = os.getenv("REDIS_HOST", "")  # Entra ID mode
 WORKER_COUNT = int(os.getenv("WEB_CONCURRENCY", os.getenv("UVICORN_WORKERS", "1")))
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
-REQUIRE_REDIS = os.getenv("REQUIRE_REDIS", os.getenv("ENFORCE_REDIS", "")).lower() in ("1", "true", "yes")
+REQUIRE_REDIS = os.getenv(
+    "REQUIRE_REDIS",
+    os.getenv(
+        "ENFORCE_REDIS",
+        "true" if ENVIRONMENT in ("production", "prod", "staging") else "false",
+    ),
+).lower() in ("1", "true", "yes")
 
 
 def _env_int(name: str, default: int = 1) -> int:
@@ -695,10 +701,12 @@ def _is_production() -> bool:
 
 def _redis_required() -> bool:
     """Return True when Redis is an explicit hard dependency."""
-    return os.getenv(
-        "REQUIRE_REDIS",
-        os.getenv("ENFORCE_REDIS", "true" if REQUIRE_REDIS else ""),
-    ).lower() in ("1", "true", "yes")
+    configured = os.getenv("REQUIRE_REDIS", "").strip()
+    if not configured:
+        configured = os.getenv("ENFORCE_REDIS", "").strip()
+    if not configured:
+        return _is_production()
+    return configured.lower() in ("1", "true", "yes")
 
 
 def session_store_backend() -> str:
@@ -713,12 +721,26 @@ def session_store_backend() -> str:
 def session_store_readiness() -> dict[str, Any]:
     """Return operator-facing readiness metadata for release gates."""
     backend = session_store_backend()
-    redis_ready = backend == "redis"
+    redis_reachable = False
+    redis_error: Optional[str] = None
+    redis_client = None
+    if redis_configured():
+        try:
+            redis_client = _create_redis_client(socket_connect_timeout=2)
+            redis_reachable = True
+        except Exception as exc:
+            redis_error = type(exc).__name__
+        finally:
+            if redis_client is not None:
+                redis_client.close()
+    redis_ready = backend == "redis" and redis_reachable
     requires_redis_for_scale = _is_multi_worker() or _is_multi_replica()
     scale_blocked = requires_redis_for_scale and not redis_ready
     return {
         "backend": backend,
         "redis_configured": redis_configured(),
+        "redis_reachable": redis_reachable,
+        "redis_error": redis_error,
         "require_redis": _redis_required(),
         "production_like": _is_production(),
         "multi_worker": _is_multi_worker(),
@@ -726,9 +748,11 @@ def session_store_readiness() -> dict[str, Any]:
         "multi_replica": _is_multi_replica(),
         "requires_redis_for_scale": requires_redis_for_scale,
         "ready_for_horizontal_scale": redis_ready,
-        "scale_blocked": scale_blocked,
+        "scale_blocked": scale_blocked or (_redis_required() and not redis_ready),
         "scale_blocked_reason": (
-            "Redis is required when WEB_CONCURRENCY/UVICORN_WORKERS or declared replicas exceed 1"
+            "Required Redis dependency is unavailable"
+            if _redis_required() and not redis_ready
+            else "Redis is required when WEB_CONCURRENCY/UVICORN_WORKERS or declared replicas exceed 1"
             if scale_blocked
             else None
         ),
@@ -766,7 +790,7 @@ def get_store(name: str, *, maxsize: int = 500, ttl: int = 7200) -> SessionStore
                 )
             except Exception as exc:
                 logger.warning("Redis unavailable (%s) — falling back for '%s'", exc, name)
-                if REQUIRE_REDIS:
+                if _redis_required():
                     raise RuntimeError("REQUIRE_REDIS is set but Redis is unavailable") from exc
                 if _is_production() or _is_multi_worker():
                     logger.warning(
@@ -780,7 +804,7 @@ def get_store(name: str, *, maxsize: int = 500, ttl: int = 7200) -> SessionStore
         elif _is_production():
             # Issue #262/#286 — In production, NEVER use InMemoryStore.
             # Data is lost on every deploy/restart.
-            if REQUIRE_REDIS:
+            if _redis_required():
                 raise RuntimeError("REQUIRE_REDIS is set but REDIS_HOST/REDIS_URL is not configured")
             logger.error(
                 "🚨 PRODUCTION without REDIS_URL — using FileStore for '%s'. "

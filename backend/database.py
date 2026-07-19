@@ -41,11 +41,15 @@ DATABASE_URL = os.getenv(
 _IS_SQLITE = DATABASE_URL.startswith("sqlite")
 _IS_POSTGRES = DATABASE_URL.startswith(("postgresql://", "postgresql+psycopg://", "postgresql+asyncpg://"))
 _ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
-_ENFORCE_POSTGRES = os.getenv("ENFORCE_POSTGRES", "").lower() in ("1", "true", "yes")
+_PRODUCTION_LIKE = _ENVIRONMENT in ("production", "prod", "staging")
+_ENFORCE_POSTGRES = os.getenv(
+    "ENFORCE_POSTGRES",
+    "true" if _PRODUCTION_LIKE else "false",
+).lower() in ("1", "true", "yes")
 
 # Issue #287 — Warn loudly / fail if SQLite is used in production.
 # SQLite DB files are ephemeral in containerized deployments.
-if _IS_SQLITE and _ENVIRONMENT in ("production", "prod", "staging"):
+if _IS_SQLITE and _PRODUCTION_LIKE:
     logger.error(
         "🚨 CRITICAL: SQLite is configured in %s environment! "
         "Database file will be LOST on every container restart/deploy. "
@@ -196,11 +200,24 @@ def database_backend() -> str:
 
 def database_readiness() -> dict[str, object]:
     """Return operator-facing database readiness metadata for release gates."""
+    connection_ok = False
+    connection_error: str | None = None
+    if _IS_POSTGRES:
+        try:
+            from sqlalchemy import text
+
+            with engine.connect() as connection:
+                connection.execute(text("SELECT 1"))
+            connection_ok = True
+        except Exception as exc:
+            connection_error = type(exc).__name__
     return {
         "backend": database_backend(),
         "postgres_configured": _IS_POSTGRES,
         "sqlite_configured": _IS_SQLITE,
-        "production_like": _ENVIRONMENT in ("production", "prod", "staging"),
+        "production_like": _PRODUCTION_LIKE,
         "enforce_postgres": _ENFORCE_POSTGRES,
-        "ready_for_production": _IS_POSTGRES,
+        "connection_ok": connection_ok,
+        "connection_error": connection_error,
+        "ready_for_production": _IS_POSTGRES and connection_ok,
     }
