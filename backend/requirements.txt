@@ -14,7 +14,7 @@ asyncpg
 aiosqlite
 alembic
 python-dotenv>=1.2.2
-pillow>=12.2.0
+pillow>=12.3.0
 apscheduler
 PyGithub
 slowapi
