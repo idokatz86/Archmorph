@@ -44,14 +44,23 @@ def test_legacy_github_tenant_alias_targets_current_scope():
     ) == provider_subject_tenant_scope(AuthProvider.GITHUB, "42")
 
 
+def test_ambiguous_default_tenant_waits_for_verified_access_rehome():
+    assert migration._legacy_tenant_scope("github_42", "default_tenant") is None
+    assert migration._legacy_tenant_scope("raw-b2c-subject", "default_tenant") is None
+
+
 def test_migration_contains_conflict_audit_and_uniqueness_guards():
     source = MIGRATION_PATH.read_text(encoding="utf-8")
 
-    assert 'status="conflict_quarantined"' in source
+    assert 'status="conflict_retained"' in source
     assert "tenant_rehome_audit" in source
-    assert "_conflict_scope" in source
+    assert "_deduplicate_analyses" in source
+    assert "_deduplicate_artifacts" in source
     assert "ux_analyses_owner_tenant_diagram" in source
     assert "ux_artifacts_version_type_hash" in source
+    assert "ux_workspaces_default_owner_tenant" in source
+    assert "retain VARCHAR(100)" in source
     assert "ix_analysis_versions_analysis_num" in (
         MIGRATION_PATH.parent.joinpath("013_durable_workspaces.py").read_text(encoding="utf-8")
     )
+

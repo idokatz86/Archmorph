@@ -107,6 +107,7 @@ def legacy_owner_tenant_scope(owner_user_id: str) -> str:
 
 
 def _provider_subject_from_user_id(provider: AuthProvider, user_id: str) -> str:
+    """Normalize a subject only after its provider was independently verified."""
     prefixes = {
         AuthProvider.MICROSOFT: ("aad_", "microsoft_"),
         AuthProvider.GITHUB: ("github_",),
@@ -133,7 +134,7 @@ def _normalize_token_tenant(
         and tenant_id == f"github:{subject}"
     )
     if tenant_id == LEGACY_DEFAULT_TENANT:
-        if provider_subject or inferred_subject != subject:
+        if provider != AuthProvider.ANONYMOUS:
             return provider_subject_tenant_scope(provider, stable_subject)
         return legacy_owner_tenant_scope(subject)
     if legacy_provider_tenant:
@@ -593,13 +594,25 @@ def get_user_from_session(token: str) -> Optional[User]:
     # Fast path: in-memory cache hit
     cached = USER_CACHE.get(token)
     if cached:
-        cached.tenant_id = _normalize_token_tenant(
+        provider_subject = cached.provider_subject
+        if cached.provider == AuthProvider.AZURE_AD_B2C and not provider_subject:
+            provider_subject = _provider_subject_from_user_id(cached.provider, cached.id)
+        tenant_id = _normalize_token_tenant(
             tenant_id=cached.tenant_id,
             provider=cached.provider,
             subject=cached.id,
-            provider_subject=cached.provider_subject,
+            provider_subject=provider_subject,
         )
-        return cached
+        if tenant_id == cached.tenant_id and provider_subject == cached.provider_subject:
+            return cached
+        return User(
+            **{
+                **cached.__dict__,
+                "tenant_id": tenant_id,
+                "provider_subject": provider_subject,
+                "roles": list(cached.roles),
+            }
+        )
 
     # Slow path: decode JWT
     try:
@@ -610,6 +623,8 @@ def get_user_from_session(token: str) -> Optional[User]:
         # Check USER_STORE for full user with quota state
         if user_id in USER_STORE:
             user = USER_STORE[user_id]
+            if user.provider == AuthProvider.AZURE_AD_B2C and not user.provider_subject:
+                user.provider_subject = _provider_subject_from_user_id(user.provider, user.id)
             user.tenant_id = _normalize_token_tenant(
                 tenant_id=user.tenant_id,
                 provider=user.provider,
@@ -624,19 +639,22 @@ def get_user_from_session(token: str) -> Optional[User]:
             provider = AuthProvider(provider_str)
         except ValueError:
             provider = AuthProvider.ANONYMOUS
+        provider_subject = payload.get("provider_subject")
+        if provider == AuthProvider.AZURE_AD_B2C and not provider_subject:
+            provider_subject = _provider_subject_from_user_id(provider, user_id)
         user = User(
             id=user_id,
             email=payload.get("email"),
             name=payload.get("name"),
             avatar_url=payload.get("avatar_url"),
             provider=provider,
-            provider_subject=payload.get("provider_subject"),
+            provider_subject=provider_subject,
             tier=UserTier(payload.get("tier", "free")),
             tenant_id=_normalize_token_tenant(
                 tenant_id=payload.get("tenant_id"),
                 provider=provider,
                 subject=user_id,
-                provider_subject=payload.get("provider_subject"),
+                provider_subject=provider_subject,
             ),
             roles=payload.get("roles", ["user"]),
         )

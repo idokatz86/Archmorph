@@ -12,7 +12,7 @@ from auth import (
     User, AuthProvider, UserTier, UsageQuota,
     get_anonymous_user, generate_session_token, get_user_from_session,
     capture_lead, get_leads_summary, is_auth_enabled, get_auth_config,
-    LEAD_STORE, JWT_ALGORITHM, JWT_SECRET, legacy_owner_tenant_scope,
+    LEAD_STORE, JWT_ALGORITHM, JWT_SECRET,
     provider_subject_tenant_scope,
     parse_swa_client_principal,
 )
@@ -160,7 +160,7 @@ class TestSessionManagement:
         result = get_user_from_session("invalid-token")
         assert result is None
 
-    def test_legacy_default_tenant_token_rehomes_to_owner_scope(self):
+    def test_legacy_default_tenant_token_uses_signed_provider_scope(self):
         now = datetime.now(timezone.utc)
         token = jwt.encode(
             {
@@ -178,7 +178,10 @@ class TestSessionManagement:
 
         retrieved = get_user_from_session(token)
 
-        assert retrieved.tenant_id == legacy_owner_tenant_scope("legacy-default-owner")
+        assert retrieved.tenant_id == provider_subject_tenant_scope(
+            AuthProvider.GITHUB,
+            "legacy-default-owner",
+        )
         assert retrieved.tenant_id != "default_tenant"
 
     def test_legacy_default_tenant_provider_owner_uses_provider_subject_scope(self):
@@ -225,6 +228,83 @@ class TestSessionManagement:
         assert retrieved.tenant_id == provider_subject_tenant_scope(
             AuthProvider.GITHUB,
             "42",
+        )
+
+    def test_direct_b2c_without_tid_uses_verified_b2c_subject_scope(self):
+        now = datetime.now(timezone.utc)
+        token = jwt.encode(
+            {
+                "sub": "b2c-subject-42",
+                "provider": "azure_ad_b2c",
+                "provider_subject": "b2c-subject-42",
+                "tier": "free",
+                "iat": now,
+                "exp": now + timedelta(hours=1),
+                "type": "access",
+            },
+            JWT_SECRET,
+            algorithm=JWT_ALGORITHM,
+        )
+
+        retrieved = get_user_from_session(token)
+
+        assert retrieved.provider_subject == "b2c-subject-42"
+        assert retrieved.tenant_id == provider_subject_tenant_scope(
+            AuthProvider.AZURE_AD_B2C,
+            "b2c-subject-42",
+        )
+
+    def test_old_b2c_default_tenant_token_rehomes_to_same_current_scope(self):
+        now = datetime.now(timezone.utc)
+        token = jwt.encode(
+            {
+                "sub": "azure_ad_b2c_b2c-subject-43",
+                "provider": "azure_ad_b2c",
+                "tier": "free",
+                "tenant_id": "default_tenant",
+                "iat": now,
+                "exp": now + timedelta(hours=1),
+                "type": "access",
+            },
+            JWT_SECRET,
+            algorithm=JWT_ALGORITHM,
+        )
+
+        retrieved = get_user_from_session(token)
+
+        assert retrieved.provider_subject == "b2c-subject-43"
+        assert retrieved.tenant_id == provider_subject_tenant_scope(
+            AuthProvider.AZURE_AD_B2C,
+            "b2c-subject-43",
+        )
+
+    def test_raw_b2c_default_tenant_token_uses_signed_provider_claim(self):
+        now = datetime.now(timezone.utc)
+        token = jwt.encode(
+            {
+                "sub": "raw-b2c-subject-44",
+                "provider": "azure_ad_b2c",
+                "tier": "free",
+                "tenant_id": "default_tenant",
+                "iat": now,
+                "exp": now + timedelta(hours=1),
+                "type": "access",
+            },
+            JWT_SECRET,
+            algorithm=JWT_ALGORITHM,
+        )
+
+        retrieved = get_user_from_session(token)
+
+        assert retrieved.tenant_id == provider_subject_tenant_scope(
+            AuthProvider.AZURE_AD_B2C,
+            "raw-b2c-subject-44",
+        )
+
+    def test_same_subject_is_provider_separated_without_provider_guessing(self):
+        subject = "same-direct-subject"
+        assert provider_subject_tenant_scope(AuthProvider.AZURE_AD_B2C, subject) != (
+            provider_subject_tenant_scope(AuthProvider.MICROSOFT, subject)
         )
 
 

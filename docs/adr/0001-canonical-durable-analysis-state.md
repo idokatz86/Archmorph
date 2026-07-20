@@ -31,7 +31,9 @@ state or change ownership.
 
 `workspace_store.persist_analysis_mutation()` is the sole active authenticated
 analysis write boundary. Analysis add/apply, review dispositions, HLD, IaC,
-IaC chat code/history, async completion, and compatibility version routes all use it. It resolves or
+infrastructure import, cost configuration, migration timeline, network topology,
+IaC chat code/history/clear, async completion, and compatibility version routes
+all use it. It resolves or
 creates the tenant-scoped workspace and analysis, appends an immutable version,
 persists any generated HLD/IaC `Artifact` against that exact version, commits
 PostgreSQL, then refreshes the shared cache. A cache failure cannot roll back or
@@ -44,8 +46,10 @@ Authenticated durable writes require an explicit tenant claim. SWA GitHub,
 Google, and AAD identities without a tenant claim use an opaque SHA-256
 provider-subject scope derived only from immutable provider and subject values.
 The durable owner remains the stable provider user ID already used by API and
-workspace ownership contracts; mutable email/login/display-name values are never
-used for either owner or tenant identity.
+workspace ownership contracts; direct B2C uses its verified immutable provider
+subject because legacy B2C rows were keyed by that subject. Mutable
+email/login/display-name values are never used for either owner or tenant
+identity.
 There is no shared `default_tenant` fallback. Legacy tokens carrying that value
 map to the same provider-subject scope used by current tokens. API keys map to
 opaque service-principal owner/tenant markers and use the same durable UoW. Only
@@ -69,14 +73,17 @@ tenantless and transient; they are not promoted to durable user records.
 
 ## Compatibility and migration
 
-Migration `014` widens tenant scopes, rehomes unambiguous `default_tenant` and
-pre-hardening `github:github_<subject>` rows
-to deterministic owner-scoped legacy namespaces, writes row counts to
-`tenant_rehome_audit`, and moves duplicate/conflicting analyses into unique
-`legacy-conflict:*` quarantine scopes with per-analysis audit evidence so an
-operator can resolve them without silent merges. It then adds unique durable
-analysis identity `(owner_user_id, tenant_id, diagram_id)` and idempotent artifact
-identity `(version_id, artifact_type, content_hash)`.
+Migration `014` widens tenant scopes, rehomes the explicit pre-hardening
+`github:github_<subject>` alias to its deterministic provider-subject namespace,
+and leaves ambiguous `default_tenant` rows untouched until exact-owner access by
+a currently verified provider principal. It writes row counts to
+`tenant_rehome_audit`, merges duplicate analysis identities while preserving and
+renumbering all versions/artifacts/decisions, removes exact duplicate artifacts,
+and retains legacy/target conflicts in place for operator review. It then adds
+partial unique durable analysis identity `(owner_user_id, tenant_id, diagram_id)`,
+idempotent artifact identity `(version_id, artifact_type, content_hash)`, and one
+`is_default` workspace per owner/tenant. Downgrade intentionally retains widened
+tenant columns, preventing opaque tenant truncation during `014 → 013 → 014`.
 
 The old in-memory RBAC organization/membership/quota/analysis-owner dictionaries
 were removed after repository-wide import analysis proved no active route used
@@ -95,10 +102,12 @@ and bound to diagram plus user/tenant or API-key marker. Missing and unauthorize
 claims return the same 404 response. Export capabilities are principal-bound as
 well and are never stored in durable snapshots.
 
-Legacy `default_tenant` cache entries are rehomed only when no durable row
-exists, or are replaced by the already-migrated target-tenant durable version.
-If legacy and target durable identities conflict, access fails with the same 404
-and emits a conflict audit event; the cache is not promoted.
+Legacy `default_tenant` cache entries and exact-owner durable rows are rehomed
+only from an authenticated provider principal's verified current scope, or are
+replaced by the already-migrated target-tenant durable version. Raw owner text
+never selects the provider. If legacy and target durable identities conflict,
+access fails with the same 404 and emits a conflict audit event; neither scope
+nor cache is promoted.
 
 Concurrent writers are serialized by row locks after the unique identity insert
 and retry PostgreSQL uniqueness conflicts. Version allocation uses the maximum
@@ -120,6 +129,9 @@ use `/readyz`; startup and liveness continue to use `/healthz`.
   referenced by artifacts or decisions are retained.
 - Workspaces, analyses, artifacts, and ownership: retained until explicit
   workspace deletion; foreign keys cascade dependent analyses and versions.
+- Diagram purge: synchronously deletes tenant-scoped decisions, artifacts,
+  versions, and the analysis before issuing its receipt; an empty implicit
+  default workspace is deleted as well.
 - Audit/security logs: separate policy and storage; never treated as analysis
   cache and not deleted by cache loss.
 - Existing session-only records are not backfilled blindly because a transient

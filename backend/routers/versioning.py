@@ -17,10 +17,10 @@ router = APIRouter()
 
 
 def _durable_analysis(request: Request, diagram_id: str):
-    from routers.shared import get_request_durable_principal
+    from routers.shared import get_request_durable_principal, has_canonical_durable_principal
 
     principal = get_request_durable_principal(request)
-    if principal is None or not principal["tenant_id"]:
+    if not has_canonical_durable_principal(request):
         return None, None, None
     from workspace_store import get_analysis_by_diagram
 
@@ -44,10 +44,9 @@ async def create_version_endpoint(
     analysis=Depends(require_diagram_access),
 ):
     """Create a new version of an architecture analysis."""
-    from routers.shared import get_request_durable_principal
+    from routers.shared import has_canonical_durable_principal
 
-    principal = get_request_durable_principal(request)
-    if principal is not None:
+    if has_canonical_durable_principal(request):
         result = persist_diagram_mutation(
             request,
             diagram_id,

@@ -5,6 +5,17 @@ Expand the name of the chart.
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
+{{/* Secret containing runtime credentials. */}}
+{{- define "archmorph.secretName" -}}
+{{- if .Values.externalSecrets.enabled -}}
+{{- printf "%s-secrets" (include "archmorph.fullname" .) -}}
+{{- else if .Values.existingSecret.name -}}
+{{- .Values.existingSecret.name -}}
+{{- else -}}
+{{- fail "configure externalSecrets.enabled=true or existingSecret.name" -}}
+{{- end -}}
+{{- end }}
+
 {{/*
 Create a default fully qualified app name.
 */}}

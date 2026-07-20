@@ -44,6 +44,7 @@ limiter = Limiter(
 API_KEY = os.getenv("ARCHMORPH_API_KEY", "")  # Empty = auth disabled (dev mode)
 API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=False)
 ADMIN_BEARER = HTTPBearer(auto_error=False)
+USER_BEARER = HTTPBearer(auto_error=False)
 _API_PRINCIPAL_SALT = b"archmorph-api-principal-v1"
 _API_PRINCIPAL_KDF_ITERATIONS = 120_000
 
@@ -82,6 +83,7 @@ async def verify_api_key_required(api_key: Optional[str] = Security(API_KEY_HEAD
 async def verify_api_key_or_user_session(
     request: Request,
     api_key: Optional[str] = Security(API_KEY_HEADER),
+    credentials: Optional[HTTPAuthorizationCredentials] = Security(USER_BEARER),
 ):
     """Allow either the service API key or a signed-in user bearer session."""
     try:
@@ -92,7 +94,7 @@ async def verify_api_key_or_user_session(
 
         from auth import get_user_from_request_headers
 
-        if get_user_from_request_headers(dict(request.headers)):
+        if credentials is not None and credentials.scheme.lower() == "bearer" and get_user_from_request_headers(dict(request.headers)):
             return
         raise ArchmorphException(status_code=401, detail="Invalid or missing API key or user session") from exc
 
@@ -120,8 +122,13 @@ def get_request_durable_principal(request: Request) -> Optional[dict]:
     headers = dict(request.headers)
     user = get_user_from_request_headers(headers)
     if user:
+        owner_user_id = (
+            user.provider_subject
+            if user.provider.value == "azure_ad_b2c" and user.provider_subject
+            else user.id
+        )
         return {
-            "owner_user_id": user.id,
+            "owner_user_id": owner_user_id,
             "tenant_id": user.tenant_id,
             "owner_api_key_id": None,
         }
@@ -134,6 +141,16 @@ def get_request_durable_principal(request: Request) -> Optional[dict]:
             "owner_api_key_id": api_key_id,
         }
     return None
+
+
+def has_canonical_durable_principal(request: Request) -> bool:
+    """Return whether this request must use canonical durable state."""
+    principal = get_request_durable_principal(request)
+    return bool(
+        principal
+        and principal["tenant_id"]
+        and (principal["owner_api_key_id"] is None or API_KEY)
+    )
 
 
 @lru_cache(maxsize=32)
@@ -216,10 +233,30 @@ def _load_durable_diagram_session(request: Request, diagram_id: str) -> Optional
         return None
 
     from database import SessionLocal
-    from workspace_store import load_analysis_state
+    from workspace_store import (
+        get_analysis_by_diagram,
+        load_analysis_state,
+        rehome_legacy_analysis_scope,
+    )
 
     db = SessionLocal()
     try:
+        legacy_analysis = get_analysis_by_diagram(
+            db,
+            diagram_id=diagram_id,
+            owner_user_id=principal["owner_user_id"],
+            tenant_id="default_tenant",
+        )
+        if legacy_analysis is not None:
+            status = rehome_legacy_analysis_scope(
+                db,
+                diagram_id=diagram_id,
+                owner_user_id=principal["owner_user_id"],
+                source_tenant_id="default_tenant",
+                target_tenant_id=principal["tenant_id"],
+            )
+            if status != "rehomed":
+                return None
         return load_analysis_state(
             db,
             diagram_id=diagram_id,
@@ -280,21 +317,26 @@ def authorize_diagram_access(
     if user:
         owner_user_id = session.get("_owner_user_id")
         tenant_id = session.get("_tenant_id")
-        if owner_user_id == user.id and tenant_id == "default_tenant":
+        principal = get_request_durable_principal(request)
+        expected_owner_user_id = principal["owner_user_id"] if principal else user.id
+        if owner_user_id == expected_owner_user_id and tenant_id == "default_tenant":
             try:
-                principal = get_request_durable_principal(request)
                 if principal is None or not principal["tenant_id"]:
                     raise ArchmorphException(404, "Diagram not found")
 
                 from database import SessionLocal
-                from workspace_store import get_analysis_by_diagram, load_analysis_state
+                from workspace_store import (
+                    get_analysis_by_diagram,
+                    load_analysis_state,
+                    rehome_legacy_analysis_scope,
+                )
 
                 db = SessionLocal()
                 try:
                     legacy_analysis = get_analysis_by_diagram(
                         db,
                         diagram_id=diagram_id,
-                        owner_user_id=user.id,
+                        owner_user_id=expected_owner_user_id,
                         tenant_id="default_tenant",
                     )
                     target_analysis = get_analysis_by_diagram(
@@ -313,6 +355,23 @@ def authorize_diagram_access(
                             session_store=SESSION_STORE,
                             allow_legacy_cache_rehome=True,
                         )
+                    elif legacy_analysis is not None and target_analysis is None:
+                        status = rehome_legacy_analysis_scope(
+                            db,
+                            diagram_id=diagram_id,
+                            owner_user_id=principal["owner_user_id"],
+                            source_tenant_id="default_tenant",
+                            target_tenant_id=principal["tenant_id"],
+                        )
+                        if status == "rehomed":
+                            migrated_session = load_analysis_state(
+                                db,
+                                diagram_id=diagram_id,
+                                owner_user_id=principal["owner_user_id"],
+                                tenant_id=principal["tenant_id"],
+                                session_store=SESSION_STORE,
+                                allow_legacy_cache_rehome=True,
+                            )
                 finally:
                     db.close()
                 if migrated_session is not None:
@@ -326,8 +385,8 @@ def authorize_diagram_access(
                             "source": "durable_target",
                         },
                     )
-                    return SESSION_STORE.peek(diagram_id) or migrated_session
-                if legacy_analysis is not None or target_analysis is not None:
+                    return migrated_session
+                if migrated_session is None and (legacy_analysis is not None or target_analysis is not None):
                     from usage_metrics import record_event
 
                     record_event(
@@ -366,7 +425,7 @@ def authorize_diagram_access(
                 bool(tenant_id),
             )
             raise ArchmorphException(404, "Diagram not found")
-        if owner_user_id != user.id or tenant_id != user.tenant_id:
+        if owner_user_id != expected_owner_user_id or tenant_id != user.tenant_id:
             raise ArchmorphException(404, "Diagram not found")
         return session
 
@@ -418,6 +477,19 @@ def persist_diagram_mutation(
         if not SESSION_STORE.set(diagram_id, detached_snapshot):
             raise ArchmorphException(503, "Analysis cache is temporarily unavailable")
         return None
+    if principal["owner_api_key_id"] is not None and not API_KEY:
+        if not SESSION_STORE.set(diagram_id, detached_snapshot):
+            raise ArchmorphException(503, "Analysis cache is temporarily unavailable")
+        return None
+    existing_owner = detached_snapshot.get("_owner_user_id") or detached_snapshot.get("_owner_api_key_id")
+    if existing_owner is None and principal["owner_api_key_id"] is None:
+        from auth import get_user_from_request_headers
+
+        user = get_user_from_request_headers(dict(request.headers))
+        if user is None:
+            if not SESSION_STORE.set(diagram_id, detached_snapshot):
+                raise ArchmorphException(503, "Analysis cache is temporarily unavailable")
+            return None
     if not principal["tenant_id"]:
         raise ArchmorphException(
             401,

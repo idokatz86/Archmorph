@@ -15,7 +15,13 @@ import json
 import logging
 
 from export_capabilities import consume_export_capability, issue_export_capability, verify_export_capability
-from routers.shared import authorize_diagram_access, limiter, require_diagram_access, verify_api_key
+from routers.shared import (
+    authorize_diagram_access,
+    limiter,
+    persist_diagram_mutation,
+    require_diagram_access,
+    verify_api_key,
+)
 from usage_metrics import record_event
 from migration_timeline import (
     generate_timeline,
@@ -45,10 +51,17 @@ async def create_migration_timeline(
 
     timeline = await asyncio.to_thread(generate_timeline, session, project_name)
 
-    # Store alongside analysis
-    session["migration_timeline"] = timeline
-    from routers.shared import SESSION_STORE
-    SESSION_STORE[diagram_id] = session
+    updated_session = dict(session)
+    updated_session["migration_timeline"] = timeline
+    persist_diagram_mutation(
+        request,
+        diagram_id,
+        updated_session,
+        artifact_type="migration_timeline",
+        artifact_format="json",
+        artifact_content=json.dumps(timeline, ensure_ascii=False, sort_keys=True, default=str),
+        label="migration-timeline-generated",
+    )
 
     record_event("migration_timeline_generated", {
         "diagram_id": diagram_id,

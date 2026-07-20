@@ -14,8 +14,11 @@ import logging
 import os
 import threading
 import time
-from fastapi import APIRouter, Depends
+from typing import Literal
+
+from fastapi import APIRouter, Depends, Response
 from fastapi.responses import JSONResponse
+from strict_models import StrictBaseModel
 
 from version import __version__
 from services import AWS_SERVICES, AZURE_SERVICES, GCP_SERVICES, CROSS_CLOUD_MAPPINGS
@@ -26,6 +29,16 @@ from routers.shared import ENVIRONMENT, verify_api_key
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+class ReadinessChecks(StrictBaseModel):
+    database: Literal["ready", "unavailable"]
+    redis: Literal["ready", "unavailable"]
+
+
+class ReadinessResponse(StrictBaseModel):
+    status: Literal["ready", "not_ready"]
+    checks: ReadinessChecks
 
 # ── Cached dependency checks (avoid blocking I/O on every request) ─────
 _dep_checks_cache: dict | None = None
@@ -234,8 +247,36 @@ async def healthz():
     return JSONResponse(content={"status": "alive"})
 
 
-@router.get("/readyz")
-async def readyz():
+@router.get(
+    "/readyz",
+    response_model=ReadinessResponse,
+    responses={
+        200: {
+            "description": "Required PostgreSQL and Redis dependencies are ready",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "ready",
+                        "checks": {"database": "ready", "redis": "ready"},
+                    }
+                }
+            },
+        },
+        503: {
+            "model": ReadinessResponse,
+            "description": "A required dependency is unavailable",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "not_ready",
+                        "checks": {"database": "unavailable", "redis": "unavailable"},
+                    }
+                }
+            },
+        },
+    },
+)
+async def readyz(response: Response) -> ReadinessResponse:
     """Anonymous sanitized readiness for required PostgreSQL and Redis."""
     database_ready = False
     redis_ready = False
@@ -254,15 +295,13 @@ async def readyz():
         redis_ready = False
 
     ready = database_ready and redis_ready
-    return JSONResponse(
-        status_code=200 if ready else 503,
-        content={
-            "status": "ready" if ready else "not_ready",
-            "checks": {
-                "database": "ready" if database_ready else "unavailable",
-                "redis": "ready" if redis_ready else "unavailable",
-            },
-        },
+    response.status_code = 200 if ready else 503
+    return ReadinessResponse(
+        status="ready" if ready else "not_ready",
+        checks=ReadinessChecks(
+            database="ready" if database_ready else "unavailable",
+            redis="ready" if redis_ready else "unavailable",
+        ),
     )
 
 

@@ -49,16 +49,14 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ include "archmorph.fullname" . }}-config
-          {{- if .Values.externalSecrets.enabled }}
           env:
-            {{- range .Values.externalSecrets.data }}
+            {{- range .Values.requiredSecretKeys }}
             - name: {{ .secretKey }}
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "archmorph.fullname" $ }}-secrets
+                  name: {{ include "archmorph.secretName" $ }}
                   key: {{ .secretKey }}
             {{- end }}
-          {{- end }}
           {{- with .Values.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}

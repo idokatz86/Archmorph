@@ -74,6 +74,31 @@ def test_durable_user_principal_preserves_stable_owner_id_and_opaque_tenant_scop
     assert principal["tenant_id"] == provider_subject_tenant_scope(AuthProvider.GITHUB, "42")
 
 
+def test_direct_b2c_durable_principal_uses_verified_provider_subject():
+    from auth import provider_subject_tenant_scope
+    from starlette.requests import Request
+
+    user = User(
+        id="azure_ad_b2c_subject-42",
+        provider=AuthProvider.AZURE_AD_B2C,
+        provider_subject="subject-42",
+        tenant_id=provider_subject_tenant_scope(AuthProvider.AZURE_AD_B2C, "subject-42"),
+    )
+    token = generate_session_token(user)
+    request = Request({
+        "type": "http",
+        "headers": [(b"authorization", f"Bearer {token}".encode())],
+    })
+
+    principal = get_request_durable_principal(request)
+
+    assert principal["owner_user_id"] == "subject-42"
+    assert principal["tenant_id"] == provider_subject_tenant_scope(
+        AuthProvider.AZURE_AD_B2C,
+        "subject-42",
+    )
+
+
 @pytest.fixture(autouse=True)
 def clean_state():
     SESSION_STORE.clear()

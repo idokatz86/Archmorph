@@ -298,9 +298,11 @@ async def generate_hld_async(
 ):
     """Start async HLD document generation. Returns 202 with job_id."""
     from auth import get_user_from_request_headers
+    from routers.shared import get_request_durable_principal
 
     headers = dict(request.headers)
     user = get_user_from_request_headers(headers)
+    principal = get_request_durable_principal(request)
     api_key_principal_id = get_api_key_service_principal(headers)
     session = authorize_diagram_access(request, diagram_id, purpose="queue HLD generation")
     analysis_hash = _hld_generation_input_hash(session)
@@ -309,7 +311,7 @@ async def generate_hld_async(
         job = job_manager.submit(
             "generate_hld",
             diagram_id=diagram_id,
-            owner_user_id=user.id if user else None,
+            owner_user_id=principal["owner_user_id"] if user else None,
             tenant_id=user.tenant_id if user else None,
             owner_api_key_id=api_key_principal_id if not user else None,
             execution_payload={

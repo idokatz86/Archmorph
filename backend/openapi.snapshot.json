@@ -3419,6 +3419,55 @@
         "title": "PushIaCRequest",
         "type": "object"
       },
+      "ReadinessChecks": {
+        "additionalProperties": false,
+        "properties": {
+          "database": {
+            "enum": [
+              "ready",
+              "unavailable"
+            ],
+            "title": "Database",
+            "type": "string"
+          },
+          "redis": {
+            "enum": [
+              "ready",
+              "unavailable"
+            ],
+            "title": "Redis",
+            "type": "string"
+          }
+        },
+        "required": [
+          "database",
+          "redis"
+        ],
+        "title": "ReadinessChecks",
+        "type": "object"
+      },
+      "ReadinessResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "checks": {
+            "$ref": "#/components/schemas/ReadinessChecks"
+          },
+          "status": {
+            "enum": [
+              "ready",
+              "not_ready"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "checks"
+        ],
+        "title": "ReadinessResponse",
+        "type": "object"
+      },
       "RefreshRequest": {
         "additionalProperties": false,
         "properties": {
@@ -8201,6 +8250,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Add Services Natural Language"
@@ -8244,6 +8296,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Analyze Diagram"
@@ -8287,6 +8342,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Analyze Diagram Async"
@@ -8342,6 +8400,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Apply Guided Answers"
@@ -8902,6 +8963,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Export Architecture Package"
@@ -8991,6 +9055,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Export Architecture Diagram"
@@ -9109,6 +9176,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Export Migration Package"
@@ -10120,6 +10190,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Guided Questions"
@@ -10232,6 +10305,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Restore Session"
@@ -10279,6 +10355,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Review Queue",
@@ -10329,6 +10408,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Review Queue Summary",
@@ -10398,6 +10480,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Set Item Disposition",
@@ -13379,6 +13464,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Project Status"
@@ -13422,6 +13510,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Project Analysis"
@@ -13475,6 +13566,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Upload Diagram"
@@ -13542,6 +13636,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Generate Project Iac"
@@ -19074,6 +19171,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Add Services Natural Language V1",
@@ -19120,6 +19220,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Analyze Diagram V1",
@@ -19166,6 +19269,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Analyze Diagram Async V1",
@@ -19224,6 +19330,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Apply Guided Answers V1",
@@ -19815,6 +19924,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Export Architecture Package V1",
@@ -19907,6 +20019,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Export Architecture Diagram V1",
@@ -20031,6 +20146,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Export Migration Package V1",
@@ -21102,6 +21220,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Guided Questions V1",
@@ -21220,6 +21341,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Restore Session V1",
@@ -21270,6 +21394,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Review Queue V1",
@@ -21321,6 +21448,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Review Queue Summary V1",
@@ -21391,6 +21521,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Set Item Disposition V1",
@@ -24485,6 +24618,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Project Status V1",
@@ -24531,6 +24667,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Project Analysis V1",
@@ -24587,6 +24726,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Upload Diagram V1",
@@ -24657,6 +24799,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Generate Project Iac V1",
@@ -27886,10 +28031,36 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "example": {
+                  "checks": {
+                    "database": "ready",
+                    "redis": "ready"
+                  },
+                  "status": "ready"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessResponse"
+                }
               }
             },
-            "description": "Successful Response"
+            "description": "Required PostgreSQL and Redis dependencies are ready"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "checks": {
+                    "database": "unavailable",
+                    "redis": "unavailable"
+                  },
+                  "status": "not_ready"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessResponse"
+                }
+              }
+            },
+            "description": "A required dependency is unavailable"
           }
         },
         "summary": "Readyz"

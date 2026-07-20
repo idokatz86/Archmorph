@@ -214,11 +214,23 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     defaults:
       run:
         working-directory: backend
     env:
-      DATABASE_URL: postgresql://archmorph:archmorph_dev@127.0.0.1:5432/archmorph
+      POSTGRES_USER: archmorph
+      POSTGRES_PASSWORD: archmorph_dev
+      POSTGRES_DB: archmorph
+      ARCHMORPH_TEST_REDIS_URL: redis://127.0.0.1:6379/15
     steps:
       - uses: actions/checkout@v6
 
@@ -236,14 +248,36 @@ jobs:
       - name: Install backend dependencies
         run: uv pip install --system -r requirements.txt
 
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.17.3
+
       - name: Run Alembic migration cycle
         run: |
+          DATABASE_SCHEME="postgresql"
+          printf -v DATABASE_URL '%s://%s:%s@127.0.0.1:5432/%s' \
+            "$DATABASE_SCHEME" "$POSTGRES_USER" "$POSTGRES_PASSWORD" "$POSTGRES_DB"
+          export DATABASE_URL ARCHMORPH_TEST_POSTGRES_URL="$DATABASE_URL"
           python -m alembic heads
           python -m alembic upgrade head --sql > /tmp/archmorph-alembic-upgrade.sql
           test -s /tmp/archmorph-alembic-upgrade.sql
           python -m alembic upgrade head
           python -m alembic downgrade base
           python -m alembic upgrade head
+
+      - name: Run canonical PostgreSQL, Redis, migration, and Helm contracts
+        run: |
+          DATABASE_SCHEME="postgresql"
+          printf -v DATABASE_URL '%s://%s:%s@127.0.0.1:5432/%s' \
+            "$DATABASE_SCHEME" "$POSTGRES_USER" "$POSTGRES_PASSWORD" "$POSTGRES_DB"
+          export DATABASE_URL ARCHMORPH_TEST_POSTGRES_URL="$DATABASE_URL"
+          python -m alembic downgrade 013
+          python -m alembic upgrade 014
+          python -m pytest -q -n 0 \
+            tests/test_workspace_store_postgres.py \
+            tests/test_canonical_state_migration_postgres.py \
+            tests/test_helm_secret_contract.py
 
   # ============================================
   # GENERATED IAC VALIDATION

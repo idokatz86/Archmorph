@@ -22,6 +22,7 @@ import json as _json
 import uuid as _uuid
 
 from sqlalchemy import (
+    and_,
     Boolean,
     Column,
     DateTime,
@@ -60,11 +61,27 @@ class Workspace(Base):
     target_cloud = Column(String(20), nullable=False, server_default="azure")
     status = Column(String(20), nullable=False, server_default="active")  # active | archived
     is_public = Column(Boolean, nullable=False, server_default=false())
+    is_default = Column(Boolean, nullable=False, server_default=false())
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     __table_args__ = (
         Index("ix_workspaces_owner_tenant", "owner_user_id", "tenant_id"),
+        Index(
+            "ux_workspaces_default_owner_tenant",
+            "owner_user_id",
+            "tenant_id",
+            unique=True,
+            postgresql_where=and_(is_default.is_(True), tenant_id.is_not(None)),
+            sqlite_where=and_(is_default.is_(True), tenant_id.is_not(None)),
+        ),
+        Index(
+            "ux_workspaces_default_owner_no_tenant",
+            "owner_user_id",
+            unique=True,
+            postgresql_where=and_(is_default.is_(True), tenant_id.is_(None)),
+            sqlite_where=and_(is_default.is_(True), tenant_id.is_(None)),
+        ),
     )
 
     def to_dict(self) -> dict:
@@ -78,6 +95,7 @@ class Workspace(Base):
             "target_cloud": self.target_cloud,
             "status": self.status,
             "is_public": self.is_public,
+            "is_default": self.is_default,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
@@ -181,6 +199,16 @@ class Analysis(Base):
             "tenant_id",
             "diagram_id",
             unique=True,
+            postgresql_where=and_(tenant_id.is_not(None), diagram_id.is_not(None)),
+            sqlite_where=and_(tenant_id.is_not(None), diagram_id.is_not(None)),
+        ),
+        Index(
+            "ux_analyses_owner_no_tenant_diagram",
+            "owner_user_id",
+            "diagram_id",
+            unique=True,
+            postgresql_where=and_(tenant_id.is_(None), diagram_id.is_not(None)),
+            sqlite_where=and_(tenant_id.is_(None), diagram_id.is_not(None)),
         ),
     )
 
@@ -304,6 +332,8 @@ class Artifact(Base):
             "artifact_type",
             "content_hash",
             unique=True,
+            postgresql_where=and_(version_id.is_not(None), content_hash.is_not(None)),
+            sqlite_where=and_(version_id.is_not(None), content_hash.is_not(None)),
         ),
     )
 
@@ -393,6 +423,6 @@ class TenantRehomeAudit(Base):
     owner_user_id = Column(String(100), nullable=False, index=True)
     source_tenant_id = Column(String(100), nullable=False)
     target_tenant_id = Column(String(100), nullable=True)
-    status = Column(String(20), nullable=False, index=True)
+    status = Column(String(40), nullable=False, index=True)
     details = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

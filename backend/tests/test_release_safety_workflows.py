@@ -25,13 +25,29 @@ def test_ci_includes_pgvector_alembic_migration_cycle():
     job = workflow["jobs"]["alembic-migration-smoke"]
 
     assert job["services"]["postgres"]["image"] == "pgvector/pgvector:pg16"
-    assert job["env"]["DATABASE_URL"] == "postgresql://archmorph:archmorph_dev@127.0.0.1:5432/archmorph"
+    assert job["services"]["redis"]["image"] == "redis:7.4-alpine"
+    assert job["env"]["POSTGRES_USER"] == "archmorph"
+    assert job["env"]["POSTGRES_DB"] == "archmorph"
+    assert job["env"]["ARCHMORPH_TEST_REDIS_URL"] == "redis://127.0.0.1:6379/15"
 
     run_script = _step_by_name(job["steps"], "Run Alembic migration cycle")["run"]
     assert "python -m alembic heads" in run_script
     assert "python -m alembic upgrade head --sql" in run_script
     assert "python -m alembic upgrade head" in run_script
     assert "python -m alembic downgrade base" in run_script
+    assert 'DATABASE_SCHEME="postgresql"' in run_script
+    assert "printf -v DATABASE_URL '%s://%s:%s@127.0.0.1:5432/%s'" in run_script
+    assert 'export DATABASE_URL ARCHMORPH_TEST_POSTGRES_URL="$DATABASE_URL"' in run_script
+
+    contracts = _step_by_name(
+        job["steps"],
+        "Run canonical PostgreSQL, Redis, migration, and Helm contracts",
+    )["run"]
+    assert "tests/test_workspace_store_postgres.py" in contracts
+    assert "tests/test_canonical_state_migration_postgres.py" in contracts
+    assert "tests/test_helm_secret_contract.py" in contracts
+    assert 'DATABASE_SCHEME="postgresql"' in contracts
+    assert "printf -v DATABASE_URL '%s://%s:%s@127.0.0.1:5432/%s'" in contracts
 
 
 def test_rollback_health_verification_uses_authenticated_api_health():

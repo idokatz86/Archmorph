@@ -331,10 +331,11 @@ async def upload_diagram(request: Request, project_id: str, file: UploadFile = F
     IMAGE_STORE[diagram_id] = (base64.b64encode(image_bytes).decode("ascii"), file.content_type)
     headers = dict(request.headers)
     upload_user = get_user_from_request_headers(headers)
+    upload_principal = get_request_durable_principal(request)
     upload_api_key_id = get_api_key_service_principal(headers)
     namespace_claim = {"diagram_id": diagram_id, "status": "uploaded"}
     if upload_user:
-        namespace_claim["_owner_user_id"] = upload_user.id
+        namespace_claim["_owner_user_id"] = upload_principal["owner_user_id"]
         namespace_claim["_tenant_id"] = upload_user.tenant_id
     elif upload_api_key_id:
         namespace_claim["_owner_api_key_id"] = upload_api_key_id
@@ -402,6 +403,23 @@ async def restore_session(
                 **exc.details,
             },
         )
+    decoded_image: Optional[bytes] = None
+    restored_content_type: Optional[str] = None
+    if body.image_base64:
+        try:
+            decoded_image = base64.b64decode(body.image_base64, validate=True)
+        except Exception as exc:
+            raise ArchmorphException(400, f"Invalid image_base64 payload: {str(exc)}")
+        if len(decoded_image) > MAX_UPLOAD_SIZE:
+            raise ArchmorphException(
+                413,
+                f"image_base64 too large. Maximum allowed: {MAX_UPLOAD_SIZE // (1024*1024)} MB.",
+            )
+        restored_content_type = body.image_content_type or "image/png"
+        try:
+            validate_upload(decoded_image, restored_content_type, None)
+        except UploadValidationError as exc:
+            raise ArchmorphException(exc.status_code, exc.message)
 
     principal = get_request_durable_principal(request)
     if principal is None or not principal["tenant_id"]:
@@ -470,20 +488,8 @@ async def restore_session(
     if body.iac_code:
         restored_parts.append("iac")
     if body.image_base64:
-        try:
-            decoded = base64.b64decode(body.image_base64, validate=True)
-        except Exception as exc:
-            raise ArchmorphException(400, f"Invalid image_base64 payload: {str(exc)}")
-        if len(decoded) > MAX_UPLOAD_SIZE:
-            raise ArchmorphException(
-                413,
-                f"image_base64 too large. Maximum allowed: {MAX_UPLOAD_SIZE // (1024*1024)} MB.",
-            )
-        restored_content_type = body.image_content_type or "image/png"
-        try:
-            validate_upload(decoded, restored_content_type, None)
-        except UploadValidationError as exc:
-            raise ArchmorphException(exc.status_code, exc.message)
+        assert decoded_image is not None
+        assert restored_content_type is not None
         IMAGE_STORE[diagram_id] = (
             body.image_base64,
             restored_content_type,
@@ -529,6 +535,41 @@ async def purge_diagram_session(
     session_deleted = session_record is not None
     project_id = get_project_id_for_diagram(diagram_id)
     _, diagram_meta = _diagram_project_metadata(diagram_id)
+    durable_deleted = {
+        "analyses": 0,
+        "versions": 0,
+        "artifacts": 0,
+        "decisions": 0,
+        "implicit_workspaces": 0,
+    }
+    principal = get_request_durable_principal(request)
+    if principal is not None and principal["tenant_id"]:
+        from database import SessionLocal
+        from workspace_store import purge_analysis_state
+
+        db = SessionLocal()
+        try:
+            durable_deleted = purge_analysis_state(
+                db,
+                diagram_id=diagram_id,
+                owner_user_id=principal["owner_user_id"],
+                tenant_id=principal["tenant_id"],
+            )
+        except Exception as exc:
+            db.rollback()
+            logger.error(
+                "durable_analysis_purge_failed diagram_id=%s error_type=%s",
+                str(diagram_id).replace("\n", "").replace("\r", ""),
+                type(exc).__name__,
+            )
+            raise ArchmorphException(
+                503,
+                "Analysis persistence is temporarily unavailable. Purge was not completed.",
+                details={"error": "analysis_purge_unavailable"},
+                headers={"Retry-After": "30"},
+            ) from exc
+        finally:
+            db.close()
     if image_record is not None:
         IMAGE_STORE.delete(diagram_id)
     if session_record is not None:
@@ -553,6 +594,7 @@ async def purge_diagram_session(
         "share_links_deleted": share_links_deleted,
         "jobs_deleted": jobs_deleted,
         "iac_chat_deleted": iac_chat_deleted,
+        "durable_deleted": durable_deleted,
     })
     purge_confirmation = {
         "status": "purged",
@@ -565,6 +607,7 @@ async def purge_diagram_session(
             or share_links_deleted
             or jobs_deleted
             or iac_chat_deleted
+            or durable_deleted["analyses"]
         ),
         "client_cache_action": "clear_session_storage_after_successful_purge",
         "audit_security_logs_retained": True,
@@ -578,6 +621,7 @@ async def purge_diagram_session(
         "export_capabilities": export_capabilities_deleted,
         "async_jobs": jobs_deleted,
         "iac_chat": bool(iac_chat_deleted),
+        "durable_analysis": durable_deleted,
     }
     trust_receipt = build_trust_receipt(
         diagram_id,
@@ -601,6 +645,7 @@ async def purge_diagram_session(
             "share_links": share_links_deleted,
             "jobs": jobs_deleted,
             "iac_chat": iac_chat_deleted,
+            "durable": durable_deleted,
         },
     }
 
@@ -657,12 +702,13 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
 
     headers = dict(request.headers)
     user = get_user_from_request_headers(headers)
+    principal = get_request_durable_principal(request)
     api_key_principal_id = get_api_key_service_principal(headers)
 
     if ci_smoke.enabled():
         result = ci_smoke.clone_analysis(diagram_id)
         if user:
-            result["_owner_user_id"] = user.id
+            result["_owner_user_id"] = principal["owner_user_id"]
             result["_tenant_id"] = user.tenant_id
         elif api_key_principal_id:
             result["_owner_api_key_id"] = api_key_principal_id
@@ -671,7 +717,7 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
             try:
                 _persist_authenticated_analysis(
                     db,
-                    user_id=user.id,
+                    user_id=principal["owner_user_id"],
                     tenant_id=user.tenant_id,
                     diagram_id=diagram_id,
                     session=result,
@@ -753,7 +799,7 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
 
     # Save to user history if authenticated (#245)
     if user:
-        result["_owner_user_id"] = user.id
+        result["_owner_user_id"] = principal["owner_user_id"]
         result["_tenant_id"] = user.tenant_id
     elif api_key_principal_id:
         result["_owner_api_key_id"] = api_key_principal_id
@@ -766,7 +812,7 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
         try:
             _persist_authenticated_analysis(
                 db,
-                user_id=user.id,
+                user_id=principal["owner_user_id"],
                 tenant_id=user.tenant_id,
                 diagram_id=diagram_id,
                 session=result,
@@ -827,10 +873,11 @@ async def analyze_diagram_async(
 
     headers = dict(request.headers)
     user = get_user_from_request_headers(headers)
+    principal = get_request_durable_principal(request)
     api_key_principal_id = get_api_key_service_principal(headers)
 
     # Admission control: enforce per-user/per-tenant active-job limits.
-    owner_user_id = user.id if user else None
+    owner_user_id = principal["owner_user_id"] if user else None
     tenant_id = user.tenant_id if user else None
     owner_api_key_id = api_key_principal_id if not user else None
     image_b64, content_type = IMAGE_STORE[diagram_id]

@@ -387,7 +387,16 @@ async def iac_chat_clear(
     _session=Depends(require_diagram_access),
 ):
     """Clear IaC chat session for a diagram."""
-    cleared = clear_iac_chat(diagram_id)
+    updated_session = copy.deepcopy(_session)
+    had_durable_history = bool(updated_session.get("iac_chat_history"))
+    updated_session["iac_chat_history"] = []
+    persist_diagram_mutation(
+        request,
+        diagram_id,
+        updated_session,
+        label="iac-chat-cleared",
+    )
+    cleared = clear_iac_chat(diagram_id) or had_durable_history
     return {"cleared": cleared}
 
 
@@ -411,6 +420,9 @@ async def generate_iac_async(
 
     headers = dict(request.headers)
     user = get_user_from_request_headers(headers)
+    from routers.shared import get_request_durable_principal
+
+    principal = get_request_durable_principal(request)
     api_key_principal_id = get_api_key_service_principal(headers)
     session = authorize_diagram_access(request, diagram_id, purpose="queue IaC generation")
     _enforce_iac_if_match(request, session)
@@ -431,7 +443,7 @@ async def generate_iac_async(
         job = job_manager.submit(
             "generate_iac",
             diagram_id=diagram_id,
-            owner_user_id=user.id if user else None,
+            owner_user_id=principal["owner_user_id"] if user else None,
             tenant_id=user.tenant_id if user else None,
             owner_api_key_id=api_key_principal_id if not user else None,
             execution_payload=execution_payload,

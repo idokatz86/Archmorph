@@ -804,7 +804,7 @@ class TestEndToEndSessionWorkflow:
         # Restore session
         resp = test_client.post(
             f"/api/v1/diagrams/{diagram_id}/restore-session",
-            json={"analysis": analysis},
+            json=_restore_payload(auth_headers, analysis, diagram_id),
             headers=auth_headers,
         )
         assert resp.status_code == 200

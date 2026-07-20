@@ -41,6 +41,7 @@ import hashlib
 import json as _json
 import logging
 import time
+import uuid
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -55,6 +56,7 @@ from models.workspace import (
     Artifact,
     Decision,
     SourceAsset,
+    TenantRehomeAudit,
     Workspace,
 )
 
@@ -142,18 +144,71 @@ def create_workspace(
     description: Optional[str] = None,
     source_cloud: str = "aws",
     target_cloud: str = "azure",
+    is_default: bool = False,
 ) -> Workspace:
     """Create and persist a new Workspace."""
-    ws = Workspace(
-        owner_user_id=owner_user_id,
-        tenant_id=tenant_id,
-        name=name,
-        description=description,
-        source_cloud=source_cloud,
-        target_cloud=target_cloud,
-    )
+    if is_default:
+        existing = (
+            db.query(Workspace)
+            .filter(
+                Workspace.owner_user_id == owner_user_id,
+                _tenant_matches(Workspace.tenant_id, tenant_id),
+                Workspace.is_default.is_(True),
+            )
+            .first()
+        )
+        if existing is not None:
+            return existing
+    values = {
+        "id": str(uuid.uuid4()),
+        "owner_user_id": owner_user_id,
+        "tenant_id": tenant_id,
+        "name": name,
+        "description": description,
+        "source_cloud": source_cloud,
+        "target_cloud": target_cloud,
+        "is_default": is_default,
+    }
+    if is_default and db.get_bind().dialect.name == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert as postgresql_insert
+
+        insert = postgresql_insert(Workspace).values(**values)
+        insert = insert.on_conflict_do_nothing()
+        db.execute(insert)
+        db.commit()
+        existing = (
+            db.query(Workspace)
+            .filter(
+                Workspace.owner_user_id == owner_user_id,
+                _tenant_matches(Workspace.tenant_id, tenant_id),
+                Workspace.is_default.is_(True),
+            )
+            .first()
+        )
+        if existing is None:
+            raise RuntimeError("default workspace upsert did not elect a row")
+        return existing
+
+    ws = Workspace(**values)
     db.add(ws)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        if not is_default:
+            raise
+        existing = (
+            db.query(Workspace)
+            .filter(
+                Workspace.owner_user_id == owner_user_id,
+                _tenant_matches(Workspace.tenant_id, tenant_id),
+                Workspace.is_default.is_(True),
+            )
+            .first()
+        )
+        if existing is None:
+            raise
+        return existing
     db.refresh(ws)
     logger.info("workspace_created workspace_id=%s owner=%s", ws.id, owner_user_id)
     return ws
@@ -918,7 +973,7 @@ def _resolve_workspace_id(
         .filter(
             Workspace.owner_user_id == owner_user_id,
             Workspace.tenant_id == tenant_id,
-            Workspace.name == "Default Workspace",
+            Workspace.is_default.is_(True),
             Workspace.status == "active",
         )
         .first()
@@ -926,13 +981,36 @@ def _resolve_workspace_id(
     if workspace is not None:
         return workspace.id
 
-    workspace = Workspace(
-        owner_user_id=owner_user_id,
-        tenant_id=tenant_id,
-        name="Default Workspace",
-        source_cloud=snapshot.get("source_provider", "aws"),
-        target_cloud=snapshot.get("target_provider", "azure"),
-    )
+    values = {
+        "id": str(uuid.uuid4()),
+        "owner_user_id": owner_user_id,
+        "tenant_id": tenant_id,
+        "name": "Default Workspace",
+        "source_cloud": snapshot.get("source_provider", "aws"),
+        "target_cloud": snapshot.get("target_provider", "azure"),
+        "is_default": True,
+    }
+    if db.get_bind().dialect.name == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert as postgresql_insert
+
+        insert = postgresql_insert(Workspace).values(**values)
+        insert = insert.on_conflict_do_nothing()
+        db.execute(insert)
+        workspace = (
+            db.query(Workspace)
+            .filter(
+                Workspace.owner_user_id == owner_user_id,
+                Workspace.tenant_id == tenant_id,
+                Workspace.is_default.is_(True),
+                Workspace.status == "active",
+            )
+            .first()
+        )
+        if workspace is None:
+            raise IntegrityError("default workspace upsert did not elect a row", None, None)
+        return workspace.id
+
+    workspace = Workspace(**values)
     db.add(workspace)
     db.flush()
     return workspace.id
@@ -1195,6 +1273,11 @@ def persist_analysis_state(
             continue
         except Exception as exc:
             db.rollback()
+            logger.error(
+                "canonical_analysis_persistence_failed diagram_id=%s error_type=%s",
+                safe(diagram_id),
+                type(exc).__name__,
+            )
             raise DurableAnalysisPersistenceError("Failed to persist canonical analysis state") from exc
     else:
         raise DurableAnalysisPersistenceError("Failed to persist canonical analysis state after retries") from last_integrity_error
@@ -1249,6 +1332,238 @@ def persist_analysis_state(
 def persist_analysis_mutation(db: Session, **kwargs: Any) -> AnalysisWriteResult:
     """Named repository/UoW entry point for every authenticated mutation."""
     return persist_analysis_state(db, **kwargs)
+
+
+def rehome_legacy_analysis_scope(
+    db: Session,
+    *,
+    diagram_id: str,
+    owner_user_id: str,
+    source_tenant_id: str,
+    target_tenant_id: str,
+) -> str:
+    """Move one exact-owner legacy analysis graph to a verified tenant scope.
+
+    The provider is never inferred here. ``target_tenant_id`` must already have
+    been derived from the currently verified principal. Conflicts are audited
+    and denied without changing either namespace.
+    """
+    if not target_tenant_id or source_tenant_id == target_tenant_id:
+        return "not_found"
+
+    query = db.query(Analysis).filter(
+        Analysis.diagram_id == diagram_id,
+        Analysis.owner_user_id == owner_user_id,
+        Analysis.tenant_id == source_tenant_id,
+    )
+    if db.get_bind().dialect.name == "postgresql":
+        query = query.with_for_update()
+    legacy_rows = query.all()
+    if len(legacy_rows) != 1:
+        if legacy_rows:
+            db.add(TenantRehomeAudit(
+                owner_user_id=owner_user_id,
+                source_tenant_id=source_tenant_id,
+                target_tenant_id=target_tenant_id,
+                status="conflict_denied",
+                details=_json.dumps(
+                    {"diagram_id": diagram_id, "reason": "ambiguous_legacy_owner_rows"},
+                    sort_keys=True,
+                ),
+            ))
+            db.commit()
+            return "conflict"
+        return "not_found"
+
+    analysis = legacy_rows[0]
+    workspace = (
+        db.query(Workspace)
+        .filter(
+            Workspace.id == analysis.workspace_id,
+            Workspace.owner_user_id == owner_user_id,
+            Workspace.tenant_id == source_tenant_id,
+        )
+        .first()
+    )
+    if workspace is None:
+        return "not_found"
+
+    workspace_analysis_query = db.query(Analysis).filter(
+        Analysis.workspace_id == workspace.id,
+        Analysis.owner_user_id == owner_user_id,
+        Analysis.tenant_id == source_tenant_id,
+    )
+    if db.get_bind().dialect.name == "postgresql":
+        workspace_analysis_query = workspace_analysis_query.with_for_update()
+    workspace_analyses = workspace_analysis_query.all()
+    total_workspace_analyses = db.query(Analysis.id).filter(
+        Analysis.workspace_id == workspace.id,
+    ).count()
+    if total_workspace_analyses != len(workspace_analyses):
+        db.add(TenantRehomeAudit(
+            owner_user_id=owner_user_id,
+            source_tenant_id=source_tenant_id,
+            target_tenant_id=target_tenant_id,
+            status="conflict_denied",
+            details=_json.dumps(
+                {"diagram_id": diagram_id, "reason": "mixed_scope_workspace"},
+                sort_keys=True,
+            ),
+        ))
+        db.commit()
+        return "conflict"
+    analysis_ids = [item.id for item in workspace_analyses]
+    diagram_ids = [item.diagram_id for item in workspace_analyses if item.diagram_id]
+    target_conflict = (
+        db.query(Analysis.id)
+        .filter(
+            Analysis.owner_user_id == owner_user_id,
+            Analysis.tenant_id == target_tenant_id,
+            Analysis.diagram_id.in_(diagram_ids),
+        )
+        .first()
+        if diagram_ids
+        else None
+    )
+    if target_conflict is not None:
+        db.add(TenantRehomeAudit(
+            owner_user_id=owner_user_id,
+            source_tenant_id=source_tenant_id,
+            target_tenant_id=target_tenant_id,
+            status="conflict_denied",
+            details=_json.dumps(
+                {"diagram_id": diagram_id, "reason": "target_scope_exists"},
+                sort_keys=True,
+            ),
+        ))
+        db.commit()
+        return "conflict"
+
+    workspace_conflict = (
+        db.query(Workspace.id)
+        .filter(
+            Workspace.owner_user_id == owner_user_id,
+            Workspace.tenant_id == target_tenant_id,
+            Workspace.is_default.is_(True),
+            Workspace.id != workspace.id,
+        )
+        .first()
+    )
+    if workspace_conflict is not None:
+        if workspace.is_default:
+            workspace.is_default = False
+        if workspace.name == "Default Workspace":
+            workspace.name = "Migrated Legacy Workspace"
+
+    workspace.tenant_id = target_tenant_id
+    db.query(SourceAsset).filter(
+        SourceAsset.workspace_id == workspace.id,
+        SourceAsset.owner_user_id == owner_user_id,
+        SourceAsset.tenant_id == source_tenant_id,
+    ).update({SourceAsset.tenant_id: target_tenant_id}, synchronize_session=False)
+    for workspace_analysis in workspace_analyses:
+        workspace_analysis.tenant_id = target_tenant_id
+    db.query(Artifact).filter(
+        Artifact.analysis_id.in_(analysis_ids),
+        Artifact.owner_user_id == owner_user_id,
+        Artifact.tenant_id == source_tenant_id,
+    ).update({Artifact.tenant_id: target_tenant_id}, synchronize_session=False)
+    db.query(Decision).filter(
+        Decision.analysis_id.in_(analysis_ids),
+        Decision.owner_user_id == owner_user_id,
+        Decision.tenant_id == source_tenant_id,
+    ).update({Decision.tenant_id: target_tenant_id}, synchronize_session=False)
+    db.add(TenantRehomeAudit(
+        owner_user_id=owner_user_id,
+        source_tenant_id=source_tenant_id,
+        target_tenant_id=target_tenant_id,
+        status="access_rehome_completed",
+        details=_json.dumps(
+            {
+                "analysis_ids": analysis_ids,
+                "diagram_id": diagram_id,
+                "workspace_id": workspace.id,
+            },
+            sort_keys=True,
+        ),
+    ))
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        db.add(TenantRehomeAudit(
+            owner_user_id=owner_user_id,
+            source_tenant_id=source_tenant_id,
+            target_tenant_id=target_tenant_id,
+            status="conflict_denied",
+            details=_json.dumps(
+                {"diagram_id": diagram_id, "reason": "concurrent_integrity_conflict"},
+                sort_keys=True,
+            ),
+        ))
+        db.commit()
+        return "conflict"
+    return "rehomed"
+
+
+def purge_analysis_state(
+    db: Session,
+    *,
+    diagram_id: str,
+    owner_user_id: str,
+    tenant_id: str,
+    cleanup_empty_implicit_workspace: bool = True,
+) -> Dict[str, Any]:
+    """Delete one tenant-scoped durable analysis graph before purge receipt."""
+    analysis = _get_analysis_by_diagram(
+        db,
+        diagram_id=diagram_id,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+        for_update=True,
+    )
+    counts = {
+        "analyses": 0,
+        "versions": 0,
+        "artifacts": 0,
+        "decisions": 0,
+        "implicit_workspaces": 0,
+    }
+    if analysis is None:
+        return counts
+
+    workspace_id = analysis.workspace_id
+    counts["artifacts"] = db.query(Artifact).filter(Artifact.analysis_id == analysis.id).delete(
+        synchronize_session=False
+    )
+    counts["decisions"] = db.query(Decision).filter(Decision.analysis_id == analysis.id).delete(
+        synchronize_session=False
+    )
+    counts["versions"] = db.query(AnalysisVersion).filter(
+        AnalysisVersion.analysis_id == analysis.id
+    ).delete(synchronize_session=False)
+    db.delete(analysis)
+    db.flush()
+    counts["analyses"] = 1
+
+    if cleanup_empty_implicit_workspace:
+        workspace = (
+            db.query(Workspace)
+            .filter(
+                Workspace.id == workspace_id,
+                Workspace.owner_user_id == owner_user_id,
+                Workspace.tenant_id == tenant_id,
+                Workspace.is_default.is_(True),
+            )
+            .first()
+        )
+        remaining = db.query(Analysis.id).filter(Analysis.workspace_id == workspace_id).first()
+        sources = db.query(SourceAsset.id).filter(SourceAsset.workspace_id == workspace_id).first()
+        if workspace is not None and remaining is None and sources is None:
+            db.delete(workspace)
+            counts["implicit_workspaces"] = 1
+    db.commit()
+    return counts
 
 
 def load_analysis_state(
@@ -1438,7 +1753,7 @@ def maybe_link_session(
                         .filter(
                             Workspace.owner_user_id == owner_user_id,
                             Workspace.tenant_id.is_(None),
-                            Workspace.name == "Default Workspace",
+                            Workspace.is_default.is_(True),
                             Workspace.status == "active",
                         )
                         .first()
@@ -1450,6 +1765,7 @@ def maybe_link_session(
                             name="Default Workspace",
                             source_cloud=session.get("source_provider", "aws"),
                             target_cloud=session.get("target_provider", "azure"),
+                            is_default=True,
                         )
                     workspace_id = workspace.id
                 analysis = create_analysis(

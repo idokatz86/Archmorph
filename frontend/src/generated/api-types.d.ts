@@ -10896,6 +10896,28 @@ export interface components {
              */
             target_path?: string | null;
         };
+        /** ReadinessChecks */
+        ReadinessChecks: {
+            /**
+             * Database
+             * @enum {string}
+             */
+            database: "ready" | "unavailable";
+            /**
+             * Redis
+             * @enum {string}
+             */
+            redis: "ready" | "unavailable";
+        };
+        /** ReadinessResponse */
+        ReadinessResponse: {
+            checks: components["schemas"]["ReadinessChecks"];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ready" | "not_ready";
+        };
         /** RefreshRequest */
         RefreshRequest: {
             /** Refresh Token */
@@ -26418,13 +26440,40 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description Required PostgreSQL and Redis dependencies are ready */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    /**
+                     * @example {
+                     *       "checks": {
+                     *         "database": "ready",
+                     *         "redis": "ready"
+                     *       },
+                     *       "status": "ready"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ReadinessResponse"];
+                };
+            };
+            /** @description A required dependency is unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "checks": {
+                     *         "database": "unavailable",
+                     *         "redis": "unavailable"
+                     *       },
+                     *       "status": "not_ready"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ReadinessResponse"];
                 };
             };
         };

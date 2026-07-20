@@ -116,3 +116,9 @@ def test_terraform_and_helm_split_liveness_from_readiness():
     assert "secretKey: AZURE_OPENAI_API_KEY" in helm_prod
     assert "secretKey: DATABASE_URL" in helm_prod
     assert "secretKey: REDIS_URL" in helm_prod
+    external_secret = (REPO_ROOT / "charts" / "archmorph" / "templates" / "externalsecret.yaml").read_text()
+    deployment = (REPO_ROOT / "charts" / "archmorph" / "templates" / "deployment.yaml").read_text()
+    helpers = (REPO_ROOT / "charts" / "archmorph" / "templates" / "_helpers.tpl").read_text()
+    assert "kind: ExternalSecret" in external_secret
+    assert "archmorph.secretName" in deployment
+    assert "externalSecrets.enabled=true or existingSecret.name" in helpers

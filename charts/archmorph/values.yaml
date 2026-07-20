@@ -87,6 +87,7 @@ env:
 # Secrets (referenced from external-secrets or Kubernetes secrets)
 externalSecrets:
   enabled: false
+  refreshInterval: 1h
   secretStoreRef:
     name: azure-keyvault
     kind: SecretStore
@@ -106,6 +107,18 @@ externalSecrets:
     - secretKey: ARCHMORPH_ADMIN_KEY
       remoteRef:
         key: admin-key
+
+# Use this when External Secrets Operator is not installed. The named Secret
+# must contain every key in requiredSecretKeys before the Deployment is applied.
+existingSecret:
+  name: ""
+
+requiredSecretKeys:
+  - secretKey: AZURE_OPENAI_API_KEY
+  - secretKey: DATABASE_URL
+  - secretKey: REDIS_URL
+  - secretKey: APPLICATIONINSIGHTS_CONNECTION_STRING
+  - secretKey: ARCHMORPH_ADMIN_KEY
 
 # Health check configuration (#378)
 livenessProbe:

@@ -50,7 +50,7 @@ def test_front_door_waf_rate_limit_matches_all_without_negation():
 
 def test_sensitive_artifact_and_session_routes_require_api_key_dependency():
     from main import app
-    from routers.shared import verify_api_key
+    from routers.shared import verify_api_key, verify_api_key_or_user_session
 
     protected_routes = {
         ("/api/diagrams/{diagram_id}/versions", "GET"),
@@ -81,7 +81,10 @@ def test_sensitive_artifact_and_session_routes_require_api_key_dependency():
         if not route_keys:
             continue
         dependency_callables = {dep.call for dep in route.dependant.dependencies}
-        assert verify_api_key in dependency_callables, f"{path} {methods} must require API key"
+        assert (
+            verify_api_key in dependency_callables
+            or verify_api_key_or_user_session in dependency_callables
+        ), f"{path} {methods} must require API key or bearer session"
         matched.update(route_keys)
 
     assert matched == protected_routes

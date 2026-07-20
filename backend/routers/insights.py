@@ -10,12 +10,21 @@ from pydantic import Field
 from strict_models import StrictBaseModel
 from typing import Optional, List
 import asyncio
+import copy
 import csv
 import hashlib
 import io
+import json
 import logging
 
-from routers.shared import authorize_diagram_access, limiter, require_diagram_access, verify_api_key, SESSION_STORE
+from routers.shared import (
+    SESSION_STORE,
+    authorize_diagram_access,
+    limiter,
+    persist_diagram_mutation,
+    require_diagram_access,
+    verify_api_key,
+)
 from usage_metrics import record_event
 from cost_optimizer import analyze_cost_optimizations
 from cost_assumptions import build_cost_assumptions_artifact
@@ -513,7 +522,7 @@ async def configure_cost_estimate(
     """Update per-service cost configuration (instance count, SKU, reserved capacity)."""
     session = authorize_diagram_access(request, diagram_id, purpose="configure cost estimates")
 
-    overrides = session.get("_cost_overrides", {})
+    overrides = copy.deepcopy(session.get("_cost_overrides", {}))
     for item in body.overrides:
         overrides[item.service] = {
             "instance_count": item.instance_count,
@@ -521,8 +530,17 @@ async def configure_cost_estimate(
             "reserved_term": item.reserved_term,
         }
 
-    session["_cost_overrides"] = overrides
-    SESSION_STORE[diagram_id] = session
+    updated_session = copy.deepcopy(session)
+    updated_session["_cost_overrides"] = overrides
+    persist_diagram_mutation(
+        request,
+        diagram_id,
+        updated_session,
+        artifact_type="cost_configuration",
+        artifact_format="json",
+        artifact_content=json.dumps(overrides, sort_keys=True, separators=(",", ":")),
+        label="cost-estimate-configured",
+    )
 
     return {"status": "ok", "overrides_count": len(overrides)}
 
@@ -573,7 +591,15 @@ async def get_cost_assumptions(request: Request, diagram_id: str, _auth=Depends(
     session = authorize_diagram_access(request, diagram_id, purpose="view cost assumptions")
 
     artifact = build_cost_assumptions_artifact(session, analysis_id=diagram_id)
-    SESSION_STORE[diagram_id] = session
+    persist_diagram_mutation(
+        request,
+        diagram_id,
+        session,
+        artifact_type="cost_assumptions",
+        artifact_format="json",
+        artifact_content=json.dumps(artifact, sort_keys=True, default=str),
+        label="cost-assumptions-generated",
+    )
     return artifact
 
 

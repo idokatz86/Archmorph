@@ -45,3 +45,19 @@ externalSecrets:
   secretStoreRef:
     name: example-staging-secret-store
     kind: SecretStore
+  data:
+    - secretKey: AZURE_OPENAI_API_KEY
+      remoteRef:
+        key: openai-api-key
+    - secretKey: DATABASE_URL
+      remoteRef:
+        key: database-url
+    - secretKey: REDIS_URL
+      remoteRef:
+        key: redis-url
+    - secretKey: APPLICATIONINSIGHTS_CONNECTION_STRING
+      remoteRef:
+        key: appinsights-connection-string
+    - secretKey: ARCHMORPH_ADMIN_KEY
+      remoteRef:
+        key: admin-key
