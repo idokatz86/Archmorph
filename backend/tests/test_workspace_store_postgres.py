@@ -19,6 +19,7 @@ from models.workspace import (
     AnalysisVersion,
     Artifact,
     Decision,
+    ProjectMember,
     SourceAsset,
     TenantRehomeAudit,
     Workspace,
@@ -42,6 +43,7 @@ def postgres_factory():
     factory = sessionmaker(bind=engine, expire_on_commit=False)
     db = factory()
     try:
+        db.query(ProjectMember).delete()
         db.query(Decision).delete()
         db.query(Artifact).delete()
         db.query(AnalysisVersion).delete()
@@ -483,7 +485,11 @@ def test_real_postgres_and_redis_report_ready(monkeypatch):
 
     monkeypatch.setenv("REDIS_URL", os.environ["ARCHMORPH_TEST_REDIS_URL"])
     monkeypatch.delenv("REDIS_HOST", raising=False)
-    assert database.database_readiness()["ready_for_production"] is True
+    monkeypatch.setattr(database, "_PRODUCTION_LIKE", True)
+    database_status = database.database_readiness()
+    assert database_status["schema_at_head"] is True
+    assert database_status["required_schema_present"] is True
+    assert database_status["ready_for_production"] is True
     readiness = session_store_readiness()
     assert readiness["backend"] == "redis"
     assert readiness["redis_reachable"] is True

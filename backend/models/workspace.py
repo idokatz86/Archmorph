@@ -102,6 +102,52 @@ class Workspace(Base):
 
 
 # ─────────────────────────────────────────────────────────────
+# Project membership
+# ─────────────────────────────────────────────────────────────
+
+class ProjectMember(Base):
+    """Durable member authorization scoped to one owner/tenant project."""
+
+    __tablename__ = "project_members"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    project_id = Column(
+        String(36),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    project_owner_user_id = Column(String(100), nullable=False)
+    tenant_id = Column(String(100), nullable=False, index=True)
+    member_user_id = Column(String(100), nullable=False, index=True)
+    role = Column(String(20), nullable=False, server_default="viewer")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        Index(
+            "ux_project_members_project_member",
+            "project_id",
+            "member_user_id",
+            unique=True,
+        ),
+        Index(
+            "ix_project_members_scope",
+            "project_owner_user_id",
+            "tenant_id",
+        ),
+    )
+
+    def to_dict(self) -> dict:
+        return {
+            "user_id": self.member_user_id,
+            "role": self.role,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+# ─────────────────────────────────────────────────────────────
 # SourceAsset
 # ─────────────────────────────────────────────────────────────
 

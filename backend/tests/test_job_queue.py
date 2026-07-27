@@ -1134,8 +1134,14 @@ class TestAdmissionControl:
 
         monkeypatch.setattr(job_manager, "submit", _always_reject)
 
-        from routers.shared import IMAGE_STORE
+        from routers.shared import IMAGE_STORE, SESSION_STORE
         IMAGE_STORE["adm-diagram"] = (b"fake", "image/png")
+        SESSION_STORE["adm-diagram"] = {
+            "diagram_id": "adm-diagram",
+            "status": "uploaded",
+            "_owner_user_id": "jobs-test-user",
+            "_tenant_id": "tenant-jobs",
+        }
         try:
             res = test_client.post("/api/diagrams/adm-diagram/analyze-async", headers=auth_headers)
             assert res.status_code == 429
@@ -1145,6 +1151,7 @@ class TestAdmissionControl:
             assert "jobs-test-user" not in body["error"]["message"]
         finally:
             IMAGE_STORE.delete("adm-diagram")
+            SESSION_STORE.delete("adm-diagram")
 
 
 # ─────────────────────────────────────────────────────────────

@@ -262,7 +262,11 @@ class TestHealthEndpointSplit:
         monkeypatch.setattr(
             database,
             "database_readiness",
-            lambda: {"ready_for_production": False},
+            lambda: {
+                "ready_for_production": False,
+                "schema_at_head": False,
+                "required_schema_present": False,
+            },
         )
         monkeypatch.setattr(
             session_store,
@@ -275,7 +279,11 @@ class TestHealthEndpointSplit:
         assert response.status_code == 503
         assert response.json() == {
             "status": "not_ready",
-            "checks": {"database": "unavailable", "redis": "ready"},
+            "checks": {
+                "database": "unavailable",
+                "database_schema": "unavailable",
+                "redis": "ready",
+            },
         }
         assert "connection" not in response.text.lower()
 
@@ -286,7 +294,11 @@ class TestHealthEndpointSplit:
         monkeypatch.setattr(
             database,
             "database_readiness",
-            lambda: {"ready_for_production": True},
+            lambda: {
+                "ready_for_production": True,
+                "schema_at_head": True,
+                "required_schema_present": True,
+            },
         )
         monkeypatch.setattr(
             session_store,

@@ -164,7 +164,9 @@ def test_creator_owned_share_stats_allows_matching_user_identity(monkeypatch):
 
 def test_authenticated_sync_analysis_persists_owner_metadata_before_session_write():
     from auth import AuthProvider, User, UserTier, generate_session_token
+    from database import SessionLocal
     from main import IMAGE_STORE, SESSION_STORE, app
+    from project_store import create_project, register_diagram
 
     diagram_id = "owner-metadata-diagram"
     IMAGE_STORE.clear()
@@ -180,6 +182,29 @@ def test_authenticated_sync_analysis_persists_owner_metadata_before_session_writ
         tenant_id="tenant-owner",
     )
     headers = {"Authorization": f"Bearer {generate_session_token(user)}"}
+    SESSION_STORE[diagram_id] = {
+        "diagram_id": diagram_id,
+        "status": "uploaded",
+        "_owner_user_id": user.id,
+        "_tenant_id": user.tenant_id,
+    }
+    db = SessionLocal()
+    try:
+        project = create_project(
+            db,
+            owner_user_id=user.id,
+            tenant_id=user.tenant_id,
+        )
+        register_diagram(
+            db,
+            project_id=project.id,
+            diagram_id=diagram_id,
+            owner_user_id=user.id,
+            tenant_id=user.tenant_id,
+            filename="owner-metadata.png",
+        )
+    finally:
+        db.close()
     analysis = {
         "diagram_type": "Test",
         "source_provider": "aws",

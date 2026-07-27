@@ -420,6 +420,37 @@ def upgrade() -> None:
         sa.Column("is_default", sa.Boolean(), nullable=False, server_default=sa.false()),
     )
 
+    op.create_table(
+        "project_members",
+        sa.Column("id", sa.String(36), primary_key=True),
+        sa.Column(
+            "project_id",
+            sa.String(36),
+            sa.ForeignKey("workspaces.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column("project_owner_user_id", sa.String(100), nullable=False),
+        sa.Column("tenant_id", sa.String(100), nullable=False),
+        sa.Column("member_user_id", sa.String(100), nullable=False),
+        sa.Column("role", sa.String(20), nullable=False, server_default="viewer"),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+    )
+    op.create_index("ix_project_members_project_id", "project_members", ["project_id"])
+    op.create_index("ix_project_members_tenant_id", "project_members", ["tenant_id"])
+    op.create_index("ix_project_members_member_user_id", "project_members", ["member_user_id"])
+    op.create_index(
+        "ix_project_members_scope",
+        "project_members",
+        ["project_owner_user_id", "tenant_id"],
+    )
+    op.create_index(
+        "ux_project_members_project_member",
+        "project_members",
+        ["project_id", "member_user_id"],
+        unique=True,
+    )
+
     if not context.is_offline_mode():
         bind = op.get_bind()
         metadata = sa.MetaData()
@@ -480,6 +511,12 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.drop_index("ux_project_members_project_member", table_name="project_members")
+    op.drop_index("ix_project_members_scope", table_name="project_members")
+    op.drop_index("ix_project_members_member_user_id", table_name="project_members")
+    op.drop_index("ix_project_members_tenant_id", table_name="project_members")
+    op.drop_index("ix_project_members_project_id", table_name="project_members")
+    op.drop_table("project_members")
     op.drop_index("ux_workspaces_default_owner_no_tenant", table_name="workspaces")
     op.drop_index("ux_workspaces_default_owner_tenant", table_name="workspaces")
     op.drop_index("ux_artifacts_version_type_hash", table_name="artifacts")

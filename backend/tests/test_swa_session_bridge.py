@@ -74,7 +74,7 @@ def test_diagram_upload_accepts_authenticated_user_bearer_session(monkeypatch):
 
     with TestClient(app, raise_server_exceptions=False) as client:
         response = client.post(
-            "/api/projects/demo-project/diagrams",
+            "/api/projects/diagrams",
             headers=headers,
             files={"file": ("diagram.png", io.BytesIO(_png_bytes()), "image/png")},
         )
@@ -83,9 +83,8 @@ def test_diagram_upload_accepts_authenticated_user_bearer_session(monkeypatch):
     payload = response.json()
     assert payload["status"] == "uploaded"
     assert payload["diagram_id"].startswith("diag-")
+    assert payload["project_id"].startswith("proj-")
     diagrams.IMAGE_STORE.delete(payload["diagram_id"])
-    shared.DIAGRAM_PROJECT_STORE.delete(payload["diagram_id"])
-    shared.PROJECT_STORE.delete("demo-project")
 
 
 def test_project_status_accepts_authenticated_user_bearer_session_when_api_key_configured(monkeypatch):
@@ -94,19 +93,18 @@ def test_project_status_accepts_authenticated_user_bearer_session_when_api_key_c
 
     with TestClient(app, raise_server_exceptions=False) as client:
         upload = client.post(
-            "/api/projects/demo-project/diagrams",
+            "/api/projects/diagrams",
             headers=headers,
             files={"file": ("diagram.png", io.BytesIO(_png_bytes()), "image/png")},
         )
         assert upload.status_code == 200, upload.text
-        response = client.get("/api/projects/demo-project", headers=headers)
+        project_id = upload.json()["project_id"]
+        response = client.get(f"/api/projects/{project_id}", headers=headers)
 
     assert response.status_code == 200, response.text
-    assert response.json()["project_id"] == "demo-project"
+    assert response.json()["project_id"] == project_id
     diagram_id = upload.json()["diagram_id"]
     diagrams.IMAGE_STORE.delete(diagram_id)
-    shared.DIAGRAM_PROJECT_STORE.delete(diagram_id)
-    shared.PROJECT_STORE.delete("demo-project")
 
 
 def test_guided_questions_accept_authenticated_user_bearer_session_when_api_key_configured(monkeypatch):

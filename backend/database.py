@@ -20,9 +20,12 @@ Usage::
 
 import logging
 import os
+from pathlib import Path
 from typing import Generator
 
-from sqlalchemy import create_engine, event
+from alembic.config import Config
+from alembic.script import ScriptDirectory
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import sessionmaker, Session, declarative_base
 
@@ -154,11 +157,24 @@ async def get_async_db():
 
 
 def init_db() -> None:
-    """Create all tables defined by SQLAlchemy models.
+    """Initialize a development/test schema; production is migration-only.
 
-    Safe to call multiple times — uses CREATE IF NOT EXISTS.
-    In production, prefer Alembic migrations over this.
+    Calling ``Base.metadata.create_all`` against a production-like database can
+    partially materialize the next ORM schema before Alembic runs.  Production
+    startup therefore verifies the exact migration contract without issuing DDL.
     """
+    if _PRODUCTION_LIKE:
+        if not _IS_POSTGRES:
+            raise RuntimeError("Production database must use PostgreSQL")
+        readiness = database_readiness()
+        if not readiness["ready_for_production"]:
+            raise RuntimeError("Production database is not at the expected Alembic head")
+        logger.info(
+            "Production database schema verified at Alembic head %s",
+            readiness["expected_revision"],
+        )
+        return
+
     # Import all models so Base.metadata knows about them
     import models  # noqa: F401
 
@@ -170,7 +186,6 @@ def init_db() -> None:
             os.makedirs(db_dir, exist_ok=True)
     else:
         # Before creating tables in PostgreSQL, ensure vector extension exists
-        from sqlalchemy import text
         with engine.connect() as conn:
             conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
             conn.commit()
@@ -199,18 +214,72 @@ def database_backend() -> str:
 
 
 def database_readiness() -> dict[str, object]:
-    """Return operator-facing database readiness metadata for release gates."""
+    """Return connectivity and exact migration/schema readiness metadata."""
     connection_ok = False
     connection_error: str | None = None
+    current_revision: str | None = None
+    expected_revision: str | None = None
+    schema_at_head = False
+    required_schema_present = False
+    missing_schema_objects: list[str] = []
+
+    try:
+        alembic_config = Config(str(Path(__file__).with_name("alembic.ini")))
+        script = ScriptDirectory.from_config(alembic_config)
+        heads = tuple(sorted(script.get_heads()))
+        expected_revision = ",".join(heads) or None
+    except Exception as exc:
+        heads = ()
+        connection_error = type(exc).__name__
+
     if _IS_POSTGRES:
         try:
-            from sqlalchemy import text
+            with engine.connect() as connection:
+                connection.execute(text("SELECT 1"))
+                inspector = inspect(connection)
+                if inspector.has_table("alembic_version"):
+                    revisions = tuple(
+                        connection.execute(
+                            text("SELECT version_num FROM alembic_version")
+                        ).scalars()
+                    )
+                    current_revision = ",".join(sorted(revisions)) or None
 
+                required_tables = {
+                    "workspaces",
+                    "analyses",
+                    "analysis_versions",
+                    "project_members",
+                    "tenant_rehome_audit",
+                }
+                present_tables = set(inspector.get_table_names())
+                missing_schema_objects.extend(
+                    f"table:{table_name}"
+                    for table_name in sorted(required_tables - present_tables)
+                )
+                if "workspaces" in present_tables:
+                    workspace_columns = {
+                        column["name"] for column in inspector.get_columns("workspaces")
+                    }
+                    if "is_default" not in workspace_columns:
+                        missing_schema_objects.append("column:workspaces.is_default")
+                required_schema_present = not missing_schema_objects
+            connection_ok = True
+        except Exception as exc:
+            connection_error = type(exc).__name__
+    elif _IS_SQLITE and not _PRODUCTION_LIKE:
+        try:
             with engine.connect() as connection:
                 connection.execute(text("SELECT 1"))
             connection_ok = True
         except Exception as exc:
             connection_error = type(exc).__name__
+
+    schema_at_head = bool(
+        connection_ok
+        and len(heads) == 1
+        and current_revision == expected_revision
+    )
     return {
         "backend": database_backend(),
         "postgres_configured": _IS_POSTGRES,
@@ -219,5 +288,17 @@ def database_readiness() -> dict[str, object]:
         "enforce_postgres": _ENFORCE_POSTGRES,
         "connection_ok": connection_ok,
         "connection_error": connection_error,
-        "ready_for_production": _IS_POSTGRES and connection_ok,
+        "current_revision": current_revision,
+        "expected_revision": expected_revision,
+        "schema_at_head": schema_at_head,
+        "required_schema_present": required_schema_present,
+        "missing_schema_objects": missing_schema_objects,
+        "ready_for_production": (
+            _IS_POSTGRES
+            and connection_ok
+            and (
+                not _PRODUCTION_LIKE
+                or (schema_at_head and required_schema_present)
+            )
+        ),
     }

@@ -848,6 +848,71 @@ resource "azurerm_container_app" "backend" {
   }
 }
 
+# Controlled schema writer. CI starts this manual job with the immutable image
+# digest and waits for a successful execution before creating a green revision.
+resource "azurerm_container_app_job" "database_migration" {
+  name                         = "archmorph-db-migrate"
+  location                     = azurerm_resource_group.main.location
+  resource_group_name          = azurerm_resource_group.main.name
+  container_app_environment_id = azurerm_container_app_environment.main.id
+  replica_timeout_in_seconds   = 900
+  replica_retry_limit          = 0
+  workload_profile_name        = "Consumption"
+  tags                         = local.tags
+
+  identity {
+    type         = "UserAssigned"
+    identity_ids = [azurerm_user_assigned_identity.container_app.id]
+  }
+
+  registry {
+    server   = azurerm_container_registry.main.login_server
+    identity = azurerm_user_assigned_identity.container_app.id
+  }
+
+  secret {
+    name                = "db-connection"
+    key_vault_secret_id = azurerm_key_vault_secret.db_connection.versionless_id
+    identity            = azurerm_user_assigned_identity.container_app.id
+  }
+
+  manual_trigger_config {
+    parallelism              = 1
+    replica_completion_count = 1
+  }
+
+  template {
+    container {
+      name    = "migrate"
+      image   = local.backend_image
+      cpu     = 0.5
+      memory  = "1Gi"
+      command = ["python", "run_migrations.py"]
+
+      env {
+        name        = "DATABASE_URL"
+        secret_name = "db-connection"
+      }
+
+      env {
+        name  = "ENVIRONMENT"
+        value = var.environment
+      }
+    }
+  }
+
+  depends_on = [
+    azurerm_key_vault_access_policy.container_app,
+    azurerm_role_assignment.container_app_kv_secrets_user,
+  ]
+
+  lifecycle {
+    ignore_changes = [
+      template[0].container[0].image,
+    ]
+  }
+}
+
 # ─────────────────────────────────────────────────────────────
 # Static Web App (Frontend)
 # ─────────────────────────────────────────────────────────────

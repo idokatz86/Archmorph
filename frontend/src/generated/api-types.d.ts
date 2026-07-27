@@ -3769,6 +3769,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/diagrams": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload Diagram
+         * @description Upload an architecture diagram image for analysis.
+         *
+         *     Accepts PNG, JPEG, SVG, PDF, and Visio (.vsdx) files up to the
+         *     configured MAX_UPLOAD_SIZE limit.
+         */
+        post: operations["upload_diagram_api_projects_diagrams_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{project_id}": {
         parameters: {
             query?: never;
@@ -3778,7 +3801,7 @@ export interface paths {
         };
         /**
          * Get Project Status
-         * @description Return project metadata and per-diagram analysis status.
+         * @description Return authorized project metadata and durable diagram status.
          */
         get: operations["get_project_status_api_projects__project_id__get"];
         put?: never;
@@ -3798,34 +3821,11 @@ export interface paths {
         };
         /**
          * Get Project Analysis
-         * @description Return a deterministic combined analysis for all analyzed project diagrams.
+         * @description Return a deterministic merge of authorized durable analysis snapshots.
          */
         get: operations["get_project_analysis_api_projects__project_id__analysis_get"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/projects/{project_id}/diagrams": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Upload Diagram
-         * @description Upload an architecture diagram image for analysis.
-         *
-         *     Accepts PNG, JPEG, SVG, PDF, and Visio (.vsdx) files up to the
-         *     configured MAX_UPLOAD_SIZE limit.
-         */
-        post: operations["upload_diagram_api_projects__project_id__diagrams_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3843,10 +3843,45 @@ export interface paths {
         put?: never;
         /**
          * Generate Project Iac
-         * @description Generate unified Infrastructure as Code from combined project analysis.
+         * @description Generate IaC only from authorized, PostgreSQL-canonical analyses.
          */
         post: operations["generate_project_iac_api_projects__project_id__generate_post"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Project Members */
+        get: operations["get_project_members_api_projects__project_id__members_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/members/{member_user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Put Project Member */
+        put: operations["put_project_member_api_projects__project_id__members__member_user_id__put"];
+        post?: never;
+        /** Delete Project Member */
+        delete: operations["delete_project_member_api_projects__project_id__members__member_user_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -8278,6 +8313,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/diagrams": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload Diagram V1
+         * @description Upload an architecture diagram image for analysis.
+         *
+         *     Accepts PNG, JPEG, SVG, PDF, and Visio (.vsdx) files up to the
+         *     configured MAX_UPLOAD_SIZE limit.
+         */
+        post: operations["upload_diagram_v1_api_v1_projects_diagrams_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}": {
         parameters: {
             query?: never;
@@ -8287,7 +8345,7 @@ export interface paths {
         };
         /**
          * Get Project Status V1
-         * @description Return project metadata and per-diagram analysis status.
+         * @description Return authorized project metadata and durable diagram status.
          */
         get: operations["get_project_status_v1_api_v1_projects__project_id__get"];
         put?: never;
@@ -8307,34 +8365,11 @@ export interface paths {
         };
         /**
          * Get Project Analysis V1
-         * @description Return a deterministic combined analysis for all analyzed project diagrams.
+         * @description Return a deterministic merge of authorized durable analysis snapshots.
          */
         get: operations["get_project_analysis_v1_api_v1_projects__project_id__analysis_get"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/projects/{project_id}/diagrams": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Upload Diagram V1
-         * @description Upload an architecture diagram image for analysis.
-         *
-         *     Accepts PNG, JPEG, SVG, PDF, and Visio (.vsdx) files up to the
-         *     configured MAX_UPLOAD_SIZE limit.
-         */
-        post: operations["upload_diagram_v1_api_v1_projects__project_id__diagrams_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -8352,10 +8387,45 @@ export interface paths {
         put?: never;
         /**
          * Generate Project Iac V1
-         * @description Generate unified Infrastructure as Code from combined project analysis.
+         * @description Generate IaC only from authorized, PostgreSQL-canonical analyses.
          */
         post: operations["generate_project_iac_v1_api_v1_projects__project_id__generate_post"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Project Members V1 */
+        get: operations["get_project_members_v1_api_v1_projects__project_id__members_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/members/{member_user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Put Project Member V1 */
+        put: operations["put_project_member_v1_api_v1_projects__project_id__members__member_user_id__put"];
+        post?: never;
+        /** Delete Project Member V1 */
+        delete: operations["delete_project_member_v1_api_v1_projects__project_id__members__member_user_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -9714,13 +9784,13 @@ export interface components {
             /** File */
             file: string;
         };
-        /** Body_upload_diagram_api_projects__project_id__diagrams_post */
-        Body_upload_diagram_api_projects__project_id__diagrams_post: {
+        /** Body_upload_diagram_api_projects_diagrams_post */
+        Body_upload_diagram_api_projects_diagrams_post: {
             /** File */
             file: string;
         };
-        /** Body_upload_diagram_v1_api_v1_projects__project_id__diagrams_post */
-        Body_upload_diagram_v1_api_v1_projects__project_id__diagrams_post: {
+        /** Body_upload_diagram_v1_api_v1_projects_diagrams_post */
+        Body_upload_diagram_v1_api_v1_projects_diagrams_post: {
             /** File */
             file: string;
         };
@@ -10846,6 +10916,20 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /**
+         * ProjectMemberRequest
+         * @description A directory-verified project member assignment.
+         */
+        ProjectMemberRequest: {
+            /**
+             * Role
+             * @default viewer
+             * @enum {string}
+             */
+            role: "viewer" | "editor";
+            /** User Id */
+            user_id: string;
+        };
         /** PushIaCRequest */
         PushIaCRequest: {
             /**
@@ -10903,6 +10987,11 @@ export interface components {
              * @enum {string}
              */
             database: "ready" | "unavailable";
+            /**
+             * Database Schema
+             * @enum {string}
+             */
+            database_schema: "ready" | "unavailable";
             /**
              * Redis
              * @enum {string}
@@ -17234,6 +17323,39 @@ export interface operations {
             };
         };
     };
+    upload_diagram_api_projects_diagrams_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_diagram_api_projects_diagrams_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_project_status_api_projects__project_id__get: {
         parameters: {
             query?: never;
@@ -17296,7 +17418,41 @@ export interface operations {
             };
         };
     };
-    upload_diagram_api_projects__project_id__diagrams_post: {
+    generate_project_iac_api_projects__project_id__generate_post: {
+        parameters: {
+            query?: {
+                format?: "terraform" | "bicep";
+                force?: boolean;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_project_members_api_projects__project_id__members_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -17305,9 +17461,41 @@ export interface operations {
             };
             cookie?: never;
         };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_project_member_api_projects__project_id__members__member_user_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                member_user_id: string;
+            };
+            cookie?: never;
+        };
         requestBody: {
             content: {
-                "multipart/form-data": components["schemas"]["Body_upload_diagram_api_projects__project_id__diagrams_post"];
+                "application/json": components["schemas"]["ProjectMemberRequest"];
             };
         };
         responses: {
@@ -17331,15 +17519,13 @@ export interface operations {
             };
         };
     };
-    generate_project_iac_api_projects__project_id__generate_post: {
+    delete_project_member_api_projects__project_id__members__member_user_id__delete: {
         parameters: {
-            query?: {
-                format?: "terraform" | "bicep";
-                force?: boolean;
-            };
+            query?: never;
             header?: never;
             path: {
                 project_id: string;
+                member_user_id: string;
             };
             cookie?: never;
         };
@@ -24262,6 +24448,39 @@ export interface operations {
             };
         };
     };
+    upload_diagram_v1_api_v1_projects_diagrams_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_diagram_v1_api_v1_projects_diagrams_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_project_status_v1_api_v1_projects__project_id__get: {
         parameters: {
             query?: never;
@@ -24324,7 +24543,41 @@ export interface operations {
             };
         };
     };
-    upload_diagram_v1_api_v1_projects__project_id__diagrams_post: {
+    generate_project_iac_v1_api_v1_projects__project_id__generate_post: {
+        parameters: {
+            query?: {
+                format?: "terraform" | "bicep";
+                force?: boolean;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_project_members_v1_api_v1_projects__project_id__members_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -24333,9 +24586,41 @@ export interface operations {
             };
             cookie?: never;
         };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_project_member_v1_api_v1_projects__project_id__members__member_user_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                member_user_id: string;
+            };
+            cookie?: never;
+        };
         requestBody: {
             content: {
-                "multipart/form-data": components["schemas"]["Body_upload_diagram_v1_api_v1_projects__project_id__diagrams_post"];
+                "application/json": components["schemas"]["ProjectMemberRequest"];
             };
         };
         responses: {
@@ -24359,15 +24644,13 @@ export interface operations {
             };
         };
     };
-    generate_project_iac_v1_api_v1_projects__project_id__generate_post: {
+    delete_project_member_v1_api_v1_projects__project_id__members__member_user_id__delete: {
         parameters: {
-            query?: {
-                format?: "terraform" | "bicep";
-                force?: boolean;
-            };
+            query?: never;
             header?: never;
             path: {
                 project_id: string;
+                member_user_id: string;
             };
             cookie?: never;
         };
@@ -26450,6 +26733,7 @@ export interface operations {
                      * @example {
                      *       "checks": {
                      *         "database": "ready",
+                     *         "database_schema": "ready",
                      *         "redis": "ready"
                      *       },
                      *       "status": "ready"
@@ -26468,6 +26752,7 @@ export interface operations {
                      * @example {
                      *       "checks": {
                      *         "database": "unavailable",
+                     *         "database_schema": "unavailable",
                      *         "redis": "unavailable"
                      *       },
                      *       "status": "not_ready"

@@ -82,7 +82,8 @@ export function saveSession(diagramId, analysis, questions = [], answers = {}, e
   if (!shouldPersistSensitiveSessionCache(extra)) return;
   try {
     const payload = JSON.stringify({
-      diagramId, analysis: _sanitizeAnalysis(analysis), questions, answers,
+      diagramId, projectId: extra.projectId || null,
+      analysis: _sanitizeAnalysis(analysis), questions, answers,
       allQuestions: extra.allQuestions || [],
       questionAssumptions: extra.questionAssumptions || [],
       iacCode: extra.iacCode || null,

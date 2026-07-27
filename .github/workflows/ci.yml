@@ -610,7 +610,7 @@ jobs:
   # BACKEND DEPLOY (Blue-Green)
   # ============================================
   deploy-backend:
-    needs: [backend-tests, frontend-build, openapi-client-drift, iac-validate]
+    needs: [backend-tests, frontend-build, openapi-client-drift, iac-validate, alembic-migration-smoke]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     if: github.ref == 'refs/heads/main'
@@ -715,6 +715,90 @@ jobs:
           IMAGE_REF="${{ env.ACR_LOGIN_SERVER }}/archmorph-api@${{ steps.build_backend.outputs.digest }}"
           echo "IMAGE_REF=$IMAGE_REF" >> "$GITHUB_ENV"
           echo "Using immutable image reference: $IMAGE_REF"
+
+      - name: Run single-writer production migration job
+        run: |
+          set -euo pipefail
+          MIGRATION_JOB_NAME="archmorph-db-migrate"
+          if ! az containerapp job show \
+            --name "$MIGRATION_JOB_NAME" \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+            --only-show-errors \
+            --output none; then
+            echo "::error::Controlled database migration job is not provisioned"
+            exit 1
+          fi
+
+          DB_SECRET_REF=$(az containerapp job show \
+            --name "$MIGRATION_JOB_NAME" \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+            --query "properties.template.containers[0].env[?name=='DATABASE_URL'].secretRef | [0]" \
+            -o tsv)
+          if [ "$DB_SECRET_REF" != "db-connection" ]; then
+            echo "::error::Migration job DATABASE_URL must reference the managed db-connection secret"
+            exit 1
+          fi
+
+          RUNNING_EXECUTIONS=$(az containerapp job execution list \
+            --name "$MIGRATION_JOB_NAME" \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+            --query "[?properties.status=='Running' || properties.status=='Processing'].name" \
+            -o tsv)
+          if [ -n "$RUNNING_EXECUTIONS" ]; then
+            echo "::error::Another production migration execution is already active"
+            exit 1
+          fi
+
+          az containerapp job update \
+            --name "$MIGRATION_JOB_NAME" \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+            --image "$IMAGE_REF" \
+            --command python run_migrations.py \
+            --only-show-errors \
+            --output none
+
+          DB_SECRET_REF_AFTER_UPDATE=$(az containerapp job show \
+            --name "$MIGRATION_JOB_NAME" \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+            --query "properties.template.containers[0].env[?name=='DATABASE_URL'].secretRef | [0]" \
+            -o tsv)
+          if [ "$DB_SECRET_REF_AFTER_UPDATE" != "db-connection" ]; then
+            echo "::error::Migration job update removed the managed database secret reference"
+            exit 1
+          fi
+
+          EXECUTION_NAME=$(az containerapp job start \
+            --name "$MIGRATION_JOB_NAME" \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+            --query name -o tsv)
+          if [ -z "$EXECUTION_NAME" ]; then
+            echo "::error::Migration job did not return an execution name"
+            exit 1
+          fi
+
+          for attempt in $(seq 1 90); do
+            EXECUTION_STATUS=$(az containerapp job execution show \
+              --name "$MIGRATION_JOB_NAME" \
+              --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+              --job-execution-name "$EXECUTION_NAME" \
+              --query properties.status -o tsv)
+            echo "Migration execution status: ${EXECUTION_STATUS}"
+            case "$EXECUTION_STATUS" in
+              Succeeded)
+                echo "Production schema migration completed before green revision creation"
+                break
+                ;;
+              Failed|Stopped|Cancelled)
+                echo "::error::Production schema migration failed with status ${EXECUTION_STATUS}"
+                exit 1
+                ;;
+            esac
+            if [ "$attempt" -eq 90 ]; then
+              echo "::error::Production schema migration did not complete within 15 minutes"
+              exit 1
+            fi
+            sleep 10
+          done
 
       - name: Trivy container security gate
         uses: aquasecurity/trivy-action@v0.36.0

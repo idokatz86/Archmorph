@@ -100,6 +100,12 @@ describe('sessionCache', () => {
     expect(result.questionAssumptions).toEqual(assumptions)
   })
 
+  it('preserves the server-issued project identity for safe reacquisition', () => {
+    saveSessionWithOptIn('d1', { zones: [] }, [], {}, { projectId: 'proj-server-issued' })
+
+    expect(loadSession('d1').projectId).toBe('proj-server-issued')
+  })
+
   it('stores timestamp for TTL checks', () => {
     const before = Date.now()
     saveSessionWithOptIn('d1', {}, [], {})

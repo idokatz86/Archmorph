@@ -22,7 +22,7 @@ import logging
 
 from database import get_db, SessionLocal
 from routers.shared import (
-    SESSION_STORE, IMAGE_STORE, PROJECT_STORE, SHARE_STORE, EXPORT_CAPABILITY_STORE,
+    SESSION_STORE, IMAGE_STORE, SHARE_STORE, EXPORT_CAPABILITY_STORE,
     limiter, verify_api_key, verify_api_key_or_user_session, MAX_UPLOAD_SIZE, generate_session_id,
     get_api_key_service_principal, get_request_durable_principal,
     require_diagram_access,
@@ -50,9 +50,9 @@ from architecture_rules import evaluate as evaluate_architecture_rules
 from architecture_review import build_audit_pipeline_issue, classify_regulated_workload
 from source_provider import normalize_source_provider
 from project_store import (
-    mark_diagram_analyzed,
+    acquire_project,
+    get_project,
     register_diagram,
-    remove_diagram,
     get_project_id_for_diagram,
 )
 import shareable_reports
@@ -207,15 +207,40 @@ def _require_confirmed_store_delete(store, key: str) -> None:
     raise RuntimeError("store deletion could not be confirmed")
 
 
-def _diagram_project_metadata(diagram_id: str) -> tuple[Optional[str], Dict[str, Any]]:
-    project_id = get_project_id_for_diagram(diagram_id)
-    if not project_id:
+def _diagram_project_metadata(
+    diagram_id: str,
+    *,
+    principal: Optional[dict] = None,
+) -> tuple[Optional[str], Dict[str, Any]]:
+    if principal is None or not principal.get("tenant_id"):
         return None, {}
-    project = PROJECT_STORE.get(project_id) or {}
-    for diagram in project.get("diagrams", []):
-        if diagram.get("diagram_id") == diagram_id:
-            return project_id, diagram
-    return project_id, {}
+    db = SessionLocal()
+    try:
+        project_id = get_project_id_for_diagram(
+            db,
+            diagram_id,
+            owner_user_id=principal["owner_user_id"],
+            tenant_id=principal["tenant_id"],
+        )
+        if not project_id:
+            return None, {}
+        project = get_project(
+            db,
+            project_id,
+            owner_user_id=principal["owner_user_id"],
+            tenant_id=principal["tenant_id"],
+        ) or {}
+        diagram = next(
+            (
+                item
+                for item in project.get("diagrams", [])
+                if item.get("diagram_id") == diagram_id
+            ),
+            {},
+        )
+        return project_id, diagram
+    finally:
+        db.close()
 
 
 def _attach_lifecycle_receipt(
@@ -224,8 +249,12 @@ def _attach_lifecycle_receipt(
     *,
     image_present: Optional[bool] = None,
     session_present: Optional[bool] = None,
+    principal: Optional[dict] = None,
 ) -> Dict[str, Any]:
-    project_id, diagram_meta = _diagram_project_metadata(diagram_id)
+    project_id, diagram_meta = _diagram_project_metadata(
+        diagram_id,
+        principal=principal,
+    )
     return attach_trust_receipt(
         payload,
         diagram_id,
@@ -246,14 +275,24 @@ def _persist_authenticated_analysis(
     session: Dict[str, Any],
     owner_api_key_id: Optional[str] = None,
     cache_required: bool = False,
+    require_project_membership: bool = False,
 ) -> None:
     try:
+        workspace_id = get_project_id_for_diagram(
+            db,
+            diagram_id,
+            owner_user_id=user_id,
+            tenant_id=tenant_id,
+        ) if tenant_id else None
+        if workspace_id is None and require_project_membership:
+            raise ValueError("Durable project membership not found")
         persist_analysis_state(
             db,
             owner_user_id=user_id,
             tenant_id=tenant_id,
             diagram_id=diagram_id,
             snapshot=session,
+            workspace_id=workspace_id,
             session_store=SESSION_STORE,
             cache_owner_api_key_id=owner_api_key_id,
             cache_required=cache_required,
@@ -291,9 +330,18 @@ def _persist_authenticated_analysis(
 # ─────────────────────────────────────────────────────────────
 # Diagrams — Upload
 # ─────────────────────────────────────────────────────────────
-@router.post("/api/projects/{project_id}/diagrams")
+def _new_project_upload() -> None:
+    return None
+
+
+@router.post("/api/projects/diagrams")
 @limiter.limit("10/minute")
-async def upload_diagram(request: Request, project_id: str, file: UploadFile = File(...), _auth=Depends(verify_api_key_or_user_session)):
+async def upload_diagram(
+    request: Request,
+    file: UploadFile = File(...),
+    _auth=Depends(verify_api_key_or_user_session),
+    requested_project_id: Optional[str] = Depends(_new_project_upload),
+):
     """Upload an architecture diagram image for analysis.
 
     Accepts PNG, JPEG, SVG, PDF, and Visio (.vsdx) files up to the
@@ -341,6 +389,38 @@ async def upload_diagram(request: Request, project_id: str, file: UploadFile = F
     upload_user = get_user_from_request_headers(headers)
     upload_principal = get_request_durable_principal(request)
     upload_api_key_id = get_api_key_service_principal(headers)
+    if upload_principal is None and upload_api_key_id:
+        upload_principal = {
+            "owner_user_id": upload_api_key_id,
+            "tenant_id": f"service:{upload_api_key_id.split(':', 1)[-1]}",
+            "owner_api_key_id": upload_api_key_id,
+            "legacy_owner_user_ids": [],
+        }
+    if upload_principal is None or not upload_principal.get("tenant_id"):
+        IMAGE_STORE.delete(diagram_id)
+        raise ArchmorphException(401, "Authenticated tenant context is required")
+    db = SessionLocal()
+    try:
+        project = acquire_project(
+            db,
+            owner_user_id=upload_principal["owner_user_id"],
+            tenant_id=upload_principal["tenant_id"],
+            project_id=requested_project_id,
+        )
+        project_id = project.id
+        register_diagram(
+            db,
+            project_id=project_id,
+            diagram_id=diagram_id,
+            owner_user_id=upload_principal["owner_user_id"],
+            tenant_id=upload_principal["tenant_id"],
+            filename=file.filename,
+        )
+    except Exception as exc:
+        IMAGE_STORE.delete(diagram_id)
+        raise ArchmorphException(503, "Project persistence is temporarily unavailable") from exc
+    finally:
+        db.close()
     namespace_claim = {"diagram_id": diagram_id, "status": "uploaded"}
     if upload_user:
         namespace_claim["_owner_user_id"] = upload_principal["owner_user_id"]
@@ -359,8 +439,6 @@ async def upload_diagram(request: Request, project_id: str, file: UploadFile = F
             str(img_usage * 100).replace('\n', '').replace('\r', ''), str(len(IMAGE_STORE)).replace('\n', '').replace('\r', ''), str(IMAGE_STORE.maxsize).replace('\n', '').replace('\r', ''),
         )
 
-    register_diagram(project_id, diagram_id, file.filename, len(image_bytes))
-
     record_event("diagrams_uploaded", {"filename": file.filename})
     record_funnel_step(diagram_id, "upload")
     principal_marker = _principal_marker(request)
@@ -376,7 +454,27 @@ async def upload_diagram(request: Request, project_id: str, file: UploadFile = F
         "size": len(image_bytes),
         "status": "uploaded",
         "restore_capability": restore_capability,
-    }, diagram_id, principal_marker=principal_marker), diagram_id, image_present=True, session_present=False)
+    }, diagram_id, principal_marker=principal_marker), diagram_id, image_present=True, session_present=False, principal=upload_principal)
+
+
+@router.post(
+    "/api/projects/{project_id}/diagrams",
+    include_in_schema=False,
+)
+@limiter.limit("10/minute")
+async def upload_diagram_to_project(
+    request: Request,
+    project_id: str,
+    file: UploadFile = File(...),
+    _auth=Depends(verify_api_key_or_user_session),
+):
+    """Compatibility path; the supplied ID is only an authorized reacquisition hint."""
+    return await upload_diagram(
+        request=request,
+        file=file,
+        _auth=_auth,
+        requested_project_id=project_id,
+    )
 
 
 # ─────────────────────────────────────────────────────────────
@@ -541,8 +639,11 @@ async def purge_diagram_session(
     session_record = SESSION_STORE.peek(diagram_id)
     image_deleted = image_record is not None
     session_deleted = session_record is not None
-    project_id = get_project_id_for_diagram(diagram_id)
-    _, diagram_meta = _diagram_project_metadata(diagram_id)
+    principal = get_request_durable_principal(request)
+    project_id, diagram_meta = _diagram_project_metadata(
+        diagram_id,
+        principal=principal,
+    )
     durable_deleted = {
         "analyses": 0,
         "versions": 0,
@@ -551,7 +652,6 @@ async def purge_diagram_session(
         "source_assets": 0,
         "implicit_workspaces": 0,
     }
-    principal = get_request_durable_principal(request)
     session_delete_confirmed = False
     try:
         _require_confirmed_store_delete(SESSION_STORE, diagram_id)
@@ -604,7 +704,6 @@ async def purge_diagram_session(
             db.close()
 
     project_index_deleted = project_id is not None
-    remove_diagram(diagram_id)
 
     export_capabilities_deleted = _purge_store_records_for_diagram(EXPORT_CAPABILITY_STORE, diagram_id)
     share_store_deleted = _purge_store_records_for_diagram(SHARE_STORE, diagram_id)
@@ -713,7 +812,10 @@ def _raise_analysis_service_failure(exc: Exception) -> None:
     raise ArchmorphException(service_error.status_code, service_error.args[0] if service_error.args else "Vision analysis failed.")
 
 
-@router.post("/api/diagrams/{diagram_id}/analyze")
+@router.post(
+    "/api/diagrams/{diagram_id}/analyze",
+    dependencies=[Depends(require_diagram_access)],
+)
 @limiter.limit("5/minute")
 async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verify_api_key_or_user_session)):
     """Analyze an uploaded architecture diagram using GPT-4o vision.
@@ -750,6 +852,7 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
                     diagram_id=diagram_id,
                     session=result,
                     cache_required=True,
+                    require_project_membership=True,
                 )
             finally:
                 db.close()
@@ -764,12 +867,12 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
                     session=result,
                     owner_api_key_id=api_key_principal_id,
                     cache_required=True,
+                    require_project_membership=True,
                 )
             finally:
                 db.close()
         else:
             SESSION_STORE[diagram_id] = result
-        mark_diagram_analyzed(diagram_id, result)
         record_event("analyses_run", {"diagram_id": diagram_id, "services": result["services_detected"]})
         record_funnel_step(diagram_id, "analyze")
         return _attach_lifecycle_receipt(
@@ -781,6 +884,7 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
             diagram_id,
             image_present=True,
             session_present=True,
+            principal=principal,
         )
 
     # No need to pre-compress, vision analyzer and classifier handle it internally
@@ -845,6 +949,7 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
                 diagram_id=diagram_id,
                 session=result,
                 cache_required=True,
+                require_project_membership=True,
             )
         finally:
             db.close()
@@ -859,12 +964,12 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
                 session=result,
                 owner_api_key_id=api_key_principal_id,
                 cache_required=True,
+                require_project_membership=True,
             )
         finally:
             db.close()
     else:
         SESSION_STORE[diagram_id] = result
-    mark_diagram_analyzed(diagram_id, result)
     record_event("analyses_run", {"diagram_id": diagram_id, "services": result["services_detected"]})
     record_funnel_step(diagram_id, "analyze")
 
@@ -877,13 +982,17 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
         diagram_id,
         image_present=True,
         session_present=True,
+        principal=principal,
     )
 
 
 # ─────────────────────────────────────────────────────────────
 # Async Analysis (Issue #172)
 # ─────────────────────────────────────────────────────────────
-@router.post("/api/diagrams/{diagram_id}/analyze-async")
+@router.post(
+    "/api/diagrams/{diagram_id}/analyze-async",
+    dependencies=[Depends(require_diagram_access)],
+)
 @limiter.limit("5/minute")
 async def analyze_diagram_async(
     request: Request,
@@ -1046,6 +1155,7 @@ async def _run_analysis_job(job_id: str, payload: Dict[str, Any]) -> None:
                     diagram_id=diagram_id,
                     session=result,
                     cache_required=True,
+                    require_project_membership=True,
                 )
             finally:
                 db.close()
@@ -1060,13 +1170,12 @@ async def _run_analysis_job(job_id: str, payload: Dict[str, Any]) -> None:
                     session=result,
                     owner_api_key_id=job_api_principal_id,
                     cache_required=True,
+                    require_project_membership=True,
                 )
             finally:
                 db.close()
         else:
             SESSION_STORE[diagram_id] = result
-        mark_diagram_analyzed(diagram_id, result)
-
         job_manager.update_progress(job_id, 90, "Saving guided questions and evidence...", phase="saving")
 
         record_event("analyses_run", {"diagram_id": diagram_id, "services": result.get("services_detected", 0)})
@@ -1079,11 +1188,22 @@ async def _run_analysis_job(job_id: str, payload: Dict[str, Any]) -> None:
             )
 
         job_manager.update_progress(job_id, 95, "Finalizing...", phase="saving")
+        job_principal = {
+            "owner_user_id": job_user_id or job_api_principal_id,
+            "tenant_id": (
+                job_tenant_id
+                if job_user_id
+                else f"service:{job_api_principal_id.split(':', 1)[-1]}"
+                if job_api_principal_id
+                else None
+            ),
+        }
         job_manager.complete(job_id, result=_attach_lifecycle_receipt(
             attach_export_capability(result, diagram_id),
             diagram_id,
             image_present=diagram_id in IMAGE_STORE,
             session_present=True,
+            principal=job_principal,
         ))
 
     except Exception as exc:

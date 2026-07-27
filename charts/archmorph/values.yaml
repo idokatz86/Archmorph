@@ -107,6 +107,12 @@ externalSecrets:
     - secretKey: ARCHMORPH_ADMIN_KEY
       remoteRef:
         key: admin-key
+    - secretKey: ARCHMORPH_API_KEY
+      remoteRef:
+        key: api-key
+    - secretKey: JWT_SECRET
+      remoteRef:
+        key: jwt-secret
 
 # Use this when External Secrets Operator is not installed. The named Secret
 # must contain every key in requiredSecretKeys before the Deployment is applied.
@@ -119,6 +125,15 @@ requiredSecretKeys:
   - secretKey: REDIS_URL
   - secretKey: APPLICATIONINSIGHTS_CONNECTION_STRING
   - secretKey: ARCHMORPH_ADMIN_KEY
+  - secretKey: ARCHMORPH_API_KEY
+  - secretKey: JWT_SECRET
+
+# Alembic is a pre-install/pre-upgrade hook. One Job replica runs the
+# advisory-lock guarded migration before any application pod is rolled out.
+migrations:
+  enabled: true
+  backoffLimit: 0
+  activeDeadlineSeconds: 900
 
 # Health check configuration (#378)
 livenessProbe:

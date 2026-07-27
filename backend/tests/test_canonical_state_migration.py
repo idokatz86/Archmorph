@@ -54,6 +54,7 @@ def test_migration_contains_conflict_audit_and_uniqueness_guards():
 
     assert 'status="conflict_retained"' in source
     assert "tenant_rehome_audit" in source
+    assert "project_members" in source
     assert "_deduplicate_analyses" in source
     assert "_deduplicate_artifacts" in source
     assert "ux_analyses_owner_tenant_diagram" in source

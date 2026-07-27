@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 
 class ReadinessChecks(StrictBaseModel):
     database: Literal["ready", "unavailable"]
+    database_schema: Literal["ready", "unavailable"]
     redis: Literal["ready", "unavailable"]
 
 
@@ -257,7 +258,11 @@ async def healthz():
                 "application/json": {
                     "example": {
                         "status": "ready",
-                        "checks": {"database": "ready", "redis": "ready"},
+                        "checks": {
+                            "database": "ready",
+                            "database_schema": "ready",
+                            "redis": "ready",
+                        },
                     }
                 }
             },
@@ -269,7 +274,11 @@ async def healthz():
                 "application/json": {
                     "example": {
                         "status": "not_ready",
-                        "checks": {"database": "unavailable", "redis": "unavailable"},
+                        "checks": {
+                            "database": "unavailable",
+                            "database_schema": "unavailable",
+                            "redis": "unavailable",
+                        },
                     }
                 }
             },
@@ -279,13 +288,19 @@ async def healthz():
 async def readyz(response: Response) -> ReadinessResponse:
     """Anonymous sanitized readiness for required PostgreSQL and Redis."""
     database_ready = False
+    database_schema_ready = False
     redis_ready = False
     try:
         from database import database_readiness
 
-        database_ready = bool(database_readiness()["ready_for_production"])
+        database = database_readiness()
+        database_ready = bool(database["ready_for_production"])
+        database_schema_ready = bool(
+            database["schema_at_head"] and database["required_schema_present"]
+        )
     except Exception:
         database_ready = False
+        database_schema_ready = False
     try:
         from session_store import session_store_readiness
 
@@ -300,6 +315,7 @@ async def readyz(response: Response) -> ReadinessResponse:
         status="ready" if ready else "not_ready",
         checks=ReadinessChecks(
             database="ready" if database_ready else "unavailable",
+            database_schema="ready" if database_schema_ready else "unavailable",
             redis="ready" if redis_ready else "unavailable",
         ),
     )

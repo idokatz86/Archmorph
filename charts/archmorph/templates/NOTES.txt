@@ -21,3 +21,6 @@
 
 2. Verify the deployment:
   curl http://localhost:{{ .Values.service.port }}/api/health
+
+3. Schema migrations run as a blocking pre-install/pre-upgrade Job. Application
+  pods verify the exact Alembic head and never create or alter tables.

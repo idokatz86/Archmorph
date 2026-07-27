@@ -50,6 +50,47 @@ def test_ci_includes_pgvector_alembic_migration_cycle():
     assert "printf -v DATABASE_URL '%s://%s:%s@127.0.0.1:5432/%s'" in contracts
 
 
+def test_backend_deploy_requires_and_waits_for_single_writer_migration():
+    workflow = _load(CI_WORKFLOW)
+    deploy = workflow["jobs"]["deploy-backend"]
+
+    assert "alembic-migration-smoke" in deploy["needs"]
+    migration = _step_by_name(
+        deploy["steps"],
+        "Run single-writer production migration job",
+    )["run"]
+    assert 'MIGRATION_JOB_NAME="archmorph-db-migrate"' in migration
+    assert "az containerapp job update" in migration
+    assert "az containerapp job start" in migration
+    assert "DB_SECRET_REF=$(az containerapp job show" in migration
+    assert '"$DB_SECRET_REF" != "db-connection"' in migration
+    assert "--image \"$IMAGE_REF\"" in migration
+    assert "python run_migrations.py" in migration
+    assert '"$DB_SECRET_REF_AFTER_UPDATE" != "db-connection"' in migration
+    assert "az containerapp job execution show" in migration
+    assert "Succeeded)" in migration
+    assert "Failed|Stopped|Cancelled)" in migration
+
+    step_names = [step.get("name") for step in deploy["steps"]]
+    assert step_names.index("Run single-writer production migration job") < step_names.index(
+        "Deploy green revision"
+    )
+
+
+def test_terraform_provisions_migration_job_with_shared_identity_and_db_secret():
+    terraform = (REPO_ROOT / "infra" / "main.tf").read_text(encoding="utf-8")
+
+    assert 'resource "azurerm_container_app_job" "database_migration"' in terraform
+    assert 'name                         = "archmorph-db-migrate"' in terraform
+    assert 'identity_ids = [azurerm_user_assigned_identity.container_app.id]' in terraform
+    assert 'key_vault_secret_id = azurerm_key_vault_secret.db_connection.versionless_id' in terraform
+    assert 'command = ["python", "run_migrations.py"]' in terraform
+    assert 'name  = "ENVIRONMENT"\n        value = var.environment' in terraform
+    assert "parallelism              = 1" in terraform
+    assert "replica_completion_count = 1" in terraform
+    assert "replica_retry_limit          = 0" in terraform
+
+
 def test_rollback_health_verification_uses_authenticated_api_health():
     workflow = _load(ROLLBACK_WORKFLOW)
     assert workflow["env"]["ARCHMORPH_API_KEY"] == "${{ secrets.ARCHMORPH_API_KEY }}"

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -31,8 +32,9 @@ def _documents(output: str) -> list[dict]:
     return [document for document in yaml.safe_load_all(output) if document]
 
 
-def test_production_renders_external_secret_and_database_redis_env_refs():
-    rendered = _render("-f", str(CHART / "values-production.yaml"))
+@pytest.mark.parametrize("values_file", ["values-production.yaml", "values-staging.yaml"])
+def test_environment_renders_all_fail_closed_auth_secret_refs(values_file):
+    rendered = _render("-f", str(CHART / values_file))
     documents = _documents(rendered.stdout)
     external_secret = next(document for document in documents if document["kind"] == "ExternalSecret")
     deployment = next(document for document in documents if document["kind"] == "Deployment")
@@ -43,6 +45,8 @@ def test_production_renders_external_secret_and_database_redis_env_refs():
     }
     assert remote_keys["DATABASE_URL"] == "database-url"
     assert remote_keys["REDIS_URL"] == "redis-url"
+    assert remote_keys["ARCHMORPH_API_KEY"] == "api-key"
+    assert remote_keys["JWT_SECRET"] == "jwt-secret"
     env = deployment["spec"]["template"]["spec"]["containers"][0]["env"]
     refs = {
         item["name"]: item["valueFrom"]["secretKeyRef"]
@@ -50,6 +54,23 @@ def test_production_renders_external_secret_and_database_redis_env_refs():
     }
     assert refs["DATABASE_URL"] == {"name": "contract-archmorph-secrets", "key": "DATABASE_URL"}
     assert refs["REDIS_URL"] == {"name": "contract-archmorph-secrets", "key": "REDIS_URL"}
+    assert refs["ARCHMORPH_API_KEY"] == {
+        "name": "contract-archmorph-secrets",
+        "key": "ARCHMORPH_API_KEY",
+    }
+    assert refs["JWT_SECRET"] == {
+        "name": "contract-archmorph-secrets",
+        "key": "JWT_SECRET",
+    }
+
+    migration = next(document for document in documents if document["kind"] == "Job")
+    assert migration["metadata"]["annotations"]["helm.sh/hook"] == "pre-install,pre-upgrade"
+    container = migration["spec"]["template"]["spec"]["containers"][0]
+    assert container["command"] == ["python", "run_migrations.py"]
+    assert container["env"][0]["valueFrom"]["secretKeyRef"] == {
+        "name": "contract-archmorph-secrets",
+        "key": "DATABASE_URL",
+    }
 
 
 def test_existing_secret_contract_renders_without_external_secret():
@@ -66,6 +87,8 @@ def test_existing_secret_contract_renders_without_external_secret():
     }
     assert refs["DATABASE_URL"]["name"] == "runtime-secrets"
     assert refs["REDIS_URL"]["name"] == "runtime-secrets"
+    assert refs["ARCHMORPH_API_KEY"]["name"] == "runtime-secrets"
+    assert refs["JWT_SECRET"]["name"] == "runtime-secrets"
 
 
 def test_render_fails_when_no_secret_contract_is_configured():
@@ -84,3 +107,28 @@ def test_render_fails_when_external_secret_omits_database_or_redis_key():
     )
     assert rendered.returncode != 0
     assert "externalSecrets.data must map required key DATABASE_URL" in rendered.stderr
+
+
+@pytest.mark.parametrize("required_key", ["ARCHMORPH_API_KEY", "JWT_SECRET"])
+def test_render_fails_when_external_secret_omits_auth_key(required_key):
+    data = [
+        {"secretKey": "AZURE_OPENAI_API_KEY", "remoteRef": {"key": "openai-api-key"}},
+        {"secretKey": "DATABASE_URL", "remoteRef": {"key": "database-url"}},
+        {"secretKey": "REDIS_URL", "remoteRef": {"key": "redis-url"}},
+        {
+            "secretKey": "APPLICATIONINSIGHTS_CONNECTION_STRING",
+            "remoteRef": {"key": "appinsights-connection-string"},
+        },
+        {"secretKey": "ARCHMORPH_ADMIN_KEY", "remoteRef": {"key": "admin-key"}},
+        {"secretKey": "ARCHMORPH_API_KEY", "remoteRef": {"key": "api-key"}},
+        {"secretKey": "JWT_SECRET", "remoteRef": {"key": "jwt-secret"}},
+    ]
+    data = [item for item in data if item["secretKey"] != required_key]
+    rendered = _render(
+        "-f", str(CHART / "values-production.yaml"),
+        "--set-json",
+        f"externalSecrets.data={json.dumps(data)}",
+        expect_success=False,
+    )
+    assert rendered.returncode != 0
+    assert f"externalSecrets.data must map required key {required_key}" in rendered.stderr

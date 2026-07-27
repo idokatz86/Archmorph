@@ -35,7 +35,6 @@ const DeployPanel = lazy(() => import('./DeployPanel'));
 const DataLifecyclePanel = lazy(() => import('./DataLifecyclePanel'));
 
 const normalizeIacFormat = (format) => (format === 'bicep' ? 'bicep' : 'terraform');
-const DEFAULT_PROJECT_ID = 'demo-project';
 const AUTH_PENDING_UPLOAD_KEY = 'archmorph_pending_upload_reauth';
 
 function savePendingUploadForAuth(fileMeta) {
@@ -435,6 +434,7 @@ export default function DiagramTranslator() {
     const cached = loadSession();
     if (cached && cached.diagramId && cached.analysis) {
       set({
+        projectId: cached.projectId || null,
         diagramId: cached.diagramId,
         analysis: cached.analysis,
         questions: cached.questions || [],
@@ -515,6 +515,7 @@ export default function DiagramTranslator() {
         const questionState = buildQuestionState(qData);
         saveSession(analysis.diagram_id, analysis, questionState.questions, questionState.answers, {
           persistSensitive: true,
+          projectId: analysis.project_id || null,
           allQuestions: questionState.allQuestions,
           questionAssumptions: questionState.questionAssumptions,
         });
@@ -884,11 +885,14 @@ export default function DiagramTranslator() {
       formData.append('file', file);
 
       addProgress('Uploading diagram...');
-      const projectId = state.projectId || DEFAULT_PROJECT_ID;
-      const uploadData = await withAuthRecovery(() => api.post(`/projects/${projectId}/diagrams`, formData, signal));
+      const projectId = state.projectId;
+      const uploadPath = projectId
+        ? `/projects/${projectId}/diagrams`
+        : '/projects/diagrams';
+      const uploadData = await withAuthRecovery(() => api.post(uploadPath, formData, signal));
       const { diagram_id } = uploadData;
       set({
-        projectId: uploadData.project_id || projectId,
+        projectId: uploadData.project_id,
         diagramId: diagram_id,
         exportCapability: uploadData.export_capability || null,
         restoreCapability: uploadData.restore_capability || null,
@@ -896,12 +900,12 @@ export default function DiagramTranslator() {
       });
       stateRef.current = {
         ...stateRef.current,
-        projectId: uploadData.project_id || projectId,
+        projectId: uploadData.project_id,
         diagramId: diagram_id,
         exportCapability: uploadData.export_capability || null,
         restoreCapability: uploadData.restore_capability || null,
       };
-      await refreshProjectStatus(uploadData.project_id || projectId);
+      await refreshProjectStatus(uploadData.project_id);
 
       // Cache uploaded image for session restore (#333)
       if (file.type.startsWith('image/') && file.size < 1_000_000) {
@@ -1028,11 +1032,12 @@ export default function DiagramTranslator() {
         await new Promise(r => setTimeout(r, 400));
 
         set({ analysis: result, exportCapability: result.export_capability || state.exportCapability || null, purgeReceipt: null });
-        await refreshProjectStatus(uploadData.project_id || projectId);
+        await refreshProjectStatus(uploadData.project_id);
         const qData = await withAuthRecovery(() => api.post(`/diagrams/${diagram_id}/questions`, undefined, signal));
         const questionState = buildQuestionState(qData);
         saveSession(diagram_id, result, questionState.questions, questionState.answers, {
           persistSensitive: persistSensitiveCache,
+          projectId: uploadData.project_id,
           allQuestions: questionState.allQuestions,
           questionAssumptions: questionState.questionAssumptions,
           restoreCapability: uploadData.restore_capability || stateRef.current.restoreCapability,
@@ -1087,11 +1092,12 @@ export default function DiagramTranslator() {
         await new Promise(r => setTimeout(r, 800));
 
         set({ analysis: result, exportCapability: result.export_capability || uploadData.export_capability || null, purgeReceipt: null });
-        await refreshProjectStatus(uploadData.project_id || projectId);
+        await refreshProjectStatus(uploadData.project_id);
         const qData = await withAuthRecovery(() => api.post(`/diagrams/${diagram_id}/questions`, undefined, signal));
         const questionState = buildQuestionState(qData);
         saveSession(diagram_id, result, questionState.questions, questionState.answers, {
           persistSensitive: persistSensitiveCache,
+          projectId: uploadData.project_id,
           allQuestions: questionState.allQuestions,
           questionAssumptions: questionState.questionAssumptions,
           restoreCapability: uploadData.restore_capability || stateRef.current.restoreCapability,
@@ -1153,6 +1159,7 @@ export default function DiagramTranslator() {
       const questionState = buildQuestionState(qData);
       saveSession(result.diagram_id, result, questionState.questions, questionState.answers, {
         persistSensitive: true,
+        projectId: result.project_id || null,
         allQuestions: questionState.allQuestions,
         questionAssumptions: questionState.questionAssumptions,
       });

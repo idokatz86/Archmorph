@@ -62,7 +62,47 @@ def test_postgres_readiness_fails_closed_when_configured_but_unreachable():
     assert readiness["enforce_postgres"] is True
     assert readiness["connection_ok"] is False
     assert readiness["connection_error"]
+    assert readiness["schema_at_head"] is False
+    assert readiness["required_schema_present"] is False
     assert readiness["ready_for_production"] is False
+
+
+def test_production_init_never_calls_create_all():
+    result = run_backend_snippet(
+        """from unittest.mock import patch
+import database
+readiness = {'ready_for_production': True, 'expected_revision': '014'}
+with (
+    patch.object(database.Base.metadata, 'create_all', side_effect=AssertionError('DDL attempted')),
+    patch.object(database, 'database_readiness', return_value=readiness),
+):
+    database.init_db()
+print('verified')
+""",
+        ENVIRONMENT="production",
+        DATABASE_URL="postgresql://placeholder:placeholder@127.0.0.1:1/archmorph",
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "verified"
+
+
+def test_production_init_fails_closed_when_schema_is_not_ready():
+    result = run_backend_snippet(
+        """from unittest.mock import patch
+import database
+readiness = {'ready_for_production': False, 'expected_revision': '014'}
+with (
+    patch.object(database.Base.metadata, 'create_all', side_effect=AssertionError('DDL attempted')),
+    patch.object(database, 'database_readiness', return_value=readiness),
+):
+    database.init_db()
+""",
+        ENVIRONMENT="production",
+        DATABASE_URL="postgresql://placeholder:placeholder@127.0.0.1:1/archmorph",
+    )
+    assert result.returncode != 0
+    assert "Production database is not at the expected Alembic head" in result.stderr
+    assert "DDL attempted" not in result.stderr
 
 
 def test_redis_readiness_is_horizontal_scale_ready_when_required():
@@ -116,6 +156,8 @@ def test_terraform_and_helm_split_liveness_from_readiness():
     assert "secretKey: AZURE_OPENAI_API_KEY" in helm_prod
     assert "secretKey: DATABASE_URL" in helm_prod
     assert "secretKey: REDIS_URL" in helm_prod
+    assert "secretKey: ARCHMORPH_API_KEY" in helm_prod
+    assert "secretKey: JWT_SECRET" in helm_prod
     external_secret = (REPO_ROOT / "charts" / "archmorph" / "templates" / "externalsecret.yaml").read_text()
     deployment = (REPO_ROOT / "charts" / "archmorph" / "templates" / "deployment.yaml").read_text()
     helpers = (REPO_ROOT / "charts" / "archmorph" / "templates" / "_helpers.tpl").read_text()

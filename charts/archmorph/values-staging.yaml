@@ -61,3 +61,9 @@ externalSecrets:
     - secretKey: ARCHMORPH_ADMIN_KEY
       remoteRef:
         key: admin-key
+    - secretKey: ARCHMORPH_API_KEY
+      remoteRef:
+        key: api-key
+    - secretKey: JWT_SECRET
+      remoteRef:
+        key: jwt-secret

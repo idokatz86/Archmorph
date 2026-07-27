@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import uuid
+from unittest.mock import patch
 
 import pytest
 from alembic import command
@@ -177,6 +178,68 @@ def test_seeded_013_014_013_014_roundtrip_preserves_all_rows_and_long_tenants():
 
         command.upgrade(config, "014")
         _assert_014_state(engine, seeded, expect_seed_audits=False)
+    finally:
+        _reset_database(engine)
+        engine.dispose()
+
+
+def test_013_production_init_is_read_only_then_014_migrates_without_partial_schema(
+    monkeypatch,
+):
+    engine = create_engine(POSTGRES_URL, pool_pre_ping=True)
+    config = _alembic_config()
+    try:
+        _reset_database(engine)
+        command.upgrade(config, "013")
+        inspector = inspect(engine)
+        assert "tenant_rehome_audit" not in inspector.get_table_names()
+        assert "is_default" not in {
+            column["name"] for column in inspector.get_columns("workspaces")
+        }
+
+        import database
+
+        monkeypatch.setattr(database, "engine", engine)
+        monkeypatch.setattr(database, "_IS_POSTGRES", True)
+        monkeypatch.setattr(database, "_IS_SQLITE", False)
+        monkeypatch.setattr(database, "_PRODUCTION_LIKE", True)
+        monkeypatch.setattr(database, "_ENFORCE_POSTGRES", True)
+        with patch.object(
+            database.Base.metadata,
+            "create_all",
+            side_effect=AssertionError("production create_all must not run"),
+        ):
+            readiness_013 = database.database_readiness()
+            assert readiness_013["current_revision"] == "013"
+            assert readiness_013["expected_revision"] == "014"
+            assert readiness_013["schema_at_head"] is False
+            assert readiness_013["required_schema_present"] is False
+            assert {
+                "table:tenant_rehome_audit",
+                "table:project_members",
+                "column:workspaces.is_default",
+            } <= set(readiness_013["missing_schema_objects"])
+            with pytest.raises(
+                RuntimeError,
+                match="Production database is not at the expected Alembic head",
+            ):
+                database.init_db()
+
+        inspector.clear_cache()
+        assert "tenant_rehome_audit" not in inspector.get_table_names()
+        assert "is_default" not in {
+            column["name"] for column in inspector.get_columns("workspaces")
+        }
+
+        command.upgrade(config, "014")
+        readiness_014 = database.database_readiness()
+        assert readiness_014["current_revision"] == "014"
+        assert readiness_014["expected_revision"] == "014"
+        assert readiness_014["schema_at_head"] is True
+        assert readiness_014["required_schema_present"] is True
+        assert readiness_014["missing_schema_objects"] == []
+        assert readiness_014["ready_for_production"] is True
+        database.init_db()
     finally:
         _reset_database(engine)
         engine.dispose()

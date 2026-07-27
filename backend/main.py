@@ -225,7 +225,7 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Archmorph API %s — production mode", __version__)
     start_scheduler()
 
-    # ── Parallel startup tasks: DB init + icon loading (#337 cold-start) ──
+    # ── Parallel startup tasks: schema verification/local init + icons ──
     async def _init_database():
         try:
             await asyncio.to_thread(init_db)
@@ -234,7 +234,7 @@ async def lifespan(app: FastAPI):
             readiness = await asyncio.to_thread(database_readiness)
             if readiness["production_like"] and not readiness["ready_for_production"]:
                 raise RuntimeError("Required PostgreSQL dependency is unavailable")
-            logger.info("Database layer initialized")
+            logger.info("Database layer initialized and schema head verified")
         except Exception as exc:
             from database import database_readiness
 

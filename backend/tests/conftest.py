@@ -131,6 +131,11 @@ def _diagram_id_from_url(url: object) -> str | None:
     return diagram_id or None
 
 
+def _is_project_route(url: object) -> bool:
+    path = urlparse(str(url)).path
+    return path.startswith(("/api/projects/", "/api/v1/projects/"))
+
+
 def _has_owner_metadata(session: dict) -> bool:
     return bool(
         session.get("_owner_user_id")
@@ -169,11 +174,15 @@ def _default_diagram_route_api_key(request, monkeypatch):
 
     def request_with_test_api_key(self, method, url, *args, **kwargs):
         diagram_id = _diagram_id_from_url(url)
-        if diagram_id is not None:
+        if diagram_id is not None or _is_project_route(url):
             headers = dict(kwargs.pop("headers", None) or {})
             has_auth = any(key.lower() in {"authorization", "x-api-key"} for key in headers)
             if not has_auth:
-                session = shared_router.SESSION_STORE.get(diagram_id)
+                session = (
+                    shared_router.SESSION_STORE.get(diagram_id)
+                    if diagram_id is not None
+                    else None
+                )
                 if isinstance(session, dict):
                     owner_headers = _auth_headers_for_session_owner(session)
                     if owner_headers:

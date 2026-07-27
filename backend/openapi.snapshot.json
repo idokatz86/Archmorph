@@ -544,7 +544,7 @@
         "title": "Body_import_terraform_v1_api_v1_import_terraform_post",
         "type": "object"
       },
-      "Body_upload_diagram_api_projects__project_id__diagrams_post": {
+      "Body_upload_diagram_api_projects_diagrams_post": {
         "properties": {
           "file": {
             "contentMediaType": "application/octet-stream",
@@ -555,10 +555,10 @@
         "required": [
           "file"
         ],
-        "title": "Body_upload_diagram_api_projects__project_id__diagrams_post",
+        "title": "Body_upload_diagram_api_projects_diagrams_post",
         "type": "object"
       },
-      "Body_upload_diagram_v1_api_v1_projects__project_id__diagrams_post": {
+      "Body_upload_diagram_v1_api_v1_projects_diagrams_post": {
         "properties": {
           "file": {
             "contentMediaType": "application/octet-stream",
@@ -569,7 +569,7 @@
         "required": [
           "file"
         ],
-        "title": "Body_upload_diagram_v1_api_v1_projects__project_id__diagrams_post",
+        "title": "Body_upload_diagram_v1_api_v1_projects_diagrams_post",
         "type": "object"
       },
       "Body_upload_icon_pack_api_icon_packs_post": {
@@ -3332,6 +3332,30 @@
         "title": "PolicyResponseSchema",
         "type": "object"
       },
+      "ProjectMemberRequest": {
+        "additionalProperties": false,
+        "description": "A directory-verified project member assignment.",
+        "properties": {
+          "role": {
+            "default": "viewer",
+            "enum": [
+              "viewer",
+              "editor"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id"
+        ],
+        "title": "ProjectMemberRequest",
+        "type": "object"
+      },
       "PushIaCRequest": {
         "additionalProperties": false,
         "properties": {
@@ -3430,6 +3454,14 @@
             "title": "Database",
             "type": "string"
           },
+          "database_schema": {
+            "enum": [
+              "ready",
+              "unavailable"
+            ],
+            "title": "Database Schema",
+            "type": "string"
+          },
           "redis": {
             "enum": [
               "ready",
@@ -3441,6 +3473,7 @@
         },
         "required": [
           "database",
+          "database_schema",
           "redis"
         ],
         "title": "ReadinessChecks",
@@ -13426,9 +13459,54 @@
         ]
       }
     },
+    "/api/projects/diagrams": {
+      "post": {
+        "description": "Upload an architecture diagram image for analysis.\n\nAccepts PNG, JPEG, SVG, PDF, and Visio (.vsdx) files up to the\nconfigured MAX_UPLOAD_SIZE limit.",
+        "operationId": "upload_diagram_api_projects_diagrams_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_diagram_api_projects_diagrams_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Upload Diagram"
+      }
+    },
     "/api/projects/{project_id}": {
       "get": {
-        "description": "Return project metadata and per-diagram analysis status.",
+        "description": "Return authorized project metadata and durable diagram status.",
         "operationId": "get_project_status_api_projects__project_id__get",
         "parameters": [
           {
@@ -13474,7 +13552,7 @@
     },
     "/api/projects/{project_id}/analysis": {
       "get": {
-        "description": "Return a deterministic combined analysis for all analyzed project diagrams.",
+        "description": "Return a deterministic merge of authorized durable analysis snapshots.",
         "operationId": "get_project_analysis_api_projects__project_id__analysis_get",
         "parameters": [
           {
@@ -13518,65 +13596,9 @@
         "summary": "Get Project Analysis"
       }
     },
-    "/api/projects/{project_id}/diagrams": {
-      "post": {
-        "description": "Upload an architecture diagram image for analysis.\n\nAccepts PNG, JPEG, SVG, PDF, and Visio (.vsdx) files up to the\nconfigured MAX_UPLOAD_SIZE limit.",
-        "operationId": "upload_diagram_api_projects__project_id__diagrams_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "title": "Project Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "multipart/form-data": {
-              "schema": {
-                "$ref": "#/components/schemas/Body_upload_diagram_api_projects__project_id__diagrams_post"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          },
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Upload Diagram"
-      }
-    },
     "/api/projects/{project_id}/generate": {
       "post": {
-        "description": "Generate unified Infrastructure as Code from combined project analysis.",
+        "description": "Generate IaC only from authorized, PostgreSQL-canonical analyses.",
         "operationId": "generate_project_iac_api_projects__project_id__generate_post",
         "parameters": [
           {
@@ -13642,6 +13664,167 @@
           }
         ],
         "summary": "Generate Project Iac"
+      }
+    },
+    "/api/projects/{project_id}/members": {
+      "get": {
+        "operationId": "get_project_members_api_projects__project_id__members_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Project Members"
+      }
+    },
+    "/api/projects/{project_id}/members/{member_user_id}": {
+      "delete": {
+        "operationId": "delete_project_member_api_projects__project_id__members__member_user_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "member_user_id",
+            "required": true,
+            "schema": {
+              "title": "Member User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Project Member"
+      },
+      "put": {
+        "operationId": "put_project_member_api_projects__project_id__members__member_user_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "member_user_id",
+            "required": true,
+            "schema": {
+              "title": "Member User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectMemberRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Put Project Member"
       }
     },
     "/api/replay/events": {
@@ -24580,9 +24763,57 @@
         ]
       }
     },
+    "/api/v1/projects/diagrams": {
+      "post": {
+        "description": "Upload an architecture diagram image for analysis.\n\nAccepts PNG, JPEG, SVG, PDF, and Visio (.vsdx) files up to the\nconfigured MAX_UPLOAD_SIZE limit.",
+        "operationId": "upload_diagram_v1_api_v1_projects_diagrams_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_diagram_v1_api_v1_projects_diagrams_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Upload Diagram V1",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
     "/api/v1/projects/{project_id}": {
       "get": {
-        "description": "Return project metadata and per-diagram analysis status.",
+        "description": "Return authorized project metadata and durable diagram status.",
         "operationId": "get_project_status_v1_api_v1_projects__project_id__get",
         "parameters": [
           {
@@ -24631,7 +24862,7 @@
     },
     "/api/v1/projects/{project_id}/analysis": {
       "get": {
-        "description": "Return a deterministic combined analysis for all analyzed project diagrams.",
+        "description": "Return a deterministic merge of authorized durable analysis snapshots.",
         "operationId": "get_project_analysis_v1_api_v1_projects__project_id__analysis_get",
         "parameters": [
           {
@@ -24678,68 +24909,9 @@
         ]
       }
     },
-    "/api/v1/projects/{project_id}/diagrams": {
-      "post": {
-        "description": "Upload an architecture diagram image for analysis.\n\nAccepts PNG, JPEG, SVG, PDF, and Visio (.vsdx) files up to the\nconfigured MAX_UPLOAD_SIZE limit.",
-        "operationId": "upload_diagram_v1_api_v1_projects__project_id__diagrams_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "title": "Project Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "multipart/form-data": {
-              "schema": {
-                "$ref": "#/components/schemas/Body_upload_diagram_v1_api_v1_projects__project_id__diagrams_post"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          },
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Upload Diagram V1",
-        "tags": [
-          "v1"
-        ]
-      }
-    },
     "/api/v1/projects/{project_id}/generate": {
       "post": {
-        "description": "Generate unified Infrastructure as Code from combined project analysis.",
+        "description": "Generate IaC only from authorized, PostgreSQL-canonical analyses.",
         "operationId": "generate_project_iac_v1_api_v1_projects__project_id__generate_post",
         "parameters": [
           {
@@ -24805,6 +24977,176 @@
           }
         ],
         "summary": "Generate Project Iac V1",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/members": {
+      "get": {
+        "operationId": "get_project_members_v1_api_v1_projects__project_id__members_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Project Members V1",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/members/{member_user_id}": {
+      "delete": {
+        "operationId": "delete_project_member_v1_api_v1_projects__project_id__members__member_user_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "member_user_id",
+            "required": true,
+            "schema": {
+              "title": "Member User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Project Member V1",
+        "tags": [
+          "v1"
+        ]
+      },
+      "put": {
+        "operationId": "put_project_member_v1_api_v1_projects__project_id__members__member_user_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "member_user_id",
+            "required": true,
+            "schema": {
+              "title": "Member User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectMemberRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Put Project Member V1",
         "tags": [
           "v1"
         ]
@@ -28034,6 +28376,7 @@
                 "example": {
                   "checks": {
                     "database": "ready",
+                    "database_schema": "ready",
                     "redis": "ready"
                   },
                   "status": "ready"
@@ -28051,6 +28394,7 @@
                 "example": {
                   "checks": {
                     "database": "unavailable",
+                    "database_schema": "unavailable",
                     "redis": "unavailable"
                   },
                   "status": "not_ready"
