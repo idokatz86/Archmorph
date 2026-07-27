@@ -96,7 +96,7 @@ jobs:
 
       - name: Install dependencies and lint
         run: |
-          uv pip install --system ruff
+          uv pip install --system ruff==0.15.22
           uv pip install --system -r requirements.txt
           ruff check .
           python ../scripts/sync_version.py --check
@@ -402,7 +402,10 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
-        run: npm install --no-fund --no-audit
+        run: npm ci --no-fund --no-audit
+
+      - name: Verify vendored dependency behavior
+        run: npm run test:security-packages
 
       - name: Run frontend linter
         run: npm run lint
@@ -514,7 +517,7 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: frontend
-        run: npm install --no-fund --no-audit
+        run: npm ci --no-fund --no-audit
 
       - name: Check generated OpenAPI client artifacts
         working-directory: frontend

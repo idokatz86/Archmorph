@@ -15,11 +15,23 @@ def test_dependency_audit_covers_root_and_frontend_npm_manifests():
     assert "package-lock.json" in setup_node["with"]["cache-dependency-path"]
     assert "frontend/package-lock.json" in setup_node["with"]["cache-dependency-path"]
 
-    root_audit = next(step for step in steps if step.get("name") == "Run root npm audit")
+    vendored_packages = next(
+        step for step in steps if step.get("name") == "Verify vendored npm packages"
+    )
+    assert "python scripts/verify_vendored_packages.py" in vendored_packages["run"]
+    assert (
+        "python scripts/build_brace_expansion_compat.py --check"
+        in vendored_packages["run"]
+    )
+
+    root_audit = next(
+        step for step in steps if step.get("name") == "Run root npm audit"
+    )
     assert "PUPPETEER_SKIP_DOWNLOAD=1 npm ci --no-audit --no-fund" in root_audit["run"]
     assert "npm audit --audit-level=high" in root_audit["run"]
 
     frontend_audit = next(step for step in steps if step.get("name") == "Run npm audit")
     assert frontend_audit["working-directory"] == "frontend"
     assert "npm ci --no-audit --no-fund" in frontend_audit["run"]
+    assert "npm run test:security-packages" in frontend_audit["run"]
     assert "npm audit --audit-level=high" in frontend_audit["run"]
