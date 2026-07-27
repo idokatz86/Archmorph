@@ -45,7 +45,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -1089,6 +1089,7 @@ def _write_session_cache(
     owner_api_key_id: Optional[str] = None,
     allow_existing: bool = True,
     allow_legacy_tenant_rehome: bool = False,
+    legacy_owner_user_ids: Optional[List[str]] = None,
     allow_unowned_upload_claim: bool = False,
 ) -> None:
     cached_snapshot = {
@@ -1134,13 +1135,24 @@ def _write_session_cache(
             else current.get("_owner_user_id") == owner_user_id
             and current.get("_owner_api_key_id") is None
         )
+        legacy_owner_matches = bool(
+            not owner_api_key_id
+            and allow_legacy_tenant_rehome
+            and current.get("_owner_user_id") in set(legacy_owner_user_ids or [])
+            and current.get("_owner_api_key_id") is None
+        )
+        if legacy_owner_matches:
+            owner_matches = True
         tenant_matches = current.get("_tenant_id") == tenant_id or (
             owner_api_key_id is not None
             and current.get("_owner_api_key_id") == owner_api_key_id
             and current.get("_tenant_id") is None
         ) or (
             allow_legacy_tenant_rehome
-            and current.get("_owner_user_id") == owner_user_id
+            and (
+                current.get("_owner_user_id") == owner_user_id
+                or legacy_owner_matches
+            )
             and current.get("_tenant_id") == "default_tenant"
         )
         return (
@@ -1176,6 +1188,7 @@ def persist_analysis_state(
     cache_owner_api_key_id: Optional[str] = None,
     cache_required: bool = False,
     allow_legacy_cache_rehome: bool = False,
+    cache_legacy_owner_user_ids: Optional[List[str]] = None,
     allow_unowned_upload_claim: bool = False,
 ) -> AnalysisWriteResult:
     """Commit authenticated analysis state, then refresh its transient cache.
@@ -1305,6 +1318,7 @@ def persist_analysis_state(
                 version_number=version.version_number,
                 owner_api_key_id=cache_owner_api_key_id,
                 allow_legacy_tenant_rehome=allow_legacy_cache_rehome,
+                legacy_owner_user_ids=cache_legacy_owner_user_ids,
                 allow_unowned_upload_claim=allow_unowned_upload_claim,
             )
             cache_updated = True
@@ -1341,15 +1355,18 @@ def rehome_legacy_analysis_scope(
     owner_user_id: str,
     source_tenant_id: str,
     target_tenant_id: str,
+    target_owner_user_id: Optional[str] = None,
 ) -> str:
     """Move one exact-owner legacy analysis graph to a verified tenant scope.
 
-    The provider is never inferred here. ``target_tenant_id`` must already have
-    been derived from the currently verified principal. Conflicts are audited
-    and denied without changing either namespace.
+    The provider is never inferred here. ``target_tenant_id`` and an optional
+    ``target_owner_user_id`` must already have been derived from the currently
+    verified principal. Conflicts are audited and denied without changing
+    either namespace.
     """
     if not target_tenant_id or source_tenant_id == target_tenant_id:
         return "not_found"
+    target_owner_user_id = target_owner_user_id or owner_user_id
 
     query = db.query(Analysis).filter(
         Analysis.diagram_id == diagram_id,
@@ -1413,11 +1430,57 @@ def rehome_legacy_analysis_scope(
         db.commit()
         return "conflict"
     analysis_ids = [item.id for item in workspace_analyses]
+    graph_scope_counts = {
+        "source_assets": (
+            db.query(SourceAsset.id).filter(SourceAsset.workspace_id == workspace.id).count(),
+            db.query(SourceAsset.id).filter(
+                SourceAsset.workspace_id == workspace.id,
+                SourceAsset.owner_user_id == owner_user_id,
+                SourceAsset.tenant_id == source_tenant_id,
+            ).count(),
+        ),
+        "artifacts": (
+            db.query(Artifact.id).filter(Artifact.analysis_id.in_(analysis_ids)).count(),
+            db.query(Artifact.id).filter(
+                Artifact.analysis_id.in_(analysis_ids),
+                Artifact.owner_user_id == owner_user_id,
+                Artifact.tenant_id == source_tenant_id,
+            ).count(),
+        ),
+        "decisions": (
+            db.query(Decision.id).filter(Decision.analysis_id.in_(analysis_ids)).count(),
+            db.query(Decision.id).filter(
+                Decision.analysis_id.in_(analysis_ids),
+                Decision.owner_user_id == owner_user_id,
+                Decision.tenant_id == source_tenant_id,
+            ).count(),
+        ),
+    }
+    if any(total != scoped for total, scoped in graph_scope_counts.values()):
+        db.add(TenantRehomeAudit(
+            owner_user_id=owner_user_id,
+            source_tenant_id=source_tenant_id,
+            target_tenant_id=target_tenant_id,
+            status="conflict_denied",
+            details=_json.dumps(
+                {
+                    "diagram_id": diagram_id,
+                    "reason": "mixed_scope_workspace_graph",
+                    "row_counts": {
+                        name: {"total": total, "source_scope": scoped}
+                        for name, (total, scoped) in graph_scope_counts.items()
+                    },
+                },
+                sort_keys=True,
+            ),
+        ))
+        db.commit()
+        return "conflict"
     diagram_ids = [item.diagram_id for item in workspace_analyses if item.diagram_id]
     target_conflict = (
         db.query(Analysis.id)
         .filter(
-            Analysis.owner_user_id == owner_user_id,
+            Analysis.owner_user_id == target_owner_user_id,
             Analysis.tenant_id == target_tenant_id,
             Analysis.diagram_id.in_(diagram_ids),
         )
@@ -1442,7 +1505,7 @@ def rehome_legacy_analysis_scope(
     workspace_conflict = (
         db.query(Workspace.id)
         .filter(
-            Workspace.owner_user_id == owner_user_id,
+            Workspace.owner_user_id == target_owner_user_id,
             Workspace.tenant_id == target_tenant_id,
             Workspace.is_default.is_(True),
             Workspace.id != workspace.id,
@@ -1455,24 +1518,44 @@ def rehome_legacy_analysis_scope(
         if workspace.name == "Default Workspace":
             workspace.name = "Migrated Legacy Workspace"
 
+    workspace.owner_user_id = target_owner_user_id
     workspace.tenant_id = target_tenant_id
     db.query(SourceAsset).filter(
         SourceAsset.workspace_id == workspace.id,
         SourceAsset.owner_user_id == owner_user_id,
         SourceAsset.tenant_id == source_tenant_id,
-    ).update({SourceAsset.tenant_id: target_tenant_id}, synchronize_session=False)
+    ).update(
+        {
+            SourceAsset.owner_user_id: target_owner_user_id,
+            SourceAsset.tenant_id: target_tenant_id,
+        },
+        synchronize_session=False,
+    )
     for workspace_analysis in workspace_analyses:
+        workspace_analysis.owner_user_id = target_owner_user_id
         workspace_analysis.tenant_id = target_tenant_id
     db.query(Artifact).filter(
         Artifact.analysis_id.in_(analysis_ids),
         Artifact.owner_user_id == owner_user_id,
         Artifact.tenant_id == source_tenant_id,
-    ).update({Artifact.tenant_id: target_tenant_id}, synchronize_session=False)
+    ).update(
+        {
+            Artifact.owner_user_id: target_owner_user_id,
+            Artifact.tenant_id: target_tenant_id,
+        },
+        synchronize_session=False,
+    )
     db.query(Decision).filter(
         Decision.analysis_id.in_(analysis_ids),
         Decision.owner_user_id == owner_user_id,
         Decision.tenant_id == source_tenant_id,
-    ).update({Decision.tenant_id: target_tenant_id}, synchronize_session=False)
+    ).update(
+        {
+            Decision.owner_user_id: target_owner_user_id,
+            Decision.tenant_id: target_tenant_id,
+        },
+        synchronize_session=False,
+    )
     db.add(TenantRehomeAudit(
         owner_user_id=owner_user_id,
         source_tenant_id=source_tenant_id,
@@ -1482,6 +1565,7 @@ def rehome_legacy_analysis_scope(
             {
                 "analysis_ids": analysis_ids,
                 "diagram_id": diagram_id,
+                "target_owner_user_id": target_owner_user_id,
                 "workspace_id": workspace.id,
             },
             sort_keys=True,
@@ -1527,41 +1611,118 @@ def purge_analysis_state(
         "versions": 0,
         "artifacts": 0,
         "decisions": 0,
+        "source_assets": 0,
         "implicit_workspaces": 0,
     }
-    if analysis is None:
-        return counts
-
-    workspace_id = analysis.workspace_id
-    counts["artifacts"] = db.query(Artifact).filter(Artifact.analysis_id == analysis.id).delete(
-        synchronize_session=False
+    workspace_id = analysis.workspace_id if analysis is not None else None
+    artifact_source_ids = (
+        [
+            source_asset_id
+            for (source_asset_id,) in (
+                db.query(Artifact.source_asset_id)
+                .filter(
+                    Artifact.analysis_id == analysis.id,
+                    Artifact.source_asset_id.is_not(None),
+                )
+                .all()
+            )
+        ]
+        if analysis is not None
+        else []
     )
-    counts["decisions"] = db.query(Decision).filter(Decision.analysis_id == analysis.id).delete(
-        synchronize_session=False
+    source_identity_ids = [
+        source_asset_id
+        for source_asset_id in [
+            analysis.source_asset_id if analysis is not None else None,
+            *artifact_source_ids,
+        ]
+        if source_asset_id is not None
+    ]
+    source_identity_filter = SourceAsset.diagram_id == diagram_id
+    if source_identity_ids:
+        source_identity_filter = or_(
+            SourceAsset.id.in_(source_identity_ids),
+            source_identity_filter,
+        )
+    source_candidates_query = db.query(SourceAsset).filter(
+        SourceAsset.owner_user_id == owner_user_id,
+        SourceAsset.tenant_id == tenant_id,
+        source_identity_filter,
     )
-    counts["versions"] = db.query(AnalysisVersion).filter(
-        AnalysisVersion.analysis_id == analysis.id
-    ).delete(synchronize_session=False)
-    db.delete(analysis)
+    if db.get_bind().dialect.name == "postgresql":
+        source_candidates_query = source_candidates_query.with_for_update()
+    source_candidates = source_candidates_query.all()
+    candidate_workspace_ids = {
+        candidate_workspace_id
+        for candidate_workspace_id in [
+            workspace_id,
+            *(source.workspace_id for source in source_candidates),
+        ]
+        if candidate_workspace_id is not None
+    }
+    if analysis is not None:
+        counts["artifacts"] = db.query(Artifact).filter(
+            Artifact.analysis_id == analysis.id
+        ).delete(synchronize_session=False)
+        counts["decisions"] = db.query(Decision).filter(
+            Decision.analysis_id == analysis.id
+        ).delete(synchronize_session=False)
+        counts["versions"] = db.query(AnalysisVersion).filter(
+            AnalysisVersion.analysis_id == analysis.id
+        ).delete(synchronize_session=False)
+        db.delete(analysis)
+        db.flush()
+        counts["analyses"] = 1
+    candidate_ids = [source.id for source in source_candidates]
+    referenced_source_ids = {
+        source_asset_id
+        for (source_asset_id,) in (
+            db.query(Analysis.source_asset_id)
+            .filter(Analysis.source_asset_id.in_(candidate_ids))
+            .all()
+            if candidate_ids
+            else []
+        )
+        if source_asset_id is not None
+    }
+    referenced_source_ids.update(
+        source_asset_id
+        for (source_asset_id,) in (
+            db.query(Artifact.source_asset_id)
+            .filter(Artifact.source_asset_id.in_(candidate_ids))
+            .all()
+            if candidate_ids
+            else []
+        )
+        if source_asset_id is not None
+    )
+    for source in source_candidates:
+        if source.id not in referenced_source_ids:
+            db.delete(source)
+            counts["source_assets"] += 1
     db.flush()
-    counts["analyses"] = 1
 
     if cleanup_empty_implicit_workspace:
-        workspace = (
-            db.query(Workspace)
-            .filter(
-                Workspace.id == workspace_id,
-                Workspace.owner_user_id == owner_user_id,
-                Workspace.tenant_id == tenant_id,
-                Workspace.is_default.is_(True),
+        for candidate_workspace_id in candidate_workspace_ids:
+            workspace = (
+                db.query(Workspace)
+                .filter(
+                    Workspace.id == candidate_workspace_id,
+                    Workspace.owner_user_id == owner_user_id,
+                    Workspace.tenant_id == tenant_id,
+                    Workspace.is_default.is_(True),
+                )
+                .first()
             )
-            .first()
-        )
-        remaining = db.query(Analysis.id).filter(Analysis.workspace_id == workspace_id).first()
-        sources = db.query(SourceAsset.id).filter(SourceAsset.workspace_id == workspace_id).first()
-        if workspace is not None and remaining is None and sources is None:
-            db.delete(workspace)
-            counts["implicit_workspaces"] = 1
+            remaining = db.query(Analysis.id).filter(
+                Analysis.workspace_id == candidate_workspace_id
+            ).first()
+            sources = db.query(SourceAsset.id).filter(
+                SourceAsset.workspace_id == candidate_workspace_id
+            ).first()
+            if workspace is not None and remaining is None and sources is None:
+                db.delete(workspace)
+                counts["implicit_workspaces"] += 1
     db.commit()
     return counts
 
@@ -1575,6 +1736,7 @@ def load_analysis_state(
     session_store: Any = None,
     cache_owner_api_key_id: Optional[str] = None,
     allow_legacy_cache_rehome: bool = False,
+    cache_legacy_owner_user_ids: Optional[List[str]] = None,
 ) -> Optional[Dict[str, Any]]:
     """Load the latest tenant-scoped durable snapshot and optionally hydrate cache."""
     _require_durable_identity(owner_user_id, tenant_id)
@@ -1619,6 +1781,7 @@ def load_analysis_state(
                 owner_api_key_id=cache_owner_api_key_id,
                 allow_existing=allow_legacy_cache_rehome,
                 allow_legacy_tenant_rehome=allow_legacy_cache_rehome,
+                legacy_owner_user_ids=cache_legacy_owner_user_ids,
             )
         except Exception as exc:
             logger.warning(

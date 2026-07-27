@@ -180,3 +180,131 @@ def test_seeded_013_014_013_014_roundtrip_preserves_all_rows_and_long_tenants():
     finally:
         _reset_database(engine)
         engine.dispose()
+
+
+def _seed_duplicate_tenant_scope(engine, *, tenant: str | None, suffix: str) -> None:
+    ids = {
+        name: str(uuid.uuid4())
+        for name in (
+            "workspace_a",
+            "workspace_b",
+            "analysis_a",
+            "analysis_b",
+            "version_a",
+            "version_b",
+            "artifact_versioned_a",
+            "artifact_versioned_b",
+            "artifact_moved",
+            "artifact_unversioned_a",
+            "artifact_unversioned_b",
+        )
+    }
+    owner = "all-tenant-duplicate-owner"
+    diagram_id = "all-tenant-duplicate-diagram"
+    content_hash = hashlib.sha256(f"artifact-{suffix}".encode()).hexdigest()
+    with engine.begin() as connection:
+        connection.execute(text("""
+            INSERT INTO workspaces
+                (id, owner_user_id, tenant_id, name, source_cloud, target_cloud, status, is_public)
+            VALUES
+                (:workspace_a, :owner, :tenant, 'Default Workspace', 'aws', 'azure', 'active', false),
+                (:workspace_b, :owner, :tenant, 'Default Workspace', 'aws', 'azure', 'active', false)
+        """), {**ids, "owner": owner, "tenant": tenant})
+        connection.execute(text("""
+            INSERT INTO analyses
+                (id, workspace_id, owner_user_id, tenant_id, diagram_id, source_cloud,
+                 target_cloud, status, services_detected, current_version)
+            VALUES
+                (:analysis_a, :workspace_a, :owner, :tenant, :diagram_id, 'aws', 'azure', 'completed', 0, 1),
+                (:analysis_b, :workspace_b, :owner, :tenant, :diagram_id, 'aws', 'azure', 'completed', 0, 1)
+        """), {**ids, "owner": owner, "tenant": tenant, "diagram_id": diagram_id})
+        connection.execute(text("""
+            INSERT INTO analysis_versions
+                (id, analysis_id, version_number, snapshot, content_hash, created_by)
+            VALUES
+                (:version_a, :analysis_a, 1, :snapshot_a, 'version-a', :owner),
+                (:version_b, :analysis_b, 1, :snapshot_b, 'version-b', :owner)
+        """), {
+            **ids,
+            "owner": owner,
+            "snapshot_a": json.dumps({"scope": suffix, "copy": "a"}, sort_keys=True),
+            "snapshot_b": json.dumps({"scope": suffix, "copy": "b"}, sort_keys=True),
+        })
+        connection.execute(text("""
+            INSERT INTO artifacts
+                (id, analysis_id, version_id, owner_user_id, tenant_id, artifact_type,
+                 format, content, content_hash, size_bytes)
+            VALUES
+                (:artifact_versioned_a, :analysis_a, :version_a, :owner, :tenant, 'terraform',
+                 'terraform', :content, :content_hash, 8),
+                (:artifact_versioned_b, :analysis_a, :version_a, :owner, :tenant, 'terraform',
+                 'terraform', :content, :content_hash, 8),
+                (:artifact_moved, :analysis_b, :version_b, :owner, :tenant, 'terraform',
+                 'terraform', :content, :content_hash, 8),
+                (:artifact_unversioned_a, :analysis_a, NULL, :owner, :tenant, 'legacy-report',
+                 'json', :content, :content_hash, 8),
+                (:artifact_unversioned_b, :analysis_b, NULL, :owner, :tenant, 'legacy-report',
+                 'json', :content, :content_hash, 8)
+        """), {
+            **ids,
+            "owner": owner,
+            "tenant": tenant,
+            "content": f"scope-{suffix}",
+            "content_hash": content_hash,
+        })
+
+
+def _assert_all_tenant_duplicate_state(engine) -> None:
+    with engine.connect() as connection:
+        analyses = connection.execute(text("""
+            SELECT tenant_id, count(*) AS row_count, max(current_version) AS current_version
+            FROM analyses
+            WHERE owner_user_id = 'all-tenant-duplicate-owner'
+              AND diagram_id = 'all-tenant-duplicate-diagram'
+            GROUP BY tenant_id
+        """)).mappings().all()
+        assert {(row["tenant_id"], row["row_count"], row["current_version"]) for row in analyses} == {
+            (None, 1, 2),
+            ("tenant-b", 1, 2),
+        }
+        assert connection.execute(text("""
+            SELECT count(*) FROM analysis_versions
+            WHERE analysis_id IN (
+                SELECT id FROM analyses
+                WHERE owner_user_id = 'all-tenant-duplicate-owner'
+            )
+        """)).scalar_one() == 4
+        assert connection.execute(text("""
+            SELECT count(*) FROM artifacts
+            WHERE owner_user_id = 'all-tenant-duplicate-owner'
+        """)).scalar_one() == 6
+        defaults = connection.execute(text("""
+            SELECT tenant_id, count(*)
+            FROM workspaces
+            WHERE owner_user_id = 'all-tenant-duplicate-owner' AND is_default
+            GROUP BY tenant_id
+        """)).all()
+        assert set(defaults) == {(None, 1), ("tenant-b", 1)}
+
+
+def test_all_tenant_duplicate_groups_and_artifacts_survive_roundtrip():
+    engine = create_engine(POSTGRES_URL, pool_pre_ping=True)
+    config = _alembic_config()
+    try:
+        _reset_database(engine)
+        command.upgrade(config, "013")
+        _seed_duplicate_tenant_scope(engine, tenant=None, suffix="tenantless")
+        _seed_duplicate_tenant_scope(engine, tenant="tenant-b", suffix="tenant-b")
+
+        command.upgrade(config, "014")
+        _assert_all_tenant_duplicate_state(engine)
+        command.downgrade(config, "013")
+        with engine.connect() as connection:
+            assert connection.execute(text("SELECT count(*) FROM analyses")).scalar_one() == 2
+            assert connection.execute(text("SELECT count(*) FROM analysis_versions")).scalar_one() == 4
+            assert connection.execute(text("SELECT count(*) FROM artifacts")).scalar_one() == 6
+        command.upgrade(config, "014")
+        _assert_all_tenant_duplicate_state(engine)
+    finally:
+        _reset_database(engine)
+        engine.dispose()

@@ -97,6 +97,7 @@ def test_direct_b2c_durable_principal_uses_verified_provider_subject():
         AuthProvider.AZURE_AD_B2C,
         "subject-42",
     )
+    assert principal["legacy_owner_user_ids"] == ["azure_ad_b2c_subject-42"]
 
 
 @pytest.fixture(autouse=True)

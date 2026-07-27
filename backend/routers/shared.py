@@ -127,10 +127,17 @@ def get_request_durable_principal(request: Request) -> Optional[dict]:
             if user.provider.value == "azure_ad_b2c" and user.provider_subject
             else user.id
         )
+        legacy_owner_user_ids = []
+        if user.provider.value == "azure_ad_b2c" and user.id != owner_user_id:
+            # Before provider subjects became canonical, direct B2C writes used
+            # ``User.id``. The alias is accepted only from the currently
+            # verified B2C principal and only for guarded default-tenant rehome.
+            legacy_owner_user_ids.append(user.id)
         return {
             "owner_user_id": owner_user_id,
             "tenant_id": user.tenant_id,
             "owner_api_key_id": None,
+            "legacy_owner_user_ids": legacy_owner_user_ids,
         }
     api_key_id = get_api_key_service_principal(headers)
     if api_key_id:
@@ -139,6 +146,7 @@ def get_request_durable_principal(request: Request) -> Optional[dict]:
             "owner_user_id": api_key_id,
             "tenant_id": f"service:{digest}",
             "owner_api_key_id": api_key_id,
+            "legacy_owner_user_ids": [],
         }
     return None
 
@@ -241,19 +249,30 @@ def _load_durable_diagram_session(request: Request, diagram_id: str) -> Optional
 
     db = SessionLocal()
     try:
-        legacy_analysis = get_analysis_by_diagram(
-            db,
-            diagram_id=diagram_id,
-            owner_user_id=principal["owner_user_id"],
-            tenant_id="default_tenant",
+        legacy_owner_user_id = next(
+            (
+                owner_user_id
+                for owner_user_id in [
+                    principal["owner_user_id"],
+                    *principal.get("legacy_owner_user_ids", []),
+                ]
+                if get_analysis_by_diagram(
+                    db,
+                    diagram_id=diagram_id,
+                    owner_user_id=owner_user_id,
+                    tenant_id="default_tenant",
+                ) is not None
+            ),
+            None,
         )
-        if legacy_analysis is not None:
+        if legacy_owner_user_id is not None:
             status = rehome_legacy_analysis_scope(
                 db,
                 diagram_id=diagram_id,
-                owner_user_id=principal["owner_user_id"],
+                owner_user_id=legacy_owner_user_id,
                 source_tenant_id="default_tenant",
                 target_tenant_id=principal["tenant_id"],
+                target_owner_user_id=principal["owner_user_id"],
             )
             if status != "rehomed":
                 return None
@@ -264,6 +283,8 @@ def _load_durable_diagram_session(request: Request, diagram_id: str) -> Optional
             tenant_id=principal["tenant_id"],
             session_store=SESSION_STORE,
             cache_owner_api_key_id=principal["owner_api_key_id"],
+            allow_legacy_cache_rehome=legacy_owner_user_id is not None,
+            cache_legacy_owner_user_ids=principal.get("legacy_owner_user_ids", []),
         )
     except Exception as exc:
         logger.warning(
@@ -319,7 +340,11 @@ def authorize_diagram_access(
         tenant_id = session.get("_tenant_id")
         principal = get_request_durable_principal(request)
         expected_owner_user_id = principal["owner_user_id"] if principal else user.id
-        if owner_user_id == expected_owner_user_id and tenant_id == "default_tenant":
+        accepted_legacy_owner_ids = {
+            expected_owner_user_id,
+            *(principal.get("legacy_owner_user_ids", []) if principal else []),
+        }
+        if owner_user_id in accepted_legacy_owner_ids and tenant_id == "default_tenant":
             try:
                 if principal is None or not principal["tenant_id"]:
                     raise ArchmorphException(404, "Diagram not found")
@@ -336,7 +361,7 @@ def authorize_diagram_access(
                     legacy_analysis = get_analysis_by_diagram(
                         db,
                         diagram_id=diagram_id,
-                        owner_user_id=expected_owner_user_id,
+                        owner_user_id=owner_user_id,
                         tenant_id="default_tenant",
                     )
                     target_analysis = get_analysis_by_diagram(
@@ -354,14 +379,19 @@ def authorize_diagram_access(
                             tenant_id=principal["tenant_id"],
                             session_store=SESSION_STORE,
                             allow_legacy_cache_rehome=True,
+                            cache_legacy_owner_user_ids=principal.get(
+                                "legacy_owner_user_ids",
+                                [],
+                            ),
                         )
                     elif legacy_analysis is not None and target_analysis is None:
                         status = rehome_legacy_analysis_scope(
                             db,
                             diagram_id=diagram_id,
-                            owner_user_id=principal["owner_user_id"],
+                            owner_user_id=owner_user_id,
                             source_tenant_id="default_tenant",
                             target_tenant_id=principal["tenant_id"],
+                            target_owner_user_id=principal["owner_user_id"],
                         )
                         if status == "rehomed":
                             migrated_session = load_analysis_state(
@@ -371,6 +401,10 @@ def authorize_diagram_access(
                                 tenant_id=principal["tenant_id"],
                                 session_store=SESSION_STORE,
                                 allow_legacy_cache_rehome=True,
+                                cache_legacy_owner_user_ids=principal.get(
+                                    "legacy_owner_user_ids",
+                                    [],
+                                ),
                             )
                 finally:
                     db.close()
@@ -522,6 +556,11 @@ def persist_diagram_mutation(
             label=label,
             cache_required=True,
             allow_legacy_cache_rehome=allow_legacy_cache_rehome,
+            cache_legacy_owner_user_ids=(
+                principal.get("legacy_owner_user_ids", [])
+                if allow_legacy_cache_rehome
+                else None
+            ),
         )
     except AnalysisVersionConflictError as exc:
         raise ArchmorphException(

@@ -7,6 +7,7 @@ import copy
 import json
 import time
 import uuid
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 import pytest
@@ -21,11 +22,12 @@ from auth import (
     User,
     UserTier,
     generate_session_token,
+    provider_subject_tenant_scope,
 )
 from database import Base
 from error_envelope import ArchmorphException
 from main import SESSION_STORE
-from models.workspace import Analysis, AnalysisVersion, Artifact, Decision, Workspace
+from models.workspace import Analysis, AnalysisVersion, Artifact, Decision, SourceAsset, Workspace
 from tests.conftest import SAMPLE_ANALYSIS
 from workspace_store import load_analysis_state, persist_analysis_state
 
@@ -455,6 +457,110 @@ def test_api_key_infrastructure_import_survives_cache_loss(
     assert hydrated["diagram_id"] == diagram_id
 
 
+def test_old_b2c_owner_and_default_tenant_rehome_after_cache_loss(
+    test_client,
+    durable_runtime,
+):
+    subject = f"route-b2c-{uuid.uuid4().hex}"
+    legacy_owner = f"azure_ad_b2c_{subject}"
+    target_tenant = provider_subject_tenant_scope(AuthProvider.AZURE_AD_B2C, subject)
+    diagram_id = f"diag-b2c-rehome-{uuid.uuid4().hex}"
+    analysis_id = _seed(
+        durable_runtime,
+        diagram_id=diagram_id,
+        owner_user_id=legacy_owner,
+        tenant_id="default_tenant",
+    )
+    SESSION_STORE.delete(diagram_id)
+    now = datetime.now(timezone.utc)
+    token = jwt.encode(
+        {
+            "sub": legacy_owner,
+            "provider": "azure_ad_b2c",
+            "tier": "team",
+            "tenant_id": "default_tenant",
+            "iat": now,
+            "exp": now + timedelta(hours=1),
+            "type": "access",
+        },
+        JWT_SECRET,
+        algorithm=JWT_ALGORITHM,
+    )
+
+    response = test_client.get(
+        f"/api/diagrams/{diagram_id}/review-queue",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200, response.text
+    cached = SESSION_STORE.peek(diagram_id)
+    assert cached["_owner_user_id"] == subject
+    assert cached["_tenant_id"] == target_tenant
+    db = durable_runtime()
+    try:
+        assert db.query(Analysis).filter_by(
+            id=analysis_id,
+            owner_user_id=subject,
+            tenant_id=target_tenant,
+        ).count() == 1
+        assert db.query(Analysis).filter_by(
+            id=analysis_id,
+            owner_user_id=legacy_owner,
+            tenant_id="default_tenant",
+        ).count() == 0
+    finally:
+        db.close()
+
+
+def test_old_b2c_owner_and_default_tenant_rehome_with_legacy_cache(
+    test_client,
+    durable_runtime,
+):
+    subject = f"cached-route-b2c-{uuid.uuid4().hex}"
+    legacy_owner = f"azure_ad_b2c_{subject}"
+    target_tenant = provider_subject_tenant_scope(AuthProvider.AZURE_AD_B2C, subject)
+    diagram_id = f"diag-b2c-cache-rehome-{uuid.uuid4().hex}"
+    analysis_id = _seed(
+        durable_runtime,
+        diagram_id=diagram_id,
+        owner_user_id=legacy_owner,
+        tenant_id="default_tenant",
+    )
+    now = datetime.now(timezone.utc)
+    token = jwt.encode(
+        {
+            "sub": legacy_owner,
+            "provider": "azure_ad_b2c",
+            "tier": "team",
+            "tenant_id": "default_tenant",
+            "iat": now,
+            "exp": now + timedelta(hours=1),
+            "type": "access",
+        },
+        JWT_SECRET,
+        algorithm=JWT_ALGORITHM,
+    )
+
+    response = test_client.get(
+        f"/api/diagrams/{diagram_id}/review-queue",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200, response.text
+    cached = SESSION_STORE.peek(diagram_id)
+    assert cached["_owner_user_id"] == subject
+    assert cached["_tenant_id"] == target_tenant
+    db = durable_runtime()
+    try:
+        assert db.query(Analysis).filter_by(
+            id=analysis_id,
+            owner_user_id=subject,
+            tenant_id=target_tenant,
+        ).count() == 1
+    finally:
+        db.close()
+
+
 def test_cost_timeline_and_network_mutations_survive_cache_and_process_loss(
     test_client,
     durable_runtime,
@@ -623,9 +729,59 @@ def test_purge_deletes_durable_graph_and_empty_implicit_workspace_before_receipt
             decision_type="risk",
             title="delete me",
         ))
+        linked_source_asset = SourceAsset(
+            workspace_id=result.analysis.workspace_id,
+            owner_user_id=owner,
+            tenant_id=tenant,
+            filename="linked-delete-me.tfstate",
+        )
+        indexed_source_asset = SourceAsset(
+            workspace_id=result.analysis.workspace_id,
+            owner_user_id=owner,
+            tenant_id=tenant,
+            filename="indexed-delete-me.tfstate",
+            diagram_id=diagram_id,
+        )
+        artifact_source_asset = SourceAsset(
+            workspace_id=result.analysis.workspace_id,
+            owner_user_id=owner,
+            tenant_id=tenant,
+            filename="artifact-delete-me.tfstate",
+        )
+        explicit_workspace = Workspace(
+            owner_user_id=owner,
+            tenant_id=tenant,
+            name="Explicit provenance workspace",
+            is_default=False,
+        )
+        db.add(explicit_workspace)
+        db.flush()
+        cross_workspace_source_asset = SourceAsset(
+            workspace_id=explicit_workspace.id,
+            owner_user_id=owner,
+            tenant_id=tenant,
+            filename="cross-workspace-delete-me.tfstate",
+            diagram_id=diagram_id,
+        )
+        db.add_all([
+            linked_source_asset,
+            indexed_source_asset,
+            artifact_source_asset,
+            cross_workspace_source_asset,
+        ])
+        db.flush()
+        result.analysis.source_asset_id = linked_source_asset.id
+        result.artifact.source_asset_id = artifact_source_asset.id
         db.commit()
         analysis_id = result.analysis.id
         workspace_id = result.analysis.workspace_id
+        source_asset_ids = {
+            linked_source_asset.id,
+            indexed_source_asset.id,
+            artifact_source_asset.id,
+            cross_workspace_source_asset.id,
+        }
+        explicit_workspace_id = explicit_workspace.id
     finally:
         db.close()
 
@@ -638,6 +794,7 @@ def test_purge_deletes_durable_graph_and_empty_implicit_workspace_before_receipt
         "versions": 1,
         "artifacts": 1,
         "decisions": 1,
+        "source_assets": 4,
         "implicit_workspaces": 1,
     }
     db = durable_runtime()
@@ -646,12 +803,141 @@ def test_purge_deletes_durable_graph_and_empty_implicit_workspace_before_receipt
         assert db.query(AnalysisVersion).filter_by(analysis_id=analysis_id).count() == 0
         assert db.query(Artifact).filter_by(analysis_id=analysis_id).count() == 0
         assert db.query(Decision).filter_by(analysis_id=analysis_id).count() == 0
+        assert db.query(SourceAsset).filter(SourceAsset.id.in_(source_asset_ids)).count() == 0
         assert db.query(Workspace).filter_by(id=workspace_id).count() == 0
+        assert db.query(Workspace).filter_by(id=explicit_workspace_id).count() == 1
     finally:
         db.close()
     SESSION_STORE.delete(diagram_id)
     missing = test_client.get(f"/api/diagrams/{diagram_id}/review-queue", headers=headers)
     assert missing.status_code == 404
+
+
+def test_purge_preserves_source_asset_referenced_by_another_analysis(
+    test_client,
+    durable_runtime,
+):
+    owner, tenant, headers = _identity()
+    diagram_id = f"diag-shared-source-purge-{uuid.uuid4().hex}"
+    sibling_diagram_id = f"diag-shared-source-sibling-{uuid.uuid4().hex}"
+    db = durable_runtime()
+    try:
+        first = persist_analysis_state(
+            db,
+            owner_user_id=owner,
+            tenant_id=tenant,
+            diagram_id=diagram_id,
+            snapshot={"mappings": []},
+            session_store=SESSION_STORE,
+            cache_required=True,
+        )
+        sibling = persist_analysis_state(
+            db,
+            owner_user_id=owner,
+            tenant_id=tenant,
+            diagram_id=sibling_diagram_id,
+            workspace_id=first.analysis.workspace_id,
+            snapshot={"mappings": []},
+            session_store=SESSION_STORE,
+            cache_required=True,
+        )
+        shared_source = SourceAsset(
+            workspace_id=first.analysis.workspace_id,
+            owner_user_id=owner,
+            tenant_id=tenant,
+            filename="shared.tfstate",
+            diagram_id=diagram_id,
+        )
+        db.add(shared_source)
+        db.flush()
+        first.analysis.source_asset_id = shared_source.id
+        sibling.analysis.source_asset_id = shared_source.id
+        db.commit()
+        first_analysis_id = first.analysis.id
+        sibling_analysis_id = sibling.analysis.id
+        workspace_id = first.analysis.workspace_id
+        source_asset_id = shared_source.id
+    finally:
+        db.close()
+
+    response = test_client.delete(f"/api/diagrams/{diagram_id}/purge", headers=headers)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["purged"]["durable"] == {
+        "analyses": 1,
+        "versions": 1,
+        "artifacts": 0,
+        "decisions": 0,
+        "source_assets": 0,
+        "implicit_workspaces": 0,
+    }
+    db = durable_runtime()
+    try:
+        assert db.query(Analysis).filter_by(id=first_analysis_id).count() == 0
+        assert db.query(Analysis).filter_by(id=sibling_analysis_id).count() == 1
+        assert db.query(SourceAsset).filter_by(id=source_asset_id).count() == 1
+        assert db.query(Workspace).filter_by(id=workspace_id).count() == 1
+    finally:
+        db.close()
+
+
+def test_purge_deletes_source_only_durable_graph_without_analysis(
+    test_client,
+    durable_runtime,
+):
+    owner, tenant, headers = _identity()
+    diagram_id = f"diag-source-only-purge-{uuid.uuid4().hex}"
+    db = durable_runtime()
+    try:
+        workspace = Workspace(
+            owner_user_id=owner,
+            tenant_id=tenant,
+            name="Default Workspace",
+            is_default=True,
+        )
+        db.add(workspace)
+        db.flush()
+        source = SourceAsset(
+            workspace_id=workspace.id,
+            owner_user_id=owner,
+            tenant_id=tenant,
+            filename="source-only.tfstate",
+            diagram_id=diagram_id,
+        )
+        db.add(source)
+        db.commit()
+        workspace_id = workspace.id
+        source_id = source.id
+    finally:
+        db.close()
+    SESSION_STORE.set(
+        diagram_id,
+        {
+            **copy.deepcopy(SAMPLE_ANALYSIS),
+            "diagram_id": diagram_id,
+            "_owner_user_id": owner,
+            "_tenant_id": tenant,
+        },
+    )
+
+    response = test_client.delete(f"/api/diagrams/{diagram_id}/purge", headers=headers)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["trust_receipt"]["purge"]["server_content_deleted"] is True
+    assert response.json()["purged"]["durable"] == {
+        "analyses": 0,
+        "versions": 0,
+        "artifacts": 0,
+        "decisions": 0,
+        "source_assets": 1,
+        "implicit_workspaces": 1,
+    }
+    db = durable_runtime()
+    try:
+        assert db.query(SourceAsset).filter_by(id=source_id).count() == 0
+        assert db.query(Workspace).filter_by(id=workspace_id).count() == 0
+    finally:
+        db.close()
 
 
 def test_artifact_route_checks_requested_analysis_for_same_principal(

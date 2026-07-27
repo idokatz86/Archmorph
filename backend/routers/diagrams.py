@@ -540,6 +540,7 @@ async def purge_diagram_session(
         "versions": 0,
         "artifacts": 0,
         "decisions": 0,
+        "source_assets": 0,
         "implicit_workspaces": 0,
     }
     principal = get_request_durable_principal(request)
@@ -607,7 +608,7 @@ async def purge_diagram_session(
             or share_links_deleted
             or jobs_deleted
             or iac_chat_deleted
-            or durable_deleted["analyses"]
+            or any(durable_deleted.values())
         ),
         "client_cache_action": "clear_session_storage_after_successful_purge",
         "audit_security_logs_retained": True,

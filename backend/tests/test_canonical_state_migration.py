@@ -63,4 +63,3 @@ def test_migration_contains_conflict_audit_and_uniqueness_guards():
     assert "ix_analysis_versions_analysis_num" in (
         MIGRATION_PATH.parent.joinpath("013_durable_workspaces.py").read_text(encoding="utf-8")
     )
-

@@ -14,7 +14,15 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from models.workspace import Analysis, AnalysisVersion, Artifact, Decision, TenantRehomeAudit, Workspace
+from models.workspace import (
+    Analysis,
+    AnalysisVersion,
+    Artifact,
+    Decision,
+    SourceAsset,
+    TenantRehomeAudit,
+    Workspace,
+)
 from session_store import InMemoryStore, RedisStore
 from workspace_store import (
     create_workspace,
@@ -298,6 +306,132 @@ def test_exact_owner_legacy_graph_rehomes_transactionally_with_audit(postgres_fa
             status="access_rehome_completed",
         ).one()
         assert "pg-rehome-first" in audit.details
+    finally:
+        db.close()
+
+
+def test_verified_b2c_alias_rehomes_owner_and_tenant_graph(postgres_factory):
+    legacy_owner = "azure_ad_b2c_subject-legacy"
+    canonical_owner = "subject-legacy"
+    db = postgres_factory()
+    try:
+        result = persist_analysis_state(
+            db,
+            owner_user_id=legacy_owner,
+            tenant_id="default_tenant",
+            diagram_id="pg-b2c-owner-rehome",
+            snapshot={"value": "legacy-b2c", "mappings": []},
+            artifact_type="migration_timeline",
+            artifact_format="json",
+            artifact_content='{"phase":1}',
+        )
+        asset = SourceAsset(
+            workspace_id=result.analysis.workspace_id,
+            owner_user_id=legacy_owner,
+            tenant_id="default_tenant",
+            filename="legacy-b2c.tfstate",
+            diagram_id="pg-b2c-owner-rehome",
+        )
+        db.add(asset)
+        db.add(Decision(
+            analysis_id=result.analysis.id,
+            version_id=result.version.id,
+            owner_user_id=legacy_owner,
+            tenant_id="default_tenant",
+            decision_type="risk",
+            title="preserve",
+        ))
+        db.commit()
+
+        status = rehome_legacy_analysis_scope(
+            db,
+            diagram_id="pg-b2c-owner-rehome",
+            owner_user_id=legacy_owner,
+            source_tenant_id="default_tenant",
+            target_tenant_id="idp:verified-b2c-scope",
+            target_owner_user_id=canonical_owner,
+        )
+
+        assert status == "rehomed"
+        assert db.query(Workspace).filter_by(
+            id=result.analysis.workspace_id,
+            owner_user_id=canonical_owner,
+            tenant_id="idp:verified-b2c-scope",
+        ).count() == 1
+        assert db.query(Analysis).filter_by(
+            id=result.analysis.id,
+            owner_user_id=canonical_owner,
+            tenant_id="idp:verified-b2c-scope",
+        ).count() == 1
+        assert db.query(SourceAsset).filter_by(
+            id=asset.id,
+            owner_user_id=canonical_owner,
+            tenant_id="idp:verified-b2c-scope",
+        ).count() == 1
+        assert db.query(Artifact).filter_by(
+            analysis_id=result.analysis.id,
+            owner_user_id=canonical_owner,
+            tenant_id="idp:verified-b2c-scope",
+        ).count() == 1
+        assert db.query(Decision).filter_by(
+            analysis_id=result.analysis.id,
+            owner_user_id=canonical_owner,
+            tenant_id="idp:verified-b2c-scope",
+        ).count() == 1
+        hydrated = load_analysis_state(
+            db,
+            diagram_id="pg-b2c-owner-rehome",
+            owner_user_id=canonical_owner,
+            tenant_id="idp:verified-b2c-scope",
+        )
+        assert hydrated["value"] == "legacy-b2c"
+    finally:
+        db.close()
+
+
+def test_verified_rehome_denies_mixed_owner_child_graph(postgres_factory):
+    db = postgres_factory()
+    try:
+        result = persist_analysis_state(
+            db,
+            owner_user_id="pg-mixed-owner",
+            tenant_id="default_tenant",
+            diagram_id="pg-mixed-owner-rehome",
+            snapshot={"mappings": []},
+        )
+        foreign_asset = SourceAsset(
+            workspace_id=result.analysis.workspace_id,
+            owner_user_id="foreign-owner",
+            tenant_id="foreign-tenant",
+            filename="foreign.tfstate",
+        )
+        db.add(foreign_asset)
+        db.commit()
+
+        status = rehome_legacy_analysis_scope(
+            db,
+            diagram_id="pg-mixed-owner-rehome",
+            owner_user_id="pg-mixed-owner",
+            source_tenant_id="default_tenant",
+            target_tenant_id="idp:verified-mixed-scope",
+        )
+
+        assert status == "conflict"
+        assert db.query(Workspace).filter_by(
+            id=result.analysis.workspace_id,
+            owner_user_id="pg-mixed-owner",
+            tenant_id="default_tenant",
+        ).count() == 1
+        assert db.query(SourceAsset).filter_by(
+            id=foreign_asset.id,
+            owner_user_id="foreign-owner",
+            tenant_id="foreign-tenant",
+        ).count() == 1
+        audit = db.query(TenantRehomeAudit).filter_by(
+            owner_user_id="pg-mixed-owner",
+            status="conflict_denied",
+        ).one()
+        assert "mixed_scope_workspace_graph" in audit.details
     finally:
         db.close()
 
