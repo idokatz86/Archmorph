@@ -226,6 +226,12 @@ class TestRedisStore:
         def pipeline(self):
             return TestRedisStore._FakePipeline(self)
 
+        def delete(self, key):
+            return int(self.values.pop(key, None) is not None)
+
+        def exists(self, key):
+            return int(key in self.values)
+
     class _FakePipeline:
         def __init__(self, redis_client):
             self.redis_client = redis_client
@@ -316,6 +322,34 @@ class TestRedisStore:
         assert value == {"version": 2}
         assert fake.execute_attempts == 2
         assert json.loads(fake.values["test:k"]) == {"version": 2}
+
+    def test_delete_confirms_redis_key_absence(self, monkeypatch):
+        import session_store
+
+        fake = self._FakeRedis()
+        monkeypatch.setattr(session_store, "_create_redis_client", lambda: fake)
+        store = RedisStore(prefix="test", ttl=120)
+        fake.values["test:k"] = json.dumps({"version": 1})
+
+        assert store.delete("k") is True
+        assert fake.exists("test:k") == 0
+
+    def test_delete_returns_false_when_redis_delete_fails(self, monkeypatch):
+        import session_store
+
+        fake = self._FakeRedis()
+        monkeypatch.setattr(session_store, "_create_redis_client", lambda: fake)
+        store = RedisStore(prefix="test", ttl=120)
+        fake.values["test:k"] = json.dumps({"version": 1})
+
+        class _FailingBreaker:
+            def call(self, *_args, **_kwargs):
+                raise RuntimeError("redis unavailable")
+
+        monkeypatch.setattr("circuit_breakers.redis_breaker", _FailingBreaker())
+
+        assert store.delete("k") is False
+        assert fake.exists("test:k") == 1
 
 
 class TestGetStore:

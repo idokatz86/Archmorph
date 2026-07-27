@@ -35,6 +35,7 @@ from workspace_store import load_analysis_state, persist_analysis_state
 @pytest.fixture()
 def durable_runtime(tmp_path, monkeypatch):
     import database
+    from routers import diff_routes, versioning
 
     engine = create_engine(
         f"sqlite:///{tmp_path / 'canonical-routes.db'}",
@@ -50,6 +51,8 @@ def durable_runtime(tmp_path, monkeypatch):
     Base.metadata.create_all(bind=engine)
     factory = sessionmaker(bind=engine, expire_on_commit=False)
     monkeypatch.setattr(database, "SessionLocal", factory)
+    monkeypatch.setattr(diff_routes, "SessionLocal", factory)
+    monkeypatch.setattr(versioning, "SessionLocal", factory)
     yield factory
     SESSION_STORE.clear()
     Base.metadata.drop_all(bind=engine)
@@ -699,6 +702,192 @@ def test_iac_chat_clear_survives_cache_and_process_loss(test_client, durable_run
         tenant_id=tenant,
     )
     assert hydrated["iac_chat_history"] == []
+
+
+def test_branch_projects_committed_snapshot_and_survives_cache_loss(
+    test_client,
+    durable_runtime,
+):
+    owner, tenant, headers = _identity()
+    diagram_id = f"diag-durable-branch-{uuid.uuid4().hex}"
+    analysis_id = _seed(
+        durable_runtime,
+        diagram_id=diagram_id,
+        owner_user_id=owner,
+        tenant_id=tenant,
+        extra={"branch_value": "source"},
+    )
+    db = durable_runtime()
+    try:
+        persist_analysis_state(
+            db,
+            owner_user_id=owner,
+            tenant_id=tenant,
+            diagram_id=diagram_id,
+            snapshot={"mappings": [], "branch_value": "current"},
+            session_store=SESSION_STORE,
+            cache_required=True,
+        )
+    finally:
+        db.close()
+
+    response = test_client.post(
+        f"/api/diagrams/{diagram_id}/versions/1/branch",
+        headers=headers,
+        json={"label": "what-if"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["version_number"] == 3
+    assert response.json()["branched_from"] == 1
+    immediate = copy.deepcopy(SESSION_STORE.peek(diagram_id))
+    assert immediate["branch_value"] == "source"
+    assert immediate["_analysis_version"] == 3
+    hydrated = _hydrate_after_cache_loss(
+        durable_runtime,
+        diagram_id=diagram_id,
+        owner_user_id=owner,
+        tenant_id=tenant,
+    )
+    assert hydrated["branch_value"] == immediate["branch_value"]
+    assert hydrated["_analysis_version"] == immediate["_analysis_version"]
+    db = durable_runtime()
+    try:
+        branched = db.query(AnalysisVersion).filter_by(
+            analysis_id=analysis_id,
+            version_number=3,
+        ).one()
+        assert branched.restored_from == 1
+    finally:
+        db.close()
+
+
+def test_archive_default_route_allows_next_analysis_to_create_replacement(
+    test_client,
+    durable_runtime,
+):
+    owner, tenant, headers = _identity()
+    diagram_id = f"diag-archive-default-{uuid.uuid4().hex}"
+    _seed(
+        durable_runtime,
+        diagram_id=diagram_id,
+        owner_user_id=owner,
+        tenant_id=tenant,
+    )
+    db = durable_runtime()
+    try:
+        first_workspace = db.query(Workspace).filter_by(
+            owner_user_id=owner,
+            tenant_id=tenant,
+            is_default=True,
+        ).one()
+        first_workspace_id = first_workspace.id
+    finally:
+        db.close()
+
+    archived = test_client.patch(
+        f"/api/workspaces/{first_workspace_id}",
+        headers=headers,
+        json={"status": "archived"},
+    )
+    replacement_id = f"diag-replacement-default-{uuid.uuid4().hex}"
+    db = durable_runtime()
+    try:
+        replacement = persist_analysis_state(
+            db,
+            owner_user_id=owner,
+            tenant_id=tenant,
+            diagram_id=replacement_id,
+            snapshot={"mappings": []},
+        )
+        replacement_workspace = db.query(Workspace).filter_by(
+            id=replacement.analysis.workspace_id,
+        ).one()
+    finally:
+        db.close()
+
+    assert archived.status_code == 200, archived.text
+    assert archived.json()["status"] == "archived"
+    assert archived.json()["is_default"] is False
+    assert replacement_workspace.id != first_workspace_id
+    assert replacement_workspace.is_default is True
+    assert replacement_workspace.status == "active"
+
+
+@pytest.mark.parametrize("failed_store_name", ["SESSION_STORE", "IMAGE_STORE"])
+def test_purge_fails_without_receipt_when_cache_delete_is_unconfirmed(
+    test_client,
+    durable_runtime,
+    monkeypatch,
+    failed_store_name,
+):
+    from routers import diagrams
+
+    owner, tenant, headers = _identity()
+    diagram_id = f"diag-failed-cache-purge-{failed_store_name.lower()}-{uuid.uuid4().hex}"
+    analysis_id = _seed(
+        durable_runtime,
+        diagram_id=diagram_id,
+        owner_user_id=owner,
+        tenant_id=tenant,
+        extra={"durable_value": "must-remain"},
+    )
+    diagrams.IMAGE_STORE.set(diagram_id, ("aW1hZ2U=", "image/png"))
+    failed_store = getattr(diagrams, failed_store_name)
+    original_delete = failed_store.delete
+    monkeypatch.setattr(failed_store, "delete", lambda _key: False)
+
+    response = test_client.delete(f"/api/diagrams/{diagram_id}/purge", headers=headers)
+
+    assert response.status_code == 503
+    assert "trust_receipt" not in response.json()
+    assert response.json()["error"]["details"]["error"] == "analysis_purge_unavailable"
+    assert failed_store.peek(diagram_id) is not None
+    assert SESSION_STORE.peek(diagram_id) is not None
+    assert diagrams.IMAGE_STORE.peek(diagram_id) is not None
+    db = durable_runtime()
+    try:
+        assert db.query(Analysis).filter_by(id=analysis_id).count() == 1
+    finally:
+        db.close()
+    monkeypatch.setattr(failed_store, "delete", original_delete)
+    SESSION_STORE.delete(diagram_id)
+    diagrams.IMAGE_STORE.delete(diagram_id)
+
+
+def test_purge_fails_when_session_read_looks_missing_but_delete_is_unconfirmed(
+    test_client,
+    durable_runtime,
+    monkeypatch,
+):
+    from routers import diagrams
+
+    owner, tenant, headers = _identity()
+    diagram_id = f"diag-hidden-stale-cache-purge-{uuid.uuid4().hex}"
+    analysis_id = _seed(
+        durable_runtime,
+        diagram_id=diagram_id,
+        owner_user_id=owner,
+        tenant_id=tenant,
+        extra={"durable_value": "must-remain"},
+    )
+    original_peek = diagrams.SESSION_STORE.peek
+    original_delete = diagrams.SESSION_STORE.delete
+    monkeypatch.setattr(diagrams.SESSION_STORE, "peek", lambda _key, _default=None: None)
+    monkeypatch.setattr(diagrams.SESSION_STORE, "delete", lambda _key: False)
+
+    response = test_client.delete(f"/api/diagrams/{diagram_id}/purge", headers=headers)
+
+    assert response.status_code == 503
+    assert "trust_receipt" not in response.json()
+    db = durable_runtime()
+    try:
+        assert db.query(Analysis).filter_by(id=analysis_id).count() == 1
+    finally:
+        db.close()
+    monkeypatch.setattr(diagrams.SESSION_STORE, "peek", original_peek)
+    monkeypatch.setattr(diagrams.SESSION_STORE, "delete", original_delete)
+    SESSION_STORE.delete(diagram_id)
 
 
 def test_purge_deletes_durable_graph_and_empty_implicit_workspace_before_receipt(

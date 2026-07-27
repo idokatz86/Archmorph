@@ -134,6 +134,42 @@ class TestWorkspaceCRUD:
         result = update_workspace(db, ws.id, owner_user_id="attacker", name="hacked")
         assert result is None
 
+    def test_archiving_default_clears_marker_and_next_analysis_gets_replacement(self, db):
+        first = persist_analysis_state(
+            db,
+            owner_user_id="archive-owner",
+            tenant_id="archive-tenant",
+            diagram_id="diag-before-archive",
+            snapshot={"mappings": []},
+        )
+
+        archived = update_workspace(
+            db,
+            first.analysis.workspace_id,
+            owner_user_id="archive-owner",
+            tenant_id="archive-tenant",
+            status="archived",
+        )
+        replacement = persist_analysis_state(
+            db,
+            owner_user_id="archive-owner",
+            tenant_id="archive-tenant",
+            diagram_id="diag-after-archive",
+            snapshot={"mappings": []},
+        )
+        replacement_workspace = get_workspace(
+            db,
+            replacement.analysis.workspace_id,
+            owner_user_id="archive-owner",
+            tenant_id="archive-tenant",
+        )
+
+        assert archived.status == "archived"
+        assert archived.is_default is False
+        assert replacement.analysis.workspace_id != archived.id
+        assert replacement_workspace.status == "active"
+        assert replacement_workspace.is_default is True
+
     def test_delete_workspace(self, db):
         ws = create_workspace(db, owner_user_id="u6", name="Delete Me")
         assert delete_workspace(db, ws.id, owner_user_id="u6") is True

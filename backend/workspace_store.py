@@ -270,6 +270,8 @@ def update_workspace(
     for k, v in fields.items():
         if k in allowed:
             setattr(ws, k, v)
+    if fields.get("status") == "archived" and ws.is_default:
+        ws.is_default = False
     db.commit()
     db.refresh(ws)
     return ws

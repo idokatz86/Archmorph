@@ -550,8 +550,10 @@ def _make_mock_redis_module():
             data[key] = {"value": value, "expires_at": time.time() + ttl}
 
         def mock_delete(*keys):
+            deleted = 0
             for k in keys:
-                data.pop(k, None)
+                deleted += int(data.pop(k, None) is not None)
+            return deleted
 
         def mock_exists(key):
             if key in data and data[key]["expires_at"] >= time.time():

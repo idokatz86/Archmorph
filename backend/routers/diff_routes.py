@@ -149,7 +149,7 @@ async def branch_version(
         try:
             if analysis is None:
                 raise ArchmorphException(404, "Diagram not found")
-            from workspace_store import get_analysis_version, persist_analysis_mutation
+            from workspace_store import get_analysis_version
 
             source = get_analysis_version(
                 db,
@@ -162,13 +162,12 @@ async def branch_version(
                 raise ArchmorphException(404, f"Version {version} not found for diagram {diagram_id}")
             import json
 
-            result = persist_analysis_mutation(
-                db,
-                owner_user_id=user["owner_user_id"],
-                tenant_id=user["tenant_id"],
-                diagram_id=diagram_id,
-                snapshot=json.loads(source.snapshot),
+            result = persist_diagram_mutation(
+                request,
+                diagram_id,
+                json.loads(source.snapshot),
                 label=label or f"Branch from version {version}",
+                expected_version=int(analysis.current_version or 0),
                 restored_from=version,
             )
             branched = result.version

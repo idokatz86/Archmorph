@@ -54,7 +54,8 @@ class SessionStore:
     def set(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
         raise NotImplementedError
 
-    def delete(self, key: str) -> None:
+    def delete(self, key: str) -> bool:
+        """Delete *key* and confirm that it is absent from the backing store."""
         raise NotImplementedError
 
     def keys(self, pattern: str = "*") -> List[str]:
@@ -198,11 +199,12 @@ class InMemoryStore(SessionStore):
             self._total_bytes += entry_size
             return True
 
-    def delete(self, key: str) -> None:
+    def delete(self, key: str) -> bool:
         with self._lock:
             val = self._cache.pop(key, None)
             if val is not None:
                 self._total_bytes -= self._estimate_entry_size(val)
+            return key not in self._cache
 
     def update_if(
         self,
@@ -372,11 +374,12 @@ class FileStore(SessionStore):
             finally:
                 fcntl.flock(lock_file, fcntl.LOCK_UN)
 
-    def delete(self, key: str) -> None:
+    def delete(self, key: str) -> bool:
         with open(self._lock_path(key), "a+") as lock_file:
             fcntl.flock(lock_file, fcntl.LOCK_EX)
             try:
                 self._path(key).unlink(missing_ok=True)
+                return not self._path(key).exists()
             finally:
                 fcntl.flock(lock_file, fcntl.LOCK_UN)
 
@@ -611,12 +614,14 @@ class RedisStore(SessionStore):
                 logger.warning("Redis conditional update failed (error_type=%s)", type(exc).__name__)
                 return False, self.get(key)
 
-    def delete(self, key: str) -> None:
+    def delete(self, key: str) -> bool:
         from circuit_breakers import redis_breaker
         try:
             redis_breaker.call(self._redis.delete, self._key(key))
+            return redis_breaker.call(self._redis.exists, self._key(key)) == 0
         except Exception as exc:
             logger.warning("Redis DELETE failed (error_type=%s)", type(exc).__name__)
+            return False
 
     def keys(self, pattern: str = "*") -> List[str]:
         full_pattern = f"{self._prefix}:{pattern}"

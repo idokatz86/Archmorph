@@ -493,6 +493,7 @@ def persist_diagram_mutation(
     artifact_content: Optional[str] = None,
     expected_version: Optional[int] = None,
     label: Optional[str] = None,
+    restored_from: Optional[int] = None,
     allow_legacy_cache_rehome: bool = False,
 ):
     """Persist an authenticated mutation, then project its committed version.
@@ -554,6 +555,7 @@ def persist_diagram_mutation(
             artifact_content=artifact_content,
             expected_version=expected_version,
             label=label,
+            restored_from=restored_from,
             cache_required=True,
             allow_legacy_cache_rehome=allow_legacy_cache_rehome,
             cache_legacy_owner_user_ids=(

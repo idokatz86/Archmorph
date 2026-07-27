@@ -194,9 +194,17 @@ def _purge_store_records_for_diagram(store, diagram_id: str) -> int:
     for key in list(store.keys("*")):
         value = store.get(key)
         if isinstance(value, dict) and value.get("diagram_id") == diagram_id:
-            store.delete(key)
+            if not store.delete(key):
+                raise RuntimeError("store deletion could not be confirmed")
             purged += 1
     return purged
+
+
+def _require_confirmed_store_delete(store, key: str) -> None:
+    """Delete *key* and fail unless the backing store confirms absence."""
+    if store.delete(key):
+        return
+    raise RuntimeError("store deletion could not be confirmed")
 
 
 def _diagram_project_metadata(diagram_id: str) -> tuple[Optional[str], Dict[str, Any]]:
@@ -529,8 +537,8 @@ async def purge_diagram_session(
     Uploaded data is processed by model services for analysis and is not used
     by Archmorph for model training.
     """
-    image_record = IMAGE_STORE.get(diagram_id)
-    session_record = SESSION_STORE.get(diagram_id)
+    image_record = IMAGE_STORE.peek(diagram_id)
+    session_record = SESSION_STORE.peek(diagram_id)
     image_deleted = image_record is not None
     session_deleted = session_record is not None
     project_id = get_project_id_for_diagram(diagram_id)
@@ -544,6 +552,29 @@ async def purge_diagram_session(
         "implicit_workspaces": 0,
     }
     principal = get_request_durable_principal(request)
+    session_delete_confirmed = False
+    try:
+        _require_confirmed_store_delete(SESSION_STORE, diagram_id)
+        session_delete_confirmed = True
+        _require_confirmed_store_delete(IMAGE_STORE, diagram_id)
+    except Exception as exc:
+        if session_delete_confirmed and session_record is not None:
+            if not SESSION_STORE.set(diagram_id, session_record):
+                logger.critical(
+                    "analysis_cache_purge_rollback_failed diagram_id=%s",
+                    str(diagram_id).replace("\n", "").replace("\r", ""),
+                )
+        logger.error(
+            "analysis_cache_purge_failed diagram_id=%s error_type=%s",
+            str(diagram_id).replace("\n", "").replace("\r", ""),
+            type(exc).__name__,
+        )
+        raise ArchmorphException(
+            503,
+            "Analysis cache is temporarily unavailable. Purge was not completed.",
+            details={"error": "analysis_purge_unavailable"},
+            headers={"Retry-After": "5"},
+        ) from exc
     if principal is not None and principal["tenant_id"]:
         from database import SessionLocal
         from workspace_store import purge_analysis_state
@@ -571,10 +602,6 @@ async def purge_diagram_session(
             ) from exc
         finally:
             db.close()
-    if image_record is not None:
-        IMAGE_STORE.delete(diagram_id)
-    if session_record is not None:
-        SESSION_STORE.delete(diagram_id)
 
     project_index_deleted = project_id is not None
     remove_diagram(diagram_id)
