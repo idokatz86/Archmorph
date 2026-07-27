@@ -67,6 +67,11 @@ jobs:
             package-lock.json
             frontend/package-lock.json
 
+      - name: Verify vendored npm packages
+        run: |
+          python scripts/verify_vendored_packages.py
+          python scripts/build_brace_expansion_compat.py --check
+
       - name: Run root npm audit
         run: |
           PUPPETEER_SKIP_DOWNLOAD=1 npm ci --no-audit --no-fund
@@ -76,6 +81,7 @@ jobs:
         working-directory: frontend
         run: |
           npm ci --no-audit --no-fund
+          npm run test:security-packages
           npm audit --audit-level=high
 
   gitleaks:

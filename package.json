@@ -31,10 +31,12 @@
   "devDependencies": {
     "@axe-core/playwright": "^4.11.1",
     "@playwright/test": "^1.58.2",
+    "js-yaml": "file:vendor/js-yaml-4.3.0.tgz",
     "playwright": "^1.58.2",
     "puppeteer": "^25.0.2"
   },
   "overrides": {
+    "js-yaml": "$js-yaml",
     "yauzl": "^3.2.1"
   }
 }
