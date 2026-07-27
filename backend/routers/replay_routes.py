@@ -32,6 +32,26 @@ router = APIRouter(prefix="/api/replay", tags=["Replay"])
 # ── Store ────────────────────────────────────────────────────
 _replay_store = get_store("replays", maxsize=200, ttl=86400 * 30)
 
+
+def purge_diagram_replays(diagram_id: str) -> int:
+    """Delete replay timelines linked to a diagram."""
+    removed = 0
+    for replay_id in list(_replay_store.keys("*")):
+        replay = _replay_store.peek(replay_id) or {}
+        if replay.get("analysis_id") != diagram_id:
+            continue
+        if not _replay_store.delete(replay_id):
+            raise RuntimeError("Replay deletion could not be confirmed")
+        removed += 1
+    return removed
+
+
+def diagram_replays_absent(diagram_id: str) -> bool:
+    return not any(
+        (_replay_store.peek(replay_id) or {}).get("analysis_id") == diagram_id
+        for replay_id in _replay_store.keys("*")
+    )
+
 # ── Models ───────────────────────────────────────────────────
 
 EventType = Literal[

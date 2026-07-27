@@ -9,6 +9,7 @@ import copy
 import os
 import sys
 import time
+import uuid
 from unittest.mock import patch
 
 import pytest
@@ -89,7 +90,7 @@ def clean_session():
 @pytest.fixture()
 def diagram_with_analysis(client):
     """Seed a diagram session with a pre-populated analysis."""
-    diagram_id = "test-concurrency-diag-001"
+    diagram_id = f"test-concurrency-diag-{uuid.uuid4().hex}"
     SESSION_STORE[diagram_id] = copy.deepcopy(SAMPLE_ANALYSIS)
     return diagram_id
 
@@ -97,10 +98,11 @@ def diagram_with_analysis(client):
 @pytest.fixture()
 def owned_diagram_with_analysis(client):
     """Seed an authenticated diagram session for async job access checks."""
-    diagram_id = "test-concurrency-diag-owned-001"
+    diagram_id = f"test-concurrency-diag-owned-{uuid.uuid4().hex}"
     session = copy.deepcopy(SAMPLE_ANALYSIS)
     session["_owner_user_id"] = "iac-async-user"
     session["_tenant_id"] = "tenant-iac-async"
+    session["is_template"] = True
     SESSION_STORE[diagram_id] = session
     return diagram_id
 

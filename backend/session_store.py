@@ -58,8 +58,26 @@ class SessionStore:
         """Delete *key* and confirm that it is absent from the backing store."""
         raise NotImplementedError
 
+    def pop(self, key: str, default: Any = None) -> Any:
+        """Atomically return and delete *key*, or return *default* when absent.
+
+        Backends must raise when deletion cannot be confirmed.  A non-atomic
+        ``get`` followed by ``delete`` is intentionally not provided because
+        capability consumers rely on exactly one concurrent caller winning.
+        """
+        raise NotImplementedError
+
     def keys(self, pattern: str = "*") -> List[str]:
         raise NotImplementedError
+
+    def values(self, pattern: str = "*") -> List[Any]:
+        """Return confirmed present values matching *pattern*."""
+        values = []
+        for key in self.keys(pattern):
+            value = self.peek(key, self._MISSING)
+            if value is not self._MISSING:
+                values.append(value)
+        return values
 
     def clear(self) -> None:
         raise NotImplementedError
@@ -205,6 +223,14 @@ class InMemoryStore(SessionStore):
             if val is not None:
                 self._total_bytes -= self._estimate_entry_size(val)
             return key not in self._cache
+
+    def pop(self, key: str, default: Any = None) -> Any:
+        with self._lock:
+            value = self._cache.pop(key, self._MISSING)
+            if value is self._MISSING:
+                return default
+            self._total_bytes -= self._estimate_entry_size(value)
+            return value
 
     def update_if(
         self,
@@ -380,6 +406,29 @@ class FileStore(SessionStore):
             try:
                 self._path(key).unlink(missing_ok=True)
                 return not self._path(key).exists()
+            finally:
+                fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+    def pop(self, key: str, default: Any = None) -> Any:
+        path = self._path(key)
+        with open(self._lock_path(key), "a+") as lock_file:
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
+            try:
+                if not path.exists():
+                    return default
+                try:
+                    with open(path, "r") as value_file:
+                        data = _json.load(value_file)
+                    if data.get("expires_at", 0) < _time.time():
+                        path.unlink(missing_ok=True)
+                        return default
+                    value = data.get("value")
+                except (ValueError, OSError, KeyError) as exc:
+                    raise OSError("FileStore value could not be consumed") from exc
+                path.unlink(missing_ok=True)
+                if path.exists():
+                    raise OSError("FileStore deletion could not be confirmed")
+                return value
             finally:
                 fcntl.flock(lock_file, fcntl.LOCK_UN)
 
@@ -622,6 +671,27 @@ class RedisStore(SessionStore):
         except Exception as exc:
             logger.warning("Redis DELETE failed (error_type=%s)", type(exc).__name__)
             return False
+
+    def pop(self, key: str, default: Any = None) -> Any:
+        """Atomically consume a value with Redis ``GETDEL``.
+
+        Backend errors are raised rather than collapsed into a cache miss so
+        security-sensitive callers cannot report success without deletion
+        confirmation.
+        """
+        from circuit_breakers import redis_breaker
+
+        try:
+            raw = redis_breaker.call(self._redis.getdel, self._key(key))
+        except Exception as exc:
+            logger.warning("Redis GETDEL failed (error_type=%s)", type(exc).__name__)
+            raise RuntimeError("Redis atomic deletion could not be confirmed") from exc
+        if raw is None:
+            return default
+        try:
+            return self._json.loads(raw)
+        except (self._json.JSONDecodeError, TypeError):
+            return raw
 
     def keys(self, pattern: str = "*") -> List[str]:
         full_pattern = f"{self._prefix}:{pattern}"

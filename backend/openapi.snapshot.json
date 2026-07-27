@@ -27416,7 +27416,7 @@
     },
     "/api/v1/workspaces/{workspace_id}": {
       "delete": {
-        "description": "Delete a workspace and its analyses/versions/artifacts.",
+        "description": "Converge all workspace-owned state to a confirmed deletion fixed point.",
         "operationId": "delete_workspace_endpoint_v1_api_v1_workspaces__workspace_id__delete",
         "parameters": [
           {
@@ -28083,7 +28083,7 @@
     },
     "/api/workspaces/{workspace_id}": {
       "delete": {
-        "description": "Delete a workspace and its analyses/versions/artifacts.",
+        "description": "Converge all workspace-owned state to a confirmed deletion fixed point.",
         "operationId": "delete_workspace_endpoint_api_workspaces__workspace_id__delete",
         "parameters": [
           {

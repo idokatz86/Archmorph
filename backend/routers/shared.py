@@ -4,6 +4,7 @@ Shared state, dependencies, and models used across Archmorph API routers.
 
 import asyncio
 import copy
+import json
 import os
 import logging
 import secrets
@@ -249,6 +250,15 @@ def _load_durable_diagram_session(request: Request, diagram_id: str) -> Optional
 
     db = SessionLocal()
     try:
+        from workspace_store import diagram_is_tombstoned
+
+        if diagram_is_tombstoned(
+            db,
+            diagram_id=diagram_id,
+            owner_user_id=principal["owner_user_id"],
+            tenant_id=principal["tenant_id"],
+        ):
+            return {"_durable_tombstone": True}
         legacy_owner_user_id = next(
             (
                 owner_user_id
@@ -323,7 +333,24 @@ def authorize_diagram_access(
     from auth import get_user_from_request_headers
 
     session = _load_diagram_session_for_access(diagram_id)
-    if session is None:
+    principal = get_request_durable_principal(request)
+    if has_canonical_durable_principal(request):
+        cached_version = session.get("_analysis_version") if isinstance(session, dict) else None
+        durable_session = _load_durable_diagram_session(request, diagram_id)
+        if durable_session is not None:
+            if durable_session.get("_durable_tombstone"):
+                raise ArchmorphException(404, "Diagram not found")
+            durable_version = durable_session.get("_analysis_version")
+            try:
+                cache_is_current = (
+                    cached_version is not None
+                    and int(cached_version) == int(durable_version)
+                )
+            except (TypeError, ValueError):
+                cache_is_current = False
+            if not cache_is_current:
+                session = durable_session
+    elif session is None:
         session = _load_durable_diagram_session(request, diagram_id)
     if _is_public_diagram_session(diagram_id, session):
         if session is None:
@@ -480,7 +507,37 @@ def authorize_diagram_access(
 
 def require_diagram_access(request: Request, diagram_id: str) -> dict:
     """FastAPI dependency wrapper for diagram access checks."""
+    if request.url.path.endswith(f"/diagrams/{diagram_id}/purge"):
+        return require_diagram_or_purge_access(request, diagram_id)
     return authorize_diagram_access(request, diagram_id)
+
+
+def require_diagram_or_purge_access(request: Request, diagram_id: str) -> dict:
+    """Authorize a live diagram or its same-owner durable purge receipt."""
+    try:
+        return authorize_diagram_access(request, diagram_id, purpose="purge a diagram")
+    except ArchmorphException as exc:
+        if exc.status_code != 404:
+            raise
+    principal = get_request_durable_principal(request)
+    if principal is None or not principal.get("tenant_id"):
+        raise ArchmorphException(404, "Diagram not found")
+    from database import SessionLocal
+    from models.workspace import PurgeOperation
+
+    db = SessionLocal()
+    try:
+        operation = db.query(PurgeOperation).filter(
+            PurgeOperation.scope_type == "diagram",
+            PurgeOperation.scope_id == diagram_id,
+            PurgeOperation.owner_user_id == principal["owner_user_id"],
+            PurgeOperation.tenant_id == principal["tenant_id"],
+        ).first()
+        if operation is None:
+            raise ArchmorphException(404, "Diagram not found")
+        return {"purge_operation_id": operation.id, "status": operation.status}
+    finally:
+        db.close()
 
 
 def persist_diagram_mutation(
@@ -542,6 +599,38 @@ def persist_diagram_mutation(
 
     db = SessionLocal()
     try:
+        snapshot_version = detached_snapshot.get("_analysis_version")
+        if restored_from is None and snapshot_version is not None:
+            try:
+                snapshot_version = int(snapshot_version)
+            except (TypeError, ValueError) as exc:
+                raise AnalysisVersionConflictError("Invalid immutable analysis version") from exc
+            if expected_version is None:
+                expected_version = snapshot_version
+        operation = label or artifact_type or "analysis-mutation"
+        raw_body = getattr(request, "_body", b"")
+        if not isinstance(raw_body, bytes):
+            raw_body = str(raw_body).encode("utf-8")
+        supplied_idempotency_key = request.headers.get("idempotency-key")
+        request_material = json.dumps(
+            {
+                "diagram_id": diagram_id,
+                "operation": operation,
+                "method": request.method,
+                "path": request.url.path,
+                "query": sorted(request.query_params.multi_items()),
+                "body_hash": hashlib.sha256(raw_body).hexdigest(),
+                "idempotency_key_hash": (
+                    hashlib.sha256(supplied_idempotency_key.encode("utf-8")).hexdigest()
+                    if supplied_idempotency_key
+                    else None
+                ),
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
+        request_hash = hashlib.sha256(request_material.encode("utf-8")).hexdigest()
         return persist_analysis_mutation(
             db,
             owner_user_id=principal["owner_user_id"],
@@ -554,6 +643,8 @@ def persist_diagram_mutation(
             artifact_format=artifact_format,
             artifact_content=artifact_content,
             expected_version=expected_version,
+            operation=operation,
+            request_hash=request_hash,
             label=label,
             restored_from=restored_from,
             cache_required=True,
@@ -565,6 +656,21 @@ def persist_diagram_mutation(
             ),
         )
     except AnalysisVersionConflictError as exc:
+        try:
+            from workspace_store import load_analysis_state
+
+            load_analysis_state(
+                db,
+                diagram_id=diagram_id,
+                owner_user_id=principal["owner_user_id"],
+                tenant_id=principal["tenant_id"],
+                session_store=SESSION_STORE,
+                cache_owner_api_key_id=principal["owner_api_key_id"],
+                allow_legacy_cache_rehome=allow_legacy_cache_rehome,
+                cache_legacy_owner_user_ids=principal.get("legacy_owner_user_ids", []),
+            )
+        except Exception:
+            logger.warning("analysis_cache_rehydrate_after_conflict_failed diagram_id=%s", _safe_log_value(diagram_id))
         raise ArchmorphException(
             409,
             "Analysis changed while this operation was running.",

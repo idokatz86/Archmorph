@@ -55,6 +55,11 @@ VISION_CACHE_MAXSIZE, VISION_CACHE_TTL_SECONDS = _vision_cache_settings()
 # Thread-safe cache for vision results. Uses the shared store abstraction so
 # Redis-configured deployments can share hits across workers/replicas.
 _vision_cache = get_store("vision_cache", maxsize=VISION_CACHE_MAXSIZE, ttl=VISION_CACHE_TTL_SECONDS)
+_vision_cache_refs = get_store(
+    "vision_cache_refs",
+    maxsize=VISION_CACHE_MAXSIZE * 2,
+    ttl=VISION_CACHE_TTL_SECONDS,
+)
 _vision_cache_lock = threading.Lock()
 
 VISION_CACHE_METRIC = "archmorph.vision.cache"
@@ -280,6 +285,38 @@ def _compute_vision_cache_key(compressed_bytes: bytes, model_name: str, prompt_h
     return digest.hexdigest()
 
 
+def _record_vision_cache_reference(diagram_id: str | None, cache_key: str) -> None:
+    if diagram_id:
+        if not _vision_cache_refs.set(
+            diagram_id,
+            {"cache_key": cache_key},
+            ttl=VISION_CACHE_TTL_SECONDS,
+        ):
+            raise RuntimeError("Vision cache reference could not be persisted")
+
+
+def purge_diagram_cache(diagram_id: str) -> bool:
+    """Delete a diagram's vision-cache reference and unshared derived result."""
+    with _vision_cache_lock:
+        reference = _vision_cache_refs.pop(diagram_id, None)
+        if not isinstance(reference, dict):
+            return False
+        cache_key = reference.get("cache_key")
+        if not isinstance(cache_key, str) or not cache_key:
+            raise RuntimeError("Vision cache reference is invalid")
+        shared = any(
+            isinstance(value, dict) and value.get("cache_key") == cache_key
+            for value in _vision_cache_refs.values()
+        )
+        if not shared and not _vision_cache.delete(cache_key):
+            raise RuntimeError("Vision cache deletion could not be confirmed")
+        return True
+
+
+def diagram_cache_absent(diagram_id: str) -> bool:
+    return _vision_cache_refs.peek(diagram_id) is None
+
+
 def _emit_prompt_hash_metric(model_name: str, prompt_hash: str) -> None:
     set_gauge(
         VISION_PROMPT_HASH_METRIC,
@@ -303,7 +340,12 @@ def _record_vision_latency(start_time: float, cache_hit: bool, model_name: str, 
 VISION_PROMPT_HASH = _compute_vision_prompt_hash(AZURE_OPENAI_DEPLOYMENT)
 _emit_prompt_hash_metric(AZURE_OPENAI_DEPLOYMENT, VISION_PROMPT_HASH)
 
-def analyze_image(image_bytes: bytes, content_type: str = "image/png") -> Dict[str, Any]:
+def analyze_image(
+    image_bytes: bytes,
+    content_type: str = "image/png",
+    *,
+    diagram_id: str | None = None,
+) -> Dict[str, Any]:
     """
     Analyze a cloud architecture diagram image using GPT-4o vision directly.
     """
@@ -321,6 +363,7 @@ def analyze_image(image_bytes: bytes, content_type: str = "image/png") -> Dict[s
     with _vision_cache_lock:
         cached = _vision_cache.get(cache_key)
     if cached is not None:
+        _record_vision_cache_reference(diagram_id, cache_key)
         logger.info("Vision cache HIT (key=%s…)", cache_key[:12])
         increment_counter(VISION_CACHE_METRIC, tags={"result": "hit", "model": model_name})
         _record_vision_latency(start_time, True, model_name, prompt_hash)
@@ -377,6 +420,7 @@ def analyze_image(image_bytes: bytes, content_type: str = "image/png") -> Dict[s
 
         with _vision_cache_lock:
             _vision_cache[cache_key] = result
+            _record_vision_cache_reference(diagram_id, cache_key)
             
         return result
     except Exception as e:

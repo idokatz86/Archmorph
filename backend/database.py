@@ -246,10 +246,14 @@ def database_readiness() -> dict[str, object]:
                     current_revision = ",".join(sorted(revisions)) or None
 
                 required_tables = {
+                    "analysis_mutation_receipts",
                     "workspaces",
                     "analyses",
                     "analysis_versions",
+                    "diagram_lifecycle",
                     "project_members",
+                    "purge_operations",
+                    "restore_grants",
                     "tenant_rehome_audit",
                 }
                 present_tables = set(inspector.get_table_names())

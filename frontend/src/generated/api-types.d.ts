@@ -9328,7 +9328,7 @@ export interface paths {
         post?: never;
         /**
          * Delete Workspace Endpoint V1
-         * @description Delete a workspace and its analyses/versions/artifacts.
+         * @description Converge all workspace-owned state to a confirmed deletion fixed point.
          */
         delete: operations["delete_workspace_endpoint_v1_api_v1_workspaces__workspace_id__delete"];
         options?: never;
@@ -9512,7 +9512,7 @@ export interface paths {
         post?: never;
         /**
          * Delete Workspace Endpoint
-         * @description Delete a workspace and its analyses/versions/artifacts.
+         * @description Converge all workspace-owned state to a confirmed deletion fixed point.
          */
         delete: operations["delete_workspace_endpoint_api_workspaces__workspace_id__delete"];
         options?: never;

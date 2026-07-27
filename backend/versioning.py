@@ -19,6 +19,15 @@ logger = logging.getLogger(__name__)
 VERSION_STORE: TTLCache = TTLCache(maxsize=500, ttl=86400 * 7)
 
 
+def purge_diagram_versions(diagram_id: str) -> bool:
+    """Delete transient compatibility version history for a diagram."""
+    return VERSION_STORE.pop(diagram_id, None) is not None
+
+
+def diagram_versions_absent(diagram_id: str) -> bool:
+    return diagram_id not in VERSION_STORE
+
+
 class ChangeType(str, Enum):
     SERVICE_ADDED = "service_added"
     SERVICE_REMOVED = "service_removed"

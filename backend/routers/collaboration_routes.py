@@ -30,6 +30,26 @@ router = APIRouter(prefix="/api/collab", tags=["Collaboration"])
 _session_store = get_store("collab_sessions", maxsize=500, ttl=86400)
 _change_store = get_store("collab_changes", maxsize=5000, ttl=86400)
 
+
+def purge_diagram_collaboration(diagram_id: str) -> int:
+    """Delete collaboration sessions and changes linked to a diagram."""
+    removed = 0
+    for session_id in list(_session_store.keys("*")):
+        session = _session_store.peek(session_id) or {}
+        if session.get("analysis_id") != diagram_id:
+            continue
+        if not _change_store.delete(session_id) or not _session_store.delete(session_id):
+            raise RuntimeError("Collaboration deletion could not be confirmed")
+        removed += 1
+    return removed
+
+
+def diagram_collaboration_absent(diagram_id: str) -> bool:
+    return not any(
+        (_session_store.peek(session_id) or {}).get("analysis_id") == diagram_id
+        for session_id in _session_store.keys("*")
+    )
+
 # ── Models ───────────────────────────────────────────────────
 
 Role = Literal["architect", "devops", "manager", "security"]

@@ -18,11 +18,12 @@ import asyncio
 import base64
 import copy
 import hashlib
+import json
 import logging
 
 from database import get_db, SessionLocal
 from routers.shared import (
-    SESSION_STORE, IMAGE_STORE, SHARE_STORE, EXPORT_CAPABILITY_STORE,
+    SESSION_STORE, IMAGE_STORE,
     limiter, verify_api_key, verify_api_key_or_user_session, MAX_UPLOAD_SIZE, generate_session_id,
     get_api_key_service_principal, get_request_durable_principal,
     require_diagram_access,
@@ -33,8 +34,8 @@ from usage_metrics import record_event, record_funnel_step
 from export_capabilities import (
     _principal_marker,
     attach_export_capability,
+    decode_restore_capability,
     issue_restore_capability,
-    verify_restore_capability,
 )
 from data_lifecycle import attach_trust_receipt, build_trust_receipt
 from image_classifier import classify_image
@@ -55,8 +56,6 @@ from project_store import (
     register_diagram,
     get_project_id_for_diagram,
 )
-import shareable_reports
-from iac_chat import clear_iac_chat
 from analysis_payload_bounds import (
     AnalysisPayloadTooLarge,
     validate_analysis_payload_bounds,
@@ -189,24 +188,6 @@ class RestoreSessionRequest(StrictBaseModel):
     restore_capability: Optional[str] = None
 
 
-def _purge_store_records_for_diagram(store, diagram_id: str) -> int:
-    purged = 0
-    for key in list(store.keys("*")):
-        value = store.get(key)
-        if isinstance(value, dict) and value.get("diagram_id") == diagram_id:
-            if not store.delete(key):
-                raise RuntimeError("store deletion could not be confirmed")
-            purged += 1
-    return purged
-
-
-def _require_confirmed_store_delete(store, key: str) -> None:
-    """Delete *key* and fail unless the backing store confirms absence."""
-    if store.delete(key):
-        return
-    raise RuntimeError("store deletion could not be confirmed")
-
-
 def _diagram_project_metadata(
     diagram_id: str,
     *,
@@ -276,8 +257,10 @@ def _persist_authenticated_analysis(
     owner_api_key_id: Optional[str] = None,
     cache_required: bool = False,
     require_project_membership: bool = False,
-) -> None:
+) -> Any:
     try:
+        from workspace_store import get_analysis_by_diagram
+
         workspace_id = get_project_id_for_diagram(
             db,
             diagram_id,
@@ -286,7 +269,31 @@ def _persist_authenticated_analysis(
         ) if tenant_id else None
         if workspace_id is None and require_project_membership:
             raise ValueError("Durable project membership not found")
-        persist_analysis_state(
+        durable_analysis = get_analysis_by_diagram(
+            db,
+            diagram_id=diagram_id,
+            owner_user_id=user_id,
+            tenant_id=tenant_id,
+        ) if tenant_id else None
+        expected_version = (
+            int(durable_analysis.current_version or 0)
+            if durable_analysis is not None and int(durable_analysis.current_version or 0) > 0
+            else None
+        )
+        operation = "analysis-result"
+        request_snapshot = copy.deepcopy(session)
+        request_snapshot.pop("_analysis_version", None)
+        request_hash = hashlib.sha256(json.dumps(
+            {
+                "diagram_id": diagram_id,
+                "operation": operation,
+                "snapshot": request_snapshot,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        ).encode("utf-8")).hexdigest()
+        result = persist_analysis_state(
             db,
             owner_user_id=user_id,
             tenant_id=tenant_id,
@@ -297,7 +304,13 @@ def _persist_authenticated_analysis(
             cache_owner_api_key_id=owner_api_key_id,
             cache_required=cache_required,
             allow_unowned_upload_claim=True,
+            expected_version=expected_version,
+            operation=operation,
+            request_hash=request_hash,
+            require_snapshot_version=False,
         )
+        session["_analysis_version"] = result.version.version_number
+        return result
     except ValueError as exc:
         if not tenant_id:
             raise ArchmorphException(
@@ -416,6 +429,13 @@ async def upload_diagram(
             tenant_id=upload_principal["tenant_id"],
             filename=file.filename,
         )
+        restore_capability = issue_restore_capability(
+            request,
+            diagram_id,
+            db=db,
+            owner_user_id=upload_principal["owner_user_id"],
+            tenant_id=upload_principal["tenant_id"],
+        )
     except Exception as exc:
         IMAGE_STORE.delete(diagram_id)
         raise ArchmorphException(503, "Project persistence is temporarily unavailable") from exc
@@ -442,11 +462,6 @@ async def upload_diagram(
     record_event("diagrams_uploaded", {"filename": file.filename})
     record_funnel_step(diagram_id, "upload")
     principal_marker = _principal_marker(request)
-    restore_capability = (
-        issue_restore_capability(request, diagram_id)
-        if principal_marker
-        else None
-    )
     return _attach_lifecycle_receipt(attach_export_capability({
         "diagram_id": diagram_id,
         "project_id": project_id,
@@ -498,35 +513,6 @@ async def restore_session(
     analysis = copy.deepcopy(body.analysis)
     if not analysis or not isinstance(analysis, dict):
         raise ArchmorphException(400, "Invalid analysis payload")
-    try:
-        validate_analysis_payload_bounds(analysis)
-    except AnalysisPayloadTooLarge as exc:
-        raise ArchmorphException(
-            413,
-            detail={
-                "error": "analysis_payload_too_large",
-                "message": str(exc),
-                **exc.details,
-            },
-        )
-    decoded_image: Optional[bytes] = None
-    restored_content_type: Optional[str] = None
-    if body.image_base64:
-        try:
-            decoded_image = base64.b64decode(body.image_base64, validate=True)
-        except Exception as exc:
-            raise ArchmorphException(400, f"Invalid image_base64 payload: {str(exc)}")
-        if len(decoded_image) > MAX_UPLOAD_SIZE:
-            raise ArchmorphException(
-                413,
-                f"image_base64 too large. Maximum allowed: {MAX_UPLOAD_SIZE // (1024*1024)} MB.",
-            )
-        restored_content_type = body.image_content_type or "image/png"
-        try:
-            validate_upload(decoded_image, restored_content_type, None)
-        except UploadValidationError as exc:
-            raise ArchmorphException(exc.status_code, exc.message)
-
     principal = get_request_durable_principal(request)
     if principal is None or not principal["tenant_id"]:
         raise ArchmorphException(401, "Authentication required")
@@ -534,32 +520,64 @@ async def restore_session(
     tenant_id = principal["tenant_id"]
     owner_api_key_id = principal["owner_api_key_id"]
 
-    existing = SESSION_STORE.peek(diagram_id)
-    owns_existing = bool(
-        isinstance(existing, dict)
-        and existing.get("_tenant_id") == tenant_id
-        and (
-            existing.get("_owner_api_key_id") == owner_api_key_id
-            if owner_api_key_id
-            else existing.get("_owner_user_id") == owner_user_id
-        )
-    )
-    if not owns_existing:
-        from workspace_store import load_analysis_state
+    from workspace_store import consume_restore_grant, load_analysis_state, snapshot_payload_hash
 
-        durable = load_analysis_state(
+    durable = load_analysis_state(
+        db,
+        diagram_id=diagram_id,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+    )
+    if durable is not None:
+        analysis = durable
+        decoded_image: Optional[bytes] = None
+        restored_content_type: Optional[str] = None
+    else:
+        try:
+            validate_analysis_payload_bounds(analysis)
+        except AnalysisPayloadTooLarge as exc:
+            raise ArchmorphException(
+                413,
+                detail={
+                    "error": "analysis_payload_too_large",
+                    "message": str(exc),
+                    **exc.details,
+                },
+            )
+        decoded_image = None
+        restored_content_type = None
+        if body.image_base64:
+            try:
+                decoded_image = base64.b64decode(body.image_base64, validate=True)
+            except Exception as exc:
+                raise ArchmorphException(400, f"Invalid image_base64 payload: {str(exc)}")
+            if len(decoded_image) > MAX_UPLOAD_SIZE:
+                raise ArchmorphException(
+                    413,
+                    f"image_base64 too large. Maximum allowed: {MAX_UPLOAD_SIZE // (1024*1024)} MB.",
+                )
+            restored_content_type = body.image_content_type or "image/png"
+            try:
+                validate_upload(decoded_image, restored_content_type, None)
+            except UploadValidationError as exc:
+                raise ArchmorphException(exc.status_code, exc.message)
+        claims = decode_restore_capability(
+            request,
+            diagram_id,
+            body.restore_capability,
+        )
+        payload_hash = snapshot_payload_hash(analysis)
+        if claims is None or not consume_restore_grant(
             db,
-            diagram_id=diagram_id,
+            nonce=str(claims.get("nonce") or ""),
             owner_user_id=owner_user_id,
             tenant_id=tenant_id,
-        )
-        owns_existing = durable is not None
-    if not owns_existing and not verify_restore_capability(
-        request,
-        diagram_id,
-        body.restore_capability,
-    ):
-        raise ArchmorphException(404, "Diagram not found")
+            diagram_id=diagram_id,
+            generation=int(claims.get("generation", -1)),
+            expected_version=int(claims.get("expected_version", -1)),
+            payload_hash=payload_hash,
+        ):
+            raise ArchmorphException(404, "Diagram not found")
 
     analysis["diagram_id"] = diagram_id
     analysis["_tenant_id"] = tenant_id
@@ -570,30 +588,44 @@ async def restore_session(
         analysis["_owner_user_id"] = owner_user_id
         analysis.pop("_owner_api_key_id", None)
 
-    if body.hld:
-        analysis["hld"] = body.hld
-    if body.hld_markdown:
-        analysis["hld_markdown"] = body.hld_markdown
-    if body.iac_code:
-        analysis["_cached_iac_code"] = body.iac_code
-    if body.iac_format:
-        analysis["_cached_iac_format"] = body.iac_format
+    if durable is None:
+        if body.hld:
+            analysis["hld"] = body.hld
+        if body.hld_markdown:
+            analysis["hld_markdown"] = body.hld_markdown
+        if body.iac_code:
+            analysis["_cached_iac_code"] = body.iac_code
+        if body.iac_format:
+            analysis["_cached_iac_format"] = body.iac_format
 
-    _persist_authenticated_analysis(
-        db,
-        user_id=owner_user_id,
-        tenant_id=tenant_id,
-        diagram_id=diagram_id,
-        session=analysis,
-        owner_api_key_id=owner_api_key_id,
-        cache_required=True,
-    )
+    if durable is not None:
+        from workspace_store import _write_session_cache
+
+        _write_session_cache(
+            SESSION_STORE,
+            diagram_id=diagram_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+            snapshot=analysis,
+            version_number=int(analysis["_analysis_version"]),
+            owner_api_key_id=owner_api_key_id,
+        )
+    else:
+        _persist_authenticated_analysis(
+            db,
+            user_id=owner_user_id,
+            tenant_id=tenant_id,
+            diagram_id=diagram_id,
+            session=analysis,
+            owner_api_key_id=owner_api_key_id,
+            cache_required=True,
+        )
     restored_parts = ["analysis"]
-    if body.hld:
+    if durable is None and body.hld:
         restored_parts.append("hld")
-    if body.iac_code:
+    if durable is None and body.iac_code:
         restored_parts.append("iac")
-    if body.image_base64:
+    if durable is None and body.image_base64:
         assert decoded_image is not None
         assert restored_content_type is not None
         IMAGE_STORE[diagram_id] = (
@@ -603,12 +635,20 @@ async def restore_session(
         restored_parts.append("image")
     logger.info("Session restored for %s via client cache (%s)", str(diagram_id).replace('\n', '').replace('\r', ''), str(", ".join(restored_parts)).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
     record_event("sessions_restored", {"diagram_id": diagram_id, "parts": restored_parts})
-    next_restore_capability = issue_restore_capability(request, diagram_id)
+    next_restore_capability = issue_restore_capability(
+        request,
+        diagram_id,
+        db=db,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+        payload_hash=snapshot_payload_hash(analysis),
+    )
     return _attach_lifecycle_receipt(attach_export_capability(
         {
             "status": "restored",
             "diagram_id": diagram_id,
             "restored": restored_parts,
+            "analysis": analysis,
             "restore_capability": next_restore_capability,
         },
         diagram_id,
@@ -616,7 +656,10 @@ async def restore_session(
     ), diagram_id, image_present=diagram_id in IMAGE_STORE, session_present=True)
 
 
-@router.delete("/api/diagrams/{diagram_id}/purge", dependencies=[Depends(require_diagram_access)])
+@router.delete(
+    "/api/diagrams/{diagram_id}/purge",
+    dependencies=[Depends(require_diagram_access)],
+)
 @limiter.limit("20/minute")
 async def purge_diagram_session(
     request: Request,
@@ -635,120 +678,56 @@ async def purge_diagram_session(
     Uploaded data is processed by model services for analysis and is not used
     by Archmorph for model training.
     """
-    image_record = IMAGE_STORE.peek(diagram_id)
-    session_record = SESSION_STORE.peek(diagram_id)
-    image_deleted = image_record is not None
-    session_deleted = session_record is not None
     principal = get_request_durable_principal(request)
+    if principal is None or not principal.get("tenant_id"):
+        raise ArchmorphException(404, "Diagram not found")
     project_id, diagram_meta = _diagram_project_metadata(
         diagram_id,
         principal=principal,
     )
-    durable_deleted = {
-        "analyses": 0,
-        "versions": 0,
-        "artifacts": 0,
-        "decisions": 0,
-        "source_assets": 0,
-        "implicit_workspaces": 0,
-    }
-    session_delete_confirmed = False
+    from purge_service import PurgeIncompleteError, purge_diagram
+
     try:
-        _require_confirmed_store_delete(SESSION_STORE, diagram_id)
-        session_delete_confirmed = True
-        _require_confirmed_store_delete(IMAGE_STORE, diagram_id)
-    except Exception as exc:
-        if session_delete_confirmed and session_record is not None:
-            if not SESSION_STORE.set(diagram_id, session_record):
-                logger.critical(
-                    "analysis_cache_purge_rollback_failed diagram_id=%s",
-                    str(diagram_id).replace("\n", "").replace("\r", ""),
-                )
-        logger.error(
-            "analysis_cache_purge_failed diagram_id=%s error_type=%s",
-            str(diagram_id).replace("\n", "").replace("\r", ""),
-            type(exc).__name__,
+        result = purge_diagram(
+            diagram_id=diagram_id,
+            owner_user_id=principal["owner_user_id"],
+            tenant_id=principal["tenant_id"],
         )
+    except PurgeIncompleteError as exc:
         raise ArchmorphException(
             503,
-            "Analysis cache is temporarily unavailable. Purge was not completed.",
-            details={"error": "analysis_purge_unavailable"},
+            "Analysis purge is incomplete and can be retried.",
+            details={
+                "error": "analysis_purge_unavailable",
+                "operation_id": exc.operation_id,
+                "pending_stage": exc.stage,
+            },
             headers={"Retry-After": "5"},
         ) from exc
-    if principal is not None and principal["tenant_id"]:
-        from database import SessionLocal
-        from workspace_store import purge_analysis_state
-
-        db = SessionLocal()
-        try:
-            durable_deleted = purge_analysis_state(
-                db,
-                diagram_id=diagram_id,
-                owner_user_id=principal["owner_user_id"],
-                tenant_id=principal["tenant_id"],
-            )
-        except Exception as exc:
-            db.rollback()
-            logger.error(
-                "durable_analysis_purge_failed diagram_id=%s error_type=%s",
-                str(diagram_id).replace("\n", "").replace("\r", ""),
-                type(exc).__name__,
-            )
-            raise ArchmorphException(
-                503,
-                "Analysis persistence is temporarily unavailable. Purge was not completed.",
-                details={"error": "analysis_purge_unavailable"},
-                headers={"Retry-After": "30"},
-            ) from exc
-        finally:
-            db.close()
-
-    project_index_deleted = project_id is not None
-
-    export_capabilities_deleted = _purge_store_records_for_diagram(EXPORT_CAPABILITY_STORE, diagram_id)
-    share_store_deleted = _purge_store_records_for_diagram(SHARE_STORE, diagram_id)
-    share_links_deleted = shareable_reports.purge_diagram_shares(diagram_id)
-    jobs_deleted = job_manager.purge_diagram(diagram_id)
-    iac_chat_deleted = clear_iac_chat(diagram_id)
 
     record_event("diagram_data_purged", {
         "diagram_id": diagram_id,
         "project_id": project_id,
-        "image_deleted": image_deleted,
-        "session_deleted": session_deleted,
-        "export_capabilities_deleted": export_capabilities_deleted,
-        "share_store_deleted": share_store_deleted,
-        "share_links_deleted": share_links_deleted,
-        "jobs_deleted": jobs_deleted,
-        "iac_chat_deleted": iac_chat_deleted,
-        "durable_deleted": durable_deleted,
+        "operation_id": result.operation_id,
+        "status": result.status,
     })
     purge_confirmation = {
         "status": "purged",
-        "server_content_deleted": bool(
-            image_deleted
-            or session_deleted
-            or project_index_deleted
-            or export_capabilities_deleted
-            or share_store_deleted
-            or share_links_deleted
-            or jobs_deleted
-            or iac_chat_deleted
-            or any(durable_deleted.values())
-        ),
+        "operation_id": result.operation_id,
+        "server_content_deleted": True,
         "client_cache_action": "clear_session_storage_after_successful_purge",
         "audit_security_logs_retained": True,
     }
     artifact_status = {
-        "uploaded_content": "purged" if image_deleted else "not_present",
-        "analysis_session": "purged" if session_deleted else "not_present",
-        "project_index": "purged" if project_index_deleted else "not_present",
-        "share_links": share_links_deleted,
-        "share_store": share_store_deleted,
-        "export_capabilities": export_capabilities_deleted,
-        "async_jobs": jobs_deleted,
-        "iac_chat": bool(iac_chat_deleted),
-        "durable_analysis": durable_deleted,
+        "uploaded_content": "purged",
+        "analysis_session": "purged",
+        "project_index": "purged",
+        "share_links": "confirmed_absent",
+        "share_store": "confirmed_absent",
+        "export_capabilities": "confirmed_absent",
+        "async_jobs": "physically_deleted",
+        "iac_chat": "confirmed_absent",
+        "durable_analysis": "confirmed_absent",
     }
     trust_receipt = build_trust_receipt(
         diagram_id,
@@ -763,17 +742,9 @@ async def purge_diagram_session(
         "status": "purged",
         "diagram_id": diagram_id,
         "project_id": project_id,
+        "operation_id": result.operation_id,
         "trust_receipt": trust_receipt,
-        "purged": {
-            "image": image_deleted,
-            "session": session_deleted,
-            "export_capabilities": export_capabilities_deleted,
-            "share_store": share_store_deleted,
-            "share_links": share_links_deleted,
-            "jobs": jobs_deleted,
-            "iac_chat": iac_chat_deleted,
-            "durable": durable_deleted,
-        },
+        "purged": result.deleted,
     }
 
 
@@ -899,7 +870,12 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
             return {"is_architecture_diagram": True, "confidence": 0.5, "image_type": "unknown", "reason": "Classification unavailable"}
 
     async def _analyze():
-        return await asyncio.to_thread(analyze_image, compressed_bytes, compressed_type)
+        return await asyncio.to_thread(
+            analyze_image,
+            compressed_bytes,
+            compressed_type,
+            diagram_id=diagram_id,
+        )
 
     classification, analysis_result_or_exc = await asyncio.gather(
         _classify(),
@@ -1110,7 +1086,12 @@ async def _run_analysis_job(job_id: str, payload: Dict[str, Any]) -> None:
             return
 
         job_manager.update_progress(job_id, 40, "Analyzing cloud services and topology...", phase="analyzing")
-        result = await asyncio.to_thread(analyze_image, compressed_bytes, compressed_type)
+        result = await asyncio.to_thread(
+            analyze_image,
+            compressed_bytes,
+            compressed_type,
+            diagram_id=diagram_id,
+        )
 
         if not job_manager.owns_current_lease(job_id):
             return

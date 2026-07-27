@@ -578,6 +578,10 @@ async def _run_iac_job(
                         artifact_format=iac_format,
                         artifact_content=code,
                         expected_version=int(expected_version) if expected_version is not None else None,
+                        operation=f"iac-{iac_format}-generated-async",
+                        request_hash=hashlib.sha256(
+                            f"{job_id}:{payload.get('analysis_hash')}:{code_hash}".encode()
+                        ).hexdigest(),
                         label=f"iac-{iac_format}-generated-async",
                         cache_required=True,
                     )

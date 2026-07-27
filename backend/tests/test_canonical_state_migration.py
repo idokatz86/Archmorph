@@ -55,12 +55,20 @@ def test_migration_contains_conflict_audit_and_uniqueness_guards():
     assert 'status="conflict_retained"' in source
     assert "tenant_rehome_audit" in source
     assert "project_members" in source
+    assert "analysis_mutation_receipts" in source
+    assert "diagram_lifecycle" in source
+    assert "restore_grants" in source
+    assert "purge_operations" in source
     assert "_deduplicate_analyses" in source
     assert "_deduplicate_artifacts" in source
     assert "ux_analyses_owner_tenant_diagram" in source
     assert "ux_artifacts_version_type_hash" in source
     assert "ux_workspaces_default_owner_tenant" in source
     assert "retain VARCHAR(100)" in source
+    assert 'op.drop_table("analysis_mutation_receipts")' in source
+    assert 'op.drop_table("purge_operations")' in source
+    assert 'op.drop_table("restore_grants")' in source
+    assert 'op.drop_table("diagram_lifecycle")' in source
     assert "ix_analysis_versions_analysis_num" in (
         MIGRATION_PATH.parent.joinpath("013_durable_workspaces.py").read_text(encoding="utf-8")
     )

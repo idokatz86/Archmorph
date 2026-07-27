@@ -742,6 +742,11 @@ export default function DiagramTranslator() {
       set({ restoreCapability: restoredData.restore_capability });
       updateSessionCache({ restoreCapability: restoredData.restore_capability });
     }
+    if (restoredData?.analysis) {
+      stateRef.current = { ...stateRef.current, analysis: restoredData.analysis };
+      set({ analysis: restoredData.analysis });
+      updateSessionCache({ analysis: restoredData.analysis });
+    }
     return restoredData;
   }, [buildRestorePayload, rememberExportCapability]);
 

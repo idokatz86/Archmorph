@@ -13,8 +13,6 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from cachetools import TTLCache
-
 from openai import RateLimitError, APITimeoutError, APIConnectionError, BadRequestError
 from openai_client import cached_chat_completion, AZURE_OPENAI_DEPLOYMENT
 from iac_generator import _apply_validation
@@ -25,6 +23,7 @@ from prompt_guard import (
     validate_code_input,
     validate_message,
 )
+from session_store import get_store
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +79,7 @@ ALWAYS respond with a JSON object containing exactly these fields:
 # ─────────────────────────────────────────────────────────────
 # In-memory conversation sessions  (keyed by diagram_id, TTL: 2 hours, max 200)
 # ─────────────────────────────────────────────────────────────
-IAC_CHAT_SESSIONS: TTLCache = TTLCache(maxsize=200, ttl=7200)
+IAC_CHAT_SESSIONS = get_store("iac_chat", maxsize=200, ttl=7200)
 
 
 # Coercion of GPT JSON-mode arrays to flat string lists. The shared
@@ -341,6 +340,10 @@ def clear_iac_chat(diagram_id: str) -> bool:
     """Clear IaC chat session for a diagram."""
     key = f"{diagram_id}:iac"
     if key in IAC_CHAT_SESSIONS:
-        del IAC_CHAT_SESSIONS[key]
-        return True
+        return IAC_CHAT_SESSIONS.delete(key)
     return False
+
+
+def has_iac_chat(diagram_id: str) -> bool:
+    """Return whether transient IaC chat state remains for a diagram."""
+    return f"{diagram_id}:iac" in IAC_CHAT_SESSIONS

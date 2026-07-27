@@ -27,6 +27,10 @@ from models.workspace import (  # noqa: F401
     AnalysisVersion,
     Artifact,
     Decision,
+    AnalysisMutationReceipt,
+    DiagramLifecycle,
     ProjectMember,
+    PurgeOperation,
+    RestoreGrant,
     TenantRehomeAudit,
 )

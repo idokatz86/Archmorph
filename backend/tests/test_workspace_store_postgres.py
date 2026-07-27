@@ -16,10 +16,14 @@ from sqlalchemy.orm import sessionmaker
 
 from models.workspace import (
     Analysis,
+    AnalysisMutationReceipt,
     AnalysisVersion,
     Artifact,
     Decision,
     ProjectMember,
+    PurgeOperation,
+    RestoreGrant,
+    DiagramLifecycle,
     SourceAsset,
     TenantRehomeAudit,
     Workspace,
@@ -44,6 +48,10 @@ def postgres_factory():
     db = factory()
     try:
         db.query(ProjectMember).delete()
+        db.query(RestoreGrant).delete()
+        db.query(AnalysisMutationReceipt).delete()
+        db.query(PurgeOperation).delete()
+        db.query(DiagramLifecycle).delete()
         db.query(Decision).delete()
         db.query(Artifact).delete()
         db.query(AnalysisVersion).delete()
@@ -139,6 +147,62 @@ def test_reversed_cache_projection_never_replaces_newer_version(postgres_factory
     assert second.version.version_number == 2
     assert cache.peek("pg-cache-cas")["value"] == "second"
     assert cache.peek("pg-cache-cas")["_analysis_version"] == 2
+
+
+def test_concurrent_same_mutation_receipt_creates_one_version(postgres_factory):
+    seeded_db = postgres_factory()
+    try:
+        seeded = persist_analysis_state(
+            seeded_db,
+            owner_user_id="pg-receipt-owner",
+            tenant_id="pg-receipt-tenant",
+            diagram_id="pg-receipt-diagram",
+            snapshot={"value": "v1", "mappings": []},
+        )
+        snapshot = load_analysis_state(
+            seeded_db,
+            diagram_id="pg-receipt-diagram",
+            owner_user_id="pg-receipt-owner",
+            tenant_id="pg-receipt-tenant",
+        )
+        snapshot["value"] = "v2"
+    finally:
+        seeded_db.close()
+    barrier = threading.Barrier(8)
+
+    def write(_index):
+        from workspace_store import persist_analysis_mutation
+
+        db = postgres_factory()
+        try:
+            barrier.wait(timeout=10)
+            result = persist_analysis_mutation(
+                db,
+                owner_user_id="pg-receipt-owner",
+                tenant_id="pg-receipt-tenant",
+                diagram_id="pg-receipt-diagram",
+                snapshot=snapshot,
+                expected_version=1,
+                operation="same-request",
+                request_hash="a" * 64,
+            )
+            return result.version.version_number
+        finally:
+            db.close()
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        versions = list(pool.map(write, range(8)))
+
+    db = postgres_factory()
+    try:
+        assert set(versions) == {2}
+        assert db.query(AnalysisVersion).filter_by(analysis_id=seeded.analysis.id).count() == 2
+        assert db.query(AnalysisMutationReceipt).filter_by(
+            analysis_id=seeded.analysis.id,
+            operation="same-request",
+        ).count() == 1
+    finally:
+        db.close()
 
 
 def test_concurrent_distinct_diagrams_share_one_default_workspace(postgres_factory):
@@ -245,6 +309,28 @@ def test_real_redis_cache_loss_hydrates_from_postgres(postgres_factory, monkeypa
     finally:
         db.close()
         cache.clear()
+
+
+@pytest.mark.skipif(not os.getenv("ARCHMORPH_TEST_REDIS_URL"), reason="isolated Redis URL not configured")
+def test_real_redis_getdel_has_one_concurrent_winner(monkeypatch):
+    monkeypatch.setenv("REDIS_URL", os.environ["ARCHMORPH_TEST_REDIS_URL"])
+    monkeypatch.delenv("REDIS_HOST", raising=False)
+    store = RedisStore(prefix="archmorph-test-getdel", ttl=120)
+    store.clear()
+    store.set("capability", {"one_time": True})
+    barrier = threading.Barrier(12)
+
+    def consume(_index):
+        barrier.wait(timeout=10)
+        return store.pop("capability")
+
+    try:
+        with ThreadPoolExecutor(max_workers=12) as pool:
+            results = list(pool.map(consume, range(12)))
+        assert results.count({"one_time": True}) == 1
+        assert results.count(None) == 11
+    finally:
+        store.clear()
 
 
 def test_exact_owner_legacy_graph_rehomes_transactionally_with_audit(postgres_factory):

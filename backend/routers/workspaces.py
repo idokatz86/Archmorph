@@ -48,7 +48,6 @@ from workspace_store import (
     create_analysis,
     create_decision,
     create_workspace,
-    delete_workspace,
     get_analysis_record,
     get_analysis_version,
     get_artifact,
@@ -58,6 +57,7 @@ from workspace_store import (
     list_artifacts,
     list_decisions,
     list_workspaces,
+    persist_analysis_mutation,
     restore_analysis_version,
     update_workspace,
 )
@@ -207,11 +207,35 @@ async def delete_workspace_endpoint(
     _auth=Depends(verify_api_key),
     db=Depends(get_db),
 ):
-    """Delete a workspace and its analyses/versions/artifacts."""
-    deleted = delete_workspace(db, workspace_id, owner_user_id=_owner_id(request, user), tenant_id=_tenant_id(user))
-    if not deleted:
-        raise ArchmorphException(404, "Workspace not found")
-    return {"deleted": True}
+    """Converge all workspace-owned state to a confirmed deletion fixed point."""
+    from purge_service import PurgeIncompleteError, purge_workspace
+
+    owner_user_id = _owner_id(request, user)
+    tenant_id = _tenant_id(user)
+    try:
+        result = purge_workspace(
+            workspace_id=workspace_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+        )
+    except ValueError as exc:
+        raise ArchmorphException(404, "Workspace not found") from exc
+    except PurgeIncompleteError as exc:
+        raise ArchmorphException(
+            503,
+            "Workspace purge is incomplete and can be retried.",
+            details={
+                "error": "workspace_purge_pending",
+                "operation_id": exc.operation_id,
+                "pending_stage": exc.stage,
+            },
+            headers={"Retry-After": "5"},
+        ) from exc
+    return {
+        "deleted": True,
+        "status": result.status,
+        "operation_id": result.operation_id,
+    }
 
 
 # ─────────────────────────────────────────────────────────────
@@ -235,7 +259,45 @@ async def create_analysis_endpoint(
     if ws is None:
         raise ArchmorphException(404, "Workspace not found")
     if body.diagram_id:
-        authorize_diagram_access(request, body.diagram_id, purpose="link durable analysis")
+        snapshot = authorize_diagram_access(request, body.diagram_id, purpose="link durable analysis")
+        expected_version = snapshot.get("_analysis_version")
+        if expected_version is None:
+            raise ArchmorphException(409, "Authoritative analysis snapshot is required")
+        import hashlib
+        import json
+
+        request_hash = hashlib.sha256(json.dumps(
+            {
+                "workspace_id": workspace_id,
+                "diagram_id": body.diagram_id,
+                "snapshot": snapshot,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        ).encode("utf-8")).hexdigest()
+        from workspace_store import AnalysisCacheWriteError, AnalysisVersionConflictError
+
+        try:
+            result = persist_analysis_mutation(
+                db,
+                workspace_id=workspace_id,
+                owner_user_id=owner_user_id,
+                tenant_id=_tenant_id(user),
+                diagram_id=body.diagram_id,
+                snapshot=snapshot,
+                expected_version=int(expected_version),
+                operation="workspace-link",
+                request_hash=request_hash,
+                session_store=SESSION_STORE,
+                cache_owner_api_key_id=(get_request_durable_principal(request) or {}).get("owner_api_key_id"),
+                cache_required=True,
+            )
+        except AnalysisVersionConflictError as exc:
+            raise ArchmorphException(409, "Authoritative analysis snapshot is required") from exc
+        except AnalysisCacheWriteError as exc:
+            raise ArchmorphException(503, "Analysis cache is temporarily unavailable") from exc
+        return result.analysis.to_dict()
 
     analysis = create_analysis(
         db,

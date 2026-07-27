@@ -744,6 +744,10 @@ class TestCanonicalAnalysisState:
             self.data[key] = value
             return True
 
+        def delete(self, key):
+            self.data.pop(key, None)
+            return key not in self.data
+
         def update_if(self, key, predicate, updater):
             current = self.data.get(key)
             if not predicate(current):
@@ -1002,7 +1006,10 @@ class TestCanonicalAnalysisState:
             owner_user_id="cas-owner",
             tenant_id="cas-tenant",
             diagram_id="diag-cas",
-            snapshot={"step": "second", "mappings": []},
+            snapshot={"step": "second", "mappings": [], "_analysis_version": 1},
+            expected_version=1,
+            operation="cas-second",
+            request_hash="2" * 64,
             session_store=store,
             cache_required=True,
         )
@@ -1057,8 +1064,10 @@ class TestCanonicalAnalysisState:
                 owner_user_id="optimistic-owner",
                 tenant_id="optimistic-tenant",
                 diagram_id="diag-optimistic",
-                snapshot={"mappings": [], "stale": True},
+                snapshot={"mappings": [], "stale": True, "_analysis_version": 0},
                 expected_version=0,
+                operation="stale-optimistic-write",
+                request_hash="3" * 64,
             )
         assert len(list_analysis_versions(
             db,
@@ -1105,9 +1114,12 @@ class TestCanonicalAnalysisState:
             owner_user_id="restore-owner",
             tenant_id="restore-tenant",
             diagram_id="diag-version-restore",
-            snapshot={"step": "changed", "mappings": []},
+            snapshot={"step": "changed", "mappings": [], "_analysis_version": 1},
             session_store=store,
             label="changed",
+            expected_version=1,
+            operation="restore-test-changed",
+            request_hash="4" * 64,
             cache_required=True,
         )
 

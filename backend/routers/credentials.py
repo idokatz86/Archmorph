@@ -75,7 +75,13 @@ async def store_aws_credentials(request: Request,
     )
 
     creds = payload.model_dump(exclude_none=True)
-    store_credentials(session_token, "aws", creds)
+    store_credentials(
+        session_token,
+        "aws",
+        creds,
+        owner_user_id=user["id"],
+        tenant_id=user.get("org_id"),
+    )
     
     return {"status": "ok", "provider": "aws", "message": "AWS credentials securely stored."}
 
@@ -103,7 +109,13 @@ async def store_azure_credentials(request: Request,
     )
 
     creds = payload.model_dump(exclude_none=True)
-    store_credentials(session_token, "azure", creds)
+    store_credentials(
+        session_token,
+        "azure",
+        creds,
+        owner_user_id=user["id"],
+        tenant_id=user.get("org_id"),
+    )
     
     return {"status": "ok", "provider": "azure", "message": "Azure credentials securely stored."}
 

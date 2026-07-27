@@ -51,6 +51,7 @@ def _metric_total(kind: str, name: str, tags: dict[str, str] | None = None) -> i
 def clean_vision_cache_and_metrics():
     with vision_analyzer._vision_cache_lock:
         vision_analyzer._vision_cache.clear()
+        vision_analyzer._vision_cache_refs.clear()
     observability._metrics["counters"].clear()
     observability._metrics["histograms"].clear()
     observability._metrics["gauges"].clear()
@@ -58,6 +59,7 @@ def clean_vision_cache_and_metrics():
     yield
     with vision_analyzer._vision_cache_lock:
         vision_analyzer._vision_cache.clear()
+        vision_analyzer._vision_cache_refs.clear()
     observability._metrics["counters"].clear()
     observability._metrics["histograms"].clear()
     observability._metrics["gauges"].clear()
@@ -243,6 +245,28 @@ class TestVisionCacheObservability:
         assert _metric_total("counters", vision_analyzer.VISION_CACHE_METRIC, {"result": "miss"}) == 1
         assert _metric_total("counters", vision_analyzer.VISION_CACHE_METRIC, {"result": "hit"}) == 1
         assert _metric_total("histograms", vision_analyzer.VISION_LATENCY_METRIC) == 2
+
+    @patch("vision_analyzer.get_openai_client")
+    def test_diagram_purge_removes_only_unshared_vision_cache_result(self, mock_client_fn):
+        mock_client = MagicMock()
+        mock_client_fn.return_value = mock_client
+        mock_client.chat.completions.create.return_value = _vision_response({
+            "diagram_type": "AWS Architecture",
+            "services_detected": 1,
+        })
+
+        analyze_image(_minimal_png(), diagram_id="diagram-a")
+        analyze_image(_minimal_png(), diagram_id="diagram-b")
+
+        reference = vision_analyzer._vision_cache_refs.peek("diagram-a")
+        cache_key = reference["cache_key"]
+        assert vision_analyzer.purge_diagram_cache("diagram-a")
+        assert vision_analyzer.diagram_cache_absent("diagram-a")
+        assert vision_analyzer._vision_cache.peek(cache_key) is not None
+
+        assert vision_analyzer.purge_diagram_cache("diagram-b")
+        assert vision_analyzer.diagram_cache_absent("diagram-b")
+        assert vision_analyzer._vision_cache.peek(cache_key) is None
 
     @patch("vision_analyzer.get_openai_client")
     def test_repeat_upload_burst_profile_keeps_cache_hit_rate_above_half(self, mock_client_fn, monkeypatch):

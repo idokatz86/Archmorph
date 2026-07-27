@@ -40,9 +40,11 @@ Usage example::
 import hashlib
 import json as _json
 import logging
+import secrets
 import time
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import func, or_
@@ -52,9 +54,13 @@ from sqlalchemy.orm import Session
 from log_sanitizer import safe
 from models.workspace import (
     Analysis,
+    AnalysisMutationReceipt,
     AnalysisVersion,
     Artifact,
     Decision,
+    DiagramLifecycle,
+    PurgeOperation,
+    RestoreGrant,
     SourceAsset,
     TenantRehomeAudit,
     Workspace,
@@ -90,6 +96,7 @@ class AnalysisWriteResult:
     version: AnalysisVersion
     cache_updated: bool
     artifact: Optional[Artifact] = None
+    idempotent_replay: bool = False
 
 
 def _short_hash(data: str) -> str:
@@ -110,7 +117,12 @@ def _redact_snapshot(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     """Remove internal ownership/session fields before durable storage or API return."""
     redacted = dict(snapshot or {})
     for key in list(redacted):
-        if key.startswith("_owner_") or key in {"_tenant_id", "export_capability", "exportCapability"}:
+        if key.startswith("_owner_") or key in {
+            "_analysis_version",
+            "_tenant_id",
+            "export_capability",
+            "exportCapability",
+        }:
             redacted.pop(key, None)
     return redacted
 
@@ -123,6 +135,11 @@ def _serialize_snapshot(snapshot: Dict[str, Any]) -> str:
         sort_keys=True,
         separators=(",", ":"),
     )
+
+
+def snapshot_payload_hash(snapshot: Dict[str, Any]) -> str:
+    """Return the full deterministic hash used by restore grants."""
+    return hashlib.sha256(_serialize_snapshot(snapshot).encode("utf-8")).hexdigest()
 
 
 def _require_durable_identity(owner_user_id: str, tenant_id: Optional[str]) -> None:
@@ -225,6 +242,7 @@ def get_workspace(
     q = db.query(Workspace).filter(
         Workspace.id == workspace_id,
         Workspace.owner_user_id == owner_user_id,
+        Workspace.status != "deleting",
     )
     q = q.filter(_tenant_matches(Workspace.tenant_id, tenant_id))
     return q.first()
@@ -240,7 +258,10 @@ def list_workspaces(
     offset: int = 0,
 ) -> Dict[str, Any]:
     """List workspaces for a user with optional tenant/status filters."""
-    q = db.query(Workspace).filter(Workspace.owner_user_id == owner_user_id)
+    q = db.query(Workspace).filter(
+        Workspace.owner_user_id == owner_user_id,
+        Workspace.status != "deleting",
+    )
     q = q.filter(_tenant_matches(Workspace.tenant_id, tenant_id))
     if status:
         q = q.filter(Workspace.status == status)
@@ -421,6 +442,26 @@ def create_analysis(
         current_version=0,
     )
     db.add(analysis)
+    if diagram_id is not None and tenant_id is not None:
+        lifecycle = _get_lifecycle(
+            db,
+            diagram_id=diagram_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+        )
+        if lifecycle is None:
+            db.add(DiagramLifecycle(
+                diagram_id=diagram_id,
+                owner_user_id=owner_user_id,
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                generation=1,
+                state="active",
+            ))
+        elif lifecycle.state == "active":
+            lifecycle.workspace_id = workspace_id
+        else:
+            raise ValueError("Diagram has been purged")
     db.commit()
     db.refresh(analysis)
     logger.info(
@@ -651,6 +692,7 @@ def restore_analysis_version(
     tenant_id: Optional[str] = None,
     session_store: Any = None,
     cache_owner_api_key_id: Optional[str] = None,
+    expected_version: Optional[int] = None,
 ) -> Optional[AnalysisVersion]:
     """Restore a previous version by creating a new version from it.
 
@@ -678,8 +720,23 @@ def restore_analysis_version(
         tenant_id=tenant_id,
     )
     assert analysis is not None
+    current_version = int(analysis.current_version or 0)
+    if expected_version is None:
+        expected_version = current_version
+    request_hash = hashlib.sha256(
+        _json.dumps(
+            {
+                "analysis_id": analysis_id,
+                "source_version": version_number,
+                "expected_version": expected_version,
+                "source_hash": source.content_hash,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
     if analysis.diagram_id and tenant_id is not None:
-        result = persist_analysis_state(
+        result = persist_analysis_mutation(
             db,
             owner_user_id=owner_user_id,
             tenant_id=tenant_id,
@@ -690,6 +747,9 @@ def restore_analysis_version(
             cache_owner_api_key_id=cache_owner_api_key_id,
             label=f"restored-from-v{version_number}",
             restored_from=version_number,
+            expected_version=expected_version,
+            operation="version-restore",
+            request_hash=request_hash,
         )
         return result.version
 
@@ -940,15 +1000,75 @@ def _get_analysis_by_diagram(
 ) -> Optional[Analysis]:
     query = (
         db.query(Analysis)
+        .join(Workspace, Workspace.id == Analysis.workspace_id)
+        .outerjoin(
+            DiagramLifecycle,
+            (DiagramLifecycle.diagram_id == Analysis.diagram_id)
+            & (DiagramLifecycle.owner_user_id == Analysis.owner_user_id)
+            & (DiagramLifecycle.tenant_id == Analysis.tenant_id),
+        )
         .filter(
             Analysis.diagram_id == diagram_id,
             Analysis.owner_user_id == owner_user_id,
             Analysis.tenant_id == tenant_id,
+            Workspace.status != "deleting",
+            or_(DiagramLifecycle.id.is_(None), DiagramLifecycle.state == "active"),
         )
+    )
+    if for_update:
+        query = query.with_for_update(of=Analysis)
+    return query.first()
+
+
+def _get_lifecycle(
+    db: Session,
+    *,
+    diagram_id: str,
+    owner_user_id: str,
+    tenant_id: str,
+    for_update: bool = False,
+) -> Optional[DiagramLifecycle]:
+    query = db.query(DiagramLifecycle).filter(
+        DiagramLifecycle.diagram_id == diagram_id,
+        DiagramLifecycle.owner_user_id == owner_user_id,
+        DiagramLifecycle.tenant_id == tenant_id,
     )
     if for_update:
         query = query.with_for_update()
     return query.first()
+
+
+def _ensure_active_lifecycle(
+    db: Session,
+    *,
+    diagram_id: str,
+    owner_user_id: str,
+    tenant_id: str,
+    workspace_id: str,
+) -> DiagramLifecycle:
+    lifecycle = _get_lifecycle(
+        db,
+        diagram_id=diagram_id,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+        for_update=True,
+    )
+    if lifecycle is None:
+        lifecycle = DiagramLifecycle(
+            diagram_id=diagram_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace_id,
+            generation=1,
+            state="active",
+        )
+        db.add(lifecycle)
+        db.flush()
+    elif lifecycle.state != "active":
+        raise ValueError("Diagram has been purged")
+    else:
+        lifecycle.workspace_id = workspace_id
+    return lifecycle
 
 
 def _resolve_workspace_id(
@@ -1093,6 +1213,7 @@ def _write_session_cache(
     allow_legacy_tenant_rehome: bool = False,
     legacy_owner_user_ids: Optional[List[str]] = None,
     allow_unowned_upload_claim: bool = False,
+    authoritative_hydration: bool = False,
 ) -> None:
     cached_snapshot = {
         **_redact_snapshot(snapshot),
@@ -1104,6 +1225,33 @@ def _write_session_cache(
         cached_snapshot["_owner_api_key_id"] = owner_api_key_id
     else:
         cached_snapshot["_owner_user_id"] = owner_user_id
+
+    if allow_existing:
+        existing = (
+            session_store.peek(diagram_id)
+            if hasattr(session_store, "peek")
+            else session_store.get(diagram_id)
+        )
+        if isinstance(existing, dict):
+            existing_owner_matches = (
+                existing.get("_owner_api_key_id") == owner_api_key_id
+                if owner_api_key_id
+                else existing.get("_owner_user_id") == owner_user_id
+            )
+            existing_tenant_matches = existing.get("_tenant_id") in {
+                tenant_id,
+                "default_tenant",
+            }
+            try:
+                existing_version = int(existing.get("_analysis_version"))
+            except (TypeError, ValueError):
+                existing_version = None
+            must_replace = existing_version is None or (
+                authoritative_hydration and existing_version > version_number
+            )
+            if existing_owner_matches and existing_tenant_matches and must_replace:
+                if not session_store.delete(diagram_id):
+                    raise AnalysisCacheWriteError("Stale cache deletion could not be confirmed")
     if not allow_existing:
         updated, _current = session_store.update_if(
             diagram_id,
@@ -1145,6 +1293,15 @@ def _write_session_cache(
         )
         if legacy_owner_matches:
             owner_matches = True
+        canonical_legacy_tenant = bool(
+            allow_legacy_tenant_rehome
+            and not owner_api_key_id
+            and current.get("_owner_user_id") == owner_user_id
+            and current.get("_owner_api_key_id") is None
+            and current.get("_tenant_id") == "default_tenant"
+        )
+        if canonical_legacy_tenant:
+            owner_matches = True
         tenant_matches = current.get("_tenant_id") == tenant_id or (
             owner_api_key_id is not None
             and current.get("_owner_api_key_id") == owner_api_key_id
@@ -1160,7 +1317,11 @@ def _write_session_cache(
         return (
             owner_matches
             and tenant_matches
-            and (current_version is None or int(current_version) <= version_number)
+            and (
+                allow_legacy_tenant_rehome
+                or current_version is None
+                or int(current_version) <= version_number
+            )
         )
 
     updated, _current = session_store.update_if(
@@ -1184,6 +1345,9 @@ def persist_analysis_state(
     label: Optional[str] = None,
     restored_from: Optional[int] = None,
     expected_version: Optional[int] = None,
+    operation: Optional[str] = None,
+    request_hash: Optional[str] = None,
+    require_snapshot_version: bool = True,
     artifact_type: Optional[str] = None,
     artifact_format: Optional[str] = None,
     artifact_content: Optional[str] = None,
@@ -1215,13 +1379,25 @@ def persist_analysis_state(
                 for_update=True,
             )
             if analysis is None:
-                resolved_workspace_id = _resolve_workspace_id(
+                tombstone = _get_lifecycle(
                     db,
+                    diagram_id=diagram_id,
                     owner_user_id=owner_user_id,
                     tenant_id=tenant_id,
-                    snapshot=snapshot,
-                    workspace_id=workspace_id,
+                    for_update=True,
                 )
+                if tombstone is not None and tombstone.state != "active":
+                    raise ValueError("Diagram has been purged")
+                if tombstone is not None and tombstone.workspace_id:
+                    resolved_workspace_id = tombstone.workspace_id
+                else:
+                    resolved_workspace_id = _resolve_workspace_id(
+                        db,
+                        owner_user_id=owner_user_id,
+                        tenant_id=tenant_id,
+                        snapshot=snapshot,
+                        workspace_id=workspace_id,
+                    )
                 mappings = snapshot.get("mappings", [])
                 confidences = [m.get("confidence") for m in mappings if m.get("confidence") is not None]
                 analysis = Analysis(
@@ -1238,13 +1414,98 @@ def persist_analysis_state(
                 )
                 db.add(analysis)
                 db.flush()
-            elif workspace_id is not None and analysis.workspace_id != workspace_id:
-                raise ValueError(f"Analysis for diagram {diagram_id!r} belongs to another workspace")
+                if tombstone is None:
+                    _ensure_active_lifecycle(
+                        db,
+                        diagram_id=diagram_id,
+                        owner_user_id=owner_user_id,
+                        tenant_id=tenant_id,
+                        workspace_id=resolved_workspace_id,
+                    )
+                else:
+                    tombstone.workspace_id = resolved_workspace_id
+            else:
+                _ensure_active_lifecycle(
+                    db,
+                    diagram_id=diagram_id,
+                    owner_user_id=owner_user_id,
+                    tenant_id=tenant_id,
+                    workspace_id=analysis.workspace_id,
+                )
+                if workspace_id is not None and analysis.workspace_id != workspace_id:
+                    requested_workspace = get_workspace(
+                        db,
+                        workspace_id,
+                        owner_user_id=owner_user_id,
+                        tenant_id=tenant_id,
+                    )
+                    if requested_workspace is None or requested_workspace.status != "active":
+                        raise ValueError(f"Workspace {workspace_id!r} not found or access denied")
+                    analysis.workspace_id = requested_workspace.id
+                    lifecycle = _get_lifecycle(
+                        db,
+                        diagram_id=diagram_id,
+                        owner_user_id=owner_user_id,
+                        tenant_id=tenant_id,
+                        for_update=True,
+                    )
+                    assert lifecycle is not None
+                    lifecycle.workspace_id = requested_workspace.id
 
-            if expected_version is not None and int(analysis.current_version or 0) != expected_version:
+            current_version = int(analysis.current_version or 0)
+            if operation and request_hash:
+                receipt = (
+                    db.query(AnalysisMutationReceipt)
+                    .filter(
+                        AnalysisMutationReceipt.owner_user_id == owner_user_id,
+                        AnalysisMutationReceipt.tenant_id == tenant_id,
+                        AnalysisMutationReceipt.diagram_id == diagram_id,
+                        AnalysisMutationReceipt.operation == operation,
+                        AnalysisMutationReceipt.request_hash == request_hash,
+                    )
+                    .first()
+                )
+                if receipt is not None:
+                    version = db.query(AnalysisVersion).filter(
+                        AnalysisVersion.id == receipt.version_id,
+                        AnalysisVersion.analysis_id == analysis.id,
+                    ).one()
+                    artifact = None
+                    if artifact_type and artifact_content is not None:
+                        artifact = db.query(Artifact).filter(
+                            Artifact.version_id == version.id,
+                            Artifact.artifact_type == artifact_type,
+                            Artifact.content_hash == _full_hash(artifact_content.encode("utf-8")),
+                        ).first()
+                    db.commit()
+                    version_created = False
+                    idempotent_replay = True
+                    break
+
+            if current_version > 0 and expected_version is None and operation is not None:
+                raise AnalysisVersionConflictError("Existing analyses require expected_version")
+            if expected_version is not None and current_version != expected_version:
                 raise AnalysisVersionConflictError(
                     f"Expected version {expected_version}, current version is {analysis.current_version}"
                 )
+
+            snapshot_version = snapshot.get("_analysis_version")
+            if (
+                current_version > 0
+                and restored_from is None
+                and operation is not None
+                and require_snapshot_version
+            ):
+                try:
+                    snapshot_version_number = int(snapshot_version)
+                except (TypeError, ValueError) as exc:
+                    raise AnalysisVersionConflictError(
+                        "Mutation snapshot lacks an immutable durable version"
+                    ) from exc
+                if snapshot_version_number != current_version:
+                    raise AnalysisVersionConflictError(
+                        "Mutation snapshot is stale relative to PostgreSQL"
+                    )
 
             version = None
             if label is None and restored_from is None:
@@ -1272,7 +1533,20 @@ def persist_analysis_state(
                     content=artifact_content,
                     commit=False,
                 )
+            if operation and request_hash:
+                db.flush()
+                db.add(AnalysisMutationReceipt(
+                    owner_user_id=owner_user_id,
+                    tenant_id=tenant_id,
+                    diagram_id=diagram_id,
+                    operation=operation,
+                    request_hash=request_hash,
+                    analysis_id=analysis.id,
+                    version_id=version.id,
+                    version_number=version.version_number,
+                ))
             db.commit()
+            idempotent_replay = False
             break
         except AnalysisVersionConflictError:
             db.rollback()
@@ -1311,12 +1585,13 @@ def persist_analysis_state(
     cache_updated = False
     if session_store is not None:
         try:
+            cache_snapshot = _json.loads(version.snapshot) if idempotent_replay else snapshot
             _write_session_cache(
                 session_store,
                 diagram_id=diagram_id,
                 owner_user_id=owner_user_id,
                 tenant_id=tenant_id,
-                snapshot=snapshot,
+                snapshot=cache_snapshot,
                 version_number=version.version_number,
                 owner_api_key_id=cache_owner_api_key_id,
                 allow_legacy_tenant_rehome=allow_legacy_cache_rehome,
@@ -1342,12 +1617,129 @@ def persist_analysis_state(
         version=version,
         cache_updated=cache_updated,
         artifact=artifact,
+        idempotent_replay=idempotent_replay,
     )
 
 
 def persist_analysis_mutation(db: Session, **kwargs: Any) -> AnalysisWriteResult:
-    """Named repository/UoW entry point for every authenticated mutation."""
+    """Authenticated mutation boundary with mandatory CAS and idempotency."""
+    analysis = _get_analysis_by_diagram(
+        db,
+        diagram_id=kwargs["diagram_id"],
+        owner_user_id=kwargs["owner_user_id"],
+        tenant_id=kwargs["tenant_id"],
+    )
+    if analysis is not None and int(analysis.current_version or 0) > 0:
+        if kwargs.get("expected_version") is None:
+            raise AnalysisVersionConflictError("Existing analyses require expected_version")
+        if not kwargs.get("operation") or not kwargs.get("request_hash"):
+            raise ValueError("Authenticated mutations require durable idempotency metadata")
     return persist_analysis_state(db, **kwargs)
+
+
+def issue_restore_grant(
+    db: Session,
+    *,
+    owner_user_id: str,
+    tenant_id: str,
+    diagram_id: str,
+    ttl_seconds: int,
+    payload_hash: Optional[str] = None,
+) -> tuple[str, int, int]:
+    """Persist and return a one-time opaque restore nonce."""
+    analysis = _get_analysis_by_diagram(
+        db,
+        diagram_id=diagram_id,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+        for_update=True,
+    )
+    lifecycle = _get_lifecycle(
+        db,
+        diagram_id=diagram_id,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+        for_update=True,
+    )
+    if lifecycle is None:
+        if analysis is None:
+            raise ValueError("Diagram not found")
+        lifecycle = _ensure_active_lifecycle(
+            db,
+            diagram_id=diagram_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+            workspace_id=analysis.workspace_id,
+        )
+    if lifecycle.state != "active":
+        raise ValueError("Diagram not found")
+    expected_version = int(analysis.current_version or 0) if analysis is not None else 0
+    nonce = secrets.token_urlsafe(32)
+    nonce_digest = hashlib.sha256(nonce.encode("utf-8")).hexdigest()
+    db.add(RestoreGrant(
+        nonce_digest=nonce_digest,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+        diagram_id=diagram_id,
+        generation=int(lifecycle.generation or 1),
+        expected_version=expected_version,
+        payload_hash=payload_hash,
+        expires_at=datetime.fromtimestamp(time.time() + ttl_seconds, tz=timezone.utc),
+    ))
+    db.commit()
+    return nonce, int(lifecycle.generation or 1), expected_version
+
+
+def consume_restore_grant(
+    db: Session,
+    *,
+    nonce: str,
+    owner_user_id: str,
+    tenant_id: str,
+    diagram_id: str,
+    generation: int,
+    expected_version: int,
+    payload_hash: str,
+) -> bool:
+    """Atomically consume a matching, live restore grant."""
+    nonce_digest = hashlib.sha256(nonce.encode("utf-8")).hexdigest()
+    query = db.query(RestoreGrant).filter(RestoreGrant.nonce_digest == nonce_digest)
+    if db.get_bind().dialect.name == "postgresql":
+        query = query.with_for_update()
+    grant = query.first()
+    lifecycle = _get_lifecycle(
+        db,
+        diagram_id=diagram_id,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+        for_update=True,
+    )
+    now = datetime.now(timezone.utc)
+    expires_at = grant.expires_at if grant is not None else None
+    if expires_at is not None and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    valid = bool(
+        grant is not None
+        and lifecycle is not None
+        and lifecycle.state == "active"
+        and grant.consumed_at is None
+        and grant.revoked_at is None
+        and expires_at is not None
+        and expires_at >= now
+        and grant.owner_user_id == owner_user_id
+        and grant.tenant_id == tenant_id
+        and grant.diagram_id == diagram_id
+        and grant.generation == generation == lifecycle.generation
+        and grant.expected_version == expected_version
+        and (grant.payload_hash is None or grant.payload_hash == payload_hash)
+    )
+    if not valid:
+        db.rollback()
+        return False
+    grant.payload_hash = payload_hash
+    grant.consumed_at = now
+    db.commit()
+    return True
 
 
 def rehome_legacy_analysis_scope(
@@ -1601,13 +1993,14 @@ def purge_analysis_state(
     cleanup_empty_implicit_workspace: bool = True,
 ) -> Dict[str, Any]:
     """Delete one tenant-scoped durable analysis graph before purge receipt."""
-    analysis = _get_analysis_by_diagram(
-        db,
-        diagram_id=diagram_id,
-        owner_user_id=owner_user_id,
-        tenant_id=tenant_id,
-        for_update=True,
+    analysis_query = db.query(Analysis).filter(
+        Analysis.diagram_id == diagram_id,
+        Analysis.owner_user_id == owner_user_id,
+        Analysis.tenant_id == tenant_id,
     )
+    if db.get_bind().dialect.name == "postgresql":
+        analysis_query = analysis_query.with_for_update()
+    analysis = analysis_query.first()
     counts = {
         "analyses": 0,
         "versions": 0,
@@ -1729,6 +2122,278 @@ def purge_analysis_state(
     return counts
 
 
+def _purge_operation_query(
+    db: Session,
+    *,
+    scope_type: str,
+    scope_id: str,
+    owner_user_id: str,
+    tenant_id: str,
+):
+    return db.query(PurgeOperation).filter(
+        PurgeOperation.scope_type == scope_type,
+        PurgeOperation.scope_id == scope_id,
+        PurgeOperation.owner_user_id == owner_user_id,
+        PurgeOperation.tenant_id == tenant_id,
+    )
+
+
+def begin_diagram_purge(
+    db: Session,
+    *,
+    diagram_id: str,
+    owner_user_id: str,
+    tenant_id: str,
+) -> Optional[PurgeOperation]:
+    """Persist a generation tombstone and retry receipt before cleanup."""
+    operation_query = _purge_operation_query(
+        db,
+        scope_type="diagram",
+        scope_id=diagram_id,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+    )
+    if db.get_bind().dialect.name == "postgresql":
+        operation_query = operation_query.with_for_update()
+    operation = operation_query.first()
+    lifecycle = _get_lifecycle(
+        db,
+        diagram_id=diagram_id,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+        for_update=True,
+    )
+    analysis = db.query(Analysis).filter(
+        Analysis.diagram_id == diagram_id,
+        Analysis.owner_user_id == owner_user_id,
+        Analysis.tenant_id == tenant_id,
+    ).first()
+    source = db.query(SourceAsset).filter(
+        SourceAsset.diagram_id == diagram_id,
+        SourceAsset.owner_user_id == owner_user_id,
+        SourceAsset.tenant_id == tenant_id,
+    ).first()
+    if operation is None and lifecycle is None and analysis is None and source is None:
+        return None
+    if lifecycle is None:
+        lifecycle = DiagramLifecycle(
+            diagram_id=diagram_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+            workspace_id=(analysis.workspace_id if analysis else source.workspace_id if source else None),
+            generation=1,
+            state="purging",
+        )
+        db.add(lifecycle)
+        db.flush()
+    elif lifecycle.state == "active":
+        lifecycle.generation = int(lifecycle.generation or 0) + 1
+        lifecycle.state = "purging"
+    if operation is None:
+        operation = PurgeOperation(
+            scope_type="diagram",
+            scope_id=diagram_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+            generation=lifecycle.generation,
+        )
+        db.add(operation)
+    elif operation.status == "completed" and lifecycle.state == "purged":
+        return operation
+    operation.status = "in_progress"
+    operation.attempts = int(operation.attempts or 0) + 1
+    operation.last_error_stage = None
+    now = datetime.now(timezone.utc)
+    db.query(RestoreGrant).filter(
+        RestoreGrant.owner_user_id == owner_user_id,
+        RestoreGrant.tenant_id == tenant_id,
+        RestoreGrant.diagram_id == diagram_id,
+        RestoreGrant.revoked_at.is_(None),
+    ).update({RestoreGrant.revoked_at: now}, synchronize_session=False)
+    db.commit()
+    db.refresh(operation)
+    return operation
+
+
+def begin_workspace_purge(
+    db: Session,
+    *,
+    workspace_id: str,
+    owner_user_id: str,
+    tenant_id: str,
+) -> tuple[PurgeOperation, List[str]]:
+    """Tombstone a workspace and every child diagram before cleanup."""
+    query = _purge_operation_query(
+        db,
+        scope_type="workspace",
+        scope_id=workspace_id,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+    )
+    if db.get_bind().dialect.name == "postgresql":
+        query = query.with_for_update()
+    operation = query.first()
+    workspace = db.query(Workspace).filter(
+        Workspace.id == workspace_id,
+        Workspace.owner_user_id == owner_user_id,
+        Workspace.tenant_id == tenant_id,
+    ).first()
+    if workspace is None:
+        if operation is None:
+            raise ValueError("Workspace not found")
+        stages = _json.loads(operation.stages or "{}")
+        diagram_ids = set(stages.get("_diagram_ids", []))
+        diagram_ids.update(
+            value for (value,) in db.query(DiagramLifecycle.diagram_id).filter(
+                DiagramLifecycle.workspace_id == workspace_id,
+                DiagramLifecycle.owner_user_id == owner_user_id,
+                DiagramLifecycle.tenant_id == tenant_id,
+            ).all()
+        )
+        return operation, sorted(diagram_ids)
+    diagram_ids = [
+        value for (value,) in db.query(Analysis.diagram_id).filter(
+            Analysis.workspace_id == workspace_id,
+            Analysis.owner_user_id == owner_user_id,
+            Analysis.tenant_id == tenant_id,
+            Analysis.diagram_id.is_not(None),
+        ).all()
+    ]
+    if operation is None:
+        operation = PurgeOperation(
+            scope_type="workspace",
+            scope_id=workspace_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+        )
+        db.add(operation)
+    elif operation.status == "completed":
+        stages = _json.loads(operation.stages or "{}")
+        return operation, list(stages.get("_diagram_ids", []))
+    workspace.status = "deleting"
+    operation.status = "in_progress"
+    operation.attempts = int(operation.attempts or 0) + 1
+    operation.last_error_stage = None
+    existing_stages = _json.loads(operation.stages or "{}")
+    existing_stages["_diagram_ids"] = diagram_ids
+    operation.stages = _json.dumps(existing_stages, sort_keys=True)
+    for diagram_id in diagram_ids:
+        lifecycle = _get_lifecycle(
+            db,
+            diagram_id=diagram_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+            for_update=True,
+        )
+        if lifecycle is None:
+            lifecycle = DiagramLifecycle(
+                diagram_id=diagram_id,
+                owner_user_id=owner_user_id,
+                tenant_id=tenant_id,
+                workspace_id=workspace_id,
+                generation=1,
+                state="purging",
+            )
+            db.add(lifecycle)
+        elif lifecycle.state == "active":
+            lifecycle.generation = int(lifecycle.generation or 0) + 1
+            lifecycle.state = "purging"
+    now = datetime.now(timezone.utc)
+    db.query(RestoreGrant).filter(
+        RestoreGrant.owner_user_id == owner_user_id,
+        RestoreGrant.tenant_id == tenant_id,
+        RestoreGrant.diagram_id.in_(diagram_ids),
+        RestoreGrant.revoked_at.is_(None),
+    ).update({RestoreGrant.revoked_at: now}, synchronize_session=False)
+    db.commit()
+    db.refresh(operation)
+    return operation, diagram_ids
+
+
+def record_purge_stage(
+    db: Session,
+    operation_id: str,
+    *,
+    stage: str,
+    result: Any,
+    failed: bool = False,
+) -> PurgeOperation:
+    operation = db.query(PurgeOperation).filter(PurgeOperation.id == operation_id).one()
+    stages = _json.loads(operation.stages or "{}")
+    stages[stage] = result
+    operation.stages = _json.dumps(stages, sort_keys=True, default=str)
+    if failed:
+        operation.status = "failed"
+    elif operation.status != "completed":
+        operation.status = "in_progress"
+    operation.last_error_stage = stage if failed else None
+    db.commit()
+    db.refresh(operation)
+    return operation
+
+
+def complete_diagram_purge(
+    db: Session,
+    operation_id: str,
+    *,
+    preserve_workspace_id: bool = False,
+) -> PurgeOperation:
+    operation = db.query(PurgeOperation).filter(PurgeOperation.id == operation_id).one()
+    lifecycle = _get_lifecycle(
+        db,
+        diagram_id=operation.scope_id,
+        owner_user_id=operation.owner_user_id,
+        tenant_id=operation.tenant_id,
+        for_update=True,
+    )
+    if lifecycle is not None:
+        lifecycle.state = "purged"
+        lifecycle.purged_at = datetime.now(timezone.utc)
+        if not preserve_workspace_id:
+            lifecycle.workspace_id = None
+    operation.status = "completed"
+    operation.last_error_stage = None
+    operation.completed_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(operation)
+    return operation
+
+
+def complete_workspace_purge(db: Session, operation_id: str) -> PurgeOperation:
+    operation = db.query(PurgeOperation).filter(PurgeOperation.id == operation_id).one()
+    stages = _json.loads(operation.stages or "{}")
+    diagram_ids = list(stages.get("_diagram_ids", []))
+    workspace = db.query(Workspace).filter(
+        Workspace.id == operation.scope_id,
+        Workspace.owner_user_id == operation.owner_user_id,
+        Workspace.tenant_id == operation.tenant_id,
+    ).first()
+    if workspace is not None:
+        db.delete(workspace)
+    lifecycles = (
+        db.query(DiagramLifecycle)
+        .filter(
+            DiagramLifecycle.owner_user_id == operation.owner_user_id,
+            DiagramLifecycle.tenant_id == operation.tenant_id,
+            or_(
+                DiagramLifecycle.workspace_id == operation.scope_id,
+                DiagramLifecycle.diagram_id.in_(diagram_ids),
+            ),
+        )
+        .all()
+    )
+    for lifecycle in lifecycles:
+        lifecycle.state = "purged"
+        lifecycle.purged_at = datetime.now(timezone.utc)
+        lifecycle.workspace_id = None
+    operation.status = "completed"
+    operation.last_error_stage = None
+    operation.completed_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(operation)
+    return operation
+
+
 def load_analysis_state(
     db: Session,
     *,
@@ -1781,9 +2446,10 @@ def load_analysis_state(
                 snapshot=hydrated,
                 version_number=version.version_number,
                 owner_api_key_id=cache_owner_api_key_id,
-                allow_existing=allow_legacy_cache_rehome,
+                allow_existing=True,
                 allow_legacy_tenant_rehome=allow_legacy_cache_rehome,
                 legacy_owner_user_ids=cache_legacy_owner_user_ids,
+                authoritative_hydration=True,
             )
         except Exception as exc:
             logger.warning(
@@ -1808,6 +2474,23 @@ def get_analysis_by_diagram(
         owner_user_id=owner_user_id,
         tenant_id=tenant_id,
     )
+
+
+def diagram_is_tombstoned(
+    db: Session,
+    *,
+    diagram_id: str,
+    owner_user_id: str,
+    tenant_id: str,
+) -> bool:
+    """Return whether durable lifecycle state denies reads and mutations."""
+    lifecycle = _get_lifecycle(
+        db,
+        diagram_id=diagram_id,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+    )
+    return lifecycle is not None and lifecycle.state != "active"
 
 
 def compare_analysis_versions(
@@ -1952,13 +2635,39 @@ def maybe_link_session(
             return None
 
     try:
-        result = persist_analysis_state(
+        analysis = _get_analysis_by_diagram(
+            db,
+            diagram_id=diagram_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+        )
+        expected_version = int(analysis.current_version or 0) if analysis is not None else None
+        if expected_version and session.get("_analysis_version") is not None and int(session["_analysis_version"]) != expected_version:
+            logger.warning("maybe_link_session_rejected_stale_snapshot diagram_id=%s", safe(diagram_id))
+            return None
+        request_hash = hashlib.sha256(
+            _json.dumps(
+                {
+                    "workspace_id": workspace_id,
+                    "expected_version": expected_version,
+                    "snapshot": session,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str,
+            ).encode("utf-8")
+        ).hexdigest()
+        result = persist_analysis_mutation(
             db,
             owner_user_id=owner_user_id,
             tenant_id=tenant_id,
             diagram_id=diagram_id,
             snapshot=session,
             workspace_id=workspace_id,
+            expected_version=expected_version,
+            operation="workspace-link",
+            request_hash=request_hash,
+            require_snapshot_version=False,
         )
         return result.version
     except Exception as exc:

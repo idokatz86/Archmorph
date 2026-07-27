@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from models.tenant import TeamMember
-from models.workspace import Analysis, AnalysisVersion, ProjectMember, Workspace
+from models.workspace import Analysis, AnalysisVersion, DiagramLifecycle, ProjectMember, Workspace
 
 
 PROJECT_ID_PREFIX = "proj"
@@ -259,6 +259,24 @@ def register_diagram(
         current_version=0,
     )
     db.add(analysis)
+    lifecycle = db.query(DiagramLifecycle).filter(
+        DiagramLifecycle.diagram_id == diagram_id,
+        DiagramLifecycle.owner_user_id == owner_user_id,
+        DiagramLifecycle.tenant_id == tenant_id,
+    ).first()
+    if lifecycle is None:
+        db.add(DiagramLifecycle(
+            diagram_id=diagram_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+            workspace_id=project.id,
+            generation=1,
+            state="active",
+        ))
+    elif lifecycle.state == "active":
+        lifecycle.workspace_id = project.id
+    else:
+        raise ValueError("Diagram identity has been purged")
     db.commit()
     db.refresh(analysis)
     return analysis

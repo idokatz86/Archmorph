@@ -31,6 +31,7 @@ class ExportCapability:
     diagram_id: str
     scope: str
     expires_at: float
+    record: dict
 
 
 def _principal_marker(request: Request) -> Optional[str]:
@@ -131,10 +132,20 @@ def attach_export_capability(payload, diagram_id: str, *, principal_marker: Opti
 
 
 def consume_export_capability(capability: Optional[ExportCapability]) -> None:
-    """Consume a previously validated export capability after success."""
+    """Atomically consume a previously validated export capability."""
     if capability is None:
         return
-    EXPORT_CAPABILITY_STORE.delete(capability.token_digest)
+    try:
+        consumed = EXPORT_CAPABILITY_STORE.pop(capability.token_digest)
+    except Exception as exc:
+        _audit("consume_unconfirmed", capability.diagram_id, capability.token_digest)
+        raise ArchmorphException(
+            503,
+            "Export capability consumption could not be confirmed",
+        ) from exc
+    if consumed is None or consumed != capability.record:
+        _audit("consume_replayed", capability.diagram_id, capability.token_digest)
+        raise ArchmorphException(401, "Invalid or replayed export capability")
     _audit("consumed", capability.diagram_id, capability.token_digest)
 
 
@@ -165,7 +176,7 @@ async def verify_export_capability(
         raise ArchmorphException(401, "Missing export capability")
 
     token_digest = _digest(token)
-    record = EXPORT_CAPABILITY_STORE.get(token_digest)
+    record = EXPORT_CAPABILITY_STORE.peek(token_digest)
     if not record:
         _audit("unknown_or_replayed", diagram_id, token_digest)
         raise ArchmorphException(401, "Invalid or replayed export capability")
@@ -197,17 +208,52 @@ async def verify_export_capability(
         diagram_id=diagram_id,
         scope=str(record.get("scope")),
         expires_at=expires_at,
+        record=dict(record),
     )
 
 
-def issue_restore_capability(request: Request, diagram_id: str, *, ttl_seconds: Optional[int] = None) -> str:
-    """Issue a reusable signed restore claim bound to diagram and caller identity."""
+def issue_restore_capability(
+    request: Request,
+    diagram_id: str,
+    *,
+    db=None,
+    owner_user_id: Optional[str] = None,
+    tenant_id: Optional[str] = None,
+    payload_hash: Optional[str] = None,
+    ttl_seconds: Optional[int] = None,
+) -> str:
+    """Issue a signed wrapper around a server-held one-time restore nonce."""
     import jwt
     from auth import JWT_ALGORITHM, JWT_SECRET
+    from database import SessionLocal
+    from routers.shared import get_request_durable_principal
+    from workspace_store import issue_restore_grant
 
     principal_marker = _principal_marker(request)
     if not principal_marker:
         raise ArchmorphException(401, "Authentication required")
+    principal = get_request_durable_principal(request)
+    owner_user_id = owner_user_id or (principal or {}).get("owner_user_id")
+    tenant_id = tenant_id or (principal or {}).get("tenant_id")
+    if not owner_user_id or not tenant_id:
+        raise ArchmorphException(401, "Authentication required")
+    owns_session = db is None
+    db = db or SessionLocal()
+    ttl = ttl_seconds or _ttl_seconds()
+    try:
+        nonce, generation, expected_version = issue_restore_grant(
+            db,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+            diagram_id=diagram_id,
+            ttl_seconds=ttl,
+            payload_hash=payload_hash,
+        )
+    except ValueError as exc:
+        raise ArchmorphException(404, "Diagram not found") from exc
+    finally:
+        if owns_session:
+            db.close()
     now = int(time.time())
     return jwt.encode(
         {
@@ -215,22 +261,26 @@ def issue_restore_capability(request: Request, diagram_id: str, *, ttl_seconds: 
             "diagram_id": diagram_id,
             "principal_digest": _digest(principal_marker),
             "actor_kind": "api_key" if principal_marker.startswith("api:") else "user",
+            "generation": generation,
+            "expected_version": expected_version,
+            "payload_hash": payload_hash,
+            "nonce": nonce,
             "jti": secrets.token_urlsafe(12),
             "iat": now,
-            "exp": now + (ttl_seconds or _ttl_seconds()),
+            "exp": now + ttl,
         },
         JWT_SECRET,
         algorithm=JWT_ALGORITHM,
     )
 
 
-def verify_restore_capability(request: Request, diagram_id: str, token: Optional[str]) -> bool:
-    """Validate a reusable signed restore capability without an existence oracle."""
+def decode_restore_capability(request: Request, diagram_id: str, token: Optional[str]) -> Optional[dict]:
+    """Validate signed restore claims without consulting diagram existence."""
     import jwt
     from auth import JWT_ALGORITHM, JWT_SECRET
 
     if not token:
-        return False
+        return None
     caller_principal = _principal_marker(request)
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
@@ -244,6 +294,14 @@ def verify_restore_capability(request: Request, diagram_id: str, token: Optional
             str(payload.get("principal_digest") or ""),
             _digest(caller_principal or ""),
         )
+        and isinstance(payload.get("generation"), int)
+        and isinstance(payload.get("expected_version"), int)
+        and isinstance(payload.get("nonce"), str)
     )
     _audit("restore_validated" if valid else "restore_denied", diagram_id, _digest(token))
-    return valid
+    return payload if valid else None
+
+
+def verify_restore_capability(request: Request, diagram_id: str, token: Optional[str]) -> bool:
+    """Compatibility predicate for callers that only inspect signed claims."""
+    return decode_restore_capability(request, diagram_id, token) is not None

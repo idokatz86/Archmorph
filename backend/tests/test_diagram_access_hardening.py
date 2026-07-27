@@ -50,6 +50,77 @@ def _owned_session(*, owner_user_id: str | None = None, tenant_id: str | None = 
     return session
 
 
+def _durable_restore_capability(
+    request,
+    diagram_id: str,
+    *,
+    owner_user_id: str,
+    tenant_id: str,
+):
+    from database import SessionLocal, init_db
+    from models.workspace import Analysis, DiagramLifecycle
+    from project_store import create_project, get_project_id_for_diagram, register_diagram
+
+    init_db()
+    db = SessionLocal()
+    try:
+        lifecycle = db.query(DiagramLifecycle).filter_by(
+            diagram_id=diagram_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+        ).first()
+        project_id = get_project_id_for_diagram(
+            db,
+            diagram_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+        )
+        if project_id is None:
+            if lifecycle is not None and lifecycle.workspace_id:
+                project_id = lifecycle.workspace_id
+            else:
+                project = create_project(
+                    db,
+                    owner_user_id=owner_user_id,
+                    tenant_id=tenant_id,
+                )
+                project_id = project.id
+        if db.query(Analysis.id).filter_by(
+            diagram_id=diagram_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+        ).first() is None:
+            if lifecycle is not None:
+                db.add(Analysis(
+                    workspace_id=project_id,
+                    owner_user_id=owner_user_id,
+                    tenant_id=tenant_id,
+                    diagram_id=diagram_id,
+                    status="uploaded",
+                    current_version=0,
+                ))
+                lifecycle.workspace_id = project_id
+                db.commit()
+            else:
+                register_diagram(
+                    db,
+                    project_id=project_id,
+                    diagram_id=diagram_id,
+                    owner_user_id=owner_user_id,
+                    tenant_id=tenant_id,
+                    filename="restore-fixture.png",
+                )
+        return issue_restore_capability(
+            request,
+            diagram_id,
+            db=db,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+        )
+    finally:
+        db.close()
+
+
 def test_durable_user_principal_preserves_stable_owner_id_and_opaque_tenant_scope():
     from auth import provider_subject_tenant_scope
     from starlette.requests import Request
@@ -312,7 +383,12 @@ def test_restore_capability_survives_cache_loss_and_is_principal_bound(
             "headers": [(b"authorization", tenant_a_auth_headers["Authorization"].encode())],
         }
     )
-    capability = issue_restore_capability(request, diagram_id)
+    capability = _durable_restore_capability(
+        request,
+        diagram_id,
+        owner_user_id="user-a-001",
+        tenant_id="tenant-a",
+    )
     SESSION_STORE.delete(diagram_id)
     payload = {
         "analysis": copy.deepcopy(SAMPLE_ANALYSIS),
@@ -351,7 +427,13 @@ def test_restore_capability_records_api_key_actor_marker(monkeypatch):
         }
     )
 
-    capability = issue_restore_capability(request, "restore-api-marker")
+    principal = get_api_key_service_principal({"x-api-key": "restore-api-key"})
+    capability = _durable_restore_capability(
+        request,
+        "restore-api-marker",
+        owner_user_id=principal,
+        tenant_id=f"service:{principal.split(':', 1)[-1]}",
+    )
     payload = jwt.decode(capability, JWT_SECRET, algorithms=[JWT_ALGORITHM])
 
     assert payload["actor_kind"] == "api_key"
@@ -372,7 +454,13 @@ def test_api_key_restore_capability_claims_and_restores_namespace(test_client, m
             "headers": [(b"x-api-key", api_key.encode())],
         }
     )
-    capability = issue_restore_capability(request, diagram_id)
+    principal = get_api_key_service_principal({"x-api-key": api_key})
+    capability = _durable_restore_capability(
+        request,
+        diagram_id,
+        owner_user_id=principal,
+        tenant_id=f"service:{principal.split(':', 1)[-1]}",
+    )
 
     response = test_client.post(
         f"/api/diagrams/{diagram_id}/restore-session",
@@ -384,5 +472,4 @@ def test_api_key_restore_capability_claims_and_restores_namespace(test_client, m
     )
 
     assert response.status_code == 200, response.text
-    principal = get_api_key_service_principal({"x-api-key": api_key})
     assert SESSION_STORE.peek(diagram_id)["_owner_api_key_id"] == principal

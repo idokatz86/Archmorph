@@ -38,6 +38,7 @@ function _sanitizeAnalysis(analysis) {
   if (!analysis || typeof analysis !== 'object') return analysis;
   const sanitized = { ...analysis };
   delete sanitized.export_capability;
+  delete sanitized.exportCapability;
   return sanitized;
 }
 

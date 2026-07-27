@@ -14,12 +14,14 @@ import logging
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, Literal, Optional
 
+from session_store import get_store
+
 logger = logging.getLogger(__name__)
 
 _lock = threading.RLock()
 
 # share_id -> share record
-_shares: Dict[str, Dict[str, Any]] = {}
+_shares = get_store("shareable_reports", maxsize=500, ttl=86400 * 365)
 
 # Max shares to prevent unbounded growth
 MAX_SHARES = 500
@@ -61,9 +63,9 @@ def create_share(
     with _lock:
         # Evict oldest if at capacity
         if len(_shares) >= MAX_SHARES:
-            oldest_key = next(iter(_shares))
-            del _shares[oldest_key]
-        _shares[share_id] = record
+            oldest_key = _shares.keys("*")[0]
+            _shares.delete(oldest_key)
+        _shares.set(share_id, record, ttl=max(1, expiry_days * 86400))
 
     return {
         "share_id": share_id,
@@ -82,9 +84,15 @@ def get_share(share_id: str) -> Optional[Dict[str, Any]]:
         # Check expiry
         expires_at = datetime.fromisoformat(record["expires_at"])
         if datetime.now(timezone.utc) > expires_at:
-            del _shares[share_id]
+            _shares.delete(share_id)
             return None
         record["view_count"] += 1
+        remaining_seconds = max(
+            1,
+            int((expires_at - datetime.now(timezone.utc)).total_seconds()),
+        )
+        if not _shares.set(share_id, record, ttl=remaining_seconds):
+            raise RuntimeError("Share view-count update could not be persisted")
         return record
 
 
@@ -115,12 +123,23 @@ def purge_diagram_shares(diagram_id: str) -> int:
     """Delete share links whose snapshots are tied to *diagram_id*."""
     removed = 0
     with _lock:
-        for share_id, record in list(_shares.items()):
+        for share_id in list(_shares.keys("*")):
+            record = _shares.peek(share_id) or {}
             snapshot = record.get("analysis_snapshot") or {}
             if snapshot.get("diagram_id") == diagram_id:
-                del _shares[share_id]
+                if not _shares.delete(share_id):
+                    raise RuntimeError("Share deletion could not be confirmed")
                 removed += 1
     return removed
+
+
+def diagram_shares_absent(diagram_id: str) -> bool:
+    """Confirm no in-process share snapshot references *diagram_id*."""
+    with _lock:
+        return not any(
+            (record.get("analysis_snapshot") or {}).get("diagram_id") == diagram_id
+            for record in _shares.values()
+        )
 
 
 # ─────────────────────────────────────────────────────────────

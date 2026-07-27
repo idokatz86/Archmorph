@@ -448,6 +448,10 @@ async def _run_hld_job(job_id: str, payload: Dict[str, Any]) -> None:
                         artifact_format="markdown",
                         artifact_content=markdown,
                         expected_version=int(expected_version) if expected_version is not None else None,
+                        operation="hld-generated-async",
+                        request_hash=hashlib.sha256(
+                            f"{job_id}:{payload.get('analysis_hash')}:{hashlib.sha256(markdown.encode()).hexdigest()}".encode()
+                        ).hexdigest(),
                         label="hld-generated-async",
                         cache_required=True,
                     )

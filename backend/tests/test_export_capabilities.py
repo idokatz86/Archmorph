@@ -3,11 +3,19 @@
 from __future__ import annotations
 
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
 from auth import AuthProvider, User, UserTier, generate_session_token
-from export_capabilities import EXPORT_CAPABILITY_SCOPE, _digest, issue_export_capability
+from error_envelope import ArchmorphException
+from export_capabilities import (
+    EXPORT_CAPABILITY_SCOPE,
+    ExportCapability,
+    _digest,
+    consume_export_capability,
+    issue_export_capability,
+)
 from routers import shared as shared_router
 from routers.shared import EXPORT_CAPABILITY_STORE, SESSION_STORE
 
@@ -184,3 +192,56 @@ def test_query_export_token_rejected_outside_local(test_client, diagram_id, monk
 
     assert response.status_code == 400
     assert "Query-string export capabilities are disabled" in response.text
+
+
+def test_concurrent_capability_consumers_have_exactly_one_winner(diagram_id):
+    token = issue_export_capability(diagram_id)
+    token_digest = _digest(token)
+    record = EXPORT_CAPABILITY_STORE.peek(token_digest)
+    capability = ExportCapability(
+        token_digest=token_digest,
+        diagram_id=diagram_id,
+        scope=EXPORT_CAPABILITY_SCOPE,
+        expires_at=record["expires_at"],
+        record=dict(record),
+    )
+
+    def consume(_index):
+        try:
+            consume_export_capability(capability)
+            return "success"
+        except ArchmorphException as exc:
+            return exc.status_code
+
+    with ThreadPoolExecutor(max_workers=12) as pool:
+        results = list(pool.map(consume, range(12)))
+
+    assert results.count("success") == 1
+    assert results.count(401) == 11
+
+
+def test_capability_consumption_fails_closed_when_atomic_delete_fails(
+    diagram_id,
+    monkeypatch,
+):
+    token = issue_export_capability(diagram_id)
+    token_digest = _digest(token)
+    record = EXPORT_CAPABILITY_STORE.peek(token_digest)
+    capability = ExportCapability(
+        token_digest=token_digest,
+        diagram_id=diagram_id,
+        scope=EXPORT_CAPABILITY_SCOPE,
+        expires_at=record["expires_at"],
+        record=dict(record),
+    )
+    monkeypatch.setattr(
+        EXPORT_CAPABILITY_STORE,
+        "pop",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("unconfirmed")),
+    )
+
+    with pytest.raises(ArchmorphException) as exc_info:
+        consume_export_capability(capability)
+
+    assert exc_info.value.status_code == 503
+    assert EXPORT_CAPABILITY_STORE.peek(token_digest) == record

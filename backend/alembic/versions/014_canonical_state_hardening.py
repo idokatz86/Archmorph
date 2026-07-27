@@ -451,6 +451,126 @@ def upgrade() -> None:
         unique=True,
     )
 
+    op.create_table(
+        "diagram_lifecycle",
+        sa.Column("id", sa.String(36), primary_key=True),
+        sa.Column("diagram_id", sa.String(50), nullable=False),
+        sa.Column("owner_user_id", sa.String(100), nullable=False),
+        sa.Column("tenant_id", sa.String(100), nullable=False),
+        sa.Column(
+            "workspace_id",
+            sa.String(36),
+            sa.ForeignKey("workspaces.id", ondelete="SET NULL"),
+            nullable=True,
+        ),
+        sa.Column("generation", sa.Integer(), nullable=False, server_default="1"),
+        sa.Column("state", sa.String(20), nullable=False, server_default="active"),
+        sa.Column("purged_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+        sa.CheckConstraint(
+            "state IN ('active', 'purging', 'purged')",
+            name="ck_diagram_lifecycle_state",
+        ),
+    )
+    op.create_index("ix_diagram_lifecycle_workspace_id", "diagram_lifecycle", ["workspace_id"])
+    op.create_index("ix_diagram_lifecycle_diagram", "diagram_lifecycle", ["diagram_id"])
+    op.create_index(
+        "ux_diagram_lifecycle_scope",
+        "diagram_lifecycle",
+        ["owner_user_id", "tenant_id", "diagram_id"],
+        unique=True,
+    )
+
+    op.create_table(
+        "restore_grants",
+        sa.Column("id", sa.String(36), primary_key=True),
+        sa.Column("nonce_digest", sa.String(64), nullable=False),
+        sa.Column("owner_user_id", sa.String(100), nullable=False),
+        sa.Column("tenant_id", sa.String(100), nullable=False),
+        sa.Column("diagram_id", sa.String(50), nullable=False),
+        sa.Column("generation", sa.Integer(), nullable=False),
+        sa.Column("expected_version", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column("payload_hash", sa.String(64), nullable=True),
+        sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("consumed_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("revoked_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+    )
+    op.create_index("ux_restore_grants_nonce", "restore_grants", ["nonce_digest"], unique=True)
+    op.create_index(
+        "ix_restore_grants_scope",
+        "restore_grants",
+        ["owner_user_id", "tenant_id", "diagram_id", "generation"],
+    )
+
+    op.create_table(
+        "purge_operations",
+        sa.Column("id", sa.String(36), primary_key=True),
+        sa.Column("scope_type", sa.String(20), nullable=False),
+        sa.Column("scope_id", sa.String(50), nullable=False),
+        sa.Column("owner_user_id", sa.String(100), nullable=False),
+        sa.Column("tenant_id", sa.String(100), nullable=False),
+        sa.Column("status", sa.String(20), nullable=False, server_default="pending"),
+        sa.Column("generation", sa.Integer(), nullable=True),
+        sa.Column("stages", sa.Text(), nullable=False, server_default="{}"),
+        sa.Column("last_error_stage", sa.String(100), nullable=True),
+        sa.Column("attempts", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+        sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True),
+        sa.CheckConstraint(
+            "scope_type IN ('diagram', 'workspace')",
+            name="ck_purge_operations_scope",
+        ),
+        sa.CheckConstraint(
+            "status IN ('pending', 'in_progress', 'failed', 'completed')",
+            name="ck_purge_operations_status",
+        ),
+    )
+    op.create_index("ix_purge_operations_status", "purge_operations", ["status"])
+    op.create_index(
+        "ux_purge_operations_scope",
+        "purge_operations",
+        ["owner_user_id", "tenant_id", "scope_type", "scope_id"],
+        unique=True,
+    )
+
+    op.create_table(
+        "analysis_mutation_receipts",
+        sa.Column("id", sa.String(36), primary_key=True),
+        sa.Column("owner_user_id", sa.String(100), nullable=False),
+        sa.Column("tenant_id", sa.String(100), nullable=False),
+        sa.Column("diagram_id", sa.String(50), nullable=False),
+        sa.Column("operation", sa.String(100), nullable=False),
+        sa.Column("request_hash", sa.String(64), nullable=False),
+        sa.Column(
+            "analysis_id",
+            sa.String(36),
+            sa.ForeignKey("analyses.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "version_id",
+            sa.String(36),
+            sa.ForeignKey("analysis_versions.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column("version_number", sa.Integer(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+    )
+    op.create_index(
+        "ux_analysis_mutation_receipts_scope",
+        "analysis_mutation_receipts",
+        ["owner_user_id", "tenant_id", "diagram_id", "operation", "request_hash"],
+        unique=True,
+    )
+    op.create_index(
+        "ix_analysis_mutation_receipts_analysis",
+        "analysis_mutation_receipts",
+        ["analysis_id"],
+    )
+
     if not context.is_offline_mode():
         bind = op.get_bind()
         metadata = sa.MetaData()
@@ -511,6 +631,19 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.drop_index("ix_analysis_mutation_receipts_analysis", table_name="analysis_mutation_receipts")
+    op.drop_index("ux_analysis_mutation_receipts_scope", table_name="analysis_mutation_receipts")
+    op.drop_table("analysis_mutation_receipts")
+    op.drop_index("ux_purge_operations_scope", table_name="purge_operations")
+    op.drop_index("ix_purge_operations_status", table_name="purge_operations")
+    op.drop_table("purge_operations")
+    op.drop_index("ix_restore_grants_scope", table_name="restore_grants")
+    op.drop_index("ux_restore_grants_nonce", table_name="restore_grants")
+    op.drop_table("restore_grants")
+    op.drop_index("ux_diagram_lifecycle_scope", table_name="diagram_lifecycle")
+    op.drop_index("ix_diagram_lifecycle_diagram", table_name="diagram_lifecycle")
+    op.drop_index("ix_diagram_lifecycle_workspace_id", table_name="diagram_lifecycle")
+    op.drop_table("diagram_lifecycle")
     op.drop_index("ux_project_members_project_member", table_name="project_members")
     op.drop_index("ix_project_members_scope", table_name="project_members")
     op.drop_index("ix_project_members_member_user_id", table_name="project_members")

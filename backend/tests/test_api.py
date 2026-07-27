@@ -320,8 +320,7 @@ class TestPurge:
         assert did not in IMAGE_STORE
         assert did not in SESSION_STORE
         purged_job = job_manager.get(job.job_id)
-        assert purged_job is not None
-        assert purged_job.status.value == "cancelled"
+        assert purged_job is None
         assert shareable_reports.get_share_stats(share["share_id"]) is None
         assert f"{did}:iac" not in IAC_CHAT_SESSIONS
         assert not any(

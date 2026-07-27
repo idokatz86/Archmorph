@@ -1474,23 +1474,41 @@ class JobManager:
         }
 
     def purge_diagram(self, diagram_id: str) -> int:
-        """Delete all jobs and buffered events linked to a diagram."""
+        """Physically delete all jobs and coordination state for a diagram."""
         deleted = 0
         for job_id in list(self._jobs_store.keys("*")):
-            payload = self._jobs_store.get(job_id) or {}
+            payload = self._jobs_store.peek(job_id) or {}
             if payload.get("diagram_id") != diagram_id:
                 continue
             job = Job.from_dict(payload)
             if job.status in (JobStatus.QUEUED, JobStatus.RUNNING):
                 self.cancel(job_id)
-                deleted += 1
-                continue
+            if job.input_hash:
+                self._release_idempotency(
+                    self._idempotency_key(
+                        job.input_hash,
+                        owner_user_id=job.owner_user_id,
+                        tenant_id=job.tenant_id,
+                        owner_api_key_id=job.owner_api_key_id,
+                    ),
+                    job_id,
+                )
+            self._release_counter_reservation(job_id)
             self._jobs.pop(job_id, None)
-            self._jobs_store.delete(job_id)
-            self._events_store.delete(job_id)
+            if not self._jobs_store.delete(job_id):
+                raise JobStoreError("Job deletion could not be confirmed")
+            if not self._events_store.delete(job_id):
+                raise JobStoreError("Job event deletion could not be confirmed")
             self._waiters.pop(job_id, None)
             deleted += 1
         return deleted
+
+    def diagram_absent(self, diagram_id: str) -> bool:
+        """Confirm no persisted job for *diagram_id* remains."""
+        return not any(
+            (self._jobs_store.peek(job_id) or {}).get("diagram_id") == diagram_id
+            for job_id in self._jobs_store.keys("*")
+        )
 
 
 def _sse_format(event: str, data: Any) -> str:

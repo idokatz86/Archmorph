@@ -215,6 +215,10 @@ def test_013_production_init_is_read_only_then_014_migrates_without_partial_sche
             assert readiness_013["schema_at_head"] is False
             assert readiness_013["required_schema_present"] is False
             assert {
+                "table:analysis_mutation_receipts",
+                "table:diagram_lifecycle",
+                "table:purge_operations",
+                "table:restore_grants",
                 "table:tenant_rehome_audit",
                 "table:project_members",
                 "column:workspaces.is_default",

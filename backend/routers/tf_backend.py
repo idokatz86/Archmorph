@@ -39,6 +39,30 @@ def _state_has_material_data(state: DeploymentState) -> bool:
     return bool(state.state_json or state.previous_state_json or state.lock_id or state.lock_info)
 
 
+def purge_project_state(db: Session, project_id: str, owner_user_id: str, tenant_id: str) -> int:
+    """Delete all owner/tenant-scoped Terraform state and locks for a project."""
+    states = db.query(DeploymentState).filter(
+        DeploymentState.project_id == project_id,
+        DeploymentState.owner_user_id == owner_user_id,
+        DeploymentState.tenant_id == tenant_id,
+    ).all()
+    for state in states:
+        lock_key = _state_owner_key(project_id, state.environment)
+        if not LOCK_STORE.delete(lock_key):
+            raise RuntimeError("Terraform lock deletion could not be confirmed")
+        db.delete(state)
+    db.commit()
+    return len(states)
+
+
+def project_state_absent(db: Session, project_id: str, owner_user_id: str, tenant_id: str) -> bool:
+    return db.query(DeploymentState.id).filter(
+        DeploymentState.project_id == project_id,
+        DeploymentState.owner_user_id == owner_user_id,
+        DeploymentState.tenant_id == tenant_id,
+    ).first() is None
+
+
 def _enforce_state_owner(state: DeploymentState, user) -> None:
     if not state.owner_user_id and not state.tenant_id:
         if _state_has_material_data(state):

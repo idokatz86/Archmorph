@@ -843,8 +843,11 @@ def test_purge_fails_without_receipt_when_cache_delete_is_unconfirmed(
     assert "trust_receipt" not in response.json()
     assert response.json()["error"]["details"]["error"] == "analysis_purge_unavailable"
     assert failed_store.peek(diagram_id) is not None
-    assert SESSION_STORE.peek(diagram_id) is not None
-    assert diagrams.IMAGE_STORE.peek(diagram_id) is not None
+    if failed_store_name == "SESSION_STORE":
+        assert diagrams.IMAGE_STORE.peek(diagram_id) is not None
+    else:
+        assert SESSION_STORE.peek(diagram_id) is None
+        assert diagrams.IMAGE_STORE.peek(diagram_id) is not None
     db = durable_runtime()
     try:
         assert db.query(Analysis).filter_by(id=analysis_id).count() == 1

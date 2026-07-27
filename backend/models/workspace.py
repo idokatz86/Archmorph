@@ -24,6 +24,7 @@ import uuid as _uuid
 from sqlalchemy import (
     and_,
     Boolean,
+    CheckConstraint,
     Column,
     DateTime,
     Float,
@@ -326,6 +327,44 @@ class AnalysisVersion(Base):
         return result
 
 
+class AnalysisMutationReceipt(Base):
+    """Durable idempotency receipt for one scoped analysis mutation."""
+
+    __tablename__ = "analysis_mutation_receipts"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    owner_user_id = Column(String(100), nullable=False)
+    tenant_id = Column(String(100), nullable=False)
+    diagram_id = Column(String(50), nullable=False)
+    operation = Column(String(100), nullable=False)
+    request_hash = Column(String(64), nullable=False)
+    analysis_id = Column(
+        String(36),
+        ForeignKey("analyses.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    version_id = Column(
+        String(36),
+        ForeignKey("analysis_versions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    version_number = Column(Integer, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index(
+            "ux_analysis_mutation_receipts_scope",
+            "owner_user_id",
+            "tenant_id",
+            "diagram_id",
+            "operation",
+            "request_hash",
+            unique=True,
+        ),
+        Index("ix_analysis_mutation_receipts_analysis", "analysis_id"),
+    )
+
+
 # ─────────────────────────────────────────────────────────────
 # Artifact
 # ─────────────────────────────────────────────────────────────
@@ -472,3 +511,109 @@ class TenantRehomeAudit(Base):
     status = Column(String(40), nullable=False, index=True)
     details = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class DiagramLifecycle(Base):
+    """Durable generation, deletion tombstone, and current workspace binding."""
+
+    __tablename__ = "diagram_lifecycle"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    diagram_id = Column(String(50), nullable=False)
+    owner_user_id = Column(String(100), nullable=False)
+    tenant_id = Column(String(100), nullable=False)
+    workspace_id = Column(
+        String(36),
+        ForeignKey("workspaces.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    generation = Column(Integer, nullable=False, server_default="1")
+    state = Column(String(20), nullable=False, server_default="active")
+    purged_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('active', 'purging', 'purged')",
+            name="ck_diagram_lifecycle_state",
+        ),
+        Index(
+            "ux_diagram_lifecycle_scope",
+            "owner_user_id",
+            "tenant_id",
+            "diagram_id",
+            unique=True,
+        ),
+        Index("ix_diagram_lifecycle_diagram", "diagram_id"),
+    )
+
+
+class RestoreGrant(Base):
+    """Server-held one-time restore capability bound to immutable claims."""
+
+    __tablename__ = "restore_grants"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    nonce_digest = Column(String(64), nullable=False, unique=True)
+    owner_user_id = Column(String(100), nullable=False)
+    tenant_id = Column(String(100), nullable=False)
+    diagram_id = Column(String(50), nullable=False)
+    generation = Column(Integer, nullable=False)
+    expected_version = Column(Integer, nullable=False, server_default="0")
+    payload_hash = Column(String(64), nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    consumed_at = Column(DateTime(timezone=True), nullable=True)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index(
+            "ix_restore_grants_scope",
+            "owner_user_id",
+            "tenant_id",
+            "diagram_id",
+            "generation",
+        ),
+    )
+
+
+class PurgeOperation(Base):
+    """Restart-safe deletion operation and completion receipt."""
+
+    __tablename__ = "purge_operations"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    scope_type = Column(String(20), nullable=False)
+    scope_id = Column(String(50), nullable=False)
+    owner_user_id = Column(String(100), nullable=False)
+    tenant_id = Column(String(100), nullable=False)
+    status = Column(String(20), nullable=False, server_default="pending")
+    generation = Column(Integer, nullable=True)
+    stages = Column(Text, nullable=False, server_default="{}")
+    last_error_stage = Column(String(100), nullable=True)
+    attempts = Column(Integer, nullable=False, server_default="0")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "scope_type IN ('diagram', 'workspace')",
+            name="ck_purge_operations_scope",
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'in_progress', 'failed', 'completed')",
+            name="ck_purge_operations_status",
+        ),
+        Index(
+            "ux_purge_operations_scope",
+            "owner_user_id",
+            "tenant_id",
+            "scope_type",
+            "scope_id",
+            unique=True,
+        ),
+        Index("ix_purge_operations_status", "status"),
+    )

@@ -36,7 +36,14 @@ def decrypt_payload(token: str) -> dict:
         raise ArchmorphException(401, "Invalid or corrupted credential token")
 
 
-def store_credentials(session_token: str, provider: str, creds: dict) -> None:
+def store_credentials(
+    session_token: str,
+    provider: str,
+    creds: dict,
+    *,
+    owner_user_id: Optional[str] = None,
+    tenant_id: Optional[str] = None,
+) -> None:
     """
     Encrypt and store credentials securely for the current session.
     credentials NEVER touch database or disk unless FileStore is used (which encrypts).
@@ -46,7 +53,15 @@ def store_credentials(session_token: str, provider: str, creds: dict) -> None:
     encrypted = encrypt_payload(payload)
     
     # Store directly with session_token as key
-    _CRED_STORE.set(session_token, encrypted, ttl=3600)
+    _CRED_STORE.set(
+        session_token,
+        {
+            "ciphertext": encrypted,
+            "owner_user_id": owner_user_id,
+            "tenant_id": tenant_id,
+        },
+        ttl=3600,
+    )
     logger.info("Encrypted credentials stored for session_token ending in %s", str(str(session_token[-4:]).replace("\n", "").replace("\r", "")).replace("\n", "").replace("\r", ""))  # lgtm[py/log-injection]
 
 
@@ -54,7 +69,10 @@ def get_credentials(session_token: str, expected_provider: Optional[str] = None)
     """
     Retrieve and decrypt credentials for active session.
     """
-    encrypted = _CRED_STORE.get(session_token)
+    stored = _CRED_STORE.get(session_token)
+    if not stored:
+        raise ArchmorphException(401, "No credentials found for session. They may have expired.")
+    encrypted = stored.get("ciphertext") if isinstance(stored, dict) else stored
     if not encrypted:
         raise ArchmorphException(401, "No credentials found for session. They may have expired.")
     
@@ -70,4 +88,31 @@ def clear_credentials(session_token: str) -> None:
     """Immediately remove a session's credentials."""
     _CRED_STORE.delete(session_token)
     logger.info("Credentials cleared for session terminating in %s", str(str(session_token[-4:]).replace("\n", "").replace("\r", "")).replace("\n", "").replace("\r", ""))  # lgtm[py/log-injection]
+
+
+def purge_scope_credentials(owner_user_id: str, tenant_id: str) -> int:
+    """Delete all transient credentials belonging to an owner/tenant scope."""
+    removed = 0
+    for session_token in list(_CRED_STORE.keys("*")):
+        stored = _CRED_STORE.peek(session_token)
+        if not isinstance(stored, dict):
+            continue
+        if (
+            stored.get("owner_user_id") != owner_user_id
+            or stored.get("tenant_id") != tenant_id
+        ):
+            continue
+        if not _CRED_STORE.delete(session_token):
+            raise RuntimeError("Credential deletion could not be confirmed")
+        removed += 1
+    return removed
+
+
+def scope_credentials_absent(owner_user_id: str, tenant_id: str) -> bool:
+    return not any(
+        isinstance((stored := _CRED_STORE.peek(session_token)), dict)
+        and stored.get("owner_user_id") == owner_user_id
+        and stored.get("tenant_id") == tenant_id
+        for session_token in _CRED_STORE.keys("*")
+    )
 

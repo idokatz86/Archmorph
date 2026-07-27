@@ -11,6 +11,7 @@ import asyncio
 import logging
 
 from routers.shared import (
+    SESSION_STORE,
     authorize_diagram_access,
     limiter,
     persist_diagram_mutation,
@@ -134,8 +135,11 @@ async def add_services_natural_language(
         "services_count": len(updated.get("services_added", [])),
     })
 
+    committed = SESSION_STORE.peek(diagram_id) or updated
+
     return {
         "diagram_id": diagram_id,
+        "analysis_version": committed.get("_analysis_version"),
         "services_added": updated.get("services_added", []),
         "services_detected": updated.get("services_detected", 0),
         "inferred_requirements": updated.get("inferred_requirements", []),
@@ -166,7 +170,8 @@ async def apply_guided_answers(
     )
     record_event("answers_applied", {"diagram_id": diagram_id})
     record_funnel_step(diagram_id, "answers")
-    return refined
+    persisted = SESSION_STORE.peek(diagram_id)
+    return persisted or refined
 
 
 # ─────────────────────────────────────────────────────────────

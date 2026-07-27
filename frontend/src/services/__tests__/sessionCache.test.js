@@ -106,6 +106,12 @@ describe('sessionCache', () => {
     expect(loadSession('d1').projectId).toBe('proj-server-issued')
   })
 
+  it('preserves the immutable server analysis version used for restore CAS', () => {
+    saveSessionWithOptIn('d1', { zones: [], _analysis_version: 7 }, [], {})
+
+    expect(loadSession('d1').analysis._analysis_version).toBe(7)
+  })
+
   it('stores timestamp for TTL checks', () => {
     const before = Date.now()
     saveSessionWithOptIn('d1', {}, [], {})
