@@ -51,6 +51,12 @@ def test_latest_traffic_becomes_explicit_without_changing_multi_revision_weights
     assert "stable=10" in traffic_command(result)
 
 
+def test_explicit_only_traffic_does_not_require_an_unused_latest_revision():
+    source = [{"revisionName": "api-stable", "weight": 100, "label": "stable"}]
+
+    assert explicit_traffic(source, latest_revision="") == canonical_traffic(source)
+
+
 def test_authoritative_latest_not_highest_weight_preserves_stable90_latest10():
     source = [
         {"revisionName": "api-stable", "weight": 90, "label": "stable"},
@@ -65,7 +71,20 @@ def test_authoritative_latest_not_highest_weight_preserves_stable90_latest10():
 
     result = explicit_traffic(
         source,
-        latest_revision=authoritative_latest_revision(app),
+        latest_revision=authoritative_latest_revision(
+            app,
+            [
+                {
+                    "name": "api-authoritative-latest",
+                    "properties": {
+                        "active": True,
+                        "provisioningState": "Succeeded",
+                        "runningState": "Running",
+                        "healthState": "Healthy",
+                    },
+                }
+            ],
+        ),
     )
 
     assert result == canonical_traffic(
@@ -86,7 +105,8 @@ def test_authoritative_latest_preserves_labels_and_multiple_revisions_exactly():
     result = explicit_traffic(
         source,
         latest_revision=authoritative_latest_revision(
-            {"properties": {"latestRevisionName": "api-d"}}
+            {"properties": {"latestReadyRevisionName": "api-d"}},
+            [{"name": "api-d", "properties": {"active": True}}],
         ),
     )
     assert result == canonical_traffic(
@@ -97,6 +117,49 @@ def test_authoritative_latest_preserves_labels_and_multiple_revisions_exactly():
             {"revisionName": "api-c", "weight": 10, "label": "stable"},
         ]
     )
+
+
+def test_authoritative_latest_requires_latest_ready_not_merely_latest_revision():
+    with pytest.raises(ValueError, match="no authoritative latest-ready"):
+        authoritative_latest_revision(
+            {"properties": {"latestRevisionName": "api-created-not-ready"}},
+            [
+                {
+                    "name": "api-created-not-ready",
+                    "properties": {
+                        "active": True,
+                        "provisioningState": "Succeeded",
+                        "runningState": "Running",
+                        "healthState": "Healthy",
+                    },
+                }
+            ],
+        )
+
+
+@pytest.mark.parametrize(
+    ("properties", "message"),
+    [
+        ({"active": False, "healthState": "Healthy"}, "not active"),
+        ({"active": True, "healthState": "Unhealthy"}, "unready healthState"),
+        ({"active": True, "runningState": "Stopped"}, "unready runningState"),
+        ({"active": True, "provisioningState": "Failed"}, "unready provisioningState"),
+    ],
+)
+def test_authoritative_latest_rejects_inactive_or_unready_revision(properties, message):
+    with pytest.raises(ValueError, match=message):
+        authoritative_latest_revision(
+            {"properties": {"latestReadyRevisionName": "api-blue"}},
+            [{"name": "api-blue", "properties": properties}],
+        )
+
+
+def test_authoritative_latest_rejects_latest_ready_absent_from_revision_state():
+    with pytest.raises(ValueError, match="absent or duplicated"):
+        authoritative_latest_revision(
+            {"properties": {"latestReadyRevisionName": "api-blue"}},
+            [{"name": "api-other", "properties": {"active": True}}],
+        )
 
 
 def test_authoritative_latest_merges_existing_unlabeled_route_without_weight_loss():
@@ -123,7 +186,6 @@ def _release_state(*, schema="013", original=None):
         current_schema=schema,
         migration_from="013",
         target_schema="014",
-        original_traffic=original,
         baseline_traffic=original,
         bridge_revision="api-bridge" if schema == "013" else "",
     )
@@ -136,7 +198,6 @@ def test_release_state_migration_branch_requires_bridge_but_routine_preserves_we
         current_schema="014",
         migration_from="013",
         target_schema="014",
-        original_traffic=routine["pre_green_traffic"],
         baseline_traffic=routine["pre_green_traffic"],
     )
 
@@ -145,14 +206,13 @@ def test_release_state_migration_branch_requires_bridge_but_routine_preserves_we
         [{"revisionName": "api-bridge", "weight": 100}]
     )
     assert routine["branch"] == "routine"
-    assert routine["pre_green_traffic"] == routine["original_traffic"]
+    assert routine["pre_green_traffic"] == routine["baseline_traffic"]
     assert repeated["pre_green_traffic"] == routine["pre_green_traffic"]
     captured = create_release_state(
         current_schema="013",
         migration_from="013",
         target_schema="014",
-        original_traffic=routine["original_traffic"],
-        baseline_traffic=routine["original_traffic"],
+        baseline_traffic=routine["baseline_traffic"],
     )
     assert captured["pre_green_traffic"] == []
     assert set_release_bridge(captured, "api-bridge")["pre_green_traffic"] == migration[
@@ -163,8 +223,7 @@ def test_release_state_migration_branch_requires_bridge_but_routine_preserves_we
             current_schema="014",
             migration_from="013",
             target_schema="014",
-            original_traffic=routine["original_traffic"],
-            baseline_traffic=routine["original_traffic"],
+            baseline_traffic=routine["baseline_traffic"],
             bridge_revision="api-bridge",
         )
 
@@ -184,7 +243,7 @@ def test_migration_failure_recovery_is_schema_aware_and_exact(stage, schema, exp
     action, target = recovery_decision(state, observed_schema=schema)
     assert action == expected_action
     expected = (
-        state["original_traffic"]
+        state["baseline_traffic"]
         if expected_action == "restore_original"
         else state["pre_green_traffic"]
     )
@@ -231,7 +290,66 @@ def test_routine_failure_restores_exact_original_when_health_schema_probe_is_una
     state = mark_release_stage(_release_state(schema="014"), "green_shift_attempted")
     action, target = recovery_decision(state, observed_schema="")
     assert action == "restore_original"
-    assert target == state["original_traffic"]
+    assert target == state["baseline_traffic"]
+
+
+@pytest.mark.parametrize(
+    ("schema", "stage", "observed_schema"),
+    [
+        ("014", "green_shift_attempted", ""),
+        ("013", "bridge_route_attempted", "013"),
+        ("013", "migration_attempted", "013"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("raw", "expected_revisions"),
+    [
+        (
+            [
+                {"latestRevision": True, "weight": 10},
+                {"revisionName": "api-stable", "weight": 90, "label": "stable"},
+            ],
+            {"api-blue-ready", "api-stable"},
+        ),
+        ([{"latestRevision": True, "weight": 100}], {"api-blue-ready"}),
+    ],
+)
+def test_recovery_uses_captured_explicit_baseline_never_raw_latest(
+    schema, stage, observed_schema, raw, expected_revisions
+):
+    baseline = explicit_traffic(raw, latest_revision="api-blue-ready")
+    state = create_release_state(
+        current_schema=schema,
+        migration_from="013",
+        target_schema="014",
+        baseline_traffic=baseline,
+        bridge_revision="api-bridge" if schema == "013" else "",
+    )
+    state = mark_release_stage(state, stage)
+    failed_revision = "api-new-failed"
+
+    action, target = recovery_decision(state, observed_schema=observed_schema)
+
+    assert action == "restore_original"
+    assert target == baseline
+    assert all("latestRevision" not in item for item in target)
+    assert all(item.get("revisionName") != failed_revision for item in target)
+    assert {item.get("revisionName") for item in target} == expected_revisions
+
+
+def test_release_state_and_execution_reject_dynamic_recovery_manifests():
+    raw_latest = [{"latestRevision": True, "weight": 100}]
+    with pytest.raises(ValueError, match="must not contain dynamic latest"):
+        create_release_state(
+            current_schema="014",
+            migration_from="013",
+            target_schema="014",
+            baseline_traffic=raw_latest,
+        )
+    with pytest.raises(ValueError, match="must not contain dynamic latest"):
+        with patch.object(rollout.subprocess, "run") as run:
+            apply_traffic(raw_latest, name="api", resource_group="example-rg")
+        run.assert_not_called()
 
 
 def test_traffic_validation_rejects_implicit_or_invalid_manifest():

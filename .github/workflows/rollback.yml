@@ -74,6 +74,32 @@ jobs:
           fi
           echo "target=$TARGET" >> "$GITHUB_OUTPUT"
 
+      - name: Capture exact prior traffic and rollback target
+        id: rollback_state
+        env:
+          ROLLBACK_TARGET: ${{ steps.revision.outputs.target }}
+        run: |
+          set -euo pipefail
+          az containerapp show \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            -o json > containerapp-before-rollback.json
+          az containerapp revision list \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --all \
+            -o json > revisions-before-rollback.json
+          jq '.properties.configuration.ingress.traffic' containerapp-before-rollback.json \
+            > pre-rollback-traffic-original.json
+          python scripts/containerapp_rollout.py explicit-traffic \
+            --input pre-rollback-traffic-original.json \
+            --container-app containerapp-before-rollback.json \
+            --revisions revisions-before-rollback.json \
+            --output pre-rollback-traffic-manifest.json
+          cat > rollback-target-traffic-manifest.json <<EOF
+          [{"revisionName":"${ROLLBACK_TARGET}","weight":100,"label":""}]
+          EOF
+
       - name: Verify target schema compatibility before activation
         id: compatibility
         env:
@@ -168,21 +194,6 @@ jobs:
             --name ${{ env.CONTAINER_APP_NAME }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --revision ${{ steps.revision.outputs.target }}
-
-      - name: Capture exact prior traffic and rollback target
-        id: rollback_state
-        env:
-          ROLLBACK_TARGET: ${{ steps.revision.outputs.target }}
-        run: |
-          set -euo pipefail
-          az containerapp show \
-            --name "$CONTAINER_APP_NAME" \
-            --resource-group "$AZURE_RESOURCE_GROUP" \
-            --query 'properties.configuration.ingress.traffic' -o json \
-            > pre-rollback-traffic-manifest.json
-          cat > rollback-target-traffic-manifest.json <<EOF
-          [{"revisionName":"${ROLLBACK_TARGET}","weight":100,"label":""}]
-          EOF
 
       - name: Shift traffic to rollback revision
         id: shift_rollback

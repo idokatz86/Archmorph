@@ -107,6 +107,11 @@ output "application_insights_instrumentation_key" {
   sensitive   = true
 }
 
+output "application_insights_resource_id" {
+  description = "Application Insights resource ID required by migration alert attestation."
+  value       = azurerm_application_insights.main.id
+}
+
 output "migration_failure_alert_id" {
   description = "Applied migration failure alert resource ID."
   value       = azurerm_monitor_scheduled_query_rules_alert_v2.migration_job_failure.id

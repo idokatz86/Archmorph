@@ -851,11 +851,17 @@ jobs:
             --name "$CONTAINER_APP_NAME" \
             --resource-group "$AZURE_RESOURCE_GROUP" \
             -o json > containerapp-before-rollout.json
+          az containerapp revision list \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --all \
+            -o json > revisions-before-rollout.json
           jq '.properties.configuration.ingress.traffic' containerapp-before-rollout.json \
             > blue-traffic-original.json
           python scripts/containerapp_rollout.py explicit-traffic \
             --input blue-traffic-original.json \
             --container-app containerapp-before-rollout.json \
+            --revisions revisions-before-rollout.json \
             --output blue-traffic-manifest.json
 
       - name: Stage schema bridge rollout script
@@ -1257,6 +1263,7 @@ jobs:
           MIGRATION_FAILURE_ALERT_ID=$(jq -er '.migration_failure_alert_id.value' infra/applied-outputs.json)
           MIGRATION_TIMEOUT_ALERT_ID=$(jq -er '.migration_timeout_alert_id.value' infra/applied-outputs.json)
           MIGRATION_MISSING_EVIDENCE_ALERT_ID=$(jq -er '.migration_missing_evidence_alert_id.value' infra/applied-outputs.json)
+          APPLICATION_INSIGHTS_RESOURCE_ID=$(jq -er '.application_insights_resource_id.value' infra/applied-outputs.json)
           CRITICAL_ACTION_GROUP_ID=$(jq -er '.critical_action_group_id.value' infra/applied-outputs.json)
           mapfile -t APPLIED_ALERT_IDS < <(az resource list \
             --resource-group "$AZURE_RESOURCE_GROUP" \
@@ -1272,9 +1279,11 @@ jobs:
           jq -s '.' applied-migration-alerts.ndjson > applied-migration-alerts.json
           python scripts/verify_migration_alerts.py \
             --alerts applied-migration-alerts.json \
+            --spec infra/monitoring/migration-alert-specs.json \
             --failure-alert-id "$MIGRATION_FAILURE_ALERT_ID" \
             --timeout-alert-id "$MIGRATION_TIMEOUT_ALERT_ID" \
             --missing-evidence-alert-id "$MIGRATION_MISSING_EVIDENCE_ALERT_ID" \
+            --application-insights-id "$APPLICATION_INSIGHTS_RESOURCE_ID" \
             --action-group-id "$CRITICAL_ACTION_GROUP_ID" \
             --output migration-alert-attestation.json
 
@@ -1352,7 +1361,6 @@ jobs:
             --current-schema "$CURRENT_SCHEMA_REVISION" \
             --migration-from 013 \
             --target-schema "$EXPECTED_ALEMBIC_HEAD" \
-            --original-traffic blue-traffic-original.json \
             --baseline-traffic blue-traffic-manifest.json \
             --output rollout-state.json \
             --pre-green-output pre-green-traffic-manifest.json
@@ -1376,7 +1384,7 @@ jobs:
         run: |
           set -euo pipefail
           python scripts/containerapp_rollout.py apply-traffic \
-            --input blue-traffic-original.json \
+            --input blue-traffic-manifest.json \
             --name "$CONTAINER_APP_NAME" \
             --resource-group "$AZURE_RESOURCE_GROUP" \
             --actual-output normalization-restored-traffic.json
@@ -2905,6 +2913,7 @@ jobs:
             rollout-state.json
             pre-green-traffic-manifest.json
             migration-alert-attestation.json
+            blue-traffic-original.json
             blue-traffic-manifest.json
             pre-shift-traffic-manifest.json
             rollout-recovery-evidence.json

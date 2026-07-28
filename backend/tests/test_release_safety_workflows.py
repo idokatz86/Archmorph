@@ -1,3 +1,5 @@
+import json
+import re
 from pathlib import Path
 
 import yaml
@@ -11,6 +13,7 @@ MIGRATION_BOOTSTRAP = REPO_ROOT / "infra" / "migration-bootstrap" / "main.tf"
 MAIN_TERRAFORM = REPO_ROOT / "infra" / "main.tf"
 HELM_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "helm-release.yml"
 TERRAFORM_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "terraform-prod.yml"
+MIGRATION_ALERT_SPECS = REPO_ROOT / "infra" / "monitoring" / "migration-alert-specs.json"
 
 
 def _load(path: Path) -> dict:
@@ -22,6 +25,31 @@ def _step_by_name(steps: list[dict], name: str) -> dict:
         if step.get("name") == name:
             return step
     raise AssertionError(f'Expected workflow step "{name}"')
+
+
+def _canonical_kql(query: str) -> str:
+    return "\n".join(
+        " ".join(line.strip().split())
+        for line in query.splitlines()
+        if line.strip()
+    )
+
+
+def _terraform_alert_block(terraform: str, resource_name: str) -> str:
+    marker = (
+        'resource "azurerm_monitor_scheduled_query_rules_alert_v2" '
+        f'"{resource_name}" {{'
+    )
+    start = terraform.index(marker)
+    depth = 0
+    for index in range(start + len(marker) - 1, len(terraform)):
+        if terraform[index] == "{":
+            depth += 1
+        elif terraform[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return terraform[start : index + 1]
+    raise AssertionError(f"Unterminated Terraform alert resource {resource_name}")
 
 
 def test_ci_includes_pgvector_alembic_migration_cycle():
@@ -266,7 +294,10 @@ def test_alert_attestation_precedes_every_migration_job_start():
     assert "migration_failure_alert_id" in attest
     assert "migration_timeout_alert_id" in attest
     assert "migration_missing_evidence_alert_id" in attest
+    assert "application_insights_resource_id" in attest
     assert "critical_action_group_id" in attest
+    assert "--spec infra/monitoring/migration-alert-specs.json" in attest
+    assert "--application-insights-id" in attest
     assert names.index("Attest applied migration alerts before Job execution") < names.index(
         "Discover schema with same-identity database preflight"
     )
@@ -401,13 +432,22 @@ def test_rollout_captures_exact_traffic_bridges_first_and_restores_post_shift_fa
     assert "blue-traffic-original.json" in capture
     assert "explicit-traffic" in capture
     assert "--container-app containerapp-before-rollout.json" in capture
+    assert "az containerapp revision list" in capture
+    assert "--all" in capture
+    assert "--revisions revisions-before-rollout.json" in capture
     assert "eval " not in capture
     assert names.index("Capture exact original production traffic") < names.index(
         "Plan migration bootstrap (Phase A)"
     )
     assert "create-release-state" in state
-    assert "--original-traffic blue-traffic-original.json" in state
+    assert "--original-traffic" not in state
     assert "--baseline-traffic blue-traffic-manifest.json" in state
+    failed_state_restore = _step_by_name(
+        steps,
+        "Restore original traffic if rollout state creation fails",
+    )["run"]
+    assert "--input blue-traffic-manifest.json" in failed_state_restore
+    assert "--input blue-traffic-original.json" not in failed_state_restore
     assert "apply-traffic" in explicit
     assert "BRIDGE_WEIGHT" in bridge and '!= "0"' in bridge
     assert "BRIDGE_ROLE" in bridge
@@ -470,6 +510,11 @@ def test_rollout_captures_exact_traffic_bridges_first_and_restores_post_shift_fa
     assert "routed-bridge-read-only.json" in route_bridge
     assert 'Routine schema-${EXPECTED_ALEMBIC_HEAD} release preserves current production traffic' in resolve
     assert "set-bridge" in resolve
+    upload = _step_by_name(steps, "Upload backend release and rollback evidence")["with"][
+        "path"
+    ]
+    assert "blue-traffic-original.json" in upload
+    assert "blue-traffic-manifest.json" in upload
 
 
 def test_frontend_waits_for_backend_and_has_previous_artifact_rollback():
@@ -526,12 +571,65 @@ def test_migration_alerts_use_action_group_and_explicit_platform_owner():
     assert "azurerm_monitor_action_group.critical.id" in terraform
     assert 'owner = "platform-engineering"' in terraform
     for name in (
+        "application_insights_resource_id",
         "migration_failure_alert_id",
         "migration_timeout_alert_id",
         "migration_missing_evidence_alert_id",
         "critical_action_group_id",
     ):
         assert f'output "{name}"' in outputs
+
+
+def test_reviewed_migration_alert_specs_match_terraform_exactly():
+    terraform = MAIN_TERRAFORM.read_text(encoding="utf-8")
+    specifications = json.loads(MIGRATION_ALERT_SPECS.read_text(encoding="utf-8"))[
+        "alerts"
+    ]
+    resources = {
+        "failure": "migration_job_failure",
+        "timeout": "migration_job_timeout",
+        "missing_evidence": "migration_missing_evidence",
+    }
+
+    for role, resource_name in resources.items():
+        block = _terraform_alert_block(terraform, resource_name)
+        specification = specifications[role]
+        criteria = specification["criteria"]
+        periods = criteria["failing_periods"]
+        query = re.search(r"query\s*=\s*<<-KQL\n(.*?)\n\s*KQL", block, re.DOTALL)
+        assert query is not None
+        assert _canonical_kql(query.group(1)) == _canonical_kql(specification["query"])
+        assert re.search(rf"severity\s*=\s*{specification['severity']}\b", block)
+        assert re.search(
+            rf"enabled\s*=\s*{str(specification['enabled']).lower()}\b", block
+        )
+        assert 'scopes               = [azurerm_application_insights.main.id]' in block
+        assert (
+            f'evaluation_frequency = "{specification["evaluation_frequency"]}"'
+            in block
+        )
+        assert f'window_duration      = "{specification["window_duration"]}"' in block
+        assert (
+            f'time_aggregation_method = "{criteria["time_aggregation_method"]}"'
+            in block
+        )
+        assert f'operator                = "{criteria["operator"]}"' in block
+        assert re.search(rf"threshold\s*=\s*{criteria['threshold']}\b", block)
+        assert (
+            f'metric_measure_column   = "{criteria["metric_measure_column"]}"'
+            in block
+        )
+        assert re.search(
+            rf"minimum_failing_periods_to_trigger_alert\s*=\s*"
+            rf"{periods['minimum_failing_periods_to_trigger_alert']}\b",
+            block,
+        )
+        assert re.search(
+            rf"number_of_evaluation_periods\s*=\s*"
+            rf"{periods['number_of_evaluation_periods']}\b",
+            block,
+        )
+        assert "action_groups = [azurerm_monitor_action_group.critical.id]" in block
 
 
 def test_rollback_health_verification_uses_authenticated_api_health():
@@ -562,6 +660,9 @@ def test_rollback_health_verification_uses_authenticated_api_health():
     assert "az containerapp revision activate" in compatibility_script
     assert "az containerapp revision deactivate" in compatibility_script
     assert "az containerapp ingress traffic set" not in compatibility_script
+    assert step_names.index("Capture exact prior traffic and rollback target") < step_names.index(
+        "Verify target schema compatibility before activation"
+    )
     assert step_names.index("Verify target schema compatibility before activation") < step_names.index(
         "Activate rollback revision"
     )
@@ -584,6 +685,10 @@ def test_rollback_health_verification_uses_authenticated_api_health():
     assert "rollback-target-traffic-manifest.json" in shift
     assert "apply-traffic" in shift
     restore = _step_by_name(steps, "Restore exact prior traffic after rollback failure")
+    capture = _step_by_name(steps, "Capture exact prior traffic and rollback target")["run"]
+    assert "explicit-traffic" in capture
+    assert "--container-app containerapp-before-rollback.json" in capture
+    assert "--revisions revisions-before-rollback.json" in capture
     assert "always()" in restore["if"]
     assert "rollback-shift-attempted" in restore["if"]
     assert "verify_rollback.outcome != 'success'" in restore["if"]

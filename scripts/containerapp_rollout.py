@@ -69,12 +69,27 @@ def canonical_traffic(items: list[dict]) -> list[dict[str, object]]:
     return normalized
 
 
+def _explicit_traffic_manifest(
+    items: list[dict], *, purpose: str
+) -> list[dict[str, object]]:
+    """Require a nonempty immutable traffic manifest for an executable action."""
+    manifest = canonical_traffic(items)
+    if not manifest:
+        raise ValueError(f"{purpose} must not be empty")
+    if any(item.get("latestRevision") for item in manifest):
+        raise ValueError(f"{purpose} must not contain dynamic latest traffic")
+    return manifest
+
+
 def explicit_traffic(items: list[dict], *, latest_revision: str) -> list[dict[str, object]]:
     """Resolve latestRevision traffic to an immutable blue revision."""
-    if not _REVISION_RE.fullmatch(latest_revision):
+    canonical = canonical_traffic(items)
+    if any(item.get("latestRevision") for item in canonical) and not _REVISION_RE.fullmatch(
+        latest_revision
+    ):
         raise ValueError("latest_revision must be an explicit Container Apps revision")
     resolved: list[dict[str, object]] = []
-    for item in canonical_traffic(items):
+    for item in canonical:
         if item.get("latestRevision"):
             item = {
                 "revisionName": latest_revision,
@@ -97,20 +112,50 @@ def explicit_traffic(items: list[dict], *, latest_revision: str) -> list[dict[st
     return canonical_traffic(resolved)
 
 
-def authoritative_latest_revision(container_app: dict[str, Any]) -> str:
-    """Resolve dynamic latest traffic from authoritative management-plane state."""
+def authoritative_latest_revision(
+    container_app: dict[str, Any],
+    revision_states: list[dict[str, Any]],
+) -> str:
+    """Resolve latest traffic only from a corroborated latest-ready revision."""
     properties = container_app.get("properties")
     if not isinstance(properties, dict):
         raise ValueError("Container App management response is missing properties")
-    revision = str(
-        properties.get("latestReadyRevisionName")
-        or properties.get("latestRevisionName")
-        or ""
-    )
+    revision = str(properties.get("latestReadyRevisionName") or "")
     if not _REVISION_RE.fullmatch(revision):
         raise ValueError(
             "Container App management response has no authoritative latest-ready revision"
         )
+    if not isinstance(revision_states, list):
+        raise ValueError("Container App revision state must be a JSON list")
+    matches: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    for state in revision_states:
+        if not isinstance(state, dict):
+            continue
+        state_properties = state.get("properties")
+        if not isinstance(state_properties, dict):
+            state_properties = {}
+        state_name = str(state.get("name") or state_properties.get("name") or "")
+        if state_name == revision:
+            matches.append((state, state_properties))
+    if len(matches) != 1:
+        raise ValueError(
+            "authoritative latest-ready revision is absent or duplicated in revision state"
+        )
+    state, state_properties = matches[0]
+    active = state_properties.get("active", state.get("active"))
+    if active is not True:
+        raise ValueError("authoritative latest-ready revision is not active")
+    readiness_contract = {
+        "provisioningState": {"succeeded", "provisioned"},
+        "runningState": {"running"},
+        "healthState": {"healthy"},
+    }
+    for field, accepted in readiness_contract.items():
+        value = state_properties.get(field, state.get(field))
+        if value not in (None, "") and str(value).strip().lower() not in accepted:
+            raise ValueError(
+                f"authoritative latest-ready revision has unready {field}={value}"
+            )
     return revision
 
 
@@ -119,7 +164,6 @@ def create_release_state(
     current_schema: str,
     migration_from: str,
     target_schema: str,
-    original_traffic: list[dict],
     baseline_traffic: list[dict],
     bridge_revision: str = "",
 ) -> dict[str, Any]:
@@ -127,8 +171,10 @@ def create_release_state(
     for revision in (current_schema, migration_from, target_schema):
         if not _SCHEMA_RE.fullmatch(revision):
             raise ValueError("release state requires explicit schema revisions")
-    original = canonical_traffic(original_traffic)
-    baseline = canonical_traffic(baseline_traffic)
+    baseline = _explicit_traffic_manifest(
+        baseline_traffic,
+        purpose="release recovery baseline",
+    )
     if current_schema == migration_from and migration_from != target_schema:
         branch = "migration"
         if bridge_revision:
@@ -147,14 +193,13 @@ def create_release_state(
     else:
         raise ValueError("current schema is outside the reviewed rollout state machine")
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "branch": branch,
         "initial_schema": current_schema,
         "migration_from": migration_from,
         "target_schema": target_schema,
         "bridge_revision": bridge_revision,
         "stage": "captured",
-        "original_traffic": original,
         "baseline_traffic": baseline,
         "pre_green_traffic": pre_green,
     }
@@ -196,17 +241,23 @@ def recovery_decision(state: dict[str, Any], *, observed_schema: str) -> tuple[s
         raise ValueError("invalid release recovery state")
     if stage in {"captured", "complete"}:
         return "none", []
-    original = canonical_traffic(state.get("original_traffic", []))
+    baseline = _explicit_traffic_manifest(
+        state.get("baseline_traffic", []),
+        purpose="release recovery baseline",
+    )
     if branch == "routine":
         if observed_schema and observed_schema != state.get("target_schema"):
             raise RuntimeError("routine release schema changed unexpectedly; retaining current traffic")
-        return "restore_original", original
+        return "restore_original", baseline
     if _RELEASE_STAGES.index(stage) < _RELEASE_STAGES.index("migration_attempted"):
-        return "restore_original", original
+        return "restore_original", baseline
     if observed_schema == state.get("migration_from"):
-        return "restore_original", original
+        return "restore_original", baseline
     if observed_schema == state.get("target_schema"):
-        return "retain_bridge", canonical_traffic(state.get("pre_green_traffic", []))
+        return "retain_bridge", _explicit_traffic_manifest(
+            state.get("pre_green_traffic", []),
+            purpose="bridge recovery target",
+        )
     raise RuntimeError("migration outcome schema is unknown; retaining current traffic")
 
 
@@ -300,7 +351,10 @@ def apply_traffic(
     actual_output: Path | None = None,
 ) -> None:
     """Apply and verify an exact traffic manifest using argument-safe commands."""
-    expected = canonical_traffic(items)
+    expected = _explicit_traffic_manifest(
+        items,
+        purpose="executable traffic manifest",
+    )
     current_result = subprocess.run(
         [
             "az",
@@ -458,6 +512,7 @@ def main() -> int:
     latest_source = explicit.add_mutually_exclusive_group(required=True)
     latest_source.add_argument("--latest-revision")
     latest_source.add_argument("--container-app", type=Path)
+    explicit.add_argument("--revisions", type=Path)
     explicit.add_argument("--output", required=True, type=Path)
 
     command = subparsers.add_parser("traffic-command")
@@ -490,7 +545,6 @@ def main() -> int:
     state.add_argument("--current-schema", required=True)
     state.add_argument("--migration-from", required=True)
     state.add_argument("--target-schema", required=True)
-    state.add_argument("--original-traffic", required=True, type=Path)
     state.add_argument("--baseline-traffic", required=True, type=Path)
     state.add_argument("--bridge-revision", default="")
     state.add_argument("--output", required=True, type=Path)
@@ -514,10 +568,20 @@ def main() -> int:
 
     args = parser.parse_args()
     if args.command == "explicit-traffic":
+        source_traffic = _json(args.input)
+        if not isinstance(source_traffic, list):
+            raise ValueError("traffic input must be a JSON list")
         latest_revision = args.latest_revision
         if args.container_app is not None:
-            latest_revision = authoritative_latest_revision(_json(args.container_app))
-        result = explicit_traffic(_json(args.input), latest_revision=latest_revision)
+            if args.revisions is None:
+                raise ValueError(
+                    "--revisions is required with --container-app to corroborate latest-ready state"
+                )
+            latest_revision = authoritative_latest_revision(
+                _json(args.container_app),
+                _json(args.revisions),
+            )
+        result = explicit_traffic(source_traffic, latest_revision=latest_revision)
         args.output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     elif args.command == "traffic-command":
         print(traffic_command(_json(args.input)))
@@ -545,7 +609,6 @@ def main() -> int:
             current_schema=args.current_schema,
             migration_from=args.migration_from,
             target_schema=args.target_schema,
-            original_traffic=_json(args.original_traffic),
             baseline_traffic=_json(args.baseline_traffic),
             bridge_revision=args.bridge_revision,
         )
