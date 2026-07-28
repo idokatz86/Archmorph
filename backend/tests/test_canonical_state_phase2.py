@@ -20,7 +20,9 @@ from models.workspace import (
     Analysis,
     AnalysisMutationReceipt,
     AnalysisVersion,
+    Artifact,
     DiagramLifecycle,
+    SourceAsset,
     PurgeOperation,
     RestoreGrant,
     Workspace,
@@ -713,3 +715,298 @@ def test_workspace_link_requires_authoritative_snapshot_and_survives_cache_loss(
         ) is not None
     finally:
         db.close()
+
+
+def test_version_zero_uploaded_analysis_moves_authoritatively_with_lifecycle_and_cache_loss(
+    test_client,
+    phase2_runtime,
+):
+    owner, tenant, headers, _request = _identity("workspace-link-v0")
+    db = phase2_runtime()
+    source = Workspace(
+        owner_user_id=owner,
+        tenant_id=tenant,
+        name="Upload source",
+        status="active",
+        is_default=False,
+    )
+    target = Workspace(
+        owner_user_id=owner,
+        tenant_id=tenant,
+        name="Upload target",
+        status="active",
+        is_default=False,
+    )
+    db.add_all([source, target])
+    db.flush()
+    diagram_id = f"diag-{uuid.uuid4().hex}"
+    analysis = Analysis(
+        workspace_id=source.id,
+        owner_user_id=owner,
+        tenant_id=tenant,
+        diagram_id=diagram_id,
+        title="uploaded.png",
+        status="uploaded",
+        current_version=0,
+    )
+    lifecycle = DiagramLifecycle(
+        diagram_id=diagram_id,
+        owner_user_id=owner,
+        tenant_id=tenant,
+        workspace_id=source.id,
+        generation=1,
+        state="active",
+    )
+    db.add_all([analysis, lifecycle])
+    db.flush()
+    source_asset = SourceAsset(
+        workspace_id=source.id,
+        owner_user_id=owner,
+        tenant_id=tenant,
+        filename="uploaded.png",
+        diagram_id=diagram_id,
+    )
+    db.add(source_asset)
+    db.flush()
+    analysis.source_asset_id = source_asset.id
+    db.commit()
+    analysis_id = analysis.id
+    target_id = target.id
+    source_asset_id = source_asset.id
+    db.close()
+    SESSION_STORE.set(
+        diagram_id,
+        {
+            "diagram_id": diagram_id,
+            "mappings": [{"browser": "must-not-be-authority"}],
+            "_owner_user_id": owner,
+            "_tenant_id": tenant,
+        },
+    )
+
+    linked = test_client.post(
+        f"/api/workspaces/{target_id}/analyses",
+        headers=headers,
+        json={"diagram_id": diagram_id},
+    )
+
+    assert linked.status_code == 200, linked.text
+    assert linked.json()["id"] == analysis_id
+    assert linked.json()["workspace_id"] == target_id
+    assert linked.json()["current_version"] == 0
+    SESSION_STORE.delete(diagram_id)
+    db = phase2_runtime()
+    try:
+        moved = db.query(Analysis).filter_by(id=analysis_id).one()
+        moved_lifecycle = db.query(DiagramLifecycle).filter_by(diagram_id=diagram_id).one()
+        moved_source = db.query(SourceAsset).filter_by(id=source_asset_id).one()
+        assert moved.workspace_id == target_id
+        assert moved_lifecycle.workspace_id == target_id
+        assert moved_source.workspace_id == target_id
+        assert db.query(AnalysisVersion).filter_by(analysis_id=analysis_id).count() == 0
+    finally:
+        db.close()
+
+
+def test_workspace_purge_discovers_source_and_lifecycle_only_diagrams(phase2_runtime):
+    owner, tenant, _headers, _request = _identity("workspace-source-only")
+    db = phase2_runtime()
+    workspace = Workspace(
+        owner_user_id=owner,
+        tenant_id=tenant,
+        name="Source-only workspace",
+        status="active",
+        is_default=False,
+    )
+    db.add(workspace)
+    db.flush()
+    source_diagram_id = f"diag-source-{uuid.uuid4().hex}"
+    lifecycle_diagram_id = f"diag-lifecycle-{uuid.uuid4().hex}"
+    db.add(SourceAsset(
+        workspace_id=workspace.id,
+        owner_user_id=owner,
+        tenant_id=tenant,
+        filename="source-only.png",
+        diagram_id=source_diagram_id,
+    ))
+    db.add(DiagramLifecycle(
+        workspace_id=workspace.id,
+        owner_user_id=owner,
+        tenant_id=tenant,
+        diagram_id=lifecycle_diagram_id,
+        generation=1,
+        state="active",
+    ))
+    db.commit()
+    workspace_id = workspace.id
+    db.close()
+    for diagram_id in (source_diagram_id, lifecycle_diagram_id):
+        SESSION_STORE.set(diagram_id, {"diagram_id": diagram_id})
+        IMAGE_STORE.set(diagram_id, ("aW1hZ2U=", "image/png"))
+
+    result = purge_workspace(
+        workspace_id=workspace_id,
+        owner_user_id=owner,
+        tenant_id=tenant,
+    )
+
+    assert result.status == "completed"
+    assert set(result.deleted["diagrams"]) == {source_diagram_id, lifecycle_diagram_id}
+    assert SESSION_STORE.peek(source_diagram_id) is None
+    assert IMAGE_STORE.peek(lifecycle_diagram_id) is None
+    db = phase2_runtime()
+    try:
+        assert db.query(Workspace).filter_by(id=workspace_id).count() == 0
+        operation = db.query(PurgeOperation).filter_by(
+            scope_type="workspace",
+            scope_id=workspace_id,
+        ).one()
+        assert set(json.loads(operation.manifest)["diagram_ids"]) == {
+            source_diagram_id,
+            lifecycle_diagram_id,
+        }
+    finally:
+        db.close()
+
+
+def test_purge_deletes_manifested_blob_before_sql_and_retains_manifest_on_success(
+    phase2_runtime,
+    monkeypatch,
+):
+    owner, tenant, _headers, _request = _identity("purge-blob")
+    diagram_id = f"diag-{uuid.uuid4().hex}"
+    result = _seed(phase2_runtime, owner, tenant, diagram_id)
+    blob_uri = "azblob://generated-iac/artifacts/scoped/blob"
+    db = phase2_runtime()
+    artifact = Artifact(
+        analysis_id=result.analysis.id,
+        version_id=result.version.id,
+        owner_user_id=owner,
+        tenant_id=tenant,
+        artifact_type="binary",
+        format="zip",
+        storage_url=blob_uri,
+        content_hash="d" * 64,
+        size_bytes=10,
+    )
+    db.add(artifact)
+    db.commit()
+    db.close()
+    state = {blob_uri: True}
+
+    def delete(uri, **_kwargs):
+        was_present = state[uri]
+        state[uri] = False
+        return was_present
+
+    monkeypatch.setattr("purge_service.delete_artifact_blob", delete)
+    monkeypatch.setattr("purge_service.artifact_blob_absent", lambda uri, **_kwargs: not state[uri])
+
+    purged = purge_diagram(diagram_id=diagram_id, owner_user_id=owner, tenant_id=tenant)
+
+    assert purged.deleted["blob_objects"] == {"deleted": 1, "already_absent": 0}
+    assert state[blob_uri] is False
+    db = phase2_runtime()
+    try:
+        operation = db.query(PurgeOperation).filter_by(id=purged.operation_id).one()
+        assert json.loads(operation.manifest)["blob_uris"] == [blob_uri]
+        assert operation.status == "completed"
+    finally:
+        db.close()
+
+
+def test_blob_storage_failure_keeps_purge_pending_and_sql_discovery_intact(
+    phase2_runtime,
+    monkeypatch,
+):
+    owner, tenant, _headers, _request = _identity("purge-blob-failure")
+    diagram_id = f"diag-{uuid.uuid4().hex}"
+    result = _seed(phase2_runtime, owner, tenant, diagram_id)
+    blob_uri = "azblob://generated-iac/artifacts/scoped/pending"
+    db = phase2_runtime()
+    artifact = Artifact(
+        analysis_id=result.analysis.id,
+        version_id=result.version.id,
+        owner_user_id=owner,
+        tenant_id=tenant,
+        artifact_type="binary",
+        format="zip",
+        storage_url=blob_uri,
+        content_hash="e" * 64,
+        size_bytes=10,
+    )
+    db.add(artifact)
+    db.commit()
+    artifact_id = artifact.id
+    db.close()
+    monkeypatch.setattr(
+        "purge_service.delete_artifact_blob",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("storage unavailable")),
+    )
+    monkeypatch.setattr("purge_service.artifact_blob_absent", lambda *_args, **_kwargs: False)
+
+    with pytest.raises(PurgeIncompleteError) as exc_info:
+        purge_diagram(diagram_id=diagram_id, owner_user_id=owner, tenant_id=tenant)
+
+    assert exc_info.value.stage == "blob_objects"
+    db = phase2_runtime()
+    try:
+        operation = db.query(PurgeOperation).filter_by(id=exc_info.value.operation_id).one()
+        assert operation.status == "failed"
+        assert json.loads(operation.manifest)["blob_uris"] == [blob_uri]
+        assert db.query(Artifact).filter_by(id=artifact_id).count() == 1
+        assert db.query(Analysis).filter_by(id=result.analysis.id).count() == 1
+    finally:
+        db.close()
+
+
+def test_job_event_failure_after_envelope_loss_remains_pending_and_retry_cleans_ring(
+    phase2_runtime,
+    monkeypatch,
+):
+    from job_queue import job_manager
+
+    owner, tenant, _headers, _request = _identity("purge-job-ring")
+    diagram_id = f"diag-{uuid.uuid4().hex}"
+    _seed(phase2_runtime, owner, tenant, diagram_id)
+    job = job_manager.submit(
+        "analyze",
+        diagram_id=diagram_id,
+        owner_user_id=owner,
+        tenant_id=tenant,
+    )
+    from job_queue import JobStoreError
+
+    original_purge = job_manager.purge_diagram
+    failed_once = False
+
+    def fail_after_envelope_delete(current_diagram_id, **kwargs):
+        nonlocal failed_once
+        if not failed_once:
+            failed_once = True
+            job_manager._jobs_store.delete(job.job_id)
+            raise JobStoreError("injected after envelope deletion")
+        return original_purge(current_diagram_id, **kwargs)
+
+    monkeypatch.setattr(job_manager, "purge_diagram", fail_after_envelope_delete)
+    with pytest.raises(PurgeIncompleteError) as exc_info:
+        purge_diagram(diagram_id=diagram_id, owner_user_id=owner, tenant_id=tenant)
+    assert exc_info.value.stage == "jobs"
+    assert job_manager._jobs_store.peek(job.job_id) is None
+    assert job_manager._events_store.peek(job.job_id) is not None
+    db = phase2_runtime()
+    try:
+        operation = db.query(PurgeOperation).filter_by(id=exc_info.value.operation_id).one()
+        manifest = json.loads(operation.manifest)
+        assert manifest["job_ids"] == [job.job_id]
+        assert manifest["job_event_ids"] == [job.job_id]
+        assert operation.status == "failed"
+    finally:
+        db.close()
+
+    monkeypatch.setattr(job_manager, "purge_diagram", original_purge)
+    retried = purge_diagram(diagram_id=diagram_id, owner_user_id=owner, tenant_id=tenant)
+    assert retried.operation_id == exc_info.value.operation_id
+    assert job_manager._events_store.peek(job.job_id) is None
+    assert retried.deleted["jobs"] == 1
+    assert retried.deleted["job_events"] == 1

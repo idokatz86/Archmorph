@@ -47,7 +47,29 @@ async def download_analysis_report(
 
     record_event("report_downloaded", {"diagram_id": diagram_id, "format": fmt})
 
-    pdf_bytes = generate_analysis_report_pdf(session)
+    from database import SessionLocal
+    from routers.shared import get_request_durable_principal
+    from workspace_store import get_current_analysis_version
+
+    principal = get_request_durable_principal(request)
+    generated_at = None
+    if principal and principal.get("tenant_id"):
+        db = SessionLocal()
+        try:
+            try:
+                _analysis, version = get_current_analysis_version(
+                    db,
+                    diagram_id=diagram_id,
+                    owner_user_id=principal["owner_user_id"],
+                    tenant_id=principal["tenant_id"],
+                )
+            except ValueError:
+                version = None
+            if version is not None:
+                generated_at = version.created_at
+        finally:
+            db.close()
+    pdf_bytes = generate_analysis_report_pdf(session, generated_at=generated_at)
     artifact = await persist_generated_export_async(
         request,
         diagram_id=diagram_id,

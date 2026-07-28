@@ -23,7 +23,11 @@ from hld_export import _safe, _pdf_safe, BRAND_GREEN, BRAND_DARK, DARK_GRAY, LIG
 logger = logging.getLogger(__name__)
 
 
-def generate_analysis_report_pdf(session: Dict[str, Any]) -> bytes:
+def generate_analysis_report_pdf(
+    session: Dict[str, Any],
+    *,
+    generated_at: Optional[datetime] = None,
+) -> bytes:
     """Generate a full analysis PDF report from session data.
 
     Args:
@@ -36,6 +40,10 @@ def generate_analysis_report_pdf(session: Dict[str, Any]) -> bytes:
     from fpdf import FPDF
 
     mappings: List[Dict[str, Any]] = session.get("mappings", [])
+    report_generated_at = generated_at or datetime.now(timezone.utc)
+    if report_generated_at.tzinfo is None:
+        report_generated_at = report_generated_at.replace(tzinfo=timezone.utc)
+    report_generated_at = report_generated_at.astimezone(timezone.utc)
     cost_estimate: Optional[Dict[str, Any]] = session.get("_cached_cost_estimate")
     iac_code: Optional[str] = session.get("iac_code")
     analysis_meta = session.get("analysis", {}) or {}
@@ -92,6 +100,7 @@ def generate_analysis_report_pdf(session: Dict[str, Any]) -> bytes:
             self.ln(1)
 
     pdf = ReportPDF()
+    pdf.set_creation_date(report_generated_at)
     pdf.alias_nb_pages()
     pdf.set_auto_page_break(auto=True, margin=20)
 
@@ -116,7 +125,7 @@ def generate_analysis_report_pdf(session: Dict[str, Any]) -> bytes:
     pdf.ln(7)
     pdf.cell(
         0, 7,
-        f"Date: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}",
+        f"Date: {report_generated_at.strftime('%Y-%m-%d %H:%M UTC')}",
         align="C",
     )
     pdf.ln(7)

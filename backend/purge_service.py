@@ -6,10 +6,18 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 import analysis_history
+from artifact_blob_store import artifact_blob_absent, delete_artifact_blob
 import database
 from iac_chat import clear_iac_chat, has_iac_chat
 from job_queue import job_manager
-from models.workspace import Analysis, DiagramLifecycle, RestoreGrant, SourceAsset, Workspace
+from models.workspace import (
+    Analysis,
+    DiagramLifecycle,
+    PurgeOperation,
+    RestoreGrant,
+    SourceAsset,
+    Workspace,
+)
 from routers import collaboration_routes, replay_routes, tf_backend
 from routers.shared import (
     EXPORT_CAPABILITY_STORE,
@@ -27,6 +35,8 @@ from workspace_store import (
     begin_workspace_purge,
     complete_diagram_purge,
     complete_workspace_purge,
+    load_purge_manifest,
+    merge_purge_manifest,
     purge_analysis_state,
     record_purge_stage,
 )
@@ -134,10 +144,131 @@ def _durable_diagram_absent(diagram_id: str, owner_user_id: str, tenant_id: str)
         db.close()
 
 
+def _operation_manifest(operation_id: str, owner_user_id: str, tenant_id: str) -> dict[str, Any]:
+    db = _session()
+    try:
+        return load_purge_manifest(
+            db,
+            operation_id=operation_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+        )
+    finally:
+        db.close()
+
+
+def _capture_job_manifest(
+    operation_id: str,
+    diagram_id: str,
+    owner_user_id: str,
+    tenant_id: str,
+) -> dict[str, Any]:
+    discovered = job_manager.manifest_diagram(
+        diagram_id,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+    )
+    db = _session()
+    try:
+        return merge_purge_manifest(
+            db,
+            operation_id=operation_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+            values={
+                "job_ids": discovered["job_ids"],
+                "job_event_ids": discovered["event_ids"],
+            },
+        )
+    finally:
+        db.close()
+
+
+def _job_manifest(manifest: dict[str, Any]) -> dict[str, list[str]]:
+    return {
+        "job_ids": [str(value) for value in manifest.get("job_ids", [])],
+        "event_ids": [str(value) for value in manifest.get("job_event_ids", [])],
+    }
+
+
+def _delete_manifested_blobs(
+    manifest: dict[str, Any],
+    owner_user_id: str,
+    tenant_id: str,
+) -> dict[str, int]:
+    deleted = 0
+    already_absent = 0
+    for uri in manifest.get("blob_uris", []):
+        if delete_artifact_blob(
+            str(uri),
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+        ):
+            deleted += 1
+        else:
+            already_absent += 1
+    return {"deleted": deleted, "already_absent": already_absent}
+
+
+def _manifested_blobs_absent(
+    manifest: dict[str, Any],
+    owner_user_id: str,
+    tenant_id: str,
+) -> bool:
+    return all(
+        artifact_blob_absent(
+            str(uri),
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+        )
+        for uri in manifest.get("blob_uris", [])
+    )
+
+
+def _project_diagram_absent(workspace_id: str | None, diagram_id: str) -> bool:
+    if not workspace_id:
+        return True
+    project = PROJECT_STORE.peek(workspace_id)
+    if not isinstance(project, dict):
+        return True
+    diagram_ids = project.get("diagram_ids", [])
+    diagrams = project.get("diagrams", [])
+    return bool(
+        diagram_id not in diagram_ids
+        and not any(
+            isinstance(item, dict) and item.get("diagram_id") == diagram_id
+            for item in diagrams
+        )
+    )
+
+
+def _purge_project_diagram(workspace_id: str | None, diagram_id: str) -> int:
+    if not workspace_id:
+        return 0
+    project = PROJECT_STORE.peek(workspace_id)
+    if not isinstance(project, dict):
+        return 0
+    updated = dict(project)
+    updated["diagram_ids"] = [value for value in project.get("diagram_ids", []) if value != diagram_id]
+    updated["diagrams"] = [
+        value
+        for value in project.get("diagrams", [])
+        if not isinstance(value, dict) or value.get("diagram_id") != diagram_id
+    ]
+    if updated == project:
+        return 0
+    PROJECT_STORE.set(workspace_id, updated)
+    if not _project_diagram_absent(workspace_id, diagram_id):
+        raise RuntimeError("Project diagram removal could not be confirmed")
+    return 1
+
+
 def diagram_fixed_point_checks(
     diagram_id: str,
     owner_user_id: str,
     tenant_id: str,
+    *,
+    operation_id: str | None = None,
 ) -> dict[str, bool]:
     """Return confirmed-absence checks for every diagram state domain."""
     db = _session()
@@ -151,6 +282,12 @@ def diagram_fixed_point_checks(
         ).first()
     finally:
         db.close()
+    manifest = (
+        _operation_manifest(operation_id, owner_user_id, tenant_id)
+        if operation_id is not None
+        else {}
+    )
+    workspace_id = manifest.get("workspace_id")
     return {
         "session": SESSION_STORE.peek(diagram_id) is None,
         "image": IMAGE_STORE.peek(diagram_id) is None,
@@ -158,19 +295,39 @@ def diagram_fixed_point_checks(
         "export_capabilities": not _store_records_for_diagram(EXPORT_CAPABILITY_STORE, diagram_id),
         "share_store": not _store_records_for_diagram(SHARE_STORE, diagram_id),
         "share_links": shareable_reports.diagram_shares_absent(diagram_id),
-        "jobs": job_manager.diagram_absent(diagram_id),
+        "jobs": job_manager.diagram_absent(
+            diagram_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+            manifest=_job_manifest(manifest),
+        ),
         "iac_chat": not has_iac_chat(diagram_id),
         "collaboration": collaboration_routes.diagram_collaboration_absent(diagram_id),
         "replays": replay_routes.diagram_replays_absent(diagram_id),
         "history": analysis_history.diagram_absent(diagram_id, owner_user_id),
         "version_history": versioning.diagram_versions_absent(diagram_id),
         "restore_grants": live_grant is None,
+        "project_membership": _project_diagram_absent(workspace_id, diagram_id),
+        "blob_objects": _manifested_blobs_absent(manifest, owner_user_id, tenant_id),
         "durable_graph": _durable_diagram_absent(diagram_id, owner_user_id, tenant_id),
     }
 
 
-def diagram_fixed_point(diagram_id: str, owner_user_id: str, tenant_id: str) -> bool:
-    return all(diagram_fixed_point_checks(diagram_id, owner_user_id, tenant_id).values())
+def diagram_fixed_point(
+    diagram_id: str,
+    owner_user_id: str,
+    tenant_id: str,
+    *,
+    operation_id: str | None = None,
+) -> bool:
+    return all(
+        diagram_fixed_point_checks(
+            diagram_id,
+            owner_user_id,
+            tenant_id,
+            operation_id=operation_id,
+        ).values()
+    )
 
 
 def _purge_durable_diagram(
@@ -227,12 +384,19 @@ def purge_diagram(
     finally:
         db.close()
 
-    if operation_status == "completed" and diagram_fixed_point(
-        diagram_id,
-        owner_user_id,
-        tenant_id,
-    ):
-        return PurgeResult(operation_id, "completed", project_id, {})
+    if operation_status == "completed":
+        try:
+            if diagram_fixed_point(
+                diagram_id,
+                owner_user_id,
+                tenant_id,
+                operation_id=operation_id,
+            ):
+                return PurgeResult(operation_id, "completed", project_id, {})
+        except Exception:
+            # Re-enter the idempotent stages; storage/read failures must never
+            # turn a historical receipt into an unverified success response.
+            pass
 
     deleted: dict[str, Any] = {}
     deleted["session"] = _run_stage(operation_id, "session", lambda: _delete_key(SESSION_STORE, diagram_id))
@@ -257,7 +421,19 @@ def purge_diagram(
         "share_links",
         lambda: shareable_reports.purge_diagram_shares(diagram_id),
     )
-    deleted["jobs"] = _run_stage(operation_id, "jobs", lambda: job_manager.purge_diagram(diagram_id))
+    manifest = _capture_job_manifest(operation_id, diagram_id, owner_user_id, tenant_id)
+    job_counts = _run_stage(
+        operation_id,
+        "jobs",
+        lambda: job_manager.purge_diagram(
+            diagram_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+            manifest=_job_manifest(manifest),
+        ),
+    )
+    deleted["jobs"] = len(manifest.get("job_ids", []))
+    deleted["job_events"] = job_counts["event_rings"]
     deleted["iac_chat"] = _run_stage(operation_id, "iac_chat", lambda: clear_iac_chat(diagram_id))
     deleted["collaboration"] = _run_stage(
         operation_id,
@@ -279,6 +455,16 @@ def purge_diagram(
         "version_history",
         lambda: versioning.purge_diagram_versions(diagram_id),
     )
+    deleted["project_membership"] = _run_stage(
+        operation_id,
+        "project_membership",
+        lambda: _purge_project_diagram(manifest.get("workspace_id"), diagram_id),
+    )
+    deleted["blob_objects"] = _run_stage(
+        operation_id,
+        "blob_objects",
+        lambda: _delete_manifested_blobs(manifest, owner_user_id, tenant_id),
+    )
     deleted["durable"] = _run_stage(
         operation_id,
         "durable_graph",
@@ -290,8 +476,27 @@ def purge_diagram(
         ),
     )
 
-    if not diagram_fixed_point(diagram_id, owner_user_id, tenant_id):
-        checks = diagram_fixed_point_checks(diagram_id, owner_user_id, tenant_id)
+    try:
+        checks = diagram_fixed_point_checks(
+            diagram_id,
+            owner_user_id,
+            tenant_id,
+            operation_id=operation_id,
+        )
+    except Exception as exc:
+        db = _session()
+        try:
+            record_purge_stage(
+                db,
+                operation_id,
+                stage="fixed_point",
+                result={"confirmed_absent": False, "error_type": type(exc).__name__},
+                failed=True,
+            )
+        finally:
+            db.close()
+        raise PurgeIncompleteError(operation_id, "fixed_point") from exc
+    if not all(checks.values()):
         db = _session()
         try:
             record_purge_stage(
@@ -332,6 +537,14 @@ def _workspace_fixed_point(
             Workspace.tenant_id == tenant_id,
         ).first() is None
         state_absent = tf_backend.project_state_absent(db, workspace_id, owner_user_id, tenant_id)
+        child_operation_ids = dict(
+            db.query(PurgeOperation.scope_id, PurgeOperation.id).filter(
+                PurgeOperation.scope_type == "diagram",
+                PurgeOperation.scope_id.in_(diagram_ids),
+                PurgeOperation.owner_user_id == owner_user_id,
+                PurgeOperation.tenant_id == tenant_id,
+            ).all()
+        )
     finally:
         db.close()
     return bool(
@@ -339,7 +552,15 @@ def _workspace_fixed_point(
         and state_absent
         and PROJECT_STORE.peek(workspace_id) is None
         and credential_manager.scope_credentials_absent(owner_user_id, tenant_id)
-        and all(diagram_fixed_point(diagram_id, owner_user_id, tenant_id) for diagram_id in diagram_ids)
+        and all(
+            diagram_fixed_point(
+                diagram_id,
+                owner_user_id,
+                tenant_id,
+                operation_id=child_operation_ids.get(diagram_id),
+            )
+            for diagram_id in diagram_ids
+        )
     )
 
 
@@ -375,13 +596,17 @@ def purge_workspace(*, workspace_id: str, owner_user_id: str, tenant_id: str) ->
     finally:
         db.close()
 
-    if operation_status == "completed" and _workspace_fixed_point(
-        workspace_id,
-        owner_user_id,
-        tenant_id,
-        diagram_ids,
-    ):
-        return PurgeResult(operation_id, "completed", workspace_id, {})
+    if operation_status == "completed":
+        try:
+            if _workspace_fixed_point(
+                workspace_id,
+                owner_user_id,
+                tenant_id,
+                diagram_ids,
+            ):
+                return PurgeResult(operation_id, "completed", workspace_id, {})
+        except Exception:
+            pass
 
     deleted_diagrams: dict[str, Any] = {}
     for diagram_id in diagram_ids:
@@ -422,7 +647,27 @@ def purge_workspace(*, workspace_id: str, owner_user_id: str, tenant_id: str) ->
         lambda: credential_manager.purge_scope_credentials(owner_user_id, tenant_id),
     )
     _run_stage(operation_id, "workspace_graph", lambda: _complete_workspace(operation_id))
-    if not _workspace_fixed_point(workspace_id, owner_user_id, tenant_id, diagram_ids):
+    try:
+        fixed_point = _workspace_fixed_point(
+            workspace_id,
+            owner_user_id,
+            tenant_id,
+            diagram_ids,
+        )
+    except Exception as exc:
+        db = _session()
+        try:
+            record_purge_stage(
+                db,
+                operation_id,
+                stage="fixed_point",
+                result={"confirmed_absent": False, "error_type": type(exc).__name__},
+                failed=True,
+            )
+        finally:
+            db.close()
+        raise PurgeIncompleteError(operation_id, "fixed_point") from exc
+    if not fixed_point:
         db = _session()
         try:
             record_purge_stage(

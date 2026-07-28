@@ -399,6 +399,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/migration-quarantines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Migration Quarantines
+         * @description List unresolved legacy migration conflicts (admin only).
+         */
+        get: operations["list_migration_quarantines_api_admin_migration_quarantines_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/migration-quarantines/{alias_id}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolve Migration Quarantine
+         * @description Resolve one conflict-free quarantined graph (admin only).
+         */
+        post: operations["resolve_migration_quarantine_api_admin_migration_quarantines__alias_id__resolve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/monitoring": {
         parameters: {
             query?: never;
@@ -4937,6 +4977,46 @@ export interface paths {
         get: operations["admin_metrics_recent_v1_api_v1_admin_metrics_recent_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/migration-quarantines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Migration Quarantines V1
+         * @description List unresolved legacy migration conflicts (admin only).
+         */
+        get: operations["list_migration_quarantines_v1_api_v1_admin_migration_quarantines_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/migration-quarantines/{alias_id}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolve Migration Quarantine V1
+         * @description Resolve one conflict-free quarantined graph (admin only).
+         */
+        post: operations["resolve_migration_quarantine_v1_api_v1_admin_migration_quarantines__alias_id__resolve_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -10744,6 +10824,47 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** MigrationQuarantineItem */
+        MigrationQuarantineItem: {
+            /** Alias Id */
+            alias_id: string;
+            /** Created At */
+            created_at?: string | null;
+            /** Reason */
+            reason?: string | null;
+            /** Source Owner User Id */
+            source_owner_user_id: string;
+            /** Source Tenant Id */
+            source_tenant_id: string;
+            /** Status */
+            status: string;
+            /** Target Owner User Id */
+            target_owner_user_id?: string | null;
+            /** Target Tenant Id */
+            target_tenant_id?: string | null;
+            /** Workspace Id */
+            workspace_id: string;
+        };
+        /** MigrationQuarantineListResponse */
+        MigrationQuarantineListResponse: {
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Quarantines */
+            quarantines: components["schemas"]["MigrationQuarantineItem"][];
+            /** Total */
+            total: number;
+        };
+        /** MigrationQuarantineResolutionResponse */
+        MigrationQuarantineResolutionResponse: {
+            /** Alias Id */
+            alias_id: string;
+            /** Idempotent */
+            idempotent: boolean;
+            /** Status */
+            status: string;
+        };
         /** ModelConfigSchema */
         ModelConfigSchema: {
             /** Max Tokens */
@@ -11956,6 +12077,69 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_migration_quarantines_api_admin_migration_quarantines_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MigrationQuarantineListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resolve_migration_quarantine_api_admin_migration_quarantines__alias_id__resolve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                alias_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MigrationQuarantineResolutionResponse"];
                 };
             };
             /** @description Validation Error */
@@ -19081,6 +19265,69 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_migration_quarantines_v1_api_v1_admin_migration_quarantines_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MigrationQuarantineListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resolve_migration_quarantine_v1_api_v1_admin_migration_quarantines__alias_id__resolve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                alias_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MigrationQuarantineResolutionResponse"];
                 };
             };
             /** @description Validation Error */

@@ -32,15 +32,54 @@ from analytics import (
     get_analytics_summary, get_performance_metrics,
     get_feature_metrics, get_conversion_funnel,
 )
+from workspace_store import (
+    list_quarantined_legacy_graphs,
+    resolve_quarantined_legacy_graph,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["admin"])
 
 
+def _db_call(function, /, *args, **kwargs):
+    from database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        return function(db, *args, **kwargs)
+    finally:
+        db.close()
+
+
 class AdminLoginRequest(StrictBaseModel):
     """Body for POST /api/admin/login."""
     key: str = Field(..., min_length=1, description="Admin secret key")
+
+
+class MigrationQuarantineItem(StrictBaseModel):
+    alias_id: str
+    source_owner_user_id: str
+    source_tenant_id: str
+    target_owner_user_id: Optional[str] = None
+    target_tenant_id: Optional[str] = None
+    workspace_id: str
+    reason: Optional[str] = None
+    status: str
+    created_at: Optional[str] = None
+
+
+class MigrationQuarantineListResponse(StrictBaseModel):
+    quarantines: list[MigrationQuarantineItem]
+    total: int
+    limit: int
+    offset: int
+
+
+class MigrationQuarantineResolutionResponse(StrictBaseModel):
+    alias_id: str
+    status: str
+    idempotent: bool
 
 
 @router.post("/api/admin/login")
@@ -71,6 +110,48 @@ async def admin_logout(request: Request, authorization: Optional[str] = Header(N
 async def admin_metrics_summary(request: Request, _admin=Depends(verify_admin_key)):
     """Return aggregate usage metrics (admin only)."""
     return get_metrics_summary()
+
+
+@router.get(
+    "/api/admin/migration-quarantines",
+    response_model=MigrationQuarantineListResponse,
+)
+@limiter.limit("30/minute")
+async def list_migration_quarantines(
+    request: Request,
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    _admin=Depends(verify_admin_key),
+):
+    """List unresolved legacy migration conflicts (admin only)."""
+    from starlette.concurrency import run_in_threadpool
+
+    return await run_in_threadpool(
+        lambda: _db_call(list_quarantined_legacy_graphs, limit=limit, offset=offset)
+    )
+
+
+@router.post(
+    "/api/admin/migration-quarantines/{alias_id}/resolve",
+    response_model=MigrationQuarantineResolutionResponse,
+)
+@limiter.limit("10/minute")
+async def resolve_migration_quarantine(
+    request: Request,
+    alias_id: str,
+    _admin=Depends(verify_admin_key),
+):
+    """Resolve one conflict-free quarantined graph (admin only)."""
+    from starlette.concurrency import run_in_threadpool
+
+    try:
+        return await run_in_threadpool(
+            lambda: _db_call(resolve_quarantined_legacy_graph, alias_id=alias_id)
+        )
+    except ValueError as exc:
+        message = str(exc)
+        status_code = 409 if "conflict" in message.lower() else 404
+        raise ArchmorphException(status_code, message) from exc
 
 
 @router.get("/api/admin/metrics/funnel")

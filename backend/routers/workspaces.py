@@ -44,7 +44,6 @@ from routers.shared import (
     require_authenticated_user,
     verify_api_key,
 )
-from routers.shared import authorize_diagram_access_async
 from strict_models import StrictBaseModel
 from workspace_store import (
     create_analysis,
@@ -59,7 +58,9 @@ from workspace_store import (
     list_artifacts,
     list_decisions,
     list_workspaces,
-    persist_analysis_mutation,
+    link_analysis_to_workspace,
+    load_analysis_state,
+    owner_migration_conflict_status,
     restore_analysis_version,
     rehome_legacy_owner_scope,
     update_workspace,
@@ -139,6 +140,11 @@ async def _db_call(function, /, *args, **kwargs):
     return await run_in_threadpool(partial(invoke))
 
 
+def _link_analysis_payload(db, **kwargs):
+    analysis, previous_workspace_id = link_analysis_to_workspace(db, **kwargs)
+    return analysis.to_dict(), previous_workspace_id
+
+
 async def _migrate_legacy_owner_graphs(request: Request) -> None:
     principal = get_request_durable_principal(request)
     if principal is None or not principal.get("tenant_id"):
@@ -194,14 +200,21 @@ async def list_workspaces_endpoint(
 ):
     """List workspaces for the authenticated user."""
     await _migrate_legacy_owner_graphs(request)
-    return await _db_call(
+    owner_user_id = _owner_id(request, user)
+    result = await _db_call(
         list_workspaces,
-        owner_user_id=_owner_id(request, user),
+        owner_user_id=owner_user_id,
         tenant_id=_tenant_id(user),
         status=status.value if status is not None else None,
         limit=limit,
         offset=offset,
     )
+    result["migration"] = await _db_call(
+        owner_migration_conflict_status,
+        target_owner_user_id=owner_user_id,
+        target_tenant_id=_tenant_id(user),
+    )
+    return result
 
 
 @router.get("/workspaces/{workspace_id}")
@@ -330,44 +343,32 @@ async def create_analysis_endpoint(
     if ws is None:
         raise ArchmorphException(404, "Workspace not found")
     if body.diagram_id:
-        snapshot = await authorize_diagram_access_async(request, body.diagram_id, purpose="link durable analysis")
-        expected_version = snapshot.get("_analysis_version")
-        if expected_version is None:
-            raise ArchmorphException(409, "Authoritative analysis snapshot is required")
-        import hashlib
-        import json
-
-        request_hash = hashlib.sha256(json.dumps(
-            {
-                "workspace_id": workspace_id,
-                "diagram_id": body.diagram_id,
-                "snapshot": snapshot,
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-            default=str,
-        ).encode("utf-8")).hexdigest()
-        from workspace_store import AnalysisCacheWriteError, AnalysisVersionConflictError
-
         try:
-            result = await _db_call(
-                lambda db, **kwargs: persist_analysis_mutation(db, **kwargs).analysis.to_dict(),
+            result, previous_workspace_id = await _db_call(
+                _link_analysis_payload,
                 workspace_id=workspace_id,
                 owner_user_id=owner_user_id,
                 tenant_id=_tenant_id(user),
                 diagram_id=body.diagram_id,
-                snapshot=snapshot,
-                expected_version=int(expected_version),
-                operation="workspace-link",
-                request_hash=request_hash,
-                session_store=SESSION_STORE,
-                cache_owner_api_key_id=(get_request_durable_principal(request) or {}).get("owner_api_key_id"),
-                cache_required=True,
             )
-        except AnalysisVersionConflictError as exc:
-            raise ArchmorphException(409, "Authoritative analysis snapshot is required") from exc
-        except AnalysisCacheWriteError as exc:
-            raise ArchmorphException(503, "Analysis cache is temporarily unavailable") from exc
+        except ValueError as exc:
+            raise ArchmorphException(404, "Analysis not found") from exc
+        from routers.shared import PROJECT_STORE
+
+        for cached_workspace_id in {workspace_id, previous_workspace_id}:
+            if cached_workspace_id:
+                PROJECT_STORE.delete(cached_workspace_id)
+        if int(result.get("current_version") or 0) > 0:
+            await _db_call(
+                load_analysis_state,
+                diagram_id=body.diagram_id,
+                owner_user_id=owner_user_id,
+                tenant_id=_tenant_id(user),
+                session_store=SESSION_STORE,
+                cache_owner_api_key_id=(get_request_durable_principal(request) or {}).get(
+                    "owner_api_key_id"
+                ),
+            )
         return result
 
     analysis = await _db_call(

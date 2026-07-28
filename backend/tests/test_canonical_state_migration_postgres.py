@@ -152,7 +152,10 @@ def _assert_014_state(engine, seeded: dict[str, str], *, expect_seed_audits: boo
                 "artifact_deduplicated",
             } <= statuses
         else:
-            assert statuses <= {"default_workspace_deduplicated"}
+            assert statuses <= {
+                "default_workspace_deduplicated",
+                "version_lineage_validated",
+            }
 
 
 def test_seeded_013_014_013_014_roundtrip_preserves_all_rows_and_long_tenants():
@@ -247,12 +250,11 @@ def test_migration_rehomes_clean_workspaces_and_quarantines_only_conflict():
             assert (ids["clean_analysis_two"], "rehomed") in alias_statuses
             assert (ids["conflict_analysis"], "quarantined") in alias_statuses
 
-        command.downgrade(config, "013")
+        with pytest.raises(RuntimeError, match="unresolved tenant migration quarantines"):
+            command.downgrade(config, "013")
         with engine.connect() as connection:
             assert connection.execute(text("SELECT count(*) FROM analyses")).scalar_one() == 4
-        command.upgrade(config, "014")
-        with engine.connect() as connection:
-            assert connection.execute(text("SELECT count(*) FROM analyses")).scalar_one() == 4
+            assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "014"
     finally:
         _reset_database(engine)
         engine.dispose()
@@ -451,6 +453,144 @@ def test_all_tenant_duplicate_groups_and_artifacts_survive_roundtrip():
             assert connection.execute(text("SELECT count(*) FROM artifacts")).scalar_one() == 6
         command.upgrade(config, "014")
         _assert_all_tenant_duplicate_state(engine)
+    finally:
+        _reset_database(engine)
+        engine.dispose()
+
+
+def test_duplicate_analysis_restore_lineage_is_normalized_before_fk_and_survives_roundtrip():
+    engine = create_engine(POSTGRES_URL, pool_pre_ping=True)
+    config = _alembic_config()
+    ids = {
+        name: str(uuid.UUID(int=index))
+        for index, name in enumerate(
+            (
+                "workspace_a",
+                "workspace_b",
+                "analysis_a",
+                "analysis_b",
+                "a1",
+                "a2",
+                "a3",
+                "b1",
+                "b2",
+                "b3",
+                "b4",
+            ),
+            start=1,
+        )
+    }
+    owner = "lineage-migration-owner"
+    tenant = "lineage-migration-tenant"
+    try:
+        _reset_database(engine)
+        command.upgrade(config, "013")
+        with engine.begin() as connection:
+            connection.execute(text("""
+                INSERT INTO workspaces
+                    (id, owner_user_id, tenant_id, name, source_cloud, target_cloud, status, is_public)
+                VALUES
+                    (:workspace_a, :owner, :tenant, 'A', 'aws', 'azure', 'active', false),
+                    (:workspace_b, :owner, :tenant, 'B', 'aws', 'azure', 'active', false)
+            """), {**ids, "owner": owner, "tenant": tenant})
+            connection.execute(text("""
+                INSERT INTO analyses
+                    (id, workspace_id, owner_user_id, tenant_id, diagram_id, source_cloud,
+                     target_cloud, status, services_detected, current_version)
+                VALUES
+                    (:analysis_a, :workspace_a, :owner, :tenant, 'lineage-diagram', 'aws', 'azure', 'completed', 0, 3),
+                    (:analysis_b, :workspace_b, :owner, :tenant, 'lineage-diagram', 'aws', 'azure', 'completed', 0, 4)
+            """), {**ids, "owner": owner, "tenant": tenant})
+            connection.execute(text("""
+                INSERT INTO analysis_versions
+                    (id, analysis_id, version_number, snapshot, content_hash, created_by, restored_from)
+                VALUES
+                    (:a1, :analysis_a, 1, :snapshot_a1, 'a1', :owner, NULL),
+                    (:a2, :analysis_a, 2, :snapshot_a2, 'a2', :owner, 1),
+                    (:a3, :analysis_a, 3, :snapshot_a3, 'a3', :owner, 99),
+                    (:b1, :analysis_b, 1, :snapshot_b1, 'b1', :owner, NULL),
+                    (:b2, :analysis_b, 2, :snapshot_b2, 'b2', :owner, 1),
+                    (:b3, :analysis_b, 3, :snapshot_b3, 'b3', :owner, 4),
+                    (:b4, :analysis_b, 4, :snapshot_b4, 'b4', :owner, 3)
+            """), {
+                **ids,
+                "owner": owner,
+                **{
+                    f"snapshot_{prefix}{number}": json.dumps({prefix: number})
+                    for prefix, maximum in (("a", 3), ("b", 4))
+                    for number in range(1, maximum + 1)
+                },
+            })
+
+        command.upgrade(config, "014")
+        with engine.connect() as connection:
+            analysis_id = connection.execute(text("""
+                SELECT id FROM analyses
+                WHERE owner_user_id = :owner AND tenant_id = :tenant
+                  AND diagram_id = 'lineage-diagram'
+            """), {"owner": owner, "tenant": tenant}).scalar_one()
+            lineage = connection.execute(text("""
+                SELECT version_number, restored_from FROM analysis_versions
+                WHERE analysis_id = :analysis_id ORDER BY version_number
+            """), {"analysis_id": analysis_id}).all()
+            assert lineage == [
+                (1, None),
+                (2, 1),
+                (3, None),
+                (4, None),
+                (5, 4),
+                (6, None),
+                (7, 6),
+            ]
+            evidence = [
+                json.loads(value)
+                for value in connection.execute(text("""
+                    SELECT details FROM tenant_rehome_audit
+                    WHERE status IN ('analysis_deduplicated', 'version_lineage_normalized')
+                    ORDER BY created_at, id
+                """)).scalars()
+            ]
+            assert any(item.get("lineage_remap") for item in evidence)
+            repairs = [repair for item in evidence for repair in item.get("repairs", [])]
+            assert {repair["reason"] for repair in repairs} == {
+                "missing_ancestor",
+                "lineage_cycle",
+            }
+
+        command.downgrade(config, "013")
+        command.upgrade(config, "014")
+        with engine.connect() as connection:
+            assert connection.execute(text("""
+                SELECT count(*) FROM analysis_versions
+                WHERE analysis_id = (SELECT id FROM analyses WHERE diagram_id = 'lineage-diagram')
+            """)).scalar_one() == 7
+    finally:
+        _reset_database(engine)
+        engine.dispose()
+
+
+def test_downgrade_refuses_to_discard_unresolved_quarantine_evidence():
+    engine = create_engine(POSTGRES_URL, pool_pre_ping=True)
+    config = _alembic_config()
+    try:
+        _reset_database(engine)
+        command.upgrade(config, "014")
+        with engine.begin() as connection:
+            connection.execute(text("""
+                INSERT INTO tenant_rehome_aliases
+                    (id, source_owner_user_id, source_tenant_id, target_owner_user_id,
+                     target_tenant_id, entity_type, source_entity_id, status, reason)
+                VALUES
+                    (:id, 'legacy', 'default_tenant', 'target', 'target-tenant',
+                     'workspace', 'workspace-evidence', 'quarantined', 'target_diagram_conflict')
+            """), {"id": str(uuid.uuid4())})
+        with pytest.raises(RuntimeError, match="unresolved tenant migration quarantines"):
+            command.downgrade(config, "013")
+        with engine.connect() as connection:
+            assert connection.execute(text("""
+                SELECT count(*) FROM tenant_rehome_aliases WHERE status = 'quarantined'
+            """)).scalar_one() == 1
+            assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "014"
     finally:
         _reset_database(engine)
         engine.dispose()

@@ -30,9 +30,12 @@ from workspace_store import (
     create_migration_replay,
     create_workspace,
     list_migration_replays,
+    list_quarantined_legacy_graphs,
     list_workspaces,
+    owner_migration_conflict_status,
     persist_analysis_state,
     rehome_legacy_owner_scope,
+    resolve_quarantined_legacy_graph,
     save_analysis_version,
     serialize_migration_replay,
     update_workspace,
@@ -698,3 +701,136 @@ async def test_db_call_keeps_event_loop_responsive_and_propagates_exceptions(mon
 
     with pytest.raises(RuntimeError, match="database failed"):
         await _db_call(fail)
+
+
+def test_quarantine_operator_listing_owner_indicator_resolution_and_repeat(db):
+    legacy_owner = "quarantine-legacy-owner"
+    target_owner = "quarantine-target-owner"
+    target_tenant = "quarantine-target-tenant"
+    target = persist_analysis_state(
+        db,
+        owner_user_id=target_owner,
+        tenant_id=target_tenant,
+        diagram_id="quarantine-conflict",
+        snapshot={"scope": "target", "mappings": []},
+    )
+    legacy = persist_analysis_state(
+        db,
+        owner_user_id=legacy_owner,
+        tenant_id="default_tenant",
+        diagram_id="quarantine-conflict",
+        snapshot={"scope": "legacy", "mappings": []},
+    )
+    summary = rehome_legacy_owner_scope(
+        db,
+        owner_user_ids=[legacy_owner],
+        source_tenant_id="default_tenant",
+        target_tenant_id=target_tenant,
+        target_owner_user_id=target_owner,
+    )
+    assert summary["quarantined"] == 1
+
+    listed = list_quarantined_legacy_graphs(db)
+    assert listed["total"] == 1
+    quarantine = listed["quarantines"][0]
+    assert quarantine["workspace_id"] == legacy.analysis.workspace_id
+    assert "snapshot" not in quarantine
+    assert owner_migration_conflict_status(
+        db,
+        target_owner_user_id=target_owner,
+        target_tenant_id=target_tenant,
+    ) == {
+        "has_conflicts": True,
+        "conflict_count": 1,
+        "status": "action_required",
+    }
+    assert owner_migration_conflict_status(
+        db,
+        target_owner_user_id="foreign-owner",
+        target_tenant_id=target_tenant,
+    ) == {
+        "has_conflicts": False,
+        "conflict_count": 0,
+        "status": "ready",
+    }
+
+    db.delete(target.analysis)
+    db.commit()
+    resolved = resolve_quarantined_legacy_graph(db, alias_id=quarantine["alias_id"])
+    repeated = resolve_quarantined_legacy_graph(db, alias_id=quarantine["alias_id"])
+    assert resolved == {
+        "alias_id": quarantine["alias_id"],
+        "status": "resolved",
+        "idempotent": False,
+    }
+    assert repeated["idempotent"] is True
+    db.refresh(legacy.analysis)
+    assert legacy.analysis.owner_user_id == target_owner
+    assert legacy.analysis.tenant_id == target_tenant
+    assert list_quarantined_legacy_graphs(db)["total"] == 0
+
+
+def test_quarantine_admin_api_is_protected_lists_and_resolves(
+    test_client,
+    tmp_path,
+    monkeypatch,
+):
+    import admin_auth
+    import database
+
+    engine = create_engine(
+        f"sqlite:///{tmp_path / 'quarantine-admin.db'}",
+        connect_args={"check_same_thread": False},
+    )
+    Base.metadata.create_all(bind=engine)
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    monkeypatch.setattr(database, "SessionLocal", factory)
+    monkeypatch.setattr(admin_auth, "ADMIN_SECRET", "configured-admin-secret")
+    monkeypatch.setattr(
+        admin_auth,
+        "JWT_SECRET",
+        "configured-admin-jwt-secret-with-safe-test-length",
+    )
+    db = factory()
+    try:
+        workspace = create_workspace(
+            db,
+            owner_user_id="legacy-admin-owner",
+            tenant_id="default_tenant",
+            name="Quarantined",
+        )
+        alias = TenantRehomeAlias(
+            source_owner_user_id="legacy-admin-owner",
+            source_tenant_id="default_tenant",
+            target_owner_user_id="target-admin-owner",
+            target_tenant_id="target-admin-tenant",
+            entity_type="workspace",
+            source_entity_id=workspace.id,
+            status="quarantined",
+            reason="target_diagram_conflict",
+        )
+        db.add(alias)
+        db.commit()
+        alias_id = alias.id
+    finally:
+        db.close()
+    try:
+        denied = test_client.get("/api/admin/migration-quarantines")
+        assert denied.status_code == 401
+        headers = {"Authorization": f"Bearer {admin_auth.create_session_token()}"}
+        listed = test_client.get("/api/admin/migration-quarantines", headers=headers)
+        assert listed.status_code == 200
+        assert listed.json()["total"] == 1
+        resolved = test_client.post(
+            f"/api/admin/migration-quarantines/{alias_id}/resolve",
+            headers=headers,
+        )
+        repeated = test_client.post(
+            f"/api/admin/migration-quarantines/{alias_id}/resolve",
+            headers=headers,
+        )
+        assert resolved.status_code == repeated.status_code == 200
+        assert repeated.json()["idempotent"] is True
+    finally:
+        Base.metadata.drop_all(bind=engine)
+        engine.dispose()

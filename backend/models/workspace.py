@@ -584,7 +584,7 @@ class TenantRehomeAlias(Base):
             name="ck_tenant_rehome_aliases_entity_type",
         ),
         CheckConstraint(
-            "status IN ('rehomed', 'quarantined')",
+            "status IN ('rehomed', 'quarantined', 'resolved')",
             name="ck_tenant_rehome_aliases_status",
         ),
         Index(
@@ -740,10 +740,12 @@ class PurgeOperation(Base):
     id = Column(String(36), primary_key=True, default=_new_uuid)
     scope_type = Column(String(20), nullable=False)
     scope_id = Column(String(50), nullable=False)
+    workspace_id = Column(String(36), nullable=True, index=True)
     owner_user_id = Column(String(100), nullable=False)
     tenant_id = Column(String(100), nullable=False)
     status = Column(String(20), nullable=False, server_default="pending")
     generation = Column(Integer, nullable=True)
+    manifest = Column(Text, nullable=False, server_default="{}")
     stages = Column(Text, nullable=False, server_default="{}")
     last_error_stage = Column(String(100), nullable=True)
     attempts = Column(Integer, nullable=False, server_default="0")

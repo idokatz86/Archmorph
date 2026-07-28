@@ -2,7 +2,9 @@ import io
 import os
 import sys
 import base64
+import hashlib
 import json
+import zipfile
 
 from fastapi.testclient import TestClient
 
@@ -103,6 +105,21 @@ def test_diagram_upload_accepts_authenticated_user_bearer_session(monkeypatch):
     assert payload["status"] == "uploaded"
     assert payload["diagram_id"].startswith("diag-")
     assert payload["project_id"].startswith("proj-")
+    from database import SessionLocal
+    from models.workspace import SourceAsset
+
+    db = SessionLocal()
+    try:
+        source = db.query(SourceAsset).filter_by(diagram_id=payload["diagram_id"]).one()
+        assert source.workspace_id == payload["project_id"]
+        assert source.owner_user_id == OWNER_USER_ID
+        assert source.tenant_id == OWNER_TENANT_ID
+        assert source.filename == "diagram.png"
+        assert source.content_type == "image/png"
+        assert source.file_size_bytes == len(_png_bytes())
+        assert source.content_hash == hashlib.sha256(_png_bytes()).hexdigest()
+    finally:
+        db.close()
     diagrams.IMAGE_STORE.delete(payload["diagram_id"])
 
 
@@ -181,6 +198,11 @@ def test_migration_package_accepts_authenticated_user_bearer_session_when_api_ke
     payload = response.json()
     assert payload["content_type"] == "application/zip"
     assert payload["content_b64"]
+    with zipfile.ZipFile(io.BytesIO(base64.b64decode(payload["content_b64"]))) as package:
+        embedded_docx = package.read("documents/high-level-design.docx")
+        assert embedded_docx.startswith(b"PK\x03\x04")
+        with zipfile.ZipFile(io.BytesIO(embedded_docx)) as document:
+            assert "word/document.xml" in document.namelist()
     shared.SESSION_STORE.delete(diagram_id)
 
 

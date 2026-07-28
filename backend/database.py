@@ -271,6 +271,14 @@ def database_readiness() -> dict[str, object]:
                     }
                     if "is_default" not in workspace_columns:
                         missing_schema_objects.append("column:workspaces.is_default")
+                if "purge_operations" in present_tables:
+                    purge_columns = {
+                        column["name"] for column in inspector.get_columns("purge_operations")
+                    }
+                    if "manifest" not in purge_columns:
+                        missing_schema_objects.append("column:purge_operations.manifest")
+                    if "workspace_id" not in purge_columns:
+                        missing_schema_objects.append("column:purge_operations.workspace_id")
                 required_schema_present = not missing_schema_objects
             connection_ok = True
         except Exception as exc:

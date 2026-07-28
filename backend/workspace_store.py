@@ -2115,6 +2115,14 @@ def rehome_legacy_owner_scope(
                     SourceAsset.owner_user_id == source_owner_user_id,
                     SourceAsset.tenant_id == source_tenant_id,
                 ).count()
+                or db.query(DiagramLifecycle.id).filter(
+                    DiagramLifecycle.workspace_id == workspace.id
+                ).count()
+                != db.query(DiagramLifecycle.id).filter(
+                    DiagramLifecycle.workspace_id == workspace.id,
+                    DiagramLifecycle.owner_user_id == source_owner_user_id,
+                    DiagramLifecycle.tenant_id == source_tenant_id,
+                ).count()
                 or db.query(Artifact.id).filter(Artifact.analysis_id.in_(analysis_ids)).count()
                 != db.query(Artifact.id).filter(
                     Artifact.analysis_id.in_(analysis_ids),
@@ -2141,6 +2149,7 @@ def rehome_legacy_owner_scope(
                 db.add(TenantRehomeAlias(
                     source_owner_user_id=source_owner_user_id,
                     source_tenant_id=source_tenant_id,
+                    target_owner_user_id=target_owner_user_id,
                     target_tenant_id=target_tenant_id,
                     entity_type="workspace",
                     source_entity_id=workspace.id,
@@ -2151,6 +2160,7 @@ def rehome_legacy_owner_scope(
                     db.add(TenantRehomeAlias(
                         source_owner_user_id=source_owner_user_id,
                         source_tenant_id=source_tenant_id,
+                        target_owner_user_id=target_owner_user_id,
                         target_tenant_id=target_tenant_id,
                         entity_type="analysis",
                         source_entity_id=analysis.id,
@@ -2199,6 +2209,17 @@ def rehome_legacy_owner_scope(
                 {
                     Analysis.owner_user_id: target_owner_user_id,
                     Analysis.tenant_id: target_tenant_id,
+                },
+                synchronize_session=False,
+            )
+            db.query(DiagramLifecycle).filter(
+                DiagramLifecycle.workspace_id == workspace.id,
+                DiagramLifecycle.owner_user_id == source_owner_user_id,
+                DiagramLifecycle.tenant_id == source_tenant_id,
+            ).update(
+                {
+                    DiagramLifecycle.owner_user_id: target_owner_user_id,
+                    DiagramLifecycle.tenant_id: target_tenant_id,
                 },
                 synchronize_session=False,
             )
@@ -2258,6 +2279,234 @@ def rehome_legacy_owner_scope(
             db.rollback()
             raise
     return summary
+
+
+def owner_migration_conflict_status(
+    db: Session,
+    *,
+    target_owner_user_id: str,
+    target_tenant_id: str,
+) -> Dict[str, Any]:
+    """Return a count-only migration indicator without foreign graph details."""
+    count = db.query(TenantRehomeAlias.id).filter(
+        TenantRehomeAlias.target_owner_user_id == target_owner_user_id,
+        TenantRehomeAlias.target_tenant_id == target_tenant_id,
+        TenantRehomeAlias.entity_type == "workspace",
+        TenantRehomeAlias.status == "quarantined",
+    ).count()
+    return {
+        "has_conflicts": count > 0,
+        "conflict_count": count,
+        "status": "action_required" if count else "ready",
+    }
+
+
+def list_quarantined_legacy_graphs(
+    db: Session,
+    *,
+    limit: int = 50,
+    offset: int = 0,
+) -> Dict[str, Any]:
+    """List operator reconciliation records with no child payload snapshots."""
+    query = db.query(TenantRehomeAlias).filter(
+        TenantRehomeAlias.entity_type == "workspace",
+        TenantRehomeAlias.status == "quarantined",
+    )
+    total = query.count()
+    rows = query.order_by(
+        TenantRehomeAlias.created_at.asc(),
+        TenantRehomeAlias.id.asc(),
+    ).offset(offset).limit(limit).all()
+    return {
+        "quarantines": [
+            {
+                "alias_id": row.id,
+                "source_owner_user_id": row.source_owner_user_id,
+                "source_tenant_id": row.source_tenant_id,
+                "target_owner_user_id": row.target_owner_user_id,
+                "target_tenant_id": row.target_tenant_id,
+                "workspace_id": row.source_entity_id,
+                "reason": row.reason,
+                "status": row.status,
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+            }
+            for row in rows
+        ],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
+
+
+def resolve_quarantined_legacy_graph(
+    db: Session,
+    *,
+    alias_id: str,
+) -> Dict[str, Any]:
+    """Move one conflict-free quarantined graph to its recorded target scope."""
+    alias_query = db.query(TenantRehomeAlias).filter(
+        TenantRehomeAlias.id == alias_id,
+        TenantRehomeAlias.entity_type == "workspace",
+    )
+    if db.get_bind().dialect.name == "postgresql":
+        alias_query = alias_query.with_for_update()
+    alias = alias_query.one_or_none()
+    if alias is None:
+        raise ValueError("Quarantine not found")
+    if alias.status == "resolved":
+        return {"alias_id": alias.id, "status": "resolved", "idempotent": True}
+    if alias.status != "quarantined" or not alias.target_owner_user_id or not alias.target_tenant_id:
+        raise ValueError("Quarantine target is unavailable")
+    workspace_query = db.query(Workspace).filter(
+        Workspace.id == alias.source_entity_id,
+        Workspace.owner_user_id == alias.source_owner_user_id,
+        Workspace.tenant_id == alias.source_tenant_id,
+    )
+    if db.get_bind().dialect.name == "postgresql":
+        workspace_query = workspace_query.with_for_update()
+    workspace = workspace_query.one_or_none()
+    if workspace is None:
+        raise ValueError("Quarantined workspace is unavailable")
+    analyses = db.query(Analysis).filter(
+        Analysis.workspace_id == workspace.id,
+        Analysis.owner_user_id == alias.source_owner_user_id,
+        Analysis.tenant_id == alias.source_tenant_id,
+    ).all()
+    analysis_ids = [analysis.id for analysis in analyses]
+    diagram_ids = [analysis.diagram_id for analysis in analyses if analysis.diagram_id]
+    mixed_scope = (
+        db.query(Analysis.id).filter(Analysis.workspace_id == workspace.id).count()
+        != len(analyses)
+        or db.query(SourceAsset.id).filter(SourceAsset.workspace_id == workspace.id).count()
+        != db.query(SourceAsset.id).filter(
+            SourceAsset.workspace_id == workspace.id,
+            SourceAsset.owner_user_id == alias.source_owner_user_id,
+            SourceAsset.tenant_id == alias.source_tenant_id,
+        ).count()
+        or db.query(DiagramLifecycle.id).filter(
+            DiagramLifecycle.workspace_id == workspace.id
+        ).count()
+        != db.query(DiagramLifecycle.id).filter(
+            DiagramLifecycle.workspace_id == workspace.id,
+            DiagramLifecycle.owner_user_id == alias.source_owner_user_id,
+            DiagramLifecycle.tenant_id == alias.source_tenant_id,
+        ).count()
+        or db.query(Artifact.id).filter(Artifact.analysis_id.in_(analysis_ids)).count()
+        != db.query(Artifact.id).filter(
+            Artifact.analysis_id.in_(analysis_ids),
+            Artifact.owner_user_id == alias.source_owner_user_id,
+            Artifact.tenant_id == alias.source_tenant_id,
+        ).count()
+        or db.query(Decision.id).filter(Decision.analysis_id.in_(analysis_ids)).count()
+        != db.query(Decision.id).filter(
+            Decision.analysis_id.in_(analysis_ids),
+            Decision.owner_user_id == alias.source_owner_user_id,
+            Decision.tenant_id == alias.source_tenant_id,
+        ).count()
+    )
+    if mixed_scope:
+        raise ValueError("Quarantine mixed-scope conflict is still present")
+    if diagram_ids and db.query(Analysis.id).filter(
+        Analysis.owner_user_id == alias.target_owner_user_id,
+        Analysis.tenant_id == alias.target_tenant_id,
+        Analysis.diagram_id.in_(diagram_ids),
+    ).first():
+        raise ValueError("Quarantine conflict is still present")
+    if diagram_ids and db.query(SourceAsset.id).filter(
+        SourceAsset.owner_user_id == alias.target_owner_user_id,
+        SourceAsset.tenant_id == alias.target_tenant_id,
+        SourceAsset.diagram_id.in_(diagram_ids),
+    ).first():
+        raise ValueError("Quarantine conflict is still present")
+    target_lifecycles = db.query(DiagramLifecycle).filter(
+        DiagramLifecycle.owner_user_id == alias.target_owner_user_id,
+        DiagramLifecycle.tenant_id == alias.target_tenant_id,
+        DiagramLifecycle.diagram_id.in_(diagram_ids),
+    ).all()
+    if any(lifecycle.state != "active" for lifecycle in target_lifecycles):
+        raise ValueError("Quarantine conflict is still present")
+    for target_lifecycle in target_lifecycles:
+        db.delete(target_lifecycle)
+    db.flush()
+    target_default_exists = workspace.is_default and db.query(Workspace.id).filter(
+        Workspace.owner_user_id == alias.target_owner_user_id,
+        Workspace.tenant_id == alias.target_tenant_id,
+        Workspace.is_default.is_(True),
+        Workspace.id != workspace.id,
+    ).first() is not None
+    if target_default_exists:
+        workspace.is_default = False
+    workspace.owner_user_id = alias.target_owner_user_id
+    workspace.tenant_id = alias.target_tenant_id
+    db.query(SourceAsset).filter(
+        SourceAsset.workspace_id == workspace.id,
+        SourceAsset.owner_user_id == alias.source_owner_user_id,
+        SourceAsset.tenant_id == alias.source_tenant_id,
+    ).update(
+        {
+            SourceAsset.owner_user_id: alias.target_owner_user_id,
+            SourceAsset.tenant_id: alias.target_tenant_id,
+        },
+        synchronize_session=False,
+    )
+    db.query(Analysis).filter(Analysis.id.in_(analysis_ids)).update(
+        {
+            Analysis.owner_user_id: alias.target_owner_user_id,
+            Analysis.tenant_id: alias.target_tenant_id,
+        },
+        synchronize_session=False,
+    )
+    db.query(DiagramLifecycle).filter(
+        DiagramLifecycle.workspace_id == workspace.id,
+        DiagramLifecycle.owner_user_id == alias.source_owner_user_id,
+        DiagramLifecycle.tenant_id == alias.source_tenant_id,
+    ).update(
+        {
+            DiagramLifecycle.owner_user_id: alias.target_owner_user_id,
+            DiagramLifecycle.tenant_id: alias.target_tenant_id,
+        },
+        synchronize_session=False,
+    )
+    for model in (Artifact, Decision):
+        db.query(model).filter(
+            model.analysis_id.in_(analysis_ids),
+            model.owner_user_id == alias.source_owner_user_id,
+            model.tenant_id == alias.source_tenant_id,
+        ).update(
+            {
+                model.owner_user_id: alias.target_owner_user_id,
+                model.tenant_id: alias.target_tenant_id,
+            },
+            synchronize_session=False,
+        )
+    child_aliases = db.query(TenantRehomeAlias).filter(
+        TenantRehomeAlias.source_owner_user_id == alias.source_owner_user_id,
+        TenantRehomeAlias.source_tenant_id == alias.source_tenant_id,
+        TenantRehomeAlias.source_entity_id.in_([workspace.id, *analysis_ids]),
+        TenantRehomeAlias.status == "quarantined",
+    ).all()
+    for child_alias in child_aliases:
+        child_alias.status = "resolved"
+        child_alias.target_owner_user_id = alias.target_owner_user_id
+        child_alias.target_tenant_id = alias.target_tenant_id
+        child_alias.target_entity_id = child_alias.source_entity_id
+        child_alias.reason = "operator_reconciled"
+    db.add(TenantRehomeAudit(
+        owner_user_id=alias.source_owner_user_id,
+        source_tenant_id=alias.source_tenant_id,
+        target_tenant_id=alias.target_tenant_id,
+        status="quarantine_resolved",
+        details=_json.dumps(
+            {
+                "alias_id": alias.id,
+                "workspace_id": workspace.id,
+                "analysis_ids": sorted(analysis_ids),
+            },
+            sort_keys=True,
+        ),
+    ))
+    db.commit()
+    return {"alias_id": alias.id, "status": "resolved", "idempotent": False}
 
 
 def get_current_analysis_version(
@@ -2351,6 +2600,27 @@ def create_export_artifact(
         ).one()
     db.refresh(artifact)
     return artifact
+
+
+def find_export_artifact(
+    db: Session,
+    *,
+    analysis_id: str,
+    version_id: str,
+    owner_user_id: str,
+    tenant_id: str,
+    artifact_type: str,
+    content_hash: str,
+) -> Optional[Artifact]:
+    """Return an exact scoped immutable export without mutating state."""
+    return db.query(Artifact).filter(
+        Artifact.analysis_id == analysis_id,
+        Artifact.version_id == version_id,
+        Artifact.owner_user_id == owner_user_id,
+        Artifact.tenant_id == tenant_id,
+        Artifact.artifact_type == artifact_type,
+        Artifact.content_hash == content_hash,
+    ).one_or_none()
 
 
 def create_migration_replay(
@@ -2626,6 +2896,9 @@ def purge_analysis_state(
         if source.id not in referenced_source_ids:
             db.delete(source)
             counts["source_assets"] += 1
+        elif source.diagram_id == diagram_id:
+            # Preserve shared provenance without retaining the purged identity.
+            source.diagram_id = None
     db.flush()
 
     if cleanup_empty_implicit_workspace:
@@ -2651,6 +2924,232 @@ def purge_analysis_state(
                 counts["implicit_workspaces"] += 1
     db.commit()
     return counts
+
+
+def link_analysis_to_workspace(
+    db: Session,
+    *,
+    diagram_id: str,
+    workspace_id: str,
+    owner_user_id: str,
+    tenant_id: str,
+) -> tuple[Analysis, str]:
+    """Atomically move a durable uploaded/analyzed identity and lifecycle.
+
+    PostgreSQL metadata is authoritative even when ``current_version == 0``;
+    no browser/session payload is read or persisted by this operation.
+    """
+    workspace_query = db.query(Workspace).filter(
+        Workspace.id == workspace_id,
+        Workspace.owner_user_id == owner_user_id,
+        Workspace.tenant_id == tenant_id,
+        Workspace.status == WorkspaceStatus.ACTIVE.value,
+    )
+    analysis_query = db.query(Analysis).filter(
+        Analysis.diagram_id == diagram_id,
+        Analysis.owner_user_id == owner_user_id,
+        Analysis.tenant_id == tenant_id,
+    )
+    lifecycle_query = db.query(DiagramLifecycle).filter(
+        DiagramLifecycle.diagram_id == diagram_id,
+        DiagramLifecycle.owner_user_id == owner_user_id,
+        DiagramLifecycle.tenant_id == tenant_id,
+    )
+    if db.get_bind().dialect.name == "postgresql":
+        workspace_query = workspace_query.with_for_update()
+        analysis_query = analysis_query.with_for_update()
+        lifecycle_query = lifecycle_query.with_for_update()
+    workspace = workspace_query.one_or_none()
+    analysis = analysis_query.one_or_none()
+    lifecycle = lifecycle_query.one_or_none()
+    if workspace is None or analysis is None:
+        raise ValueError("Workspace or analysis not found")
+    if lifecycle is not None and lifecycle.state != "active":
+        raise ValueError("Diagram has been purged")
+    previous_workspace_id = analysis.workspace_id
+    if workspace.is_default and db.query(Workspace.id).filter(
+        Workspace.owner_user_id == owner_user_id,
+        Workspace.tenant_id == tenant_id,
+        Workspace.is_default.is_(True),
+        Workspace.id != workspace.id,
+    ).first():
+        workspace.is_default = False
+    analysis.workspace_id = workspace.id
+    source_candidates = db.query(SourceAsset).filter(
+        SourceAsset.owner_user_id == owner_user_id,
+        SourceAsset.tenant_id == tenant_id,
+        or_(
+            SourceAsset.id == analysis.source_asset_id,
+            SourceAsset.diagram_id == diagram_id,
+        ),
+    ).all()
+    for source in source_candidates:
+        other_analysis = db.query(Analysis.id).filter(
+            Analysis.source_asset_id == source.id,
+            Analysis.id != analysis.id,
+        ).first()
+        other_artifact = db.query(Artifact.id).filter(
+            Artifact.source_asset_id == source.id,
+            Artifact.analysis_id != analysis.id,
+        ).first()
+        if other_analysis is None and other_artifact is None:
+            source.workspace_id = workspace.id
+    if lifecycle is None:
+        lifecycle = DiagramLifecycle(
+            diagram_id=diagram_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace.id,
+            generation=1,
+            state="active",
+        )
+        db.add(lifecycle)
+    else:
+        lifecycle.workspace_id = workspace.id
+    db.commit()
+    db.refresh(analysis)
+    return analysis, previous_workspace_id
+
+
+def _purge_manifest(operation: PurgeOperation) -> Dict[str, Any]:
+    try:
+        manifest = _json.loads(operation.manifest or "{}")
+    except (TypeError, ValueError):
+        manifest = {}
+    return manifest if isinstance(manifest, dict) else {}
+
+
+def _artifact_blob_uris_for_diagram(
+    db: Session,
+    *,
+    diagram_id: str,
+    owner_user_id: str,
+    tenant_id: str,
+) -> List[str]:
+    analysis_ids = [
+        value
+        for (value,) in db.query(Analysis.id).filter(
+            Analysis.diagram_id == diagram_id,
+            Analysis.owner_user_id == owner_user_id,
+            Analysis.tenant_id == tenant_id,
+        ).all()
+    ]
+    if not analysis_ids:
+        return []
+    return sorted({
+        str(value)
+        for (value,) in db.query(Artifact.storage_url).filter(
+            Artifact.analysis_id.in_(analysis_ids),
+            Artifact.owner_user_id == owner_user_id,
+            Artifact.tenant_id == tenant_id,
+            Artifact.storage_url.is_not(None),
+        ).all()
+        if value
+    })
+
+
+def _diagram_workspace_id(
+    db: Session,
+    *,
+    diagram_id: str,
+    owner_user_id: str,
+    tenant_id: str,
+) -> Optional[str]:
+    candidates = [
+        db.query(Analysis.workspace_id).filter(
+            Analysis.diagram_id == diagram_id,
+            Analysis.owner_user_id == owner_user_id,
+            Analysis.tenant_id == tenant_id,
+        ).scalar(),
+        db.query(SourceAsset.workspace_id).filter(
+            SourceAsset.diagram_id == diagram_id,
+            SourceAsset.owner_user_id == owner_user_id,
+            SourceAsset.tenant_id == tenant_id,
+        ).scalar(),
+        db.query(DiagramLifecycle.workspace_id).filter(
+            DiagramLifecycle.diagram_id == diagram_id,
+            DiagramLifecycle.owner_user_id == owner_user_id,
+            DiagramLifecycle.tenant_id == tenant_id,
+        ).scalar(),
+    ]
+    return next((str(value) for value in candidates if value is not None), None)
+
+
+def _workspace_diagram_ids(
+    db: Session,
+    *,
+    workspace_id: str,
+    owner_user_id: str,
+    tenant_id: str,
+) -> List[str]:
+    diagram_ids: set[str] = set()
+    for model in (Analysis, SourceAsset, DiagramLifecycle):
+        diagram_ids.update(
+            str(value)
+            for (value,) in db.query(model.diagram_id).filter(
+                model.workspace_id == workspace_id,
+                model.owner_user_id == owner_user_id,
+                model.tenant_id == tenant_id,
+                model.diagram_id.is_not(None),
+            ).all()
+        )
+    diagram_ids.update(
+        str(value)
+        for (value,) in db.query(PurgeOperation.scope_id).filter(
+            PurgeOperation.workspace_id == workspace_id,
+            PurgeOperation.scope_type == "diagram",
+            PurgeOperation.owner_user_id == owner_user_id,
+            PurgeOperation.tenant_id == tenant_id,
+        ).all()
+    )
+    return sorted(diagram_ids)
+
+
+def load_purge_manifest(
+    db: Session,
+    *,
+    operation_id: str,
+    owner_user_id: str,
+    tenant_id: str,
+) -> Dict[str, Any]:
+    """Return one operation manifest only within its durable security scope."""
+    operation = db.query(PurgeOperation).filter(
+        PurgeOperation.id == operation_id,
+        PurgeOperation.owner_user_id == owner_user_id,
+        PurgeOperation.tenant_id == tenant_id,
+    ).one()
+    return _purge_manifest(operation)
+
+
+def merge_purge_manifest(
+    db: Session,
+    *,
+    operation_id: str,
+    owner_user_id: str,
+    tenant_id: str,
+    values: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Add immutable discovery IDs to a scoped manifest without erasing retries."""
+    query = db.query(PurgeOperation).filter(
+        PurgeOperation.id == operation_id,
+        PurgeOperation.owner_user_id == owner_user_id,
+        PurgeOperation.tenant_id == tenant_id,
+    )
+    if db.get_bind().dialect.name == "postgresql":
+        query = query.with_for_update()
+    operation = query.one()
+    manifest = _purge_manifest(operation)
+    for key, value in values.items():
+        if isinstance(value, list):
+            current = manifest.get(key, [])
+            if not isinstance(current, list):
+                current = []
+            manifest[key] = sorted({str(item) for item in [*current, *value]})
+        elif key not in manifest or manifest[key] in (None, "", {}):
+            manifest[key] = value
+    operation.manifest = _json.dumps(manifest, sort_keys=True)
+    db.commit()
+    return manifest
 
 
 def _purge_operation_query(
@@ -2711,7 +3210,15 @@ def begin_diagram_purge(
             diagram_id=diagram_id,
             owner_user_id=owner_user_id,
             tenant_id=tenant_id,
-            workspace_id=(analysis.workspace_id if analysis else source.workspace_id if source else None),
+            workspace_id=(
+                analysis.workspace_id
+                if analysis
+                else source.workspace_id
+                if source
+                else operation.workspace_id
+                if operation
+                else None
+            ),
             generation=1,
             state="purging",
         )
@@ -2724,6 +3231,13 @@ def begin_diagram_purge(
         operation = PurgeOperation(
             scope_type="diagram",
             scope_id=diagram_id,
+            workspace_id=(
+                analysis.workspace_id
+                if analysis is not None
+                else source.workspace_id
+                if source is not None
+                else lifecycle.workspace_id
+            ),
             owner_user_id=owner_user_id,
             tenant_id=tenant_id,
             generation=lifecycle.generation,
@@ -2734,6 +3248,25 @@ def begin_diagram_purge(
     operation.status = "in_progress"
     operation.attempts = int(operation.attempts or 0) + 1
     operation.last_error_stage = None
+    if not _purge_manifest(operation):
+        operation.manifest = _json.dumps(
+            {
+                "schema_version": 1,
+                "scope_type": "diagram",
+                "scope_id": diagram_id,
+                "workspace_id": operation.workspace_id,
+                "diagram_ids": [diagram_id],
+                "blob_uris": _artifact_blob_uris_for_diagram(
+                    db,
+                    diagram_id=diagram_id,
+                    owner_user_id=owner_user_id,
+                    tenant_id=tenant_id,
+                ),
+                "job_ids": [],
+                "job_event_ids": [],
+            },
+            sort_keys=True,
+        )
     now = datetime.now(timezone.utc)
     db.query(RestoreGrant).filter(
         RestoreGrant.owner_user_id == owner_user_id,
@@ -2772,8 +3305,9 @@ def begin_workspace_purge(
     if workspace is None:
         if operation is None:
             raise ValueError("Workspace not found")
+        manifest = _purge_manifest(operation)
         stages = _json.loads(operation.stages or "{}")
-        diagram_ids = set(stages.get("_diagram_ids", []))
+        diagram_ids = set(manifest.get("diagram_ids", stages.get("_diagram_ids", [])))
         diagram_ids.update(
             value for (value,) in db.query(DiagramLifecycle.diagram_id).filter(
                 DiagramLifecycle.workspace_id == workspace_id,
@@ -2782,18 +3316,17 @@ def begin_workspace_purge(
             ).all()
         )
         return operation, sorted(diagram_ids)
-    diagram_ids = [
-        value for (value,) in db.query(Analysis.diagram_id).filter(
-            Analysis.workspace_id == workspace_id,
-            Analysis.owner_user_id == owner_user_id,
-            Analysis.tenant_id == tenant_id,
-            Analysis.diagram_id.is_not(None),
-        ).all()
-    ]
+    diagram_ids = _workspace_diagram_ids(
+        db,
+        workspace_id=workspace_id,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+    )
     if operation is None:
         operation = PurgeOperation(
             scope_type="workspace",
             scope_id=workspace_id,
+            workspace_id=workspace_id,
             owner_user_id=owner_user_id,
             tenant_id=tenant_id,
         )
@@ -2808,6 +3341,29 @@ def begin_workspace_purge(
     existing_stages = _json.loads(operation.stages or "{}")
     existing_stages["_diagram_ids"] = diagram_ids
     operation.stages = _json.dumps(existing_stages, sort_keys=True)
+    if not _purge_manifest(operation):
+        operation.manifest = _json.dumps(
+            {
+                "schema_version": 1,
+                "scope_type": "workspace",
+                "scope_id": workspace_id,
+                "workspace_id": workspace_id,
+                "diagram_ids": diagram_ids,
+                "blob_uris": sorted({
+                    uri
+                    for diagram_id in diagram_ids
+                    for uri in _artifact_blob_uris_for_diagram(
+                        db,
+                        diagram_id=diagram_id,
+                        owner_user_id=owner_user_id,
+                        tenant_id=tenant_id,
+                    )
+                }),
+                "job_ids": [],
+                "job_event_ids": [],
+            },
+            sort_keys=True,
+        )
     for diagram_id in diagram_ids:
         lifecycle = _get_lifecycle(
             db,

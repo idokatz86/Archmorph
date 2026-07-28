@@ -428,6 +428,9 @@ async def upload_diagram(
             owner_user_id=upload_principal["owner_user_id"],
             tenant_id=upload_principal["tenant_id"],
             filename=file.filename,
+            content_type=file.content_type,
+            file_size_bytes=len(image_bytes),
+            content_hash=hashlib.sha256(image_bytes).hexdigest(),
         )
         restore_capability = issue_restore_capability(
             request,

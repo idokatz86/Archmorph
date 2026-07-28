@@ -184,6 +184,7 @@ def _deduplicate_analyses(bind, tables, audit) -> None:
             ).scalar()
             or 0
         )
+        lineage_remap: list[dict[str, object]] = []
         for duplicate_id in duplicate_ids:
             duplicate_workspace_id = str(
                 bind.execute(
@@ -206,6 +207,20 @@ def _deduplicate_analyses(bind, tables, audit) -> None:
             for duplicate_version in duplicate_versions:
                 next_version += 1
                 version_number_map[int(duplicate_version.version_number)] = next_version
+                lineage_remap.append(
+                    {
+                        "version_id": str(duplicate_version.id),
+                        "source_analysis_id": duplicate_id,
+                        "source_version_number": int(duplicate_version.version_number),
+                        "source_restored_from": (
+                            int(duplicate_version.restored_from)
+                            if duplicate_version.restored_from is not None
+                            else None
+                        ),
+                        "target_analysis_id": survivor_id,
+                        "target_version_number": next_version,
+                    }
+                )
                 bind.execute(
                     versions.update()
                     .where(versions.c.id == duplicate_version.id)
@@ -220,6 +235,11 @@ def _deduplicate_analyses(bind, tables, audit) -> None:
                     .where(versions.c.id == duplicate_version.id)
                     .values(restored_from=mapped_restored_from)
                 )
+                next(
+                    item
+                    for item in lineage_remap
+                    if item["version_id"] == str(duplicate_version.id)
+                )["target_restored_from"] = mapped_restored_from
             bind.execute(
                 artifacts.update()
                 .where(artifacts.c.analysis_id == duplicate_id)
@@ -269,6 +289,101 @@ def _deduplicate_analyses(bind, tables, audit) -> None:
                 "diagram_id": str(diagram_id),
                 "survivor_analysis_id": survivor_id,
                 "merged_analysis_ids": duplicate_ids,
+                "lineage_remap": lineage_remap,
+            },
+        )
+
+
+def _normalize_version_lineage(bind, tables, audit) -> None:
+    """Repair pre-constraint lineage deterministically and retain old evidence.
+
+    A valid restore edge points to an existing, earlier version in the same
+    analysis. Missing, self, forward, and cyclic edges are detached only after
+    their original values have been written to the migration audit table.
+    """
+    analyses = tables["analyses"]
+    versions = tables["analysis_versions"]
+    analysis_rows = bind.execute(
+        sa.select(
+            analyses.c.id,
+            analyses.c.owner_user_id,
+            analyses.c.tenant_id,
+        )
+    ).all()
+    for analysis in analysis_rows:
+        rows = bind.execute(
+            sa.select(
+                versions.c.id,
+                versions.c.version_number,
+                versions.c.restored_from,
+            )
+            .where(versions.c.analysis_id == analysis.id)
+            .order_by(versions.c.version_number.asc(), versions.c.id.asc())
+        ).all()
+        original = {
+            int(row.version_number): (
+                int(row.restored_from) if row.restored_from is not None else None
+            )
+            for row in rows
+        }
+        if not any(value is not None for value in original.values()):
+            continue
+        existing = set(original)
+        repairs: list[dict[str, object]] = []
+        for row in rows:
+            version_number = int(row.version_number)
+            restored_from = original[version_number]
+            if restored_from is None:
+                continue
+            reason = None
+            if restored_from not in existing:
+                reason = "missing_ancestor"
+            elif restored_from >= version_number:
+                cursor = restored_from
+                seen: set[int] = set()
+                while cursor in original and cursor not in seen:
+                    if cursor == version_number:
+                        reason = "lineage_cycle"
+                        break
+                    seen.add(cursor)
+                    parent = original[cursor]
+                    if parent is None:
+                        break
+                    cursor = parent
+                reason = reason or "non_ancestor_reference"
+            if reason is None:
+                continue
+            bind.execute(
+                versions.update()
+                .where(versions.c.id == row.id)
+                .values(restored_from=None)
+            )
+            repairs.append(
+                {
+                    "version_id": str(row.id),
+                    "version_number": version_number,
+                    "original_restored_from": restored_from,
+                    "normalized_restored_from": None,
+                    "reason": reason,
+                }
+            )
+        _audit(
+            bind,
+            audit,
+            owner_user_id=str(analysis.owner_user_id),
+            source_tenant_id=analysis.tenant_id,
+            target_tenant_id=analysis.tenant_id,
+            status="version_lineage_normalized" if repairs else "version_lineage_validated",
+            details={
+                "analysis_id": str(analysis.id),
+                "original_lineage": [
+                    {
+                        "version_number": number,
+                        "restored_from": restored_from,
+                    }
+                    for number, restored_from in sorted(original.items())
+                ],
+                "repairs": repairs,
             },
         )
 
@@ -401,7 +516,7 @@ def _rehome_legacy_identities(bind, tables, audit, aliases) -> None:
                     aliases,
                     source_owner_user_id=owner_user_id,
                     source_tenant_id=source_tenant_id,
-                    target_owner_user_id=None,
+                    target_owner_user_id=owner_user_id,
                     target_tenant_id=target_tenant_id,
                     entity_type="workspace",
                     source_entity_id=workspace_id,
@@ -415,7 +530,7 @@ def _rehome_legacy_identities(bind, tables, audit, aliases) -> None:
                         aliases,
                         source_owner_user_id=owner_user_id,
                         source_tenant_id=source_tenant_id,
-                        target_owner_user_id=None,
+                        target_owner_user_id=owner_user_id,
                         target_tenant_id=target_tenant_id,
                         entity_type="analysis",
                         source_entity_id=str(row.id),
@@ -582,7 +697,7 @@ def upgrade() -> None:
             name="ck_tenant_rehome_aliases_entity_type",
         ),
         sa.CheckConstraint(
-            "status IN ('rehomed', 'quarantined')",
+            "status IN ('rehomed', 'quarantined', 'resolved')",
             name="ck_tenant_rehome_aliases_status",
         ),
     )
@@ -714,10 +829,12 @@ def upgrade() -> None:
         sa.Column("id", sa.String(36), primary_key=True),
         sa.Column("scope_type", sa.String(20), nullable=False),
         sa.Column("scope_id", sa.String(50), nullable=False),
+        sa.Column("workspace_id", sa.String(36), nullable=True),
         sa.Column("owner_user_id", sa.String(100), nullable=False),
         sa.Column("tenant_id", sa.String(100), nullable=False),
         sa.Column("status", sa.String(20), nullable=False, server_default="pending"),
         sa.Column("generation", sa.Integer(), nullable=True),
+        sa.Column("manifest", sa.Text(), nullable=False, server_default="{}"),
         sa.Column("stages", sa.Text(), nullable=False, server_default="{}"),
         sa.Column("last_error_stage", sa.String(100), nullable=True),
         sa.Column("attempts", sa.Integer(), nullable=False, server_default="0"),
@@ -733,6 +850,7 @@ def upgrade() -> None:
             name="ck_purge_operations_status",
         ),
     )
+    op.create_index("ix_purge_operations_workspace_id", "purge_operations", ["workspace_id"])
     op.create_index("ix_purge_operations_status", "purge_operations", ["status"])
     op.create_index(
         "ux_purge_operations_scope",
@@ -782,23 +900,6 @@ def upgrade() -> None:
             "uq_analysis_versions_analysis_id_id",
             "analysis_versions",
             ["analysis_id", "id"],
-        )
-        op.create_foreign_key(
-            "fk_analysis_versions_restored_from",
-            "analysis_versions",
-            "analysis_versions",
-            ["analysis_id", "restored_from"],
-            ["analysis_id", "version_number"],
-            ondelete="RESTRICT",
-        )
-        op.drop_constraint("decisions_version_id_fkey", "decisions", type_="foreignkey")
-        op.create_foreign_key(
-            "fk_decisions_analysis_version",
-            "decisions",
-            "analysis_versions",
-            ["analysis_id", "version_id"],
-            ["analysis_id", "id"],
-            ondelete="RESTRICT",
         )
         op.create_check_constraint(
             "ck_workspaces_status",
@@ -870,6 +971,7 @@ def upgrade() -> None:
         aliases = metadata.tables["tenant_rehome_aliases"]
         _rehome_legacy_identities(bind, metadata.tables, audit, aliases)
         _deduplicate_analyses(bind, metadata.tables, audit)
+        _normalize_version_lineage(bind, metadata.tables, audit)
         _deduplicate_artifacts(bind, metadata.tables, audit)
         _elect_default_workspaces(bind, metadata.tables["workspaces"], audit)
 
@@ -913,9 +1015,42 @@ def upgrade() -> None:
         postgresql_where=sa.text("is_default AND tenant_id IS NULL"),
         sqlite_where=sa.text("is_default = 1 AND tenant_id IS NULL"),
     )
+    if dialect_name == "postgresql":
+        # Install cross-row constraints only after every seeded row has been
+        # remapped and normalized. This ordering is required for real 013 data.
+        op.drop_constraint("decisions_version_id_fkey", "decisions", type_="foreignkey")
+        op.create_foreign_key(
+            "fk_decisions_analysis_version",
+            "decisions",
+            "analysis_versions",
+            ["analysis_id", "version_id"],
+            ["analysis_id", "id"],
+            ondelete="RESTRICT",
+        )
+        op.create_foreign_key(
+            "fk_analysis_versions_restored_from",
+            "analysis_versions",
+            "analysis_versions",
+            ["analysis_id", "restored_from"],
+            ["analysis_id", "version_number"],
+            ondelete="RESTRICT",
+        )
 
 
 def downgrade() -> None:
+    if not context.is_offline_mode():
+        bind = op.get_bind()
+        quarantines = bind.execute(
+            sa.text(
+                "SELECT count(*) FROM tenant_rehome_aliases "
+                "WHERE status = 'quarantined'"
+            )
+        ).scalar_one()
+        if quarantines:
+            raise RuntimeError(
+                "Downgrade refused: unresolved tenant migration quarantines "
+                "must be reconciled before alias/audit evidence can be removed"
+            )
     op.drop_index("ux_migration_replay_events_sequence", table_name="migration_replay_events")
     op.drop_index("ix_migration_replay_events_replay_id", table_name="migration_replay_events")
     op.drop_table("migration_replay_events")
@@ -946,6 +1081,7 @@ def downgrade() -> None:
     op.drop_table("api_key_credentials")
     op.drop_index("ux_purge_operations_scope", table_name="purge_operations")
     op.drop_index("ix_purge_operations_status", table_name="purge_operations")
+    op.drop_index("ix_purge_operations_workspace_id", table_name="purge_operations")
     op.drop_table("purge_operations")
     op.drop_index("ix_restore_grants_scope", table_name="restore_grants")
     op.drop_index("ux_restore_grants_nonce", table_name="restore_grants")

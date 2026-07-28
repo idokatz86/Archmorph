@@ -1473,17 +1473,70 @@ class JobManager:
             },
         }
 
-    def purge_diagram(self, diagram_id: str) -> int:
-        """Physically delete all jobs and coordination state for a diagram."""
-        deleted = 0
-        for job_id in list(self._jobs_store.keys("*")):
+    def manifest_diagram(
+        self,
+        diagram_id: str,
+        *,
+        owner_user_id: Optional[str] = None,
+        tenant_id: Optional[str] = None,
+    ) -> Dict[str, List[str]]:
+        """Capture every scoped job and event-ring ID before deletion."""
+        job_ids: set[str] = set()
+        event_ids: set[str] = set()
+        for job_id in set(self._jobs_store.keys("*")) | set(self._events_store.keys("*")):
             payload = self._jobs_store.peek(job_id) or {}
             if payload.get("diagram_id") != diagram_id:
                 continue
+            if owner_user_id is not None and payload.get("owner_user_id") not in {
+                None,
+                owner_user_id,
+            }:
+                continue
+            if tenant_id is not None and payload.get("tenant_id") not in {None, tenant_id}:
+                continue
+            job_ids.add(job_id)
+            if self._events_store.peek(job_id) is not None:
+                event_ids.add(job_id)
+        # A queued/running job can emit a final cancellation event during purge,
+        # so every job key is also a potential event-ring key.
+        return {"job_ids": sorted(job_ids), "event_ids": sorted(event_ids | job_ids)}
+
+    def purge_diagram(
+        self,
+        diagram_id: str,
+        *,
+        owner_user_id: Optional[str] = None,
+        tenant_id: Optional[str] = None,
+        manifest: Optional[Dict[str, List[str]]] = None,
+    ) -> Dict[str, int]:
+        """Delete event rings before envelopes using a retained ID manifest."""
+        retained = manifest or self.manifest_diagram(
+            diagram_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+        )
+        job_ids = list(dict.fromkeys(retained.get("job_ids", [])))
+        event_ids = list(dict.fromkeys(retained.get("event_ids", [])))
+        deleted_events = 0
+        deleted_jobs = 0
+        for job_id in job_ids:
+            payload = self._jobs_store.peek(job_id) or {}
+            if payload and payload.get("diagram_id") != diagram_id:
+                raise JobStoreError("Job purge manifest scope mismatch")
+            if payload and owner_user_id is not None and payload.get("owner_user_id") not in {
+                None,
+                owner_user_id,
+            }:
+                raise JobStoreError("Job purge owner scope mismatch")
+            if payload and tenant_id is not None and payload.get("tenant_id") not in {
+                None,
+                tenant_id,
+            }:
+                raise JobStoreError("Job purge tenant scope mismatch")
             job = Job.from_dict(payload)
-            if job.status in (JobStatus.QUEUED, JobStatus.RUNNING):
+            if payload and job.status in (JobStatus.QUEUED, JobStatus.RUNNING):
                 self.cancel(job_id)
-            if job.input_hash:
+            if payload and job.input_hash:
                 self._release_idempotency(
                     self._idempotency_key(
                         job.input_hash,
@@ -1495,20 +1548,50 @@ class JobManager:
                 )
             self._release_counter_reservation(job_id)
             self._jobs.pop(job_id, None)
-            if not self._jobs_store.delete(job_id):
-                raise JobStoreError("Job deletion could not be confirmed")
+        # Cancellation may have emitted a final event. Delete and confirm all
+        # retained rings before deleting the only durable envelope/index.
+        for job_id in set(event_ids) | set(job_ids):
+            if self._events_store.peek(job_id) is None:
+                continue
             if not self._events_store.delete(job_id):
                 raise JobStoreError("Job event deletion could not be confirmed")
+            deleted_events += 1
+        for job_id in job_ids:
+            payload = self._jobs_store.peek(job_id) or {}
+            if self._jobs_store.peek(job_id) is not None and not self._jobs_store.delete(job_id):
+                raise JobStoreError("Job deletion could not be confirmed")
             self._waiters.pop(job_id, None)
-            deleted += 1
-        return deleted
+            if payload:
+                deleted_jobs += 1
+        if not self.diagram_absent(
+            diagram_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+            manifest=retained,
+        ):
+            raise JobStoreError("Job purge fixed point was not confirmed")
+        return {"envelopes": deleted_jobs, "event_rings": deleted_events}
 
-    def diagram_absent(self, diagram_id: str) -> bool:
-        """Confirm no persisted job for *diagram_id* remains."""
-        return not any(
-            (self._jobs_store.peek(job_id) or {}).get("diagram_id") == diagram_id
-            for job_id in self._jobs_store.keys("*")
+    def diagram_absent(
+        self,
+        diagram_id: str,
+        *,
+        owner_user_id: Optional[str] = None,
+        tenant_id: Optional[str] = None,
+        manifest: Optional[Dict[str, List[str]]] = None,
+    ) -> bool:
+        """Confirm both scoped envelopes and retained event-ring IDs are absent."""
+        current = self.manifest_diagram(
+            diagram_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
         )
+        retained_event_ids = set((manifest or {}).get("event_ids", []))
+        retained_event_present = any(
+            self._events_store.peek(job_id) is not None
+            for job_id in retained_event_ids
+        )
+        return not current["job_ids"] and not current["event_ids"] and not retained_event_present
 
 
 def _sse_format(event: str, data: Any) -> str:

@@ -667,7 +667,8 @@ async def export_migration_package(
         hld = session.get("hld")
         if hld:
             try:
-                docx_bytes = export_hld(hld, "docx", include_diagrams=include_diagrams)
+                docx_export = export_hld(hld, "docx", include_diagrams=include_diagrams)
+                docx_bytes = base64.b64decode(docx_export["content_b64"], validate=True)
                 zf.writestr("documents/high-level-design.docx", docx_bytes)
             except Exception as exc:
                 logger.warning("DOCX export failed in package: %s", str(exc).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom

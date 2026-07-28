@@ -17,6 +17,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 import threading
+from urllib.parse import urlsplit, urlunsplit
 import pytest
 
 
@@ -177,6 +178,105 @@ class TestJobManager:
         mgr = self._make_manager()
         job = mgr._jobs.get("nonexistent")
         assert job is None
+
+    def test_purge_diagram_preserves_explicit_foreign_owner_tenant_job(self):
+        mgr = self._make_manager()
+        owned = mgr.submit(
+            "analyze",
+            diagram_id="shared-diagram-id",
+            owner_user_id="owner-a",
+            tenant_id="tenant-a",
+        )
+        foreign = mgr.submit(
+            "analyze",
+            diagram_id="shared-diagram-id",
+            owner_user_id="owner-b",
+            tenant_id="tenant-b",
+        )
+
+        result = mgr.purge_diagram(
+            "shared-diagram-id",
+            owner_user_id="owner-a",
+            tenant_id="tenant-a",
+        )
+
+        assert result["envelopes"] == 1
+        assert mgr.get(owned.job_id) is None
+        assert mgr.get(foreign.job_id) is not None
+
+
+@pytest.mark.skipif(
+    not os.getenv("ARCHMORPH_TEST_REDIS_URL"),
+    reason="isolated Redis URL not configured",
+)
+def test_real_redis_purge_manifest_recovers_orphan_event_after_envelope_loss(monkeypatch):
+    import redis
+    from job_queue import JobManager, JobStoreError
+    from session_store import reset_stores
+
+    parsed = urlsplit(os.environ["ARCHMORPH_TEST_REDIS_URL"])
+    isolated_url = urlunsplit((parsed.scheme, parsed.netloc, "/15", parsed.query, parsed.fragment))
+    client = redis.Redis.from_url(isolated_url, decode_responses=True)
+    client.flushdb()
+    monkeypatch.setenv("REDIS_URL", isolated_url)
+    monkeypatch.delenv("REDIS_HOST", raising=False)
+    reset_stores()
+    manager = JobManager(max_jobs=20, max_events_per_job=10, ttl_seconds=120)
+    job = manager.submit(
+        "analyze",
+        diagram_id="real-redis-purge-diagram",
+        owner_user_id="real-redis-owner",
+        tenant_id="real-redis-tenant",
+    )
+    retained = manager.manifest_diagram(
+        "real-redis-purge-diagram",
+        owner_user_id="real-redis-owner",
+        tenant_id="real-redis-tenant",
+    )
+    original_delete = manager._events_store.delete
+    failed_once = False
+
+    def fail_after_envelope_delete(key):
+        nonlocal failed_once
+        if key == job.job_id and not failed_once:
+            failed_once = True
+            manager._jobs_store.delete(job.job_id)
+            return False
+        return original_delete(key)
+
+    monkeypatch.setattr(manager._events_store, "delete", fail_after_envelope_delete)
+    with pytest.raises(JobStoreError, match="event deletion"):
+        manager.purge_diagram(
+            "real-redis-purge-diagram",
+            owner_user_id="real-redis-owner",
+            tenant_id="real-redis-tenant",
+            manifest=retained,
+        )
+    assert manager._jobs_store.peek(job.job_id) is None
+    assert manager._events_store.peek(job.job_id) is not None
+    assert manager.diagram_absent(
+        "real-redis-purge-diagram",
+        owner_user_id="real-redis-owner",
+        tenant_id="real-redis-tenant",
+        manifest=retained,
+    ) is False
+
+    monkeypatch.setattr(manager._events_store, "delete", original_delete)
+    deleted = manager.purge_diagram(
+        "real-redis-purge-diagram",
+        owner_user_id="real-redis-owner",
+        tenant_id="real-redis-tenant",
+        manifest=retained,
+    )
+    assert deleted == {"envelopes": 0, "event_rings": 1}
+    assert manager.diagram_absent(
+        "real-redis-purge-diagram",
+        owner_user_id="real-redis-owner",
+        tenant_id="real-redis-tenant",
+        manifest=retained,
+    ) is True
+    client.flushdb()
+    reset_stores()
 
     def test_event_ring_buffer_limits_and_drops(self):
         mgr = self._make_manager()

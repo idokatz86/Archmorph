@@ -2935,6 +2935,140 @@
         "title": "MemoryConfigSchema",
         "type": "object"
       },
+      "MigrationQuarantineItem": {
+        "additionalProperties": false,
+        "properties": {
+          "alias_id": {
+            "title": "Alias Id",
+            "type": "string"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "source_owner_user_id": {
+            "title": "Source Owner User Id",
+            "type": "string"
+          },
+          "source_tenant_id": {
+            "title": "Source Tenant Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "target_owner_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Owner User Id"
+          },
+          "target_tenant_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Tenant Id"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "alias_id",
+          "source_owner_user_id",
+          "source_tenant_id",
+          "workspace_id",
+          "status"
+        ],
+        "title": "MigrationQuarantineItem",
+        "type": "object"
+      },
+      "MigrationQuarantineListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "quarantines": {
+            "items": {
+              "$ref": "#/components/schemas/MigrationQuarantineItem"
+            },
+            "title": "Quarantines",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "quarantines",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "MigrationQuarantineListResponse",
+        "type": "object"
+      },
+      "MigrationQuarantineResolutionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "alias_id": {
+            "title": "Alias Id",
+            "type": "string"
+          },
+          "idempotent": {
+            "title": "Idempotent",
+            "type": "boolean"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "alias_id",
+          "status",
+          "idempotent"
+        ],
+        "title": "MigrationQuarantineResolutionResponse",
+        "type": "object"
+      },
       "ModelConfigSchema": {
         "additionalProperties": false,
         "properties": {
@@ -5213,6 +5347,116 @@
           }
         ],
         "summary": "Admin Metrics Recent",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/admin/migration-quarantines": {
+      "get": {
+        "description": "List unresolved legacy migration conflicts (admin only).",
+        "operationId": "list_migration_quarantines_api_admin_migration_quarantines_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MigrationQuarantineListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Migration Quarantines",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/admin/migration-quarantines/{alias_id}/resolve": {
+      "post": {
+        "description": "Resolve one conflict-free quarantined graph (admin only).",
+        "operationId": "resolve_migration_quarantine_api_admin_migration_quarantines__alias_id__resolve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "alias_id",
+            "required": true,
+            "schema": {
+              "title": "Alias Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MigrationQuarantineResolutionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Resolve Migration Quarantine",
         "tags": [
           "admin"
         ]
@@ -16180,6 +16424,118 @@
           }
         ],
         "summary": "Admin Metrics Recent V1",
+        "tags": [
+          "admin",
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/admin/migration-quarantines": {
+      "get": {
+        "description": "List unresolved legacy migration conflicts (admin only).",
+        "operationId": "list_migration_quarantines_v1_api_v1_admin_migration_quarantines_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MigrationQuarantineListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Migration Quarantines V1",
+        "tags": [
+          "admin",
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/admin/migration-quarantines/{alias_id}/resolve": {
+      "post": {
+        "description": "Resolve one conflict-free quarantined graph (admin only).",
+        "operationId": "resolve_migration_quarantine_v1_api_v1_admin_migration_quarantines__alias_id__resolve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "alias_id",
+            "required": true,
+            "schema": {
+              "title": "Alias Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MigrationQuarantineResolutionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Resolve Migration Quarantine V1",
         "tags": [
           "admin",
           "v1"

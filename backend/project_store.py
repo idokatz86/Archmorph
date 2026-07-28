@@ -10,7 +10,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from models.tenant import TeamMember
-from models.workspace import Analysis, AnalysisVersion, DiagramLifecycle, ProjectMember, Workspace
+from models.workspace import (
+    Analysis,
+    AnalysisVersion,
+    DiagramLifecycle,
+    ProjectMember,
+    SourceAsset,
+    Workspace,
+)
 
 
 PROJECT_ID_PREFIX = "proj"
@@ -237,6 +244,9 @@ def register_diagram(
     owner_user_id: str,
     tenant_id: str,
     filename: Optional[str],
+    content_type: Optional[str] = None,
+    file_size_bytes: Optional[int] = None,
+    content_hash: Optional[str] = None,
 ) -> Analysis:
     """Register durable project membership after authorizing its project."""
     project = _project_query(
@@ -259,6 +269,19 @@ def register_diagram(
         current_version=0,
     )
     db.add(analysis)
+    source_asset = SourceAsset(
+        workspace_id=project.id,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+        filename=filename or "uploaded-diagram",
+        content_type=content_type,
+        file_size_bytes=file_size_bytes,
+        content_hash=content_hash,
+        diagram_id=diagram_id,
+    )
+    db.add(source_asset)
+    db.flush()
+    analysis.source_asset_id = source_asset.id
     lifecycle = db.query(DiagramLifecycle).filter(
         DiagramLifecycle.diagram_id == diagram_id,
         DiagramLifecycle.owner_user_id == owner_user_id,
