@@ -170,8 +170,8 @@ def init_db() -> None:
         if not readiness["ready_for_production"]:
             raise RuntimeError("Production database is not at the expected Alembic head")
         logger.info(
-            "Production database schema verified at Alembic head %s",
-            readiness["expected_revision"],
+            "Production database schema verified at Alembic revision %s",
+            readiness.get("current_revision", readiness.get("expected_revision")),
         )
         return
 
@@ -220,6 +220,7 @@ def database_readiness() -> dict[str, object]:
     current_revision: str | None = None
     expected_revision: str | None = None
     schema_at_head = False
+    schema_compatible = False
     required_schema_present = False
     missing_schema_objects: list[str] = []
 
@@ -245,36 +246,49 @@ def database_readiness() -> dict[str, object]:
                     )
                     current_revision = ",".join(sorted(revisions)) or None
 
+                bridge_on_013 = (
+                    os.getenv("ARCHMORPH_RELEASE_ROLE", "final").strip().lower()
+                    == "bridge"
+                    and current_revision == "013"
+                )
                 required_tables = {
-                    "api_key_credentials",
-                    "cost_alerts",
-                    "cost_budgets",
-                    "analysis_mutation_receipts",
-                    "analysis_restore_receipts",
                     "workspaces",
+                    "source_assets",
                     "analyses",
                     "analysis_versions",
-                    "diagram_lifecycle",
-                    "migration_replay_events",
-                    "migration_replays",
-                    "project_members",
-                    "purge_operations",
-                    "restore_grants",
-                    "tenant_rehome_audit",
-                    "tenant_rehome_aliases",
+                    "artifacts",
+                    "decisions",
                 }
+                if not bridge_on_013:
+                    required_tables.update(
+                        {
+                            "api_key_credentials",
+                            "cost_alerts",
+                            "cost_budgets",
+                            "analysis_mutation_receipts",
+                            "analysis_restore_receipts",
+                            "diagram_lifecycle",
+                            "migration_replay_events",
+                            "migration_replays",
+                            "project_members",
+                            "purge_operations",
+                            "restore_grants",
+                            "tenant_rehome_audit",
+                            "tenant_rehome_aliases",
+                        }
+                    )
                 present_tables = set(inspector.get_table_names())
                 missing_schema_objects.extend(
                     f"table:{table_name}"
                     for table_name in sorted(required_tables - present_tables)
                 )
-                if "workspaces" in present_tables:
+                if "workspaces" in present_tables and not bridge_on_013:
                     workspace_columns = {
                         column["name"] for column in inspector.get_columns("workspaces")
                     }
                     if "is_default" not in workspace_columns:
                         missing_schema_objects.append("column:workspaces.is_default")
-                if "purge_operations" in present_tables:
+                if "purge_operations" in present_tables and not bridge_on_013:
                     purge_columns = {
                         column["name"] for column in inspector.get_columns("purge_operations")
                     }
@@ -282,7 +296,7 @@ def database_readiness() -> dict[str, object]:
                         missing_schema_objects.append("column:purge_operations.manifest")
                     if "workspace_id" not in purge_columns:
                         missing_schema_objects.append("column:purge_operations.workspace_id")
-                if "cost_records" in present_tables:
+                if "cost_records" in present_tables and not bridge_on_013:
                     cost_columns = {
                         column["name"] for column in inspector.get_columns("cost_records")
                     }
@@ -306,6 +320,12 @@ def database_readiness() -> dict[str, object]:
         and len(heads) == 1
         and current_revision == expected_revision
     )
+    try:
+        from schema_compatibility import schema_is_supported
+
+        schema_compatible = bool(connection_ok and schema_is_supported(current_revision))
+    except Exception:
+        schema_compatible = False
     return {
         "backend": database_backend(),
         "postgres_configured": _IS_POSTGRES,
@@ -317,6 +337,7 @@ def database_readiness() -> dict[str, object]:
         "current_revision": current_revision,
         "expected_revision": expected_revision,
         "schema_at_head": schema_at_head,
+        "schema_compatible": schema_compatible,
         "required_schema_present": required_schema_present,
         "missing_schema_objects": missing_schema_objects,
         "ready_for_production": (
@@ -324,7 +345,7 @@ def database_readiness() -> dict[str, object]:
             and connection_ok
             and (
                 not _PRODUCTION_LIKE
-                or (schema_at_head and required_schema_present)
+                or (schema_compatible and required_schema_present)
             )
         ),
     }

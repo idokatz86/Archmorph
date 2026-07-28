@@ -42,6 +42,7 @@ def test_schema_metadata_declares_bounded_rollback_window():
         "accepted_revisions": ["014"],
         "migration_target_revision": "014",
         "alias_read_through_until": "014",
+        "release_role": "final",
     }
     assert SCHEMA_CONTRACT.minimum_revision != "013"
 
@@ -54,6 +55,18 @@ def test_schema_compatibility_rejects_unknown_split_or_missing_heads():
     assert schema_is_supported("014,unknown") is False
     assert schema_is_supported(None) is False
     assert schema_is_supported("") is False
+
+
+def test_bridge_profile_accepts_013_and_014_without_weakening_final(monkeypatch):
+    monkeypatch.setenv("ARCHMORPH_RELEASE_ROLE", "bridge")
+
+    assert schema_is_supported("013") is True
+    assert schema_is_supported("014") is True
+    assert supported_schema_metadata()["accepted_revisions"] == ["013", "014"]
+
+    monkeypatch.setenv("ARCHMORPH_RELEASE_ROLE", "final")
+    assert schema_is_supported("013") is False
+    assert schema_is_supported("014") is True
 
 
 def test_resolved_tenant_alias_read_through_keeps_previous_identity_usable(db):

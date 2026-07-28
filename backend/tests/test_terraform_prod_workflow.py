@@ -55,6 +55,9 @@ def test_prod_plan_preflights_remote_state_blob_rbac_before_init():
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     plan_steps = workflow["jobs"]["prod-plan"]["steps"]
 
+    mode = _step_by_name(plan_steps, "Validate requested production Key Vault mode")
+    assert "Production apply requires reviewed infrastructure hardening and Key Vault RBAC mode" in mode["run"]
+
     preflight_step = _step_by_name(plan_steps, "Preflight: verify remote-state Blob data-plane RBAC")
     preflight_script = preflight_step["run"]
     assert "az storage blob list" in preflight_script
@@ -201,14 +204,31 @@ def test_prod_workflow_uses_private_prod_stack_inventory():
     assert env["TFSTATE_CONTAINER"] == "${{ secrets.TFSTATE_CONTAINER }}"
     assert env["TFSTATE_KEY"] == "${{ secrets.TFSTATE_KEY }}"
     assert env["TF_VAR_resource_group_environment"] == "${{ secrets.TF_RESOURCE_GROUP_ENVIRONMENT }}"
-    assert env["TF_VAR_enable_production_infra_hardening"] is False
+    assert env["TF_VAR_enable_production_infra_hardening"] == (
+        "${{ vars.TF_ENABLE_PRODUCTION_INFRA_HARDENING || 'false' }}"
+    )
     assert env["TF_VAR_redis_name_override"] == "${{ secrets.TF_REDIS_NAME_OVERRIDE }}"
     assert env["TF_VAR_workbook_id_override"] == "${{ secrets.TF_WORKBOOK_ID }}"
+    assert env["TF_VAR_key_vault_rbac_authorization_enabled"] == (
+        "${{ vars.TF_KEY_VAULT_RBAC_AUTHORIZATION_ENABLED || 'false' }}"
+    )
+
+
+def test_prod_plan_and_apply_share_rollout_concurrency():
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    expected = {"group": "production-backend-rollout", "cancel-in-progress": False}
+    assert workflow["concurrency"] == expected
+    assert "concurrency" not in workflow["jobs"]["prod-plan"]
+    assert "concurrency" not in workflow["jobs"]["prod-apply"]
 
 
 def test_prod_apply_downloads_and_applies_reviewed_plan_only():
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     apply_steps = workflow["jobs"]["prod-apply"]["steps"]
+
+    hardening = _step_by_name(apply_steps, "Enforce reviewed production Key Vault hardening mode")
+    assert "TF_VAR_enable_production_infra_hardening" in hardening["run"]
+    assert "TF_VAR_key_vault_rbac_authorization_enabled" in hardening["run"]
 
     download_step = _step_by_name(apply_steps, "Download reviewed production plan artifact")
     assert download_step["uses"] == "actions/download-artifact@v8"

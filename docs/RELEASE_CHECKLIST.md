@@ -33,6 +33,13 @@ Core deployment secrets:
 - `MIGRATION_KEY_VAULT_NAME`
 - `MIGRATION_DATABASE_SECRET_NAME`
 - `MIGRATION_TFSTATE_KEY`
+- `RELEASE_MANIFEST_HMAC_KEY` — at least 32 bytes; signs bridge evidence
+- `APPLICATIONINSIGHTS_CONNECTION_STRING` — provides the instrumentation key for secret-free migration lifecycle evidence
+
+Required production repository variables before any Terraform apply:
+
+- `TF_ENABLE_PRODUCTION_INFRA_HARDENING=true`
+- `TF_KEY_VAULT_RBAC_AUTHORIZATION_ENABLED=true`
 - `TF_BACKEND_CONTAINER_IMAGE`
 - `ARCHMORPH_API_KEY`
 - `ADMIN_KEY`
@@ -71,8 +78,11 @@ The `CI/CD` workflow must pass before release:
 - `alembic-migration-smoke`: PostgreSQL plus pgvector migration cycle covering heads, offline upgrade SQL generation, upgrade to head, downgrade to base, and re-upgrade.
 - `frontend-build`: ESLint, Vitest, Vite build, frontend SBOM, Grype.
 - `upload-sarif`: SARIF upload attempted for available scans.
-- `deploy-backend`: ACR build, Trivy container gate, isolated migration-bootstrap validate/plan/apply, identity/RBAC/Secret propagation, exact-head migration, metrics storage managed-identity/RBAC preflight, zero-traffic schema compatibility and `/readyz` smoke, Container Apps traffic shift, production health verify.
-- `deploy-frontend`: Static Web Apps deployment from the tested artifact.
+- `deploy-backend`: Terraform validation/policy dependencies; exact traffic capture; schema `013`/`014` bridge and signed immutable manifest; authorization-mode-aware Key Vault grant; same-identity secret/`SELECT 1`/schema preflight; exact-head migration; zero-traffic final smoke; exact restoration trap; production health verify.
+- `deploy-frontend`: runs only after backend success, deploys the tested artifact, verifies routed pages, and restores the prior successful artifact on failure.
+	On the first bridge rollout only, no previous complete artifact contract may
+	exist; failure remains release-blocking and the bridge keeps the API compatible
+	with the prior frontend instead of attempting an unverified rollback.
 - `post-deploy-smoke`: deployed frontend, routed frontend URLs, API health, and OpenAPI schema checks.
 
 The supporting workflows should also be green or explicitly reviewed:
@@ -94,6 +104,16 @@ After deployment, verify:
 - `/#playground` opens the sample playground.
 - `${API_URL}/health` passes `scripts/health_gate.sh`: status must be `healthy`, scheduled jobs must be fresh, and Redis must report either `ok` or `disabled_optional`. `missing_required` is release-blocking.
 - The green backend revision must successfully run `/api/service-updates/storage-preflight` and `/api/service-updates/run-now` with `X-API-Key: ARCHMORPH_API_KEY` before traffic shift; this validates API authentication, `AZURE_STORAGE_ACCOUNT_URL`, and the managed-identity Blob Storage read/write/list path.
+- Confirm the bridge was directly verified and routed on schema `013` before
+	migration. Its signed manifest must name an explicit revision, immutable image,
+	source SHA, and accepted schemas `013`/`014`. For the first rollout, confirm
+	the bridge base is the exact current immutable release image. The overlay
+	adapts readiness for 013/014, exposes only liveness/readiness/schema metadata,
+	and returns retryable 503 for feature/data requests.
+- Confirm the same-identity migration preflight succeeded with
+	`--preflight-only --expect-current 013` before Alembic ran.
+- Confirm final green stayed at exactly zero traffic until direct smoke passed
+	and the exact pre-shift manifest is retained for restoration.
 - `${API_ROOT}/openapi.json` loads and reports `Archmorph API`.
 - Run the [Production Architecture Package Smoke](PRODUCTION_SMOKE_ARCHITECTURE_PACKAGE.md) workflow with `strict_freshness=true`; retain the summary and artifact bundle for release evidence.
 - Confirm each changed generated artifact has an owner, validation command or explicit gap note, fixture, release evidence location, and gap tracking entry in the [Generated Artifact Validation Matrix](GENERATED_ARTIFACT_VALIDATION_MATRIX.md).
@@ -126,8 +146,10 @@ Before enabling any scaffolded feature, confirm:
 ## 6. Rollback
 
 - Follow the [rollback runbook](runbooks/rollback.md) during production incidents; target a verified rollback in under 10 minutes.
-- Prefer the `rollback.yml` workflow for backend rollback. It verifies the target revision supports the current database schema before activation, then shifts traffic and verifies authenticated `/api/health`.
-- Container Apps keeps the prior blue revision for fast traffic shift.
+- Prefer `rollback.yml` and supply the successful release run containing the
+	signed bridge manifest. The workflow refuses arbitrary revisions, verifies the
+	retained image/schema contract, shifts traffic, and verifies health.
+- Never select the first active or previous-created revision after migration `014`.
 - Use direct `az containerapp` traffic commands only as the fallback path documented in the runbook.
 - If frontend release is bad, redeploy the previous Static Web Apps artifact or revert and let CI/CD redeploy.
 - Do not use `terraform destroy` or `azd down` as normal rollback; they are disaster teardown commands.
@@ -139,4 +161,7 @@ Before enabling any scaffolded feature, confirm:
 - GitHub Actions run URL.
 - Smoke-test output summary and Architecture Package smoke artifact manifest.
 - Enabled feature flags and tenant scope.
+- Signed bridge manifest plus exact blue and pre-shift traffic manifests.
+- Migration preflight/migration execution names, immutable image, schema
+	current/target values, statuses, and success evidence markers.
 - Any known optional dependency warnings accepted for release, including the Redis `disabled_optional` mode when `checks.redis_readiness.require_redis=false` and `checks.redis_readiness.scale_blocked=false`. Required `degraded`, `unhealthy`, `missing_required`, or `scale_blocked=true` production health is release-blocking.

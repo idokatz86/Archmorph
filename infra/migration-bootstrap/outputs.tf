@@ -32,3 +32,14 @@ output "database_secret_scope_id" {
   value       = local.database_secret_scope
   sensitive   = true
 }
+
+output "key_vault_authorization_mode" {
+  description = "Authorization mode detected on the existing Key Vault."
+  value       = local.key_vault_rbac_mode ? "rbac" : "access-policy"
+}
+
+output "key_vault_id" {
+  description = "Key Vault scope used by the policy-mode fallback."
+  value       = data.azurerm_key_vault.runtime.id
+  sensitive   = true
+}

@@ -18,6 +18,10 @@ permissions:
   id-token: write
   contents: read
 
+concurrency:
+  group: production-backend-rollout
+  cancel-in-progress: false
+
 env:
   ARM_USE_OIDC: true
   ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
@@ -32,7 +36,8 @@ env:
   TFSTATE_KEY: ${{ secrets.TFSTATE_KEY }}
   # Legacy live-stack inventory is private configuration until reviewed migrations retire it.
   TF_VAR_resource_group_environment: ${{ secrets.TF_RESOURCE_GROUP_ENVIRONMENT }}
-  TF_VAR_enable_production_infra_hardening: false
+  TF_VAR_enable_production_infra_hardening: ${{ vars.TF_ENABLE_PRODUCTION_INFRA_HARDENING || 'false' }}
+  TF_VAR_key_vault_rbac_authorization_enabled: ${{ vars.TF_KEY_VAULT_RBAC_AUTHORIZATION_ENABLED || 'false' }}
   TF_VAR_redis_name_override: ${{ secrets.TF_REDIS_NAME_OVERRIDE }}
   TF_VAR_workbook_id_override: ${{ secrets.TF_WORKBOOK_ID }}
   TF_VAR_db_admin_username: ${{ secrets.DB_ADMIN_USERNAME }}
@@ -98,6 +103,20 @@ jobs:
             --query '{displayName:displayName, objectId:id, servicePrincipalType:servicePrincipalType}' \
             -o json \
             || echo "::notice::Unable to resolve signed-in Azure service principal directory object. Continuing to remote-state preflight."
+
+      - name: Validate requested production Key Vault mode
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event.inputs.apply }}" = "true" ] \
+            && { [ "$TF_VAR_enable_production_infra_hardening" != "true" ] \
+              || [ "$TF_VAR_key_vault_rbac_authorization_enabled" != "true" ]; }; then
+            echo "::error::Production apply requires reviewed infrastructure hardening and Key Vault RBAC mode"
+            exit 1
+          fi
+          if [ "$TF_VAR_key_vault_rbac_authorization_enabled" != "true" ]; then
+            echo "::warning::Plan-only legacy Key Vault policy mode is transitional and cannot be applied"
+          fi
       - name: "Preflight: verify remote-state Blob data-plane RBAC"
         if: github.event_name == 'workflow_dispatch'
         run: |
@@ -505,6 +524,15 @@ jobs:
         working-directory: ${{ env.TF_WORKING_DIR }}
     steps:
       - uses: actions/checkout@v6
+
+      - name: Enforce reviewed production Key Vault hardening mode
+        run: |
+          set -euo pipefail
+          if [ "$TF_VAR_enable_production_infra_hardening" != "true" ] \
+            || [ "$TF_VAR_key_vault_rbac_authorization_enabled" != "true" ]; then
+            echo "::error::Production apply requires reviewed infrastructure hardening and Key Vault RBAC mode"
+            exit 1
+          fi
 
       - name: Download reviewed production plan artifact
         uses: actions/download-artifact@v8

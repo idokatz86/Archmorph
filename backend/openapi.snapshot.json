@@ -3920,6 +3920,14 @@
             "title": "Minimum Revision",
             "type": "string"
           },
+          "release_role": {
+            "enum": [
+              "bridge",
+              "final"
+            ],
+            "title": "Release Role",
+            "type": "string"
+          },
           "status": {
             "enum": [
               "compatible",
@@ -3936,7 +3944,8 @@
           "maximum_revision",
           "accepted_revisions",
           "migration_target_revision",
-          "alias_read_through_until"
+          "alias_read_through_until",
+          "release_role"
         ],
         "title": "SchemaCompatibilityResponse",
         "type": "object"

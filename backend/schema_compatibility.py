@@ -10,6 +10,7 @@ from typing import Iterable
 
 
 _CONTRACT_PATH = Path(__file__).with_name("schema-contract.json")
+_BRIDGE_CONTRACT_PATH = Path(__file__).with_name("bridge-schema-contract.json")
 
 
 @dataclass(frozen=True)
@@ -53,17 +54,34 @@ def _load_contract(path: Path = _CONTRACT_PATH) -> SchemaContract:
     )
 
 
+def release_role() -> str:
+    """Return the immutable rollout role selected before process startup."""
+    role = os.getenv("ARCHMORPH_RELEASE_ROLE", "final").strip().lower()
+    if role not in {"bridge", "final"}:
+        raise ValueError("ARCHMORPH_RELEASE_ROLE must be bridge or final")
+    return role
+
+
+def current_schema_contract() -> SchemaContract:
+    """Load the schema profile for this revision's explicit rollout role."""
+    return _load_contract(
+        _BRIDGE_CONTRACT_PATH if release_role() == "bridge" else _CONTRACT_PATH
+    )
+
+
 SCHEMA_CONTRACT = _load_contract()
 
 
 def supported_schema_metadata() -> dict[str, object]:
     """Return non-secret application metadata used by rollout preflights."""
+    contract = current_schema_contract()
     return {
-        "minimum_revision": SCHEMA_CONTRACT.minimum_revision,
-        "maximum_revision": SCHEMA_CONTRACT.maximum_revision,
-        "accepted_revisions": list(SCHEMA_CONTRACT.accepted_revisions),
-        "migration_target_revision": SCHEMA_CONTRACT.migration_target_revision,
-        "alias_read_through_until": SCHEMA_CONTRACT.alias_read_through_until,
+        "minimum_revision": contract.minimum_revision,
+        "maximum_revision": contract.maximum_revision,
+        "accepted_revisions": list(contract.accepted_revisions),
+        "migration_target_revision": contract.migration_target_revision,
+        "alias_read_through_until": contract.alias_read_through_until,
+        "release_role": release_role(),
     }
 
 
@@ -79,7 +97,9 @@ def schema_is_supported(
         revisions = tuple(item.strip() for item in current_revisions.split(",") if item.strip())
     else:
         revisions = tuple(_normalized_revision(item) for item in current_revisions)
-    accepted = frozenset(accepted_revisions or SCHEMA_CONTRACT.accepted_revisions)
+    accepted = frozenset(
+        accepted_revisions or current_schema_contract().accepted_revisions
+    )
     return bool(revisions) and len(revisions) == len(set(revisions)) and all(
         revision in accepted for revision in revisions
     )

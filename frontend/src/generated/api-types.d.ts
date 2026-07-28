@@ -11251,6 +11251,11 @@ export interface components {
             /** Minimum Revision */
             minimum_revision: string;
             /**
+             * Release Role
+             * @enum {string}
+             */
+            release_role: "bridge" | "final";
+            /**
              * Status
              * @enum {string}
              */

@@ -110,15 +110,14 @@ def test_environment_renders_all_fail_closed_auth_secret_refs(values_file):
     assert preflight["spec"]["template"]["spec"]["containers"][0]["image"] == (
         f"example.azurecr.io/archmorph-api@{IMMUTABLE_DIGEST}"
     )
-    command = preflight["spec"]["template"]["spec"]["containers"][0]["command"]
-    assert command[:2] == ["python", "-c"]
-    script = command[2]
-    assert "is not materialized or is missing required keys" in script
-    assert 'secret_name = "contract-archmorph-secrets"' in script
-    assert "DATABASE_URL" in script
-    assert "os.environ.get" in script
-    preflight_env = preflight["spec"]["template"]["spec"]["containers"][0]["env"]
-    assert all(item["valueFrom"]["secretKeyRef"]["optional"] is True for item in preflight_env)
+    preflight_container = preflight["spec"]["template"]["spec"]["containers"][0]
+    assert preflight_container["command"] == ["python", "run_migrations.py"]
+    assert preflight_container["args"] == ["--preflight-only", "--expect-current", "013"]
+    assert preflight_container["env"][0]["valueFrom"]["secretKeyRef"] == {
+        "name": "contract-archmorph-secrets",
+        "key": "DATABASE_URL",
+        "optional": False,
+    }
 
 
 def test_existing_secret_contract_renders_without_external_secret():
@@ -266,10 +265,11 @@ def test_first_install_external_secret_requires_pre_materialized_runtime_secret(
     assert "helm.sh/hook" not in external_secret["metadata"].get("annotations", {})
     assert preflight["metadata"]["annotations"]["helm.sh/hook-weight"] == "-20"
     assert migration["metadata"]["annotations"]["helm.sh/hook-weight"] == "-10"
-    assert "optional: true" in _render_environment("values-production.yaml").stdout
-    assert "reconcile ExternalSecret or create existingSecret before Helm migration" in (
-        preflight["spec"]["template"]["spec"]["containers"][0]["command"][2]
-    )
+    assert preflight["spec"]["template"]["spec"]["containers"][0]["args"] == [
+        "--preflight-only",
+        "--expect-current",
+        "013",
+    ]
 
 
 def test_revisioned_hooks_do_not_delete_an_active_prior_migration():
@@ -288,6 +288,8 @@ def test_revisioned_hooks_do_not_delete_an_active_prior_migration():
 
 def test_chart_documents_external_secret_controller_bootstrap_limitation():
     readme = (CHART / "README.md").read_text(encoding="utf-8")
+    assert "executes `SELECT 1`" in readme
+    assert "expectedCurrentAlembicRevision" in readme
     assert "External Secrets controller integration limitation" in readme
     assert "materialized before" in readme
     assert "running `helm install` or `helm upgrade`" in readme

@@ -50,9 +50,11 @@ configuration.
 
 When `migrations.enabled=true`, Helm first runs a revisioned
 `migration-secret-preflight` hook. It mounts every required Secret key as an
-optional environment reference, then fails with a direct list of absent keys
-before the migration hook is created. A missing Secret therefore produces a
-clear diagnostic instead of a normal `ExternalSecret` first-install race.
+environment reference, resolves `DATABASE_URL`, executes `SELECT 1`, and checks
+`migrations.expectedCurrentAlembicRevision` before the migration hook is
+created. A missing Secret, inaccessible database, or unexpected schema therefore
+fails before DDL instead of becoming a normal `ExternalSecret` first-install
+race or a partial migration.
 
 The subsequent revisioned `pre-install,pre-upgrade` migration Job uses the same
 immutable application image and `DATABASE_URL` secret as the Deployment. The Job

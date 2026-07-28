@@ -25,6 +25,7 @@ def build_revision_document(
     readiness_path: str,
     env_values: dict[str, str],
     env_secret_refs: dict[str, str],
+    release_role: str = "final",
 ) -> dict:
     """Clone live configuration and change only one new revision template."""
     if not _DIGEST_RE.fullmatch(image):
@@ -33,6 +34,8 @@ def build_revision_document(
         raise ValueError("revision suffix must use lowercase letters, digits, and hyphens")
     if not readiness_path.startswith("/"):
         raise ValueError("readiness path must be absolute")
+    if release_role not in {"bridge", "final"}:
+        raise ValueError("release role must be bridge or final")
 
     properties = source.get("properties") or {}
     template = copy.deepcopy(properties.get("template") or {})
@@ -48,6 +51,10 @@ def build_revision_document(
         env[name] = {"name": name, "value": value}
     for name, secret_ref in env_secret_refs.items():
         env[name] = {"name": name, "secretRef": secret_ref}
+    env["ARCHMORPH_RELEASE_ROLE"] = {
+        "name": "ARCHMORPH_RELEASE_ROLE",
+        "value": release_role,
+    }
     container["env"] = list(env.values())
 
     probes = container.setdefault("probes", [])
@@ -94,6 +101,7 @@ def main() -> int:
     parser.add_argument("--image", required=True)
     parser.add_argument("--revision-suffix", required=True)
     parser.add_argument("--readiness-path", required=True)
+    parser.add_argument("--release-role", choices=("bridge", "final"), default="final")
     parser.add_argument("--env", action="append", default=[])
     parser.add_argument("--secret-env", action="append", default=[])
     args = parser.parse_args()
@@ -106,6 +114,7 @@ def main() -> int:
         readiness_path=args.readiness_path,
         env_values=_pairs(args.env),
         env_secret_refs=_pairs(args.secret_env),
+        release_role=args.release_role,
     )
     args.output.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
     return 0

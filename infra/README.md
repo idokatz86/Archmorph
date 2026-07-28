@@ -12,23 +12,40 @@ This directory contains the checked-in Terraform configuration for the Azure-hos
 | Terraform remote state | Partial `azurerm` backend blocks | Resource group, account, container, and key come from private CI/operator configuration |
 | Migration Job bootstrap | `infra/migration-bootstrap` | Separate state owns only the dedicated identity, secret-scoped/AcrPull RBAC, propagation wait, and manual Job |
 
-## Two-phase application rollout
+## Bridge-first application rollout
 
-Production rollout is intentionally split across two Terraform state files:
+Production rollout is split across two Terraform states and an explicit bridge:
 
-1. **Phase A — migration bootstrap:** `infra/migration-bootstrap` reads existing
+1. Capture all ingress weights and labels. Resolve `latestRevision` to the
+  current immutable blue revision before another revision is created.
+2. Deploy the reviewed image at zero traffic as a bridge accepting schemas
+  `013` and `014`. For the first rollout, CI builds this from the immutable
+  exact current immutable release image plus a reviewed readiness/read-only
+  overlay. This feature branch therefore supplies both final and bridge
+  capability from one digest lineage; CI never advertises the arbitrary old
+  production revision as rollback-safe.
+  Verify direct readiness/schema metadata on `013`, route to it, and retain its
+  HMAC-signed revision/image/schema manifest. The bridge serves only liveness,
+  readiness, and schema metadata; all feature/data requests return retryable 503
+  during the short migration window, preventing hidden writes on schema `013`.
+3. **Phase A — migration bootstrap:** `infra/migration-bootstrap` reads existing
   Container Apps environment, ACR, Key Vault, and versionless database-secret
   metadata. It creates a dedicated user-assigned identity, `AcrPull`, Key Vault
-  Secrets User scoped to the single database Secret, a propagation wait, and one
-  manual-trigger Job pinned to the reviewed image digest and exact Alembic head.
+  Secrets User scoped to the single database Secret in RBAC mode. In legacy
+  access-policy mode it creates a `Get`-only vault-wide policy because Key Vault
+  access policies cannot scope one secret. It also creates a propagation wait
+  and one manual-trigger Job pinned to the reviewed digest and exact head.
   The Secret URI is constructed from Key Vault metadata; Terraform never reads
   or stores the `DATABASE_URL` value.
   This root has no `azurerm_container_app`, ingress, traffic, or probe resource,
   so a failed bootstrap or migration cannot mutate the live app revision.
-2. **Phase B — application revision:** after one Job execution succeeds at the
-  exact head, CI clones the current app template, adds the new immutable digest,
-  `/readyz`, and schema range metadata, smokes the zero-traffic revision, then
-  shifts traffic. The previous revision remains the rollback candidate.
+4. Run the Job in preflight-only mode first. The same identity, image, and Key
+  Vault reference must resolve `DATABASE_URL`, execute `SELECT 1`, and prove
+  schema `013` before Alembic may mutate data.
+5. **Phase B — application revision:** after migration `014` succeeds, CI clones
+  the current template, adds the immutable digest, `/readyz`, and final schema
+  metadata, asserts green remains at zero traffic, smokes it directly, then
+  shifts. The signed bridge—not an arbitrary active revision—is retained.
 
 Never use `terraform -target` for Phase A. CI performs `init`, `validate`, a full
 saved `plan`, then applies that exact plan under the shared production rollout
@@ -42,9 +59,18 @@ first; a resource must never be managed by both states.
 Private deployment configuration must supply a distinct
 `MIGRATION_TFSTATE_KEY`, migration Job/identity names, Key Vault name, database
 Secret name, and existing prerequisite names. Do not publish their concrete
-values. On failure, leave production traffic and probes unchanged, inspect the
-Phase A plan/Job execution evidence, fix forward, and rerun. No live apply is
-required for local validation.
+values. Before traffic shift, failures leave the routed bridge unchanged. After
+shift, any routed verification failure restores and verifies the exact prior
+manifest, captures diagnostics, and fails. No live apply is required locally.
+
+Production hardening requires `key_vault_rbac_authorization_enabled=true`. Apply
+that mode only after every workload identity has equivalent reviewed RBAC; the
+policy-mode migration fallback is intentionally temporary and vault-wide.
+The production apply job also requires the private
+`TF_ENABLE_PRODUCTION_INFRA_HARDENING=true` and
+`TF_KEY_VAULT_RBAC_AUTHORIZATION_ENABLED=true` variables. Plan-only runs may
+model the legacy policy-mode transition; apply is blocked until the reviewed
+RBAC/hardening cutover is explicit.
 
 ## Partial backend initialization
 
@@ -133,3 +159,15 @@ checkov --quiet --framework terraform --directory infra --external-checks-dir in
 ```
 
 The policy gate enforces baseline tags on taggable Azure resources, blocks PostgreSQL Flexible Server public network access, and requires Storage infrastructure encryption. It intentionally runs only `CKV_ARCHMORPH_*` checks so CI catches project-defined guardrails without mixing unrelated upstream Checkov advisories into this gate.
+
+## Migration alert ownership
+
+Platform Engineering owns `archmorph-migration-job-failure` and
+`archmorph-migration-missing-evidence`. Both notify the critical action group.
+Treat failure, timeout, cancellation, or missing
+`ARCHMORPH_MIGRATION_EVIDENCE=` as a blocked rollout; never shift app traffic or
+run an automatic schema downgrade.
+CI emits `migration_started`, `migration_succeeded`, `migration_failed`, and
+`migration_timed_out` as secret-free Application Insights events. Missing
+start/success pairing is the alert source of truth; Job log retrieval remains a
+separate synchronous release gate.

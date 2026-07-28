@@ -42,6 +42,7 @@ data "azurerm_key_vault" "runtime" {
 locals {
   database_secret_uri   = "${trimsuffix(data.azurerm_key_vault.runtime.vault_uri, "/")}/secrets/${var.database_secret_name}"
   database_secret_scope = "${data.azurerm_key_vault.runtime.id}/secrets/${var.database_secret_name}"
+  key_vault_rbac_mode   = data.azurerm_key_vault.runtime.rbac_authorization_enabled
   tags = {
     project     = "archmorph"
     environment = var.environment
@@ -66,11 +67,26 @@ resource "azurerm_role_assignment" "acr_pull" {
 }
 
 resource "azurerm_role_assignment" "database_secret_reader" {
+  count = local.key_vault_rbac_mode ? 1 : 0
+
   scope                            = local.database_secret_scope
   role_definition_name             = "Key Vault Secrets User"
   principal_id                     = azurerm_user_assigned_identity.database_migration.principal_id
   principal_type                   = "ServicePrincipal"
   skip_service_principal_aad_check = true
+}
+
+# Access-policy mode cannot scope permissions to one secret. Keep this fallback
+# to Get only and migrate reviewed production vaults to RBAC mode before the
+# next hardening rollout.
+resource "azurerm_key_vault_access_policy" "database_secret_reader" {
+  count = local.key_vault_rbac_mode ? 0 : 1
+
+  key_vault_id = data.azurerm_key_vault.runtime.id
+  tenant_id    = data.azurerm_key_vault.runtime.tenant_id
+  object_id    = azurerm_user_assigned_identity.database_migration.principal_id
+
+  secret_permissions = ["Get"]
 }
 
 resource "time_sleep" "rbac_propagation" {
@@ -79,6 +95,7 @@ resource "time_sleep" "rbac_propagation" {
   depends_on = [
     azurerm_role_assignment.acr_pull,
     azurerm_role_assignment.database_secret_reader,
+    azurerm_key_vault_access_policy.database_secret_reader,
   ]
 }
 

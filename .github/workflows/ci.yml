@@ -277,6 +277,7 @@ jobs:
           python -m pytest -q -n 0 \
             tests/test_workspace_store_postgres.py \
             tests/test_canonical_state_migration_postgres.py \
+            tests/test_bridge_overlay_postgres.py \
             tests/test_helm_secret_contract.py
 
   # ============================================
@@ -509,8 +510,10 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: frontend-dist
-          path: frontend/dist
-          retention-days: 1
+          path: |
+            frontend/dist
+            frontend/api
+          retention-days: 30
 
       - name: Upload frontend coverage report
         uses: actions/upload-artifact@v7
@@ -610,7 +613,7 @@ jobs:
   # BACKEND DEPLOY (Blue-Green)
   # ============================================
   deploy-backend:
-    needs: [backend-tests, frontend-build, openapi-client-drift, iac-validate, alembic-migration-smoke]
+    needs: [backend-tests, frontend-build, openapi-client-drift, iac-validate, alembic-migration-smoke, terraform-config-validate, terraform-policy-as-code]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     if: github.ref == 'refs/heads/main'
@@ -643,6 +646,8 @@ jobs:
       TFSTATE_CONTAINER: ${{ secrets.TFSTATE_CONTAINER }}
       TFSTATE_KEY: ${{ secrets.TFSTATE_KEY }}
       MIGRATION_TFSTATE_KEY: ${{ secrets.MIGRATION_TFSTATE_KEY }}
+      RELEASE_MANIFEST_HMAC_KEY: ${{ secrets.RELEASE_MANIFEST_HMAC_KEY }}
+      APPLICATIONINSIGHTS_CONNECTION_STRING: ${{ secrets.APPLICATIONINSIGHTS_CONNECTION_STRING }}
       REQUIRE_FRONT_DOOR_ORIGIN_LOCK: ${{ vars.REQUIRE_FRONT_DOOR_ORIGIN_LOCK || 'false' }}
       ARM_USE_OIDC: true
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
@@ -651,6 +656,8 @@ jobs:
     concurrency:
       group: production-backend-rollout
       cancel-in-progress: false
+    outputs:
+      initial_schema: ${{ steps.current_schema.outputs.revision }}
     steps:
       - uses: actions/checkout@v6
 
@@ -700,6 +707,14 @@ jobs:
               missing=1
             fi
           done
+          if [ "${#RELEASE_MANIFEST_HMAC_KEY}" -lt 32 ]; then
+            echo "::error::RELEASE_MANIFEST_HMAC_KEY must contain at least 32 bytes"
+            missing=1
+          fi
+          if [ -z "${APPLICATIONINSIGHTS_CONNECTION_STRING:-}" ]; then
+            echo "::error::APPLICATIONINSIGHTS_CONNECTION_STRING is required for migration evidence alerts"
+            missing=1
+          fi
           if [ "$missing" -ne 0 ]; then
             exit 1
           fi
@@ -722,15 +737,32 @@ jobs:
           build-args: |
             BUILDKIT_INLINE_CACHE=1
 
+      - name: Build and push schema bridge overlay
+        id: build_bridge
+        uses: docker/build-push-action@v7
+        with:
+          context: ./backend/bridge_overlay
+          file: ./backend/bridge_overlay/Dockerfile
+          push: true
+          tags: ${{ env.ACR_LOGIN_SERVER }}/archmorph-api-bridge:${{ github.sha }}
+          build-args: |
+            BRIDGE_BASE_IMAGE=${{ env.ACR_LOGIN_SERVER }}/archmorph-api@${{ steps.build_backend.outputs.digest }}
+
       - name: Capture immutable image and schema contract
+        id: release_contract
         run: |
           if [ -z "${{ steps.build_backend.outputs.digest }}" ]; then
             echo "::error::docker/build-push-action did not return an image digest"
             exit 1
           fi
           IMAGE_REF="${{ env.ACR_LOGIN_SERVER }}/archmorph-api@${{ steps.build_backend.outputs.digest }}"
+          BRIDGE_IMAGE_REF="${{ env.ACR_LOGIN_SERVER }}/archmorph-api-bridge@${{ steps.build_bridge.outputs.digest }}"
           if ! [[ "$IMAGE_REF" =~ ^.+@sha256:[0-9a-f]{64}$ ]]; then
             echo "::error::Built image reference is not an immutable sha256 digest"
+            exit 1
+          fi
+          if ! [[ "$BRIDGE_IMAGE_REF" =~ ^.+@sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::Bridge image reference is not an immutable sha256 digest"
             exit 1
           fi
           APP_SCHEMA_MIN_REVISION=$(jq -er '.minimum_revision' backend/schema-contract.json)
@@ -738,22 +770,226 @@ jobs:
           EXPECTED_ALEMBIC_HEAD=$(jq -er '.migration_target_revision' backend/schema-contract.json)
           {
             echo "IMAGE_REF=$IMAGE_REF"
+            echo "BRIDGE_IMAGE_REF=$BRIDGE_IMAGE_REF"
             echo "APP_SCHEMA_MIN_REVISION=$APP_SCHEMA_MIN_REVISION"
             echo "APP_SCHEMA_MAX_REVISION=$APP_SCHEMA_MAX_REVISION"
             echo "EXPECTED_ALEMBIC_HEAD=$EXPECTED_ALEMBIC_HEAD"
           } >> "$GITHUB_ENV"
           echo "Using immutable image reference: $IMAGE_REF"
+          echo "Using immutable bridge image reference: $BRIDGE_IMAGE_REF"
+          {
+            echo "image_ref=$IMAGE_REF"
+            echo "bridge_image_ref=$BRIDGE_IMAGE_REF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Trivy container security gate
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: ${{ env.IMAGE_REF }}
+          image-ref: ${{ steps.release_contract.outputs.image_ref }}
           format: table
           exit-code: 1
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           vuln-type: library
           scanners: vuln  # Skip secret/misconfig scanning, focus on dependency CVEs
+
+      - name: Trivy bridge container security gate
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ steps.release_contract.outputs.bridge_image_ref }}
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          vuln-type: library
+          scanners: vuln
+
+      - name: Capture blue traffic and make latest routing explicit
+        id: blue
+        run: |
+          set -euo pipefail
+          az containerapp show \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --query 'properties.configuration.ingress.traffic' -o json \
+            > blue-traffic-original.json
+          LATEST_REVISION=$(az containerapp revision list \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --query "sort_by([?properties.active && properties.trafficWeight > \`0\`], &properties.trafficWeight)[-1].name" \
+            -o tsv)
+          if [ -z "$LATEST_REVISION" ]; then
+            echo "::error::No explicit routed revision is available to resolve latestRevision traffic"
+            exit 1
+          fi
+          python scripts/containerapp_rollout.py explicit-traffic \
+            --input blue-traffic-original.json \
+            --latest-revision "$LATEST_REVISION" \
+            --output blue-traffic-manifest.json
+          python scripts/containerapp_rollout.py apply-traffic \
+            --input blue-traffic-manifest.json \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --actual-output blue-traffic-current.json
+          echo "blue_revision=$LATEST_REVISION" >> "$GITHUB_OUTPUT"
+
+      - name: Stage schema bridge rollout script
+        run: |
+          cat > "$RUNNER_TEMP/deploy-schema-bridge.sh" <<'BRIDGE_SCRIPT'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          SHORT_SHA="${{ github.sha }}"
+          BRIDGE_SUFFIX="bridge-${SHORT_SHA:0:8}-run-${{ github.run_attempt }}"
+          az containerapp show \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" -o json > bridge-source.json
+          for required_secret in db-connection redis-url; do
+            if ! jq -e --arg name "$required_secret" \
+              'any(.properties.configuration.secrets[]?; .name == $name)' \
+              bridge-source.json >/dev/null; then
+              echo "::error::Container App is missing required managed secret ${required_secret}"
+              exit 1
+            fi
+          done
+          python scripts/build_containerapp_revision.py \
+            --source bridge-source.json \
+            --output bridge-revision.json \
+            --image "$BRIDGE_IMAGE_REF" \
+            --revision-suffix "$BRIDGE_SUFFIX" \
+            --readiness-path /readyz \
+            --release-role bridge \
+            --secret-env DATABASE_URL=db-connection \
+            --secret-env REDIS_URL=redis-url \
+            --env APP_SCHEMA_MIN_REVISION=013 \
+            --env APP_SCHEMA_MAX_REVISION=014
+          az containerapp update \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --yaml bridge-revision.json \
+            --no-wait
+          for attempt in $(seq 1 30); do
+            BRIDGE_REV=$(az containerapp revision list \
+              --name "$CONTAINER_APP_NAME" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --query "[?contains(name, '$BRIDGE_SUFFIX')].name | [0]" -o tsv)
+            if [ -n "$BRIDGE_REV" ]; then
+              BRIDGE_FQDN=$(az containerapp revision show \
+                --name "$CONTAINER_APP_NAME" \
+                --resource-group "$AZURE_RESOURCE_GROUP" \
+                --revision "$BRIDGE_REV" \
+                --query properties.fqdn -o tsv)
+              BRIDGE_WEIGHT=$(az containerapp revision show \
+                --name "$CONTAINER_APP_NAME" \
+                --resource-group "$AZURE_RESOURCE_GROUP" \
+                --revision "$BRIDGE_REV" \
+                --query properties.trafficWeight -o tsv)
+              BRIDGE_ROLE=$(az containerapp revision show \
+                --name "$CONTAINER_APP_NAME" \
+                --resource-group "$AZURE_RESOURCE_GROUP" \
+                --revision "$BRIDGE_REV" \
+                --query "properties.template.containers[0].env[?name=='ARCHMORPH_RELEASE_ROLE'].value | [0]" \
+                -o tsv)
+              if [ "${BRIDGE_WEIGHT:-0}" != "0" ]; then
+                echo "::error::Bridge revision received traffic before verification"
+                exit 1
+              fi
+              if [ "$BRIDGE_ROLE" != "bridge" ]; then
+                echo "::error::Bridge revision is missing explicit release-role metadata"
+                exit 1
+              fi
+              if curl -fsS --max-time 30 "https://${BRIDGE_FQDN}/readyz" >/dev/null \
+                && curl -fsS --max-time 30 "https://${BRIDGE_FQDN}/api/schema-compatibility" \
+                  | jq -e --arg current "$CURRENT_SCHEMA_REVISION" \
+                    '.status == "compatible" and .current_revision == $current and .accepted_revisions == ["013", "014"]' >/dev/null \
+                && [ "$(curl -sS -o bridge-read-only.json -w '%{http_code}' --max-time 30 \
+                  -H "X-API-Key: $ARCHMORPH_API_KEY" \
+                  "https://${BRIDGE_FQDN}/api/health")" = "503" ] \
+                && jq -e '.status == "bridge_read_only" and .retryable == true' bridge-read-only.json >/dev/null; then
+                break
+              fi
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              echo "::error::Bridge revision did not prove readiness and reviewed schema compatibility"
+              exit 1
+            fi
+            sleep 10
+          done
+          az containerapp show \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --query 'properties.configuration.ingress.traffic' -o json \
+            > bridge-traffic-current.json
+          python scripts/containerapp_rollout.py assert-traffic \
+            --expected blue-traffic-manifest.json \
+            --actual bridge-traffic-current.json
+          python scripts/containerapp_rollout.py write-release-manifest \
+            --output bridge-release-manifest.json \
+            --role bridge \
+            --revision "$BRIDGE_REV" \
+            --image "$BRIDGE_IMAGE_REF" \
+            --source-sha "${{ github.sha }}" \
+            --accepted-revision 013 \
+            --accepted-revision 014
+          python scripts/containerapp_rollout.py verify-release-manifest \
+            --input bridge-release-manifest.json \
+            --required-role bridge >/dev/null
+          echo "bridge_revision=$BRIDGE_REV" >> "$GITHUB_OUTPUT"
+          BRIDGE_SCRIPT
+          chmod 700 "$RUNNER_TEMP/deploy-schema-bridge.sh"
+          bash -n "$RUNNER_TEMP/deploy-schema-bridge.sh"
+
+      - name: Stage signed bridge reuse script
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > "$RUNNER_TEMP/reuse-signed-bridge.sh" <<'BRIDGE_RERUN_SCRIPT'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          PREVIOUS_RUN_ID=$(gh run list \
+            --workflow ci.yml \
+            --branch main \
+            --status success \
+            --limit 20 \
+            --json databaseId \
+            --jq '.[].databaseId' \
+            | head -1)
+          if [ -z "$PREVIOUS_RUN_ID" ]; then
+            echo "::error::Schema is already migrated but no successful signed bridge evidence is available"
+            exit 1
+          fi
+          gh run download "$PREVIOUS_RUN_ID" \
+            --name backend-release-evidence \
+            --dir previous-release-evidence
+          cp previous-release-evidence/bridge-release-manifest.json bridge-release-manifest.json
+          BRIDGE_REV=$(python scripts/containerapp_rollout.py verify-release-manifest \
+            --input bridge-release-manifest.json \
+            --required-role bridge \
+            --field revision)
+          EXPECTED_BRIDGE_IMAGE=$(python scripts/containerapp_rollout.py verify-release-manifest \
+            --input bridge-release-manifest.json \
+            --required-role bridge \
+            --field image)
+          BRIDGE_JSON=$(az containerapp revision show \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --revision "$BRIDGE_REV" -o json)
+          ACTUAL_BRIDGE_IMAGE=$(echo "$BRIDGE_JSON" | jq -r '.properties.template.containers[0].image // ""')
+          BRIDGE_FQDN=$(echo "$BRIDGE_JSON" | jq -r '.properties.fqdn // ""')
+          BRIDGE_ROLE=$(echo "$BRIDGE_JSON" | jq -r \
+            '.properties.template.containers[0].env[] | select(.name=="ARCHMORPH_RELEASE_ROLE") | .value // ""')
+          [ "$ACTUAL_BRIDGE_IMAGE" = "$EXPECTED_BRIDGE_IMAGE" ]
+          [ "$BRIDGE_ROLE" = "bridge" ]
+          curl -fsS --max-time 30 "https://${BRIDGE_FQDN}/api/schema-compatibility" \
+            | jq -e --arg expected "$EXPECTED_ALEMBIC_HEAD" \
+              '.status == "compatible" and .release_role == "bridge" and .current_revision == $expected and (.accepted_revisions | index($expected) != null)' >/dev/null
+          [ "$(curl -sS -o rerun-bridge-read-only.json -w '%{http_code}' --max-time 30 \
+            -H "X-API-Key: $ARCHMORPH_API_KEY" \
+            "https://${BRIDGE_FQDN}/api/health")" = "503" ]
+          jq -e '.status == "bridge_read_only" and .retryable == true' rerun-bridge-read-only.json >/dev/null
+          echo "bridge_revision=$BRIDGE_REV" >> "$GITHUB_OUTPUT"
+          BRIDGE_RERUN_SCRIPT
+          chmod 700 "$RUNNER_TEMP/reuse-signed-bridge.sh"
+          bash -n "$RUNNER_TEMP/reuse-signed-bridge.sh"
 
       - name: Reject concurrent production migration execution
         run: |
@@ -841,11 +1077,34 @@ jobs:
                 --assignee-object-id "$MIGRATION_PRINCIPAL_ID" \
                 --scope "$ACR_ID" \
                 --query "[?roleDefinitionName=='AcrPull'].id | [0]" -o tsv 2>/dev/null || true)
+              KEY_VAULT_RBAC_MODE=$(az keyvault show \
+                --name "$MIGRATION_KEY_VAULT_NAME" \
+                --resource-group "$AZURE_RESOURCE_GROUP" \
+                --query properties.enableRbacAuthorization -o tsv | tr '[:upper:]' '[:lower:]')
               SECRET_ROLE_ID=$(az role assignment list \
                 --assignee-object-id "$MIGRATION_PRINCIPAL_ID" \
                 --scope "$DATABASE_SECRET_SCOPE_ID" \
                 --query "[?roleDefinitionName=='Key Vault Secrets User'].id | [0]" -o tsv 2>/dev/null || true)
-              if [ -z "$MIGRATION_IDENTITY_ID" ] || [ -z "$ACR_ROLE_ID" ] || [ -z "$SECRET_ROLE_ID" ]; then
+              POLICY_OBJECT_ID=$(az keyvault show \
+                --name "$MIGRATION_KEY_VAULT_NAME" \
+                --resource-group "$AZURE_RESOURCE_GROUP" \
+                --query "properties.accessPolicies[?objectId=='$MIGRATION_PRINCIPAL_ID'].objectId | [0]" -o tsv)
+              POLICY_ID=""
+              if [ -n "$POLICY_OBJECT_ID" ]; then
+                POLICY_ID="${KEY_VAULT_ID}/objectId/${MIGRATION_PRINCIPAL_ID}"
+              fi
+              if [ "$KEY_VAULT_RBAC_MODE" = "true" ]; then
+                if [ -z "$SECRET_ROLE_ID" ]; then
+                  echo "::error::RBAC-mode vault is missing the migration identity's secret-scoped role"
+                  exit 1
+                fi
+              else
+                if [ -z "$POLICY_ID" ]; then
+                  echo "::error::Access-policy-mode vault is missing the migration identity's Get policy"
+                  exit 1
+                fi
+              fi
+              if [ -z "$MIGRATION_IDENTITY_ID" ] || [ -z "$ACR_ROLE_ID" ]; then
                 echo "::error::Bootstrap state is empty while the migration Job already exists, but its dedicated identity or least-privilege RBAC resources cannot be adopted safely"
                 exit 1
               fi
@@ -853,8 +1112,14 @@ jobs:
                 azurerm_user_assigned_identity.database_migration "$MIGRATION_IDENTITY_ID"
               terraform -chdir=infra/migration-bootstrap import \
                 azurerm_role_assignment.acr_pull "$ACR_ROLE_ID"
-              terraform -chdir=infra/migration-bootstrap import \
-                azurerm_role_assignment.database_secret_reader "$SECRET_ROLE_ID"
+              if [ -n "$SECRET_ROLE_ID" ]; then
+                terraform -chdir=infra/migration-bootstrap import \
+                  'azurerm_role_assignment.database_secret_reader[0]' "$SECRET_ROLE_ID"
+              fi
+              if [ -n "$POLICY_ID" ]; then
+                terraform -chdir=infra/migration-bootstrap import \
+                  'azurerm_key_vault_access_policy.database_secret_reader[0]' "$POLICY_ID"
+              fi
               terraform -chdir=infra/migration-bootstrap import \
                 azurerm_container_app_job.database_migration "$JOB_ID"
             fi
@@ -879,16 +1144,25 @@ jobs:
           ACR_SCOPE_ID=$(terraform -chdir=infra/migration-bootstrap output -raw acr_scope_id)
           DATABASE_SECRET_SCOPE_ID=$(terraform -chdir=infra/migration-bootstrap output -raw \
             database_secret_scope_id)
+          KEY_VAULT_ID=$(terraform -chdir=infra/migration-bootstrap output -raw key_vault_id)
+          KEY_VAULT_AUTHORIZATION_MODE=$(terraform -chdir=infra/migration-bootstrap output -raw \
+            key_vault_authorization_mode)
 
           for attempt in $(seq 1 20); do
             ACR_ROLE_COUNT=$(az role assignment list \
               --assignee-object-id "$MIGRATION_PRINCIPAL_ID" \
               --scope "$ACR_SCOPE_ID" \
               --query "[?roleDefinitionName=='AcrPull'] | length(@)" -o tsv)
-            SECRET_ROLE_COUNT=$(az role assignment list \
-              --assignee-object-id "$MIGRATION_PRINCIPAL_ID" \
-              --scope "$DATABASE_SECRET_SCOPE_ID" \
-              --query "[?roleDefinitionName=='Key Vault Secrets User'] | length(@)" -o tsv)
+            if [ "$KEY_VAULT_AUTHORIZATION_MODE" = "rbac" ]; then
+              SECRET_ACCESS_COUNT=$(az role assignment list \
+                --assignee-object-id "$MIGRATION_PRINCIPAL_ID" \
+                --scope "$DATABASE_SECRET_SCOPE_ID" \
+                --query "[?roleDefinitionName=='Key Vault Secrets User'] | length(@)" -o tsv)
+            else
+              SECRET_ACCESS_COUNT=$(az keyvault show \
+                --ids "$KEY_VAULT_ID" \
+                --query "length(properties.accessPolicies[?objectId=='$MIGRATION_PRINCIPAL_ID' && contains(permissions.secrets, 'Get')])" -o tsv)
+            fi
             JOB_JSON=$(az containerapp job show \
               --name "$MIGRATION_JOB_NAME" \
               --resource-group "$AZURE_RESOURCE_GROUP" \
@@ -904,7 +1178,7 @@ jobs:
             JOB_IDENTITY=$(echo "$JOB_JSON" | jq -r \
               '.identity.userAssignedIdentities | keys[0] // ""')
             if [ "$ACR_ROLE_COUNT" = "1" ] \
-              && [ "$SECRET_ROLE_COUNT" = "1" ] \
+              && [ "$SECRET_ACCESS_COUNT" = "1" ] \
               && [ "$PROVISIONING_STATE" = "Succeeded" ] \
               && [ "$DB_SECRET_REF" = "db-connection" ] \
               && [ "$JOB_IMAGE" = "$IMAGE_REF" ] \
@@ -921,7 +1195,127 @@ jobs:
             sleep 15
           done
 
+      - name: Discover schema with same-identity database preflight
+        id: current_schema
+        run: |
+          set -euo pipefail
+          PREFLIGHT_EXECUTION=$(az containerapp job start \
+            --name "$MIGRATION_JOB_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --container-name migrate \
+            --command python run_migrations.py \
+            --args --preflight-only --accept-current 013 --accept-current "$EXPECTED_ALEMBIC_HEAD" \
+            --query name -o tsv)
+          if [ -z "$PREFLIGHT_EXECUTION" ]; then
+            echo "::error::Database preflight Job did not return an execution name"
+            exit 1
+          fi
+          for attempt in $(seq 1 60); do
+            PREFLIGHT_STATUS=$(az containerapp job execution show \
+              --name "$MIGRATION_JOB_NAME" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --job-execution-name "$PREFLIGHT_EXECUTION" \
+              --query properties.status -o tsv)
+            case "$PREFLIGHT_STATUS" in
+              Succeeded) break ;;
+              Failed|Stopped|Cancelled)
+                echo "::error::Same-identity database preflight failed with status $PREFLIGHT_STATUS"
+                exit 1
+                ;;
+            esac
+            if [ "$attempt" -eq 60 ]; then
+              echo "::error::Same-identity database preflight timed out"
+              exit 1
+            fi
+            sleep 10
+          done
+          PREFLIGHT_ARGS=$(az containerapp job execution show \
+            --name "$MIGRATION_JOB_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --job-execution-name "$PREFLIGHT_EXECUTION" \
+            --query 'properties.template.containers[0].args' -o json)
+          echo "$PREFLIGHT_ARGS" | jq -e --arg expected "$EXPECTED_ALEMBIC_HEAD" \
+            'index("--preflight-only") != null and index("013") != null and index($expected) != null' >/dev/null
+          if ! az containerapp job logs show \
+            --name "$MIGRATION_JOB_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --execution "$PREFLIGHT_EXECUTION" \
+            --container migrate \
+            --format text \
+            --tail 300 > preflight-execution.log; then
+            echo "::error::Unable to retrieve same-identity preflight evidence"
+            exit 1
+          fi
+          if ! grep -Fq 'ARCHMORPH_MIGRATION_PREFLIGHT_EVIDENCE=' preflight-execution.log; then
+            echo "::error::Same-identity database preflight completed without required evidence"
+            exit 1
+          fi
+          CURRENT_SCHEMA=$(grep -F 'ARCHMORPH_MIGRATION_PREFLIGHT_EVIDENCE=' preflight-execution.log \
+            | tail -1 \
+            | sed 's/^.*ARCHMORPH_MIGRATION_PREFLIGHT_EVIDENCE=//' \
+            | jq -er '.current_revision')
+          if [ "$CURRENT_SCHEMA" != "013" ] && [ "$CURRENT_SCHEMA" != "$EXPECTED_ALEMBIC_HEAD" ]; then
+            echo "::error::Production schema is outside the reviewed 013-to-${EXPECTED_ALEMBIC_HEAD} rollout"
+            exit 1
+          fi
+          echo "revision=$CURRENT_SCHEMA" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve verified bridge for discovered schema
+        id: bridge_resolved
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          CURRENT_SCHEMA_REVISION="${{ steps.current_schema.outputs.revision }}"
+          export CURRENT_SCHEMA_REVISION
+          if [ "$CURRENT_SCHEMA_REVISION" = "013" ]; then
+            "$RUNNER_TEMP/deploy-schema-bridge.sh"
+          else
+            "$RUNNER_TEMP/reuse-signed-bridge.sh"
+          fi
+          BRIDGE_REVISION=$(python scripts/containerapp_rollout.py verify-release-manifest \
+            --input bridge-release-manifest.json \
+            --required-role bridge \
+            --field revision)
+          if [ -z "$BRIDGE_REVISION" ]; then
+            echo "::error::No explicit signed bridge revision was resolved"
+            exit 1
+          fi
+          echo "BRIDGE_REVISION=$BRIDGE_REVISION" >> "$GITHUB_ENV"
+          echo "bridge_revision=$BRIDGE_REVISION" >> "$GITHUB_OUTPUT"
+
+      - name: Route production to verified bridge before migration
+        if: steps.current_schema.outputs.revision == '013'
+        run: |
+          set -euo pipefail
+          python scripts/containerapp_rollout.py verify-release-manifest \
+            --input bridge-release-manifest.json \
+            --required-role bridge >/dev/null
+          az containerapp ingress traffic set \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --revision-weight "$BRIDGE_REVISION=100"
+          cat > bridge-routed-traffic.json <<EOF
+          [{"revisionName":"${{ steps.bridge_resolved.outputs.bridge_revision }}","weight":100,"label":""}]
+          EOF
+          az containerapp show \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --query 'properties.configuration.ingress.traffic' -o json \
+            > bridge-routed-current.json
+          python scripts/containerapp_rollout.py assert-traffic \
+            --expected bridge-routed-traffic.json \
+            --actual bridge-routed-current.json
+          curl -fsS --max-time 30 "${API_URL%/api}/readyz" >/dev/null
+          curl -fsS --max-time 30 "${API_URL%/api}/api/schema-compatibility" \
+            | jq -e '.status == "compatible" and .current_revision == "013" and .release_role == "bridge"' >/dev/null
+          [ "$(curl -sS -o routed-bridge-read-only.json -w '%{http_code}' --max-time 30 \
+            -H "X-API-Key: $ARCHMORPH_API_KEY" \
+            "${API_URL%/api}/api/health")" = "503" ]
+          jq -e '.status == "bridge_read_only" and .retryable == true' routed-bridge-read-only.json >/dev/null
+
       - name: Run exact-head production migration
+        if: steps.current_schema.outputs.revision == '013'
         run: |
           set -euo pipefail
           RUNNING_EXECUTIONS=$(az containerapp job execution list \
@@ -961,6 +1355,12 @@ jobs:
             echo "::error::Migration Job did not return an execution name"
             exit 1
           fi
+          IMAGE_DIGEST="${IMAGE_REF##*@}"
+          python scripts/emit_rollout_telemetry.py \
+            --event migration_started \
+            --run-id "${{ github.run_id }}" \
+            --execution "$EXECUTION_NAME" \
+            --image-digest "$IMAGE_DIGEST"
 
           for attempt in $(seq 1 90); do
             EXECUTION_STATUS=$(az containerapp job execution show \
@@ -990,15 +1390,44 @@ jobs:
                   echo "::error::Completed migration execution did not preserve exact-head evidence"
                   exit 1
                 fi
+                if ! az containerapp job logs show \
+                  --name "$MIGRATION_JOB_NAME" \
+                  --resource-group "$AZURE_RESOURCE_GROUP" \
+                  --execution "$EXECUTION_NAME" \
+                  --container migrate \
+                  --format text \
+                  --tail 300 > migration-execution.log; then
+                  echo "::error::Unable to retrieve migration success evidence"
+                  exit 1
+                fi
+                if ! grep -Fq 'ARCHMORPH_MIGRATION_EVIDENCE=' migration-execution.log; then
+                  echo "::error::Migration execution completed without required success evidence"
+                  exit 1
+                fi
+                python scripts/emit_rollout_telemetry.py \
+                  --event migration_succeeded \
+                  --run-id "${{ github.run_id }}" \
+                  --execution "$EXECUTION_NAME" \
+                  --image-digest "$IMAGE_DIGEST"
                 echo "Production schema migration completed at exact head ${EXPECTED_ALEMBIC_HEAD}"
                 break
                 ;;
               Failed|Stopped|Cancelled)
+                python scripts/emit_rollout_telemetry.py \
+                  --event migration_failed \
+                  --run-id "${{ github.run_id }}" \
+                  --execution "$EXECUTION_NAME" \
+                  --image-digest "$IMAGE_DIGEST"
                 echo "::error::Production schema migration failed with status ${EXECUTION_STATUS}"
                 exit 1
                 ;;
             esac
             if [ "$attempt" -eq 90 ]; then
+              python scripts/emit_rollout_telemetry.py \
+                --event migration_timed_out \
+                --run-id "${{ github.run_id }}" \
+                --execution "$EXECUTION_NAME" \
+                --image-digest "$IMAGE_DIGEST"
               echo "::error::Production schema migration did not complete within 15 minutes"
               exit 1
             fi
@@ -1771,9 +2200,12 @@ jobs:
             --image "$IMAGE_REF"
             --revision-suffix "$REVISION_SUFFIX"
             --readiness-path /readyz
+            --release-role final
             --secret-env ARCHMORPH_ADMIN_KEY=admin-key
             --secret-env ARCHMORPH_API_KEY=api-key
             --secret-env JWT_SECRET=jwt-secret
+            --secret-env DATABASE_URL=db-connection
+            --secret-env REDIS_URL=redis-url
             --env ARCHMORPH_API_KEY_PRINCIPAL_ID="$ARCHMORPH_API_KEY_PRINCIPAL_ID"
             --env ARCHMORPH_API_KEY_ALLOW_LEGACY_OVERLAP="$ARCHMORPH_API_KEY_ALLOW_LEGACY_OVERLAP"
             --env ALLOWED_ORIGINS="$ALLOWED_ORIGINS"
@@ -1841,6 +2273,27 @@ jobs:
 
           echo "green_revision=$GREEN_REV" >> "$GITHUB_OUTPUT"
           echo "Green revision: $GREEN_REV"
+
+          GREEN_WEIGHT=$(az containerapp revision show \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --revision "$GREEN_REV" \
+            --query properties.trafficWeight -o tsv)
+          if [ "${GREEN_WEIGHT:-0}" != "0" ]; then
+            echo "::error::Final green revision received traffic before direct smoke verification"
+            exit 1
+          fi
+          az containerapp show \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --query 'properties.configuration.ingress.traffic' -o json \
+            > green-traffic-current.json
+          cat > bridge-only-traffic.json <<EOF
+          [{"revisionName":"${BRIDGE_REVISION}","weight":100,"label":""}]
+          EOF
+          python scripts/containerapp_rollout.py assert-traffic \
+            --expected bridge-only-traffic.json \
+            --actual green-traffic-current.json
 
       - name: Wait for green revision readiness
         run: |
@@ -2066,6 +2519,16 @@ jobs:
             echo "::error::Green revision reports Alembic head ${CURRENT_SCHEMA_REVISION}; expected ${EXPECTED_ALEMBIC_HEAD}"
             exit 1
           fi
+          if [ "$(jq -er '.release_role' schema-compatibility.json)" != "final" ]; then
+            echo "::error::Green revision does not identify as the final release role"
+            exit 1
+          fi
+          jq -e \
+            --arg minimum "$APP_SCHEMA_MIN_REVISION" \
+            --arg maximum "$APP_SCHEMA_MAX_REVISION" \
+            --arg target "$EXPECTED_ALEMBIC_HEAD" \
+            '.minimum_revision == $minimum and .maximum_revision == $maximum and .migration_target_revision == $target and (.accepted_revisions | index($target) != null)' \
+            schema-compatibility.json >/dev/null
 
           GREEN_REVISION_JSON=$(az containerapp revision show \
             --name ${{ env.CONTAINER_APP_NAME }} \
@@ -2199,31 +2662,82 @@ jobs:
 
       - name: Shift traffic to green (100%)
         run: |
+          set -euo pipefail
+          az containerapp show \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --query 'properties.configuration.ingress.traffic' -o json \
+            > pre-shift-traffic-manifest.json
           az containerapp ingress traffic set \
             --name ${{ env.CONTAINER_APP_NAME }} \
             --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
             --revision-weight "${{ steps.green.outputs.green_revision }}=100"
 
       - name: Verify production deployment
+        id: verify_production
         run: |
+          set -euo pipefail
           sleep 30
           HEALTH_RETRIES=12 HEALTH_RETRY_SECONDS=15 HEALTH_API_KEY="$ARCHMORPH_API_KEY" ./scripts/health_gate.sh "${{ env.API_URL }}/health"
-          HEALTH_BODY=$(curl -sS --max-time 30 -H "X-API-Key: $ARCHMORPH_API_KEY" "${{ env.API_URL }}/health" || true)
-          HEALTH=$(printf '%s' "$HEALTH_BODY" | jq -r '.status // "unknown"' 2>/dev/null || echo "unknown")
-          VERSION=$(printf '%s' "$HEALTH_BODY" | jq -r '.version // "unknown"' 2>/dev/null || echo "unknown")
+          HEALTH_BODY=$(curl -fsS --max-time 30 -H "X-API-Key: $ARCHMORPH_API_KEY" "${{ env.API_URL }}/health")
+          HEALTH=$(printf '%s' "$HEALTH_BODY" | jq -er '.status')
+          VERSION=$(printf '%s' "$HEALTH_BODY" | jq -er '.version')
+          [ "$HEALTH" = "healthy" ]
+          ROUTED_REVISION=$(az containerapp revision list \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --query "[?properties.trafficWeight==\`100\`].name | [0]" -o tsv)
+          [ "$ROUTED_REVISION" = "${{ steps.green.outputs.green_revision }}" ]
           echo "Deployed version: $VERSION — status: $HEALTH (blue-green complete)"
+
+      - name: Restore exact prior traffic after routed verification failure
+        if: always() && steps.verify_production.outcome != 'success'
+        run: |
+          set -euo pipefail
+          echo "::error::Post-shift verification did not succeed; restoring exact prior traffic manifest"
+          RESTORE_STATUS=0
+          python scripts/containerapp_rollout.py apply-traffic \
+            --input pre-shift-traffic-manifest.json \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --actual-output restored-traffic.json || RESTORE_STATUS=$?
+          az containerapp revision show \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --revision "${{ steps.green.outputs.green_revision }}" \
+            --query '{name:name,state:properties.runningState,health:properties.healthState,traffic:properties.trafficWeight}' -o json || true
+          az containerapp logs show \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --revision "${{ steps.green.outputs.green_revision }}" \
+            --tail 100 || true
+          if [ "$RESTORE_STATUS" -ne 0 ]; then
+            echo "::error::Exact prior traffic restoration failed; page Platform Engineering"
+            exit "$RESTORE_STATUS"
+          fi
 
       - name: Deactivate old revisions (keep blue for rollback)
         run: |
+          BRIDGE_REV=$(python scripts/containerapp_rollout.py verify-release-manifest \
+            --input bridge-release-manifest.json \
+            --required-role bridge \
+            --field revision)
+          mapfile -t ROLLBACK_REVISIONS < <(jq -r '.[] | .revisionName // empty' pre-shift-traffic-manifest.json)
           OLD_REVS=$(az containerapp revision list \
             --name ${{ env.CONTAINER_APP_NAME }} \
             --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
             --query "[?properties.active && name != '${{ steps.green.outputs.green_revision }}'].name" -o tsv)
 
-          KEEP_BLUE=$(echo "$OLD_REVS" | head -1)
-          DEACTIVATE=$(echo "$OLD_REVS" | tail -n +2)
+          DEACTIVATE=""
+          for rev in $OLD_REVS; do
+            if [ "$rev" = "$BRIDGE_REV" ] || printf '%s\n' "${ROLLBACK_REVISIONS[@]}" | grep -qxF "$rev"; then
+              continue
+            fi
+            DEACTIVATE+="${rev}"$'\n'
+          done
 
-          [ -n "$KEEP_BLUE" ] && echo "Keeping blue revision for rollback: $KEEP_BLUE"
+          echo "Keeping signed bridge revision for rollback: $BRIDGE_REV"
+          printf 'Keeping exact prior traffic revision for restoration: %s\n' "${ROLLBACK_REVISIONS[@]}"
 
           for rev in $DEACTIVATE; do
             echo "Deactivating old revision: $rev"
@@ -2233,11 +2747,22 @@ jobs:
               --revision "$rev" || true
           done
 
+      - name: Upload backend release and rollback evidence
+        uses: actions/upload-artifact@v7
+        with:
+          name: backend-release-evidence
+          path: |
+            bridge-release-manifest.json
+            blue-traffic-manifest.json
+            pre-shift-traffic-manifest.json
+          if-no-files-found: error
+          retention-days: 90
+
   # ============================================
   # FRONTEND DEPLOY (Azure Static Web Apps)
   # ============================================
   deploy-frontend:
-    needs: [backend-tests, frontend-build, openapi-client-drift, iac-validate]
+    needs: [deploy-backend, frontend-build]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     if: github.ref == 'refs/heads/main'
@@ -2252,6 +2777,36 @@ jobs:
       ARCHMORPH_BACKEND_API_BASE: ${{ secrets.API_URL }}
     steps:
       - uses: actions/checkout@v6
+
+      - name: Download previous frontend rollback artifact
+        if: needs.deploy-backend.outputs.initial_schema != '013'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          PREVIOUS_RUN_ID=$(gh run list \
+            --workflow ci.yml \
+            --branch main \
+            --status success \
+            --limit 10 \
+            --json databaseId,headSha \
+            --jq '.[] | select(.headSha != "${{ github.sha }}") | .databaseId' \
+            | head -1)
+          if [ -z "$PREVIOUS_RUN_ID" ]; then
+            echo "::error::No successful prior frontend artifact is available for rollback"
+            exit 1
+          fi
+          mkdir -p frontend/rollback-dist
+          gh run download "$PREVIOUS_RUN_ID" \
+            --name frontend-dist \
+            --dir frontend/rollback-dist
+          test -f frontend/rollback-dist/dist/index.html
+          test -d frontend/rollback-dist/api
+
+      - name: Record first-rollout frontend rollback limitation
+        if: needs.deploy-backend.outputs.initial_schema == '013'
+        run: |
+          echo "::notice::First bridge rollout has no prior artifact contract; backend remains compatible with the previous frontend and frontend deploy failure will fail closed without a speculative rollback."
 
       - name: Azure login
         uses: azure/login@v3
@@ -2285,6 +2840,7 @@ jobs:
           path: frontend/dist
 
       - name: Deploy to Azure Static Web Apps
+        id: deploy_frontend
         uses: Azure/static-web-apps-deploy@v1
         with:
           azure_static_web_apps_api_token: ${{ secrets.SWA_DEPLOYMENT_TOKEN }}
@@ -2294,6 +2850,32 @@ jobs:
           api_location: frontend/api
           output_location: ''
           skip_app_build: true
+
+      - name: Verify frontend and automatically restore previous artifact
+        id: verify_frontend
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 30 "$FRONTEND_URL/" >/dev/null
+          curl -fsS --max-time 30 "$FRONTEND_URL/#translator" >/dev/null
+
+      - name: Restore prior frontend artifact after deploy or verification failure
+        if: always() && needs.deploy-backend.outputs.initial_schema != '013' && (steps.deploy_frontend.outcome != 'success' || steps.verify_frontend.outcome != 'success')
+        env:
+          SWA_DEPLOYMENT_TOKEN: ${{ secrets.SWA_DEPLOYMENT_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "::error::Frontend deployment or verification failed; restoring prior tested artifact"
+          docker run --rm \
+            -e INPUT_AZURE_STATIC_WEB_APPS_API_TOKEN="$SWA_DEPLOYMENT_TOKEN" \
+            -e INPUT_ACTION=upload \
+            -e INPUT_APP_LOCATION=/app \
+            -e INPUT_API_LOCATION=/api \
+            -e INPUT_OUTPUT_LOCATION= \
+            -e INPUT_SKIP_APP_BUILD=true \
+            -v "$PWD/frontend/rollback-dist/dist:/app:ro" \
+            -v "$PWD/frontend/rollback-dist/api:/api:ro" \
+            mcr.microsoft.com/appsvc/staticappsclient:stable
+          curl -fsS --max-time 30 "$FRONTEND_URL/" >/dev/null
 
   # ============================================
   # POST-DEPLOY SMOKE

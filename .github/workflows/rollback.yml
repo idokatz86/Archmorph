@@ -3,14 +3,9 @@ name: Manual Rollback
 on:
   workflow_dispatch:
     inputs:
-      revision_name:
-        description: 'Revision name to roll back to (leave empty for previous revision)'
-        required: false
-        type: string
-      traffic_percentage:
-        description: 'Traffic percentage to route to the target revision (default: 100)'
-        required: false
-        default: '100'
+      release_run_id:
+        description: 'Successful release workflow run containing the signed bridge manifest'
+        required: true
         type: string
 
 permissions:
@@ -26,6 +21,7 @@ env:
   API_URL: ${{ secrets.API_URL }}
   ARCHMORPH_API_KEY: ${{ secrets.ARCHMORPH_API_KEY }}
   ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
+  RELEASE_MANIFEST_HMAC_KEY: ${{ secrets.RELEASE_MANIFEST_HMAC_KEY }}
 
 jobs:
   rollback:
@@ -36,6 +32,8 @@ jobs:
       group: production-backend-rollout
       cancel-in-progress: false
     steps:
+      - uses: actions/checkout@v6
+
       - name: Azure Login (OIDC)
         uses: azure/login@v3
         with:
@@ -43,35 +41,38 @@ jobs:
           tenant-id: ${{ env.AZURE_TENANT_ID }}
           subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Determine rollback revision
+      - name: Resolve explicit signed bridge rollback target
         id: revision
         env:
-          INPUT_REVISION: ${{ github.event.inputs.revision_name }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_RUN_ID: ${{ github.event.inputs.release_run_id }}
         run: |
-          if [ -n "$INPUT_REVISION" ]; then
-            echo "target=$INPUT_REVISION" >> "$GITHUB_OUTPUT"
-            echo "Using specified revision: $INPUT_REVISION"
-          else
-            # Get the list of revisions, pick the second one (previous active)
-            REVISIONS=$(az containerapp revision list \
-              --name "${{ env.CONTAINER_APP_NAME }}" \
-              --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
-              --query "[?properties.active].name" -o tsv)
-            
-            CURRENT=$(az containerapp revision list \
-              --name "${{ env.CONTAINER_APP_NAME }}" \
-              --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
-              --query "[?properties.trafficWeight > \`0\`].name" -o tsv | head -1)
-
-            PREVIOUS=$(echo "$REVISIONS" | grep -v "^$CURRENT$" | head -1)
-            
-            if [ -z "$PREVIOUS" ]; then
-              echo "::error::No previous revision found for rollback"
-              exit 1
-            fi
-            echo "target=$PREVIOUS" >> "$GITHUB_OUTPUT"
-            echo "Rolling back to previous revision: $PREVIOUS (current: $CURRENT)"
+          set -euo pipefail
+          if [ "${#RELEASE_MANIFEST_HMAC_KEY}" -lt 32 ]; then
+            echo "::error::RELEASE_MANIFEST_HMAC_KEY must contain at least 32 bytes"
+            exit 1
           fi
+          gh run download "$RELEASE_RUN_ID" \
+            --name backend-release-evidence \
+            --dir release-evidence
+          TARGET=$(python scripts/containerapp_rollout.py verify-release-manifest \
+            --input release-evidence/bridge-release-manifest.json \
+            --required-role bridge \
+            --field revision)
+          EXPECTED_IMAGE=$(python scripts/containerapp_rollout.py verify-release-manifest \
+            --input release-evidence/bridge-release-manifest.json \
+            --required-role bridge \
+            --field image)
+          ACTUAL_IMAGE=$(az containerapp revision show \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --revision "$TARGET" \
+            --query properties.template.containers[0].image -o tsv)
+          if [ "$ACTUAL_IMAGE" != "$EXPECTED_IMAGE" ]; then
+            echo "::error::Signed bridge manifest does not match the retained revision image"
+            exit 1
+          fi
+          echo "target=$TARGET" >> "$GITHUB_OUTPUT"
 
       - name: Verify target schema compatibility before activation
         env:
@@ -154,41 +155,64 @@ jobs:
 
       - name: Shift traffic to rollback revision
         env:
-          INPUT_TRAFFIC: ${{ github.event.inputs.traffic_percentage || '100' }}
           ROLLBACK_TARGET: ${{ steps.revision.outputs.target }}
         run: |
+          set -euo pipefail
+          az containerapp show \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --query 'properties.configuration.ingress.traffic' -o json \
+            > pre-rollback-traffic-manifest.json
           az containerapp ingress traffic set \
             --name ${{ env.CONTAINER_APP_NAME }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --revision-weight "$ROLLBACK_TARGET=$INPUT_TRAFFIC"
-          echo "Shifted ${INPUT_TRAFFIC}% traffic to $ROLLBACK_TARGET"
+            --revision-weight "$ROLLBACK_TARGET=100"
+          echo "Shifted 100% traffic to $ROLLBACK_TARGET"
 
       - name: Verify rollback health
         run: |
+          set -euo pipefail
+          restore_exact_traffic() {
+            local restore_status=0
+            python scripts/containerapp_rollout.py apply-traffic \
+              --input pre-rollback-traffic-manifest.json \
+              --name "$CONTAINER_APP_NAME" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --actual-output restored-traffic.json || restore_status=$?
+            az containerapp revision show \
+              --name "$CONTAINER_APP_NAME" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --revision "${{ steps.revision.outputs.target }}" \
+              --query '{name:name,state:properties.runningState,health:properties.healthState,traffic:properties.trafficWeight}' -o json || true
+            az containerapp logs show \
+              --name "$CONTAINER_APP_NAME" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --revision "${{ steps.revision.outputs.target }}" \
+              --tail 100 || true
+            return "$restore_status"
+          }
+          trap 'original_exit=$?; if [ "$original_exit" -ne 0 ]; then restore_exact_traffic || echo "::error::Exact traffic restoration failed"; fi; exit "$original_exit"' EXIT
           echo "Waiting 30s for revision to stabilize..."
           sleep 30
           BASE="${API_URL%/}"
           BASE="${BASE%/api}"
+          if ! curl -fsS --max-time 30 "${BASE}/readyz" >/dev/null; then
+            echo "::error::Bridge readiness check failed after rollback"
+            exit 1
+          fi
+          if ! curl -fsS --max-time 30 "${BASE}/api/schema-compatibility" \
+            | jq -e '.status == "compatible" and .release_role == "bridge"' >/dev/null; then
+            echo "::error::Bridge schema compatibility check failed after rollback"
+            exit 1
+          fi
           HEALTH_API_KEY="${ARCHMORPH_API_KEY:-${ADMIN_KEY:-}}"
-          _CURL_ARGS=(-sS --max-time 30)
-          if [ -n "$HEALTH_API_KEY" ]; then
-            _CURL_ARGS+=(-H "X-API-Key: ${HEALTH_API_KEY}")
-          fi
-          if ! HTTP_CODE=$(curl "${_CURL_ARGS[@]}" -o health.json -w "%{http_code}" "${BASE}/api/health"); then
-            echo "::error::Health check curl failed after rollback"
-            cat health.json || true
+          if ! HTTP_CODE=$(curl -sS --max-time 30 \
+            -H "X-API-Key: ${HEALTH_API_KEY}" \
+            -o bridge-read-only.json -w "%{http_code}" "${BASE}/api/health"); then
+            echo "::error::Bridge read-only check failed after rollback"
             exit 1
           fi
-          if [ "$HTTP_CODE" != "200" ]; then
-            echo "::error::Health check returned HTTP ${HTTP_CODE} after rollback"
-            cat health.json || true
-            exit 1
-          fi
-          HEALTH=$(jq -r '.status' health.json)
-          VERSION=$(jq -r '.version' health.json)
-          if [ "$HEALTH" != "healthy" ]; then
-            echo "::error::Health check failed after rollback: $HEALTH"
-            cat health.json || true
-            exit 1
-          fi
-          echo "Rollback successful — version: $VERSION, status: $HEALTH"
+          [ "$HTTP_CODE" = "503" ]
+          jq -e '.status == "bridge_read_only" and .retryable == true' bridge-read-only.json >/dev/null
+          trap - EXIT
+          echo "Rollback successful — signed bridge is ready, schema-compatible, and read-only"

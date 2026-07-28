@@ -6,6 +6,11 @@ environment      = "prod"
 location         = "westeurope"
 openai_location  = "eastus"
 
+# Legacy live-stack cutover only. Reviewed production hardening must set both
+# enable_production_infra_hardening=true and this value to true in private config.
+enable_production_infra_hardening      = false
+key_vault_rbac_authorization_enabled   = false
+
 db_admin_username = "example_admin"
 db_admin_password = "CHANGE_ME_PRODUCTION_PASSWORD_MIN16"
 

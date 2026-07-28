@@ -48,6 +48,55 @@ def test_migration_runner_takes_lock_runs_head_and_verifies(monkeypatch):
     assert evidence["current_revision"] == "014"
 
 
+def test_migration_preflight_resolves_connection_selects_one_and_checks_schema(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://example.invalid/archmorph")
+    engine, connection = _engine_and_connection()
+    connection.execute.side_effect = [
+        MagicMock(scalar_one=MagicMock(return_value=1)),
+        MagicMock(scalars=MagicMock(return_value=("013",))),
+    ]
+
+    with patch.object(run_migrations, "create_engine", return_value=engine):
+        evidence = run_migrations.preflight(expected_current="013")
+
+    statements = [str(call.args[0]) for call in connection.execute.call_args_list]
+    assert statements == ["SELECT 1", "SELECT version_num FROM alembic_version ORDER BY version_num"]
+    assert evidence["status"] == "preflight_succeeded"
+    assert evidence["current_revision"] == "013"
+    assert evidence["accepted_revisions"] == ["013"]
+    engine.dispose.assert_called_once_with()
+
+
+def test_migration_preflight_fails_closed_on_data_plane_or_schema_mismatch(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://example.invalid/archmorph")
+    engine, connection = _engine_and_connection()
+    connection.execute.side_effect = [
+        MagicMock(scalar_one=MagicMock(return_value=1)),
+        MagicMock(scalars=MagicMock(return_value=("014",))),
+    ]
+
+    with (
+        patch.object(run_migrations, "create_engine", return_value=engine),
+        pytest.raises(RuntimeError, match="SELECT 1 or exact schema contract"),
+    ):
+        run_migrations.preflight(expected_current="013")
+
+
+def test_migration_preflight_discovers_one_of_reviewed_transition_revisions(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://example.invalid/archmorph")
+    engine, connection = _engine_and_connection()
+    connection.execute.side_effect = [
+        MagicMock(scalar_one=MagicMock(return_value=1)),
+        MagicMock(scalars=MagicMock(return_value=("014",))),
+    ]
+
+    with patch.object(run_migrations, "create_engine", return_value=engine):
+        evidence = run_migrations.preflight(accepted_current=("013", "014"))
+
+    assert evidence["current_revision"] == "014"
+    assert evidence["accepted_revisions"] == ["013", "014"]
+
+
 def test_migration_runner_releases_lock_and_propagates_alembic_error(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "postgresql://example.invalid/archmorph")
     engine, connection = _engine_and_connection()

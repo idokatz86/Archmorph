@@ -151,6 +151,7 @@ migrations:
   backoffLimit: 0
   activeDeadlineSeconds: 900
   expectedAlembicHead: "014"
+  expectedCurrentAlembicRevision: "013"
   secretPreflightTimeoutSeconds: 120
 
 # Health check configuration (#378)

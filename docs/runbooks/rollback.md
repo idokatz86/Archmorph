@@ -14,7 +14,7 @@ Do not use `terraform destroy` or `azd down` for normal rollback. Those commands
 - Azure RBAC for the production subscription and resource group.
 - GitHub secrets present: `AZURE_SUBSCRIPTION_ID`, `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_RESOURCE_GROUP`, `CONTAINER_APP_NAME`, `API_URL`, `ACR_NAME`, and `ACR_LOGIN_SERVER`, plus `ARCHMORPH_API_KEY` or `ADMIN_KEY` for authenticated health verification.
 - Azure CLI authenticated if using the manual fallback.
-- Release evidence for the last known good backend revision, frontend artifact, Git SHA, immutable container image digest, and declared application schema range.
+- Release evidence for the signed bridge revision, frontend artifact, Git SHA, immutable image digest, declared schema range, and exact traffic manifest.
 
 ## Decision Points
 
@@ -39,8 +39,10 @@ Abort rollback and escalate if:
 Prefer the `Manual Rollback` workflow in `.github/workflows/rollback.yml`.
 
 1. Open GitHub Actions and choose `Manual Rollback`.
-2. Enter the target `revision_name` when known. Leave it empty to select the previous active revision automatically.
-3. Keep `traffic_percentage` at `100` for a full rollback unless doing a controlled partial shift.
+2. Enter the successful `release_run_id` containing `backend-release-evidence`.
+  The workflow verifies the HMAC-signed bridge manifest and refuses list-order,
+  creation-time, or active-state target selection.
+3. The workflow always shifts 100% to the signed bridge; partial rollback is not supported.
 4. Run the workflow. The `rollback` job is bound to the GitHub `production` Environment, so GitHub will pause before Azure login and traffic movement until required reviewers approve the deployment (or an authorized emergency bypass is used under repository policy).
 5. For emergency rollback, page the designated production environment approver immediately. If GitHub Actions or environment approval is unavailable, use the Azure CLI fallback below and record why the protected workflow could not be used.
 6. Confirm the workflow compares the target revision's
@@ -48,8 +50,11 @@ Prefer the `Manual Rollback` workflow in `.github/workflows/rollback.yml`.
   `/api/schema-compatibility` endpoint **before any traffic change**. An inactive
   target may be started at zero traffic solely for this preflight.
 7. Only after compatibility succeeds, confirm the workflow activates the target,
-  shifts traffic, and verifies authenticated `${API_URL}/api/health`.
-8. Capture the workflow URL, target revision, image digest, schema range/current
+  shifts traffic, verifies readiness/schema metadata, and proves normal API
+  requests return retryable read-only 503.
+8. If routed verification fails, confirm exact pre-rollback weights are restored
+  and verified before the workflow fails.
+9. Capture the workflow URL, target revision, image digest, schema range/current
   revision, approval/bypass evidence, and health output in release evidence.
 
 The workflow normalizes `API_URL`, calls `/api/health`, sends `X-API-Key` from `ARCHMORPH_API_KEY` with `ADMIN_KEY` fallback when present, and uses the production Environment OIDC subject so Azure trust is scoped to approved production runs instead of branch name alone.
@@ -64,7 +69,18 @@ Set context:
 az account set --subscription "$AZURE_SUBSCRIPTION_ID"
 ```
 
-List revisions and identify the last known good target:
+Retrieve and verify the signed bridge manifest from successful release evidence.
+Use its explicit revision/image pair. List revisions only to confirm that target
+still exists; never derive a target by selecting the first or second active row:
+
+The first migration `014` rollout creates this bridge from the exact current
+immutable release image plus a schema/readiness/read-only overlay. The old
+production revision is never promoted merely because it was active.
+
+The bridge is a safe rollback target, not normal steady state: it serves
+`/healthz`, `/readyz`, and `/api/schema-compatibility` only. Other requests return
+retryable 503 to prevent schema-013 writes. After bridge rollback, fix forward to
+a final schema-compatible revision before resuming normal customer operations.
 
 ```bash
 az containerapp revision list \
@@ -109,7 +125,9 @@ curl -fsS \
   "${BASE}/api/health" | jq .
 ```
 
-Expected result: `.status == "healthy"`, scheduled jobs are fresh or intentionally disabled, Redis is `ok` or accepted as `disabled_optional`, and version/SHA match the intended rollback target.
+Expected bridge rollback result: readiness is 200, schema compatibility is
+`compatible` with `release_role=bridge`, and normal API requests return retryable
+503. This is degraded safe recovery pending a final fix-forward.
 
 ## ACR Image Pinning
 
@@ -139,7 +157,14 @@ If a new hotfix deployment is required, pin the target image by digest in the de
 
 ## Frontend Rollback
 
-Static Web Apps does not have the same revision traffic model as Container Apps. Use one of these paths:
+Static Web Apps does not have the same revision traffic model as Container Apps.
+CI downloads the prior successful `frontend-dist` before deployment and restores
+it automatically when routed verification fails. For manual recovery:
+
+For the first bridge rollout, a prior complete artifact may not exist. In that
+case frontend failure blocks the release without a speculative restore; the
+routed bridge remains compatible with the previous frontend until a verified
+frontend artifact succeeds.
 
 - Redeploy the previously tested Static Web Apps artifact from the successful CI/CD run.
 - Revert the bad frontend commit and let CI/CD publish the recovered artifact.
@@ -192,10 +217,19 @@ back only to a preflight-compatible revision, or fix forward with a compatible
 image/new migration. If no retained revision accepts the current schema, do not
 change traffic; deploy a forward-fix revision that declares and proves support.
 
-The manual rollback workflow shares `production-backend-rollout` concurrency
-with backend deploys. A rollback cannot race bootstrap, migration, green smoke,
-or traffic movement. A failed compatibility preflight exits before any traffic
-change; current production traffic is unchanged.
+The manual rollback workflow and both Terraform production plan/apply jobs share
+`production-backend-rollout` concurrency with backend deploys. They cannot race
+bootstrap, migration, green smoke, or traffic movement. A preflight failure exits
+before traffic mutation; a post-shift failure restores the exact prior manifest.
+
+## Migration alert ownership
+
+Platform Engineering owns `archmorph-migration-job-failure` and
+`archmorph-migration-missing-evidence`. Both notify the critical action group.
+Failure, timeout, cancellation, or absence of
+`ARCHMORPH_MIGRATION_EVIDENCE=` blocks rollout. Fix forward; never auto-downgrade.
+The alert queries use secret-free Application Insights lifecycle events rather
+than relying on provider-specific Container Apps Job log columns.
 
 CI now runs an Alembic smoke against PostgreSQL plus pgvector: heads, offline upgrade SQL generation, upgrade to head, downgrade to base, and re-upgrade. A migration that cannot complete this cycle must not be promoted.
 
@@ -244,10 +278,10 @@ Both requests must stay unauthenticated (`401` with `UNTRUSTED_SWA_PRINCIPAL`, o
 
 Use this checklist for quarterly operator drills:
 
-1. Identify current bad revision and previous known good revision.
-2. Run `Manual Rollback` workflow with the target revision.
+1. Identify the release run containing the signed known-good bridge manifest.
+2. Run `Manual Rollback` with that release run ID.
 3. Confirm traffic is `100` percent on the rollback revision.
-4. Verify authenticated `/api/health` and release version/SHA.
+4. Verify bridge readiness/schema metadata and retryable read-only 503 behavior.
 5. Verify frontend root, translator, playground, and one Architecture Package export.
 6. Record elapsed time, workflow URL, target revision, image digest, and any manual steps.
 

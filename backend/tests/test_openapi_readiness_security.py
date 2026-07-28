@@ -23,6 +23,7 @@ def test_readyz_reports_schema_contract_separately(test_client, monkeypatch):
         lambda: {
             "ready_for_production": False,
             "schema_at_head": False,
+            "schema_compatible": False,
             "required_schema_present": True,
         },
     )
@@ -67,6 +68,7 @@ def test_schema_compatibility_preflight_reports_supported_current_head(test_clie
         "accepted_revisions": ["014"],
         "migration_target_revision": "014",
         "alias_read_through_until": "014",
+        "release_role": "final",
     }
 
 

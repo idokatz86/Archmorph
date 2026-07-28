@@ -56,6 +56,17 @@ variable "enable_production_infra_hardening" {
   default     = true
 }
 
+variable "key_vault_rbac_authorization_enabled" {
+  description = "Reviewed Key Vault authorization mode. Set true only after all workload identities have equivalent RBAC grants; false retains access-policy mode during migration."
+  type        = bool
+  default     = true
+
+  validation {
+    condition     = !var.enable_production_infra_hardening || var.environment != "prod" || var.key_vault_rbac_authorization_enabled
+    error_message = "Production infrastructure hardening requires reviewed Key Vault RBAC authorization."
+  }
+}
+
 variable "db_admin_username" {
   description = "PostgreSQL administrator username"
   type        = string

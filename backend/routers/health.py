@@ -14,7 +14,7 @@ import logging
 import os
 import threading
 import time
-from typing import Literal
+from typing import cast, Literal
 
 from fastapi import APIRouter, Depends, Response
 from fastapi.responses import JSONResponse
@@ -50,6 +50,7 @@ class SchemaCompatibilityResponse(StrictBaseModel):
     accepted_revisions: list[str]
     migration_target_revision: str
     alias_read_through_until: str
+    release_role: Literal["bridge", "final"]
 
 # ── Cached dependency checks (avoid blocking I/O on every request) ─────
 _dep_checks_cache: dict | None = None
@@ -312,7 +313,8 @@ async def readyz(response: Response) -> ReadinessResponse:
         database = database_readiness()
         database_ready = bool(database["ready_for_production"])
         database_schema_ready = bool(
-            database["schema_at_head"] and database["required_schema_present"]
+            database.get("schema_compatible", database.get("schema_at_head", False))
+            and database["required_schema_present"]
         )
     except Exception:
         database_ready = False
@@ -379,6 +381,7 @@ async def schema_compatibility(response: Response) -> SchemaCompatibilityRespons
         accepted_revisions=[str(item) for item in metadata["accepted_revisions"]],
         migration_target_revision=str(metadata["migration_target_revision"]),
         alias_read_through_until=str(metadata["alias_read_through_until"]),
+        release_role=cast(Literal["bridge", "final"], metadata["release_role"]),
     )
 
 

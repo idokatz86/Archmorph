@@ -71,6 +71,10 @@ def test_builder_preserves_source_and_adds_readyz_only_to_new_template():
         "name": "JWT_SECRET",
         "secretRef": "jwt-secret",
     }
+    assert {item["name"]: item for item in container["env"]}["ARCHMORPH_RELEASE_ROLE"] == {
+        "name": "ARCHMORPH_RELEASE_ROLE",
+        "value": "final",
+    }
     assert next(probe for probe in container["probes"] if probe["type"] == "Readiness")["httpGet"]["path"] == "/readyz"
     assert next(probe for probe in container["probes"] if probe["type"] == "Liveness")["httpGet"]["path"] == "/healthz"
 
@@ -86,3 +90,21 @@ def test_builder_rejects_mutable_or_malformed_images():
                 env_values={},
                 env_secret_refs={},
             )
+
+
+def test_builder_marks_bridge_role_explicitly():
+    document = builder.build_revision_document(
+        _source(),
+        image=DIGEST,
+        revision_suffix="bridge-12345678-run-1",
+        readiness_path="/readyz",
+        env_values={},
+        env_secret_refs={},
+        release_role="bridge",
+    )
+
+    env = {
+        item["name"]: item
+        for item in document["properties"]["template"]["containers"][0]["env"]
+    }
+    assert env["ARCHMORPH_RELEASE_ROLE"]["value"] == "bridge"
