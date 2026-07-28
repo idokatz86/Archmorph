@@ -11,9 +11,7 @@ import json
 import logging
 import secrets
 import threading
-import time
 import uuid
-from collections import deque
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional, Set
@@ -22,7 +20,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import Field
 from strict_models import StrictBaseModel
 
-from routers.shared import limiter, verify_api_key
+from routers.shared import limiter, require_api_admin
 from models.workspace import APIKeyCredential
 
 logger = logging.getLogger(__name__)
@@ -72,37 +70,12 @@ _lock = threading.Lock()
 _keys: Dict[str, APIKeyRecord] = {}  # id -> record
 _hash_index: Dict[str, str] = {}  # key_hash -> id  (for fast lookup by key)
 
-# Rate limiting state: key_id -> deque of timestamps
-_rate_windows: Dict[str, deque] = {}
-
-
 def _hash_key(raw_key: str) -> str:
     return hashlib.sha256(raw_key.encode()).hexdigest()
 
 
 def _generate_key() -> str:
     return KEY_PREFIX + secrets.token_hex(32)
-
-
-def _check_rate_limit(key_id: str, limit: int) -> bool:
-    """Return True if the request is within rate limit, False otherwise."""
-    now = time.monotonic()
-    window = 60.0  # 1 minute
-
-    with _lock:
-        if key_id not in _rate_windows:
-            _rate_windows[key_id] = deque()
-
-        dq = _rate_windows[key_id]
-        # Evict old entries
-        while dq and dq[0] < now - window:
-            dq.popleft()
-
-        if len(dq) >= limit:
-            return False
-
-        dq.append(now)
-        return True
 
 
 # ---------------------------------------------------------------------------
@@ -399,7 +372,7 @@ class KeyInfo(StrictBaseModel):
                 "The full key is returned only once — store it securely.",
 )
 @limiter.limit("10/minute")
-async def create_key(body: CreateKeyRequest, request: Request, _auth=Depends(verify_api_key)):
+async def create_key(body: CreateKeyRequest, request: Request, _auth=Depends(require_api_admin)):
     invalid = [s for s in body.scopes if s not in VALID_SCOPES]
     if invalid:
         raise ArchmorphException(400, f"Invalid scopes: {invalid}. Valid: {sorted(VALID_SCOPES)}")
@@ -433,7 +406,7 @@ async def create_key(body: CreateKeyRequest, request: Request, _auth=Depends(ver
     description="List all active (non-revoked) API keys. Full key values are never returned.",
 )
 @limiter.limit("30/minute")
-async def list_keys(request: Request, _auth=Depends(verify_api_key)):
+async def list_keys(request: Request, _auth=Depends(require_api_admin)):
     return list_api_keys()
 
 
@@ -443,7 +416,7 @@ async def list_keys(request: Request, _auth=Depends(verify_api_key)):
     description="Permanently revoke an API key. This cannot be undone.",
 )
 @limiter.limit("10/minute")
-async def delete_key(key_id: str, request: Request, _auth=Depends(verify_api_key)):
+async def delete_key(key_id: str, request: Request, _auth=Depends(require_api_admin)):
     if not revoke_api_key(key_id):
         raise ArchmorphException(404, f"API key not found: {key_id}")
     return {"status": "revoked", "key_id": key_id}
@@ -457,7 +430,7 @@ async def delete_key(key_id: str, request: Request, _auth=Depends(verify_api_key
                 "The old key is immediately invalidated.",
 )
 @limiter.limit("5/minute")
-async def rotate_key(key_id: str, request: Request, _auth=Depends(verify_api_key)):
+async def rotate_key(key_id: str, request: Request, _auth=Depends(require_api_admin)):
     result = rotate_api_key(key_id)
     if not result:
         raise ArchmorphException(404, f"API key not found or already revoked: {key_id}")

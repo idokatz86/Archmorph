@@ -1,5 +1,7 @@
 import copy
 import io
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 
 import pytest
@@ -7,7 +9,7 @@ import pytest
 from database import SessionLocal
 from models.tenant import Organization, TeamMember
 from models.workspace import Analysis, ProjectMember, Workspace
-from project_store import PROJECT_CACHE_VERSION, _cache_project, create_project
+from project_store import PROJECT_CACHE_VERSION, _cache_project, create_project, get_project
 from session_store import InMemoryStore
 from routers.shared import IMAGE_STORE, PROJECT_STORE, SESSION_STORE
 
@@ -52,6 +54,20 @@ MOCK_ANALYSIS = {
 }
 
 
+def _session_auth_headers(*, user_id: str, tenant_id: str) -> dict[str, str]:
+    from auth import AuthProvider, User, UserTier, generate_session_token
+
+    user = User(
+        id=user_id,
+        email=f"{user_id}@example.test",
+        name=user_id,
+        provider=AuthProvider.GITHUB,
+        tier=UserTier.FREE,
+        tenant_id=tenant_id,
+    )
+    return {"Authorization": f"Bearer {generate_session_token(user)}"}
+
+
 @pytest.fixture(autouse=True)
 def clean_project_state():
     SESSION_STORE.clear()
@@ -61,7 +77,13 @@ def clean_project_state():
     try:
         db.query(ProjectMember).delete()
         db.query(TeamMember).filter(
-            TeamMember.user_id.in_(["user-foreign", "user-a-collaborator"])
+            TeamMember.user_id.in_([
+                "user-foreign",
+                "user-a-collaborator",
+                "user-a-viewer",
+                "user-a-editor",
+                "user-a-admin",
+            ])
         ).delete(synchronize_session=False)
         db.query(Organization).filter(
             Organization.org_id.in_(["tenant-a", "tenant-b"])
@@ -332,3 +354,166 @@ def test_foreign_member_rejected_and_same_tenant_member_persists(
     assert len(members.json()["members"]) == 1
     assert members.json()["members"][0]["user_id"] == "user-a-collaborator"
     assert members.json()["members"][0]["role"] == "editor"
+
+
+def test_project_member_role_matrix_cache_loss_and_revocation(
+    test_client,
+    tenant_a_auth_headers,
+):
+    uploaded = _upload(test_client, tenant_a_auth_headers)
+    _analyze(test_client, uploaded["diagram_id"], tenant_a_auth_headers)
+    project_id = uploaded["project_id"]
+    viewer_headers = _session_auth_headers(user_id="user-a-viewer", tenant_id="tenant-a")
+    editor_headers = _session_auth_headers(user_id="user-a-editor", tenant_id="tenant-a")
+    admin_headers = _session_auth_headers(user_id="user-a-admin", tenant_id="tenant-a")
+    db = SessionLocal()
+    try:
+        organization = db.query(Organization).filter_by(org_id="tenant-a").one_or_none()
+        if organization is None:
+            db.add(Organization(org_id="tenant-a", name="Tenant A", slug="role-matrix-tenant-a"))
+        db.add_all([
+            TeamMember(
+                org_id="tenant-a",
+                user_id="user-a-viewer",
+                email="viewer@example.test",
+                role="viewer",
+                is_active=True,
+            ),
+            TeamMember(
+                org_id="tenant-a",
+                user_id="user-a-editor",
+                email="editor@example.test",
+                role="editor",
+                is_active=True,
+            ),
+            TeamMember(
+                org_id="tenant-a",
+                user_id="user-a-admin",
+                email="admin@example.test",
+                role="admin",
+                is_active=True,
+            ),
+            ProjectMember(
+                project_id=project_id,
+                project_owner_user_id="user-a-001",
+                tenant_id="tenant-a",
+                member_user_id="user-a-viewer",
+                role="viewer",
+            ),
+            ProjectMember(
+                project_id=project_id,
+                project_owner_user_id="user-a-001",
+                tenant_id="tenant-a",
+                member_user_id="user-a-editor",
+                role="editor",
+            ),
+        ])
+        db.commit()
+    finally:
+        db.close()
+
+    PROJECT_STORE.clear()
+    SESSION_STORE.clear()
+    assert test_client.get(f"/api/projects/{project_id}", headers=viewer_headers).status_code == 200
+    assert test_client.get(f"/api/projects/{project_id}/analysis", headers=viewer_headers).status_code == 200
+    assert test_client.get(f"/api/projects/{project_id}/members", headers=viewer_headers).status_code == 404
+    assert test_client.post(
+        f"/api/projects/{project_id}/generate?format=terraform",
+        headers=viewer_headers,
+    ).status_code == 404
+    assert test_client.post(
+        f"/api/diagrams/{uploaded['diagram_id']}/analyze",
+        headers=viewer_headers,
+    ).status_code == 404
+
+    with patch("routers.projects.generate_iac_code", return_value="resource {}"):
+        assert test_client.post(
+            f"/api/projects/{project_id}/generate?format=terraform",
+            headers=editor_headers,
+        ).status_code == 200
+    assert test_client.get(f"/api/projects/{project_id}/members", headers=editor_headers).status_code == 404
+    assert test_client.get(f"/api/projects/{project_id}/members", headers=admin_headers).status_code == 200
+
+    db = SessionLocal()
+    try:
+        db.query(ProjectMember).filter_by(
+            project_id=project_id,
+            member_user_id="user-a-viewer",
+        ).delete()
+        db.commit()
+    finally:
+        db.close()
+    PROJECT_STORE.set(project_id, {"stale": "authorization-must-ignore-this"})
+    assert test_client.get(f"/api/projects/{project_id}", headers=viewer_headers).status_code == 404
+
+
+def test_project_member_openapi_rejects_assignable_admin_role(test_client):
+    schema = test_client.get("/openapi.json").json()
+    role_schema = schema["components"]["schemas"]["ProjectMemberRequest"]["properties"]["role"]
+
+    assert set(role_schema["enum"]) == {"viewer", "editor"}
+
+
+def test_concurrent_member_revocation_and_cache_loss_deny_stale_projection(
+    test_client,
+    tenant_a_auth_headers,
+):
+    uploaded = _upload(test_client, tenant_a_auth_headers)
+    project_id = uploaded["project_id"]
+    db = SessionLocal()
+    try:
+        if db.query(Organization).filter_by(org_id="tenant-a").one_or_none() is None:
+            db.add(Organization(org_id="tenant-a", name="Tenant A", slug="revoke-tenant-a"))
+        db.add(TeamMember(
+            org_id="tenant-a",
+            user_id="user-a-viewer",
+            email="viewer@example.test",
+            role="viewer",
+            is_active=True,
+        ))
+        db.add(ProjectMember(
+            project_id=project_id,
+            project_owner_user_id="user-a-001",
+            tenant_id="tenant-a",
+            member_user_id="user-a-viewer",
+            role="viewer",
+        ))
+        db.commit()
+    finally:
+        db.close()
+    PROJECT_STORE.set(project_id, {"project_id": project_id, "stale": True})
+    revoked = threading.Event()
+
+    def revoke():
+        session = SessionLocal()
+        try:
+            member = session.query(ProjectMember).filter_by(
+                project_id=project_id,
+                member_user_id="user-a-viewer",
+            ).one()
+            session.delete(member)
+            session.commit()
+            revoked.set()
+        finally:
+            session.close()
+
+    def read_after_revocation():
+        assert revoked.wait(timeout=5)
+        PROJECT_STORE.clear()
+        session = SessionLocal()
+        try:
+            return get_project(
+                session,
+                project_id,
+                owner_user_id="user-a-viewer",
+                tenant_id="tenant-a",
+                project_store=PROJECT_STORE,
+            )
+        finally:
+            session.close()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        revoke_future = pool.submit(revoke)
+        read_future = pool.submit(read_after_revocation)
+        revoke_future.result(timeout=5)
+        assert read_future.result(timeout=5) is None

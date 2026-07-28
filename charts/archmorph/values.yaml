@@ -84,6 +84,7 @@ env:
   ENVIRONMENT: "dev"
   AZURE_OPENAI_DEPLOYMENT: "gpt-4o"
   RATE_LIMIT_ENABLED: "true"
+  ARCHMORPH_API_KEY_ALLOW_LEGACY_OVERLAP: "false"
   ALLOWED_ORIGINS: "http://localhost:5173"
 
 # Secrets (referenced from external-secrets or Kubernetes secrets)

@@ -457,6 +457,22 @@ resource "azurerm_redis_cache" "main" {
 # ─────────────────────────────────────────────────────────────
 data "azurerm_client_config" "current" {}
 
+check "static_api_key_configuration" {
+  assert {
+    condition = (
+      var.environment == "dev"
+      || (
+        var.manage_archmorph_api_key
+        && var.archmorph_api_key != null
+        && var.manage_archmorph_api_key_rotated
+        && var.archmorph_api_key_rotated != null
+        && var.archmorph_api_key_principal_id != null
+      )
+    )
+    error_message = "Production/staging require base/current static keys and a stable principal from private configuration."
+  }
+}
+
 resource "azurerm_key_vault" "main" {
   name                       = "archmorph-kv-${local.name_suffix}"
   resource_group_name        = azurerm_resource_group.main.name
@@ -509,6 +525,22 @@ resource "azurerm_key_vault_secret" "redis_connection" {
 resource "azurerm_key_vault_secret" "appinsights_connection" {
   name         = "appinsights-connection-string"
   value        = azurerm_application_insights.main.connection_string
+  key_vault_id = azurerm_key_vault.main.id
+}
+
+resource "azurerm_key_vault_secret" "archmorph_api_key" {
+  for_each = var.manage_archmorph_api_key ? toset(["configured"]) : toset([])
+
+  name         = "archmorph-api-key"
+  value        = var.archmorph_api_key
+  key_vault_id = azurerm_key_vault.main.id
+}
+
+resource "azurerm_key_vault_secret" "archmorph_api_key_rotated" {
+  for_each = var.manage_archmorph_api_key_rotated ? toset(["configured"]) : toset([])
+
+  name         = "archmorph-api-key-rotated"
+  value        = var.archmorph_api_key_rotated
   key_vault_id = azurerm_key_vault.main.id
 }
 
@@ -644,6 +676,24 @@ resource "azurerm_container_app" "backend" {
     identity            = azurerm_user_assigned_identity.container_app.id
   }
 
+  dynamic "secret" {
+    for_each = azurerm_key_vault_secret.archmorph_api_key
+    content {
+      name                = "api-key"
+      key_vault_secret_id = secret.value.versionless_id
+      identity            = azurerm_user_assigned_identity.container_app.id
+    }
+  }
+
+  dynamic "secret" {
+    for_each = azurerm_key_vault_secret.archmorph_api_key_rotated
+    content {
+      name                = "api-key-rotated"
+      key_vault_secret_id = secret.value.versionless_id
+      identity            = azurerm_user_assigned_identity.container_app.id
+    }
+  }
+
   ingress {
     external_enabled = true
     target_port      = 8000
@@ -762,6 +812,35 @@ resource "azurerm_container_app" "backend" {
       env {
         name        = "REDIS_URL"
         secret_name = "redis-url"
+      }
+
+      dynamic "env" {
+        for_each = var.manage_archmorph_api_key ? toset(["configured"]) : toset([])
+        content {
+          name        = "ARCHMORPH_API_KEY"
+          secret_name = "api-key"
+        }
+      }
+
+      dynamic "env" {
+        for_each = var.manage_archmorph_api_key_rotated ? toset(["configured"]) : toset([])
+        content {
+          name        = "ARCHMORPH_API_KEY_ROTATED"
+          secret_name = "api-key-rotated"
+        }
+      }
+
+      dynamic "env" {
+        for_each = var.archmorph_api_key_principal_id == null ? toset([]) : toset(["configured"])
+        content {
+          name  = "ARCHMORPH_API_KEY_PRINCIPAL_ID"
+          value = var.archmorph_api_key_principal_id
+        }
+      }
+
+      env {
+        name  = "ARCHMORPH_API_KEY_ALLOW_LEGACY_OVERLAP"
+        value = tostring(var.archmorph_api_key_allow_legacy_overlap)
       }
 
       env {

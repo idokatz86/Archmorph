@@ -42,6 +42,12 @@ env:
   TF_VAR_preserve_legacy_openai_key: true
   TF_VAR_openai_api_key: ${{ secrets.AZURE_OPENAI_API_KEY }}
   TF_VAR_backend_container_image: ${{ secrets.TF_BACKEND_CONTAINER_IMAGE }}
+  TF_VAR_archmorph_api_key: ${{ secrets.ARCHMORPH_API_KEY || secrets.API_KEY }}
+  TF_VAR_manage_archmorph_api_key: true
+  TF_VAR_archmorph_api_key_rotated: ${{ secrets.ARCHMORPH_API_KEY_ROTATED }}
+  TF_VAR_manage_archmorph_api_key_rotated: true
+  TF_VAR_archmorph_api_key_principal_id: ${{ vars.ARCHMORPH_API_KEY_PRINCIPAL_ID }}
+  TF_VAR_archmorph_api_key_allow_legacy_overlap: ${{ vars.ARCHMORPH_API_KEY_ALLOW_LEGACY_OVERLAP || 'false' }}
 
 jobs:
   prod-plan:

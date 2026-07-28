@@ -1,15 +1,17 @@
 """Project routes backed by owner/tenant-scoped PostgreSQL state."""
 
 import asyncio
+from functools import partial
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Request
 
-from database import get_db
 from error_envelope import ArchmorphException
 from iac_generator import generate_iac_code
 from project_merge import merge_project_analyses
 from project_store import (
+    PROJECT_EDIT_ROLES,
+    PROJECT_READ_ROLES,
     add_project_member,
     get_project,
     list_project_members,
@@ -21,9 +23,11 @@ from routers.shared import (
     PROJECT_STORE,
     get_request_durable_principal,
     limiter,
-    verify_api_key_or_user_session,
+    require_api_read_or_user_session,
+    require_api_write_or_user_session,
 )
 from strict_models import StrictBaseModel
+from starlette.concurrency import run_in_threadpool
 from usage_metrics import record_event, record_funnel_step
 
 router = APIRouter()
@@ -47,13 +51,33 @@ def _not_found() -> ArchmorphException:
     return ArchmorphException(404, "Project not found")
 
 
-def _combined_analysis_for_project(db, project_id: str, principal: dict) -> dict:
+async def _db_call(function, /, *args, **kwargs):
+    """Run one project repository unit in a session created on its worker."""
+    def invoke():
+        from database import SessionLocal
+
+        db = SessionLocal()
+        try:
+            return function(db, *args, **kwargs)
+        finally:
+            db.close()
+
+    return await run_in_threadpool(partial(invoke))
+
+
+def _combined_analysis_for_project(
+    db,
+    project_id: str,
+    principal: dict,
+    allowed_roles: frozenset[str],
+) -> dict:
     project = get_project(
         db,
         project_id,
         owner_user_id=principal["owner_user_id"],
         tenant_id=principal["tenant_id"],
         project_store=PROJECT_STORE,
+        allowed_roles=allowed_roles,
     )
     if project is None:
         raise _not_found()
@@ -62,6 +86,7 @@ def _combined_analysis_for_project(db, project_id: str, principal: dict) -> dict
         project_id,
         owner_user_id=principal["owner_user_id"],
         tenant_id=principal["tenant_id"],
+        allowed_roles=allowed_roles,
     )
     if not analyses:
         raise ArchmorphException(404, "No analyzed diagrams found for this project")
@@ -73,13 +98,12 @@ def _combined_analysis_for_project(db, project_id: str, principal: dict) -> dict
 async def get_project_status(
     request: Request,
     project_id: str,
-    _auth=Depends(verify_api_key_or_user_session),
-    db=Depends(get_db),
+    _auth=Depends(require_api_read_or_user_session),
 ):
     """Return authorized project metadata and durable diagram status."""
     principal = _principal(request)
-    project = get_project(
-        db,
+    project = await _db_call(
+        get_project,
         project_id,
         owner_user_id=principal["owner_user_id"],
         tenant_id=principal["tenant_id"],
@@ -95,11 +119,15 @@ async def get_project_status(
 async def get_project_analysis(
     request: Request,
     project_id: str,
-    _auth=Depends(verify_api_key_or_user_session),
-    db=Depends(get_db),
+    _auth=Depends(require_api_read_or_user_session),
 ):
     """Return a deterministic merge of authorized durable analysis snapshots."""
-    combined = _combined_analysis_for_project(db, project_id, _principal(request))
+    combined = await _db_call(
+        _combined_analysis_for_project,
+        project_id,
+        _principal(request),
+        PROJECT_READ_ROLES,
+    )
     record_event("project_analysis_merged", {
         "project_id": project_id,
         "diagrams": len(combined.get("source_diagram_ids", [])),
@@ -115,11 +143,15 @@ async def generate_project_iac(
     project_id: str,
     format: Literal["terraform", "bicep"] = "terraform",
     force: bool = False,
-    _auth=Depends(verify_api_key_or_user_session),
-    db=Depends(get_db),
+    _auth=Depends(require_api_write_or_user_session),
 ):
     """Generate IaC only from authorized, PostgreSQL-canonical analyses."""
-    combined = _combined_analysis_for_project(db, project_id, _principal(request))
+    combined = await _db_call(
+        _combined_analysis_for_project,
+        project_id,
+        _principal(request),
+        PROJECT_EDIT_ROLES,
+    )
     _check_architecture_blockers(f"project-{project_id}", combined, force)
     try:
         code = await asyncio.to_thread(
@@ -140,12 +172,11 @@ async def generate_project_iac(
 async def get_project_members(
     request: Request,
     project_id: str,
-    _auth=Depends(verify_api_key_or_user_session),
-    db=Depends(get_db),
+    _auth=Depends(require_api_read_or_user_session),
 ):
     principal = _principal(request)
-    members = list_project_members(
-        db,
+    members = await _db_call(
+        list_project_members,
         project_id,
         owner_user_id=principal["owner_user_id"],
         tenant_id=principal["tenant_id"],
@@ -162,15 +193,14 @@ async def put_project_member(
     project_id: str,
     member_user_id: str,
     body: ProjectMemberRequest,
-    _auth=Depends(verify_api_key_or_user_session),
-    db=Depends(get_db),
+    _auth=Depends(require_api_write_or_user_session),
 ):
     principal = _principal(request)
     if body.user_id != member_user_id:
         raise ArchmorphException(400, "Path and body member identity must match")
     try:
-        member = add_project_member(
-            db,
+        member = await _db_call(
+            add_project_member,
             project_id,
             owner_user_id=principal["owner_user_id"],
             tenant_id=principal["tenant_id"],
@@ -190,12 +220,11 @@ async def delete_project_member(
     request: Request,
     project_id: str,
     member_user_id: str,
-    _auth=Depends(verify_api_key_or_user_session),
-    db=Depends(get_db),
+    _auth=Depends(require_api_write_or_user_session),
 ):
     principal = _principal(request)
-    removed = remove_project_member(
-        db,
+    removed = await _db_call(
+        remove_project_member,
         project_id,
         member_user_id,
         owner_user_id=principal["owner_user_id"],

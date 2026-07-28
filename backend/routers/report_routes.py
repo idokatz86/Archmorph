@@ -7,6 +7,7 @@ Generates a comprehensive PDF report from a completed analysis session.
 import hashlib
 import io
 import logging
+from functools import partial
 
 from fastapi import APIRouter, Request, Depends
 from fastapi.responses import StreamingResponse
@@ -17,10 +18,31 @@ from report_generator import generate_analysis_report_pdf
 from usage_metrics import record_event
 from export_capabilities import consume_export_capability, issue_export_capability, verify_export_capability
 from export_artifacts import persist_generated_export_async
+from starlette.concurrency import run_in_threadpool
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _analysis_version_created_at(*, diagram_id: str, principal: dict):
+    from database import SessionLocal
+    from workspace_store import get_current_analysis_version
+
+    db = SessionLocal()
+    try:
+        try:
+            _analysis, version = get_current_analysis_version(
+                db,
+                diagram_id=diagram_id,
+                owner_user_id=principal["owner_user_id"],
+                tenant_id=principal["tenant_id"],
+            )
+        except ValueError:
+            return None
+        return version.created_at if version is not None else None
+    finally:
+        db.close()
 
 
 @router.get("/api/diagrams/{diagram_id}/report", dependencies=[Depends(require_diagram_access)])
@@ -47,28 +69,16 @@ async def download_analysis_report(
 
     record_event("report_downloaded", {"diagram_id": diagram_id, "format": fmt})
 
-    from database import SessionLocal
     from routers.shared import get_request_durable_principal
-    from workspace_store import get_current_analysis_version
 
     principal = get_request_durable_principal(request)
     generated_at = None
     if principal and principal.get("tenant_id"):
-        db = SessionLocal()
-        try:
-            try:
-                _analysis, version = get_current_analysis_version(
-                    db,
-                    diagram_id=diagram_id,
-                    owner_user_id=principal["owner_user_id"],
-                    tenant_id=principal["tenant_id"],
-                )
-            except ValueError:
-                version = None
-            if version is not None:
-                generated_at = version.created_at
-        finally:
-            db.close()
+        generated_at = await run_in_threadpool(partial(
+            _analysis_version_created_at,
+            diagram_id=diagram_id,
+            principal=principal,
+        ))
     pdf_bytes = generate_analysis_report_pdf(session, generated_at=generated_at)
     artifact = await persist_generated_export_async(
         request,

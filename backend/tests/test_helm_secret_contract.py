@@ -49,6 +49,7 @@ def test_environment_renders_all_fail_closed_auth_secret_refs(values_file):
     documents = _documents(rendered.stdout)
     external_secret = next(document for document in documents if document["kind"] == "ExternalSecret")
     deployment = next(document for document in documents if document["kind"] == "Deployment")
+    config_map = next(document for document in documents if document["kind"] == "ConfigMap")
 
     remote_keys = {
         item["secretKey"]: item["remoteRef"]["key"]
@@ -74,7 +75,6 @@ def test_environment_renders_all_fail_closed_auth_secret_refs(values_file):
     assert refs["ARCHMORPH_API_KEY_ROTATED"] == {
         "name": "contract-archmorph-secrets",
         "key": "ARCHMORPH_API_KEY_ROTATED",
-        "optional": True,
     }
     assert refs["ARCHMORPH_API_KEY_PRINCIPAL_ID"] == {
         "name": "contract-archmorph-secrets",
@@ -84,6 +84,7 @@ def test_environment_renders_all_fail_closed_auth_secret_refs(values_file):
         "name": "contract-archmorph-secrets",
         "key": "JWT_SECRET",
     }
+    assert config_map["data"]["ARCHMORPH_API_KEY_ALLOW_LEGACY_OVERLAP"] == "false"
 
     migration = next(document for document in documents if document["kind"] == "Job")
     assert migration["metadata"]["annotations"]["helm.sh/hook"] == "pre-install,pre-upgrade"
@@ -137,6 +138,29 @@ def test_existing_secret_contract_renders_without_external_secret():
     assert refs["REDIS_URL"]["name"] == "runtime-secrets"
     assert refs["ARCHMORPH_API_KEY"]["name"] == "runtime-secrets"
     assert refs["JWT_SECRET"]["name"] == "runtime-secrets"
+    assert refs["ARCHMORPH_API_KEY_ROTATED"] == {
+        "name": "runtime-secrets",
+        "key": "ARCHMORPH_API_KEY_ROTATED",
+        "optional": True,
+    }
+    assert refs["ARCHMORPH_API_KEY_PRINCIPAL_ID"] == {
+        "name": "runtime-secrets",
+        "key": "ARCHMORPH_API_KEY_PRINCIPAL_ID",
+    }
+
+
+def test_static_key_overlap_render_is_explicit_and_secret_values_absent():
+    rendered = _render_environment(
+        "values-production.yaml",
+        "--set-string",
+        "env.ARCHMORPH_API_KEY_ALLOW_LEGACY_OVERLAP=true",
+    )
+    documents = _documents(rendered.stdout)
+    config_map = next(document for document in documents if document["kind"] == "ConfigMap")
+
+    assert config_map["data"]["ARCHMORPH_API_KEY_ALLOW_LEGACY_OVERLAP"] == "true"
+    assert "your-base-api-key" not in rendered.stdout
+    assert "your-current-api-key" not in rendered.stdout
 
 
 def test_first_install_creates_app_service_account_and_hooks_receive_pull_secret():
@@ -180,6 +204,7 @@ def test_render_fails_when_external_secret_omits_database_or_redis_key():
     "required_key",
     [
         "ARCHMORPH_API_KEY",
+        "ARCHMORPH_API_KEY_ROTATED",
         "ARCHMORPH_API_KEY_PRINCIPAL_ID",
         "JWT_SECRET",
     ],

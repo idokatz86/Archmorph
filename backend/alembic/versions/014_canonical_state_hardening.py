@@ -755,6 +755,10 @@ def upgrade() -> None:
         sa.Column("role", sa.String(20), nullable=False, server_default="viewer"),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+        sa.CheckConstraint(
+            "role IN ('viewer', 'editor')",
+            name="ck_project_members_role",
+        ),
     )
     op.create_index("ix_project_members_project_id", "project_members", ["project_id"])
     op.create_index("ix_project_members_tenant_id", "project_members", ["tenant_id"])
@@ -891,6 +895,42 @@ def upgrade() -> None:
     op.create_index(
         "ix_analysis_mutation_receipts_analysis",
         "analysis_mutation_receipts",
+        ["analysis_id"],
+    )
+
+    op.create_table(
+        "analysis_restore_receipts",
+        sa.Column("id", sa.String(36), primary_key=True),
+        sa.Column("owner_user_id", sa.String(100), nullable=False),
+        sa.Column("tenant_id", sa.String(100), nullable=False),
+        sa.Column(
+            "analysis_id",
+            sa.String(36),
+            sa.ForeignKey("analyses.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column("idempotency_key_hash", sa.String(64), nullable=False),
+        sa.Column("intent_hash", sa.String(64), nullable=False),
+        sa.Column("source_version", sa.Integer(), nullable=False),
+        sa.Column("expected_version", sa.Integer(), nullable=False),
+        sa.Column(
+            "restored_version_id",
+            sa.String(36),
+            sa.ForeignKey("analysis_versions.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column("restored_version_number", sa.Integer(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+    )
+    op.create_index(
+        "ux_analysis_restore_receipts_scope",
+        "analysis_restore_receipts",
+        ["owner_user_id", "tenant_id", "analysis_id", "idempotency_key_hash"],
+        unique=True,
+    )
+    op.create_index(
+        "ix_analysis_restore_receipts_analysis",
+        "analysis_restore_receipts",
         ["analysis_id"],
     )
 
@@ -1062,6 +1102,14 @@ def downgrade() -> None:
                 "Downgrade refused: tenant rewrite alias/audit evidence is append-only; "
                 "deploy a schema-compatible revision or fix forward"
             )
+        restore_receipts = bind.execute(
+            sa.text("SELECT count(*) FROM analysis_restore_receipts")
+        ).scalar_one()
+        if restore_receipts:
+            raise RuntimeError(
+                "Downgrade refused: durable version-restore idempotency receipts exist; "
+                "deploy a schema-compatible revision or fix forward"
+            )
     op.drop_index("ux_migration_replay_events_sequence", table_name="migration_replay_events")
     op.drop_index("ix_migration_replay_events_replay_id", table_name="migration_replay_events")
     op.drop_table("migration_replay_events")
@@ -1083,6 +1131,9 @@ def downgrade() -> None:
         )
         op.drop_constraint("fk_analysis_versions_restored_from", "analysis_versions", type_="foreignkey")
         op.drop_constraint("uq_analysis_versions_analysis_id_id", "analysis_versions", type_="unique")
+    op.drop_index("ix_analysis_restore_receipts_analysis", table_name="analysis_restore_receipts")
+    op.drop_index("ux_analysis_restore_receipts_scope", table_name="analysis_restore_receipts")
+    op.drop_table("analysis_restore_receipts")
     op.drop_index("ix_analysis_mutation_receipts_analysis", table_name="analysis_mutation_receipts")
     op.drop_index("ux_analysis_mutation_receipts_scope", table_name="analysis_mutation_receipts")
     op.drop_table("analysis_mutation_receipts")

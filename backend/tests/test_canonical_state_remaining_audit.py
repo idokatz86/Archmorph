@@ -103,6 +103,7 @@ def test_static_api_key_rotation_uses_explicit_stable_principal(monkeypatch):
     monkeypatch.setattr(shared, "API_KEY", "old-static-key")
     monkeypatch.setattr(shared, "API_KEY_ROTATED", "new-static-key")
     monkeypatch.setattr(shared, "API_KEY_PRINCIPAL_ID", "stable-client-principal")
+    monkeypatch.setattr(shared, "API_KEY_ALLOW_LEGACY_OVERLAP", False)
 
     assert shared.get_api_key_service_principal({"x-api-key": "old-static-key"}) is None
     assert shared.get_api_key_service_principal({"x-api-key": "new-static-key"}) == (
@@ -110,12 +111,13 @@ def test_static_api_key_rotation_uses_explicit_stable_principal(monkeypatch):
     )
 
 
-def test_static_legacy_principal_default_is_deterministic(monkeypatch):
+def test_static_principal_default_is_stable_and_not_secret_derived(monkeypatch):
     monkeypatch.setattr(shared, "API_KEY", "legacy-static-key")
     monkeypatch.setattr(shared, "API_KEY_ROTATED", "")
     monkeypatch.setattr(shared, "API_KEY_PRINCIPAL_ID", "")
-    expected = f"api-key:legacy-{shared._derive_api_key_principal_digest('legacy-static-key')}"
-    assert shared.get_api_key_service_principal({"x-api-key": "legacy-static-key"}) == expected
+    assert shared.get_api_key_service_principal({"x-api-key": "legacy-static-key"}) == (
+        "api-key:static-service"
+    )
 
 
 def test_transitive_restore_ancestors_survive_retention_cap(db):

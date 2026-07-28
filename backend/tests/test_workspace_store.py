@@ -401,7 +401,12 @@ class TestAnalysisVersions:
         save_analysis_version(db, analysis_id=a.id, owner_user_id="u1", snapshot={"step": "original"})
         save_analysis_version(db, analysis_id=a.id, owner_user_id="u1", snapshot={"step": "updated"})
         new_v = restore_analysis_version(
-            db, analysis_id=a.id, version_number=1, owner_user_id="u1"
+            db,
+            analysis_id=a.id,
+            version_number=1,
+            owner_user_id="u1",
+            expected_version=2,
+            idempotency_key="restore-version-creates-new",
         )
         assert new_v is not None
         assert new_v.restored_from == 1
@@ -413,7 +418,12 @@ class TestAnalysisVersions:
     def test_restore_nonexistent_version(self, db):
         a = self._make_analysis(db)
         result = restore_analysis_version(
-            db, analysis_id=a.id, version_number=99, owner_user_id="u1"
+            db,
+            analysis_id=a.id,
+            version_number=99,
+            owner_user_id="u1",
+            expected_version=0,
+            idempotency_key="restore-nonexistent-version",
         )
         assert result is None
 
@@ -432,6 +442,8 @@ class TestAnalysisVersions:
         restore_analysis_version(
             db, analysis_id=a.id, version_number=1, owner_user_id="u1",
             session_store=store,
+            expected_version=1,
+            idempotency_key="restore-updates-session-store",
         )
         assert "diag-v" in store.data
         assert store.data["diag-v"]["v"] == 1
@@ -457,6 +469,8 @@ class TestAnalysisVersions:
             version_number=1,
             owner_user_id="u1",
             session_store=store,
+            expected_version=1,
+            idempotency_key="restore-foreign-session-owner",
         )
         assert new_v is not None
         assert store.data["diag-v"]["_owner_user_id"] == "attacker"
@@ -1130,6 +1144,8 @@ class TestCanonicalAnalysisState:
             owner_user_id="restore-owner",
             tenant_id="restore-tenant",
             session_store=store,
+            expected_version=2,
+            idempotency_key="restore-survives-cache-loss",
         )
         store.clear()
         hydrated = load_analysis_state(

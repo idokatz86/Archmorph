@@ -19,6 +19,29 @@ Required keys (values are never committed):
 - `ARCHMORPH_API_KEY_PRINCIPAL_ID` (stable non-secret durable principal ID)
 - `JWT_SECRET`
 
+`ARCHMORPH_API_KEY_ROTATED` is optional only in the default development values;
+production and staging require it to make rollout wiring deterministic. The
+ConfigMap flag `ARCHMORPH_API_KEY_ALLOW_LEGACY_OVERLAP` controls the policy:
+
+1. Keep `ARCHMORPH_API_KEY_PRINCIPAL_ID` unchanged.
+2. Materialize `ARCHMORPH_API_KEY_ROTATED` and set overlap to `"true"`; both
+	base and current credentials authenticate as the same static principal.
+3. Move callers to the current credential.
+4. Set overlap to `"false"`; the base credential is rejected immediately.
+5. Promote the current credential to the base secret and remove the optional
+	rotated secret before the next rotation.
+
+Never derive or change the principal identifier from either credential value.
+Managed API keys use `read`, `write`, and `admin` scopes. `read` authorizes only
+safe reads, `write` authorizes mutations, and `admin` authorizes both plus API
+key management. Static service credentials are service administrators.
+
+Project member assignments support only `viewer` and `editor`; there is no
+assignable project-level `admin` role. The project owner and active tenant
+owner/admin can manage members and all project actions. Editors can read,
+generate, and mutate diagrams but cannot manage members. Viewers can read
+project status, combined analysis, and diagrams only.
+
 Use placeholder remote keys in public examples. Supply real secret-store names,
 resource identifiers, endpoints, and values only through private deployment
 configuration.

@@ -141,6 +141,10 @@ class ProjectMember(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     __table_args__ = (
+        CheckConstraint(
+            "role IN ('viewer', 'editor')",
+            name="ck_project_members_role",
+        ),
         Index(
             "ux_project_members_project_member",
             "project_id",
@@ -404,6 +408,44 @@ class AnalysisMutationReceipt(Base):
             unique=True,
         ),
         Index("ix_analysis_mutation_receipts_analysis", "analysis_id"),
+    )
+
+
+class AnalysisRestoreReceipt(Base):
+    """Durable replay receipt for one version-restore caller intent."""
+
+    __tablename__ = "analysis_restore_receipts"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    owner_user_id = Column(String(100), nullable=False)
+    tenant_id = Column(String(100), nullable=False)
+    analysis_id = Column(
+        String(36),
+        ForeignKey("analyses.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    idempotency_key_hash = Column(String(64), nullable=False)
+    intent_hash = Column(String(64), nullable=False)
+    source_version = Column(Integer, nullable=False)
+    expected_version = Column(Integer, nullable=False)
+    restored_version_id = Column(
+        String(36),
+        ForeignKey("analysis_versions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    restored_version_number = Column(Integer, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index(
+            "ux_analysis_restore_receipts_scope",
+            "owner_user_id",
+            "tenant_id",
+            "analysis_id",
+            "idempotency_key_hash",
+            unique=True,
+        ),
+        Index("ix_analysis_restore_receipts_analysis", "analysis_id"),
     )
 
 

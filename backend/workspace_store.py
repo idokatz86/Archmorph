@@ -55,12 +55,14 @@ from log_sanitizer import safe
 from models.workspace import (
     Analysis,
     AnalysisMutationReceipt,
+    AnalysisRestoreReceipt,
     AnalysisVersion,
     Artifact,
     Decision,
     DiagramLifecycle,
     MigrationReplay,
     MigrationReplayEvent,
+    ProjectMember,
     PurgeOperation,
     RestoreGrant,
     SourceAsset,
@@ -710,6 +712,9 @@ def _trim_old_versions(db: Session, analysis_id: str) -> None:
         referenced = (
             db.query(Artifact.id).filter(Artifact.version_id == version.id).first()
             or db.query(Decision.id).filter(Decision.version_id == version.id).first()
+            or db.query(AnalysisRestoreReceipt.id).filter(
+                AnalysisRestoreReceipt.restored_version_id == version.id
+            ).first()
         )
         if referenced:
             continue
@@ -787,6 +792,7 @@ def restore_analysis_version(
     session_store: Any = None,
     cache_owner_api_key_id: Optional[str] = None,
     expected_version: Optional[int] = None,
+    idempotency_key: Optional[str] = None,
 ) -> Optional[AnalysisVersion]:
     """Restore a previous version by creating a new version from it.
 
@@ -796,66 +802,113 @@ def restore_analysis_version(
 
     Returns the new version record, or None when the source version is not found.
     """
-    source = get_analysis_version(
-        db,
-        analysis_id=analysis_id,
-        version_number=version_number,
-        owner_user_id=owner_user_id,
-        tenant_id=tenant_id,
-    )
-    if source is None:
-        return None
-
-    snapshot = _json.loads(source.snapshot)
-    analysis = get_analysis_record(
-        db,
-        analysis_id,
-        owner_user_id=owner_user_id,
-        tenant_id=tenant_id,
-    )
-    assert analysis is not None
-    current_version = int(analysis.current_version or 0)
     if expected_version is None:
-        expected_version = current_version
-    request_hash = hashlib.sha256(
+        raise AnalysisVersionConflictError("Version restore requires expected_version")
+    if not idempotency_key:
+        raise ValueError("Version restore requires an Idempotency-Key")
+    receipt_tenant_id = tenant_id or "__tenantless__"
+
+    key_hash = hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest()
+    intent_hash = hashlib.sha256(
         _json.dumps(
             {
                 "analysis_id": analysis_id,
                 "source_version": version_number,
                 "expected_version": expected_version,
-                "source_hash": source.content_hash,
             },
             sort_keys=True,
             separators=(",", ":"),
         ).encode("utf-8")
     ).hexdigest()
-    if analysis.diagram_id and tenant_id is not None:
-        result = persist_analysis_mutation(
-            db,
-            owner_user_id=owner_user_id,
-            tenant_id=tenant_id,
-            diagram_id=analysis.diagram_id,
-            snapshot=snapshot,
-            workspace_id=analysis.workspace_id,
-            session_store=session_store,
-            cache_owner_api_key_id=cache_owner_api_key_id,
-            label=f"restored-from-v{version_number}",
-            restored_from=version_number,
-            expected_version=expected_version,
-            operation="version-restore",
-            request_hash=request_hash,
-        )
-        return result.version
 
-    new_version = save_analysis_version(
+    existing_receipt = db.query(AnalysisRestoreReceipt).filter(
+        AnalysisRestoreReceipt.owner_user_id == owner_user_id,
+        AnalysisRestoreReceipt.tenant_id == receipt_tenant_id,
+        AnalysisRestoreReceipt.analysis_id == analysis_id,
+        AnalysisRestoreReceipt.idempotency_key_hash == key_hash,
+    ).first()
+    if existing_receipt is not None:
+        if existing_receipt.intent_hash != intent_hash:
+            raise AnalysisVersionConflictError("Idempotency-Key was already used for a different restore intent")
+        return db.query(AnalysisVersion).filter(
+            AnalysisVersion.id == existing_receipt.restored_version_id,
+            AnalysisVersion.analysis_id == analysis_id,
+        ).one()
+
+    analysis_query = db.query(Analysis)
+    if db.get_bind().dialect.name == "postgresql":
+        analysis_query = analysis_query.with_for_update()
+    analysis = analysis_query.filter(
+        Analysis.id == analysis_id,
+        Analysis.owner_user_id == owner_user_id,
+        _tenant_matches(Analysis.tenant_id, tenant_id),
+    ).first()
+    if analysis is None:
+        return None
+    existing_receipt = db.query(AnalysisRestoreReceipt).filter(
+        AnalysisRestoreReceipt.owner_user_id == owner_user_id,
+        AnalysisRestoreReceipt.tenant_id == receipt_tenant_id,
+        AnalysisRestoreReceipt.analysis_id == analysis_id,
+        AnalysisRestoreReceipt.idempotency_key_hash == key_hash,
+    ).first()
+    if existing_receipt is not None:
+        if existing_receipt.intent_hash != intent_hash:
+            raise AnalysisVersionConflictError("Idempotency-Key was already used for a different restore intent")
+        return db.query(AnalysisVersion).filter(
+            AnalysisVersion.id == existing_receipt.restored_version_id,
+            AnalysisVersion.analysis_id == analysis_id,
+        ).one()
+    current_version = int(analysis.current_version or 0)
+    if current_version != expected_version:
+        raise AnalysisVersionConflictError(
+            f"Expected version {expected_version}, current version is {current_version}"
+        )
+    source = db.query(AnalysisVersion).filter(
+        AnalysisVersion.analysis_id == analysis_id,
+        AnalysisVersion.version_number == version_number,
+    ).first()
+    if source is None:
+        return None
+    snapshot = _json.loads(source.snapshot)
+    new_version = _stage_analysis_version(
         db,
-        analysis_id=analysis_id,
+        analysis=analysis,
         owner_user_id=owner_user_id,
-        tenant_id=tenant_id,
         snapshot=snapshot,
         label=f"restored-from-v{version_number}",
         restored_from=version_number,
     )
+    db.flush()
+    db.add(AnalysisRestoreReceipt(
+        owner_user_id=owner_user_id,
+        tenant_id=receipt_tenant_id,
+        analysis_id=analysis_id,
+        idempotency_key_hash=key_hash,
+        intent_hash=intent_hash,
+        source_version=version_number,
+        expected_version=expected_version,
+        restored_version_id=new_version.id,
+        restored_version_number=new_version.version_number,
+    ))
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        receipt = db.query(AnalysisRestoreReceipt).filter(
+            AnalysisRestoreReceipt.owner_user_id == owner_user_id,
+            AnalysisRestoreReceipt.tenant_id == receipt_tenant_id,
+            AnalysisRestoreReceipt.analysis_id == analysis_id,
+            AnalysisRestoreReceipt.idempotency_key_hash == key_hash,
+        ).one_or_none()
+        if receipt is None:
+            raise
+        if receipt.intent_hash != intent_hash:
+            raise AnalysisVersionConflictError("Idempotency-Key was already used for a different restore intent")
+        return db.query(AnalysisVersion).filter(
+            AnalysisVersion.id == receipt.restored_version_id,
+            AnalysisVersion.analysis_id == analysis_id,
+        ).one()
+    db.refresh(new_version)
     if session_store is not None and analysis.diagram_id:
         try:
             existing = session_store.get(analysis.diagram_id) if hasattr(session_store, "get") else None
@@ -2244,6 +2297,72 @@ def rehome_legacy_owner_scope(
                 {
                     DiagramLifecycle.owner_user_id: target_owner_user_id,
                     DiagramLifecycle.tenant_id: target_tenant_id,
+                },
+                synchronize_session=False,
+            )
+            db.query(ProjectMember).filter(
+                ProjectMember.project_id == workspace.id,
+                ProjectMember.project_owner_user_id == source_owner_user_id,
+                ProjectMember.tenant_id == source_tenant_id,
+            ).update(
+                {
+                    ProjectMember.project_owner_user_id: target_owner_user_id,
+                    ProjectMember.tenant_id: target_tenant_id,
+                },
+                synchronize_session=False,
+            )
+            db.query(AnalysisMutationReceipt).filter(
+                AnalysisMutationReceipt.analysis_id.in_(analysis_ids),
+                AnalysisMutationReceipt.owner_user_id == source_owner_user_id,
+                AnalysisMutationReceipt.tenant_id == source_tenant_id,
+            ).update(
+                {
+                    AnalysisMutationReceipt.owner_user_id: target_owner_user_id,
+                    AnalysisMutationReceipt.tenant_id: target_tenant_id,
+                },
+                synchronize_session=False,
+            )
+            db.query(AnalysisRestoreReceipt).filter(
+                AnalysisRestoreReceipt.analysis_id.in_(analysis_ids),
+                AnalysisRestoreReceipt.owner_user_id == source_owner_user_id,
+                AnalysisRestoreReceipt.tenant_id == source_tenant_id,
+            ).update(
+                {
+                    AnalysisRestoreReceipt.owner_user_id: target_owner_user_id,
+                    AnalysisRestoreReceipt.tenant_id: target_tenant_id,
+                },
+                synchronize_session=False,
+            )
+            db.query(MigrationReplay).filter(
+                MigrationReplay.analysis_id.in_(analysis_ids),
+                MigrationReplay.owner_user_id == source_owner_user_id,
+                MigrationReplay.tenant_id == source_tenant_id,
+            ).update(
+                {
+                    MigrationReplay.owner_user_id: target_owner_user_id,
+                    MigrationReplay.tenant_id: target_tenant_id,
+                },
+                synchronize_session=False,
+            )
+            db.query(RestoreGrant).filter(
+                RestoreGrant.diagram_id.in_(diagram_ids),
+                RestoreGrant.owner_user_id == source_owner_user_id,
+                RestoreGrant.tenant_id == source_tenant_id,
+            ).update(
+                {
+                    RestoreGrant.owner_user_id: target_owner_user_id,
+                    RestoreGrant.tenant_id: target_tenant_id,
+                },
+                synchronize_session=False,
+            )
+            db.query(PurgeOperation).filter(
+                PurgeOperation.workspace_id == workspace.id,
+                PurgeOperation.owner_user_id == source_owner_user_id,
+                PurgeOperation.tenant_id == source_tenant_id,
+            ).update(
+                {
+                    PurgeOperation.owner_user_id: target_owner_user_id,
+                    PurgeOperation.tenant_id: target_tenant_id,
                 },
                 synchronize_session=False,
             )

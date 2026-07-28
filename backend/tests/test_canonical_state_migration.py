@@ -63,6 +63,7 @@ def test_migration_contains_conflict_audit_and_uniqueness_guards():
     assert "ck_workspaces_status" in source
     assert "project_members" in source
     assert "analysis_mutation_receipts" in source
+    assert "analysis_restore_receipts" in source
     assert "diagram_lifecycle" in source
     assert "restore_grants" in source
     assert "purge_operations" in source
@@ -74,6 +75,7 @@ def test_migration_contains_conflict_audit_and_uniqueness_guards():
     assert "retain VARCHAR(100)" in source
     assert "tenant rewrite alias/audit evidence is append-only" in source
     assert 'op.drop_table("analysis_mutation_receipts")' in source
+    assert 'op.drop_table("analysis_restore_receipts")' in source
     assert 'op.drop_table("purge_operations")' in source
     assert 'op.drop_table("restore_grants")' in source
     assert 'op.drop_table("diagram_lifecycle")' in source

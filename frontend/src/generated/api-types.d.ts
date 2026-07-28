@@ -12887,7 +12887,10 @@ export interface operations {
     restore_version_endpoint_api_analyses__analysis_id__versions__version_number__restore_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "If-Match": string;
+                "Idempotency-Key": string;
+            };
             path: {
                 analysis_id: string;
                 version_number: number;
@@ -15826,7 +15829,10 @@ export interface operations {
     restore_version_endpoint_api_diagrams__diagram_id__versions__version_number__restore_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "If-Match": string;
+                "Idempotency-Key": string;
+            };
             path: {
                 diagram_id: string;
                 version_number: number;
@@ -20104,7 +20110,10 @@ export interface operations {
     restore_version_endpoint_v1_api_v1_analyses__analysis_id__versions__version_number__restore_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "If-Match": string;
+                "Idempotency-Key": string;
+            };
             path: {
                 analysis_id: string;
                 version_number: number;
@@ -23043,7 +23052,10 @@ export interface operations {
     restore_version_endpoint_v1_api_v1_diagrams__diagram_id__versions__version_number__restore_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "If-Match": string;
+                "Idempotency-Key": string;
+            };
             path: {
                 diagram_id: string;
                 version_number: number;

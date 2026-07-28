@@ -181,6 +181,14 @@ def test_prod_workflow_supplies_legacy_openai_secret_variable():
 
     assert env["TF_VAR_preserve_legacy_openai_key"] is True
     assert env["TF_VAR_openai_api_key"] == "${{ secrets.AZURE_OPENAI_API_KEY }}"
+    assert env["TF_VAR_archmorph_api_key"] == "${{ secrets.ARCHMORPH_API_KEY || secrets.API_KEY }}"
+    assert env["TF_VAR_manage_archmorph_api_key"] is True
+    assert env["TF_VAR_archmorph_api_key_rotated"] == "${{ secrets.ARCHMORPH_API_KEY_ROTATED }}"
+    assert env["TF_VAR_manage_archmorph_api_key_rotated"] is True
+    assert env["TF_VAR_archmorph_api_key_principal_id"] == "${{ vars.ARCHMORPH_API_KEY_PRINCIPAL_ID }}"
+    assert env["TF_VAR_archmorph_api_key_allow_legacy_overlap"] == (
+        "${{ vars.ARCHMORPH_API_KEY_ALLOW_LEGACY_OVERLAP || 'false' }}"
+    )
 
 
 def test_prod_workflow_uses_private_prod_stack_inventory():

@@ -14,6 +14,9 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 from alembic import command
 from alembic.config import Config
+from limits import parse as parse_rate_limit
+from limits.storage import RedisStorage
+from limits.strategies import FixedWindowRateLimiter
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
@@ -22,6 +25,7 @@ from models.workspace import (
     APIKeyCredential,
     Analysis,
     AnalysisMutationReceipt,
+    AnalysisRestoreReceipt,
     AnalysisVersion,
     Artifact,
     Decision,
@@ -40,6 +44,7 @@ from session_store import InMemoryStore, RedisStore
 from routers import shared
 from routers.api_keys_routes import create_api_key, rotate_api_key
 from workspace_store import (
+    AnalysisVersionConflictError,
     MAX_VERSIONS_PER_ANALYSIS,
     _trim_old_versions,
     add_migration_replay_event,
@@ -50,6 +55,7 @@ from workspace_store import (
     load_analysis_state,
     persist_analysis_state,
     rehome_legacy_analysis_scope,
+    restore_analysis_version,
     save_analysis_version,
     update_workspace,
 )
@@ -86,6 +92,7 @@ def postgres_factory(request):
         db.query(MigrationReplay).delete()
         db.query(ProjectMember).delete()
         db.query(RestoreGrant).delete()
+        db.query(AnalysisRestoreReceipt).delete()
         db.query(AnalysisMutationReceipt).delete()
         db.query(PurgeOperation).delete()
         db.query(DiagramLifecycle).delete()
@@ -445,6 +452,90 @@ def test_concurrent_same_mutation_receipt_creates_one_version(postgres_factory):
         db.close()
 
 
+def test_concurrent_same_restore_key_creates_one_version(postgres_factory):
+    seeded = postgres_factory()
+    try:
+        original = persist_analysis_state(
+            seeded,
+            owner_user_id="pg-restore-owner",
+            tenant_id="pg-restore-tenant",
+            diagram_id="pg-restore-diagram",
+            snapshot={"step": "source", "mappings": []},
+        )
+        persist_analysis_state(
+            seeded,
+            owner_user_id="pg-restore-owner",
+            tenant_id="pg-restore-tenant",
+            diagram_id="pg-restore-diagram",
+            snapshot={"step": "current", "mappings": [], "_analysis_version": 1},
+            expected_version=1,
+            operation="prepare-restore-current",
+            request_hash="b" * 64,
+        )
+        analysis_id = original.analysis.id
+    finally:
+        seeded.close()
+
+    barrier = threading.Barrier(2)
+
+    def restore():
+        db = postgres_factory()
+        try:
+            barrier.wait(timeout=5)
+            return restore_analysis_version(
+                db,
+                analysis_id=analysis_id,
+                version_number=1,
+                owner_user_id="pg-restore-owner",
+                tenant_id="pg-restore-tenant",
+                expected_version=2,
+                idempotency_key="same-concurrent-restore-key",
+            ).version_number
+        finally:
+            db.close()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        versions = list(pool.map(lambda _index: restore(), range(2)))
+
+    assert versions == [3, 3]
+    db = postgres_factory()
+    try:
+        assert db.query(AnalysisVersion).filter_by(analysis_id=analysis_id).count() == 3
+        assert db.query(AnalysisRestoreReceipt).filter_by(analysis_id=analysis_id).count() == 1
+        replay = restore_analysis_version(
+            db,
+            analysis_id=analysis_id,
+            version_number=1,
+            owner_user_id="pg-restore-owner",
+            tenant_id="pg-restore-tenant",
+            expected_version=2,
+            idempotency_key="same-concurrent-restore-key",
+        )
+        assert replay.version_number == 3
+        with pytest.raises(AnalysisVersionConflictError, match="different restore intent"):
+            restore_analysis_version(
+                db,
+                analysis_id=analysis_id,
+                version_number=2,
+                owner_user_id="pg-restore-owner",
+                tenant_id="pg-restore-tenant",
+                expected_version=3,
+                idempotency_key="same-concurrent-restore-key",
+            )
+        with pytest.raises(AnalysisVersionConflictError, match="Expected version"):
+            restore_analysis_version(
+                db,
+                analysis_id=analysis_id,
+                version_number=1,
+                owner_user_id="pg-restore-owner",
+                tenant_id="pg-restore-tenant",
+                expected_version=2,
+                idempotency_key="fresh-but-stale-restore-key",
+            )
+    finally:
+        db.close()
+
+
 def test_concurrent_distinct_diagrams_share_one_default_workspace(postgres_factory):
     barrier = threading.Barrier(12)
 
@@ -623,6 +714,20 @@ def test_real_redis_getdel_has_one_concurrent_winner(monkeypatch):
         assert results.count(None) == 11
     finally:
         store.clear()
+
+
+@pytest.mark.skipif(not os.getenv("ARCHMORPH_TEST_REDIS_URL"), reason="isolated Redis URL not configured")
+def test_real_redis_managed_key_rate_limit_is_shared_across_replicas():
+    redis_url = os.environ["ARCHMORPH_TEST_REDIS_URL"]
+    first = FixedWindowRateLimiter(RedisStorage(redis_url))
+    second = FixedWindowRateLimiter(RedisStorage(redis_url))
+    rate = parse_rate_limit("2/minute")
+    principal = f"api-key:distributed-{uuid.uuid4().hex}"
+
+    assert first.hit(rate, "managed-api-key", principal) is True
+    assert second.hit(rate, "managed-api-key", principal) is True
+    assert first.hit(rate, "managed-api-key", principal) is False
+    assert second.hit(rate, "managed-api-key", f"{principal}-isolated") is True
 
 
 def test_exact_owner_legacy_graph_rehomes_transactionally_with_audit(postgres_factory):

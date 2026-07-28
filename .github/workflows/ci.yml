@@ -630,6 +630,9 @@ jobs:
       MIGRATION_DATABASE_SECRET_NAME: ${{ secrets.MIGRATION_DATABASE_SECRET_NAME }}
       ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
       ARCHMORPH_API_KEY: ${{ secrets.ARCHMORPH_API_KEY || secrets.API_KEY }}
+      ARCHMORPH_API_KEY_ROTATED: ${{ secrets.ARCHMORPH_API_KEY_ROTATED }}
+      ARCHMORPH_API_KEY_PRINCIPAL_ID: ${{ vars.ARCHMORPH_API_KEY_PRINCIPAL_ID }}
+      ARCHMORPH_API_KEY_ALLOW_LEGACY_OVERLAP: ${{ vars.ARCHMORPH_API_KEY_ALLOW_LEGACY_OVERLAP || 'false' }}
       JWT_SECRET: ${{ secrets.JWT_SECRET }}
       TRUSTED_FRONT_DOOR_FDID: ${{ secrets.TRUSTED_FRONT_DOOR_FDID }}
       TRUSTED_FRONT_DOOR_HOSTS: ${{ secrets.TRUSTED_FRONT_DOOR_HOSTS }}
@@ -682,6 +685,7 @@ jobs:
             MIGRATION_DATABASE_SECRET_NAME \
             ADMIN_KEY \
             ARCHMORPH_API_KEY \
+            ARCHMORPH_API_KEY_PRINCIPAL_ID \
             JWT_SECRET \
             ALLOWED_ORIGINS \
             LEGACY_METRICS_STORAGE_ACCOUNT \
@@ -1718,9 +1722,18 @@ jobs:
               api-key="${{ env.ARCHMORPH_API_KEY }}" \
               jwt-secret="${{ env.JWT_SECRET }}"
 
+          if [ -n "${ARCHMORPH_API_KEY_ROTATED:-}" ]; then
+            az containerapp secret set \
+              --name ${{ env.CONTAINER_APP_NAME }} \
+              --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+              --secrets api-key-rotated="${ARCHMORPH_API_KEY_ROTATED}"
+          fi
+
           SET_ENV_VARS=(
             ARCHMORPH_ADMIN_KEY=secretref:admin-key
             ARCHMORPH_API_KEY=secretref:api-key
+            ARCHMORPH_API_KEY_PRINCIPAL_ID="$ARCHMORPH_API_KEY_PRINCIPAL_ID"
+            ARCHMORPH_API_KEY_ALLOW_LEGACY_OVERLAP="$ARCHMORPH_API_KEY_ALLOW_LEGACY_OVERLAP"
             JWT_SECRET=secretref:jwt-secret
             ALLOWED_ORIGINS="$ALLOWED_ORIGINS"
             AZURE_STORAGE_ACCOUNT_URL="$STORAGE_ACCOUNT_URL"
@@ -1733,6 +1746,9 @@ jobs:
             TRUSTED_FRONT_DOOR_FDID="$TRUSTED_FRONT_DOOR_FDID"
             TRUSTED_FRONT_DOOR_HOSTS="$TRUSTED_FRONT_DOOR_HOSTS"
           )
+          if [ -n "${ARCHMORPH_API_KEY_ROTATED:-}" ]; then
+            SET_ENV_VARS+=(ARCHMORPH_API_KEY_ROTATED=secretref:api-key-rotated)
+          fi
 
           if [ -n "${{ secrets.ACS_CONNECTION_STRING }}" ]; then
             az containerapp secret set \
@@ -1758,6 +1774,8 @@ jobs:
             --secret-env ARCHMORPH_ADMIN_KEY=admin-key
             --secret-env ARCHMORPH_API_KEY=api-key
             --secret-env JWT_SECRET=jwt-secret
+            --env ARCHMORPH_API_KEY_PRINCIPAL_ID="$ARCHMORPH_API_KEY_PRINCIPAL_ID"
+            --env ARCHMORPH_API_KEY_ALLOW_LEGACY_OVERLAP="$ARCHMORPH_API_KEY_ALLOW_LEGACY_OVERLAP"
             --env ALLOWED_ORIGINS="$ALLOWED_ORIGINS"
             --env AZURE_STORAGE_ACCOUNT_URL="$STORAGE_ACCOUNT_URL"
             --env AZURE_OPENAI_ENDPOINT="${{ secrets.AZURE_OPENAI_ENDPOINT }}"
@@ -1771,6 +1789,9 @@ jobs:
             --env APP_SCHEMA_MIN_REVISION="$APP_SCHEMA_MIN_REVISION"
             --env APP_SCHEMA_MAX_REVISION="$APP_SCHEMA_MAX_REVISION"
           )
+          if [ -n "${ARCHMORPH_API_KEY_ROTATED:-}" ]; then
+            REVISION_ARGS+=(--secret-env ARCHMORPH_API_KEY_ROTATED=api-key-rotated)
+          fi
           if [ -n "${{ secrets.ACS_CONNECTION_STRING }}" ]; then
             REVISION_ARGS+=(--secret-env ACS_CONNECTION_STRING=acs-connection-string)
           fi

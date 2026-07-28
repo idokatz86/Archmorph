@@ -117,12 +117,22 @@ def test_backend_deploy_uses_distinct_api_key_secret_reference():
 
     deploy_job = workflow["jobs"]["deploy-backend"]
     assert deploy_job["env"]["ARCHMORPH_API_KEY"] == "${{ secrets.ARCHMORPH_API_KEY || secrets.API_KEY }}"
+    assert deploy_job["env"]["ARCHMORPH_API_KEY_ROTATED"] == "${{ secrets.ARCHMORPH_API_KEY_ROTATED }}"
+    assert deploy_job["env"]["ARCHMORPH_API_KEY_PRINCIPAL_ID"] == "${{ vars.ARCHMORPH_API_KEY_PRINCIPAL_ID }}"
+    assert deploy_job["env"]["ARCHMORPH_API_KEY_ALLOW_LEGACY_OVERLAP"] == (
+        "${{ vars.ARCHMORPH_API_KEY_ALLOW_LEGACY_OVERLAP || 'false' }}"
+    )
 
     deploy_step = next(step for step in deploy_job["steps"] if step.get("name") == "Deploy green revision")
     deploy_script = deploy_step["run"]
 
     assert 'api-key="${{ env.ARCHMORPH_API_KEY }}"' in deploy_script
+    assert 'api-key-rotated="${ARCHMORPH_API_KEY_ROTATED}"' in deploy_script
     assert "ARCHMORPH_API_KEY=secretref:api-key" in deploy_script
+    assert "ARCHMORPH_API_KEY_ROTATED=secretref:api-key-rotated" in deploy_script
+    assert '--secret-env ARCHMORPH_API_KEY_ROTATED=api-key-rotated' in deploy_script
+    assert '--env ARCHMORPH_API_KEY_PRINCIPAL_ID="$ARCHMORPH_API_KEY_PRINCIPAL_ID"' in deploy_script
+    assert '--env ARCHMORPH_API_KEY_ALLOW_LEGACY_OVERLAP="$ARCHMORPH_API_KEY_ALLOW_LEGACY_OVERLAP"' in deploy_script
     assert "ARCHMORPH_API_KEY=secretref:admin-key" not in workflow_text
 
 

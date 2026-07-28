@@ -109,6 +109,57 @@ variable "preserve_legacy_openai_key" {
   }
 }
 
+variable "archmorph_api_key" {
+  description = "Base Archmorph static API credential. Supply only through private sensitive configuration."
+  type        = string
+  sensitive   = true
+  nullable    = true
+  default     = null
+}
+
+variable "manage_archmorph_api_key" {
+  description = "Manage the base Archmorph API key in Key Vault and wire it to Container Apps."
+  type        = bool
+  default     = false
+}
+
+variable "archmorph_api_key_rotated" {
+  description = "Optional current Archmorph static API credential used during rotation. Supply only through private sensitive configuration."
+  type        = string
+  sensitive   = true
+  nullable    = true
+  default     = null
+}
+
+variable "manage_archmorph_api_key_rotated" {
+  description = "Manage the current rotated Archmorph API key in Key Vault and wire it to Container Apps."
+  type        = bool
+  default     = false
+}
+
+variable "archmorph_api_key_principal_id" {
+  description = "Stable non-secret static service principal identifier. It must remain unchanged across credential rotations."
+  type        = string
+  nullable    = true
+  default     = null
+
+  validation {
+    condition     = var.archmorph_api_key_principal_id == null || can(regex("^[A-Za-z0-9][A-Za-z0-9._:-]{2,99}$", var.archmorph_api_key_principal_id))
+    error_message = "archmorph_api_key_principal_id must be null or a stable 3-100 character identifier."
+  }
+}
+
+variable "archmorph_api_key_allow_legacy_overlap" {
+  description = "Allow the base static API credential while a rotated credential is configured. Set false for cutover."
+  type        = bool
+  default     = false
+
+  validation {
+    condition     = !var.archmorph_api_key_allow_legacy_overlap || var.manage_archmorph_api_key_rotated
+    error_message = "Legacy overlap requires manage_archmorph_api_key_rotated=true."
+  }
+}
+
 # ─────────────────────────────────────────────────────────────
 # Azure Cache for Redis
 # ─────────────────────────────────────────────────────────────

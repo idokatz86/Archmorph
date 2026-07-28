@@ -12,7 +12,9 @@ import copy
 import hashlib
 import json
 import logging
+from functools import partial
 from typing import Any, Dict
+from starlette.concurrency import run_in_threadpool
 
 from routers.shared import (
     SESSION_STORE,
@@ -38,6 +40,47 @@ from export_artifacts import persist_generated_export_async
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _persist_async_hld(
+    *,
+    job_id: str,
+    payload: Dict[str, Any],
+    job_record: Any,
+    diagram_id: str,
+    latest_session: dict,
+    updated_session: dict,
+    markdown: str,
+) -> None:
+    from database import SessionLocal
+    from workspace_store import persist_analysis_mutation
+
+    db = SessionLocal()
+    try:
+        expected_version = latest_session.get("_analysis_version")
+        durable_owner = job_record.owner_user_id or job_record.owner_api_key_id
+        durable_tenant = job_record.tenant_id or f"service:{job_record.owner_api_key_id.split(':', 1)[-1]}"
+        persist_analysis_mutation(
+            db,
+            owner_user_id=durable_owner,
+            tenant_id=durable_tenant,
+            diagram_id=diagram_id,
+            snapshot=updated_session,
+            session_store=SESSION_STORE,
+            cache_owner_api_key_id=job_record.owner_api_key_id,
+            artifact_type="hld",
+            artifact_format="markdown",
+            artifact_content=markdown,
+            expected_version=int(expected_version) if expected_version is not None else None,
+            operation="hld-generated-async",
+            request_hash=hashlib.sha256(
+                f"{job_id}:{payload.get('analysis_hash')}:{hashlib.sha256(markdown.encode()).hexdigest()}".encode()
+            ).hexdigest(),
+            label="hld-generated-async",
+            cache_required=True,
+        )
+    finally:
+        db.close()
 
 
 def _hld_generation_input(session: dict) -> dict:
@@ -441,40 +484,23 @@ async def _run_hld_job(job_id: str, payload: Dict[str, Any]) -> None:
                 getattr(job_record, "owner_user_id", None)
                 or getattr(job_record, "owner_api_key_id", None)
             ):
-                from database import SessionLocal
-                from workspace_store import AnalysisVersionConflictError, persist_analysis_mutation
-
-                db = SessionLocal()
+                from workspace_store import AnalysisVersionConflictError
                 try:
-                    expected_version = latest_session.get("_analysis_version")
-                    durable_owner = job_record.owner_user_id or job_record.owner_api_key_id
-                    durable_tenant = job_record.tenant_id or f"service:{job_record.owner_api_key_id.split(':', 1)[-1]}"
-                    persist_analysis_mutation(
-                        db,
-                        owner_user_id=durable_owner,
-                        tenant_id=durable_tenant,
+                    await run_in_threadpool(partial(
+                        _persist_async_hld,
+                        job_id=job_id,
+                        payload=payload,
+                        job_record=job_record,
                         diagram_id=diagram_id,
-                        snapshot=updated_session,
-                        session_store=SESSION_STORE,
-                        cache_owner_api_key_id=job_record.owner_api_key_id,
-                        artifact_type="hld",
-                        artifact_format="markdown",
-                        artifact_content=markdown,
-                        expected_version=int(expected_version) if expected_version is not None else None,
-                        operation="hld-generated-async",
-                        request_hash=hashlib.sha256(
-                            f"{job_id}:{payload.get('analysis_hash')}:{hashlib.sha256(markdown.encode()).hexdigest()}".encode()
-                        ).hexdigest(),
-                        label="hld-generated-async",
-                        cache_required=True,
-                    )
+                        latest_session=latest_session,
+                        updated_session=updated_session,
+                        markdown=markdown,
+                    ))
                 except AnalysisVersionConflictError:
                     canonical_state_persisted = False
                 except Exception as exc:
                     job_manager.fail(job_id, f"Canonical HLD persistence failed: {type(exc).__name__}")
                     return
-                finally:
-                    db.close()
             else:
                 canonical_state_persisted, _latest_session = SESSION_STORE.update_if(
                     diagram_id,

@@ -4871,6 +4871,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Get Analytics Summary Endpoint",
@@ -4896,6 +4899,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Get Feature Metrics Endpoint",
@@ -4921,6 +4927,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Get Conversion Funnel Endpoint",
@@ -4946,6 +4955,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Get Performance Metrics Endpoint",
@@ -4971,6 +4983,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Clear Audit",
@@ -5066,6 +5081,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Audit Logs",
@@ -5091,6 +5109,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Audit Summary",
@@ -5116,6 +5137,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Cost Dashboard",
@@ -5141,6 +5165,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Get Feedback Summary Endpoint",
@@ -5166,6 +5193,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Get Leads Endpoint",
@@ -5279,6 +5309,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Metrics Summary",
@@ -5328,6 +5361,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Metrics Daily",
@@ -5353,6 +5389,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Funnel",
@@ -5402,6 +5441,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Metrics Recent",
@@ -5464,6 +5506,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "List Migration Quarantines",
@@ -5512,6 +5557,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Resolve Migration Quarantine",
@@ -5537,6 +5585,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Monitoring Dashboard",
@@ -5562,6 +5613,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Observability",
@@ -5587,6 +5641,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Span Metrics",
@@ -5612,6 +5669,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Release Status",
@@ -5657,6 +5717,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Api Generate Suggestion",
@@ -5702,6 +5765,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Api Generate Batch",
@@ -5765,6 +5831,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Api Suggestion History",
@@ -5790,6 +5859,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Api Pending Suggestions",
@@ -5843,6 +5915,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Api Review Queue",
@@ -5868,6 +5943,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Api Suggestion Stats",
@@ -5924,6 +6002,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Api Review Suggestion",
@@ -6197,6 +6278,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Analysis Endpoint",
@@ -6282,6 +6366,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "List Artifacts Endpoint",
@@ -6347,6 +6434,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Artifact Endpoint",
@@ -6409,6 +6499,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "List Decisions Endpoint",
@@ -6463,6 +6556,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Create Decision Endpoint",
@@ -6509,6 +6605,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "List Versions Endpoint",
@@ -6564,6 +6663,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Version Endpoint",
@@ -6594,6 +6696,26 @@
               "title": "Version Number",
               "type": "integer"
             }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": true,
+            "schema": {
+              "title": "If-Match",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 8,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -6619,6 +6741,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Restore Version Endpoint",
@@ -8268,6 +8393,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Execute Deployment",
@@ -8353,6 +8481,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Execute Deployment",
@@ -8398,6 +8529,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Preview Deployment",
@@ -8444,6 +8578,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Rollback Deployment",
@@ -8490,6 +8627,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Get Deployment Status",
@@ -8536,6 +8676,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Stream Deployment Logs",
@@ -11230,6 +11373,26 @@
               "title": "Version Number",
               "type": "integer"
             }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": true,
+            "schema": {
+              "title": "If-Match",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 8,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -12081,6 +12244,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Update Flag",
@@ -15962,6 +16128,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Get Analytics Summary Endpoint V1",
@@ -15988,6 +16157,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Get Feature Metrics Endpoint V1",
@@ -16014,6 +16186,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Get Conversion Funnel Endpoint V1",
@@ -16040,6 +16215,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Get Performance Metrics Endpoint V1",
@@ -16066,6 +16244,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Clear Audit V1",
@@ -16162,6 +16343,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Audit Logs V1",
@@ -16188,6 +16372,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Audit Summary V1",
@@ -16214,6 +16401,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Cost Dashboard V1",
@@ -16240,6 +16430,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Get Feedback Summary Endpoint V1",
@@ -16266,6 +16459,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Get Leads Endpoint V1",
@@ -16382,6 +16578,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Metrics Summary V1",
@@ -16432,6 +16631,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Metrics Daily V1",
@@ -16458,6 +16660,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Funnel V1",
@@ -16508,6 +16713,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Metrics Recent V1",
@@ -16571,6 +16779,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "List Migration Quarantines V1",
@@ -16620,6 +16831,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Resolve Migration Quarantine V1",
@@ -16646,6 +16860,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Monitoring Dashboard V1",
@@ -16672,6 +16889,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Observability V1",
@@ -16698,6 +16918,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Span Metrics V1",
@@ -16724,6 +16947,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Release Status V1",
@@ -16770,6 +16996,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Api Generate Suggestion V1",
@@ -16816,6 +17045,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Api Generate Batch V1",
@@ -16880,6 +17112,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Api Suggestion History V1",
@@ -16906,6 +17141,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Api Pending Suggestions V1",
@@ -16960,6 +17198,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Api Review Queue V1",
@@ -16986,6 +17227,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Api Suggestion Stats V1",
@@ -17043,6 +17287,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Api Review Suggestion V1",
@@ -17322,6 +17569,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Analysis Endpoint V1",
@@ -17408,6 +17658,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "List Artifacts Endpoint V1",
@@ -17474,6 +17727,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Artifact Endpoint V1",
@@ -17537,6 +17793,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "List Decisions Endpoint V1",
@@ -17592,6 +17851,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Create Decision Endpoint V1",
@@ -17639,6 +17901,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "List Versions Endpoint V1",
@@ -17695,6 +17960,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Version Endpoint V1",
@@ -17726,6 +17994,26 @@
               "title": "Version Number",
               "type": "integer"
             }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": true,
+            "schema": {
+              "title": "If-Match",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 8,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -17751,6 +18039,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Restore Version Endpoint V1",
@@ -19473,6 +19764,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Execute Deployment V1",
@@ -19560,6 +19854,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Execute Deployment V1",
@@ -19606,6 +19903,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Preview Deployment V1",
@@ -19653,6 +19953,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Rollback Deployment V1",
@@ -19700,6 +20003,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Get Deployment Status V1",
@@ -19747,6 +20053,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Stream Deployment Logs V1",
@@ -22584,6 +22893,26 @@
               "title": "Version Number",
               "type": "integer"
             }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": true,
+            "schema": {
+              "title": "If-Match",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 8,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -23463,6 +23792,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Update Flag V1",
@@ -27843,6 +28175,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "List Workspaces Endpoint V1",
@@ -27887,6 +28222,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Create Workspace Endpoint V1",
@@ -27934,6 +28272,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Delete Workspace Endpoint V1",
@@ -27979,6 +28320,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Workspace Endpoint V1",
@@ -28034,6 +28378,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Update Workspace Endpoint V1",
@@ -28104,6 +28451,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "List Analyses Endpoint V1",
@@ -28159,6 +28509,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Create Analysis Endpoint V1",
@@ -28512,6 +28865,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "List Workspaces Endpoint",
@@ -28555,6 +28911,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Create Workspace Endpoint",
@@ -28601,6 +28960,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Delete Workspace Endpoint",
@@ -28645,6 +29007,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Workspace Endpoint",
@@ -28699,6 +29064,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Update Workspace Endpoint",
@@ -28768,6 +29136,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "List Analyses Endpoint",
@@ -28822,6 +29193,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Create Analysis Endpoint",

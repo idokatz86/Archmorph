@@ -16,7 +16,9 @@ import json
 import logging
 import re
 import secrets
+from functools import partial
 from typing import Any, Dict, Literal, Optional
+from starlette.concurrency import run_in_threadpool
 
 from routers.shared import (
     SESSION_STORE,
@@ -37,6 +39,49 @@ from iac_scaffold import generate_scaffold
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _persist_async_iac(
+    *,
+    job_id: str,
+    payload: Dict[str, Any],
+    job_record: Any,
+    diagram_id: str,
+    latest_session: dict,
+    updated_session: dict,
+    iac_format: str,
+    code: str,
+    code_hash: str,
+) -> None:
+    from database import SessionLocal
+    from workspace_store import persist_analysis_mutation
+
+    db = SessionLocal()
+    try:
+        expected_version = latest_session.get("_analysis_version")
+        durable_owner = job_record.owner_user_id or job_record.owner_api_key_id
+        durable_tenant = job_record.tenant_id or f"service:{job_record.owner_api_key_id.split(':', 1)[-1]}"
+        persist_analysis_mutation(
+            db,
+            owner_user_id=durable_owner,
+            tenant_id=durable_tenant,
+            diagram_id=diagram_id,
+            snapshot=updated_session,
+            session_store=SESSION_STORE,
+            cache_owner_api_key_id=job_record.owner_api_key_id,
+            artifact_type=iac_format,
+            artifact_format=iac_format,
+            artifact_content=code,
+            expected_version=int(expected_version) if expected_version is not None else None,
+            operation=f"iac-{iac_format}-generated-async",
+            request_hash=hashlib.sha256(
+                f"{job_id}:{payload.get('analysis_hash')}:{code_hash}".encode()
+            ).hexdigest(),
+            label=f"iac-{iac_format}-generated-async",
+            cache_required=True,
+        )
+    finally:
+        db.close()
 
 
 # ─────────────────────────────────────────────────────────────
@@ -558,33 +603,20 @@ async def _run_iac_job(
                 getattr(job_record, "owner_user_id", None)
                 or getattr(job_record, "owner_api_key_id", None)
             ):
-                from database import SessionLocal
-                from workspace_store import AnalysisVersionConflictError, persist_analysis_mutation
-
-                db = SessionLocal()
+                from workspace_store import AnalysisVersionConflictError
                 try:
-                    expected_version = latest_session.get("_analysis_version")
-                    durable_owner = job_record.owner_user_id or job_record.owner_api_key_id
-                    durable_tenant = job_record.tenant_id or f"service:{job_record.owner_api_key_id.split(':', 1)[-1]}"
-                    persist_analysis_mutation(
-                        db,
-                        owner_user_id=durable_owner,
-                        tenant_id=durable_tenant,
+                    await run_in_threadpool(partial(
+                        _persist_async_iac,
+                        job_id=job_id,
+                        payload=payload,
+                        job_record=job_record,
                         diagram_id=diagram_id,
-                        snapshot=updated_session,
-                        session_store=SESSION_STORE,
-                        cache_owner_api_key_id=job_record.owner_api_key_id,
-                        artifact_type=iac_format,
-                        artifact_format=iac_format,
-                        artifact_content=code,
-                        expected_version=int(expected_version) if expected_version is not None else None,
-                        operation=f"iac-{iac_format}-generated-async",
-                        request_hash=hashlib.sha256(
-                            f"{job_id}:{payload.get('analysis_hash')}:{code_hash}".encode()
-                        ).hexdigest(),
-                        label=f"iac-{iac_format}-generated-async",
-                        cache_required=True,
-                    )
+                        latest_session=latest_session,
+                        updated_session=updated_session,
+                        iac_format=iac_format,
+                        code=code,
+                        code_hash=code_hash,
+                    ))
                     latest_session = SESSION_STORE.peek(diagram_id)
                 except AnalysisVersionConflictError:
                     canonical_state_persisted = False
@@ -592,8 +624,6 @@ async def _run_iac_job(
                 except Exception as exc:
                     job_manager.fail(job_id, f"Canonical IaC persistence failed: {type(exc).__name__}")
                     return
-                finally:
-                    db.close()
             else:
                 canonical_state_persisted, latest_session = SESSION_STORE.update_if(
                     diagram_id,

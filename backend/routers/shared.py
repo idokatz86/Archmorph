@@ -4,14 +4,17 @@ Shared state, dependencies, and models used across Archmorph API routers.
 
 import asyncio
 import copy
+from dataclasses import dataclass
+from enum import Enum
 import json
 import os
 import logging
 import secrets
 import hashlib
+import hmac
 from collections import OrderedDict
-from functools import lru_cache, partial
-from typing import Optional, List
+from functools import partial
+from typing import FrozenSet, Optional, List
 
 from fastapi import Security, Request
 from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
@@ -19,6 +22,7 @@ from strict_models import StrictBaseModel
 
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from limits import parse as parse_rate_limit
 
 from admin_auth import (
     validate_session_token,
@@ -46,79 +50,257 @@ limiter = Limiter(
 API_KEY = os.getenv("ARCHMORPH_API_KEY", "")  # Empty = auth disabled (dev mode)
 API_KEY_ROTATED = os.getenv("ARCHMORPH_API_KEY_ROTATED", "")
 API_KEY_PRINCIPAL_ID = os.getenv("ARCHMORPH_API_KEY_PRINCIPAL_ID", "").strip()
+API_KEY_ALLOW_LEGACY_OVERLAP = os.getenv(
+    "ARCHMORPH_API_KEY_ALLOW_LEGACY_OVERLAP",
+    "false",
+).lower() == "true"
 API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=False)
 ADMIN_BEARER = HTTPBearer(auto_error=False)
 USER_BEARER = HTTPBearer(auto_error=False)
-_API_PRINCIPAL_SALT = b"archmorph-api-principal-v1"
-_API_PRINCIPAL_KDF_ITERATIONS = 120_000
 
 logger = logging.getLogger(__name__)
 
 _api_key_warning_logged = False
+_DEV_PRINCIPAL_SALT = secrets.token_bytes(32)
+
+
+class CredentialKind(str, Enum):
+    """Supported authenticated caller kinds."""
+
+    STATIC = "static"
+    MANAGED = "managed"
+    BEARER = "bearer"
+    ADMIN = "admin"
+    DEVELOPMENT = "development"
+
+
+@dataclass(frozen=True)
+class CredentialContext:
+    """Secret-free, stable authentication result used by authorization."""
+
+    kind: CredentialKind
+    principal_id: str
+    key_id: Optional[str]
+    scopes: FrozenSet[str]
+    rate_limit: Optional[int]
+    tenant_id: Optional[str]
+    owner_user_id: Optional[str]
+
+    def has_scope(self, scope: str) -> bool:
+        return scope in self.scopes or "admin" in self.scopes
 
 
 def _safe_log_value(value: object) -> str:
     return str(value).replace("\n", "").replace("\r", "")
 
 
-async def verify_api_key(api_key: Optional[str] = Security(API_KEY_HEADER)):
-    """Verify API key if authentication is enabled."""
+def _static_principal_id() -> str:
+    """Return the configured non-secret static service principal."""
+    return API_KEY_PRINCIPAL_ID or "static-service"
+
+
+def _legacy_static_principal_id() -> Optional[str]:
+    """Return the pre-migration secret-derived ID without exposing key material."""
+    if not API_KEY or not API_KEY_PRINCIPAL_ID:
+        return None
+    digest = hashlib.pbkdf2_hmac(
+        "sha256",
+        API_KEY.encode("utf-8"),
+        b"archmorph-api-principal-v1",
+        120_000,
+    ).hex()[:24]
+    return f"api-key:legacy-{digest}"
+
+
+def _static_key_matches(api_key: Optional[str]) -> bool:
+    """Apply one overlap/cutover policy to every static-key auth surface."""
+    presented = api_key or ""
+    if API_KEY_ROTATED and secrets.compare_digest(presented, API_KEY_ROTATED):
+        return True
+    return bool(
+        API_KEY
+        and secrets.compare_digest(presented, API_KEY)
+        and (not API_KEY_ROTATED or API_KEY_ALLOW_LEGACY_OVERLAP)
+    )
+
+
+def _enforce_managed_key_rate_limit(context: CredentialContext) -> None:
+    """Atomically enforce a managed key's shared requests-per-minute budget."""
+    if context.kind is not CredentialKind.MANAGED or context.rate_limit is None:
+        return
+    rate = parse_rate_limit(f"{context.rate_limit}/minute")
+    try:
+        allowed = limiter._limiter.hit(rate, "managed-api-key", context.principal_id)
+    except Exception as exc:
+        logger.error(
+            "managed_api_key_rate_limit_failed principal_id=%s error_type=%s",
+            _safe_log_value(context.principal_id),
+            type(exc).__name__,
+        )
+        raise ArchmorphException(
+            503,
+            "API key rate-limit service is unavailable",
+            headers={"Retry-After": "5"},
+        ) from exc
+    if not allowed:
+        raise ArchmorphException(
+            429,
+            "API key rate limit exceeded",
+            details={"error": "api_key_rate_limited"},
+            headers={"Retry-After": "60"},
+        )
+
+
+def _managed_credential(api_key: str) -> Optional[CredentialContext]:
+    from routers.api_keys_routes import validate_api_key_by_raw
+
+    record = validate_api_key_by_raw(api_key)
+    if record is None:
+        return None
+    context = CredentialContext(
+        kind=CredentialKind.MANAGED,
+        principal_id=f"api-key:{record.principal_id}",
+        key_id=record.id,
+        scopes=frozenset(record.scopes),
+        rate_limit=record.rate_limit,
+        tenant_id=f"service:{record.principal_id}",
+        owner_user_id=f"api-key:{record.principal_id}",
+    )
+    _enforce_managed_key_rate_limit(context)
+    return context
+
+
+def _authenticate_api_key(api_key: Optional[str], *, required: bool) -> CredentialContext:
+    """Authenticate a static or managed key without returning raw material."""
     global _api_key_warning_logged
     if not API_KEY:
         environment = (os.getenv("ENVIRONMENT") or os.getenv("ENV") or "production").lower()
-        if environment in ("production", "prod", "staging"):
+        if required or environment in ("production", "prod", "staging"):
             raise ArchmorphException(status_code=500, detail="Server misconfiguration: API key not set")
         if not _api_key_warning_logged:
             logger.warning("ARCHMORPH_API_KEY not set — API authentication is disabled (dev mode only)")
             _api_key_warning_logged = True
-        return  # Auth disabled — dev mode only
-    current_static_key = API_KEY_ROTATED or API_KEY
-    if secrets.compare_digest(api_key or "", current_static_key):
-        return
-    from routers.api_keys_routes import validate_api_key_by_raw
-
-    if api_key and validate_api_key_by_raw(api_key) is not None:
-        return
+        return CredentialContext(
+            kind=CredentialKind.DEVELOPMENT,
+            principal_id="development",
+            key_id=None,
+            scopes=frozenset({"read", "write", "admin"}),
+            rate_limit=None,
+            tenant_id=None,
+            owner_user_id=None,
+        )
+    if _static_key_matches(api_key):
+        principal_id = f"api-key:{_static_principal_id()}"
+        return CredentialContext(
+            kind=CredentialKind.STATIC,
+            principal_id=principal_id,
+            key_id="static",
+            scopes=frozenset({"read", "write", "admin"}),
+            rate_limit=None,
+            tenant_id=f"service:{_static_principal_id()}",
+            owner_user_id=principal_id,
+        )
+    if api_key and (context := _managed_credential(api_key)) is not None:
+        return context
     raise ArchmorphException(status_code=401, detail="Invalid or missing API key")
 
 
-async def verify_api_key_required(api_key: Optional[str] = Security(API_KEY_HEADER)):
+async def verify_api_key(
+    api_key: Optional[str] = Security(API_KEY_HEADER),
+    request: Request = None,
+) -> CredentialContext:
+    """Verify a key and enforce least privilege from the HTTP method."""
+    context = _authenticate_api_key(api_key, required=False)
+    required_scope = "read" if request is None or request.method in {"GET", "HEAD", "OPTIONS"} else "write"
+    if not context.has_scope(required_scope):
+        raise ArchmorphException(403, f"API key scope '{required_scope}' is required")
+    return context
+
+
+async def verify_api_key_required(
+    api_key: Optional[str] = Security(API_KEY_HEADER),
+) -> CredentialContext:
     """Verify API key for server-to-server routes, even in dev/test mode."""
-    if not API_KEY:
-        raise ArchmorphException(status_code=500, detail="Server misconfiguration: API key not set")
-    if not secrets.compare_digest(api_key or "", API_KEY):
-        raise ArchmorphException(status_code=401, detail="Invalid or missing API key")
+    context = _authenticate_api_key(api_key, required=True)
+    if context.kind is not CredentialKind.STATIC:
+        raise ArchmorphException(status_code=403, detail="Static service administrator required")
+    return context
+
+
+def require_api_scope(scope: str):
+    """Build a route dependency requiring one managed-key scope."""
+    if scope not in {"read", "write", "admin"}:
+        raise ValueError("Unsupported API key scope")
+
+    async def dependency(
+        api_key: Optional[str] = Security(API_KEY_HEADER),
+    ) -> CredentialContext:
+        context = _authenticate_api_key(api_key, required=False)
+        if not context.has_scope(scope):
+            raise ArchmorphException(403, f"API key scope '{scope}' is required")
+        return context
+
+    dependency.__name__ = f"require_api_{scope}"
+    return dependency
+
+
+require_api_read = require_api_scope("read")
+require_api_write = require_api_scope("write")
+require_api_admin = require_api_scope("admin")
 
 
 async def verify_api_key_or_user_session(
     request: Request,
     api_key: Optional[str] = Security(API_KEY_HEADER),
     credentials: Optional[HTTPAuthorizationCredentials] = Security(USER_BEARER),
-):
+) -> CredentialContext:
     """Allow either the service API key or a signed-in user bearer session."""
     try:
-        return await verify_api_key(api_key)
+        return await verify_api_key(api_key, request=request)
     except ArchmorphException as exc:
         if exc.status_code != 401:
             raise
 
         from auth import get_user_from_request_headers
 
-        if credentials is not None and credentials.scheme.lower() == "bearer" and get_user_from_request_headers(dict(request.headers)):
-            return
+        user = get_user_from_request_headers(dict(request.headers))
+        if credentials is not None and credentials.scheme.lower() == "bearer" and user:
+            owner_user_id = (
+                user.provider_subject
+                if user.provider.value == "azure_ad_b2c" and user.provider_subject
+                else user.id
+            )
+            return CredentialContext(
+                kind=CredentialKind.BEARER,
+                principal_id=f"user:{owner_user_id}",
+                key_id=None,
+                scopes=frozenset({"read", "write"}),
+                rate_limit=None,
+                tenant_id=user.tenant_id,
+                owner_user_id=owner_user_id,
+            )
         raise ArchmorphException(status_code=401, detail="Invalid or missing API key or user session") from exc
+
+
+async def require_api_read_or_user_session(
+    context: CredentialContext = Security(verify_api_key_or_user_session),
+) -> CredentialContext:
+    """Require read scope for API keys or accept a signed-in user."""
+    return context
+
+
+async def require_api_write_or_user_session(
+    context: CredentialContext = Security(verify_api_key_or_user_session),
+) -> CredentialContext:
+    """Require write scope for API keys or accept a signed-in user."""
+    return context
 
 
 def get_api_key_service_principal(headers: dict) -> Optional[str]:
     """Return a stable API-key service principal ID for a verified key."""
     api_key = headers.get("x-api-key")
-    current_static_key = API_KEY_ROTATED or API_KEY
-    if API_KEY and secrets.compare_digest(api_key or "", current_static_key):
-        # Compatibility: deployments should set an explicit stable principal
-        # before rotating the configured static credential. The deterministic
-        # fallback preserves ownership for existing installations.
-        stable_id = API_KEY_PRINCIPAL_ID or f"legacy-{_derive_api_key_principal_digest(API_KEY)}"
-        return f"api-key:{stable_id}"
+    if API_KEY and _static_key_matches(api_key):
+        return f"api-key:{_static_principal_id()}"
     if api_key:
         from routers.api_keys_routes import validate_api_key_by_raw
 
@@ -126,10 +308,16 @@ def get_api_key_service_principal(headers: dict) -> Optional[str]:
         if record is not None:
             return f"api-key:{record.principal_id}"
     if not API_KEY:
-        # Dev mode (API key auth disabled): only derive principal when a key is supplied.
+        # Dev/test compatibility: isolate arbitrary supplied keys only within
+        # this process. These random-salted IDs are never durable principals.
         if not api_key:
             return None
-        return f"api-key:dev-{_derive_api_key_principal_digest(api_key)}"
+        digest = hmac.new(
+            _DEV_PRINCIPAL_SALT,
+            api_key.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()[:24]
+        return f"api-key:development-{digest}"
     return None
 
 
@@ -156,15 +344,27 @@ def get_request_durable_principal(request: Request) -> Optional[dict]:
             "tenant_id": user.tenant_id,
             "owner_api_key_id": None,
             "legacy_owner_user_ids": legacy_owner_user_ids,
+            "legacy_owner_scopes": [],
         }
     api_key_id = get_api_key_service_principal(headers)
     if api_key_id:
         principal_id = api_key_id.split(":", 1)[-1]
+        legacy_owner_user_ids = []
+        legacy_static = _legacy_static_principal_id()
+        if legacy_static and legacy_static != api_key_id:
+            legacy_owner_user_ids.append(legacy_static)
+        legacy_owner_scopes = [
+            {
+                "owner_user_id": legacy_static,
+                "tenant_id": f"service:{legacy_static.split(':', 1)[-1]}",
+            }
+        ] if legacy_static and legacy_static != api_key_id else []
         return {
             "owner_user_id": api_key_id,
             "tenant_id": f"service:{principal_id}",
             "owner_api_key_id": api_key_id,
-            "legacy_owner_user_ids": [],
+            "legacy_owner_user_ids": legacy_owner_user_ids,
+            "legacy_owner_scopes": legacy_owner_scopes,
         }
     return None
 
@@ -179,24 +379,23 @@ def has_canonical_durable_principal(request: Request) -> bool:
     )
 
 
-@lru_cache(maxsize=32)
-def _derive_api_key_principal_digest(key_material: str) -> str:
-    """Derive a stable opaque principal ID from API-key material."""
-    return hashlib.pbkdf2_hmac(
-        "sha256",
-        key_material.encode("utf-8"),
-        _API_PRINCIPAL_SALT,
-        _API_PRINCIPAL_KDF_ITERATIONS,
-    ).hex()[:24]
-
-
 # ─────────────────────────────────────────────────────────────
 # Admin Auth Dependency
 # ─────────────────────────────────────────────────────────────
 async def verify_admin_key(
     credentials: Optional[HTTPAuthorizationCredentials] = Security(ADMIN_BEARER),
+    api_key: Optional[str] = Security(API_KEY_HEADER),
+    request: Request = None,
 ):
-    """Verify admin session via Authorization: Bearer <jwt>."""
+    """Verify an admin bearer session or an admin/static API credential."""
+    if not isinstance(api_key, str):
+        api_key = None
+    if api_key:
+        context = _authenticate_api_key(api_key, required=True)
+        if context.kind is CredentialKind.STATIC or context.has_scope("admin"):
+            return context
+        raise ArchmorphException(403, "Administrator credential required")
+
     if not admin_is_configured():
         raise ArchmorphException(503, "Admin API not configured")
 
@@ -267,7 +466,18 @@ def _load_durable_diagram_session(request: Request, diagram_id: str) -> Optional
 
     db = SessionLocal()
     try:
-        from workspace_store import diagram_is_tombstoned
+        from workspace_store import diagram_is_tombstoned, rehome_legacy_owner_scope
+
+        legacy_scope_rehomed = False
+        for legacy_scope in principal.get("legacy_owner_scopes", []):
+            summary = rehome_legacy_owner_scope(
+                db,
+                owner_user_ids=[legacy_scope["owner_user_id"]],
+                source_tenant_id=legacy_scope["tenant_id"],
+                target_tenant_id=principal["tenant_id"],
+                target_owner_user_id=principal["owner_user_id"],
+            )
+            legacy_scope_rehomed = legacy_scope_rehomed or bool(summary["rehomed"])
 
         if diagram_is_tombstoned(
             db,
@@ -303,15 +513,39 @@ def _load_durable_diagram_session(request: Request, diagram_id: str) -> Optional
             )
             if status != "rehomed":
                 return None
-        return load_analysis_state(
+        durable = load_analysis_state(
             db,
             diagram_id=diagram_id,
             owner_user_id=principal["owner_user_id"],
             tenant_id=principal["tenant_id"],
             session_store=SESSION_STORE,
             cache_owner_api_key_id=principal["owner_api_key_id"],
-            allow_legacy_cache_rehome=legacy_owner_user_id is not None,
+            allow_legacy_cache_rehome=(
+                legacy_owner_user_id is not None or legacy_scope_rehomed
+            ),
             cache_legacy_owner_user_ids=principal.get("legacy_owner_user_ids", []),
+        )
+        if durable is not None or principal["owner_api_key_id"] is not None:
+            return durable
+
+        from project_store import PROJECT_READ_ROLES, resolve_diagram_access
+
+        member_access = resolve_diagram_access(
+            db,
+            diagram_id,
+            caller_user_id=principal["owner_user_id"],
+            tenant_id=principal["tenant_id"],
+            allowed_roles=PROJECT_READ_ROLES,
+        )
+        if member_access is None:
+            return None
+        _analysis, project, _role = member_access
+        return load_analysis_state(
+            db,
+            diagram_id=diagram_id,
+            owner_user_id=project.owner_user_id,
+            tenant_id=principal["tenant_id"],
+            session_store=SESSION_STORE,
         )
     except Exception as exc:
         logger.warning(
@@ -515,7 +749,33 @@ def authorize_diagram_access(
             )
             raise ArchmorphException(404, "Diagram not found")
         if owner_user_id != expected_owner_user_id or tenant_id != user.tenant_id:
-            raise ArchmorphException(404, "Diagram not found")
+            if principal is None or tenant_id != principal.get("tenant_id"):
+                raise ArchmorphException(404, "Diagram not found")
+            from database import SessionLocal
+            from project_store import (
+                PROJECT_EDIT_ROLES,
+                PROJECT_READ_ROLES,
+                resolve_diagram_access,
+            )
+
+            allowed_roles = (
+                PROJECT_READ_ROLES
+                if request.method in {"GET", "HEAD", "OPTIONS"}
+                else PROJECT_EDIT_ROLES
+            )
+            db = SessionLocal()
+            try:
+                resolved = resolve_diagram_access(
+                    db,
+                    diagram_id,
+                    caller_user_id=expected_owner_user_id,
+                    tenant_id=principal["tenant_id"],
+                    allowed_roles=allowed_roles,
+                )
+            finally:
+                db.close()
+            if resolved is None:
+                raise ArchmorphException(404, "Diagram not found")
         return session
 
     api_key_principal_id = get_api_key_service_principal(headers)
@@ -616,6 +876,24 @@ def persist_diagram_mutation(
             "Authenticated tenant context is required for durable analysis state.",
             details={"error": "tenant_context_required"},
         )
+
+    if principal["owner_api_key_id"] is None:
+        from database import SessionLocal
+        from project_store import PROJECT_EDIT_ROLES, resolve_diagram_principal
+
+        db = SessionLocal()
+        try:
+            project_principal = resolve_diagram_principal(
+                db,
+                diagram_id,
+                caller_user_id=principal["owner_user_id"],
+                tenant_id=principal["tenant_id"],
+                allowed_roles=PROJECT_EDIT_ROLES,
+            )
+        finally:
+            db.close()
+        if project_principal is not None:
+            principal = {**principal, **project_principal}
 
     from database import SessionLocal
     from workspace_store import (

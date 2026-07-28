@@ -24,6 +24,9 @@ PROJECT_ID_PREFIX = "proj"
 PROJECT_ID_BYTES = 18
 PROJECT_CACHE_VERSION = 1
 PROJECT_ROLES = frozenset({"viewer", "editor"})
+PROJECT_READ_ROLES = frozenset({"owner", "admin", "viewer", "editor"})
+PROJECT_EDIT_ROLES = frozenset({"owner", "admin", "editor"})
+PROJECT_MANAGE_ROLES = frozenset({"owner", "admin"})
 
 
 def generate_project_id() -> str:
@@ -45,6 +48,63 @@ def _project_query(
         Workspace.status == "active",
         Workspace.is_default.is_(False),
     )
+
+
+def resolve_project_access(
+    db: Session,
+    *,
+    project_id: str,
+    caller_user_id: str,
+    tenant_id: str,
+) -> Optional[tuple[Workspace, str]]:
+    """Resolve owner or current member access without consulting Redis."""
+    project = db.query(Workspace).filter(
+        Workspace.id == project_id,
+        Workspace.tenant_id == tenant_id,
+        Workspace.status == "active",
+        Workspace.is_default.is_(False),
+    ).first()
+    if project is None:
+        return None
+    if project.owner_user_id == caller_user_id:
+        return project, "owner"
+    tenant_admin = db.query(TeamMember.id).filter(
+        TeamMember.org_id == tenant_id,
+        TeamMember.user_id == caller_user_id,
+        TeamMember.role.in_(("owner", "admin")),
+        TeamMember.is_active.is_(True),
+    ).first()
+    if tenant_admin is not None:
+        return project, "admin"
+    member = db.query(ProjectMember).filter(
+        ProjectMember.project_id == project_id,
+        ProjectMember.project_owner_user_id == project.owner_user_id,
+        ProjectMember.tenant_id == tenant_id,
+        ProjectMember.member_user_id == caller_user_id,
+        ProjectMember.role.in_(PROJECT_ROLES),
+    ).first()
+    if member is None:
+        return None
+    return project, member.role
+
+
+def require_project_access(
+    db: Session,
+    *,
+    project_id: str,
+    caller_user_id: str,
+    tenant_id: str,
+    allowed_roles: frozenset[str],
+) -> Optional[tuple[Workspace, str]]:
+    resolved = resolve_project_access(
+        db,
+        project_id=project_id,
+        caller_user_id=caller_user_id,
+        tenant_id=tenant_id,
+    )
+    if resolved is None or resolved[1] not in allowed_roles:
+        return None
+    return resolved
 
 
 def _analysis_query(
@@ -188,21 +248,24 @@ def get_project(
     owner_user_id: str,
     tenant_id: str,
     project_store: Any = None,
+    allowed_roles: frozenset[str] = PROJECT_READ_ROLES,
 ) -> Optional[Dict[str, Any]]:
     """Load an authorized project from PostgreSQL and refresh cache projection."""
-    project = _project_query(
+    resolved = require_project_access(
         db,
         project_id=project_id,
-        owner_user_id=owner_user_id,
+        caller_user_id=owner_user_id,
         tenant_id=tenant_id,
-    ).first()
-    if project is None:
+        allowed_roles=allowed_roles,
+    )
+    if resolved is None:
         return None
+    project, role = resolved
     analyses = (
         _analysis_query(
             db,
             project_id=project_id,
-            owner_user_id=owner_user_id,
+            owner_user_id=project.owner_user_id,
             tenant_id=tenant_id,
         )
         .order_by(Analysis.diagram_id.asc())
@@ -212,6 +275,7 @@ def get_project(
     project_version = _project_version(analyses)
     result = {
         "project_id": project.id,
+        "role": role,
         "status": project.status,
         "created_at": project.created_at.isoformat() if project.created_at else None,
         "updated_at": project.updated_at.isoformat() if project.updated_at else None,
@@ -230,7 +294,7 @@ def get_project(
     _cache_project(
         project_store,
         result,
-        owner_user_id=owner_user_id,
+        owner_user_id=project.owner_user_id,
         tenant_id=tenant_id,
     )
     return result
@@ -320,21 +384,92 @@ def get_project_id_for_diagram(
     return analysis.workspace_id if analysis else None
 
 
+def resolve_diagram_access(
+    db: Session,
+    diagram_id: str,
+    *,
+    caller_user_id: str,
+    tenant_id: str,
+    allowed_roles: frozenset[str],
+) -> Optional[tuple[Analysis, Workspace, str]]:
+    """Resolve a diagram through its current canonical project membership."""
+    row = db.query(Analysis, Workspace).join(
+        Workspace,
+        Workspace.id == Analysis.workspace_id,
+    ).filter(
+        Analysis.diagram_id == diagram_id,
+        Analysis.tenant_id == tenant_id,
+        Workspace.tenant_id == tenant_id,
+        Workspace.status == "active",
+    ).first()
+    if row is None:
+        return None
+    analysis, project = row
+    if project.owner_user_id == caller_user_id and "owner" in allowed_roles:
+        role = "owner"
+    else:
+        if project.is_default:
+            return None
+        resolved = require_project_access(
+            db,
+            project_id=project.id,
+            caller_user_id=caller_user_id,
+            tenant_id=tenant_id,
+            allowed_roles=allowed_roles,
+        )
+        if resolved is None:
+            return None
+        _resolved_project, role = resolved
+    if analysis.owner_user_id != project.owner_user_id:
+        return None
+    return analysis, project, role
+
+
+def resolve_diagram_principal(
+    db: Session,
+    diagram_id: str,
+    *,
+    caller_user_id: str,
+    tenant_id: str,
+    allowed_roles: frozenset[str],
+) -> Optional[Dict[str, str]]:
+    resolved = resolve_diagram_access(
+        db,
+        diagram_id,
+        caller_user_id=caller_user_id,
+        tenant_id=tenant_id,
+        allowed_roles=allowed_roles,
+    )
+    if resolved is None:
+        return None
+    _analysis, project, role = resolved
+    return {
+        "owner_user_id": project.owner_user_id,
+        "tenant_id": tenant_id,
+        "caller_user_id": caller_user_id,
+        "project_role": role,
+    }
+
+
 def load_project_analyses(
     db: Session,
     project_id: str,
     *,
     owner_user_id: str,
     tenant_id: str,
+    allowed_roles: frozenset[str] = PROJECT_READ_ROLES,
 ) -> List[Dict[str, Any]]:
     """Load only current durable snapshots belonging to the authorized project."""
-    if _project_query(
+    resolved = require_project_access(
         db,
         project_id=project_id,
-        owner_user_id=owner_user_id,
+        caller_user_id=owner_user_id,
         tenant_id=tenant_id,
-    ).first() is None:
+        allowed_roles=allowed_roles,
+    )
+    if resolved is None:
         return []
+    project, _role = resolved
     rows = (
         db.query(Analysis, AnalysisVersion)
         .join(
@@ -344,7 +479,7 @@ def load_project_analyses(
         )
         .filter(
             Analysis.workspace_id == project_id,
-            Analysis.owner_user_id == owner_user_id,
+            Analysis.owner_user_id == project.owner_user_id,
             Analysis.tenant_id == tenant_id,
             Analysis.current_version > 0,
         )
@@ -361,19 +496,22 @@ def list_project_members(
     owner_user_id: str,
     tenant_id: str,
 ) -> Optional[List[Dict[str, Any]]]:
-    if _project_query(
+    resolved = require_project_access(
         db,
         project_id=project_id,
-        owner_user_id=owner_user_id,
+        caller_user_id=owner_user_id,
         tenant_id=tenant_id,
-    ).first() is None:
+        allowed_roles=PROJECT_MANAGE_ROLES,
+    )
+    if resolved is None:
         return None
+    project, _role = resolved
     return [
         member.to_dict()
         for member in db.query(ProjectMember)
         .filter(
             ProjectMember.project_id == project_id,
-            ProjectMember.project_owner_user_id == owner_user_id,
+            ProjectMember.project_owner_user_id == project.owner_user_id,
             ProjectMember.tenant_id == tenant_id,
         )
         .order_by(ProjectMember.member_user_id.asc())
@@ -402,13 +540,16 @@ def add_project_member(
     ).first()
     if directory_member is None:
         raise ValueError("Foreign or unknown tenant member")
-    if _project_query(
+    resolved = require_project_access(
         db,
         project_id=project_id,
-        owner_user_id=owner_user_id,
+        caller_user_id=owner_user_id,
         tenant_id=tenant_id,
-    ).first() is None:
+        allowed_roles=PROJECT_MANAGE_ROLES,
+    )
+    if resolved is None:
         return None
+    project, _role = resolved
     member = db.query(ProjectMember).filter(
         ProjectMember.project_id == project_id,
         ProjectMember.member_user_id == member_user_id,
@@ -416,7 +557,7 @@ def add_project_member(
     if member is None:
         member = ProjectMember(
             project_id=project_id,
-            project_owner_user_id=owner_user_id,
+            project_owner_user_id=project.owner_user_id,
             tenant_id=tenant_id,
             member_user_id=member_user_id,
             role=role,
@@ -424,7 +565,7 @@ def add_project_member(
         db.add(member)
     else:
         if (
-            member.project_owner_user_id != owner_user_id
+            member.project_owner_user_id != project.owner_user_id
             or member.tenant_id != tenant_id
         ):
             raise ValueError("Foreign project member")
@@ -442,16 +583,19 @@ def remove_project_member(
     owner_user_id: str,
     tenant_id: str,
 ) -> Optional[bool]:
-    if _project_query(
+    resolved = require_project_access(
         db,
         project_id=project_id,
-        owner_user_id=owner_user_id,
+        caller_user_id=owner_user_id,
         tenant_id=tenant_id,
-    ).first() is None:
+        allowed_roles=PROJECT_MANAGE_ROLES,
+    )
+    if resolved is None:
         return None
+    project, _role = resolved
     member = db.query(ProjectMember).filter(
         ProjectMember.project_id == project_id,
-        ProjectMember.project_owner_user_id == owner_user_id,
+        ProjectMember.project_owner_user_id == project.owner_user_id,
         ProjectMember.tenant_id == tenant_id,
         ProjectMember.member_user_id == member_user_id,
     ).first()
@@ -463,6 +607,9 @@ def remove_project_member(
 
 
 __all__ = [
+    "PROJECT_EDIT_ROLES",
+    "PROJECT_MANAGE_ROLES",
+    "PROJECT_READ_ROLES",
     "acquire_project",
     "add_project_member",
     "create_project",
@@ -473,4 +620,8 @@ __all__ = [
     "load_project_analyses",
     "register_diagram",
     "remove_project_member",
+    "require_project_access",
+    "resolve_diagram_access",
+    "resolve_diagram_principal",
+    "resolve_project_access",
 ]

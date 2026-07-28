@@ -32,7 +32,7 @@ from enum import Enum
 from functools import partial
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Header, Query, Request
 from pydantic import Field
 from starlette.concurrency import run_in_threadpool
 
@@ -41,11 +41,13 @@ from routers.shared import (
     SESSION_STORE,
     get_request_durable_principal,
     limiter,
+    require_api_read_or_user_session,
+    require_api_write_or_user_session,
     require_authenticated_user,
-    verify_api_key,
 )
 from strict_models import StrictBaseModel
 from workspace_store import (
+    AnalysisVersionConflictError,
     create_analysis,
     create_decision,
     create_workspace,
@@ -110,6 +112,21 @@ class CreateDecisionRequest(StrictBaseModel):
     version_id: Optional[str] = Field(default=None, max_length=36)
 
 
+def _expected_version(if_match: str) -> int:
+    value = if_match.strip()
+    if value.startswith('W/"') and value.endswith('"'):
+        value = value[3:-1]
+    elif value.startswith('"') and value.endswith('"'):
+        value = value[1:-1]
+    try:
+        expected = int(value)
+    except ValueError as exc:
+        raise ArchmorphException(400, "If-Match must contain an integer analysis version") from exc
+    if expected < 0:
+        raise ArchmorphException(400, "If-Match must contain a non-negative analysis version")
+    return expected
+
+
 def _tenant_id(user) -> Optional[str]:
     tenant_id = getattr(user, "tenant_id", None)
     if not tenant_id:
@@ -160,6 +177,14 @@ async def _migrate_legacy_owner_graphs(request: Request) -> None:
         target_tenant_id=principal["tenant_id"],
         target_owner_user_id=principal["owner_user_id"],
     )
+    for legacy_scope in principal.get("legacy_owner_scopes", []):
+        await _db_call(
+            rehome_legacy_owner_scope,
+            owner_user_ids=[legacy_scope["owner_user_id"]],
+            source_tenant_id=legacy_scope["tenant_id"],
+            target_tenant_id=principal["tenant_id"],
+            target_owner_user_id=principal["owner_user_id"],
+        )
 
 
 # ─────────────────────────────────────────────────────────────
@@ -172,7 +197,7 @@ async def create_workspace_endpoint(
     request: Request,
     body: CreateWorkspaceRequest,
     user=Depends(require_authenticated_user),
-    _auth=Depends(verify_api_key),
+    _auth=Depends(require_api_write_or_user_session),
 ):
     """Create a new durable workspace."""
     await _migrate_legacy_owner_graphs(request)
@@ -196,7 +221,7 @@ async def list_workspaces_endpoint(
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     user=Depends(require_authenticated_user),
-    _auth=Depends(verify_api_key),
+    _auth=Depends(require_api_read_or_user_session),
 ):
     """List workspaces for the authenticated user."""
     await _migrate_legacy_owner_graphs(request)
@@ -223,7 +248,7 @@ async def get_workspace_endpoint(
     request: Request,
     workspace_id: str,
     user=Depends(require_authenticated_user),
-    _auth=Depends(verify_api_key),
+    _auth=Depends(require_api_read_or_user_session),
 ):
     """Get a single workspace."""
     await _migrate_legacy_owner_graphs(request)
@@ -249,7 +274,7 @@ async def update_workspace_endpoint(
     workspace_id: str,
     body: UpdateWorkspaceRequest,
     user=Depends(require_authenticated_user),
-    _auth=Depends(verify_api_key),
+    _auth=Depends(require_api_write_or_user_session),
 ):
     """Update workspace metadata."""
     fields = {
@@ -282,7 +307,7 @@ async def delete_workspace_endpoint(
     request: Request,
     workspace_id: str,
     user=Depends(require_authenticated_user),
-    _auth=Depends(verify_api_key),
+    _auth=Depends(require_api_write_or_user_session),
 ):
     """Converge all workspace-owned state to a confirmed deletion fixed point."""
     from purge_service import PurgeIncompleteError, purge_workspace
@@ -329,7 +354,7 @@ async def create_analysis_endpoint(
     workspace_id: str,
     body: CreateAnalysisRequest,
     user=Depends(require_authenticated_user),
-    _auth=Depends(verify_api_key),
+    _auth=Depends(require_api_write_or_user_session),
 ):
     """Create a new analysis in a workspace."""
     # Verify workspace ownership first
@@ -393,7 +418,7 @@ async def list_analyses_endpoint(
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     user=Depends(require_authenticated_user),
-    _auth=Depends(verify_api_key),
+    _auth=Depends(require_api_read_or_user_session),
 ):
     """List analyses in a workspace."""
     owner_user_id = _owner_id(request, user)
@@ -426,7 +451,7 @@ async def get_analysis_endpoint(
     request: Request,
     analysis_id: str,
     user=Depends(require_authenticated_user),
-    _auth=Depends(verify_api_key),
+    _auth=Depends(require_api_read_or_user_session),
 ):
     """Get a single analysis record."""
     analysis = await _db_call(
@@ -450,7 +475,7 @@ async def list_versions_endpoint(
     request: Request,
     analysis_id: str,
     user=Depends(require_authenticated_user),
-    _auth=Depends(verify_api_key),
+    _auth=Depends(require_api_read_or_user_session),
 ):
     """List version metadata for an analysis (snapshots excluded)."""
     owner_user_id = _owner_id(request, user)
@@ -478,7 +503,7 @@ async def get_version_endpoint(
     analysis_id: str,
     version_number: int,
     user=Depends(require_authenticated_user),
-    _auth=Depends(verify_api_key),
+    _auth=Depends(require_api_read_or_user_session),
 ):
     """Get a specific analysis version including the full snapshot."""
     version = await _db_call(
@@ -503,22 +528,33 @@ async def restore_version_endpoint(
     request: Request,
     analysis_id: str,
     version_number: int,
+    if_match: str = Header(..., alias="If-Match"),
+    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=200),
     user=Depends(require_authenticated_user),
-    _auth=Depends(verify_api_key),
+    _auth=Depends(require_api_write_or_user_session),
 ):
     """Restore an earlier version: creates a new version from it and updates the live session."""
-    new_version = await _db_call(
-        lambda db, **kwargs: (
-            record.to_dict(include_snapshot=False)
-            if (record := restore_analysis_version(db, **kwargs)) is not None
-            else None
-        ),
-        analysis_id=analysis_id,
-        version_number=version_number,
-        owner_user_id=_owner_id(request, user),
-        tenant_id=_tenant_id(user),
-        session_store=SESSION_STORE,
-    )
+    principal = get_request_durable_principal(request) or {}
+    try:
+        new_version = await _db_call(
+            lambda db, **kwargs: (
+                record.to_dict(include_snapshot=False)
+                if (record := restore_analysis_version(db, **kwargs)) is not None
+                else None
+            ),
+            analysis_id=analysis_id,
+            version_number=version_number,
+            owner_user_id=_owner_id(request, user),
+            tenant_id=_tenant_id(user),
+            session_store=SESSION_STORE,
+            cache_owner_api_key_id=principal.get("owner_api_key_id"),
+            expected_version=_expected_version(if_match),
+            idempotency_key=idempotency_key,
+        )
+    except AnalysisVersionConflictError as exc:
+        raise ArchmorphException(409, str(exc)) from exc
+    except ValueError as exc:
+        raise ArchmorphException(400, str(exc)) from exc
     if new_version is None:
         raise ArchmorphException(404, f"Version {version_number} not found")
     return {
@@ -540,7 +576,7 @@ async def list_artifacts_endpoint(
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     user=Depends(require_authenticated_user),
-    _auth=Depends(verify_api_key),
+    _auth=Depends(require_api_read_or_user_session),
 ):
     """List artifacts linked to an analysis."""
     owner_user_id = _owner_id(request, user)
@@ -571,7 +607,7 @@ async def get_artifact_endpoint(
     artifact_id: str,
     include_content: bool = Query(default=False),
     user=Depends(require_authenticated_user),
-    _auth=Depends(verify_api_key),
+    _auth=Depends(require_api_read_or_user_session),
 ):
     """Get a single artifact, optionally including inline content."""
     owner_user_id = _owner_id(request, user)
@@ -609,7 +645,7 @@ async def list_decisions_endpoint(
     analysis_id: str,
     decision_type: Optional[str] = Query(default=None),
     user=Depends(require_authenticated_user),
-    _auth=Depends(verify_api_key),
+    _auth=Depends(require_api_read_or_user_session),
 ):
     """List decisions/risks for an analysis."""
     owner_user_id = _owner_id(request, user)
@@ -639,7 +675,7 @@ async def create_decision_endpoint(
     analysis_id: str,
     body: CreateDecisionRequest,
     user=Depends(require_authenticated_user),
-    _auth=Depends(verify_api_key),
+    _auth=Depends(require_api_write_or_user_session),
 ):
     """Record a risk or architectural decision for an analysis."""
     owner_user_id = _owner_id(request, user)

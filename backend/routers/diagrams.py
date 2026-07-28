@@ -20,6 +20,8 @@ import copy
 import hashlib
 import json
 import logging
+from functools import partial
+from starlette.concurrency import run_in_threadpool
 
 from database import get_db, SessionLocal
 from routers.shared import (
@@ -259,6 +261,19 @@ def _persist_authenticated_analysis(
     require_project_membership: bool = False,
 ) -> Any:
     try:
+        if tenant_id and owner_api_key_id is None:
+            from project_store import PROJECT_EDIT_ROLES, resolve_diagram_principal
+
+            project_principal = resolve_diagram_principal(
+                db,
+                diagram_id,
+                caller_user_id=user_id,
+                tenant_id=tenant_id,
+                allowed_roles=PROJECT_EDIT_ROLES,
+            )
+            if project_principal is None:
+                raise ValueError("Durable project edit permission not found")
+            user_id = project_principal["owner_user_id"]
         from workspace_store import get_analysis_by_diagram
 
         workspace_id = get_project_id_for_diagram(
@@ -340,11 +355,78 @@ def _persist_authenticated_analysis(
         ) from exc
 
 
+def _persist_authenticated_analysis_in_worker(**kwargs):
+    db = SessionLocal()
+    try:
+        return _persist_authenticated_analysis(db, **kwargs)
+    finally:
+        db.close()
+
+
 # ─────────────────────────────────────────────────────────────
 # Diagrams — Upload
 # ─────────────────────────────────────────────────────────────
 def _new_project_upload() -> None:
     return None
+
+
+def _persist_project_upload(
+    *,
+    request: Request,
+    requested_project_id: Optional[str],
+    caller_owner_user_id: str,
+    tenant_id: str,
+    diagram_id: str,
+    filename: Optional[str],
+    content_type: Optional[str],
+    file_size_bytes: int,
+    content_hash: str,
+) -> tuple[str, str, str]:
+    from project_store import PROJECT_EDIT_ROLES, require_project_access
+
+    db = SessionLocal()
+    try:
+        canonical_owner_user_id = caller_owner_user_id
+        authorized_project_id = None
+        if requested_project_id:
+            resolved = require_project_access(
+                db,
+                project_id=requested_project_id,
+                caller_user_id=caller_owner_user_id,
+                tenant_id=tenant_id,
+                allowed_roles=PROJECT_EDIT_ROLES,
+            )
+            if resolved is not None:
+                project, _role = resolved
+                authorized_project_id = project.id
+                canonical_owner_user_id = project.owner_user_id
+        project = acquire_project(
+            db,
+            owner_user_id=canonical_owner_user_id,
+            tenant_id=tenant_id,
+            project_id=authorized_project_id,
+        )
+        register_diagram(
+            db,
+            project_id=project.id,
+            diagram_id=diagram_id,
+            owner_user_id=project.owner_user_id,
+            tenant_id=tenant_id,
+            filename=filename,
+            content_type=content_type,
+            file_size_bytes=file_size_bytes,
+            content_hash=content_hash,
+        )
+        restore_capability = issue_restore_capability(
+            request,
+            diagram_id,
+            db=db,
+            owner_user_id=project.owner_user_id,
+            tenant_id=tenant_id,
+        )
+        return project.id, project.owner_user_id, restore_capability
+    finally:
+        db.close()
 
 
 @router.post("/api/projects/diagrams")
@@ -412,38 +494,26 @@ async def upload_diagram(
     if upload_principal is None or not upload_principal.get("tenant_id"):
         IMAGE_STORE.delete(diagram_id)
         raise ArchmorphException(401, "Authenticated tenant context is required")
-    db = SessionLocal()
     try:
-        project = acquire_project(
-            db,
-            owner_user_id=upload_principal["owner_user_id"],
+        project_id, canonical_owner_user_id, restore_capability = await run_in_threadpool(partial(
+            _persist_project_upload,
+            request=request,
+            requested_project_id=requested_project_id,
+            caller_owner_user_id=upload_principal["owner_user_id"],
             tenant_id=upload_principal["tenant_id"],
-            project_id=requested_project_id,
-        )
-        project_id = project.id
-        register_diagram(
-            db,
-            project_id=project_id,
             diagram_id=diagram_id,
-            owner_user_id=upload_principal["owner_user_id"],
-            tenant_id=upload_principal["tenant_id"],
             filename=file.filename,
             content_type=file.content_type,
             file_size_bytes=len(image_bytes),
             content_hash=hashlib.sha256(image_bytes).hexdigest(),
-        )
-        restore_capability = issue_restore_capability(
-            request,
-            diagram_id,
-            db=db,
-            owner_user_id=upload_principal["owner_user_id"],
-            tenant_id=upload_principal["tenant_id"],
-        )
+        ))
+        upload_principal = {
+            **upload_principal,
+            "owner_user_id": canonical_owner_user_id,
+        }
     except Exception as exc:
         IMAGE_STORE.delete(diagram_id)
         raise ArchmorphException(503, "Project persistence is temporarily unavailable") from exc
-    finally:
-        db.close()
     namespace_claim = {"diagram_id": diagram_id, "status": "uploaded"}
     if upload_user:
         namespace_claim["_owner_user_id"] = upload_principal["owner_user_id"]
@@ -817,24 +887,18 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
         elif api_key_principal_id:
             result["_owner_api_key_id"] = api_key_principal_id
         if user:
-            db = SessionLocal()
-            try:
-                _persist_authenticated_analysis(
-                    db,
+            await run_in_threadpool(partial(
+                _persist_authenticated_analysis_in_worker,
                     user_id=principal["owner_user_id"],
                     tenant_id=user.tenant_id,
                     diagram_id=diagram_id,
                     session=result,
                     cache_required=True,
                     require_project_membership=True,
-                )
-            finally:
-                db.close()
+            ))
         elif api_key_principal_id:
-            db = SessionLocal()
-            try:
-                _persist_authenticated_analysis(
-                    db,
+            await run_in_threadpool(partial(
+                _persist_authenticated_analysis_in_worker,
                     user_id=api_key_principal_id,
                     tenant_id=f"service:{api_key_principal_id.split(':', 1)[-1]}",
                     diagram_id=diagram_id,
@@ -842,9 +906,7 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
                     owner_api_key_id=api_key_principal_id,
                     cache_required=True,
                     require_project_membership=True,
-                )
-            finally:
-                db.close()
+            ))
         else:
             SESSION_STORE[diagram_id] = result
         record_event("analyses_run", {"diagram_id": diagram_id, "services": result["services_detected"]})
@@ -919,24 +981,18 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
         logger.warning("Session store at capacity (%d/%d) — oldest sessions will be evicted",
                        str(len(SESSION_STORE)).replace('\n', '').replace('\r', ''), str(SESSION_STORE.maxsize).replace('\n', '').replace('\r', ''))
     if user:
-        db = SessionLocal()
-        try:
-            _persist_authenticated_analysis(
-                db,
+        await run_in_threadpool(partial(
+            _persist_authenticated_analysis_in_worker,
                 user_id=principal["owner_user_id"],
                 tenant_id=user.tenant_id,
                 diagram_id=diagram_id,
                 session=result,
                 cache_required=True,
                 require_project_membership=True,
-            )
-        finally:
-            db.close()
+        ))
     elif api_key_principal_id:
-        db = SessionLocal()
-        try:
-            _persist_authenticated_analysis(
-                db,
+        await run_in_threadpool(partial(
+            _persist_authenticated_analysis_in_worker,
                 user_id=api_key_principal_id,
                 tenant_id=f"service:{api_key_principal_id.split(':', 1)[-1]}",
                 diagram_id=diagram_id,
@@ -944,9 +1000,7 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
                 owner_api_key_id=api_key_principal_id,
                 cache_required=True,
                 require_project_membership=True,
-            )
-        finally:
-            db.close()
+        ))
     else:
         SESSION_STORE[diagram_id] = result
     record_event("analyses_run", {"diagram_id": diagram_id, "services": result["services_detected"]})
@@ -1130,24 +1184,18 @@ async def _run_analysis_job(job_id: str, payload: Dict[str, Any]) -> None:
             job_manager.fail(job_id, "Uploaded image changed while analysis was running")
             return
         if job_user_id:
-            db = SessionLocal()
-            try:
-                _persist_authenticated_analysis(
-                    db,
+            await run_in_threadpool(partial(
+                _persist_authenticated_analysis_in_worker,
                     user_id=job_user_id,
                     tenant_id=job_tenant_id,
                     diagram_id=diagram_id,
                     session=result,
                     cache_required=True,
                     require_project_membership=True,
-                )
-            finally:
-                db.close()
+            ))
         elif job_api_principal_id:
-            db = SessionLocal()
-            try:
-                _persist_authenticated_analysis(
-                    db,
+            await run_in_threadpool(partial(
+                _persist_authenticated_analysis_in_worker,
                     user_id=job_api_principal_id,
                     tenant_id=f"service:{job_api_principal_id.split(':', 1)[-1]}",
                     diagram_id=diagram_id,
@@ -1155,9 +1203,7 @@ async def _run_analysis_job(job_id: str, payload: Dict[str, Any]) -> None:
                     owner_api_key_id=job_api_principal_id,
                     cache_required=True,
                     require_project_membership=True,
-                )
-            finally:
-                db.close()
+            ))
         else:
             SESSION_STORE[diagram_id] = result
         job_manager.update_progress(job_id, 90, "Saving guided questions and evidence...", phase="saving")

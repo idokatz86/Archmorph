@@ -292,6 +292,7 @@ def test_013_production_init_is_read_only_then_014_migrates_without_partial_sche
             assert {
                 "table:api_key_credentials",
                 "table:analysis_mutation_receipts",
+                "table:analysis_restore_receipts",
                 "table:diagram_lifecycle",
                 "table:migration_replay_events",
                 "table:migration_replays",

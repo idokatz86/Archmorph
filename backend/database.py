@@ -248,6 +248,7 @@ def database_readiness() -> dict[str, object]:
                 required_tables = {
                     "api_key_credentials",
                     "analysis_mutation_receipts",
+                    "analysis_restore_receipts",
                     "workspaces",
                     "analyses",
                     "analysis_versions",
