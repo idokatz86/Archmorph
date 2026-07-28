@@ -4,6 +4,7 @@ Shared state, dependencies, and models used across Archmorph API routers.
 
 import asyncio
 import copy
+from contextvars import ContextVar
 from dataclasses import dataclass
 from enum import Enum
 import json
@@ -36,7 +37,22 @@ from starlette.concurrency import run_in_threadpool
 # Rate Limiting
 # ─────────────────────────────────────────────────────────────
 _redis_url = os.getenv("REDIS_URL", "")
-_rate_limit_storage = os.getenv("RATE_LIMIT_STORAGE", _redis_url or "memory://")
+_redis_host = os.getenv("REDIS_HOST", "")
+_configured_rate_limit_storage = os.getenv("RATE_LIMIT_STORAGE", "").strip()
+
+
+def _rate_limit_storage_uri() -> str:
+    """Resolve a shared limiter backend without treating REDIS_HOST as local.
+
+    ``limits`` can construct URL-authenticated Redis storage directly. Azure
+    Managed Redis configured through ``REDIS_HOST`` uses rotating Entra tokens,
+    so that mode must provide an explicit shared ``RATE_LIMIT_STORAGE`` adapter
+    URI rather than silently falling back to one process's memory.
+    """
+    return _configured_rate_limit_storage or _redis_url or "memory://"
+
+
+_rate_limit_storage = _rate_limit_storage_uri()
 limiter = Limiter(
     key_func=get_remote_address,
     enabled=os.getenv("RATE_LIMIT_ENABLED", "true").lower() != "false",
@@ -88,6 +104,65 @@ class CredentialContext:
 
     def has_scope(self, scope: str) -> bool:
         return scope in self.scopes or "admin" in self.scopes
+
+
+_credential_context_var: ContextVar[Optional[CredentialContext]] = ContextVar(
+    "archmorph_credential_context",
+    default=None,
+)
+
+
+def set_request_credential_context(
+    request: Optional[Request],
+    context: CredentialContext,
+) -> CredentialContext:
+    """Expose one secret-free authenticated identity to middleware and workers."""
+    _credential_context_var.set(context)
+    if request is not None:
+        request.state.credential_context = context
+    return context
+
+
+def current_credential_context() -> Optional[CredentialContext]:
+    """Return the credential context propagated through the current task/thread."""
+    return _credential_context_var.get()
+
+
+def rate_limit_readiness() -> dict[str, object]:
+    """Return whether rate limits are shared when horizontal scale is possible."""
+    from session_store import _declared_replica_count, _is_multi_worker
+
+    enabled = os.getenv("RATE_LIMIT_ENABLED", "true").lower() != "false"
+    multi_replica = _declared_replica_count() > 1
+    multi_worker = _is_multi_worker()
+    storage_uri = (
+        os.getenv("RATE_LIMIT_STORAGE", "").strip()
+        or os.getenv("REDIS_URL", "").strip()
+        or "memory://"
+    )
+    shared = storage_uri.startswith(("redis://", "rediss://"))
+    redis_host = os.getenv("REDIS_HOST", "").strip()
+    configured_storage = os.getenv("RATE_LIMIT_STORAGE", "").strip()
+    entra_host_requires_adapter = bool(redis_host and not configured_storage)
+    shared_required = enabled and (multi_replica or multi_worker)
+    ready = not shared_required or shared
+    return {
+        "enabled": enabled,
+        "storage": "shared" if shared else "local",
+        "shared": shared,
+        "shared_required": shared_required,
+        "multi_worker": multi_worker,
+        "declared_replica_count": _declared_replica_count(),
+        "multi_replica": multi_replica,
+        "entra_host_requires_adapter": entra_host_requires_adapter,
+        "ready": ready,
+        "reason": (
+            "RATE_LIMIT_STORAGE must use a shared Redis-compatible URI when "
+            "REDIS_HOST/Entra mode or horizontal production scale is enabled"
+            if not ready
+            else None
+        ),
+    }
 
 
 def _safe_log_value(value: object) -> str:
@@ -210,21 +285,30 @@ async def verify_api_key(
     request: Request = None,
 ) -> CredentialContext:
     """Verify a key and enforce least privilege from the HTTP method."""
-    context = _authenticate_api_key(api_key, required=False)
-    required_scope = "read" if request is None or request.method in {"GET", "HEAD", "OPTIONS"} else "write"
+    context = getattr(getattr(request, "state", None), "credential_context", None)
+    if context is None:
+        context = _authenticate_api_key(api_key, required=False)
+    route = request.scope.get("route") if request is not None else None
+    path_template = getattr(route, "path", request.url.path if request is not None else "")
+    required_scope = route_effect_scope(request.method, path_template) if request is not None else None
+    if required_scope is None:
+        required_scope = "read" if request is None or request.method in {"GET", "HEAD", "OPTIONS"} else "write"
     if not context.has_scope(required_scope):
         raise ArchmorphException(403, f"API key scope '{required_scope}' is required")
-    return context
+    return set_request_credential_context(request, context)
 
 
 async def verify_api_key_required(
     api_key: Optional[str] = Security(API_KEY_HEADER),
+    request: Request = None,
 ) -> CredentialContext:
     """Verify API key for server-to-server routes, even in dev/test mode."""
-    context = _authenticate_api_key(api_key, required=True)
+    context = getattr(getattr(request, "state", None), "credential_context", None)
+    if context is None:
+        context = _authenticate_api_key(api_key, required=True)
     if context.kind is not CredentialKind.STATIC:
         raise ArchmorphException(status_code=403, detail="Static service administrator required")
-    return context
+    return set_request_credential_context(request, context)
 
 
 def require_api_scope(scope: str):
@@ -234,11 +318,14 @@ def require_api_scope(scope: str):
 
     async def dependency(
         api_key: Optional[str] = Security(API_KEY_HEADER),
+        request: Request = None,
     ) -> CredentialContext:
-        context = _authenticate_api_key(api_key, required=False)
+        context = getattr(getattr(request, "state", None), "credential_context", None)
+        if context is None:
+            context = _authenticate_api_key(api_key, required=False)
         if not context.has_scope(scope):
             raise ArchmorphException(403, f"API key scope '{scope}' is required")
-        return context
+        return set_request_credential_context(request, context)
 
     dependency.__name__ = f"require_api_{scope}"
     return dependency
@@ -249,12 +336,79 @@ require_api_write = require_api_scope("write")
 require_api_admin = require_api_scope("admin")
 
 
+ROUTE_EFFECT_SCOPE_MANIFEST: dict[tuple[str, str], str] = {
+    # GET compatibility routes that persist generated artifacts/state.
+    ("GET", "/api/diagrams/{diagram_id}/hld"): "write",
+    ("GET", "/api/diagrams/{diagram_id}/cost-assumptions"): "write",
+    ("GET", "/api/diagrams/{diagram_id}/cost-estimate/export"): "write",
+    ("GET", "/api/diagrams/{diagram_id}/migration-timeline/export"): "write",
+    ("GET", "/api/diagrams/{diagram_id}/report"): "write",
+    ("GET", "/api/replay/{replay_id}/export"): "write",
+    ("POST", "/api/diagrams/{diagram_id}/export-diagram"): "write",
+    ("POST", "/api/diagrams/{diagram_id}/export-architecture-package"): "write",
+    ("POST", "/api/diagrams/{diagram_id}/export-hld"): "write",
+    ("POST", "/api/diagrams/{diagram_id}/export-package"): "write",
+    ("POST", "/api/diagrams/{diagram_id}/generate-hld"): "write",
+    ("POST", "/api/diagrams/{diagram_id}/generate-hld-async"): "write",
+    ("POST", "/api/diagrams/{diagram_id}/generate"): "write",
+    ("POST", "/api/diagrams/{diagram_id}/generate-async"): "write",
+    ("POST", "/api/diagrams/{diagram_id}/iac-chat"): "write",
+    ("DELETE", "/api/diagrams/{diagram_id}/iac-chat"): "write",
+    ("POST", "/api/diagrams/{diagram_id}/cost-estimate/configure"): "write",
+    ("POST", "/api/diagrams/{diagram_id}/restore-session"): "write",
+    # Explicit mutation routes whose verb already communicates the effect.
+    ("POST", "/api/diagrams/{diagram_id}/migration-timeline"): "write",
+    ("POST", "/api/diagrams/{diagram_id}/network-topology"): "write",
+    ("POST", "/api/diagrams/{diagram_id}/review-queue/{item_id}/disposition"): "write",
+    ("POST", "/api/diagrams/{diagram_id}/versions"): "write",
+    ("POST", "/api/diagrams/{diagram_id}/versions/save"): "write",
+    ("POST", "/api/diagrams/{diagram_id}/versions/{version}/branch"): "write",
+    ("POST", "/api/diagrams/{diagram_id}/versions/{version_number}/restore"): "write",
+    ("POST", "/api/replay/record"): "write",
+    ("POST", "/api/replay/events"): "write",
+    ("POST", "/api/cost/budgets"): "write",
+    ("PUT", "/api/cost/budgets/{budget_id}"): "write",
+}
+
+
+def route_effect_scope(method: str, path_template: str) -> Optional[str]:
+    """Return explicit effect scope, resolving v1 mirrors to their base path."""
+    normalized_path = path_template
+    if normalized_path.startswith("/api/v1/"):
+        normalized_path = "/api/" + normalized_path[len("/api/v1/"):]
+    return ROUTE_EFFECT_SCOPE_MANIFEST.get((method.upper(), normalized_path))
+
+
+async def enforce_route_effect_scope(
+    request: Request,
+    api_key: Optional[str] = Security(API_KEY_HEADER),
+    credentials: Optional[HTTPAuthorizationCredentials] = Security(USER_BEARER),
+) -> Optional[CredentialContext]:
+    """Enforce effect scope for any manifest-listed route, regardless of verb."""
+    route = request.scope.get("route")
+    path_template = getattr(route, "path", request.url.path)
+    required_scope = route_effect_scope(request.method, path_template)
+    if required_scope is None:
+        return None
+    context = await verify_api_key_or_user_session(
+        request,
+        api_key=api_key,
+        credentials=credentials,
+    )
+    if not context.has_scope(required_scope):
+        raise ArchmorphException(403, f"API key scope '{required_scope}' is required")
+    return set_request_credential_context(request, context)
+
+
 async def verify_api_key_or_user_session(
     request: Request,
     api_key: Optional[str] = Security(API_KEY_HEADER),
     credentials: Optional[HTTPAuthorizationCredentials] = Security(USER_BEARER),
 ) -> CredentialContext:
     """Allow either the service API key or a signed-in user bearer session."""
+    existing = getattr(request.state, "credential_context", None)
+    if existing is not None:
+        return existing
     try:
         return await verify_api_key(api_key, request=request)
     except ArchmorphException as exc:
@@ -270,7 +424,7 @@ async def verify_api_key_or_user_session(
                 if user.provider.value == "azure_ad_b2c" and user.provider_subject
                 else user.id
             )
-            return CredentialContext(
+            context = CredentialContext(
                 kind=CredentialKind.BEARER,
                 principal_id=f"user:{owner_user_id}",
                 key_id=None,
@@ -279,6 +433,7 @@ async def verify_api_key_or_user_session(
                 tenant_id=user.tenant_id,
                 owner_user_id=owner_user_id,
             )
+            return set_request_credential_context(request, context)
         raise ArchmorphException(status_code=401, detail="Invalid or missing API key or user session") from exc
 
 
@@ -593,6 +748,23 @@ def authorize_diagram_access(
     owning API-key principal that created the private session.
     """
     from auth import get_user_from_request_headers
+
+    route = request.scope.get("route")
+    path_template = getattr(route, "path", request.url.path)
+    required_effect_scope = route_effect_scope(request.method, path_template)
+    if required_effect_scope:
+        context = getattr(request.state, "credential_context", None)
+        if context is None and request.headers.get("x-api-key"):
+            context = _authenticate_api_key(
+                request.headers.get("x-api-key"),
+                required=False,
+            )
+            set_request_credential_context(request, context)
+        if context is not None and not context.has_scope(required_effect_scope):
+            raise ArchmorphException(
+                403,
+                f"API key scope '{required_effect_scope}' is required",
+            )
 
     session = _load_diagram_session_for_access(diagram_id)
     principal = get_request_durable_principal(request)

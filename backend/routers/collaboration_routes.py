@@ -12,14 +12,20 @@ import time
 import uuid
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Header, Request
 from pydantic import Field
 from strict_models import StrictBaseModel
 
 from auth import get_user_from_request_headers
 from error_envelope import ArchmorphException
 from log_sanitizer import safe
-from routers.shared import limiter, require_authenticated_user, verify_api_key
+from routers.shared import (
+    authorize_diagram_access_async,
+    get_request_durable_principal,
+    limiter,
+    require_authenticated_user,
+    verify_api_key,
+)
 from session_store import get_store
 
 logger = logging.getLogger(__name__)
@@ -36,7 +42,7 @@ def purge_diagram_collaboration(diagram_id: str) -> int:
     removed = 0
     for session_id in list(_session_store.keys("*")):
         session = _session_store.peek(session_id) or {}
-        if session.get("analysis_id") != diagram_id:
+        if session.get("diagram_id", session.get("analysis_id")) != diagram_id:
             continue
         if not _change_store.delete(session_id) or not _session_store.delete(session_id):
             raise RuntimeError("Collaboration deletion could not be confirmed")
@@ -46,7 +52,10 @@ def purge_diagram_collaboration(diagram_id: str) -> int:
 
 def diagram_collaboration_absent(diagram_id: str) -> bool:
     return not any(
-        (_session_store.peek(session_id) or {}).get("analysis_id") == diagram_id
+        (_session_store.peek(session_id) or {}).get(
+            "diagram_id",
+            (_session_store.peek(session_id) or {}).get("analysis_id"),
+        ) == diagram_id
         for session_id in _session_store.keys("*")
     )
 
@@ -148,10 +157,10 @@ def _resolve_session_participant(
         participant = _find_participant_by_user_id(session, user.id)
         if participant:
             return participant
-        raise ArchmorphException(403, "Not a participant in this session")
+        raise _session_access_not_found()
 
     if not participant_token:
-        raise ArchmorphException(401, "Authentication required")
+        raise _session_access_not_found()
 
     participant = _find_participant_by_token(session, participant_token)
     if not participant:
@@ -171,19 +180,39 @@ async def create_session(
     user=Depends(require_authenticated_user),
 ):
     """Create a collaborative session with a shareable join code."""
-    if body.owner != user.id:
-        raise ArchmorphException(403, "Forbidden: owner mismatch")
+    principal = get_request_durable_principal(request)
+    if principal is None or not principal.get("tenant_id"):
+        raise _session_access_not_found()
+    if body.owner not in {
+        principal["owner_user_id"],
+        user.id,
+        *principal.get("legacy_owner_user_ids", []),
+    }:
+        raise _session_access_not_found()
+    try:
+        await authorize_diagram_access_async(
+            request,
+            body.analysis_id,
+            purpose="create a collaboration session",
+        )
+    except ArchmorphException as exc:
+        raise _session_access_not_found() from exc
 
     session_id = str(uuid.uuid4())
     share_code = secrets.token_urlsafe(9)
-    owner_participant = _new_participant(user_id=user.id, role="architect", tenant_id=user.tenant_id)
+    owner_participant = _new_participant(
+        user_id=principal["owner_user_id"],
+        role="architect",
+        tenant_id=principal["tenant_id"],
+    )
 
     session = {
         "session_id": session_id,
         "share_code": share_code,
         "analysis_id": body.analysis_id,
-        "owner": user.id,
-        "tenant_id": user.tenant_id,
+        "owner": principal["owner_user_id"],
+        "tenant_id": principal["tenant_id"],
+        "diagram_id": body.analysis_id,
         "participants": [owner_participant],
         "created_at": time.time(),
     }
@@ -195,7 +224,7 @@ async def create_session(
         session_id=session_id,
         share_code=share_code,
         analysis_id=body.analysis_id,
-        owner=user.id,
+        owner=principal["owner_user_id"],
         participant_token=owner_participant["participant_token"],
     )
 
@@ -205,14 +234,23 @@ async def create_session(
 async def get_session(
     request: Request,
     session_id: str,
-    participant_token: Optional[str] = None,
+    x_participant_capability: Optional[str] = Header(
+        None,
+        alias="X-Participant-Capability",
+    ),
     _auth=Depends(verify_api_key),
 ):
     """Get session info including participants."""
+    if "participant_token" in request.query_params:
+        raise ArchmorphException(400, "Participant capabilities are not accepted in URLs")
     session = _session_store.get(session_id)
     if not session:
         raise _session_access_not_found()
-    _resolve_session_participant(request, session, participant_token=participant_token)
+    _resolve_session_participant(
+        request,
+        session,
+        participant_token=x_participant_capability,
+    )
     return _serialize_session(session)
 
 
@@ -233,10 +271,10 @@ async def join_session(
     if session.get("tenant_id") and session["tenant_id"] != user.tenant_id:
         raise _session_access_not_found()
     if body.user_id != user.id:
-        raise ArchmorphException(403, "Forbidden: participant mismatch")
+        raise _session_access_not_found()
 
     if not secrets.compare_digest(session["share_code"], body.share_code):
-        raise ArchmorphException(403, "Invalid share code")
+        raise _session_access_not_found()
 
     # Prevent duplicate joins
     existing_participant = _find_participant_by_user_id(session, user.id)
@@ -284,7 +322,7 @@ async def submit_change(
         participant_token=body.participant_token,
     )
     if body.user_id != participant["user_id"]:
-        raise ArchmorphException(403, "Forbidden: participant mismatch")
+        raise _session_access_not_found()
 
     changes: list = _change_store.get(session_id, [])
     change = {
@@ -305,14 +343,23 @@ async def submit_change(
 async def get_changes(
     request: Request,
     session_id: str,
-    participant_token: Optional[str] = None,
+    x_participant_capability: Optional[str] = Header(
+        None,
+        alias="X-Participant-Capability",
+    ),
     _auth=Depends(verify_api_key),
 ):
     """Get change history for a session."""
+    if "participant_token" in request.query_params:
+        raise ArchmorphException(400, "Participant capabilities are not accepted in URLs")
     session = _session_store.get(session_id)
     if not session:
         raise _session_access_not_found()
-    _resolve_session_participant(request, session, participant_token=participant_token)
+    _resolve_session_participant(
+        request,
+        session,
+        participant_token=x_participant_capability,
+    )
 
     changes = _change_store.get(session_id, [])
     return {"session_id": session_id, "changes": changes, "total": len(changes)}

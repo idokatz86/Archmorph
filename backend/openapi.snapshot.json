@@ -224,8 +224,15 @@
             "type": "string"
           },
           "organization_id": {
-            "title": "Organization Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Organization Id"
           },
           "tools": {
             "default": [],
@@ -238,8 +245,7 @@
           }
         },
         "required": [
-          "name",
-          "organization_id"
+          "name"
         ],
         "title": "AgentCreateSchema",
         "type": "object"
@@ -951,6 +957,17 @@
             "title": "Acknowledged",
             "type": "boolean"
           },
+          "actor_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Kind"
+          },
           "agent_id": {
             "title": "Agent Id",
             "type": "string"
@@ -971,15 +988,48 @@
             "title": "Id",
             "type": "string"
           },
+          "key_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key Id"
+          },
           "message": {
             "title": "Message",
             "type": "string"
+          },
+          "owner_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner User Id"
           },
           "period": {
             "$ref": "#/components/schemas/BudgetPeriod"
           },
           "severity": {
             "$ref": "#/components/schemas/AlertSeverity"
+          },
+          "tenant_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Id"
           },
           "threshold_pct": {
             "title": "Threshold Pct",
@@ -1462,10 +1512,7 @@
         "additionalProperties": false,
         "properties": {
           "decision_type": {
-            "maxLength": 50,
-            "minLength": 1,
-            "title": "Decision Type",
-            "type": "string"
+            "$ref": "#/components/schemas/DecisionType"
           },
           "description": {
             "anyOf": [
@@ -1482,14 +1529,12 @@
           "severity": {
             "anyOf": [
               {
-                "maxLength": 20,
-                "type": "string"
+                "$ref": "#/components/schemas/DecisionSeverity"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Severity"
+            ]
           },
           "title": {
             "maxLength": 300,
@@ -1797,6 +1842,25 @@
         ],
         "title": "CredentialResponse",
         "type": "object"
+      },
+      "DecisionSeverity": {
+        "enum": [
+          "low",
+          "medium",
+          "high",
+          "critical"
+        ],
+        "title": "DecisionSeverity",
+        "type": "string"
+      },
+      "DecisionType": {
+        "enum": [
+          "risk",
+          "decision",
+          "note"
+        ],
+        "title": "DecisionType",
+        "type": "string"
       },
       "DeploymentExecuteRequest": {
         "additionalProperties": false,
@@ -4472,19 +4536,11 @@
         "parameters": [
           {
             "in": "query",
-            "name": "organization_id",
-            "required": true,
-            "schema": {
-              "title": "Organization Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
             "name": "skip",
             "required": false,
             "schema": {
               "default": 0,
+              "minimum": 0,
               "title": "Skip",
               "type": "integer"
             }
@@ -4495,6 +4551,8 @@
             "required": false,
             "schema": {
               "default": 100,
+              "maximum": 200,
+              "minimum": 1,
               "title": "Limit",
               "type": "integer"
             }
@@ -7253,8 +7311,8 @@
             }
           },
           {
-            "in": "query",
-            "name": "participant_token",
+            "in": "header",
+            "name": "X-Participant-Capability",
             "required": false,
             "schema": {
               "anyOf": [
@@ -7265,7 +7323,7 @@
                   "type": "null"
                 }
               ],
-              "title": "Participant Token"
+              "title": "X-Participant-Capability"
             }
           }
         ],
@@ -7315,8 +7373,8 @@
             }
           },
           {
-            "in": "query",
-            "name": "participant_token",
+            "in": "header",
+            "name": "X-Participant-Capability",
             "required": false,
             "schema": {
               "anyOf": [
@@ -7327,7 +7385,7 @@
                   "type": "null"
                 }
               ],
-              "title": "Participant Token"
+              "title": "X-Participant-Capability"
             }
           }
         ],
@@ -7760,6 +7818,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Compare Costs"
       }
     },
@@ -7909,6 +7975,18 @@
             }
           },
           {
+            "description": "Explicit admin-only global view",
+            "in": "query",
+            "name": "global",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Explicit admin-only global view",
+              "title": "Global",
+              "type": "boolean"
+            }
+          },
+          {
             "in": "query",
             "name": "tenant_id",
             "required": false,
@@ -7972,6 +8050,14 @@
             "description": "Successful Response"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Pricing Catalog"
       }
     },
@@ -13582,6 +13668,28 @@
     "/api/models/": {
       "get": {
         "operationId": "list_models_api_models__get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "skip",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "title": "Skip",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -13596,6 +13704,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "List Models",
@@ -18589,8 +18707,8 @@
             }
           },
           {
-            "in": "query",
-            "name": "participant_token",
+            "in": "header",
+            "name": "X-Participant-Capability",
             "required": false,
             "schema": {
               "anyOf": [
@@ -18601,7 +18719,7 @@
                   "type": "null"
                 }
               ],
-              "title": "Participant Token"
+              "title": "X-Participant-Capability"
             }
           }
         ],
@@ -18652,8 +18770,8 @@
             }
           },
           {
-            "in": "query",
-            "name": "participant_token",
+            "in": "header",
+            "name": "X-Participant-Capability",
             "required": false,
             "schema": {
               "anyOf": [
@@ -18664,7 +18782,7 @@
                   "type": "null"
                 }
               ],
-              "title": "Participant Token"
+              "title": "X-Participant-Capability"
             }
           }
         ],
@@ -19108,6 +19226,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Compare Costs V1",
         "tags": [
           "v1"
@@ -19262,6 +19388,18 @@
             }
           },
           {
+            "description": "Explicit admin-only global view",
+            "in": "query",
+            "name": "global",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Explicit admin-only global view",
+              "title": "Global",
+              "type": "boolean"
+            }
+          },
+          {
             "in": "query",
             "name": "tenant_id",
             "required": false,
@@ -19326,6 +19464,14 @@
             "description": "Successful Response"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Pricing Catalog V1",
         "tags": [
           "v1"
@@ -25183,6 +25329,28 @@
     "/api/v1/models/": {
       "get": {
         "operationId": "list_models_v1_api_v1_models__get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "skip",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "title": "Skip",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -25197,6 +25365,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "List Models V1",

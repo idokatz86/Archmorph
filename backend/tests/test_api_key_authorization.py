@@ -25,6 +25,7 @@ from routers.api_keys_routes import (
 def isolated_credentials(monkeypatch):
     _keys.clear()
     _hash_index.clear()
+    _keys["__test_in_memory_registry__"] = object()
     monkeypatch.setattr(shared, "API_KEY", "static-administrator-placeholder")
     monkeypatch.setattr(shared, "API_KEY_ROTATED", "")
     monkeypatch.setattr(shared, "API_KEY_PRINCIPAL_ID", "static-service-principal")

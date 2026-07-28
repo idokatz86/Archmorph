@@ -29,6 +29,27 @@ depends_on = None
 
 _TENANT_TABLES = ("workspaces", "source_assets", "analyses", "artifacts", "decisions")
 
+# Every table below is created by revision 014 and dropped by ``downgrade``.
+# A non-empty table is therefore a hard rollback blocker unless a future
+# migration supplies an explicit reversible conversion. Categories are stable,
+# operator-actionable, and deliberately contain no row values or identifiers.
+_DOWNGRADE_DATA_CATEGORIES = {
+    "credentials": ("api_key_credentials",),
+    "project_membership": ("project_members",),
+    "diagram_lifecycle": ("diagram_lifecycle",),
+    "restore_grants": ("restore_grants",),
+    "purge_manifests": ("purge_operations",),
+    "mutation_receipts": ("analysis_mutation_receipts",),
+    "restore_receipts": ("analysis_restore_receipts",),
+    "migration_replays": ("migration_replays", "migration_replay_events"),
+    "identity_aliases": ("tenant_rehome_aliases",),
+    "identity_audits": ("tenant_rehome_audit",),
+    "cost_budgets": ("cost_budgets",),
+    "cost_alerts": ("cost_alerts",),
+}
+# tenant rewrite alias/audit evidence is append-only. The generalized guard
+# below now applies the same fix-forward rule to every 014-only data category.
+
 
 def _legacy_scope(owner_user_id: str) -> str:
     provider = None
@@ -656,6 +677,20 @@ def _elect_default_workspaces(bind, workspaces, audit) -> None:
 
 
 def upgrade() -> None:
+    op.alter_column(
+        "analyses",
+        "diagram_id",
+        existing_type=sa.String(50),
+        type_=sa.String(100),
+        existing_nullable=True,
+    )
+    op.alter_column(
+        "source_assets",
+        "diagram_id",
+        existing_type=sa.String(50),
+        type_=sa.String(100),
+        existing_nullable=True,
+    )
     for table_name in _TENANT_TABLES:
         op.alter_column(
             table_name,
@@ -664,6 +699,12 @@ def upgrade() -> None:
             type_=sa.String(100),
             existing_nullable=True,
         )
+
+    for table_name in ("usage_counters", "funnel_steps"):
+        op.add_column(table_name, sa.Column("owner_user_id", sa.String(100), nullable=True))
+        op.add_column(table_name, sa.Column("tenant_id", sa.String(100), nullable=True))
+        op.create_index(f"ix_{table_name}_owner_user_id", table_name, ["owner_user_id"])
+        op.create_index(f"ix_{table_name}_tenant_id", table_name, ["tenant_id"])
 
     op.create_table(
         "tenant_rehome_audit",
@@ -740,6 +781,78 @@ def upgrade() -> None:
         ["principal_id", "revoked"],
     )
 
+    op.add_column("cost_records", sa.Column("owner_user_id", sa.String(100), nullable=True))
+    op.add_column("cost_records", sa.Column("tenant_id", sa.String(100), nullable=True))
+    op.add_column("cost_records", sa.Column("actor_kind", sa.String(20), nullable=True))
+    op.add_column("cost_records", sa.Column("key_id", sa.String(64), nullable=True))
+    op.create_index("ix_cost_records_owner_user_id", "cost_records", ["owner_user_id"])
+    op.create_index("ix_cost_records_tenant_id", "cost_records", ["tenant_id"])
+    op.create_index(
+        "ix_cost_records_scope_created",
+        "cost_records",
+        ["owner_user_id", "tenant_id", "created_at"],
+    )
+    op.create_table(
+        "cost_budgets",
+        sa.Column("id", sa.String(36), primary_key=True),
+        sa.Column("owner_user_id", sa.String(100), nullable=False),
+        sa.Column("tenant_id", sa.String(100), nullable=False),
+        sa.Column("actor_kind", sa.String(20), nullable=False),
+        sa.Column("key_id", sa.String(64), nullable=True),
+        sa.Column("agent_id", sa.String(100), nullable=False),
+        sa.Column("amount_usd", sa.Float(), nullable=False),
+        sa.Column("period", sa.String(20), nullable=False),
+        sa.Column("alert_thresholds", sa.Text(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+        sa.CheckConstraint(
+            "period IN ('daily', 'weekly', 'monthly')",
+            name="ck_cost_budgets_period",
+        ),
+    )
+    op.create_index(
+        "ix_cost_budgets_scope",
+        "cost_budgets",
+        ["owner_user_id", "tenant_id"],
+    )
+    op.create_table(
+        "cost_alerts",
+        sa.Column("id", sa.String(36), primary_key=True),
+        sa.Column("owner_user_id", sa.String(100), nullable=False),
+        sa.Column("tenant_id", sa.String(100), nullable=False),
+        sa.Column("actor_kind", sa.String(20), nullable=False),
+        sa.Column("key_id", sa.String(64), nullable=True),
+        sa.Column("agent_id", sa.String(100), nullable=False),
+        sa.Column("budget_id", sa.String(36), nullable=False),
+        sa.Column("severity", sa.String(20), nullable=False),
+        sa.Column("threshold_pct", sa.Float(), nullable=False),
+        sa.Column("current_spend", sa.Float(), nullable=False),
+        sa.Column("budget_amount", sa.Float(), nullable=False),
+        sa.Column("period", sa.String(20), nullable=False),
+        sa.Column("message", sa.Text(), nullable=False),
+        sa.Column("acknowledged", sa.Boolean(), nullable=False, server_default=sa.false()),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+        sa.CheckConstraint(
+            "severity IN ('warning', 'critical', 'exceeded')",
+            name="ck_cost_alerts_severity",
+        ),
+        sa.CheckConstraint(
+            "period IN ('daily', 'weekly', 'monthly')",
+            name="ck_cost_alerts_period",
+        ),
+    )
+    op.create_index(
+        "ix_cost_alerts_scope_created",
+        "cost_alerts",
+        ["owner_user_id", "tenant_id", "created_at"],
+    )
+    op.create_index(
+        "ux_cost_alerts_budget_threshold",
+        "cost_alerts",
+        ["budget_id", "threshold_pct"],
+        unique=True,
+    )
+
     op.create_table(
         "project_members",
         sa.Column("id", sa.String(36), primary_key=True),
@@ -778,7 +891,7 @@ def upgrade() -> None:
     op.create_table(
         "diagram_lifecycle",
         sa.Column("id", sa.String(36), primary_key=True),
-        sa.Column("diagram_id", sa.String(50), nullable=False),
+        sa.Column("diagram_id", sa.String(100), nullable=False),
         sa.Column("owner_user_id", sa.String(100), nullable=False),
         sa.Column("tenant_id", sa.String(100), nullable=False),
         sa.Column(
@@ -812,7 +925,7 @@ def upgrade() -> None:
         sa.Column("nonce_digest", sa.String(64), nullable=False),
         sa.Column("owner_user_id", sa.String(100), nullable=False),
         sa.Column("tenant_id", sa.String(100), nullable=False),
-        sa.Column("diagram_id", sa.String(50), nullable=False),
+        sa.Column("diagram_id", sa.String(100), nullable=False),
         sa.Column("generation", sa.Integer(), nullable=False),
         sa.Column("expected_version", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("payload_hash", sa.String(64), nullable=True),
@@ -832,7 +945,7 @@ def upgrade() -> None:
         "purge_operations",
         sa.Column("id", sa.String(36), primary_key=True),
         sa.Column("scope_type", sa.String(20), nullable=False),
-        sa.Column("scope_id", sa.String(50), nullable=False),
+        sa.Column("scope_id", sa.String(100), nullable=False),
         sa.Column("workspace_id", sa.String(36), nullable=True),
         sa.Column("owner_user_id", sa.String(100), nullable=False),
         sa.Column("tenant_id", sa.String(100), nullable=False),
@@ -868,7 +981,7 @@ def upgrade() -> None:
         sa.Column("id", sa.String(36), primary_key=True),
         sa.Column("owner_user_id", sa.String(100), nullable=False),
         sa.Column("tenant_id", sa.String(100), nullable=False),
-        sa.Column("diagram_id", sa.String(50), nullable=False),
+        sa.Column("diagram_id", sa.String(100), nullable=False),
         sa.Column("operation", sa.String(100), nullable=False),
         sa.Column("request_hash", sa.String(64), nullable=False),
         sa.Column(
@@ -946,13 +1059,23 @@ def upgrade() -> None:
             "workspaces",
             "status IN ('active', 'archived', 'deleting')",
         )
+        op.create_check_constraint(
+            "ck_decisions_type",
+            "decisions",
+            "decision_type IN ('risk', 'decision', 'note')",
+        )
+        op.create_check_constraint(
+            "ck_decisions_severity",
+            "decisions",
+            "severity IS NULL OR severity IN ('low', 'medium', 'high', 'critical')",
+        )
 
     op.create_table(
         "migration_replays",
         sa.Column("id", sa.String(36), primary_key=True),
         sa.Column("analysis_id", sa.String(36), nullable=False),
         sa.Column("version_id", sa.String(36), nullable=False),
-        sa.Column("diagram_id", sa.String(50), nullable=False),
+        sa.Column("diagram_id", sa.String(100), nullable=False),
         sa.Column("owner_user_id", sa.String(100), nullable=False),
         sa.Column("tenant_id", sa.String(100), nullable=False),
         sa.Column("title", sa.String(256), nullable=False),
@@ -993,6 +1116,53 @@ def upgrade() -> None:
         "migration_replay_events",
         ["replay_id", "sequence"],
         unique=True,
+    )
+
+    if not context.is_offline_mode():
+        bind = op.get_bind()
+        duplicate_state_scopes = bind.execute(sa.text("""
+            SELECT owner_user_id, tenant_id, project_id, environment
+            FROM deployment_state
+            WHERE owner_user_id IS NOT NULL AND tenant_id IS NOT NULL
+            GROUP BY owner_user_id, tenant_id, project_id, environment
+            HAVING count(*) > 1
+        """)).all()
+        for owner_user_id, tenant_id, project_id, environment in duplicate_state_scopes:
+            rows = bind.execute(
+                sa.text("""
+                    SELECT id, state_json, previous_state_json, lock_id, lock_info
+                    FROM deployment_state
+                    WHERE owner_user_id = :owner_user_id
+                      AND tenant_id = :tenant_id
+                      AND project_id = :project_id
+                      AND environment = :environment
+                    ORDER BY updated_at DESC NULLS LAST, id DESC
+                """),
+                {
+                    "owner_user_id": owner_user_id,
+                    "tenant_id": tenant_id,
+                    "project_id": project_id,
+                    "environment": environment,
+                },
+            ).mappings().all()
+            material_rows = [
+                row for row in rows
+                if row["state_json"] or row["previous_state_json"] or row["lock_id"] or row["lock_info"]
+            ]
+            if len(material_rows) > 1:
+                raise RuntimeError(
+                    "Migration refused: duplicate Terraform state scope contains "
+                    "multiple material rows and requires operator reconciliation"
+                )
+            survivor_id = material_rows[0]["id"] if material_rows else rows[0]["id"]
+            bind.execute(
+                sa.text("DELETE FROM deployment_state WHERE id = ANY(:duplicate_ids)"),
+                {"duplicate_ids": [row["id"] for row in rows if row["id"] != survivor_id]},
+            )
+    op.create_unique_constraint(
+        "uq_deployment_state_scope",
+        "deployment_state",
+        ["owner_user_id", "tenant_id", "project_id", "environment"],
     )
 
     if not context.is_offline_mode():
@@ -1080,36 +1250,48 @@ def upgrade() -> None:
 def downgrade() -> None:
     if not context.is_offline_mode():
         bind = op.get_bind()
-        quarantines = bind.execute(
+        populated_categories = []
+        for category, table_names in _DOWNGRADE_DATA_CATEGORIES.items():
+            if any(
+                bind.execute(
+                    sa.text(f'SELECT EXISTS (SELECT 1 FROM "{table_name}" LIMIT 1)')
+                ).scalar_one()
+                for table_name in table_names
+            ):
+                populated_categories.append(category)
+        legacy_scoped_costs = bind.execute(
             sa.text(
-                "SELECT count(*) FROM tenant_rehome_aliases "
-                "WHERE status = 'quarantined'"
+                "SELECT EXISTS (SELECT 1 FROM cost_records "
+                "WHERE owner_user_id IS NOT NULL OR tenant_id IS NOT NULL LIMIT 1)"
             )
         ).scalar_one()
-        if quarantines:
+        if legacy_scoped_costs:
+            populated_categories.append("cost_records")
+        scoped_telemetry = any(
+            bind.execute(
+                sa.text(
+                    f"SELECT EXISTS (SELECT 1 FROM {table_name} "
+                    "WHERE owner_user_id IS NOT NULL OR tenant_id IS NOT NULL LIMIT 1)"
+                )
+            ).scalar_one()
+            for table_name in ("usage_counters", "funnel_steps")
+        )
+        if scoped_telemetry:
+            populated_categories.append("telemetry")
+        if populated_categories:
             raise RuntimeError(
-                "Downgrade refused: unresolved tenant migration quarantines "
-                "must be reconciled before alias/audit evidence can be removed"
+                "Downgrade refused: revision 014 contains non-empty durable data "
+                "that revision 013 cannot represent. Blocking categories: "
+                f"{', '.join(populated_categories)}. Deploy a schema-compatible "
+                "revision, export and reversibly convert the affected categories, "
+                "or fix forward; no rows were changed."
             )
-        aliases = bind.execute(
-            sa.text("SELECT count(*) FROM tenant_rehome_aliases")
-        ).scalar_one()
-        audits = bind.execute(
-            sa.text("SELECT count(*) FROM tenant_rehome_audit")
-        ).scalar_one()
-        if aliases or audits:
-            raise RuntimeError(
-                "Downgrade refused: tenant rewrite alias/audit evidence is append-only; "
-                "deploy a schema-compatible revision or fix forward"
-            )
-        restore_receipts = bind.execute(
-            sa.text("SELECT count(*) FROM analysis_restore_receipts")
-        ).scalar_one()
-        if restore_receipts:
-            raise RuntimeError(
-                "Downgrade refused: durable version-restore idempotency receipts exist; "
-                "deploy a schema-compatible revision or fix forward"
-            )
+    op.drop_constraint("uq_deployment_state_scope", "deployment_state", type_="unique")
+    for table_name in ("funnel_steps", "usage_counters"):
+        op.drop_index(f"ix_{table_name}_tenant_id", table_name=table_name)
+        op.drop_index(f"ix_{table_name}_owner_user_id", table_name=table_name)
+        op.drop_column(table_name, "tenant_id")
+        op.drop_column(table_name, "owner_user_id")
     op.drop_index("ux_migration_replay_events_sequence", table_name="migration_replay_events")
     op.drop_index("ix_migration_replay_events_replay_id", table_name="migration_replay_events")
     op.drop_table("migration_replay_events")
@@ -1120,6 +1302,8 @@ def downgrade() -> None:
     dialect_name = context.get_context().dialect.name
     if dialect_name == "postgresql":
         op.drop_constraint("ck_workspaces_status", "workspaces", type_="check")
+        op.drop_constraint("ck_decisions_severity", "decisions", type_="check")
+        op.drop_constraint("ck_decisions_type", "decisions", type_="check")
         op.drop_constraint("fk_decisions_analysis_version", "decisions", type_="foreignkey")
         op.create_foreign_key(
             "decisions_version_id_fkey",
@@ -1141,6 +1325,18 @@ def downgrade() -> None:
     op.drop_index("ix_api_key_credentials_principal_id", table_name="api_key_credentials")
     op.drop_index("ux_api_key_credentials_key_hash", table_name="api_key_credentials")
     op.drop_table("api_key_credentials")
+    op.drop_index("ux_cost_alerts_budget_threshold", table_name="cost_alerts")
+    op.drop_index("ix_cost_alerts_scope_created", table_name="cost_alerts")
+    op.drop_table("cost_alerts")
+    op.drop_index("ix_cost_budgets_scope", table_name="cost_budgets")
+    op.drop_table("cost_budgets")
+    op.drop_index("ix_cost_records_scope_created", table_name="cost_records")
+    op.drop_index("ix_cost_records_tenant_id", table_name="cost_records")
+    op.drop_index("ix_cost_records_owner_user_id", table_name="cost_records")
+    op.drop_column("cost_records", "key_id")
+    op.drop_column("cost_records", "actor_kind")
+    op.drop_column("cost_records", "tenant_id")
+    op.drop_column("cost_records", "owner_user_id")
     op.drop_index("ux_purge_operations_scope", table_name="purge_operations")
     op.drop_index("ix_purge_operations_status", table_name="purge_operations")
     op.drop_index("ix_purge_operations_workspace_id", table_name="purge_operations")

@@ -55,6 +55,19 @@ class WorkspaceStatus(str, Enum):
     DELETING = "deleting"
 
 
+class DecisionType(str, Enum):
+    RISK = "risk"
+    DECISION = "decision"
+    NOTE = "note"
+
+
+class DecisionSeverity(str, Enum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
 # ─────────────────────────────────────────────────────────────
 # Workspace
 # ─────────────────────────────────────────────────────────────
@@ -215,7 +228,7 @@ class SourceAsset(Base):
     content_type = Column(String(100), nullable=True)
     file_size_bytes = Column(Integer, nullable=True)
     content_hash = Column(String(64), nullable=True, index=True)  # SHA-256 hex
-    diagram_id = Column(String(50), nullable=True, index=True)    # session store key
+    diagram_id = Column(String(100), nullable=True, index=True)    # session store key
     source_cloud = Column(String(20), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
@@ -268,7 +281,7 @@ class Analysis(Base):
     )
     owner_user_id = Column(String(100), nullable=False, index=True)
     tenant_id = Column(String(100), nullable=True, index=True)
-    diagram_id = Column(String(50), nullable=True, index=True)    # session store key
+    diagram_id = Column(String(100), nullable=True, index=True)    # session store key
     title = Column(String(300), nullable=True)
     source_cloud = Column(String(20), nullable=False, server_default="aws")
     target_cloud = Column(String(20), nullable=False, server_default="azure")
@@ -381,7 +394,7 @@ class AnalysisMutationReceipt(Base):
     id = Column(String(36), primary_key=True, default=_new_uuid)
     owner_user_id = Column(String(100), nullable=False)
     tenant_id = Column(String(100), nullable=False)
-    diagram_id = Column(String(50), nullable=False)
+    diagram_id = Column(String(100), nullable=False)
     operation = Column(String(100), nullable=False)
     request_hash = Column(String(64), nullable=False)
     analysis_id = Column(
@@ -566,6 +579,14 @@ class Decision(Base):
             name="fk_decisions_analysis_version",
             ondelete="RESTRICT",
         ),
+        CheckConstraint(
+            "decision_type IN ('risk', 'decision', 'note')",
+            name="ck_decisions_type",
+        ),
+        CheckConstraint(
+            "severity IS NULL OR severity IN ('low', 'medium', 'high', 'critical')",
+            name="ck_decisions_severity",
+        ),
         Index("ix_decisions_analysis_type", "analysis_id", "decision_type"),
         Index("ix_decisions_owner_tenant", "owner_user_id", "tenant_id"),
     )
@@ -658,7 +679,7 @@ class MigrationReplay(Base):
         index=True,
     )
     version_id = Column(String(36), nullable=False)
-    diagram_id = Column(String(50), nullable=False, index=True)
+    diagram_id = Column(String(100), nullable=False, index=True)
     owner_user_id = Column(String(100), nullable=False)
     tenant_id = Column(String(100), nullable=False)
     title = Column(String(256), nullable=False)
@@ -714,7 +735,7 @@ class DiagramLifecycle(Base):
     __tablename__ = "diagram_lifecycle"
 
     id = Column(String(36), primary_key=True, default=_new_uuid)
-    diagram_id = Column(String(50), nullable=False)
+    diagram_id = Column(String(100), nullable=False)
     owner_user_id = Column(String(100), nullable=False)
     tenant_id = Column(String(100), nullable=False)
     workspace_id = Column(
@@ -754,7 +775,7 @@ class RestoreGrant(Base):
     nonce_digest = Column(String(64), nullable=False, unique=True)
     owner_user_id = Column(String(100), nullable=False)
     tenant_id = Column(String(100), nullable=False)
-    diagram_id = Column(String(50), nullable=False)
+    diagram_id = Column(String(100), nullable=False)
     generation = Column(Integer, nullable=False)
     expected_version = Column(Integer, nullable=False, server_default="0")
     payload_hash = Column(String(64), nullable=True)
@@ -781,7 +802,7 @@ class PurgeOperation(Base):
 
     id = Column(String(36), primary_key=True, default=_new_uuid)
     scope_type = Column(String(20), nullable=False)
-    scope_id = Column(String(50), nullable=False)
+    scope_id = Column(String(100), nullable=False)
     workspace_id = Column(String(36), nullable=True, index=True)
     owner_user_id = Column(String(100), nullable=False)
     tenant_id = Column(String(100), nullable=False)

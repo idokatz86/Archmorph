@@ -5,6 +5,7 @@ Falls back to base templates when no analysis is available.
 """
 
 import logging
+import hashlib
 import json
 import os
 import re
@@ -355,9 +356,14 @@ def _validate_terraform_cli(code: str) -> List[Tuple[str, str]] | None:
         if init.returncode != 0:
             message = (init.stderr or init.stdout or "terraform init failed").strip()
             if _terraform_init_failure_is_unavailable(message):
-                logger.warning("Terraform init unavailable; falling back to static validation: %s", message)
+                logger.warning(
+                    "Terraform init unavailable; falling back to static validation "
+                    "output_length=%d output_sha256=%s",
+                    len(message),
+                    hashlib.sha256(message.encode("utf-8")).hexdigest()[:12],
+                )
                 return None
-            return [("error", f"terraform init failed: {message}")]
+            return [("error", "terraform init failed")]
 
         validate = subprocess.run(
             [terraform, f"-chdir={workdir}", "validate", "-json", "-no-color"],
@@ -376,12 +382,10 @@ def _validate_terraform_cli(code: str) -> List[Tuple[str, str]] | None:
         for diagnostic in payload.get("diagnostics", []) if isinstance(payload, dict) else []:
             severity = "error" if diagnostic.get("severity") == "error" else "warning"
             summary = str(diagnostic.get("summary") or "terraform validate diagnostic")
-            detail = str(diagnostic.get("detail") or "").strip()
-            issues.append((severity, f"{summary}: {detail}" if detail else summary))
+            issues.append((severity, summary[:300]))
 
         if validate.returncode != 0 and not issues:
-            message = (validate.stderr or validate.stdout or "terraform validate failed").strip()
-            issues.append(("error", f"terraform validate failed: {message}"))
+            issues.append(("error", "terraform validate failed"))
         return issues
 
 
@@ -392,7 +396,10 @@ def _validate_terraform(code: str) -> List[Tuple[str, str]]:
     try:
         cli_issues = _validate_terraform_cli(code)
     except (OSError, subprocess.SubprocessError) as exc:
-        logger.warning("Terraform CLI validation unavailable: %s", exc)
+        logger.warning(
+            "Terraform CLI validation unavailable error_type=%s",
+            type(exc).__name__,
+        )
         cli_issues = None
     if cli_issues is None:
         return _validate_terraform_static(code)
@@ -464,9 +471,11 @@ def _validate_bicep_cli(code: str) -> List[Tuple[str, str]] | None:
         check=False,
     )
     if version_result.returncode != 0:
+        output = (version_result.stderr or version_result.stdout or "").strip()
         logger.warning(
-            "Bicep CLI validation unavailable: %s",
-            (version_result.stderr or version_result.stdout or "az bicep version failed").strip(),
+            "Bicep CLI validation unavailable output_length=%d output_sha256=%s",
+            len(output),
+            hashlib.sha256(output.encode("utf-8")).hexdigest()[:12],
         )
         return None
 
@@ -482,8 +491,7 @@ def _validate_bicep_cli(code: str) -> List[Tuple[str, str]] | None:
         )
         if result.returncode == 0:
             return []
-        message = (result.stderr or result.stdout or "az bicep build failed").strip()
-        return [("error", f"az bicep build failed: {message}")]
+        return [("error", "az bicep build failed")]
 
 
 def _validate_bicep(code: str) -> List[Tuple[str, str]]:
@@ -493,7 +501,10 @@ def _validate_bicep(code: str) -> List[Tuple[str, str]]:
     try:
         cli_issues = _validate_bicep_cli(code)
     except (OSError, subprocess.SubprocessError) as exc:
-        logger.warning("Bicep CLI validation unavailable: %s", exc)
+        logger.warning(
+            "Bicep CLI validation unavailable error_type=%s",
+            type(exc).__name__,
+        )
         cli_issues = None
     if cli_issues is None:
         return _validate_bicep_static(code)
@@ -695,7 +706,10 @@ def generate_iac_code(analysis: Optional[dict], iac_format: str = "terraform", p
         return code
 
     except Exception as exc:
-        logger.error("GPT-4o IaC generation failed: %s — falling back to base template", exc)
+        logger.error(
+            "GPT IaC generation failed error_type=%s; using base template",
+            type(exc).__name__,
+        )
         try:
             return _load_fallback_template(
                 iac_format, safe_project, safe_env, safe_region,
@@ -703,7 +717,7 @@ def generate_iac_code(analysis: Optional[dict], iac_format: str = "terraform", p
                 "# Re-run after fixing the OpenAI configuration to get full IaC output.\n",
             )
         except FileNotFoundError:
-            return f"# IaC generation failed: {exc}\n# Please check your OpenAI configuration.\n"
+            return "# IaC generation is temporarily unavailable.\n"
 
 
 def _generate_and_verify_iac(
@@ -730,6 +744,7 @@ def _generate_and_verify_iac(
         model=AZURE_OPENAI_DEPLOYMENT,
         temperature=0.2,
         max_tokens=32768,
+        bypass_cache=True,
     )
 
     code = response.choices[0].message.content.strip()
@@ -771,6 +786,7 @@ def _verify_iac_completeness(
             model=AZURE_OPENAI_DEPLOYMENT,
             temperature=0.1,
             max_tokens=32768,
+            bypass_cache=True,
         )
 
         verified_code = verify_response.choices[0].message.content.strip()
@@ -784,7 +800,10 @@ def _verify_iac_completeness(
             return verified_code
 
     except Exception as verify_exc:
-        logger.warning("Verification step failed, using initial generation: %s", verify_exc)
+        logger.warning(
+            "Verification step failed error_type=%s; using initial generation",
+            type(verify_exc).__name__,
+        )
 
     return code
 

@@ -13,6 +13,7 @@ import logging
 from routers.shared import (
     authorize_diagram_access_async,
     get_api_key_service_principal,
+    get_request_durable_principal,
     limiter,
     require_diagram_access,
     verify_api_key,
@@ -33,10 +34,16 @@ def require_share_access(request: Request, share_id: str) -> dict:
     headers = dict(request.headers)
     user = get_user_from_request_headers(headers)
     if user:
+        principal = get_request_durable_principal(request)
+        canonical_owner = (principal or {}).get("owner_user_id") or user.id
+        legacy_owners = set((principal or {}).get("legacy_owner_user_ids", []))
         creator_id = record.get("creator_id")
         creator_tenant_id = record.get("creator_tenant_id")
-        if creator_id and creator_id == user.id and (
-            creator_tenant_id is None or creator_tenant_id == user.tenant_id
+        accepted_creators = {canonical_owner, *legacy_owners}
+        if creator_tenant_id is None:
+            accepted_creators.add(user.id)
+        if creator_id and creator_id in accepted_creators and (
+            creator_tenant_id is None or creator_tenant_id == (principal or {}).get("tenant_id", user.tenant_id)
         ):
             return record
         if not creator_id:
@@ -67,14 +74,15 @@ async def create_stakeholder_share(
     analysis = await authorize_diagram_access_async(request, diagram_id, purpose="create a share link")
 
     # Extract creator identity when the request also carries an end-user session.
+    principal = get_request_durable_principal(request)
     creator_id = None
     creator_tenant_id = None
     creator_api_principal_id = None
     try:
         user = get_user_from_request_headers(dict(request.headers))
-        if user and user.id:
-            creator_id = user.id
-            creator_tenant_id = user.tenant_id
+        if user and principal:
+            creator_id = principal["owner_user_id"]
+            creator_tenant_id = principal["tenant_id"]
         elif not user:
             creator_api_principal_id = get_api_key_service_principal(dict(request.headers))
     except Exception:

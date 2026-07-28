@@ -245,7 +245,8 @@ class JobManager:
         self._ttl_seconds = ttl_seconds
         self._max_events_per_job = max_events_per_job or int(os.getenv("JOB_EVENT_RING_SIZE", "200"))
         self._jobs_store = get_store("jobs", maxsize=max_jobs, ttl=ttl_seconds)
-        # One key per job_id: {next_seq, dropped_events, events:[{id,event,data,ts}]}
+        # One key per job_id. Scope metadata is duplicated here intentionally:
+        # purge/discovery must not depend on the execution envelope surviving.
         self._events_store = get_store("job_events", maxsize=max_jobs, ttl=ttl_seconds)
         # O(1) per-principal active counters for admission checks.
         self._active_counts_store = get_store("job_active_counts", maxsize=max_jobs * 3, ttl=ttl_seconds)
@@ -618,7 +619,7 @@ class JobManager:
             if not self._jobs_store.set(job.job_id, job.to_storage_dict()):
                 raise JobStoreError("Durable job state could not be persisted")
             job_persisted = True
-            if not self._events_store.set(job.job_id, {"next_seq": 0, "dropped_events": 0, "events": []}):
+            if not self._events_store.set(job.job_id, self._event_ring_scope(job)):
                 logger.warning("Initial event state unavailable for accepted job %s; it will be created lazily", job.job_id)
             self._notify_submission_listeners()
             logger.info("Job submitted: %s (type=%s, diagram=%s)", job.job_id, job_type, diagram_id)
@@ -1381,6 +1382,8 @@ class JobManager:
                 events = events[overflow:]
                 dropped_events += overflow
             return {
+                **state,
+                **self._event_ring_metadata(job),
                 "next_seq": next_seq + 1,
                 "dropped_events": dropped_events,
                 "events": events,
@@ -1398,6 +1401,74 @@ class JobManager:
         job._events = list(state.get("events", []))
         for waiter in self._waiters.get(job.job_id, []):
             waiter.set()
+
+    @staticmethod
+    def _event_ring_metadata(job: Job) -> Dict[str, Any]:
+        return {
+            "scope_schema_version": 1,
+            "job_id": job.job_id,
+            "diagram_id": job.diagram_id,
+            "owner_user_id": job.owner_user_id,
+            "tenant_id": job.tenant_id,
+            "owner_api_key_id": job.owner_api_key_id,
+        }
+
+    @classmethod
+    def _event_ring_scope(cls, job: Job) -> Dict[str, Any]:
+        return {
+            **cls._event_ring_metadata(job),
+            "next_seq": 0,
+            "dropped_events": 0,
+            "events": [],
+        }
+
+    def _scoped_event_ring(
+        self,
+        job_id: str,
+        *,
+        owner_user_id: Optional[str],
+        tenant_id: Optional[str],
+    ) -> Optional[Dict[str, Any]]:
+        """Return an exact-scope ring, reconstructing safe legacy metadata.
+
+        Legacy rings without scope metadata are reconstructed only from a
+        matching envelope. A pre-existing orphan cannot be attributed safely,
+        so it is quarantined by writing an explicit non-owner scope marker and
+        remains invisible to customer purge manifests.
+        """
+        ring = self._events_store.peek(job_id)
+        if not isinstance(ring, dict):
+            return None
+        if ring.get("scope_schema_version") == 1:
+            return ring
+        envelope = self._jobs_store.peek(job_id)
+        if isinstance(envelope, dict) and envelope.get("job_id") == job_id:
+            job = Job.from_dict(envelope)
+            reconstructed = {**self._event_ring_scope(job), **ring}
+            reconstructed.update({
+                "scope_schema_version": 1,
+                "job_id": job_id,
+                "diagram_id": job.diagram_id,
+                "owner_user_id": job.owner_user_id,
+                "tenant_id": job.tenant_id,
+                "owner_api_key_id": job.owner_api_key_id,
+            })
+            if not self._events_store.set(job_id, reconstructed):
+                raise JobStoreError("Legacy job event metadata reconstruction failed")
+            return reconstructed
+        quarantined = {
+            **ring,
+            "scope_schema_version": 1,
+            "job_id": job_id,
+            "diagram_id": None,
+            "owner_user_id": None,
+            "tenant_id": None,
+            "owner_api_key_id": None,
+            "quarantined": True,
+        }
+        if not self._events_store.set(job_id, quarantined):
+            raise JobStoreError("Legacy orphan event quarantine failed")
+        return quarantined
 
     def _evict_completed(self) -> None:
         """Remove oldest completed/failed/cancelled jobs to free space."""
@@ -1483,19 +1554,36 @@ class JobManager:
         """Capture every scoped job and event-ring ID before deletion."""
         job_ids: set[str] = set()
         event_ids: set[str] = set()
-        for job_id in set(self._jobs_store.keys("*")) | set(self._events_store.keys("*")):
+        candidate_ids = sorted(
+            set(self._jobs_store.keys("*")) | set(self._events_store.keys("*"))
+        )[: self._max_jobs]
+        for job_id in candidate_ids:
             payload = self._jobs_store.peek(job_id) or {}
-            if payload.get("diagram_id") != diagram_id:
-                continue
-            if owner_user_id is not None and payload.get("owner_user_id") not in {
-                None,
-                owner_user_id,
-            }:
-                continue
-            if tenant_id is not None and payload.get("tenant_id") not in {None, tenant_id}:
-                continue
-            job_ids.add(job_id)
-            if self._events_store.peek(job_id) is not None:
+            event_ring = self._scoped_event_ring(
+                job_id,
+                owner_user_id=owner_user_id,
+                tenant_id=tenant_id,
+            )
+            envelope_matches = bool(
+                payload.get("diagram_id") == diagram_id
+                and (
+                    owner_user_id is None
+                    or payload.get("owner_user_id") in {None, owner_user_id}
+                )
+                and (
+                    tenant_id is None
+                    or payload.get("tenant_id") in {None, tenant_id}
+                )
+            )
+            event_matches = bool(
+                event_ring
+                and event_ring.get("diagram_id") == diagram_id
+                and (owner_user_id is None or event_ring.get("owner_user_id") == owner_user_id)
+                and (tenant_id is None or event_ring.get("tenant_id") == tenant_id)
+            )
+            if envelope_matches:
+                job_ids.add(job_id)
+            if event_matches:
                 event_ids.add(job_id)
         # A queued/running job can emit a final cancellation event during purge,
         # so every job key is also a potential event-ring key.
@@ -1551,8 +1639,23 @@ class JobManager:
         # Cancellation may have emitted a final event. Delete and confirm all
         # retained rings before deleting the only durable envelope/index.
         for job_id in set(event_ids) | set(job_ids):
-            if self._events_store.peek(job_id) is None:
+            event_ring = self._events_store.peek(job_id)
+            if event_ring is None:
                 continue
+            if not isinstance(event_ring, dict):
+                raise JobStoreError("Job event purge metadata is invalid")
+            if event_ring.get("diagram_id") != diagram_id:
+                raise JobStoreError("Job event purge manifest scope mismatch")
+            if owner_user_id is not None and event_ring.get("owner_user_id") not in {
+                None,
+                owner_user_id,
+            }:
+                raise JobStoreError("Job event purge owner scope mismatch")
+            if tenant_id is not None and event_ring.get("tenant_id") not in {
+                None,
+                tenant_id,
+            }:
+                raise JobStoreError("Job event purge tenant scope mismatch")
             if not self._events_store.delete(job_id):
                 raise JobStoreError("Job event deletion could not be confirmed")
             deleted_events += 1
@@ -1591,7 +1694,19 @@ class JobManager:
             self._events_store.peek(job_id) is not None
             for job_id in retained_event_ids
         )
-        return not current["job_ids"] and not current["event_ids"] and not retained_event_present
+        independently_scoped_event_present = any(
+            isinstance((ring := self._events_store.peek(job_id)), dict)
+            and ring.get("diagram_id") == diagram_id
+            and (owner_user_id is None or ring.get("owner_user_id") == owner_user_id)
+            and (tenant_id is None or ring.get("tenant_id") == tenant_id)
+            for job_id in self._events_store.keys("*")[: self._max_jobs]
+        )
+        return bool(
+            not current["job_ids"]
+            and not current["event_ids"]
+            and not retained_event_present
+            and not independently_scoped_event_present
+        )
 
 
 def _sse_format(event: str, data: Any) -> str:

@@ -32,6 +32,26 @@ def _create_session(
     requested_owner: str,
     analysis_id: str = "analysis-1",
 ) -> dict:
+    from database import SessionLocal
+    from starlette.requests import Request
+    from workspace_store import persist_analysis_state
+
+    raw_headers = [(key.lower().encode(), value.encode()) for key, value in headers.items()]
+    request = Request({"type": "http", "method": "POST", "path": "/", "headers": raw_headers})
+    from routers.shared import get_request_durable_principal
+
+    principal = get_request_durable_principal(request)
+    db = SessionLocal()
+    try:
+        persist_analysis_state(
+            db,
+            owner_user_id=principal["owner_user_id"],
+            tenant_id=principal["tenant_id"],
+            diagram_id=analysis_id,
+            snapshot={"diagram_id": analysis_id, "mappings": []},
+        )
+    finally:
+        db.close()
     response = test_client.post(
         "/api/collab/sessions",
         headers=headers,
@@ -42,7 +62,7 @@ def _create_session(
 
 
 def _assert_cross_tenant_denied(response) -> None:
-    assert response.status_code in (403, 404), response.text
+    assert response.status_code == 404, response.text
 
 
 def test_create_session_rejects_forged_owner_and_binds_authenticated_owner(
@@ -55,7 +75,7 @@ def test_create_session_rejects_forged_owner_and_binds_authenticated_owner(
         headers=tenant_a_auth_headers,
         json={"analysis_id": "analysis-1", "owner": "forged-owner"},
     )
-    assert forged.status_code == 403
+    assert forged.status_code == 404
 
     created = _create_session(
         test_client,
@@ -97,7 +117,7 @@ def test_join_requires_authenticated_matching_participant_and_tenant(
         headers=same_tenant_headers,
         json={"share_code": created["share_code"], "user_id": "forged-user", "role": "manager"},
     )
-    assert forged.status_code == 403
+    assert forged.status_code == 404
 
     cross_tenant = test_client.post(
         f"/api/collab/sessions/{created['session_id']}/join",
@@ -135,13 +155,13 @@ def test_session_reads_require_membership_or_participant_proof(
     )
 
     anonymous = test_client.get(f"/api/collab/sessions/{created['session_id']}")
-    assert anonymous.status_code == 401
+    assert anonymous.status_code == 404
 
     outsider = test_client.get(
         f"/api/collab/sessions/{created['session_id']}",
         headers=outsider_headers,
     )
-    assert outsider.status_code == 403
+    assert outsider.status_code == 404
 
     cross_tenant = test_client.get(
         f"/api/collab/sessions/{created['session_id']}",
@@ -151,13 +171,13 @@ def test_session_reads_require_membership_or_participant_proof(
 
     wrong_token = test_client.get(
         f"/api/collab/sessions/{created['session_id']}",
-        params={"participant_token": second_session["participant_token"]},
+        headers={"X-Participant-Capability": second_session["participant_token"]},
     )
     assert wrong_token.status_code == 404
 
     valid = test_client.get(
         f"/api/collab/sessions/{created['session_id']}",
-        params={"participant_token": created["participant_token"]},
+        headers={"X-Participant-Capability": created["participant_token"]},
     )
     assert valid.status_code == 200, valid.text
     participants = valid.json()["participants"]
@@ -194,14 +214,14 @@ def test_change_and_history_routes_reject_forgery_and_allow_valid_participant_fl
         headers=member_headers,
         json={"user_id": tenant_a["user_id"], "change_type": "comment", "payload": {"text": "hi"}},
     )
-    assert forged.status_code == 403
+    assert forged.status_code == 404
 
     outsider = test_client.post(
         f"/api/collab/sessions/{created['session_id']}/changes",
         headers=outsider_headers,
         json={"user_id": "user-a-003", "change_type": "comment", "payload": {"text": "hi"}},
     )
-    assert outsider.status_code == 403
+    assert outsider.status_code == 404
 
     cross_tenant = test_client.post(
         f"/api/collab/sessions/{created['session_id']}/changes",
@@ -211,7 +231,7 @@ def test_change_and_history_routes_reject_forgery_and_allow_valid_participant_fl
     _assert_cross_tenant_denied(cross_tenant)
 
     anonymous_no_proof = test_client.get(f"/api/collab/sessions/{created['session_id']}/changes")
-    assert anonymous_no_proof.status_code == 401
+    assert anonymous_no_proof.status_code == 404
 
     anonymous_forged = test_client.post(
         f"/api/collab/sessions/{created['session_id']}/changes",
@@ -222,7 +242,7 @@ def test_change_and_history_routes_reject_forgery_and_allow_valid_participant_fl
             "payload": {"text": "forged"},
         },
     )
-    assert anonymous_forged.status_code == 403
+    assert anonymous_forged.status_code == 404
 
     valid_authenticated = test_client.post(
         f"/api/collab/sessions/{created['session_id']}/changes",
@@ -244,9 +264,34 @@ def test_change_and_history_routes_reject_forgery_and_allow_valid_participant_fl
 
     history = test_client.get(
         f"/api/collab/sessions/{created['session_id']}/changes",
-        params={"participant_token": member_token},
+        headers={"X-Participant-Capability": member_token},
     )
     assert history.status_code == 200, history.text
     payload = history.json()
     assert payload["total"] == 2
     assert [change["user_id"] for change in payload["changes"]] == [member_user_id, member_user_id]
+
+
+def test_participant_capability_in_url_is_rejected_and_purge_removes_session(
+    test_client,
+    tenant_a,
+    tenant_a_auth_headers,
+):
+    from routers.collaboration_routes import (
+        diagram_collaboration_absent,
+        purge_diagram_collaboration,
+    )
+
+    created = _create_session(
+        test_client,
+        tenant_a_auth_headers,
+        requested_owner=tenant_a["user_id"],
+        analysis_id="analysis-purge",
+    )
+    rejected = test_client.get(
+        f"/api/collab/sessions/{created['session_id']}",
+        params={"participant_token": created["participant_token"]},
+    )
+    assert rejected.status_code == 400
+    assert purge_diagram_collaboration("analysis-purge") == 1
+    assert diagram_collaboration_absent("analysis-purge")

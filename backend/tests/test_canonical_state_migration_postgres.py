@@ -24,6 +24,20 @@ def _alembic_config() -> Config:
     return config
 
 
+def _upgrade(config: Config, engine, revision: str) -> None:
+    with engine.connect() as connection:
+        config.attributes["connection"] = connection
+        command.upgrade(config, revision)
+    config.attributes.pop("connection", None)
+
+
+def _downgrade(config: Config, engine, revision: str) -> None:
+    with engine.connect() as connection:
+        config.attributes["connection"] = connection
+        command.downgrade(config, revision)
+    config.attributes.pop("connection", None)
+
+
 def _idp_scope(provider: str, subject: str) -> str:
     material = b"archmorph-provider-tenant-v1" + b"\0" + provider.encode() + b"\0" + subject.encode()
     return f"idp:{hashlib.sha256(material).hexdigest()[:32]}"
@@ -163,13 +177,13 @@ def test_seeded_rewrite_preserves_rows_and_blocks_evidence_destroying_downgrade(
     config = _alembic_config()
     try:
         _reset_database(engine)
-        command.upgrade(config, "013")
+        _upgrade(config, engine, "013")
         seeded = _seed_013(engine)
-        command.upgrade(config, "014")
+        _upgrade(config, engine, "014")
         _assert_014_state(engine, seeded, expect_seed_audits=True)
 
-        with pytest.raises(RuntimeError, match="alias/audit evidence is append-only"):
-            command.downgrade(config, "013")
+        with pytest.raises(RuntimeError, match="Blocking categories: identity_"):
+            _downgrade(config, engine, "013")
         with engine.connect() as connection:
             assert connection.execute(text("SELECT count(*) FROM analyses")).scalar_one() == 1
             assert connection.execute(text("SELECT count(*) FROM analysis_versions")).scalar_one() == 3
@@ -205,7 +219,7 @@ def test_migration_rehomes_clean_workspaces_and_quarantines_only_conflict():
     }
     try:
         _reset_database(engine)
-        command.upgrade(config, "013")
+        _upgrade(config, engine, "013")
         with engine.begin() as connection:
             connection.execute(text("""
                 INSERT INTO workspaces
@@ -227,7 +241,7 @@ def test_migration_rehomes_clean_workspaces_and_quarantines_only_conflict():
                     (:conflict_analysis, :conflict_workspace, :owner, :source_tenant, 'same-diagram', 'aws', 'azure', 'completed', 0, 0)
             """), {**ids, "owner": owner, "source_tenant": source_tenant, "target_tenant": target_tenant})
 
-        command.upgrade(config, "014")
+        _upgrade(config, engine, "014")
         with engine.connect() as connection:
             migrated = connection.execute(text("""
                 SELECT diagram_id FROM analyses
@@ -248,8 +262,8 @@ def test_migration_rehomes_clean_workspaces_and_quarantines_only_conflict():
             assert (ids["clean_analysis_two"], "rehomed") in alias_statuses
             assert (ids["conflict_analysis"], "quarantined") in alias_statuses
 
-        with pytest.raises(RuntimeError, match="unresolved tenant migration quarantines"):
-            command.downgrade(config, "013")
+        with pytest.raises(RuntimeError, match="Blocking categories: identity_aliases"):
+            _downgrade(config, engine, "013")
         with engine.connect() as connection:
             assert connection.execute(text("SELECT count(*) FROM analyses")).scalar_one() == 4
             assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "014"
@@ -265,7 +279,7 @@ def test_013_production_init_is_read_only_then_014_migrates_without_partial_sche
     config = _alembic_config()
     try:
         _reset_database(engine)
-        command.upgrade(config, "013")
+        _upgrade(config, engine, "013")
         inspector = inspect(engine)
         assert "tenant_rehome_audit" not in inspector.get_table_names()
         assert "is_default" not in {
@@ -315,7 +329,7 @@ def test_013_production_init_is_read_only_then_014_migrates_without_partial_sche
             column["name"] for column in inspector.get_columns("workspaces")
         }
 
-        command.upgrade(config, "014")
+        _upgrade(config, engine, "014")
         readiness_014 = database.database_readiness()
         assert readiness_014["current_revision"] == "014"
         assert readiness_014["expected_revision"] == "014"
@@ -439,14 +453,14 @@ def test_all_tenant_duplicate_groups_preserve_evidence_and_block_downgrade():
     config = _alembic_config()
     try:
         _reset_database(engine)
-        command.upgrade(config, "013")
+        _upgrade(config, engine, "013")
         _seed_duplicate_tenant_scope(engine, tenant=None, suffix="tenantless")
         _seed_duplicate_tenant_scope(engine, tenant="tenant-b", suffix="tenant-b")
 
-        command.upgrade(config, "014")
+        _upgrade(config, engine, "014")
         _assert_all_tenant_duplicate_state(engine)
-        with pytest.raises(RuntimeError, match="alias/audit evidence is append-only"):
-            command.downgrade(config, "013")
+        with pytest.raises(RuntimeError, match="Blocking categories: identity_audits"):
+            _downgrade(config, engine, "013")
         with engine.connect() as connection:
             assert connection.execute(text("SELECT count(*) FROM analyses")).scalar_one() == 2
             assert connection.execute(text("SELECT count(*) FROM analysis_versions")).scalar_one() == 4
@@ -484,7 +498,7 @@ def test_duplicate_analysis_lineage_preserves_repair_evidence_and_blocks_downgra
     tenant = "lineage-migration-tenant"
     try:
         _reset_database(engine)
-        command.upgrade(config, "013")
+        _upgrade(config, engine, "013")
         with engine.begin() as connection:
             connection.execute(text("""
                 INSERT INTO workspaces
@@ -522,7 +536,7 @@ def test_duplicate_analysis_lineage_preserves_repair_evidence_and_blocks_downgra
                 },
             })
 
-        command.upgrade(config, "014")
+        _upgrade(config, engine, "014")
         with engine.connect() as connection:
             analysis_id = connection.execute(text("""
                 SELECT id FROM analyses
@@ -557,8 +571,8 @@ def test_duplicate_analysis_lineage_preserves_repair_evidence_and_blocks_downgra
                 "lineage_cycle",
             }
 
-        with pytest.raises(RuntimeError, match="alias/audit evidence is append-only"):
-            command.downgrade(config, "013")
+        with pytest.raises(RuntimeError, match="Blocking categories: identity_audits"):
+            _downgrade(config, engine, "013")
         with engine.connect() as connection:
             assert connection.execute(text("""
                 SELECT count(*) FROM analysis_versions
@@ -579,7 +593,7 @@ def test_downgrade_refuses_to_discard_unresolved_quarantine_evidence():
     config = _alembic_config()
     try:
         _reset_database(engine)
-        command.upgrade(config, "014")
+        _upgrade(config, engine, "014")
         with engine.begin() as connection:
             connection.execute(text("""
                 INSERT INTO tenant_rehome_aliases
@@ -589,13 +603,254 @@ def test_downgrade_refuses_to_discard_unresolved_quarantine_evidence():
                     (:id, 'legacy', 'default_tenant', 'target', 'target-tenant',
                      'workspace', 'workspace-evidence', 'quarantined', 'target_diagram_conflict')
             """), {"id": str(uuid.uuid4())})
-        with pytest.raises(RuntimeError, match="unresolved tenant migration quarantines"):
-            command.downgrade(config, "013")
+        with pytest.raises(RuntimeError, match="Blocking categories: identity_aliases"):
+            _downgrade(config, engine, "013")
         with engine.connect() as connection:
             assert connection.execute(text("""
                 SELECT count(*) FROM tenant_rehome_aliases WHERE status = 'quarantined'
             """)).scalar_one() == 1
             assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "014"
+    finally:
+        _reset_database(engine)
+        engine.dispose()
+
+
+def _seed_every_014_only_table(engine) -> dict[str, str]:
+    ids = {
+        name: str(uuid.uuid4())
+        for name in (
+            "workspace",
+            "analysis",
+            "version",
+            "api_key",
+            "member",
+            "lifecycle",
+            "grant",
+            "purge",
+            "mutation_receipt",
+            "restore_receipt",
+            "replay",
+            "replay_event",
+            "alias",
+            "audit",
+            "budget",
+            "cost_alert",
+            "cost_record",
+        )
+    }
+    with engine.begin() as connection:
+        connection.execute(text("""
+            INSERT INTO workspaces
+                (id, owner_user_id, tenant_id, name, source_cloud, target_cloud,
+                 status, is_public, is_default)
+            VALUES
+                (:workspace, 'downgrade-owner', 'downgrade-tenant', 'Rollback guard',
+                 'aws', 'azure', 'active', false, true)
+        """), ids)
+        connection.execute(text("""
+            INSERT INTO analyses
+                (id, workspace_id, owner_user_id, tenant_id, diagram_id, source_cloud,
+                 target_cloud, status, services_detected, current_version)
+            VALUES
+                (:analysis, :workspace, 'downgrade-owner', 'downgrade-tenant',
+                 'downgrade-diagram', 'aws', 'azure', 'completed', 0, 1)
+        """), ids)
+        connection.execute(text("""
+            INSERT INTO analysis_versions
+                (id, analysis_id, version_number, snapshot, content_hash, created_by)
+            VALUES
+                (:version, :analysis, 1, '{"mappings": []}', 'rollback-guard',
+                 'downgrade-owner')
+        """), ids)
+        connection.execute(text("""
+            INSERT INTO api_key_credentials
+                (id, principal_id, name, key_hash, key_prefix, scopes, rate_limit,
+                 revoked)
+            VALUES
+                (:api_key, 'rollback-principal', 'rollback guard', repeat('a', 64),
+                 'arch_guard', '["read"]', 100, false)
+        """), ids)
+        connection.execute(text("""
+            INSERT INTO project_members
+                (id, project_id, project_owner_user_id, tenant_id, member_user_id, role)
+            VALUES
+                (:member, :workspace, 'downgrade-owner', 'downgrade-tenant',
+                 'downgrade-member', 'viewer')
+        """), ids)
+        connection.execute(text("""
+            INSERT INTO diagram_lifecycle
+                (id, diagram_id, owner_user_id, tenant_id, workspace_id, generation, state)
+            VALUES
+                (:lifecycle, 'downgrade-diagram', 'downgrade-owner',
+                 'downgrade-tenant', :workspace, 1, 'active')
+        """), ids)
+        connection.execute(text("""
+            INSERT INTO restore_grants
+                (id, nonce_digest, owner_user_id, tenant_id, diagram_id, generation,
+                 expected_version, payload_hash, expires_at)
+            VALUES
+                (:grant, repeat('b', 64), 'downgrade-owner', 'downgrade-tenant',
+                 'downgrade-diagram', 1, 1, repeat('c', 64), now() + interval '1 hour')
+        """), ids)
+        connection.execute(text("""
+            INSERT INTO purge_operations
+                (id, scope_type, scope_id, workspace_id, owner_user_id, tenant_id,
+                 status, manifest, stages, attempts)
+            VALUES
+                (:purge, 'diagram', 'downgrade-diagram', :workspace,
+                 'downgrade-owner', 'downgrade-tenant', 'pending', '{}', '{}', 0)
+        """), ids)
+        connection.execute(text("""
+            INSERT INTO analysis_mutation_receipts
+                (id, owner_user_id, tenant_id, diagram_id, operation, request_hash,
+                 analysis_id, version_id, version_number)
+            VALUES
+                (:mutation_receipt, 'downgrade-owner', 'downgrade-tenant',
+                 'downgrade-diagram', 'rollback-guard', repeat('d', 64),
+                 :analysis, :version, 1)
+        """), ids)
+        connection.execute(text("""
+            INSERT INTO analysis_restore_receipts
+                (id, owner_user_id, tenant_id, analysis_id, idempotency_key_hash,
+                 intent_hash, source_version, expected_version, restored_version_id,
+                 restored_version_number)
+            VALUES
+                (:restore_receipt, 'downgrade-owner', 'downgrade-tenant', :analysis,
+                 repeat('e', 64), repeat('f', 64), 1, 1, :version, 1)
+        """), ids)
+        connection.execute(text("""
+            INSERT INTO migration_replays
+                (id, analysis_id, version_id, diagram_id, owner_user_id, tenant_id, title)
+            VALUES
+                (:replay, :analysis, :version, 'downgrade-diagram',
+                 'downgrade-owner', 'downgrade-tenant', 'Rollback replay')
+        """), ids)
+        connection.execute(text("""
+            INSERT INTO migration_replay_events
+                (id, replay_id, sequence, event_type, data)
+            VALUES
+                (:replay_event, :replay, 1, 'step_entered', '{}')
+        """), ids)
+        connection.execute(text("""
+            INSERT INTO tenant_rehome_aliases
+                (id, source_owner_user_id, source_tenant_id, target_owner_user_id,
+                 target_tenant_id, entity_type, source_entity_id, target_entity_id,
+                 status)
+            VALUES
+                (:alias, 'legacy-owner', 'default_tenant', 'downgrade-owner',
+                 'downgrade-tenant', 'workspace', :workspace, :workspace, 'rehomed')
+        """), ids)
+        connection.execute(text("""
+            INSERT INTO tenant_rehome_audit
+                (id, owner_user_id, source_tenant_id, target_tenant_id, status, details)
+            VALUES
+                (:audit, 'downgrade-owner', 'default_tenant', 'downgrade-tenant',
+                 'rollback_guard', '{}')
+        """), ids)
+        connection.execute(text("""
+            INSERT INTO cost_records
+                (id, owner_user_id, tenant_id, actor_kind, key_id, model,
+                 prompt_tokens, completion_tokens, total_tokens, cost_usd)
+            VALUES
+                (:cost_record, 'downgrade-owner', 'downgrade-tenant', 'managed',
+                 :api_key, 'gpt-test', 1, 1, 2, 0.01)
+        """), ids)
+        connection.execute(text("""
+            INSERT INTO cost_budgets
+                (id, owner_user_id, tenant_id, actor_kind, key_id, agent_id,
+                 amount_usd, period, alert_thresholds)
+            VALUES
+                (:budget, 'downgrade-owner', 'downgrade-tenant', 'managed',
+                 :api_key, 'agent', 1.0, 'monthly', '[50, 100]')
+        """), ids)
+        connection.execute(text("""
+            INSERT INTO cost_alerts
+                (id, owner_user_id, tenant_id, actor_kind, key_id, agent_id,
+                 budget_id, severity, threshold_pct, current_spend,
+                 budget_amount, period, message, acknowledged)
+            VALUES
+                (:cost_alert, 'downgrade-owner', 'downgrade-tenant', 'managed',
+                 :api_key, 'agent', :budget, 'warning', 50, 0.5, 1.0,
+                 'monthly', 'threshold reached', false)
+        """), ids)
+    return ids
+
+
+def test_downgrade_refuses_when_any_014_only_durable_category_has_rows():
+    engine = create_engine(POSTGRES_URL, pool_pre_ping=True)
+    config = _alembic_config()
+    expected_categories = {
+        "credentials",
+        "project_membership",
+        "diagram_lifecycle",
+        "restore_grants",
+        "purge_manifests",
+        "mutation_receipts",
+        "restore_receipts",
+        "migration_replays",
+        "identity_aliases",
+        "identity_audits",
+        "cost_budgets",
+        "cost_alerts",
+        "cost_records",
+    }
+    try:
+        _reset_database(engine)
+        _upgrade(config, engine, "014")
+        _seed_every_014_only_table(engine)
+
+        with pytest.raises(RuntimeError) as exc_info:
+            _downgrade(config, engine, "013")
+
+        message = str(exc_info.value)
+        assert "Blocking categories:" in message
+        assert expected_categories <= {
+            value.strip()
+            for value in message.split("Blocking categories:", 1)[1].split(".", 1)[0].split(",")
+        }
+        assert "downgrade-diagram" not in message
+        with engine.connect() as connection:
+            for table_name in (
+                "api_key_credentials",
+                "project_members",
+                "diagram_lifecycle",
+                "restore_grants",
+                "purge_operations",
+                "analysis_mutation_receipts",
+                "analysis_restore_receipts",
+                "migration_replays",
+                "migration_replay_events",
+                "tenant_rehome_aliases",
+                "tenant_rehome_audit",
+                "cost_budgets",
+                "cost_alerts",
+            ):
+                assert connection.execute(
+                    text(f'SELECT count(*) FROM "{table_name}"')
+                ).scalar_one() == 1
+            assert connection.execute(
+                text("SELECT count(*) FROM cost_records WHERE tenant_id IS NOT NULL")
+            ).scalar_one() == 1
+            assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "014"
+    finally:
+        _reset_database(engine)
+        engine.dispose()
+
+
+def test_empty_014_schema_can_downgrade_and_reupgrade():
+    engine = create_engine(POSTGRES_URL, pool_pre_ping=True)
+    config = _alembic_config()
+    try:
+        _reset_database(engine)
+        _upgrade(config, engine, "014")
+        _downgrade(config, engine, "013")
+        with engine.connect() as connection:
+            assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "013"
+            assert "api_key_credentials" not in inspect(connection).get_table_names()
+        _upgrade(config, engine, "014")
+        with engine.connect() as connection:
+            assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "014"
+            assert "api_key_credentials" in inspect(connection).get_table_names()
     finally:
         _reset_database(engine)
         engine.dispose()

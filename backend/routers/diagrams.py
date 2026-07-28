@@ -60,7 +60,9 @@ from project_store import (
 )
 from analysis_payload_bounds import (
     AnalysisPayloadTooLarge,
+    MAX_RESTORE_BODY_BYTES,
     validate_analysis_payload_bounds,
+    validate_restore_payload_shape,
 )
 from workspace_store import (
     AnalysisCacheWriteError,
@@ -259,6 +261,7 @@ def _persist_authenticated_analysis(
     owner_api_key_id: Optional[str] = None,
     cache_required: bool = False,
     require_project_membership: bool = False,
+    precommit_hook=None,
 ) -> Any:
     try:
         if tenant_id and owner_api_key_id is None:
@@ -323,6 +326,7 @@ def _persist_authenticated_analysis(
             operation=operation,
             request_hash=request_hash,
             require_snapshot_version=False,
+            precommit_hook=precommit_hook,
         )
         session["_analysis_version"] = result.version.version_number
         return result
@@ -473,6 +477,17 @@ async def upload_diagram(
     image_bytes = b"".join(chunks)
 
     # Content-level validation (magic bytes, active PDF/SVG/ZIP content, etc.)
+    original_filename = file.filename or "upload"
+    filename_suffix = (
+        original_filename.rsplit(".", 1)[-1].lower()[:16]
+        if "." in original_filename
+        else "bin"
+    )
+    retained_filename = (
+        "sha256:"
+        f"{hashlib.sha256(original_filename.encode('utf-8')).hexdigest()}:"
+        f"{filename_suffix}"
+    )
     try:
         validate_upload(image_bytes, file.content_type or "", file.filename)
     except UploadValidationError as exc:
@@ -502,7 +517,7 @@ async def upload_diagram(
             caller_owner_user_id=upload_principal["owner_user_id"],
             tenant_id=upload_principal["tenant_id"],
             diagram_id=diagram_id,
-            filename=file.filename,
+            filename=retained_filename,
             content_type=file.content_type,
             file_size_bytes=len(image_bytes),
             content_hash=hashlib.sha256(image_bytes).hexdigest(),
@@ -532,7 +547,15 @@ async def upload_diagram(
             str(img_usage * 100).replace('\n', '').replace('\r', ''), str(len(IMAGE_STORE)).replace('\n', '').replace('\r', ''), str(IMAGE_STORE.maxsize).replace('\n', '').replace('\r', ''),
         )
 
-    record_event("diagrams_uploaded", {"filename": file.filename})
+    record_event(
+        "diagrams_uploaded",
+        {
+            "filename_sha256": hashlib.sha256(
+                original_filename.encode("utf-8")
+            ).hexdigest(),
+            "extension": filename_suffix,
+        },
+    )
     record_funnel_step(diagram_id, "upload")
     principal_marker = _principal_marker(request)
     return _attach_lifecycle_receipt(attach_export_capability({
@@ -583,6 +606,24 @@ async def restore_session(
     restarts and the in-memory store is wiped, the frontend can push its
     cached copy here to transparently restore the session.
     """
+    content_length = request.headers.get("content-length")
+    try:
+        declared_length = int(content_length) if content_length is not None else 0
+    except ValueError:
+        raise ArchmorphException(400, "Invalid Content-Length")
+    if declared_length > MAX_RESTORE_BODY_BYTES:
+        raise ArchmorphException(413, "Restore request body is too large")
+    try:
+        validate_restore_payload_shape(body.model_dump())
+    except AnalysisPayloadTooLarge as exc:
+        raise ArchmorphException(
+            413,
+            detail={
+                "error": "restore_payload_too_large",
+                "message": str(exc),
+                **exc.details,
+            },
+        )
     analysis = copy.deepcopy(body.analysis)
     if not analysis or not isinstance(analysis, dict):
         raise ArchmorphException(400, "Invalid analysis payload")
@@ -640,17 +681,17 @@ async def restore_session(
             body.restore_capability,
         )
         payload_hash = snapshot_payload_hash(analysis)
-        if claims is None or not consume_restore_grant(
-            db,
-            nonce=str(claims.get("nonce") or ""),
-            owner_user_id=owner_user_id,
-            tenant_id=tenant_id,
-            diagram_id=diagram_id,
-            generation=int(claims.get("generation", -1)),
-            expected_version=int(claims.get("expected_version", -1)),
-            payload_hash=payload_hash,
-        ):
+        if claims is None:
             raise ArchmorphException(404, "Diagram not found")
+        grant_kwargs = {
+            "nonce": str(claims.get("nonce") or ""),
+            "owner_user_id": owner_user_id,
+            "tenant_id": tenant_id,
+            "diagram_id": diagram_id,
+            "generation": int(claims.get("generation", -1)),
+            "expected_version": int(claims.get("expected_version", -1)),
+            "payload_hash": payload_hash,
+        }
 
     analysis["diagram_id"] = diagram_id
     analysis["_tenant_id"] = tenant_id
@@ -692,6 +733,10 @@ async def restore_session(
             session=analysis,
             owner_api_key_id=owner_api_key_id,
             cache_required=True,
+            precommit_hook=lambda transaction: (
+                consume_restore_grant(transaction, **grant_kwargs, commit=False)
+                or (_ for _ in ()).throw(ValueError("Restore grant unavailable"))
+            ),
         )
     restored_parts = ["analysis"]
     if durable is None and body.hld:
@@ -931,7 +976,11 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
         try:
             return await asyncio.to_thread(classify_image, compressed_bytes, compressed_type)
         except Exception as exc:
-            logger.warning("Image classification failed for %s: %s — proceeding with analysis", str(diagram_id).replace('\n', '').replace('\r', ''), str(exc).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
+            logger.warning(
+                "Image classification failed diagram_id=%s error_type=%s; proceeding",
+                str(diagram_id).replace('\n', '').replace('\r', ''),
+                type(exc).__name__,
+            )
             return {"is_architecture_diagram": True, "confidence": 0.5, "image_type": "unknown", "reason": "Classification unavailable"}
 
     async def _analyze():
@@ -940,6 +989,8 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
             compressed_bytes,
             compressed_type,
             diagram_id=diagram_id,
+            owner_user_id=(principal or {}).get("owner_user_id"),
+            tenant_id=(principal or {}).get("tenant_id"),
         )
 
     classification, analysis_result_or_exc = await asyncio.gather(
@@ -1127,7 +1178,11 @@ async def _run_analysis_job(job_id: str, payload: Dict[str, Any]) -> None:
         try:
             classification = await asyncio.to_thread(classify_image, compressed_bytes, compressed_type)
         except Exception as exc:
-            logger.warning("Classification failed for %s: %s", str(diagram_id).replace('\n', '').replace('\r', ''), str(exc).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
+            logger.warning(
+                "Classification failed diagram_id=%s error_type=%s",
+                str(diagram_id).replace('\n', '').replace('\r', ''),
+                type(exc).__name__,
+            )
             classification = {"is_architecture_diagram": True, "confidence": 0.5, "image_type": "unknown"}
 
         if not classification.get("is_architecture_diagram", True):
@@ -1148,6 +1203,18 @@ async def _run_analysis_job(job_id: str, payload: Dict[str, Any]) -> None:
             compressed_bytes,
             compressed_type,
             diagram_id=diagram_id,
+            owner_user_id=(
+                getattr(job_manager.get(job_id), "owner_user_id", None)
+                or getattr(job_manager.get(job_id), "owner_api_key_id", None)
+            ),
+            tenant_id=(
+                getattr(job_manager.get(job_id), "tenant_id", None)
+                or (
+                    f"service:{getattr(job_manager.get(job_id), 'owner_api_key_id').split(':', 1)[-1]}"
+                    if getattr(job_manager.get(job_id), "owner_api_key_id", None)
+                    else None
+                )
+            ),
         )
 
         if not job_manager.owns_current_lease(job_id):

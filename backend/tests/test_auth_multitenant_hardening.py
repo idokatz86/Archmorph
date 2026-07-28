@@ -70,11 +70,11 @@ def test_tf_state_owner_tenant_enforced_and_unlock_supported(test_client):
     assert test_client.request("LOCK", state_url, headers=owner_headers, content='{"ID":"lock-1"}').status_code == 200
     assert test_client.request("UNLOCK", state_url, headers=owner_headers, content='{"ID":"lock-1"}').status_code == 200
 
-    assert test_client.get(state_url, headers=other_headers).status_code == 403
-    assert test_client.post(state_url, headers=other_headers, json={"version": 5}).status_code == 403
-    assert test_client.request("LOCK", state_url, headers=other_headers, content='{"ID":"lock-2"}').status_code == 403
-    assert test_client.request("UNLOCK", state_url, headers=other_headers, content='{"ID":"lock-2"}').status_code == 403
-    assert test_client.post(f"{state_url}/rollback", headers=other_headers).status_code == 403
+    assert test_client.get(state_url, headers=other_headers).status_code == 404
+    assert test_client.post(state_url, headers=other_headers, json={"version": 5}).status_code == 404
+    assert test_client.request("LOCK", state_url, headers=other_headers, content='{"ID":"lock-2"}').status_code == 404
+    assert test_client.request("UNLOCK", state_url, headers=other_headers, content='{"ID":"lock-2"}').status_code == 404
+    assert test_client.post(f"{state_url}/rollback", headers=other_headers).status_code == 404
 
 
 def test_tf_state_lock_keys_do_not_collide_on_underscores(test_client):

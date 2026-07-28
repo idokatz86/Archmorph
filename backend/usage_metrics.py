@@ -14,6 +14,7 @@ atexit / SIGTERM handler guarantees a final flush on shutdown.
 """
 
 import atexit
+import hashlib
 import json
 import os
 import logging
@@ -263,6 +264,26 @@ except (OSError, ValueError):
 # Daily metrics pruning (#103 — S-020)
 # ─────────────────────────────────────────────────────────────
 _MAX_DAILY_DAYS = 90
+_TELEMETRY_ID_SALT = b"archmorph-telemetry-id-v1"
+
+
+def _retained_identifier(value: object) -> str:
+    """Return a stable non-reversible identifier for 90-day usage retention."""
+    return hashlib.sha256(
+        _TELEMETRY_ID_SALT + b"\0" + str(value).encode("utf-8")
+    ).hexdigest()[:24]
+
+
+def _sanitize_event_details(details: Optional[Dict]) -> Dict:
+    sanitized: Dict[str, Any] = {}
+    for key, value in (details or {}).items():
+        if key in {"diagram_id", "project_id", "session_id", "owner_user_id"}:
+            sanitized[f"{key}_hash"] = _retained_identifier(value)
+        elif key in {"filename", "prompt", "message", "content", "reason"}:
+            sanitized[f"{key}_sha256"] = _retained_identifier(value)
+        else:
+            sanitized[key] = value
+    return sanitized
 
 
 def _prune_daily_metrics():
@@ -310,7 +331,7 @@ def record_event(event_type: str, details: Optional[Dict] = None):
         event = {
             "type": event_type,
             "timestamp": now.isoformat(),
-            "details": details or {},
+            "details": _sanitize_event_details(details),
         }
         _metrics["recent_events"].append(event)
         if len(_metrics["recent_events"]) > 200:
@@ -335,18 +356,19 @@ def record_funnel_step(diagram_id: str, step: str):
     if step not in FUNNEL_STEPS:
         return
 
+    retained_diagram_id = _retained_identifier(diagram_id)
     with _lock:
         now = datetime.now(timezone.utc).isoformat()
         sessions = _metrics["sessions"]
 
-        if diagram_id not in sessions:
-            sessions[diagram_id] = {
+        if retained_diagram_id not in sessions:
+            sessions[retained_diagram_id] = {
                 "steps": [],
                 "started": now,
                 "last": now,
             }
 
-        session = sessions[diagram_id]
+        session = sessions[retained_diagram_id]
 
         # Only record each step once per session
         if step not in session["steps"]:

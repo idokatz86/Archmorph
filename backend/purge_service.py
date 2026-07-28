@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 import analysis_history
+import openai_client
 from artifact_blob_store import artifact_blob_absent, delete_artifact_blob
 import database
 from iac_chat import clear_iac_chat, has_iac_chat
@@ -292,6 +293,7 @@ def diagram_fixed_point_checks(
         "session": SESSION_STORE.peek(diagram_id) is None,
         "image": IMAGE_STORE.peek(diagram_id) is None,
         "vision_cache": vision_analyzer.diagram_cache_absent(diagram_id),
+        "gpt_response_cache": openai_client.diagram_response_cache_absent(diagram_id),
         "export_capabilities": not _store_records_for_diagram(EXPORT_CAPABILITY_STORE, diagram_id),
         "share_store": not _store_records_for_diagram(SHARE_STORE, diagram_id),
         "share_links": shareable_reports.diagram_shares_absent(diagram_id),
@@ -405,6 +407,11 @@ def purge_diagram(
         operation_id,
         "vision_cache",
         lambda: vision_analyzer.purge_diagram_cache(diagram_id),
+    )
+    deleted["gpt_response_cache"] = _run_stage(
+        operation_id,
+        "gpt_response_cache",
+        lambda: openai_client.purge_diagram_response_cache(diagram_id),
     )
     deleted["export_capabilities"] = _run_stage(
         operation_id,

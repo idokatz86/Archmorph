@@ -399,7 +399,7 @@ Diagram type: {analysis.get('diagram_type', 'unknown')}"""
             "related_services": coerce_to_str_list(result.get("related_services", [])),
         }
     except Exception as exc:
-        logger.error("Migration chat failed: %s", str(exc).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
+        logger.error("Migration chat failed error_type=%s", type(exc).__name__)
         return {
             "reply": "Sorry, I couldn't process your question right now. Please try again.",
             "related_services": [],

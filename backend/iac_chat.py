@@ -9,6 +9,7 @@ explain the generated infrastructure.
 """
 
 import json
+import hashlib
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -215,9 +216,10 @@ def process_iac_chat(
 
     # Call GPT-4o via cached wrapper (with fallback model support)
     logger.info(
-        "IaC chat request for diagram %s: %s (%d history msgs)",
+        "IaC chat request diagram_id=%s message_length=%d message_sha256=%s history_count=%d",
         diagram_id,
-        message[:80],
+        len(message),
+        hashlib.sha256(message.encode("utf-8")).hexdigest()[:12],
         len(recent_history),
     )
 
@@ -266,7 +268,12 @@ def process_iac_chat(
         services = _coerce_to_str_list(result.get("services_added", []))
 
     except json.JSONDecodeError as exc:
-        logger.error("Failed to parse IaC chat JSON: %s\nText snippet: %s", exc, raw_text[-500:])
+        logger.error(
+            "IaC chat JSON parse failed error_type=%s response_length=%d response_sha256=%s",
+            type(exc).__name__,
+            len(raw_text),
+            hashlib.sha256(raw_text.encode("utf-8")).hexdigest()[:12],
+        )
         return {
             "reply": "I generated the code, but there was an error parsing the format. The output might contain unescaped characters. Please try rephrasing your request.",
             "code": current_code,
@@ -276,7 +283,7 @@ def process_iac_chat(
         }
     except (RateLimitError, APITimeoutError, APIConnectionError) as exc:
         err_type = type(exc).__name__
-        logger.error("IaC chat OpenAI call failed (retryable): %s - %s", err_type, exc)
+        logger.error("IaC chat provider call failed retryable=true error_type=%s", err_type)
         return {
             "reply": f"The AI provider is temporarily unavailable ({err_type}). Please wait a moment and try again.",
             "code": current_code,
@@ -286,11 +293,11 @@ def process_iac_chat(
         }
     except BadRequestError as exc:
         err_msg = str(exc).lower()
-        logger.error("IaC chat bad request: %s", exc)
+        logger.error("IaC chat bad request error_type=%s", type(exc).__name__)
         if "context_length_exceeded" in err_msg or "maximum context length" in err_msg:
             user_msg = "Your codebase has grown too large for the AI model's context window. Try making smaller, more targeted requests."
         else:
-            user_msg = f"The AI provider rejected the request: {exc}"
+            user_msg = "The AI provider rejected the request. Please revise it and try again."
         return {
             "reply": user_msg,
             "code": current_code,
@@ -300,7 +307,7 @@ def process_iac_chat(
         }
     except Exception as exc:
         err_type = type(exc).__name__
-        logger.error("IaC chat unexpected error: %s - %s", err_type, exc)
+        logger.error("IaC chat unexpected error_type=%s", err_type)
         return {
             "reply": f"An unexpected error occurred ({err_type}). Please try again.",
             "code": current_code,

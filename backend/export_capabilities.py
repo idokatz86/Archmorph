@@ -35,15 +35,13 @@ class ExportCapability:
 
 
 def _principal_marker(request: Request) -> Optional[str]:
-    from auth import get_user_from_request_headers
-    from routers.shared import get_api_key_service_principal
+    from routers.shared import get_request_durable_principal
 
-    headers = dict(request.headers)
-    user = get_user_from_request_headers(headers)
-    if user and user.tenant_id:
-        return f"user:{user.tenant_id}:{user.id}"
-    api_key_id = get_api_key_service_principal(headers)
-    return f"api:{api_key_id}" if api_key_id else None
+    principal = get_request_durable_principal(request)
+    if principal is None or not principal.get("tenant_id"):
+        return None
+    actor_kind = "api" if principal.get("owner_api_key_id") else "user"
+    return f"{actor_kind}:{principal['tenant_id']}:{principal['owner_user_id']}"
 
 
 def _ttl_seconds() -> int:

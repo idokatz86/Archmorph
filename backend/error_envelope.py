@@ -85,7 +85,7 @@ class ArchmorphException(Exception):
         self.headers = headers
 
 async def _archmorph_exception_handler(_request: Request, exc: ArchmorphException) -> JSONResponse:
-    logger.info("ArchmorphException raised: %d %s", exc.status_code, exc.detail)
+    logger.info("ArchmorphException raised status_code=%d", exc.status_code)
     return JSONResponse(
         status_code=exc.status_code,
         content=_build_envelope(exc.status_code, exc.detail, details=exc.details),
@@ -114,7 +114,7 @@ async def _validation_error_handler(_request: Request, exc: RequestValidationErr
 
 
 async def _unhandled_exception_handler(_request: Request, exc: Exception) -> JSONResponse:
-    logger.exception("Unhandled exception: %s", exc)
+    logger.error("Unhandled exception error_type=%s", type(exc).__name__)
     return JSONResponse(
         status_code=500,
         content=_build_envelope(500, "Internal server error"),

@@ -9799,7 +9799,7 @@ export interface components {
             /** Name */
             name: string;
             /** Organization Id */
-            organization_id: string;
+            organization_id?: string | null;
             /**
              * Tools
              * @default []
@@ -10059,6 +10059,8 @@ export interface components {
              * @default false
              */
             acknowledged: boolean;
+            /** Actor Kind */
+            actor_kind?: string | null;
             /** Agent Id */
             agent_id: string;
             /** Budget Amount */
@@ -10069,10 +10071,16 @@ export interface components {
             current_spend: number;
             /** Id */
             id?: string;
+            /** Key Id */
+            key_id?: string | null;
             /** Message */
             message: string;
+            /** Owner User Id */
+            owner_user_id?: string | null;
             period: components["schemas"]["BudgetPeriod"];
             severity: components["schemas"]["AlertSeverity"];
+            /** Tenant Id */
+            tenant_id?: string | null;
             /** Threshold Pct */
             threshold_pct: number;
             /** Timestamp */
@@ -10240,12 +10248,10 @@ export interface components {
         };
         /** CreateDecisionRequest */
         CreateDecisionRequest: {
-            /** Decision Type */
-            decision_type: string;
+            decision_type: components["schemas"]["DecisionType"];
             /** Description */
             description?: string | null;
-            /** Severity */
-            severity?: string | null;
+            severity?: components["schemas"]["DecisionSeverity"] | null;
             /** Title */
             title: string;
             /** Version Id */
@@ -10380,6 +10386,16 @@ export interface components {
              */
             status: string;
         };
+        /**
+         * DecisionSeverity
+         * @enum {string}
+         */
+        DecisionSeverity: "low" | "medium" | "high" | "critical";
+        /**
+         * DecisionType
+         * @enum {string}
+         */
+        DecisionType: "risk" | "decision" | "note";
         /** DeploymentExecuteRequest */
         DeploymentExecuteRequest: {
             /** Infrastructure Code */
@@ -11503,8 +11519,7 @@ export type $defs = Record<string, never>;
 export interface operations {
     list_agents_agents_get: {
         parameters: {
-            query: {
-                organization_id: string;
+            query?: {
                 skip?: number;
                 limit?: number;
             };
@@ -13303,10 +13318,10 @@ export interface operations {
     };
     get_session_api_collab_sessions__session_id__get: {
         parameters: {
-            query?: {
-                participant_token?: string | null;
+            query?: never;
+            header?: {
+                "X-Participant-Capability"?: string | null;
             };
-            header?: never;
             path: {
                 session_id: string;
             };
@@ -13336,10 +13351,10 @@ export interface operations {
     };
     get_changes_api_collab_sessions__session_id__changes_get: {
         parameters: {
-            query?: {
-                participant_token?: string | null;
+            query?: never;
+            header?: {
+                "X-Participant-Capability"?: string | null;
             };
-            header?: never;
             path: {
                 session_id: string;
             };
@@ -13702,6 +13717,8 @@ export interface operations {
                 since?: string | null;
                 /** @description ISO datetime upper bound */
                 until?: string | null;
+                /** @description Explicit admin-only global view */
+                global?: boolean;
                 tenant_id?: string | null;
             };
             header?: never;
@@ -17338,7 +17355,10 @@ export interface operations {
     };
     list_models_api_models__get: {
         parameters: {
-            query?: never;
+            query?: {
+                skip?: number;
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -17352,6 +17372,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ModelEndpointResponseSchema"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -20526,10 +20555,10 @@ export interface operations {
     };
     get_session_v1_api_v1_collab_sessions__session_id__get: {
         parameters: {
-            query?: {
-                participant_token?: string | null;
+            query?: never;
+            header?: {
+                "X-Participant-Capability"?: string | null;
             };
-            header?: never;
             path: {
                 session_id: string;
             };
@@ -20559,10 +20588,10 @@ export interface operations {
     };
     get_changes_v1_api_v1_collab_sessions__session_id__changes_get: {
         parameters: {
-            query?: {
-                participant_token?: string | null;
+            query?: never;
+            header?: {
+                "X-Participant-Capability"?: string | null;
             };
-            header?: never;
             path: {
                 session_id: string;
             };
@@ -20925,6 +20954,8 @@ export interface operations {
                 since?: string | null;
                 /** @description ISO datetime upper bound */
                 until?: string | null;
+                /** @description Explicit admin-only global view */
+                global?: boolean;
                 tenant_id?: string | null;
             };
             header?: never;
@@ -24561,7 +24592,10 @@ export interface operations {
     };
     list_models_v1_api_v1_models__get: {
         parameters: {
-            query?: never;
+            query?: {
+                skip?: number;
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -24575,6 +24609,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ModelEndpointResponseSchema"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

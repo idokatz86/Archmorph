@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, JSON, DateTime, Integer
+from sqlalchemy import Column, String, JSON, DateTime, Integer, UniqueConstraint
 from database import Base
 from models.time_utils import utc_now_naive
 
@@ -21,4 +21,14 @@ class DeploymentState(Base):
     previous_state_json = Column(JSON, nullable=True) 
 
     updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "owner_user_id",
+            "tenant_id",
+            "project_id",
+            "environment",
+            name="uq_deployment_state_scope",
+        ),
+    )
 

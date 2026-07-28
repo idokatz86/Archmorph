@@ -114,7 +114,8 @@ def test_diagram_upload_accepts_authenticated_user_bearer_session(monkeypatch):
         assert source.workspace_id == payload["project_id"]
         assert source.owner_user_id == OWNER_USER_ID
         assert source.tenant_id == OWNER_TENANT_ID
-        assert source.filename == "diagram.png"
+        assert source.filename.startswith("sha256:")
+        assert source.filename.endswith(":png")
         assert source.content_type == "image/png"
         assert source.file_size_bytes == len(_png_bytes())
         assert source.content_hash == hashlib.sha256(_png_bytes()).hexdigest()

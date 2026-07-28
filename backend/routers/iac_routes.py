@@ -284,7 +284,11 @@ async def generate_iac(
             params=iac_params,
         )
     except Exception as exc:
-        logger.error("IaC generation failed for %s: %s", str(diagram_id).replace('\n', '').replace('\r', ''), str(exc).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
+        logger.error(
+            "IaC generation failed diagram_id=%s error_type=%s",
+            str(diagram_id).replace('\n', '').replace('\r', ''),
+            type(exc).__name__,
+        )
         raise ArchmorphException(500, "IaC generation failed. Please try again.")
 
     record_event(f"iac_generated_{format}", {"diagram_id": diagram_id})
@@ -652,7 +656,7 @@ async def _run_iac_job(
         )
 
     except Exception as exc:
-        logger.error("Async IaC generation failed: %s", str(exc).replace('\n', '').replace('\r', ''), exc_info=True)  # codeql[py/log-injection] Handled by custom
+        logger.error("Async IaC generation failed error_type=%s", type(exc).__name__)
         job_manager.fail(job_id, str(exc))
 
 

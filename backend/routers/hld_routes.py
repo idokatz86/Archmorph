@@ -144,8 +144,8 @@ async def generate_hld_endpoint(request: Request, diagram_id: str, _auth=Depends
     except ValueError as e:
         raise ArchmorphException(500, str(e))
     except Exception as e:
-        logger.exception("HLD generation failed: %s", str(e).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
-        raise ArchmorphException(500, f"HLD generation failed: {type(e).__name__}: {e}")
+        logger.error("HLD generation failed error_type=%s", type(e).__name__)
+        raise ArchmorphException(500, "HLD generation failed")
 
     # Store in session — must write back to store for Redis compatibility
     updated_session["hld"] = hld
@@ -213,7 +213,11 @@ async def _ensure_hld(request: Request, session: dict, diagram_id: str) -> dict:
         session = updated_session
         logger.info("Auto-generated HLD for session %s", str(diagram_id).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
     except Exception as e:
-        logger.warning("Auto-HLD generation failed for %s: %s", str(diagram_id).replace('\n', '').replace('\r', ''), str(e).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
+        logger.warning(
+            "Auto-HLD generation failed diagram_id=%s error_type=%s",
+            str(diagram_id).replace('\n', '').replace('\r', ''),
+            type(e).__name__,
+        )
 
     return session
 
@@ -521,7 +525,7 @@ async def _run_hld_job(job_id: str, payload: Dict[str, Any]) -> None:
         )
 
     except Exception as exc:
-        logger.error("Async HLD generation failed: %s", str(exc).replace('\n', '').replace('\r', ''), exc_info=True)  # codeql[py/log-injection] Handled by custom
+        logger.error("Async HLD generation failed error_type=%s", type(exc).__name__)
         job_manager.fail(job_id, str(exc))
 
 

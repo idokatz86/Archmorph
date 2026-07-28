@@ -223,6 +223,12 @@ def _run_dependency_checks() -> tuple[dict[str, str], bool, bool]:
             if redis_required:
                 unhealthy = True
         checks["redis_readiness"] = redis_readiness
+        from routers.shared import rate_limit_readiness
+
+        limiter_readiness = rate_limit_readiness()
+        checks["rate_limit_readiness"] = limiter_readiness
+        if not limiter_readiness["ready"]:
+            unhealthy = True
     except Exception:
         checks["redis"] = "error"
         unhealthy = True
@@ -313,9 +319,13 @@ async def readyz(response: Response) -> ReadinessResponse:
         database_schema_ready = False
     try:
         from session_store import session_store_readiness
+        from routers.shared import rate_limit_readiness
 
         redis = session_store_readiness()
-        redis_ready = bool(redis["ready_for_horizontal_scale"])
+        redis_ready = bool(
+            redis["ready_for_horizontal_scale"]
+            and rate_limit_readiness()["ready"]
+        )
     except Exception:
         redis_ready = False
 

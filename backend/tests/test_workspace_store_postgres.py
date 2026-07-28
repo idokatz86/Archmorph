@@ -51,12 +51,15 @@ from workspace_store import (
     create_decision,
     create_migration_replay,
     create_workspace,
+    consume_restore_grant,
+    issue_restore_grant,
     list_migration_replays,
     load_analysis_state,
     persist_analysis_state,
     rehome_legacy_analysis_scope,
     restore_analysis_version,
     save_analysis_version,
+    snapshot_payload_hash,
     update_workspace,
 )
 
@@ -83,7 +86,10 @@ def postgres_factory(request):
     engine = create_engine(test_url, pool_pre_ping=True)
     config = Config(os.path.join(os.path.dirname(__file__), "..", "alembic.ini"))
     config.set_main_option("sqlalchemy.url", test_url)
-    command.upgrade(config, "head")
+    with engine.connect() as connection:
+        config.attributes["connection"] = connection
+        command.upgrade(config, "head")
+    config.attributes.pop("connection", None)
     factory = sessionmaker(bind=engine, expire_on_commit=False)
     db = factory()
     try:
@@ -536,6 +542,55 @@ def test_concurrent_same_restore_key_creates_one_version(postgres_factory):
         db.close()
 
 
+def test_concurrent_restore_grant_consumption_has_one_winner(postgres_factory):
+    owner = "pg-grant-race-owner"
+    tenant = "pg-grant-race-tenant"
+    diagram_id = f"pg-grant-race-{uuid.uuid4().hex}"
+    db = postgres_factory()
+    try:
+        seeded = persist_analysis_state(
+            db,
+            owner_user_id=owner,
+            tenant_id=tenant,
+            diagram_id=diagram_id,
+            snapshot={"mappings": []},
+        )
+        payload_hash = snapshot_payload_hash(json.loads(seeded.version.snapshot))
+        nonce, generation, expected_version = issue_restore_grant(
+            db,
+            owner_user_id=owner,
+            tenant_id=tenant,
+            diagram_id=diagram_id,
+            ttl_seconds=60,
+            payload_hash=payload_hash,
+        )
+    finally:
+        db.close()
+
+    barrier = threading.Barrier(2)
+
+    def consume() -> bool:
+        session = postgres_factory()
+        try:
+            barrier.wait(timeout=5)
+            return consume_restore_grant(
+                session,
+                nonce=nonce,
+                owner_user_id=owner,
+                tenant_id=tenant,
+                diagram_id=diagram_id,
+                generation=generation,
+                expected_version=expected_version,
+                payload_hash=payload_hash,
+            )
+        finally:
+            session.close()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _index: consume(), range(2)))
+    assert sorted(results) == [False, True]
+
+
 def test_concurrent_distinct_diagrams_share_one_default_workspace(postgres_factory):
     barrier = threading.Barrier(12)
 
@@ -962,12 +1017,16 @@ def test_legacy_target_conflict_is_audited_and_retains_both_scopes(postgres_fact
 
 
 @pytest.mark.skipif(not os.getenv("ARCHMORPH_TEST_REDIS_URL"), reason="isolated Redis URL not configured")
-def test_real_postgres_and_redis_report_ready(monkeypatch):
+def test_real_postgres_and_redis_report_ready(monkeypatch, postgres_factory):
     import database
     from session_store import session_store_readiness
 
     monkeypatch.setenv("REDIS_URL", os.environ["ARCHMORPH_TEST_REDIS_URL"])
     monkeypatch.delenv("REDIS_HOST", raising=False)
+    isolated_engine = postgres_factory.kw["bind"]
+    monkeypatch.setattr(database, "engine", isolated_engine)
+    monkeypatch.setattr(database, "_IS_POSTGRES", True)
+    monkeypatch.setattr(database, "_IS_SQLITE", False)
     monkeypatch.setattr(database, "_PRODUCTION_LIKE", True)
     database_status = database.database_readiness()
     assert database_status["schema_at_head"] is True

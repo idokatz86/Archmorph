@@ -59,6 +59,8 @@ from models.workspace import (
     AnalysisVersion,
     Artifact,
     Decision,
+    DecisionSeverity,
+    DecisionType,
     DiagramLifecycle,
     MigrationReplay,
     MigrationReplayEvent,
@@ -81,6 +83,8 @@ logger = logging.getLogger(__name__)
 MAX_VERSIONS_PER_ANALYSIS = 50
 MAX_WORKSPACES_PER_USER = 500
 WORKSPACE_STATUSES = frozenset(status.value for status in WorkspaceStatus)
+DECISION_TYPES = frozenset(value.value for value in DecisionType)
+DECISION_SEVERITIES = frozenset(value.value for value in DecisionSeverity)
 
 
 class DurableAnalysisPersistenceError(RuntimeError):
@@ -374,6 +378,8 @@ def create_source_asset(
     workspace = get_workspace(db, workspace_id, owner_user_id=owner_user_id, tenant_id=tenant_id)
     if workspace is None:
         raise ValueError(f"Workspace {workspace_id!r} not found or access denied")
+    if workspace.status != WorkspaceStatus.ACTIVE.value:
+        raise ValueError("Workspace is not active")
 
     asset = SourceAsset(
         workspace_id=workspace_id,
@@ -460,6 +466,8 @@ def create_analysis(
     workspace = get_workspace(db, workspace_id, owner_user_id=owner_user_id, tenant_id=tenant_id)
     if workspace is None:
         raise ValueError(f"Workspace {workspace_id!r} not found or access denied")
+    if workspace.status != WorkspaceStatus.ACTIVE.value:
+        raise ValueError("Workspace is not active")
 
     if source_asset_id is not None:
         source_asset = get_source_asset(db, source_asset_id, owner_user_id=owner_user_id, tenant_id=tenant_id)
@@ -1094,6 +1102,10 @@ def create_decision(
     )
     if analysis is None:
         raise ValueError(f"Analysis {analysis_id!r} not found or access denied")
+    if decision_type not in DECISION_TYPES:
+        raise ValueError("Unsupported decision type")
+    if severity is not None and severity not in DECISION_SEVERITIES:
+        raise ValueError("Unsupported decision severity")
     if version_id is not None:
         version = db.query(AnalysisVersion.id).filter(
             AnalysisVersion.id == version_id,
@@ -1250,6 +1262,8 @@ def _resolve_workspace_id(
         )
         if workspace is None:
             raise ValueError(f"Workspace {workspace_id!r} not found or access denied")
+        if workspace.status != WorkspaceStatus.ACTIVE.value:
+            raise ValueError("Workspace is not active")
         return workspace.id
 
     workspace = (
@@ -1518,6 +1532,7 @@ def persist_analysis_state(
     allow_legacy_cache_rehome: bool = False,
     cache_legacy_owner_user_ids: Optional[List[str]] = None,
     allow_unowned_upload_claim: bool = False,
+    precommit_hook: Optional[Any] = None,
 ) -> AnalysisWriteResult:
     """Commit authenticated analysis state, then refresh its transient cache.
 
@@ -1707,6 +1722,8 @@ def persist_analysis_state(
                     version_id=version.id,
                     version_number=version.version_number,
                 ))
+            if precommit_hook is not None:
+                precommit_hook(db)
             db.commit()
             idempotent_replay = False
             break
@@ -1809,6 +1826,7 @@ def issue_restore_grant(
     payload_hash: Optional[str] = None,
 ) -> tuple[str, int, int]:
     """Persist and return a one-time opaque restore nonce."""
+    cleanup_restore_grants(db, limit=200)
     analysis = _get_analysis_by_diagram(
         db,
         diagram_id=diagram_id,
@@ -1852,6 +1870,34 @@ def issue_restore_grant(
     return nonce, int(lifecycle.generation or 1), expected_version
 
 
+def cleanup_restore_grants(db: Session, *, limit: int = 200) -> int:
+    """Delete a bounded oldest page of expired, consumed, or revoked grants."""
+    now = datetime.now(timezone.utc)
+    stale_ids = [
+        grant_id
+        for (grant_id,) in (
+            db.query(RestoreGrant.id)
+            .filter(
+                or_(
+                    RestoreGrant.expires_at < now,
+                    RestoreGrant.consumed_at.is_not(None),
+                    RestoreGrant.revoked_at.is_not(None),
+                )
+            )
+            .order_by(RestoreGrant.created_at.asc(), RestoreGrant.id.asc())
+            .limit(max(1, min(limit, 1000)))
+            .all()
+        )
+    ]
+    if not stale_ids:
+        return 0
+    deleted = db.query(RestoreGrant).filter(RestoreGrant.id.in_(stale_ids)).delete(
+        synchronize_session=False
+    )
+    db.flush()
+    return int(deleted or 0)
+
+
 def consume_restore_grant(
     db: Session,
     *,
@@ -1862,6 +1908,7 @@ def consume_restore_grant(
     generation: int,
     expected_version: int,
     payload_hash: str,
+    commit: bool = True,
 ) -> bool:
     """Atomically consume a matching, live restore grant."""
     nonce_digest = hashlib.sha256(nonce.encode("utf-8")).hexdigest()
@@ -1900,7 +1947,10 @@ def consume_restore_grant(
         return False
     grant.payload_hash = payload_hash
     grant.consumed_at = now
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     return True
 
 

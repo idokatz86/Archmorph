@@ -97,42 +97,42 @@ def handle_openai_error(exc: Exception, context: str = "OpenAI call") -> OpenAIS
         A normalized error with ``retryable`` and ``status_code`` attributes.
     """
     if isinstance(exc, OpenAIAdmissionTimeout):
-        logger.warning("%s admission queue exhausted: %s", context, exc)
+        logger.warning("%s admission queue exhausted error_type=%s", context, type(exc).__name__)
         _increment_openai_metric("admission_timeout_total")
         return OpenAIServiceError(
             f"{context} is temporarily at capacity. Please retry shortly.",
             retryable=True, status_code=429,
         )
     if isinstance(exc, RateLimitError):
-        logger.warning("%s rate-limited: %s", context, exc)
+        logger.warning("%s rate-limited error_type=%s", context, type(exc).__name__)
         _increment_openai_metric("rate_limit_total")
         return OpenAIServiceError(
             f"{context} is temporarily rate-limited. Please retry shortly.",
             retryable=True, status_code=429,
         )
     if isinstance(exc, (APITimeoutError, APIConnectionError, TimeoutError)):
-        logger.error("%s connection failure: %s", context, exc)
+        logger.error("%s connection failure error_type=%s", context, type(exc).__name__)
         _increment_openai_metric("timeout_total")
         return OpenAIServiceError(
             f"{context} timed out or lost connectivity. Please retry.",
             retryable=True, status_code=504,
         )
     if isinstance(exc, AuthenticationError):
-        logger.error("%s authentication failed: %s", context, exc)
+        logger.error("%s authentication failed error_type=%s", context, type(exc).__name__)
         _increment_openai_metric("error_total")
         return OpenAIServiceError(
             f"{context} authentication error. Contact support.",
             retryable=False, status_code=502,
         )
     if isinstance(exc, BadRequestError):
-        logger.warning("%s bad request: %s", context, exc)
+        logger.warning("%s bad request error_type=%s", context, type(exc).__name__)
         _increment_openai_metric("error_total")
         return OpenAIServiceError(
             f"{context} received an invalid request. Check your input.",
             retryable=False, status_code=400,
         )
     # Fallback for unexpected errors
-    logger.error("%s unexpected error: %s", context, exc, exc_info=True)
+    logger.error("%s unexpected error_type=%s", context, type(exc).__name__)
     _increment_openai_metric("error_total")
     return OpenAIServiceError(
         f"{context} failed unexpectedly. Please try again.",
@@ -340,6 +340,7 @@ GPT_CACHE_TTL_SECONDS = int(os.getenv("GPT_CACHE_TTL_SECONDS", "3600"))
 GPT_CACHE_MAX_SIZE = int(os.getenv("GPT_CACHE_MAX_SIZE", "256"))
 
 _response_cache: TTLCache = TTLCache(maxsize=GPT_CACHE_MAX_SIZE, ttl=GPT_CACHE_TTL_SECONDS)
+_response_cache_refs: dict[str, set[str]] = {}
 _cache_lock = threading.Lock()   # guards _cache_hits, _cache_misses, and cache reads/writes
 _cache_hits = 0
 _cache_misses = 0
@@ -360,6 +361,8 @@ def _compute_cache_key(**kwargs) -> str:
         "temperature": kwargs.get("temperature"),
         "max_tokens": kwargs.get("max_tokens"),
         "response_format": str(kwargs.get("response_format", "")),
+        "owner_user_id": kwargs.get("cache_owner_user_id"),
+        "tenant_id": kwargs.get("cache_tenant_id"),
     }
     raw = json.dumps(key_data, sort_keys=True, default=str)
     return hashlib.sha256(raw.encode()).hexdigest()
@@ -385,6 +388,7 @@ def reset_cache():
     global _cache_hits, _cache_misses
     with _cache_lock:
         _response_cache.clear()
+        _response_cache_refs.clear()
         _cache_hits = 0
         _cache_misses = 0
     with _key_locks_lock:
@@ -399,6 +403,13 @@ def cached_chat_completion(
     max_tokens: Optional[int] = None,
     response_format: Any = None,
     bypass_cache: bool = False,
+    cache_owner_user_id: Optional[str] = None,
+    cache_tenant_id: Optional[str] = None,
+    cache_diagram_id: Optional[str] = None,
+    cost_owner_user_id: Optional[str] = None,
+    cost_tenant_id: Optional[str] = None,
+    cost_actor_kind: Optional[str] = None,
+    cost_key_id: Optional[str] = None,
     **extra_kwargs,
 ) -> Any:
     """
@@ -413,7 +424,7 @@ def cached_chat_completion(
         temperature: Sampling temperature
         max_tokens: Max tokens in response
         response_format: Response format hint
-        bypass_cache: If True, skip cache lookup (but still store result)
+        bypass_cache: If True, skip cache lookup and do not store the result
         **extra_kwargs: Additional kwargs passed to the API
 
     Returns:
@@ -422,6 +433,17 @@ def cached_chat_completion(
     global _cache_hits, _cache_misses
 
     deployment = model or AZURE_OPENAI_DEPLOYMENT
+
+    if cache_owner_user_id is None or cache_tenant_id is None:
+        try:
+            from routers.shared import current_credential_context
+
+            context = current_credential_context()
+            if context is not None:
+                cache_owner_user_id = cache_owner_user_id or context.owner_user_id
+                cache_tenant_id = cache_tenant_id or context.tenant_id
+        except Exception:
+            pass
 
     # Build kwargs for the API call
     api_kwargs: Dict[str, Any] = {"model": deployment, "messages": messages}
@@ -434,7 +456,11 @@ def cached_chat_completion(
     api_kwargs.update(extra_kwargs)
 
     # Compute cache key
-    cache_key = _compute_cache_key(**api_kwargs)
+    cache_key = _compute_cache_key(
+        **api_kwargs,
+        cache_owner_user_id=cache_owner_user_id,
+        cache_tenant_id=cache_tenant_id,
+    )
 
     # Fast-path: check cache under a brief lock (Issue #293 — no contention
     # between different keys).
@@ -493,7 +519,7 @@ def cached_chat_completion(
                 if AZURE_OPENAI_FALLBACK_DEPLOYMENT and AZURE_OPENAI_FALLBACK_DEPLOYMENT != deployment:
                     logger.warning(
                         "Primary model %s failed (%s), falling back to %s",
-                        deployment, primary_exc, AZURE_OPENAI_FALLBACK_DEPLOYMENT,
+                        deployment, type(primary_exc).__name__, AZURE_OPENAI_FALLBACK_DEPLOYMENT,
                     )
                     fallback_kwargs = {**api_kwargs, "model": AZURE_OPENAI_FALLBACK_DEPLOYMENT}
                     response = openai_retry(client.chat.completions.create)(**fallback_kwargs)
@@ -524,12 +550,24 @@ def cached_chat_completion(
         else:
             response._truncated = False
 
-        # Store result
-        with _cache_lock:
-            _response_cache[cache_key] = response
+        # Store only when caching is explicitly allowed. Customer-derived calls
+        # carry scope dimensions, and a purgeable diagram reverse index when
+        # available. Unscoped library calls remain process-local compatibility.
+        if not bypass_cache:
+            with _cache_lock:
+                _response_cache[cache_key] = response
+                if cache_diagram_id:
+                    _response_cache_refs.setdefault(cache_diagram_id, set()).add(cache_key)
 
         # ── Cost metering (Issue #392) — transparent, best-effort ──
-        _meter_response(response, deployment)
+        _meter_response(
+            response,
+            deployment,
+            owner_user_id=cost_owner_user_id,
+            tenant_id=cost_tenant_id,
+            actor_kind=cost_actor_kind,
+            key_id=cost_key_id,
+        )
 
     return response
 
@@ -543,23 +581,78 @@ def _emit_cache_metric(event_type: str):
         pass  # nosec B110 — Observability is optional
 
 
-def _meter_response(response: Any, model: str, caller: str = "cached_chat_completion") -> None:
+def _meter_response(
+    response: Any,
+    model: str,
+    caller: str = "cached_chat_completion",
+    *,
+    owner_user_id: Optional[str] = None,
+    tenant_id: Optional[str] = None,
+    actor_kind: Optional[str] = None,
+    key_id: Optional[str] = None,
+) -> None:
     """Record token usage from an OpenAI response in the cost meter (best-effort)."""
     try:
         usage = getattr(response, "usage", None)
         if usage is None:
             return
         from cost_metering import CostMeter
+        from cost_metering import CostScope
+        from routers.shared import current_credential_context
+
+        context = current_credential_context()
+        if owner_user_id and tenant_id:
+            scope = CostScope(
+                owner_user_id=owner_user_id,
+                tenant_id=tenant_id,
+                actor_kind=actor_kind or "background",
+                key_id=key_id,
+            )
+        else:
+            scope = CostScope.from_credential(context) if context is not None else None
         CostMeter.instance().record(
             model=model,
             prompt_tokens=usage.prompt_tokens or 0,
             completion_tokens=usage.completion_tokens or 0,
             caller=caller,
+            scope=scope,
         )
     except Exception:
         pass  # nosec B110 — Cost metering must never break request handling
 
 
-def meter_openai_response(response: Any, model: str, caller: str) -> None:
+def meter_openai_response(
+    response: Any,
+    model: str,
+    caller: str,
+    *,
+    owner_user_id: Optional[str] = None,
+    tenant_id: Optional[str] = None,
+    actor_kind: Optional[str] = None,
+    key_id: Optional[str] = None,
+) -> None:
     """Public metering hook for direct OpenAI call-sites."""
-    _meter_response(response, model, caller)
+    _meter_response(
+        response,
+        model,
+        caller,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+        actor_kind=actor_kind,
+        key_id=key_id,
+    )
+
+
+def purge_diagram_response_cache(diagram_id: str) -> int:
+    """Delete every shared GPT response indexed to one diagram."""
+    with _cache_lock:
+        keys = _response_cache_refs.pop(diagram_id, set())
+        for key in keys:
+            _response_cache.pop(key, None)
+        return len(keys)
+
+
+def diagram_response_cache_absent(diagram_id: str) -> bool:
+    """Return whether no shared GPT response cache references the diagram."""
+    with _cache_lock:
+        return not _response_cache_refs.get(diagram_id)

@@ -247,6 +247,8 @@ def database_readiness() -> dict[str, object]:
 
                 required_tables = {
                     "api_key_credentials",
+                    "cost_alerts",
+                    "cost_budgets",
                     "analysis_mutation_receipts",
                     "analysis_restore_receipts",
                     "workspaces",
@@ -280,6 +282,13 @@ def database_readiness() -> dict[str, object]:
                         missing_schema_objects.append("column:purge_operations.manifest")
                     if "workspace_id" not in purge_columns:
                         missing_schema_objects.append("column:purge_operations.workspace_id")
+                if "cost_records" in present_tables:
+                    cost_columns = {
+                        column["name"] for column in inspector.get_columns("cost_records")
+                    }
+                    for column_name in ("owner_user_id", "tenant_id", "actor_kind", "key_id"):
+                        if column_name not in cost_columns:
+                            missing_schema_objects.append(f"column:cost_records.{column_name}")
                 required_schema_present = not missing_schema_objects
             connection_ok = True
         except Exception as exc:

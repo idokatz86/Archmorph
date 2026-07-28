@@ -28,6 +28,75 @@ from urllib.parse import urlsplit  # noqa: E402
 from slowapi.errors import RateLimitExceeded  # noqa: E402
 from starlette.responses import JSONResponse as _JSONResponse  # noqa: E402
 from csrf import requires_csrf_check, csrf_token_valid  # noqa: E402
+from analysis_payload_bounds import MAX_RESTORE_BODY_BYTES  # noqa: E402
+
+
+class RestoreBodyTooLarge(Exception):
+    """Internal signal raised before restore request parsing."""
+
+
+class RestoreBodyLimitMiddleware:
+    """Bound restore bodies while ASGI receive chunks are still raw bytes."""
+
+    def __init__(self, app, *, max_bytes: int = MAX_RESTORE_BODY_BYTES):
+        self.app = app
+        self.max_bytes = max_bytes
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") != "http" or not str(scope.get("path", "")).endswith(
+            "/restore-session"
+        ):
+            await self.app(scope, receive, send)
+            return
+
+        headers = {
+            key.lower(): value
+            for key, value in scope.get("headers", [])
+        }
+        raw_length = headers.get(b"content-length")
+        if raw_length is not None:
+            try:
+                if int(raw_length) > self.max_bytes:
+                    await self._reject(scope, receive, send)
+                    return
+            except ValueError:
+                await self._reject(scope, receive, send, status_code=400)
+                return
+
+        received = 0
+
+        async def limited_receive():
+            nonlocal received
+            message = await receive()
+            if message.get("type") == "http.request":
+                received += len(message.get("body", b""))
+                if received > self.max_bytes:
+                    raise RestoreBodyTooLarge
+            return message
+
+        try:
+            await self.app(scope, limited_receive, send)
+        except RestoreBodyTooLarge:
+            await self._reject(scope, receive, send)
+
+    @staticmethod
+    async def _reject(scope, receive, send, *, status_code: int = 413):
+        response = _JSONResponse(
+            status_code=status_code,
+            content={
+                "error": {
+                    "code": "PAYLOAD_TOO_LARGE" if status_code == 413 else "BAD_REQUEST",
+                    "message": (
+                        "Restore request body is too large"
+                        if status_code == 413
+                        else "Invalid Content-Length"
+                    ),
+                    "details": {},
+                    "correlation_id": "",
+                }
+            },
+        )
+        await response(scope, receive, send)
 
 
 def _rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> _JSONResponse:
@@ -101,7 +170,12 @@ from observability import (  # noqa: E402
 from icons.routes import router as icon_router  # noqa: E402
 
 # Shared state — re-exported for backward compatibility (tests import these from main)
-from routers.shared import limiter, SESSION_STORE, IMAGE_STORE, SHARE_STORE  # noqa: E402, F401
+from routers.shared import (  # noqa: E402, F401
+    IMAGE_STORE,
+    SESSION_STORE,
+    SHARE_STORE,
+    limiter,
+)
 
 # Routers
 from routers.health import router as health_router  # noqa: E402
@@ -261,6 +335,11 @@ async def lifespan(app: FastAPI):
     session_readiness = await asyncio.to_thread(session_store_readiness)
     if session_readiness["require_redis"] and not session_readiness["ready_for_horizontal_scale"]:
         raise RuntimeError("Required Redis dependency is unavailable")
+    from routers.shared import rate_limit_readiness
+
+    limiter_readiness = rate_limit_readiness()
+    if not limiter_readiness["ready"]:
+        raise RuntimeError("Shared rate-limit storage is required for this deployment")
 
     # ── Thread pool sizing (#177) ──
     # GPT vision calls use asyncio.to_thread() which shares the default executor.
@@ -313,6 +392,7 @@ app = FastAPI(
     version=__version__,
     lifespan=lifespan,
 )
+app.add_middleware(RestoreBodyLimitMiddleware)
 
 # ─────────────────────────────────────────────────────────────
 # CORS configuration — validated at startup (#846)
@@ -478,9 +558,33 @@ class ArchmorphMiddleware(BaseHTTPMiddleware):
     @classmethod
     def _audit_actor_context(cls, request: Request) -> tuple[str, str, str]:
         ip_address = cls._client_ip(request)
+        credential_context = getattr(request.state, "credential_context", None)
+        if credential_context is None and request.headers.get("x-api-key"):
+            try:
+                from routers.shared import _authenticate_api_key, set_request_credential_context
+
+                credential_context = set_request_credential_context(
+                    request,
+                    _authenticate_api_key(
+                        request.headers.get("x-api-key"),
+                        required=False,
+                    ),
+                )
+            except Exception:
+                credential_context = None
+        if credential_context is not None and credential_context.kind.value in {
+            "static",
+            "managed",
+        }:
+            actor_id = credential_context.key_id or credential_context.principal_id
+            return actor_id, "api_key", ip_address
         user = get_user_from_request_headers(request.headers)
         if user:
-            return user.id, "authenticated", ip_address
+            from routers.shared import get_request_durable_principal
+
+            principal = get_request_durable_principal(request)
+            actor_id = (principal or {}).get("owner_user_id") or user.id
+            return actor_id, "authenticated", ip_address
 
         session_id = cls._daily_guest_session_id(request, ip_address)
         return session_id, "guest", ip_address
@@ -489,6 +593,9 @@ class ArchmorphMiddleware(BaseHTTPMiddleware):
         # ── Correlation ID ──
         cid = request.headers.get("X-Correlation-ID") or str(uuid.uuid4())
         token = correlation_id_var.set(cid)
+        from routers.shared import _credential_context_var
+
+        credential_token = _credential_context_var.set(None)
 
         start_time = time.perf_counter()
         try:
@@ -524,6 +631,7 @@ class ArchmorphMiddleware(BaseHTTPMiddleware):
                     response = await call_next(request)
         finally:
             correlation_id_var.reset(token)
+            _credential_context_var.reset(credential_token)
 
         duration_ms = (time.perf_counter() - start_time) * 1000
 

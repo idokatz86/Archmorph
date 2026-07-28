@@ -12,6 +12,7 @@ import copy
 import os
 import sys
 import time
+from pathlib import Path
 from urllib.parse import urlparse
 from unittest.mock import MagicMock
 
@@ -26,9 +27,18 @@ os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
 os.environ.setdefault("ARCHMORPH_EXPORT_CAPABILITY_REQUIRED", "false")
 os.environ.setdefault("ENVIRONMENT", "test")
 os.environ.setdefault("ALLOWED_ORIGINS", "https://frontend.example.com")
+if "DATABASE_URL" not in os.environ:
+    worker_id = os.environ.get("PYTEST_XDIST_WORKER", "serial")
+    run_id = os.environ.get("PYTEST_XDIST_TESTRUNUID", str(os.getpid()))
+    test_db = Path("/tmp") / f"archmorph-pytest-{run_id}-{worker_id}.db"
+    test_db.unlink(missing_ok=True)
+    os.environ["DATABASE_URL"] = f"sqlite:///{test_db}"
 
 from main import app  # noqa: E402
+from database import init_db  # noqa: E402
 from routers import shared as shared_router  # noqa: E402
+
+init_db()
 
 
 # ─────────────────────────────────────────────────────────────
@@ -241,7 +251,10 @@ def _global_openai_mock(request, monkeypatch):
     Globally prevent live OpenAI calls by mocking cached_chat_completion.
     Test execution speed will dramatically improve and flakiness will drop.
     """
-    if "test_gpt_cache.py" in request.node.nodeid:
+    if (
+        "test_gpt_cache.py" in request.node.nodeid
+        or "test_latest_independent_audit_regressions.py" in request.node.nodeid
+    ):
         return
         
     from unittest.mock import MagicMock

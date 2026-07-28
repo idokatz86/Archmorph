@@ -67,7 +67,7 @@ from workspace_store import (
     rehome_legacy_owner_scope,
     update_workspace,
 )
-from models.workspace import WorkspaceStatus
+from models.workspace import DecisionSeverity, DecisionType, WorkspaceStatus
 
 router = APIRouter(prefix="/api", tags=["Workspaces"])
 
@@ -105,10 +105,10 @@ class CreateAnalysisRequest(StrictBaseModel):
 
 
 class CreateDecisionRequest(StrictBaseModel):
-    decision_type: str = Field(..., min_length=1, max_length=50)
+    decision_type: DecisionType
     title: str = Field(..., min_length=1, max_length=300)
     description: Optional[str] = Field(default=None, max_length=5000)
-    severity: Optional[str] = Field(default=None, max_length=20)
+    severity: Optional[DecisionSeverity] = Field(default=None)
     version_id: Optional[str] = Field(default=None, max_length=36)
 
 
@@ -693,10 +693,10 @@ async def create_decision_endpoint(
             analysis_id=analysis_id,
             owner_user_id=owner_user_id,
             tenant_id=_tenant_id(user),
-            decision_type=body.decision_type,
+            decision_type=body.decision_type.value,
             title=body.title,
             description=body.description,
-            severity=body.severity,
+            severity=body.severity.value if body.severity is not None else None,
             version_id=body.version_id,
         )
     except ValueError as exc:

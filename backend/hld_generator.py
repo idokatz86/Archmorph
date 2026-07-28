@@ -417,6 +417,7 @@ def generate_hld(
             max_tokens=HLD_MAX_TOKENS,
             temperature=0.3,
             response_format={"type": "json_object"},
+            bypass_cache=True,
         )
 
         raw_text = response.choices[0].message.content.strip()
@@ -427,8 +428,8 @@ def generate_hld(
             raise ValueError(f"HLD generation failed: LLM returned valid JSON but not a dictionary. Got: type {type(hld)}")
 
     except Exception as exc:
-        logger.error("HLD generation failed: %s", exc)
-        raise ValueError(f"HLD generation failed: {exc}") from exc
+        logger.error("HLD generation failed error_type=%s", type(exc).__name__)
+        raise ValueError("HLD generation failed") from exc
 
     # Enrich with documentation links
     for svc in hld.get("services") or []:

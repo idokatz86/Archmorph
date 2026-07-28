@@ -1,9 +1,10 @@
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from database import get_db
 from models.agent import Agent, AgentVersion
 from models.tenant import Organization
+from routers.shared import get_request_durable_principal, require_authenticated_user
 from pydantic import ConfigDict
 from strict_models import StrictBaseModel
 import uuid
@@ -14,6 +15,13 @@ def utc_now_naive() -> datetime.datetime:
     return datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
 
 router = APIRouter(prefix="/agents", tags=["agents"])
+
+
+def _agent_scope(request: Request) -> tuple[str, str]:
+    principal = get_request_durable_principal(request)
+    if principal is None or not principal.get("tenant_id"):
+        raise HTTPException(status_code=401, detail="Authentication required")
+    return principal["owner_user_id"], principal["tenant_id"]
 
 # Pydantic schemas
 class ModelConfigSchema(StrictBaseModel):
@@ -30,7 +38,7 @@ class MemoryConfigSchema(StrictBaseModel):
 class AgentCreateSchema(StrictBaseModel):
     name: str
     description: Optional[str] = None
-    organization_id: str
+    organization_id: Optional[str] = None
     model_config_data: Optional[ModelConfigSchema] = None
     tools: List[dict] = []
     data_sources: List[dict] = []
@@ -55,14 +63,17 @@ class AgentResponseSchema(StrictBaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 @router.post("", response_model=AgentResponseSchema, status_code=201)
-def create_agent(agent_data: AgentCreateSchema, db: Session = Depends(get_db)):
-    org = db.query(Organization).filter(Organization.org_id == agent_data.organization_id).first()
+def create_agent(agent_data: AgentCreateSchema, request: Request, db: Session = Depends(get_db), _user=Depends(require_authenticated_user)):
+    owner_user_id, organization_id = _agent_scope(request)
+    if agent_data.organization_id and agent_data.organization_id != organization_id:
+        raise HTTPException(status_code=404, detail="Organization not found")
+    org = db.query(Organization).filter(Organization.org_id == organization_id).first()
     if not org:
         raise HTTPException(status_code=404, detail="Organization not found")
 
     new_agent = Agent(
         id=str(uuid.uuid4()),
-        organization_id=agent_data.organization_id,
+        organization_id=organization_id,
         name=agent_data.name,
         description=agent_data.description,
         version="1.0.0",
@@ -70,7 +81,8 @@ def create_agent(agent_data: AgentCreateSchema, db: Session = Depends(get_db)):
         model_config_data=agent_data.model_config_data.model_dump() if agent_data.model_config_data else {},
         tools=agent_data.tools,
         data_sources=agent_data.data_sources,
-        memory_config=agent_data.memory_config.model_dump() if agent_data.memory_config else {}
+        memory_config=agent_data.memory_config.model_dump() if agent_data.memory_config else {},
+        created_by=owner_user_id,
     )
 
     db.add(new_agent)
@@ -95,20 +107,23 @@ def create_agent(agent_data: AgentCreateSchema, db: Session = Depends(get_db)):
     return new_agent
 
 @router.get("", response_model=List[AgentResponseSchema])
-def list_agents(organization_id: str, db: Session = Depends(get_db), skip: int = 0, limit: int = 100):
+def list_agents(request: Request, db: Session = Depends(get_db), skip: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=200), _user=Depends(require_authenticated_user)):
+    _owner_user_id, organization_id = _agent_scope(request)
     agents = db.query(Agent).filter(Agent.organization_id == organization_id, Agent.status != "archived").offset(skip).limit(limit).all()
     return agents
 
 @router.get("/{agent_id}", response_model=AgentResponseSchema)
-def get_agent(agent_id: str, db: Session = Depends(get_db)):
-    agent = db.query(Agent).filter(Agent.id == agent_id, Agent.status != "archived").first()
+def get_agent(agent_id: str, request: Request, db: Session = Depends(get_db), _user=Depends(require_authenticated_user)):
+    _owner_user_id, organization_id = _agent_scope(request)
+    agent = db.query(Agent).filter(Agent.id == agent_id, Agent.organization_id == organization_id, Agent.status != "archived").first()
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
     return agent
 
 @router.put("/{agent_id}", response_model=AgentResponseSchema)
-def update_agent(agent_id: str, agent_data: AgentUpdateSchema, db: Session = Depends(get_db)):
-    agent = db.query(Agent).filter(Agent.id == agent_id, Agent.status != "archived").first()
+def update_agent(agent_id: str, agent_data: AgentUpdateSchema, request: Request, db: Session = Depends(get_db), _user=Depends(require_authenticated_user)):
+    owner_user_id, organization_id = _agent_scope(request)
+    agent = db.query(Agent).filter(Agent.id == agent_id, Agent.organization_id == organization_id, Agent.status != "archived").first()
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
@@ -145,7 +160,8 @@ def update_agent(agent_id: str, agent_data: AgentUpdateSchema, db: Session = Dep
             "tools": agent.tools,
             "data_sources": agent.data_sources,
             "memory_config": agent.memory_config
-        }
+        },
+        created_by=owner_user_id,
     )
     db.add(version_record)
     db.commit()
@@ -153,8 +169,9 @@ def update_agent(agent_id: str, agent_data: AgentUpdateSchema, db: Session = Dep
     return agent
 
 @router.delete("/{agent_id}")
-def archive_agent(agent_id: str, db: Session = Depends(get_db)):
-    agent = db.query(Agent).filter(Agent.id == agent_id).first()
+def archive_agent(agent_id: str, request: Request, db: Session = Depends(get_db), _user=Depends(require_authenticated_user)):
+    _owner_user_id, organization_id = _agent_scope(request)
+    agent = db.query(Agent).filter(Agent.id == agent_id, Agent.organization_id == organization_id).first()
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
     
@@ -163,11 +180,12 @@ def archive_agent(agent_id: str, db: Session = Depends(get_db)):
     return {"message": "Agent archived successfully"}
 
 @router.patch("/{agent_id}/status")
-def update_agent_status(agent_id: str, status: str = Query(...), db: Session = Depends(get_db)):
+def update_agent_status(agent_id: str, request: Request, status: str = Query(...), db: Session = Depends(get_db), _user=Depends(require_authenticated_user)):
     if status not in ["draft", "active", "paused", "archived"]:
         raise HTTPException(status_code=400, detail="Invalid status")
         
-    agent = db.query(Agent).filter(Agent.id == agent_id).first()
+    _owner_user_id, organization_id = _agent_scope(request)
+    agent = db.query(Agent).filter(Agent.id == agent_id, Agent.organization_id == organization_id).first()
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
         
@@ -176,13 +194,17 @@ def update_agent_status(agent_id: str, status: str = Query(...), db: Session = D
     return {"message": f"Agent status changed to {status}"}
 
 @router.get("/{agent_id}/versions")
-def list_agent_versions(agent_id: str, db: Session = Depends(get_db)):
-    versions = db.query(AgentVersion).filter(AgentVersion.agent_id == agent_id).order_by(AgentVersion.created_at.desc()).all()
+def list_agent_versions(agent_id: str, request: Request, db: Session = Depends(get_db), _user=Depends(require_authenticated_user)):
+    _owner_user_id, organization_id = _agent_scope(request)
+    if db.query(Agent.id).filter(Agent.id == agent_id, Agent.organization_id == organization_id).first() is None:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    versions = db.query(AgentVersion).filter(AgentVersion.agent_id == agent_id).order_by(AgentVersion.created_at.desc()).limit(200).all()
     return versions
 
 @router.post("/{agent_id}/clone")
-def clone_agent(agent_id: str, db: Session = Depends(get_db)):
-    agent = db.query(Agent).filter(Agent.id == agent_id).first()
+def clone_agent(agent_id: str, request: Request, db: Session = Depends(get_db), _user=Depends(require_authenticated_user)):
+    owner_user_id, organization_id = _agent_scope(request)
+    agent = db.query(Agent).filter(Agent.id == agent_id, Agent.organization_id == organization_id).first()
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
         
@@ -212,7 +234,8 @@ def clone_agent(agent_id: str, db: Session = Depends(get_db)):
             "tools": new_agent.tools,
             "data_sources": new_agent.data_sources,
             "memory_config": new_agent.memory_config
-        }
+        },
+        created_by=owner_user_id,
     )
     db.add(version_record)
     db.commit()

@@ -285,6 +285,23 @@ def _compute_vision_cache_key(compressed_bytes: bytes, model_name: str, prompt_h
     return digest.hexdigest()
 
 
+def _scoped_vision_cache_key(
+    compressed_bytes: bytes,
+    model_name: str,
+    prompt_hash: str,
+    *,
+    owner_user_id: str | None,
+    tenant_id: str | None,
+) -> str:
+    base_key = _compute_vision_cache_key(compressed_bytes, model_name, prompt_hash)
+    if not owner_user_id or not tenant_id:
+        return base_key
+    scope = hashlib.sha256(
+        json.dumps([owner_user_id, tenant_id], separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return hashlib.sha256(f"{scope}:{base_key}".encode("utf-8")).hexdigest()
+
+
 def _record_vision_cache_reference(diagram_id: str | None, cache_key: str) -> None:
     if diagram_id:
         if not _vision_cache_refs.set(
@@ -345,6 +362,8 @@ def analyze_image(
     content_type: str = "image/png",
     *,
     diagram_id: str | None = None,
+    owner_user_id: str | None = None,
+    tenant_id: str | None = None,
 ) -> Dict[str, Any]:
     """
     Analyze a cloud architecture diagram image using GPT-4o vision directly.
@@ -359,7 +378,13 @@ def analyze_image(
     prompt_hash = _compute_vision_prompt_hash(model_name)
     _emit_prompt_hash_metric(model_name, prompt_hash)
 
-    cache_key = _compute_vision_cache_key(compressed_bytes, model_name, prompt_hash)
+    cache_key = _scoped_vision_cache_key(
+        compressed_bytes,
+        model_name,
+        prompt_hash,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+    )
     with _vision_cache_lock:
         cached = _vision_cache.get(cache_key)
     if cached is not None:
@@ -397,7 +422,14 @@ def analyze_image(
         temperature=0.0,
         timeout=60.0
     )
-    meter_openai_response(response, model_name, "vision_analyzer.analyze_image")
+    meter_openai_response(
+        response,
+        model_name,
+        "vision_analyzer.analyze_image",
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+        actor_kind="background" if owner_user_id and tenant_id else None,
+    )
 
     try:
         content = response.choices[0].message.content.strip()
@@ -424,7 +456,12 @@ def analyze_image(
             
         return result
     except Exception as e:
-        logger.error(f"Failed to parse GPT-4o output. Error: {e}")
+        logger.error(
+            "Vision response parse failed error_type=%s response_length=%d response_sha256=%s",
+            type(e).__name__,
+            len(content),
+            hashlib.sha256(content.encode("utf-8")).hexdigest()[:12],
+        )
         raise RuntimeError("GPT-4o vision did not return a valid JSON schema.") from e
     finally:
         _record_vision_latency(start_time, False, model_name, prompt_hash)

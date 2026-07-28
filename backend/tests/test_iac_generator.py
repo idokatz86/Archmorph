@@ -186,7 +186,8 @@ class TestGenerateIaCCode:
                 "terraform",
             )
 
-        assert "failed terraform init: Invalid provider source address" in code
+        assert "Invalid provider source address" not in code
+        assert "failed terraform validate: terraform init failed" in code
 
     @patch("iac_generator.subprocess.run")
     @patch("iac_generator.shutil.which", return_value="/usr/bin/terraform")
