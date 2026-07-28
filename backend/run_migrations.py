@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import argparse
+import json
 import logging
 import os
 import sys
@@ -16,7 +18,9 @@ logger = logging.getLogger(__name__)
 MIGRATION_LOCK_ID = 7_823_719_237_014
 
 
-def run() -> None:
+def run(*, expected_head: str) -> dict[str, str]:
+    if not expected_head or any(character in expected_head for character in (",", " ", "\t", "\n")):
+        raise RuntimeError("An exact single EXPECTED_ALEMBIC_HEAD is required")
     database_url = os.environ.get("DATABASE_URL", "")
     if not database_url.startswith(("postgresql://", "postgresql+psycopg://")):
         raise RuntimeError("Controlled migrations require a PostgreSQL DATABASE_URL")
@@ -53,17 +57,37 @@ def run() -> None:
         and readiness["connection_ok"]
         and readiness["schema_at_head"]
         and readiness["required_schema_present"]
+        and readiness["current_revision"] == expected_head
+        and readiness["expected_revision"] == expected_head
     ):
         raise RuntimeError(
-            "Migration completed without satisfying the expected schema contract"
+            "Migration completed without satisfying the exact expected schema contract"
         )
-    logger.info("Database migrated and verified at Alembic head %s", readiness["expected_revision"])
+    evidence = {
+        "status": "migrated",
+        "current_revision": expected_head,
+        "expected_revision": expected_head,
+        "image_reference": os.environ.get("MIGRATION_IMAGE_REFERENCE", "unknown"),
+    }
+    logger.info("Database migrated and verified at exact Alembic head %s", expected_head)
+    print("ARCHMORPH_MIGRATION_EVIDENCE=" + json.dumps(evidence, sort_keys=True))
+    return evidence
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--expect-head",
+        default=os.environ.get("EXPECTED_ALEMBIC_HEAD", ""),
+        help="Exact Alembic head declared by the reviewed application image",
+    )
+    return parser.parse_args()
 
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     try:
-        run()
+        run(expected_head=_parse_args().expect_head)
     except Exception:
         logger.exception("Controlled database migration failed")
         sys.exit(1)

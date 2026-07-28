@@ -72,6 +72,7 @@ def test_migration_contains_conflict_audit_and_uniqueness_guards():
     assert "ux_artifacts_version_type_hash" in source
     assert "ux_workspaces_default_owner_tenant" in source
     assert "retain VARCHAR(100)" in source
+    assert "tenant rewrite alias/audit evidence is append-only" in source
     assert 'op.drop_table("analysis_mutation_receipts")' in source
     assert 'op.drop_table("purge_operations")' in source
     assert 'op.drop_table("restore_grants")' in source

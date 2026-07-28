@@ -14,7 +14,7 @@ Do not use `terraform destroy` or `azd down` for normal rollback. Those commands
 - Azure RBAC for the production subscription and resource group.
 - GitHub secrets present: `AZURE_SUBSCRIPTION_ID`, `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_RESOURCE_GROUP`, `CONTAINER_APP_NAME`, `API_URL`, `ACR_NAME`, and `ACR_LOGIN_SERVER`, plus `ARCHMORPH_API_KEY` or `ADMIN_KEY` for authenticated health verification.
 - Azure CLI authenticated if using the manual fallback.
-- Release evidence for the last known good backend revision, frontend artifact, Git SHA, and container image tag or digest.
+- Release evidence for the last known good backend revision, frontend artifact, Git SHA, immutable container image digest, and declared application schema range.
 
 ## Decision Points
 
@@ -43,8 +43,14 @@ Prefer the `Manual Rollback` workflow in `.github/workflows/rollback.yml`.
 3. Keep `traffic_percentage` at `100` for a full rollback unless doing a controlled partial shift.
 4. Run the workflow. The `rollback` job is bound to the GitHub `production` Environment, so GitHub will pause before Azure login and traffic movement until required reviewers approve the deployment (or an authorized emergency bypass is used under repository policy).
 5. For emergency rollback, page the designated production environment approver immediately. If GitHub Actions or environment approval is unavailable, use the Azure CLI fallback below and record why the protected workflow could not be used.
-6. Confirm the workflow activates the target revision, shifts traffic, and verifies authenticated `${API_URL}/api/health`.
-7. Capture the workflow URL, target revision, version, approval/bypass evidence, and health output in release evidence.
+6. Confirm the workflow compares the target revision's
+  `APP_SCHEMA_MIN_REVISION` / `APP_SCHEMA_MAX_REVISION` metadata and queries its
+  `/api/schema-compatibility` endpoint **before any traffic change**. An inactive
+  target may be started at zero traffic solely for this preflight.
+7. Only after compatibility succeeds, confirm the workflow activates the target,
+  shifts traffic, and verifies authenticated `${API_URL}/api/health`.
+8. Capture the workflow URL, target revision, image digest, schema range/current
+  revision, approval/bypass evidence, and health output in release evidence.
 
 The workflow normalizes `API_URL`, calls `/api/health`, sends `X-API-Key` from `ARCHMORPH_API_KEY` with `ADMIN_KEY` fallback when present, and uses the production Environment OIDC subject so Azure trust is scoped to approved production runs instead of branch name alone.
 
@@ -68,7 +74,14 @@ az containerapp revision list \
   --output table
 ```
 
-Activate the target revision:
+Before activation, read the target's schema metadata and call its zero-traffic
+preflight endpoint. If the retained target is inactive, the workflow may activate
+it with zero traffic only so the endpoint can start; on incompatibility it
+deactivates that revision again. Stop if metadata is absent, the endpoint is
+unavailable, or the current revision is outside the declared accepted range. Do
+**not** change traffic before compatibility succeeds.
+
+Activate the compatible target revision:
 
 ```bash
 az containerapp revision activate \
@@ -143,6 +156,30 @@ After frontend rollback, verify:
 
 Application rollback should not automatically downgrade the production database.
 
+Archmorph uses expand/contract application compatibility across a bounded
+rollback window:
+
+- Each image exposes `minimum_revision`, `maximum_revision`, and explicit
+  `accepted_revisions` at `/api/schema-compatibility`.
+- The deployment workflow stores the same minimum/maximum values in the
+  Container Apps revision environment metadata.
+- Migration `014` retains `tenant_rehome_aliases` and `tenant_rehome_audit`.
+  Resolved exact-scope analysis aliases remain read-through compatible through
+  the current `014` application rollback window so a compatible previous app can
+  follow retained identities without reversing the rewrite. Future migration
+  heads are incompatible by default until this contract and its tests change.
+- Quarantined, ambiguous, or foreign-scope aliases remain fail-closed. The alias
+  mapping is evidence, not authority to guess a provider or tenant.
+- Contract cleanup that removes alias read-through is a later migration and must
+  occur only after the rollback window and retained revision expiry.
+
+The migration evidence preserves what changed and where retained rows moved. It
+does **not** mean a downgrade can reconstruct deleted, merged, or deduplicated
+identities. Migration `014` therefore refuses downgrade whenever tenant rewrite
+alias/audit evidence exists; only an unused empty schema can participate in the
+automated Alembic downgrade cycle. Never claim that destructive identity
+rewrites are reversible.
+
 Run Alembic downgrade only when all of these are true:
 
 - The migration is explicitly reversible and data-safe.
@@ -150,7 +187,15 @@ Run Alembic downgrade only when all of these are true:
 - Product and data owners accept any data loss or shape change.
 - The rollback target cannot run safely with the current schema.
 
-Default posture: keep the database at the current schema, roll the application back to a compatible revision, and fix forward with a new migration when needed.
+Default posture: keep the database at the current schema, roll the application
+back only to a preflight-compatible revision, or fix forward with a compatible
+image/new migration. If no retained revision accepts the current schema, do not
+change traffic; deploy a forward-fix revision that declares and proves support.
+
+The manual rollback workflow shares `production-backend-rollout` concurrency
+with backend deploys. A rollback cannot race bootstrap, migration, green smoke,
+or traffic movement. A failed compatibility preflight exits before any traffic
+change; current production traffic is unchanged.
 
 CI now runs an Alembic smoke against PostgreSQL plus pgvector: heads, offline upgrade SQL generation, upgrade to head, downgrade to base, and re-upgrade. A migration that cannot complete this cycle must not be promoted.
 

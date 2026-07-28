@@ -10,6 +10,41 @@ This directory contains the checked-in Terraform configuration for the Azure-hos
 | Azure OpenAI account and model deployments | `infra/main.tf` | Region/model changes require a reviewed import, quota check, and rollback plan |
 | Metrics storage container | `infra/main.tf` | Uses the Terraform-managed primary storage account and managed-identity RBAC |
 | Terraform remote state | Partial `azurerm` backend blocks | Resource group, account, container, and key come from private CI/operator configuration |
+| Migration Job bootstrap | `infra/migration-bootstrap` | Separate state owns only the dedicated identity, secret-scoped/AcrPull RBAC, propagation wait, and manual Job |
+
+## Two-phase application rollout
+
+Production rollout is intentionally split across two Terraform state files:
+
+1. **Phase A — migration bootstrap:** `infra/migration-bootstrap` reads existing
+  Container Apps environment, ACR, Key Vault, and versionless database-secret
+  metadata. It creates a dedicated user-assigned identity, `AcrPull`, Key Vault
+  Secrets User scoped to the single database Secret, a propagation wait, and one
+  manual-trigger Job pinned to the reviewed image digest and exact Alembic head.
+  The Secret URI is constructed from Key Vault metadata; Terraform never reads
+  or stores the `DATABASE_URL` value.
+  This root has no `azurerm_container_app`, ingress, traffic, or probe resource,
+  so a failed bootstrap or migration cannot mutate the live app revision.
+2. **Phase B — application revision:** after one Job execution succeeds at the
+  exact head, CI clones the current app template, adds the new immutable digest,
+  `/readyz`, and schema range metadata, smokes the zero-traffic revision, then
+  shifts traffic. The previous revision remains the rollback candidate.
+
+Never use `terraform -target` for Phase A. CI performs `init`, `validate`, a full
+saved `plan`, then applies that exact plan under the shared production rollout
+concurrency group. A pre-existing migration Job is explicitly adopted into the
+separate state before plan; repeated deployments then converge idempotently.
+Concurrent Job executions are rejected before bootstrap and again before start.
+CI also reads the primary state and refuses bootstrap when that state still owns
+the Job. Apply the primary root's reviewed `removed { destroy = false }` change
+first; a resource must never be managed by both states.
+
+Private deployment configuration must supply a distinct
+`MIGRATION_TFSTATE_KEY`, migration Job/identity names, Key Vault name, database
+Secret name, and existing prerequisite names. Do not publish their concrete
+values. On failure, leave production traffic and probes unchanged, inspect the
+Phase A plan/Job execution evidence, fix forward, and rerun. No live apply is
+required for local validation.
 
 ## Partial backend initialization
 
@@ -78,7 +113,7 @@ Run these commands when editing files under `infra/`:
 ```bash
 cd infra
 find . -path './.terraform' -prune -o -name '*.tf' -print0 | xargs -0 terraform fmt -check
-for dir in . staging dr observability; do
+for dir in . staging dr observability migration-bootstrap; do
   terraform -chdir="$dir" init -backend=false -input=false -lockfile=readonly
   terraform -chdir="$dir" validate -no-color
 done

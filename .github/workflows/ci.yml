@@ -351,7 +351,7 @@ jobs:
 
       - name: Validate checked-in Terraform roots without remote backends
         run: |
-          for dir in . staging dr observability; do
+          for dir in . staging dr observability migration-bootstrap; do
             echo "::group::terraform validate infra/$dir"
             terraform -chdir="$dir" init -backend=false -input=false -lockfile=readonly
             terraform -chdir="$dir" validate -no-color
@@ -464,7 +464,7 @@ jobs:
           SERVER_PID=$!
           trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
           SERVER_READY=0
-          for i in {1..30}; do
+          for _attempt in {1..30}; do
             if curl -fsS "http://127.0.0.1:${LHCI_PORT}/" >/dev/null; then
               SERVER_READY=1
               break
@@ -624,6 +624,10 @@ jobs:
       ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}
       CONTAINER_APP_NAME: ${{ secrets.CONTAINER_APP_NAME }}
       CONTAINER_APP_ENV: ${{ secrets.CONTAINER_APP_ENV }}
+      MIGRATION_JOB_NAME: ${{ secrets.MIGRATION_JOB_NAME }}
+      MIGRATION_IDENTITY_NAME: ${{ secrets.MIGRATION_IDENTITY_NAME }}
+      MIGRATION_KEY_VAULT_NAME: ${{ secrets.MIGRATION_KEY_VAULT_NAME }}
+      MIGRATION_DATABASE_SECRET_NAME: ${{ secrets.MIGRATION_DATABASE_SECRET_NAME }}
       ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
       ARCHMORPH_API_KEY: ${{ secrets.ARCHMORPH_API_KEY || secrets.API_KEY }}
       JWT_SECRET: ${{ secrets.JWT_SECRET }}
@@ -635,11 +639,15 @@ jobs:
       TFSTATE_STORAGE_ACCOUNT: ${{ secrets.TFSTATE_STORAGE_ACCOUNT }}
       TFSTATE_CONTAINER: ${{ secrets.TFSTATE_CONTAINER }}
       TFSTATE_KEY: ${{ secrets.TFSTATE_KEY }}
+      MIGRATION_TFSTATE_KEY: ${{ secrets.MIGRATION_TFSTATE_KEY }}
       REQUIRE_FRONT_DOOR_ORIGIN_LOCK: ${{ vars.REQUIRE_FRONT_DOOR_ORIGIN_LOCK || 'false' }}
       ARM_USE_OIDC: true
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+    concurrency:
+      group: production-backend-rollout
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v6
 
@@ -667,6 +675,11 @@ jobs:
             ACR_NAME \
             ACR_LOGIN_SERVER \
             CONTAINER_APP_NAME \
+            CONTAINER_APP_ENV \
+            MIGRATION_JOB_NAME \
+            MIGRATION_IDENTITY_NAME \
+            MIGRATION_KEY_VAULT_NAME \
+            MIGRATION_DATABASE_SECRET_NAME \
             ADMIN_KEY \
             ARCHMORPH_API_KEY \
             JWT_SECRET \
@@ -675,7 +688,8 @@ jobs:
             TFSTATE_RESOURCE_GROUP \
             TFSTATE_STORAGE_ACCOUNT \
             TFSTATE_CONTAINER \
-            TFSTATE_KEY; do
+            TFSTATE_KEY \
+            MIGRATION_TFSTATE_KEY; do
             value="${!name:-}"
             if [ -z "$value" ]; then
               echo "::error::Required backend deploy input ${name} is not set"
@@ -698,50 +712,217 @@ jobs:
         with:
           context: ./backend
           push: true
-          tags: |
-            ${{ env.ACR_LOGIN_SERVER }}/archmorph-api:${{ github.sha }}
-            ${{ env.ACR_LOGIN_SERVER }}/archmorph-api:latest
+          tags: ${{ env.ACR_LOGIN_SERVER }}/archmorph-api:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
             BUILDKIT_INLINE_CACHE=1
 
-      - name: Capture immutable image reference
+      - name: Capture immutable image and schema contract
         run: |
           if [ -z "${{ steps.build_backend.outputs.digest }}" ]; then
             echo "::error::docker/build-push-action did not return an image digest"
             exit 1
           fi
           IMAGE_REF="${{ env.ACR_LOGIN_SERVER }}/archmorph-api@${{ steps.build_backend.outputs.digest }}"
-          echo "IMAGE_REF=$IMAGE_REF" >> "$GITHUB_ENV"
+          if ! [[ "$IMAGE_REF" =~ ^.+@sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::Built image reference is not an immutable sha256 digest"
+            exit 1
+          fi
+          APP_SCHEMA_MIN_REVISION=$(jq -er '.minimum_revision' backend/schema-contract.json)
+          APP_SCHEMA_MAX_REVISION=$(jq -er '.maximum_revision' backend/schema-contract.json)
+          EXPECTED_ALEMBIC_HEAD=$(jq -er '.migration_target_revision' backend/schema-contract.json)
+          {
+            echo "IMAGE_REF=$IMAGE_REF"
+            echo "APP_SCHEMA_MIN_REVISION=$APP_SCHEMA_MIN_REVISION"
+            echo "APP_SCHEMA_MAX_REVISION=$APP_SCHEMA_MAX_REVISION"
+            echo "EXPECTED_ALEMBIC_HEAD=$EXPECTED_ALEMBIC_HEAD"
+          } >> "$GITHUB_ENV"
           echo "Using immutable image reference: $IMAGE_REF"
 
-      - name: Run single-writer production migration job
+      - name: Trivy container security gate
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE_REF }}
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          vuln-type: library
+          scanners: vuln  # Skip secret/misconfig scanning, focus on dependency CVEs
+
+      - name: Reject concurrent production migration execution
         run: |
           set -euo pipefail
-          MIGRATION_JOB_NAME="archmorph-db-migrate"
-          if ! az containerapp job show \
+          if az containerapp job show \
             --name "$MIGRATION_JOB_NAME" \
-            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
             --only-show-errors \
-            --output none; then
-            echo "::error::Controlled database migration job is not provisioned"
+            --output none 2>/dev/null; then
+            RUNNING_EXECUTIONS=$(az containerapp job execution list \
+              --name "$MIGRATION_JOB_NAME" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --query "[?properties.status=='Running' || properties.status=='Processing'].name" \
+              -o tsv)
+            if [ -n "$RUNNING_EXECUTIONS" ]; then
+              echo "::error::Another production migration execution is already active"
+              exit 1
+            fi
+          fi
+
+      - name: Plan migration bootstrap (Phase A)
+        run: |
+          set -euo pipefail
+          export TF_VAR_subscription_id="$AZURE_SUBSCRIPTION_ID"
+          export TF_VAR_resource_group_name="$AZURE_RESOURCE_GROUP"
+          export TF_VAR_container_app_environment_name="$CONTAINER_APP_ENV"
+          export TF_VAR_container_registry_name="$ACR_NAME"
+          export TF_VAR_key_vault_name="$MIGRATION_KEY_VAULT_NAME"
+          export TF_VAR_database_secret_name="$MIGRATION_DATABASE_SECRET_NAME"
+          export TF_VAR_migration_job_name="$MIGRATION_JOB_NAME"
+          export TF_VAR_migration_identity_name="$MIGRATION_IDENTITY_NAME"
+          export TF_VAR_migration_image="$IMAGE_REF"
+          export TF_VAR_expected_alembic_head="$EXPECTED_ALEMBIC_HEAD"
+          export TF_VAR_environment="prod"
+
+          terraform -chdir=infra init -input=false -lockfile=readonly \
+            -backend-config="resource_group_name=${TFSTATE_RESOURCE_GROUP}" \
+            -backend-config="storage_account_name=${TFSTATE_STORAGE_ACCOUNT}" \
+            -backend-config="container_name=${TFSTATE_CONTAINER}" \
+            -backend-config="key=${TFSTATE_KEY}"
+          if terraform -chdir=infra state list \
+            | grep -qx 'azurerm_container_app_job.database_migration'; then
+            echo "::error::Legacy application state still owns the migration Job. Apply the reviewed non-destructive removed block before bootstrap adoption."
             exit 1
           fi
 
-          DB_SECRET_REF=$(az containerapp job show \
+          terraform -chdir=infra/migration-bootstrap init -input=false -lockfile=readonly \
+            -backend-config="resource_group_name=${TFSTATE_RESOURCE_GROUP}" \
+            -backend-config="storage_account_name=${TFSTATE_STORAGE_ACCOUNT}" \
+            -backend-config="container_name=${TFSTATE_CONTAINER}" \
+            -backend-config="key=${MIGRATION_TFSTATE_KEY}"
+          terraform -chdir=infra/migration-bootstrap validate -no-color
+
+          if az containerapp job show \
             --name "$MIGRATION_JOB_NAME" \
-            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
-            --query "properties.template.containers[0].env[?name=='DATABASE_URL'].secretRef | [0]" \
-            -o tsv)
-          if [ "$DB_SECRET_REF" != "db-connection" ]; then
-            echo "::error::Migration job DATABASE_URL must reference the managed db-connection secret"
-            exit 1
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --only-show-errors \
+            --output none 2>/dev/null; then
+            BOOTSTRAP_STATE_LIST=$(terraform -chdir=infra/migration-bootstrap state list)
+            if ! printf '%s\n' "$BOOTSTRAP_STATE_LIST" \
+              | grep -qx 'azurerm_container_app_job.database_migration'; then
+              if [ -n "$BOOTSTRAP_STATE_LIST" ]; then
+                echo "::error::Migration Job exists but bootstrap state is incomplete; reconcile the isolated state before deploy"
+                exit 1
+              fi
+              JOB_ID=$(az containerapp job show \
+                --name "$MIGRATION_JOB_NAME" \
+                --resource-group "$AZURE_RESOURCE_GROUP" \
+                --query id -o tsv)
+              MIGRATION_IDENTITY_ID=$(az identity show \
+                --name "$MIGRATION_IDENTITY_NAME" \
+                --resource-group "$AZURE_RESOURCE_GROUP" \
+                --query id -o tsv 2>/dev/null || true)
+              MIGRATION_PRINCIPAL_ID=$(az identity show \
+                --name "$MIGRATION_IDENTITY_NAME" \
+                --resource-group "$AZURE_RESOURCE_GROUP" \
+                --query principalId -o tsv 2>/dev/null || true)
+              ACR_ID=$(az acr show --name "$ACR_NAME" --query id -o tsv)
+              KEY_VAULT_ID=$(az keyvault show \
+                --name "$MIGRATION_KEY_VAULT_NAME" \
+                --resource-group "$AZURE_RESOURCE_GROUP" \
+                --query id -o tsv)
+              DATABASE_SECRET_SCOPE_ID="${KEY_VAULT_ID}/secrets/${MIGRATION_DATABASE_SECRET_NAME}"
+              ACR_ROLE_ID=$(az role assignment list \
+                --assignee-object-id "$MIGRATION_PRINCIPAL_ID" \
+                --scope "$ACR_ID" \
+                --query "[?roleDefinitionName=='AcrPull'].id | [0]" -o tsv 2>/dev/null || true)
+              SECRET_ROLE_ID=$(az role assignment list \
+                --assignee-object-id "$MIGRATION_PRINCIPAL_ID" \
+                --scope "$DATABASE_SECRET_SCOPE_ID" \
+                --query "[?roleDefinitionName=='Key Vault Secrets User'].id | [0]" -o tsv 2>/dev/null || true)
+              if [ -z "$MIGRATION_IDENTITY_ID" ] || [ -z "$ACR_ROLE_ID" ] || [ -z "$SECRET_ROLE_ID" ]; then
+                echo "::error::Bootstrap state is empty while the migration Job already exists, but its dedicated identity or least-privilege RBAC resources cannot be adopted safely"
+                exit 1
+              fi
+              terraform -chdir=infra/migration-bootstrap import \
+                azurerm_user_assigned_identity.database_migration "$MIGRATION_IDENTITY_ID"
+              terraform -chdir=infra/migration-bootstrap import \
+                azurerm_role_assignment.acr_pull "$ACR_ROLE_ID"
+              terraform -chdir=infra/migration-bootstrap import \
+                azurerm_role_assignment.database_secret_reader "$SECRET_ROLE_ID"
+              terraform -chdir=infra/migration-bootstrap import \
+                azurerm_container_app_job.database_migration "$JOB_ID"
+            fi
           fi
 
+          terraform -chdir=infra/migration-bootstrap plan -input=false \
+            -out=migration-bootstrap.tfplan
+
+      - name: Apply migration bootstrap (Phase A)
+        run: |
+          set -euo pipefail
+          terraform -chdir=infra/migration-bootstrap apply -input=false \
+            migration-bootstrap.tfplan
+
+      - name: Wait for migration identity, RBAC, and secret propagation
+        run: |
+          set -euo pipefail
+          MIGRATION_PRINCIPAL_ID=$(terraform -chdir=infra/migration-bootstrap output -raw \
+            migration_identity_principal_id)
+          MIGRATION_IDENTITY_ID=$(terraform -chdir=infra/migration-bootstrap output -raw \
+            migration_identity_id)
+          ACR_SCOPE_ID=$(terraform -chdir=infra/migration-bootstrap output -raw acr_scope_id)
+          DATABASE_SECRET_SCOPE_ID=$(terraform -chdir=infra/migration-bootstrap output -raw \
+            database_secret_scope_id)
+
+          for attempt in $(seq 1 20); do
+            ACR_ROLE_COUNT=$(az role assignment list \
+              --assignee-object-id "$MIGRATION_PRINCIPAL_ID" \
+              --scope "$ACR_SCOPE_ID" \
+              --query "[?roleDefinitionName=='AcrPull'] | length(@)" -o tsv)
+            SECRET_ROLE_COUNT=$(az role assignment list \
+              --assignee-object-id "$MIGRATION_PRINCIPAL_ID" \
+              --scope "$DATABASE_SECRET_SCOPE_ID" \
+              --query "[?roleDefinitionName=='Key Vault Secrets User'] | length(@)" -o tsv)
+            JOB_JSON=$(az containerapp job show \
+              --name "$MIGRATION_JOB_NAME" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              -o json)
+            PROVISIONING_STATE=$(echo "$JOB_JSON" | jq -r '.properties.provisioningState // "unknown"')
+            DB_SECRET_REF=$(echo "$JOB_JSON" | jq -r \
+              '.properties.template.containers[0].env[] | select(.name=="DATABASE_URL") | .secretRef // ""')
+            JOB_IMAGE=$(echo "$JOB_JSON" | jq -r '.properties.template.containers[0].image // ""')
+            JOB_IMAGE_EVIDENCE=$(echo "$JOB_JSON" | jq -r \
+              '.properties.template.containers[0].env[] | select(.name=="MIGRATION_IMAGE_REFERENCE") | .value // ""')
+            JOB_HEAD_EVIDENCE=$(echo "$JOB_JSON" | jq -r \
+              '.properties.template.containers[0].env[] | select(.name=="EXPECTED_ALEMBIC_HEAD") | .value // ""')
+            JOB_IDENTITY=$(echo "$JOB_JSON" | jq -r \
+              '.identity.userAssignedIdentities | keys[0] // ""')
+            if [ "$ACR_ROLE_COUNT" = "1" ] \
+              && [ "$SECRET_ROLE_COUNT" = "1" ] \
+              && [ "$PROVISIONING_STATE" = "Succeeded" ] \
+              && [ "$DB_SECRET_REF" = "db-connection" ] \
+              && [ "$JOB_IMAGE" = "$IMAGE_REF" ] \
+              && [ "$JOB_IMAGE_EVIDENCE" = "$IMAGE_REF" ] \
+              && [ "$JOB_HEAD_EVIDENCE" = "$EXPECTED_ALEMBIC_HEAD" ] \
+              && [ "$JOB_IDENTITY" = "$MIGRATION_IDENTITY_ID" ]; then
+              echo "Migration Job prerequisites are provisioned and propagated"
+              break
+            fi
+            if [ "$attempt" -eq 20 ]; then
+              echo "::error::Migration identity, RBAC, secret, or immutable image propagation failed"
+              exit 1
+            fi
+            sleep 15
+          done
+
+      - name: Run exact-head production migration
+        run: |
+          set -euo pipefail
           RUNNING_EXECUTIONS=$(az containerapp job execution list \
             --name "$MIGRATION_JOB_NAME" \
-            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
             --query "[?properties.status=='Running' || properties.status=='Processing'].name" \
             -o tsv)
           if [ -n "$RUNNING_EXECUTIONS" ]; then
@@ -749,43 +930,63 @@ jobs:
             exit 1
           fi
 
-          az containerapp job update \
+          JOB_JSON=$(az containerapp job show \
             --name "$MIGRATION_JOB_NAME" \
-            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
-            --image "$IMAGE_REF" \
-            --command python run_migrations.py \
-            --only-show-errors \
-            --output none
-
-          DB_SECRET_REF_AFTER_UPDATE=$(az containerapp job show \
-            --name "$MIGRATION_JOB_NAME" \
-            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
-            --query "properties.template.containers[0].env[?name=='DATABASE_URL'].secretRef | [0]" \
-            -o tsv)
-          if [ "$DB_SECRET_REF_AFTER_UPDATE" != "db-connection" ]; then
-            echo "::error::Migration job update removed the managed database secret reference"
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            -o json)
+          JOB_IMAGE=$(echo "$JOB_JSON" | jq -r '.properties.template.containers[0].image // ""')
+          JOB_IMAGE_EVIDENCE=$(echo "$JOB_JSON" | jq -r \
+            '.properties.template.containers[0].env[] | select(.name=="MIGRATION_IMAGE_REFERENCE") | .value // ""')
+          JOB_HEAD_EVIDENCE=$(echo "$JOB_JSON" | jq -r \
+            '.properties.template.containers[0].env[] | select(.name=="EXPECTED_ALEMBIC_HEAD") | .value // ""')
+          JOB_EXPECTED_HEAD=$(echo "$JOB_JSON" | jq -r '.properties.template.containers[0].args[1] // ""')
+          if [ "$JOB_IMAGE" != "$IMAGE_REF" ] || [ "$JOB_IMAGE_EVIDENCE" != "$IMAGE_REF" ]; then
+            echo "::error::Migration Job does not use the exact newly built immutable image"
+            exit 1
+          fi
+          if [ "$JOB_EXPECTED_HEAD" != "$EXPECTED_ALEMBIC_HEAD" ] || [ "$JOB_HEAD_EVIDENCE" != "$EXPECTED_ALEMBIC_HEAD" ]; then
+            echo "::error::Migration Job expected Alembic head does not match the reviewed image contract"
             exit 1
           fi
 
           EXECUTION_NAME=$(az containerapp job start \
             --name "$MIGRATION_JOB_NAME" \
-            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
             --query name -o tsv)
           if [ -z "$EXECUTION_NAME" ]; then
-            echo "::error::Migration job did not return an execution name"
+            echo "::error::Migration Job did not return an execution name"
             exit 1
           fi
 
           for attempt in $(seq 1 90); do
             EXECUTION_STATUS=$(az containerapp job execution show \
               --name "$MIGRATION_JOB_NAME" \
-              --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
               --job-execution-name "$EXECUTION_NAME" \
               --query properties.status -o tsv)
             echo "Migration execution status: ${EXECUTION_STATUS}"
             case "$EXECUTION_STATUS" in
               Succeeded)
-                echo "Production schema migration completed before green revision creation"
+                EXECUTION_IMAGE=$(az containerapp job execution show \
+                  --name "$MIGRATION_JOB_NAME" \
+                  --resource-group "$AZURE_RESOURCE_GROUP" \
+                  --job-execution-name "$EXECUTION_NAME" \
+                  --query 'properties.template.containers[0].image' -o tsv)
+                EXECUTION_HEAD=$(az containerapp job execution show \
+                  --name "$MIGRATION_JOB_NAME" \
+                  --resource-group "$AZURE_RESOURCE_GROUP" \
+                  --job-execution-name "$EXECUTION_NAME" \
+                  --query "properties.template.containers[0].env[?name=='EXPECTED_ALEMBIC_HEAD'].value | [0]" \
+                  -o tsv)
+                if [ "$EXECUTION_IMAGE" != "$IMAGE_REF" ]; then
+                  echo "::error::Completed migration execution did not use the exact built digest"
+                  exit 1
+                fi
+                if [ "$EXECUTION_HEAD" != "$EXPECTED_ALEMBIC_HEAD" ]; then
+                  echo "::error::Completed migration execution did not preserve exact-head evidence"
+                  exit 1
+                fi
+                echo "Production schema migration completed at exact head ${EXPECTED_ALEMBIC_HEAD}"
                 break
                 ;;
               Failed|Stopped|Cancelled)
@@ -799,17 +1000,6 @@ jobs:
             fi
             sleep 10
           done
-
-      - name: Trivy container security gate
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          image-ref: ${{ env.IMAGE_REF }}
-          format: table
-          exit-code: 1
-          severity: CRITICAL,HIGH
-          ignore-unfixed: true
-          vuln-type: library
-          scanners: vuln  # Skip secret/misconfig scanning, focus on dependency CVEs
 
       - name: Discover Container Apps subnet for storage cutover
         run: |
@@ -1281,7 +1471,6 @@ jobs:
       - name: Deploy green revision
         id: green
         run: |
-          FRONT_DOOR_PROFILE_NAME=""
           TRUSTED_FRONT_DOOR_FDID="${TRUSTED_FRONT_DOOR_FDID:-}"
           TRUSTED_FRONT_DOOR_HOSTS="${TRUSTED_FRONT_DOOR_HOSTS:-}"
           REQUIRE_FRONT_DOOR_ORIGIN_LOCK=$(echo "${REQUIRE_FRONT_DOOR_ORIGIN_LOCK:-false}" | tr '[:upper:]' '[:lower:]')
@@ -1451,7 +1640,7 @@ jobs:
               AFD_CONTRACT=$(resolve_front_door_contract_from_afd_cli false || true)
             fi
             if [ -n "$AFD_CONTRACT" ]; then
-              IFS='|' read -r FRONT_DOOR_PROFILE_NAME TRUSTED_FRONT_DOOR_FDID TRUSTED_FRONT_DOOR_HOSTS <<< "$AFD_CONTRACT"
+              IFS='|' read -r _profile_name TRUSTED_FRONT_DOOR_FDID TRUSTED_FRONT_DOOR_HOSTS <<< "$AFD_CONTRACT"
             else
               if [ "$(echo "$AFD_PROFILES_JSON" | jq 'length')" -gt 0 ]; then
                 echo "::warning::Unable to resolve Front Door contract from AFD CLI profiles; trying generic ARM discovery"
@@ -1483,7 +1672,6 @@ jobs:
               fi
               candidate_host=$(echo "$FRONT_DOOR_ENDPOINTS_JSON" | jq -r --arg profile_id "$candidate_profile_id" '[.[] | select((.id // "") | startswith($profile_id + "/")) | select(((.name // "") | ascii_downcase | contains("api")) or (((.properties.hostName // "") | ascii_downcase) | contains("api"))) | .properties.hostName][0] // ""')
               if [ -n "$candidate_host" ] && [ -n "$candidate_fdid" ]; then
-                FRONT_DOOR_PROFILE_NAME="$candidate_profile_name"
                 TRUSTED_FRONT_DOOR_FDID="$candidate_fdid"
                 TRUSTED_FRONT_DOOR_HOSTS="$candidate_host"
                 break
@@ -1505,7 +1693,6 @@ jobs:
               fi
               candidate_host=$(echo "$FRONT_DOOR_ENDPOINTS_JSON" | jq -r --arg profile_id "$candidate_profile_id" '[.[] | select((.id // "") | startswith($profile_id + "/")) | .properties.hostName][0] // ""')
               if [ -n "$candidate_host" ] && [ -n "$candidate_fdid" ]; then
-                FRONT_DOOR_PROFILE_NAME="$candidate_profile_name"
                 TRUSTED_FRONT_DOOR_FDID="$candidate_fdid"
                 TRUSTED_FRONT_DOOR_HOSTS="$candidate_host"
                 break
@@ -1558,16 +1745,52 @@ jobs:
           SHORT_SHA="${{ github.sha }}"
           SHORT_SHA="${SHORT_SHA:0:8}"
           REVISION_SUFFIX="sha-${SHORT_SHA}-run-${{ github.run_attempt }}"
+          az containerapp show \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+            -o json > live-containerapp.json
+          REVISION_ARGS=(
+            --source live-containerapp.json
+            --output green-revision.json
+            --image "$IMAGE_REF"
+            --revision-suffix "$REVISION_SUFFIX"
+            --readiness-path /readyz
+            --secret-env ARCHMORPH_ADMIN_KEY=admin-key
+            --secret-env ARCHMORPH_API_KEY=api-key
+            --secret-env JWT_SECRET=jwt-secret
+            --env ALLOWED_ORIGINS="$ALLOWED_ORIGINS"
+            --env AZURE_STORAGE_ACCOUNT_URL="$STORAGE_ACCOUNT_URL"
+            --env AZURE_OPENAI_ENDPOINT="${{ secrets.AZURE_OPENAI_ENDPOINT }}"
+            --env AZURE_OPENAI_DEPLOYMENT=gpt-4.1
+            --env AZURE_OPENAI_FALLBACK_DEPLOYMENT=gpt-4o
+            --env AZURE_OPENAI_API_VERSION=2025-04-01-preview
+            --env ACS_SENDER_EMAIL="${{ secrets.ACS_SENDER_EMAIL }}"
+            --env WEB_CONCURRENCY=1
+            --env TRUSTED_FRONT_DOOR_FDID="$TRUSTED_FRONT_DOOR_FDID"
+            --env TRUSTED_FRONT_DOOR_HOSTS="$TRUSTED_FRONT_DOOR_HOSTS"
+            --env APP_SCHEMA_MIN_REVISION="$APP_SCHEMA_MIN_REVISION"
+            --env APP_SCHEMA_MAX_REVISION="$APP_SCHEMA_MAX_REVISION"
+          )
+          if [ -n "${{ secrets.ACS_CONNECTION_STRING }}" ]; then
+            REVISION_ARGS+=(--secret-env ACS_CONNECTION_STRING=acs-connection-string)
+          fi
+          python scripts/build_containerapp_revision.py "${REVISION_ARGS[@]}"
+          jq -e --arg image "$IMAGE_REF" --arg suffix "$REVISION_SUFFIX" '
+            .properties.template.revisionSuffix == $suffix
+            and .properties.template.containers[0].image == $image
+            and any(.properties.template.containers[0].probes[]?;
+              ((.type // "") | ascii_downcase) == "readiness"
+              and .httpGet.path == "/readyz")
+          ' green-revision.json >/dev/null
+
           UPDATE_ERROR=$(mktemp)
           for update_attempt in 1 2 3 4; do
             : > "$UPDATE_ERROR"
             set +e
             az containerapp update \
-              --name ${{ env.CONTAINER_APP_NAME }} \
+              --name "${{ env.CONTAINER_APP_NAME }}" \
               --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
-              --image "${IMAGE_REF}" \
-              --set-env-vars "${SET_ENV_VARS[@]}" \
-              --revision-suffix "$REVISION_SUFFIX" \
+              --yaml green-revision.json \
               --no-wait \
               2>"$UPDATE_ERROR"
             UPDATE_STATUS=$?
@@ -1591,11 +1814,11 @@ jobs:
           sleep 45
 
           GREEN_REV=$(az containerapp revision list \
-            --name ${{ env.CONTAINER_APP_NAME }} \
+            --name "${{ env.CONTAINER_APP_NAME }}" \
             --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
             --query "[?contains(name, '$REVISION_SUFFIX')].name" -o tsv | head -1)
 
-          echo "green_revision=$GREEN_REV" >> $GITHUB_OUTPUT
+          echo "green_revision=$GREEN_REV" >> "$GITHUB_OUTPUT"
           echo "Green revision: $GREEN_REV"
 
       - name: Wait for green revision readiness
@@ -1802,6 +2025,38 @@ jobs:
             echo "::error::Green revision /healthz returned HTTP ${HEALTHZ_CODE}"
             [ -s healthz-response.json ] && head -c 2000 healthz-response.json || true
             dump_green_revision_diagnostics "healthz-${HEALTHZ_CODE}"
+            exit 1
+          fi
+
+          COMPATIBILITY_URL="$TEST_URL/api/schema-compatibility"
+          if ! COMPATIBILITY_CODE=$(curl -sS -o schema-compatibility.json -w "%{http_code}" \
+            --max-time 20 \
+            "${TRUSTED_ORIGIN_CURL_ARGS[@]}" \
+            "$COMPATIBILITY_URL"); then
+            COMPATIBILITY_CODE="000"
+          fi
+          if [ "$COMPATIBILITY_CODE" != "200" ]; then
+            echo "::error::Green revision schema compatibility preflight returned HTTP ${COMPATIBILITY_CODE}"
+            [ -s schema-compatibility.json ] && cat schema-compatibility.json || true
+            exit 1
+          fi
+          CURRENT_SCHEMA_REVISION=$(jq -er '.current_revision' schema-compatibility.json)
+          if [ "$CURRENT_SCHEMA_REVISION" != "$EXPECTED_ALEMBIC_HEAD" ]; then
+            echo "::error::Green revision reports Alembic head ${CURRENT_SCHEMA_REVISION}; expected ${EXPECTED_ALEMBIC_HEAD}"
+            exit 1
+          fi
+
+          GREEN_REVISION_JSON=$(az containerapp revision show \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+            --revision "${{ steps.green.outputs.green_revision }}" \
+            -o json)
+          if ! echo "$GREEN_REVISION_JSON" | jq -e '
+            any(.properties.template.containers[0].probes[]?;
+              ((.type // "") | ascii_downcase) == "readiness"
+              and .httpGet.path == "/readyz")
+          ' >/dev/null; then
+            echo "::error::Green revision does not carry the required /readyz probe"
             exit 1
           fi
 

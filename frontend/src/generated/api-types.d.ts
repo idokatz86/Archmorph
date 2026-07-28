@@ -4177,6 +4177,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/schema-compatibility": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Schema Compatibility
+         * @description Sanitized activation preflight for green and rollback revisions.
+         */
+        get: operations["schema_compatibility_api_schema_compatibility_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/service-updates/last": {
         parameters: {
             query?: never;
@@ -8761,6 +8781,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/schema-compatibility": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Schema Compatibility V1
+         * @description Sanitized activation preflight for green and rollback revisions.
+         */
+        get: operations["schema_compatibility_v1_api_v1_schema_compatibility_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/service-updates/last": {
         parameters: {
             query?: never;
@@ -11179,6 +11219,26 @@ export interface components {
         SaveVersionRequest: {
             /** Label */
             label?: string | null;
+        };
+        /** SchemaCompatibilityResponse */
+        SchemaCompatibilityResponse: {
+            /** Accepted Revisions */
+            accepted_revisions: string[];
+            /** Alias Read Through Until */
+            alias_read_through_until: string;
+            /** Current Revision */
+            current_revision: string | null;
+            /** Maximum Revision */
+            maximum_revision: string;
+            /** Migration Target Revision */
+            migration_target_revision: string;
+            /** Minimum Revision */
+            minimum_revision: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "compatible" | "incompatible";
         };
         /** ServiceCostConfig */
         ServiceCostConfig: {
@@ -18098,6 +18158,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    schema_compatibility_api_schema_compatibility_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description This application revision supports the current database schema */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SchemaCompatibilityResponse"];
+                };
+            };
+            /** @description This application revision cannot safely serve the current database schema */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SchemaCompatibilityResponse"];
                 };
             };
         };
@@ -25286,6 +25375,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    schema_compatibility_v1_api_v1_schema_compatibility_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description This application revision supports the current database schema */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SchemaCompatibilityResponse"];
+                };
+            };
+            /** @description This application revision cannot safely serve the current database schema */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SchemaCompatibilityResponse"];
                 };
             };
         };

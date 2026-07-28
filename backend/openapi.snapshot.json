@@ -3819,6 +3819,64 @@
         "title": "SaveVersionRequest",
         "type": "object"
       },
+      "SchemaCompatibilityResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "accepted_revisions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Accepted Revisions",
+            "type": "array"
+          },
+          "alias_read_through_until": {
+            "title": "Alias Read Through Until",
+            "type": "string"
+          },
+          "current_revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Revision"
+          },
+          "maximum_revision": {
+            "title": "Maximum Revision",
+            "type": "string"
+          },
+          "migration_target_revision": {
+            "title": "Migration Target Revision",
+            "type": "string"
+          },
+          "minimum_revision": {
+            "title": "Minimum Revision",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "compatible",
+              "incompatible"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "current_revision",
+          "minimum_revision",
+          "maximum_revision",
+          "accepted_revisions",
+          "migration_target_revision",
+          "alias_read_through_until"
+        ],
+        "title": "SchemaCompatibilityResponse",
+        "type": "object"
+      },
       "ServiceCostConfig": {
         "additionalProperties": false,
         "properties": {
@@ -14560,6 +14618,35 @@
           }
         },
         "summary": "Run Cloud Scan"
+      }
+    },
+    "/api/schema-compatibility": {
+      "get": {
+        "description": "Sanitized activation preflight for green and rollback revisions.",
+        "operationId": "schema_compatibility_api_schema_compatibility_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SchemaCompatibilityResponse"
+                }
+              }
+            },
+            "description": "This application revision supports the current database schema"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SchemaCompatibilityResponse"
+                }
+              }
+            },
+            "description": "This application revision cannot safely serve the current database schema"
+          }
+        },
+        "summary": "Schema Compatibility"
       }
     },
     "/api/service-updates/last": {
@@ -26020,6 +26107,38 @@
           }
         },
         "summary": "Run Cloud Scan V1",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/schema-compatibility": {
+      "get": {
+        "description": "Sanitized activation preflight for green and rollback revisions.",
+        "operationId": "schema_compatibility_v1_api_v1_schema_compatibility_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SchemaCompatibilityResponse"
+                }
+              }
+            },
+            "description": "This application revision supports the current database schema"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SchemaCompatibilityResponse"
+                }
+              }
+            },
+            "description": "This application revision cannot safely serve the current database schema"
+          }
+        },
+        "summary": "Schema Compatibility V1",
         "tags": [
           "v1"
         ]

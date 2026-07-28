@@ -109,6 +109,20 @@ never selects the provider. If legacy and target durable identities conflict,
 access fails with the same 404 and emits a conflict audit event; neither scope
 nor cache is promoted.
 
+Resolved per-analysis aliases provide exact-source-owner/tenant/ID read-through
+to their recorded target for retained application revisions that declare support
+for the current `014` schema. A future migration must explicitly extend or close
+that window after compatibility tests.
+Quarantined and foreign aliases never read through. Alias/audit rows remain
+migration evidence; they do not reconstruct identities removed by merge or
+deduplication.
+
+Each application image publishes a bounded schema contract and exposes the
+current database compatibility at `/api/schema-compatibility`. Green and rollback
+revisions must pass that preflight before activation or traffic movement. A
+missing/unknown head fails closed; application rollback does not imply database
+downgrade.
+
 Concurrent writers are serialized by row locks after the unique identity insert
 and retry PostgreSQL uniqueness conflicts. Version allocation uses the maximum
 durable version plus the analysis pointer. Redis projections carry the committed

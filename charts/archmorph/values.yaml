@@ -9,6 +9,8 @@ image:
   # Default tag uses Chart.AppVersion via the deployment template.
   # Override with --set image.tag=<sha> in CI/CD.  Never use "latest" (#162).
   tag: ""
+  # Production/staging must set an immutable sha256 digest. Tags are dev-only.
+  digest: ""
 
 imagePullSecrets: []
 nameOverride: ""
@@ -142,8 +144,13 @@ optionalSecretKeys:
 # advisory-lock guarded migration before any application pod is rolled out.
 migrations:
   enabled: true
+  # Must already exist before pre-install hooks. "default" is universally present;
+  # set a pre-created dedicated account where cluster policy requires it.
+  serviceAccountName: "default"
   backoffLimit: 0
   activeDeadlineSeconds: 900
+  expectedAlembicHead: "014"
+  secretPreflightTimeoutSeconds: 120
 
 # Health check configuration (#378)
 livenessProbe:

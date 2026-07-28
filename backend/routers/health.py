@@ -41,6 +41,16 @@ class ReadinessResponse(StrictBaseModel):
     status: Literal["ready", "not_ready"]
     checks: ReadinessChecks
 
+
+class SchemaCompatibilityResponse(StrictBaseModel):
+    status: Literal["compatible", "incompatible"]
+    current_revision: str | None
+    minimum_revision: str
+    maximum_revision: str
+    accepted_revisions: list[str]
+    migration_target_revision: str
+    alias_read_through_until: str
+
 # ── Cached dependency checks (avoid blocking I/O on every request) ─────
 _dep_checks_cache: dict | None = None
 _dep_checks_ts: float = 0
@@ -318,6 +328,47 @@ async def readyz(response: Response) -> ReadinessResponse:
             database_schema="ready" if database_schema_ready else "unavailable",
             redis="ready" if redis_ready else "unavailable",
         ),
+    )
+
+
+@router.get(
+    "/api/schema-compatibility",
+    response_model=SchemaCompatibilityResponse,
+    responses={
+        200: {"description": "This application revision supports the current database schema"},
+        409: {
+            "model": SchemaCompatibilityResponse,
+            "description": "This application revision cannot safely serve the current database schema",
+        },
+    },
+)
+async def schema_compatibility(response: Response) -> SchemaCompatibilityResponse:
+    """Sanitized activation preflight for green and rollback revisions."""
+    from database import database_readiness
+    from schema_compatibility import schema_is_supported, supported_schema_metadata
+
+    metadata = supported_schema_metadata()
+    try:
+        readiness = database_readiness()
+        current_revision = readiness.get("current_revision")
+        compatible = bool(
+            readiness.get("postgres_configured")
+            and readiness.get("connection_ok")
+            and readiness.get("required_schema_present")
+            and schema_is_supported(current_revision)
+        )
+    except Exception:
+        current_revision = None
+        compatible = False
+    response.status_code = 200 if compatible else 409
+    return SchemaCompatibilityResponse(
+        status="compatible" if compatible else "incompatible",
+        current_revision=current_revision if isinstance(current_revision, str) else None,
+        minimum_revision=str(metadata["minimum_revision"]),
+        maximum_revision=str(metadata["maximum_revision"]),
+        accepted_revisions=[str(item) for item in metadata["accepted_revisions"]],
+        migration_target_revision=str(metadata["migration_target_revision"]),
+        alias_read_through_until=str(metadata["alias_read_through_until"]),
     )
 
 

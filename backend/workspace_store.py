@@ -517,13 +517,37 @@ def get_analysis_record(
     owner_user_id: str,
     tenant_id: Optional[str] = None,
 ) -> Optional[Analysis]:
-    """Return an analysis record owned by *owner_user_id*."""
+    """Return an owned analysis, including resolved legacy-ID read-through."""
     q = db.query(Analysis).filter(
         Analysis.id == analysis_id,
         Analysis.owner_user_id == owner_user_id,
     )
     q = q.filter(_tenant_matches(Analysis.tenant_id, tenant_id))
-    return q.first()
+    analysis = q.first()
+    if analysis is not None:
+        return analysis
+
+    from schema_compatibility import alias_read_through_enabled
+
+    if not alias_read_through_enabled() or tenant_id is None:
+        return None
+    alias = db.query(TenantRehomeAlias).filter(
+        TenantRehomeAlias.source_owner_user_id == owner_user_id,
+        TenantRehomeAlias.source_tenant_id == tenant_id,
+        TenantRehomeAlias.entity_type == "analysis",
+        TenantRehomeAlias.source_entity_id == analysis_id,
+        TenantRehomeAlias.status == "resolved",
+        TenantRehomeAlias.target_owner_user_id.is_not(None),
+        TenantRehomeAlias.target_tenant_id.is_not(None),
+        TenantRehomeAlias.target_entity_id.is_not(None),
+    ).one_or_none()
+    if alias is None:
+        return None
+    return db.query(Analysis).filter(
+        Analysis.id == alias.target_entity_id,
+        Analysis.owner_user_id == alias.target_owner_user_id,
+        Analysis.tenant_id == alias.target_tenant_id,
+    ).one_or_none()
 
 
 def list_analyses_in_workspace(

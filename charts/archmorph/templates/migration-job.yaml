@@ -9,7 +9,7 @@ metadata:
   annotations:
     helm.sh/hook: pre-install,pre-upgrade
     helm.sh/hook-weight: "-10"
-    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+    helm.sh/hook-delete-policy: hook-succeeded
 spec:
   backoffLimit: {{ .Values.migrations.backoffLimit }}
   activeDeadlineSeconds: {{ .Values.migrations.activeDeadlineSeconds }}
@@ -20,14 +20,19 @@ spec:
         app.kubernetes.io/component: migration
     spec:
       restartPolicy: Never
-      serviceAccountName: {{ include "archmorph.serviceAccountName" . }}
+      serviceAccountName: {{ .Values.migrations.serviceAccountName | quote }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
         - name: migrate
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: {{ include "archmorph.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["python", "run_migrations.py"]
+          args: ["--expect-head", {{ required "migrations.expectedAlembicHead is required" .Values.migrations.expectedAlembicHead | quote }}]
           workingDir: /app
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}

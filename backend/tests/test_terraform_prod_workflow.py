@@ -64,7 +64,7 @@ def test_prod_plan_preflights_remote_state_blob_rbac_before_init():
     assert "STATE_CONTAINER_SCOPE" not in preflight_script
     assert "STATE_STORAGE_SCOPE" not in preflight_script
     assert "sed 's/^/az storage blob list: /'" not in preflight_script
-    assert 'STATE_RESOURCE_GROUP="${TFSTATE_RESOURCE_GROUP:-}"' in preflight_script
+    assert ': "${TFSTATE_RESOURCE_GROUP:-}"' in preflight_script
     assert 'STATE_STORAGE_ACCOUNT="${TFSTATE_STORAGE_ACCOUNT:-}"' in preflight_script
     assert "Required private Terraform backend setting" in preflight_script
     assert "BACKEND_CONFIG_FILE" not in preflight_script

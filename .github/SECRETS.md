@@ -18,6 +18,10 @@ These secrets are required in `.github/workflows/ci.yml`:
 | `ACR_LOGIN_SERVER` | ACR login server URL | `example.azurecr.io` |
 | `CONTAINER_APP_NAME` | Azure Container Apps name | `your-container-app` |
 | `CONTAINER_APP_ENV` | Container Apps Environment name | `your-container-app-env` |
+| `MIGRATION_JOB_NAME` | Manual Container Apps migration Job name | `your-migration-job` |
+| `MIGRATION_IDENTITY_NAME` | Dedicated user-assigned migration identity name | `your-migration-identity` |
+| `MIGRATION_KEY_VAULT_NAME` | Existing Key Vault name used by the migration bootstrap state | `your-key-vault` |
+| `MIGRATION_DATABASE_SECRET_NAME` | Key Vault Secret name containing `DATABASE_URL` | `your-database-secret` |
 | `ARCHMORPH_API_KEY` | Backend API key used by authenticated API health checks and service catalog refresh triggers | (strong random secret) |
 | `ADMIN_KEY` | Backend admin key mapped to `ARCHMORPH_ADMIN_KEY` for admin-only operations, sessions, and deploy smoke fallback authentication | (strong random secret) |
 | `JWT_SECRET` | Dedicated backend JWT signing secret for production user/session tokens; deployment fails when omitted. | (strong random secret) |
@@ -26,10 +30,12 @@ These secrets are required in `.github/workflows/ci.yml`:
 | `TFSTATE_STORAGE_ACCOUNT` | Private Terraform backend storage account | `yourstateaccount` |
 | `TFSTATE_CONTAINER` | Private Terraform backend container | `state` |
 | `TFSTATE_KEY` | Production Terraform state key | `production.tfstate` |
+| `MIGRATION_TFSTATE_KEY` | Separate migration-bootstrap Terraform state key | `migration-bootstrap.tfstate` |
 | `TFSTATE_STAGING_KEY` | Distinct staging Terraform state key | `staging.tfstate` |
 | `TF_RESOURCE_GROUP_ENVIRONMENT` | Existing stack suffix used only during reviewed adoption | `configured-stack-suffix` |
 | `TF_REDIS_NAME_OVERRIDE` | Existing Redis name used only during reviewed adoption | `configured-redis-name` |
 | `TF_WORKBOOK_ID` | Existing Azure Monitor Workbook UUID used during state adoption | `00000000-0000-0000-0000-000000000000` |
+| `TF_BACKEND_CONTAINER_IMAGE` | Immutable backend image reference for reviewed production plans | `example.azurecr.io/archmorph-api@sha256:<64-hex-digest>` |
 | `LEGACY_METRICS_STORAGE_ACCOUNT` | Legacy metrics-only storage account excluded from Terraform-managed app storage discovery | `configured-legacy-storage-name` |
 | `SWA_NAME` | Static Web App name | `your-static-web-app` |
 | `API_URL` | Backend API URL (with `/api` suffix) | `https://your-api.example.com/api` |
@@ -109,7 +115,8 @@ az staticwebapp secrets list --name YOUR_SWA_NAME --query properties.apiKey -o t
 - Use production GitHub environment secrets; Archmorph does not maintain a separate staging environment
 - Production Azure federated credentials should trust the GitHub Environment subject `repo:idokatz86/Archmorph:environment:production`.
 - Backend Container Apps deployments require `ARCHMORPH_API_KEY` to reference the API key secret and `ARCHMORPH_ADMIN_KEY` to reference the admin-key secret in the deployed revision.
-- Backend Container Apps deployments require `JWT_SECRET` in production/staging. The workflow maps repository secret `JWT_SECRET` into a Container App secret named `jwt-secret`; if the repository secret is absent, it uses `ADMIN_KEY` as a compatibility fallback.
+- Backend Container Apps deployments require `JWT_SECRET` in production/staging. The workflow maps repository secret `JWT_SECRET` into a Container App secret named `jwt-secret` and fails when it is absent; there is no compatibility fallback.
+- Migration bootstrap uses a dedicated user-assigned identity with only `AcrPull` and Key Vault Secrets User scoped to the versionless database Secret. It has a separate remote-state key and cannot mutate the live Container App.
 - Production storage accounts must keep shared-key access disabled; backend storage access is expected to use `AZURE_STORAGE_ACCOUNT_URL` plus the Container App system-assigned managed identity with `Storage Blob Data Contributor`.
 - `AZURE_CLIENT_ID` is for GitHub Actions OIDC. Do not set it in the backend Container App to select storage identity; use `AZURE_STORAGE_MANAGED_IDENTITY_CLIENT_ID` only when a user-assigned storage identity is intentionally attached.
 - The deploy smoke calls `/api/service-updates/storage-preflight` before traffic shift to prove the deployed revision can write, read, list, and delete service-catalog blobs through managed identity.

@@ -28,6 +28,12 @@ Core deployment secrets:
 - `ACR_LOGIN_SERVER`
 - `CONTAINER_APP_NAME`
 - `CONTAINER_APP_ENV`
+- `MIGRATION_JOB_NAME`
+- `MIGRATION_IDENTITY_NAME`
+- `MIGRATION_KEY_VAULT_NAME`
+- `MIGRATION_DATABASE_SECRET_NAME`
+- `MIGRATION_TFSTATE_KEY`
+- `TF_BACKEND_CONTAINER_IMAGE`
 - `ARCHMORPH_API_KEY`
 - `ADMIN_KEY`
 
@@ -65,7 +71,7 @@ The `CI/CD` workflow must pass before release:
 - `alembic-migration-smoke`: PostgreSQL plus pgvector migration cycle covering heads, offline upgrade SQL generation, upgrade to head, downgrade to base, and re-upgrade.
 - `frontend-build`: ESLint, Vitest, Vite build, frontend SBOM, Grype.
 - `upload-sarif`: SARIF upload attempted for available scans.
-- `deploy-backend`: ACR build, Trivy container gate, deployment secret validation, metrics storage managed-identity/RBAC preflight, Container Apps blue-green deploy, green revision refresh smoke, production health verify.
+- `deploy-backend`: ACR build, Trivy container gate, isolated migration-bootstrap validate/plan/apply, identity/RBAC/Secret propagation, exact-head migration, metrics storage managed-identity/RBAC preflight, zero-traffic schema compatibility and `/readyz` smoke, Container Apps traffic shift, production health verify.
 - `deploy-frontend`: Static Web Apps deployment from the tested artifact.
 - `post-deploy-smoke`: deployed frontend, routed frontend URLs, API health, and OpenAPI schema checks.
 
@@ -120,7 +126,7 @@ Before enabling any scaffolded feature, confirm:
 ## 6. Rollback
 
 - Follow the [rollback runbook](runbooks/rollback.md) during production incidents; target a verified rollback in under 10 minutes.
-- Prefer the `rollback.yml` workflow for backend rollback. It activates a known-good Container Apps revision, shifts traffic, and verifies authenticated `/api/health`.
+- Prefer the `rollback.yml` workflow for backend rollback. It verifies the target revision supports the current database schema before activation, then shifts traffic and verifies authenticated `/api/health`.
 - Container Apps keeps the prior blue revision for fast traffic shift.
 - Use direct `az containerapp` traffic commands only as the fallback path documented in the runbook.
 - If frontend release is bad, redeploy the previous Static Web Apps artifact or revert and let CI/CD redeploy.

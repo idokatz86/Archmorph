@@ -30,8 +30,11 @@ env:
 jobs:
   rollback:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     environment: production
+    concurrency:
+      group: production-backend-rollout
+      cancel-in-progress: false
     steps:
       - name: Azure Login (OIDC)
         uses: azure/login@v3
@@ -46,18 +49,18 @@ jobs:
           INPUT_REVISION: ${{ github.event.inputs.revision_name }}
         run: |
           if [ -n "$INPUT_REVISION" ]; then
-            echo "target=$INPUT_REVISION" >> $GITHUB_OUTPUT
+            echo "target=$INPUT_REVISION" >> "$GITHUB_OUTPUT"
             echo "Using specified revision: $INPUT_REVISION"
           else
             # Get the list of revisions, pick the second one (previous active)
             REVISIONS=$(az containerapp revision list \
-              --name ${{ env.CONTAINER_APP_NAME }} \
-              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --name "${{ env.CONTAINER_APP_NAME }}" \
+              --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
               --query "[?properties.active].name" -o tsv)
             
             CURRENT=$(az containerapp revision list \
-              --name ${{ env.CONTAINER_APP_NAME }} \
-              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+              --name "${{ env.CONTAINER_APP_NAME }}" \
+              --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
               --query "[?properties.trafficWeight > \`0\`].name" -o tsv | head -1)
 
             PREVIOUS=$(echo "$REVISIONS" | grep -v "^$CURRENT$" | head -1)
@@ -66,9 +69,81 @@ jobs:
               echo "::error::No previous revision found for rollback"
               exit 1
             fi
-            echo "target=$PREVIOUS" >> $GITHUB_OUTPUT
+            echo "target=$PREVIOUS" >> "$GITHUB_OUTPUT"
             echo "Rolling back to previous revision: $PREVIOUS (current: $CURRENT)"
           fi
+
+      - name: Verify target schema compatibility before activation
+        env:
+          ROLLBACK_TARGET: ${{ steps.revision.outputs.target }}
+        run: |
+          set -euo pipefail
+          REVISION_JSON=$(az containerapp revision show \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --revision "$ROLLBACK_TARGET" \
+            -o json)
+          TARGET_SCHEMA_MIN=$(echo "$REVISION_JSON" | jq -r \
+            '.properties.template.containers[0].env[] | select(.name=="APP_SCHEMA_MIN_REVISION") | .value // ""')
+          TARGET_SCHEMA_MAX=$(echo "$REVISION_JSON" | jq -r \
+            '.properties.template.containers[0].env[] | select(.name=="APP_SCHEMA_MAX_REVISION") | .value // ""')
+          TARGET_FQDN=$(echo "$REVISION_JSON" | jq -r '.properties.fqdn // ""')
+          if [ -z "$TARGET_SCHEMA_MIN" ] || [ -z "$TARGET_SCHEMA_MAX" ] || [ -z "$TARGET_FQDN" ]; then
+            echo "::error::Rollback target lacks APP_SCHEMA_MIN_REVISION, APP_SCHEMA_MAX_REVISION, or revision FQDN metadata"
+            exit 1
+          fi
+
+          TARGET_ACTIVE=$(echo "$REVISION_JSON" | jq -r '.properties.active // false')
+          if [ "$TARGET_ACTIVE" != "true" ]; then
+            echo "Rollback target is inactive; activating it at zero traffic for schema preflight"
+            az containerapp revision activate \
+              --name "$CONTAINER_APP_NAME" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --revision "$ROLLBACK_TARGET"
+          fi
+
+          COMPATIBILITY_CODE="000"
+          for attempt in $(seq 1 20); do
+            if ! COMPATIBILITY_CODE=$(curl -sS -o schema-compatibility.json -w "%{http_code}" \
+              --max-time 30 "https://${TARGET_FQDN}/api/schema-compatibility"); then
+              COMPATIBILITY_CODE="000"
+            fi
+            if [ "$COMPATIBILITY_CODE" = "200" ] || [ "$COMPATIBILITY_CODE" = "409" ]; then
+              break
+            fi
+            if [ "$attempt" -lt 20 ]; then
+              sleep 10
+            fi
+          done
+          if [ "$COMPATIBILITY_CODE" != "200" ]; then
+            echo "::error::Target revision schema preflight returned HTTP ${COMPATIBILITY_CODE}; traffic remains unchanged"
+            [ -s schema-compatibility.json ] && cat schema-compatibility.json || true
+            if [ "$TARGET_ACTIVE" != "true" ]; then
+              az containerapp revision deactivate \
+                --name "$CONTAINER_APP_NAME" \
+                --resource-group "$AZURE_RESOURCE_GROUP" \
+                --revision "$ROLLBACK_TARGET" || true
+            fi
+            exit 1
+          fi
+          CURRENT_SCHEMA=$(jq -er '.current_revision' schema-compatibility.json)
+          if ! jq -e --arg current "$CURRENT_SCHEMA" --arg minimum "$TARGET_SCHEMA_MIN" --arg maximum "$TARGET_SCHEMA_MAX" '
+            .status == "compatible"
+            and .current_revision == $current
+            and (.accepted_revisions | index($current) != null)
+            and .minimum_revision == $minimum
+            and .maximum_revision == $maximum
+          ' schema-compatibility.json >/dev/null; then
+            echo "::error::Target revision is incompatible with the current database schema; traffic remains unchanged"
+            if [ "$TARGET_ACTIVE" != "true" ]; then
+              az containerapp revision deactivate \
+                --name "$CONTAINER_APP_NAME" \
+                --resource-group "$AZURE_RESOURCE_GROUP" \
+                --revision "$ROLLBACK_TARGET" || true
+            fi
+            exit 1
+          fi
+          echo "Rollback target supports current schema ${CURRENT_SCHEMA}; activation may proceed"
 
       - name: Activate rollback revision
         run: |

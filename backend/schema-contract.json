@@ -1,0 +1,10 @@
+{
+  "contract_version": 1,
+  "migration_target_revision": "014",
+  "minimum_revision": "014",
+  "maximum_revision": "014",
+  "accepted_revisions": [
+    "014"
+  ],
+  "alias_read_through_until": "014"
+}

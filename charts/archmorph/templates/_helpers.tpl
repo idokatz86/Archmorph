@@ -5,6 +5,24 @@ Expand the name of the chart.
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
+{{/* Immutable image shared by the application and migration hook. */}}
+{{- define "archmorph.image" -}}
+{{- $environment := lower .Values.env.ENVIRONMENT -}}
+{{- if or (eq $environment "prod") (eq $environment "production") (eq $environment "staging") -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" .Values.image.digest) -}}
+{{- fail "image.digest must be an immutable sha256 digest in production/staging" -}}
+{{- end -}}
+{{- printf "%s@%s" .Values.image.repository .Values.image.digest -}}
+{{- else if .Values.image.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" .Values.image.digest) -}}
+{{- fail "image.digest must be an immutable sha256 digest" -}}
+{{- end -}}
+{{- printf "%s@%s" .Values.image.repository .Values.image.digest -}}
+{{- else -}}
+{{- printf "%s:%s" .Values.image.repository (.Values.image.tag | default .Chart.AppVersion) -}}
+{{- end -}}
+{{- end }}
+
 {{/* Secret containing runtime credentials. */}}
 {{- define "archmorph.secretName" -}}
 {{- if .Values.externalSecrets.enabled -}}

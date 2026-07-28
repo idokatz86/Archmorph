@@ -2,7 +2,9 @@
 replicaCount: 2
 
 image:
-  tag: "staging"
+  tag: ""
+  # Digest MUST be set by CI/CD: --set-string image.digest=sha256:<digest>
+  digest: ""
 
 env:
   ENVIRONMENT: "staging"

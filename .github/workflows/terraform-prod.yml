@@ -41,6 +41,7 @@ env:
   TF_VAR_frontend_url: ${{ secrets.FRONTEND_URL }}
   TF_VAR_preserve_legacy_openai_key: true
   TF_VAR_openai_api_key: ${{ secrets.AZURE_OPENAI_API_KEY }}
+  TF_VAR_backend_container_image: ${{ secrets.TF_BACKEND_CONTAINER_IMAGE }}
 
 jobs:
   prod-plan:
@@ -97,12 +98,12 @@ jobs:
           set -euo pipefail
           echo "::notice::Production plan/apply uses Azure Storage remote state."
 
-          STATE_RESOURCE_GROUP="${TFSTATE_RESOURCE_GROUP:-}"
+          : "${TFSTATE_RESOURCE_GROUP:-}"
           STATE_STORAGE_ACCOUNT="${TFSTATE_STORAGE_ACCOUNT:-}"
           STATE_CONTAINER="${TFSTATE_CONTAINER:-}"
           STATE_KEY="${TFSTATE_KEY:-}"
 
-          for required in STATE_RESOURCE_GROUP STATE_STORAGE_ACCOUNT STATE_CONTAINER STATE_KEY TF_VAR_workbook_id_override; do
+          for required in TFSTATE_RESOURCE_GROUP STATE_STORAGE_ACCOUNT STATE_CONTAINER STATE_KEY TF_VAR_workbook_id_override; do
             if [ -z "${!required:-}" ]; then
               echo "::error::Required private Terraform backend setting ${required} is not configured."
               exit 1

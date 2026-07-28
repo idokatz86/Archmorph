@@ -2,9 +2,9 @@
 replicaCount: 3
 
 image:
-  # Tag MUST be set by CI/CD pipeline: --set image.tag=$GITHUB_SHA
-  # DO NOT use "latest" in production
+  # Digest MUST be set by CI/CD: --set-string image.digest=sha256:<digest>
   tag: ""
+  digest: ""
   pullPolicy: Always
 
 env:

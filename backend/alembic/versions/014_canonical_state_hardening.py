@@ -1051,6 +1051,17 @@ def downgrade() -> None:
                 "Downgrade refused: unresolved tenant migration quarantines "
                 "must be reconciled before alias/audit evidence can be removed"
             )
+        aliases = bind.execute(
+            sa.text("SELECT count(*) FROM tenant_rehome_aliases")
+        ).scalar_one()
+        audits = bind.execute(
+            sa.text("SELECT count(*) FROM tenant_rehome_audit")
+        ).scalar_one()
+        if aliases or audits:
+            raise RuntimeError(
+                "Downgrade refused: tenant rewrite alias/audit evidence is append-only; "
+                "deploy a schema-compatible revision or fix forward"
+            )
     op.drop_index("ux_migration_replay_events_sequence", table_name="migration_replay_events")
     op.drop_index("ix_migration_replay_events_replay_id", table_name="migration_replay_events")
     op.drop_table("migration_replay_events")

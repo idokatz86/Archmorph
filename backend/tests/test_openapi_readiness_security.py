@@ -42,6 +42,55 @@ def test_readyz_reports_schema_contract_separately(test_client, monkeypatch):
     }
 
 
+def test_schema_compatibility_preflight_reports_supported_current_head(test_client, monkeypatch):
+    import database
+
+    monkeypatch.setattr(
+        database,
+        "database_readiness",
+        lambda: {
+            "postgres_configured": True,
+            "connection_ok": True,
+            "required_schema_present": True,
+            "current_revision": "014",
+        },
+    )
+
+    response = test_client.get("/api/schema-compatibility")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "compatible",
+        "current_revision": "014",
+        "minimum_revision": "014",
+        "maximum_revision": "014",
+        "accepted_revisions": ["014"],
+        "migration_target_revision": "014",
+        "alias_read_through_until": "014",
+    }
+
+
+def test_schema_compatibility_preflight_fails_closed_for_unknown_head(test_client, monkeypatch):
+    import database
+
+    monkeypatch.setattr(
+        database,
+        "database_readiness",
+        lambda: {
+            "postgres_configured": True,
+            "connection_ok": True,
+            "required_schema_present": True,
+            "current_revision": "unknown",
+        },
+    )
+
+    response = test_client.get("/api/schema-compatibility")
+
+    assert response.status_code == 409
+    assert response.json()["status"] == "incompatible"
+    assert response.json()["current_revision"] == "unknown"
+
+
 def test_restore_documents_api_key_or_bearer_security_alternatives(test_client):
     schema = test_client.get("/openapi.json").json()
     schemes = schema["components"]["securitySchemes"]

@@ -158,7 +158,7 @@ def _assert_014_state(engine, seeded: dict[str, str], *, expect_seed_audits: boo
             }
 
 
-def test_seeded_013_014_013_014_roundtrip_preserves_all_rows_and_long_tenants():
+def test_seeded_rewrite_preserves_rows_and_blocks_evidence_destroying_downgrade():
     engine = create_engine(POSTGRES_URL, pool_pre_ping=True)
     config = _alembic_config()
     try:
@@ -168,9 +168,8 @@ def test_seeded_013_014_013_014_roundtrip_preserves_all_rows_and_long_tenants():
         command.upgrade(config, "014")
         _assert_014_state(engine, seeded, expect_seed_audits=True)
 
-        command.downgrade(config, "013")
-        columns = {column["name"]: column for column in inspect(engine).get_columns("workspaces")}
-        assert columns["tenant_id"]["type"].length == 100
+        with pytest.raises(RuntimeError, match="alias/audit evidence is append-only"):
+            command.downgrade(config, "013")
         with engine.connect() as connection:
             assert connection.execute(text("SELECT count(*) FROM analyses")).scalar_one() == 1
             assert connection.execute(text("SELECT count(*) FROM analysis_versions")).scalar_one() == 3
@@ -178,9 +177,8 @@ def test_seeded_013_014_013_014_roundtrip_preserves_all_rows_and_long_tenants():
             assert connection.execute(text("SELECT count(*) FROM decisions")).scalar_one() == 1
             assert connection.execute(text("SELECT count(*) FROM source_assets")).scalar_one() == 1
             assert connection.execute(text("SELECT tenant_id FROM analyses")).scalar_one() == seeded["target_tenant"]
-
-        command.upgrade(config, "014")
-        _assert_014_state(engine, seeded, expect_seed_audits=False)
+            assert connection.execute(text("SELECT count(*) FROM tenant_rehome_audit")).scalar_one() > 0
+            assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "014"
     finally:
         _reset_database(engine)
         engine.dispose()
@@ -435,7 +433,7 @@ def _assert_all_tenant_duplicate_state(engine) -> None:
         assert set(defaults) == {(None, 1), ("tenant-b", 1)}
 
 
-def test_all_tenant_duplicate_groups_and_artifacts_survive_roundtrip():
+def test_all_tenant_duplicate_groups_preserve_evidence_and_block_downgrade():
     engine = create_engine(POSTGRES_URL, pool_pre_ping=True)
     config = _alembic_config()
     try:
@@ -446,19 +444,20 @@ def test_all_tenant_duplicate_groups_and_artifacts_survive_roundtrip():
 
         command.upgrade(config, "014")
         _assert_all_tenant_duplicate_state(engine)
-        command.downgrade(config, "013")
+        with pytest.raises(RuntimeError, match="alias/audit evidence is append-only"):
+            command.downgrade(config, "013")
         with engine.connect() as connection:
             assert connection.execute(text("SELECT count(*) FROM analyses")).scalar_one() == 2
             assert connection.execute(text("SELECT count(*) FROM analysis_versions")).scalar_one() == 4
             assert connection.execute(text("SELECT count(*) FROM artifacts")).scalar_one() == 6
-        command.upgrade(config, "014")
-        _assert_all_tenant_duplicate_state(engine)
+            assert connection.execute(text("SELECT count(*) FROM tenant_rehome_audit")).scalar_one() > 0
+            assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "014"
     finally:
         _reset_database(engine)
         engine.dispose()
 
 
-def test_duplicate_analysis_restore_lineage_is_normalized_before_fk_and_survives_roundtrip():
+def test_duplicate_analysis_lineage_preserves_repair_evidence_and_blocks_downgrade():
     engine = create_engine(POSTGRES_URL, pool_pre_ping=True)
     config = _alembic_config()
     ids = {
@@ -557,13 +556,18 @@ def test_duplicate_analysis_restore_lineage_is_normalized_before_fk_and_survives
                 "lineage_cycle",
             }
 
-        command.downgrade(config, "013")
-        command.upgrade(config, "014")
+        with pytest.raises(RuntimeError, match="alias/audit evidence is append-only"):
+            command.downgrade(config, "013")
         with engine.connect() as connection:
             assert connection.execute(text("""
                 SELECT count(*) FROM analysis_versions
                 WHERE analysis_id = (SELECT id FROM analyses WHERE diagram_id = 'lineage-diagram')
             """)).scalar_one() == 7
+            assert connection.execute(text("""
+                SELECT count(*) FROM tenant_rehome_audit
+                WHERE status IN ('analysis_deduplicated', 'version_lineage_normalized')
+            """)).scalar_one() > 0
+            assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "014"
     finally:
         _reset_database(engine)
         engine.dispose()

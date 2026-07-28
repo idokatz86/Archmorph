@@ -163,9 +163,17 @@ variable "paired_region_overrides" {
 }
 
 variable "backend_container_image" {
-  description = "Container image reference for backend app (tag or immutable digest). Empty uses ACR latest."
+  description = "Container image reference for backend app. Production/staging require an immutable digest; dev may use a non-latest tag."
   type        = string
-  default     = ""
+
+  validation {
+    condition = (
+      var.environment == "dev"
+      ? (length(trimspace(var.backend_container_image)) > 0 && !endswith(lower(var.backend_container_image), ":latest"))
+      : can(regex("^[^[:space:]@]+@sha256:[0-9a-f]{64}$", var.backend_container_image))
+    )
+    error_message = "Production/staging backend_container_image must be an immutable registry/repository@sha256:<64 lowercase hex> reference; latest is never allowed."
+  }
 }
 
 variable "acr_prod_sku" {

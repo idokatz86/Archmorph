@@ -12,6 +12,9 @@ db_admin_password = "CHANGE_ME_STAGING_PASSWORD_MIN16"
 alert_email  = "alerts@example.com"
 frontend_url = "https://frontend.example.com"
 
+# Required for reviewed plans; replace with the exact digest built by CI.
+backend_container_image = "example.azurecr.io/archmorph-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
 redis_capacity = 0  # Basic C0 for staging
 
 enable_dr = false  # No DR for staging
